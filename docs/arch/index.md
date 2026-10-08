@@ -1,52 +1,46 @@
 # Agnette Architecture Overview
 
-Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities and a complete agent workflow DSL. **AgM (Agnette Manager)** manages agent-oriented projects (workspaces, git worktrees, dependencies, sandboxes, tmux sessions). **AgL (Agnette Language)** is the statically typed workflow DSL for orchestrating agents and shell commands. The `agnette` Python distribution has one root package: `agnette.agm` owns the manager, `agnette.agl` owns the language, and both use shared services under `agnette`. The executable is `agm`; configuration uses `.agm` and `AGM_*`, and language source files use `.agl`.
+Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities and a complete agent workflow DSL. **AgM (Agnette Manager)** manages agent-oriented projects (workspaces, git worktrees, dependencies, sandboxes, tmux sessions). **AgL (Agnette Language)** is the statically typed workflow DSL for orchestrating agents and shell commands. The `agnette` distribution has one root package: `agnette.agm` owns the manager, `agnette.agl` the language, and both use shared services under `agnette`. The executable is `agm`; configuration uses `.agm` and `AGM_*`; AgL sources use `.agl`.
 
 Start here for the system shape, then read only the subsystem documents relevant to the task.
 
 ## System Shape
 
-Agnette is layered from a thin CLI down to reusable primitives, with AgL as a self-contained subsystem used by `agm exec`, `agm repl`, `agm check`, package validation, and package-registered commands:
-
-- **CLI layer** — a Typer command tree whose directory structure mirrors the command tree exactly. It parses arguments into typed containers and dispatches to command implementations.
-- **Command layer** — one module per command/command-group; each orchestrates domain logic but holds little of its own.
-- **Domain layer** — project/workspace layout, packages, git integration, sandboxing, tmux, configuration, and agent invocation.
-- **Primitive layer** — process execution, environment handling, filesystem and TOML I/O, outbound HTTP, and a cross-cutting dry-run facility, plus pure generic utility helpers.
-- **AgL subsystem** — a complete language implementation (lexer → parser → AST → scope → typecheck → match compilation → lower → IR eval) plus its host runtime. Its public façade exports the execution stack lazily, so lower domains can use AgL leaves without loading it.
+- **CLI layer** — a Typer command tree mirrored by the directory tree; parses arguments into typed containers and dispatches.
+- **Command layer** — one module per command or group; orchestrates domain logic, holds little of its own.
+- **Domain layer** — project layout, packages, git, sandboxing, tmux, configuration, and agent invocation.
+- **Primitive layer** — process, environment, filesystem, TOML, HTTP, and dry-run primitives, plus pure utilities.
+- **AgL subsystem** — a complete language implementation (lexer → parser → AST → scope → typecheck → match compilation → lower → IR eval) and its host runtime, used by `agm exec`, `agm repl`, `agm check`, package validation, and package-registered commands.
 
 ## Architecture and Design Decisions
 
-- **The command tree is the directory tree.** `src/agnette/agm/commands/` mirrors the CLI command hierarchy one-to-one, including nested groups. Finding a command's code is a path lookup.
-- **Commands orchestrate; primitives do.** Command modules wire config, project layout, git, and agents together. Manager-specific behavior lives in `agnette.agm`'s project and tmux services; shared behavior lives in `agnette`'s core, utilities, VCS, configuration, agents, packages, and sandboxing, never copied into commands.
-- **Configuration is layered TOML.** Settings merge across install, home, project, and workspace scopes; per-command sections override base sections; AgL source writes and CLI flags override the file layers for the relevant commands.
-- **The filesystem is the project model.** A project is a directory layout (embedded or split) plus git worktrees and dependency checkouts. AgM detects state from disk rather than maintaining a separate database.
-- **Agent calls have a shared host boundary.** AgL resolves typed agent values and dispatches them through shared subprocess and session services with captured output or interactive terminal handoff.
-- **AgL is firewalled, not isolated.** `agnette.agm` and `agnette.agl` use one shared layer without duplicated services. Import layering and the lazy `agnette.agl` façade preserve leaf imports; static passes depend on the AST, not the parser. The temporary Python companion API is `agl`, separate from the implementation namespace.
+- **The command tree is the directory tree.** `src/agnette/agm/commands/` mirrors the CLI hierarchy one-to-one; finding a command is a path lookup.
+- **Commands orchestrate; primitives do.** Manager-specific behavior lives in `agnette.agm`'s project and tmux services; shared behavior lives in `agnette`'s core, utilities, VCS, configuration, agents, packages, and sandboxing — never in commands.
+- **Configuration is layered TOML.** Install, home, project, and workspace scopes merge; AgL source writes and CLI flags override file layers where relevant.
+- **The filesystem is the project model.** A project is a directory layout plus git worktrees and dependency checkouts, detected from disk with no separate database.
+- **Agent calls share one host boundary.** AgL dispatches typed agent values through shared subprocess and session services.
+- **AgL is firewalled, not isolated.** Both packages share one service layer. Import layering and the lazy `agnette.agl` façade let lower domains use AgL leaves without loading the execution stack; static passes depend on the AST, not the parser. The Python companion API is `agl`, separate from the implementation namespace.
 
 ## What To Read Next
 
-- [cli.md](cli.md) — the CLI definition, command dispatch, argument containers, and shell completion.
-- [core.md](core.md) — the shared process, environment, filesystem, TOML, and dry-run primitives, and the pure utility helpers.
-- [config.md](config.md) — configuration loading, layering precedence, the AgM home, and standard-library location.
-- [workspaces.md](workspaces.md) — project layout, git worktrees, dependencies, sync, and tmux: the project-management side of Agnette.
-- [packages.md](packages.md) — package manifests, identity, dependencies, validation, and registered commands; [package-store.md](package-store.md) — the store, activation, installation, and the managed `std` package.
-- [sandbox.md](sandbox.md) — the sandbox preparation library, `agm run`, the SRT backend, and resource limits.
-- [agents.md](agents.md) — agent invocation, defaults, and sessions used by AgL.
-- [agl/index.md](agl/index.md) — start here for any AgL language task; it links to the frontend, execution, module, hosting, and REPL documents.
-- [testing.md](testing.md) — tests, coverage, and the repository quality gates.
+- [cli.md](cli.md) — command tree, dispatch, argument containers, help, completion.
+- [core.md](core.md) — shared primitives and pure utilities.
+- [config.md](config.md) — configuration layering, AgM home, stdlib location, AgL setting precedence.
+- [workspaces.md](workspaces.md) — project layout, worktrees, dependencies, sync, tmux.
+- [packages.md](packages.md) — package model, validation, registered commands; [package-store.md](package-store.md) — store, installation, managed `std`.
+- [sandbox.md](sandbox.md) — sandbox preparation, `agm run`, the SRT backend.
+- [agents.md](agents.md) — agent specs, defaults, and sessions.
+- [agl/index.md](agl/index.md) — start here for any AgL task.
+- [testing.md](testing.md) — test strategy and quality gates.
 
 ## Code Entry Points
 
-- `src/agnette/agm/cli.py` defines the Typer app and every command group; `src/agnette/agm/cli_dispatch.py` is the fallback for package-registered commands; `src/agnette/agm/parser.py` holds help text; `src/agnette/agm/completion.py` provides shell completions. `src/agnette/command_catalog.py` is a pure leaf for CLI help and command-path shape.
-- `src/agnette/agm/commands/` contains the command implementations, one subtree per command group.
-- `src/agnette/agm/cli_support/` holds the typed argument containers and the shared AgL CLI support (engine seeds, program parameters, execution roots and targets).
-- `src/agnette/core/` holds the process, environment, filesystem, TOML, HTTP, logging, and dry-run primitives; `src/agnette/util/` holds pure, stdlib-only helpers.
-- `src/agnette/config/` loads and resolves general and sandbox configuration; `src/agnette/stdlib_locator.py` finds the shipped standard library.
-- `src/agnette/agent/` implements agent runner invocation and session backends.
-- `src/agnette/vcs/` provides shared git integration, also used by core logging.
-- `src/agnette/agm/project/` and `src/agnette/agm/tmux/` implement manager-specific project layout and tmux sessions.
-- `src/agnette/packages/` implements package manifests, identity, the store, and discipline validation.
-- `src/agnette/sandbox/` implements the sandbox preparation library, with SRT as its shipped backend.
-- `src/agnette/agl/` is the AgL language implementation and host runtime; `packages/stdlib/src/` is the AgL standard library with its Python companions; `packages/sysone/` is the repository's `sysone/jev` package.
-- `src/agnette/__init__.py` initializes the process-wide integer digit limit; `src/agnette/version.py` defines Agnette's release version, kept in lockstep with package and project metadata.
-- `tests/` holds the test suite, `docs/` the documentation, `config/` the config templates and editor modes, `stubs/` local typing stubs, and `tools/` repository tooling.
+- `src/agnette/agm/cli.py`, `cli_dispatch.py`, `parser.py`, `completion.py` — CLI definition, registered-command fallback, help, completion; `src/agnette/command_catalog.py` — pure command-path leaf.
+- `src/agnette/agm/commands/` — command implementations; `src/agnette/agm/cli_support/` — argument containers and shared AgL CLI support.
+- `src/agnette/agm/project/`, `src/agnette/agm/tmux/` — manager-specific project layout and tmux.
+- `src/agnette/core/`, `src/agnette/util/` — primitives and pure helpers.
+- `src/agnette/config/`, `src/agnette/stdlib_locator.py` — configuration; shipped stdlib location.
+- `src/agnette/agent/`, `src/agnette/vcs/`, `src/agnette/packages/`, `src/agnette/sandbox/` — agents, git, packages, sandboxing.
+- `src/agnette/agl/` — AgL implementation and host runtime; `packages/stdlib/src/` — the AgL standard library and its Python companions; `packages/sysone/` — the `sysone/jev` package.
+- `src/agnette/version.py` — release version, kept in lockstep with package and project metadata.
+- `tests/`, `docs/`, `config/` (templates, editor modes), `stubs/` (typing stubs), `tools/` (repository tooling).

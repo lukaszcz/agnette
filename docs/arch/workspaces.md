@@ -1,41 +1,36 @@
 # Projects and Workspaces
 
-AgM's project-management layer turns a directory tree into an agent-oriented project: a main repository, parallel git worktrees for branches, dependency checkouts, per-workspace environment and setup, and tmux sessions. State is read from disk rather than tracked separately, so commands detect the current layout and act on it.
+AgM's project-management layer turns a directory tree into an agent-oriented project: a main repository, parallel git worktrees for branches, dependency checkouts, per-workspace environment and setup, and tmux sessions. State is read from disk, never tracked separately.
 
 ## Project Layout
 
-A project has a fixed set of roles — repository, branch worktrees, config directory, dependencies, notes — arranged in one of two layouts: **embedded** (the AgM directories live under `.agm/` inside the project root) or **split** (the roles are sibling directories under the project root). The layout module detects the layout from the directory structure and resolves each role's path. `agm init` creates a project in either layout, optionally cloning a repository.
-
-Current-project discovery walks up from the invocation directory looking for these markers ([config.md](config.md)). The AgM home's own `.agm` directory (`AGM_HOME`, an installed prefix, or `~/.agm`) is excluded from that walk, so it is never mistaken for an embedded project even when it sits among the invocation directory's ancestors.
+A project has fixed roles — repository, branch worktrees, config directory, dependencies, notes — in one of two layouts: **embedded** (under `.agm/` in the project root) or **split** (sibling directories). `project/layout.py` detects the layout and resolves role paths; current-project discovery walks up from the invocation directory, skipping the AgM home. `agm init` creates either layout.
 
 ## Workspaces and Worktrees
 
-A *workspace* is the main repository or a linked git worktree in the project's worktrees directory, named by its path there; other git worktrees are not workspaces, and `project_workspaces` in the layout module is the single source of this set. Workspaces are interpreted with AgM's project config, dependency environment, setup scripts, and tmux lifecycle. Opening a branch without a worktree checks it out into one at a path derived from the branch name; opening a missing branch creates it first. Both paths share the preparation flow in `commands/workspace/open.py`, which assembles config and environment, creates the worktree, commits generated config, and starts the session. Worktree orchestration coordinates git with dependency setup: creating the worktree, ensuring tracking branches, resolving a branch across remotes the way git does (exactly one remote may carry it). Only branch workspaces can be closed; closing can retain the branch or the worktree while still ending the session.
+A *workspace* is the main repository or a linked worktree in the project's worktrees directory; `project_workspaces` is the single source of that set. Opening a branch creates its worktree (and the branch, if missing) through one preparation flow (`commands/workspace/open.py`): config and environment, worktree, generated config commit, session. Branch resolution across remotes follows git's rule. Only branch workspaces can be closed.
 
 ## Dependencies
 
-Dependencies are sibling repositories under the project's deps directory, managed by the `dep` command group. Checkout discovery accepts only actual Git roots, excluding ordinary directories that happen to sit inside an enclosing repository, and distinguishes the main checkout from linked worktrees. Each dependency contributes `_DIR` environment variables for its checked-out branch, assembled from the project's dependency TOML tables, so a workspace's environment reflects which branch of each dependency is active. Branch dependency configs inherit from the main config.
+Dependencies are sibling repositories under the deps directory, managed by `agm dep`. Each contributes `_DIR` environment variables for its checked-out branch, so a workspace's environment reflects the active dependency branches. Branch dependency configs inherit from the main config.
 
 ## Sync
 
-Workspace opening, worktree creation, and dependency switching resolve branches from local Git refs by default; `--fetch` opts into refreshing remote refs first.
-
-`sync fetch` prunes stale worktree registrations, fetches the main repo and checked-out dependencies, and creates missing tracking branches. `sync pull` runs that fetch and then merges every dependency, the main workspace, and each branch workspace from its configured upstream.
+Branch resolution uses local refs unless `--fetch` is given. `sync fetch` prunes stale worktrees, fetches the main repo and dependencies, and creates tracking branches; `sync pull` then merges every workspace and dependency from its upstream.
 
 ## Workspace Environment and Shell
 
-When a workspace opens, its environment chains the dependency environment, the project and branch config directories' dotenv files, and shell env files. A per-workspace shell wrapper records the project and workspace paths known by the open command, restores that identity after the user's rc file, and then refreshes the configuration environment. This keeps interactive sessions independent of inherited tmux state without changing generic current-workspace detection. The wrapper also serves as the workspace's `$SHELL`, so arguments are passed through to the real shell rather than opening an interactive one. Configured setup scripts prepare newly created workspaces.
+A workspace's environment chains the dependency environment, config-directory dotenv files, and shell env files. A per-workspace shell wrapper, also used as `$SHELL`, restores the workspace identity after the user's rc file, keeping sessions independent of inherited tmux state. Setup scripts prepare new workspaces.
 
 ## Git and Tmux
 
-All git work goes through one VCS module wrapping git as subprocess calls; every helper accepts an explicit environment so it composes with workspace environments. Workspace sessions are tmux sessions created with a filtered environment and a tiled pane layout; tmux object IDs keep targeting independent of user index settings, session names are unique per workspace, exact-name targeting protects session operations from tmux prefix matching, and an occupied name stops `open` before any git work. All tmux invocations go through the module's wrappers, so a missing binary is a plain error.
+All git work goes through `vcs/git.py`, with an explicit environment per call. Workspace sessions are tmux sessions with a filtered environment and tiled layout, uniquely named per workspace and targeted by tmux IDs and exact names; all tmux calls go through the module's wrappers.
 
 ## Code Entry Points
 
-- `src/agnette/agm/project/layout.py` — layout detection, role-path resolution, workspace enumeration, current-workspace detection.
+- `src/agnette/agm/project/layout.py` — layout detection, role paths, workspace enumeration.
 - `src/agnette/agm/project/worktree.py` — worktree creation and branch/remote synchronization.
-- `src/agnette/agm/project/workspace_env.py`, `workspace_shell.py`, `workspace_setup.py` — environment assembly, shell wrapper, setup scripts.
-- `src/agnette/agm/project/dependency_env.py`, `dependency_checkout.py`, `config_git.py` — dependency env vars, checkout discovery, config-directory git operations.
-- `src/agnette/vcs/git.py` — the shared git integration surface.
-- `src/agnette/agm/tmux/session.py`, `src/agnette/agm/tmux/layout.py` — tmux session creation and pane layout.
+- `src/agnette/agm/project/workspace_env.py`, `workspace_shell.py`, `workspace_setup.py` — environment, shell wrapper, setup scripts.
+- `src/agnette/agm/project/dependency_env.py`, `dependency_checkout.py`, `config_git.py` — dependency environment, checkout discovery, config-directory git.
+- `src/agnette/vcs/git.py` — shared git integration; `src/agnette/agm/tmux/` — tmux sessions and layout.
 - `src/agnette/agm/commands/init.py`, `workspace/`, `worktree/`, `dep/`, `sync/`, `tmux/` — the management commands.

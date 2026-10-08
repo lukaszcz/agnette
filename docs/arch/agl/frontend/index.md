@@ -1,12 +1,12 @@
 # AgL Frontend
 
-The frontend turns source text into a fully resolved, type-checked, match-compiled program in five passes — lexer, parser, scope, typecheck, match compilation — over one shared AST. Everything here is static: no agent calls, no shell execution, no evaluation.
+The frontend turns source text into a resolved, type-checked, match-compiled program in five static passes — lexer, parser, scope, typecheck, match compilation — over one shared AST. Nothing here evaluates.
 
 ## Pass Structure
 
-Each pass wraps its input artifact rather than mutating it: parsing builds an AST that may retain raw user-operator chains; scope yields a resolved program with those chains grouped, typecheck a checked program, and match compilation the artifact that lowering consumes. AST nodes stay frozen and shared; conclusions live in side tables keyed by node id.
+Each pass wraps its input artifact rather than mutating it: parse → AST (raw user-operator chains retained); scope → resolved program (chains grouped); typecheck → checked program; match compilation → the artifact lowering consumes. AST nodes stay frozen and shared; pass conclusions live in side tables keyed by node id.
 
-Every pass reports through one diagnostic channel (`agl/diagnostics.py`). Scope and typecheck diagnostics carry a phase tag so callers can distinguish them without matching text. Each pass recurses over the tree, so `agl/recursion.py` converts stack exhaustion on over-deep source into an ordinary diagnostic ([hosting.md](../hosting.md)).
+All passes report through one diagnostic channel (`agl/diagnostics.py`); scope and typecheck diagnostics carry a phase tag. `agl/recursion.py` turns stack exhaustion on over-deep source into an ordinary diagnostic ([hosting.md](../hosting.md)).
 
 ## What To Read Next
 

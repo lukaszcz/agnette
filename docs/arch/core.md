@@ -1,45 +1,46 @@
 # Core Primitives
 
-Two shared foundation packages serve both `agnette.agm` and `agnette.agl`. `agnette.core` holds the OS-facing building blocks — process execution, environment handling, the interpreter's Python requirements, filesystem and TOML/dotenv I/O, outbound HTTP, logging, lifecycle cleanup, and the dry-run facility; AgL's host runtime runs shell commands and agents, writes files, makes HTTP requests, and emits trace logs through these same primitives. `agnette.util` holds pure, stdlib-only helpers with no higher-layer imports.
+Two shared foundation packages serve both `agnette.agm` and `agnette.agl`. `agnette.core` holds the OS-facing building blocks; AgL's host runtime runs shell commands and agents, writes files, makes HTTP requests, and logs through them. `agnette.util` holds pure, stdlib-only helpers with no higher-layer imports.
 
 ## Process Execution
 
-Foreground and captured subprocess work goes through one process module. It distinguishes terminal-inheriting from captured runs, offers require-success variants, and manages process groups so an interruption tears down descendants. Startup defers Python termination handlers until it owns the child and its reader threads, so early interrupts run the same cleanup as interrupts while waiting without changing the child’s signal mask. A caller may register a cleanup command for a resource it owns but does not contain (`agm run` registers the stop of its transient systemd scope); while one is registered, SIGTERM and SIGHUP are delivered as `KeyboardInterrupt` so the cleanup runs before the group is killed. AgL hosts instead deliver them as `SystemExit(128+N)` (`terminating_signals_exit`) for a whole run, so session cleanup runs without the REPL mistaking the signal for Ctrl-C. `run_foreground_ignoring_signals` instead ignores SIGINT/SIGQUIT once the child is spawned, for the duration of one blocking wait, restoring the prior handlers after — git's editor behavior, used by `std/os::edit` so Ctrl-C reaching the editor cannot kill the run. The persistent Pi RPC session in `agent/session/rpc.py` is the one deliberate exception that owns its own streaming process, because that process must outlive a single capture call. A captured run holds each stream as raw bytes and decodes once, after exit: the AgL-facing capture decodes strictly, so output that is not valid UTF-8 becomes a typed error rather than replacement characters inside a program's text, while the terminal-facing and AgM-internal captures decode leniently, since their text is displayed or parsed from ASCII plumbing formats and must keep flowing while the process runs.
+All subprocess work goes through `core/process.py`: terminal-inheriting and captured runs, require-success variants, and process-group management so an interruption tears down descendants.
 
-Captured stdout can use an anonymous temporary file with live streaming instead of a pipe; agent callers select this when a CLI cannot tolerate pipe backpressure.
+- Callers may register a cleanup command for a resource they own but do not contain (`agm run`'s systemd scope); AgL hosts map terminating signals to `SystemExit` so session cleanup runs.
+- A foreground variant ignores interactive signals while the child runs (editor behavior).
+- Captured output is held as bytes and decoded once: strictly for AgL-facing captures (invalid UTF-8 is a typed error), leniently for display and internal plumbing.
+- Captured stdout can stream through a temporary file instead of a pipe for CLIs that cannot tolerate pipe backpressure.
+- The persistent Pi RPC session ([agents.md](agents.md)) is the one deliberate owner of its own long-lived process.
 
 ## Environment Handling
 
-The environment module clones the ambient environment, resolves variable references, sources bash env files in one shell to capture their effect, validates shell-safe names, and locates the AgM installation prefix from the path AgM was invoked through. Environments are passed explicitly as dictionaries, so each command controls exactly what its subprocesses see. Dotenv interpolation uses that explicit environment and preceding assignments across file layers without changing the process environment.
+`core/env.py` clones and resolves environments, sources bash env files, and locates the installation prefix. Environments are passed explicitly as dictionaries, so each command controls what its subprocesses see; dotenv interpolation never mutates the process environment.
 
 ## Filesystem, TOML, and Dotenv I/O
 
-Filesystem mutations and TOML/dotenv reads and writes are wrapped so they participate in dry-run and share one interface. TOML uses round-trip parsing so updating one key preserves the rest of a file, through the single parse entry every config layer, manifest, and dependency file shares; loaded data holds floats as exact `Decimal`s (`toml_data`); dotenv helpers parse complete assignments and publish updates atomically; tree copies preserve links instead of dereferencing them. Atomic writes go through one chunked byte-writer (temporary sibling, then replace) shared by text writes and any other streamed destination, such as an HTTP download.
+Filesystem mutations and TOML/dotenv reads and writes share one dry-run-aware interface. TOML is parsed round-trip through a single entry, so updating one key preserves the rest of a file; floats load as exact `Decimal`s. Writes are atomic (temporary sibling, then replace) through one byte-writer shared with streamed destinations such as HTTP downloads.
 
 ## HTTP Transport
 
-One module wraps `requests` for outbound HTTP: it opens a pooled session, builds and streams a request through it, classifies transport failures (URL, connection, timeout, TLS, redirect, and unsendable requests) into a small typed error independent of `requests`' own exception shape, and applies a strict declared-charset-else-UTF-8 decoding rule over an allowlist of real wire text encodings, so a Python-internal or surrogate-producing codec is rejected before any byte is decoded. The session never persists cookies or consults `~/.netrc`, and caller-supplied cookies are bound to the request's host so they never leak to a cross-host redirect target. A response saved to disk streams through the same atomic temp-and-replace helper filesystem writes use, and may be digested and size-capped on the way in, so a download is verified and bounded without a second transport. An exchange's two phases are separated for callers: one hook runs once the final response's headers are in, after the whole redirect chain and every connect it made, and before any body byte streams. It owns the only import of `requests` in the codebase, so higher layers -- `std/http`'s companion and the package fetcher alike -- never see `requests` types directly.
+`core/http.py` is the only importer of `requests`: pooled sessions, streamed requests and atomic downloads with optional digest and size cap, transport failures classified into one typed error, and strict charset decoding. It never persists cookies or reads `~/.netrc`. Higher layers (`std/http`'s companion, the package fetcher) never see `requests` types.
 
 ## Python Environment
 
-Package companions run in AgM's own interpreter, so one module classifies PEP 508 requirements against that interpreter's installed distributions (installed, unsatisfied, missing, or not applicable) and installs requirements into it — through `uv` when on `PATH`, else `pip` — via the dry-run-aware process primitives. Package installation and sync, `agm pkg check`, and AgL companion loading all evaluate requirements through it.
+Package companions run in AgM's own interpreter. `core/pyenv.py` classifies PEP 508 requirements against that interpreter and installs them (`uv`, else `pip`); package installation, `agm pkg check`, and companion loading all use it.
 
 ## Dry Run and Cleanup
 
-Commands that support `--dry-run` set an invocation mode consulted by the process and filesystem primitives, so planned operations share one implementation. Only project-management commands support it: AgL hosts (`exec`, `repl`, `check`, registered commands) never enable it, so AgL code and stdlib companions have no dry-run behavior. The cleanup helper releases resources without masking an exception already in flight; the AgL interpreter and the `exec`/`repl` hosts use it when closing agent sessions.
+`--dry-run` sets an invocation mode consulted by the process and filesystem primitives, so planned and real operations share one implementation. Only project-management commands support it; AgL hosts never enable it. `core/cleanup.py` releases resources without masking an in-flight exception.
 
 ## Generic Utilities
 
-`util/` is a dependency-free leaf usable from any layer: graph algorithms (Tarjan SCC, Kahn toposort, nearest-hit BFS) used by AgL module loading and type-table analyses; newline normalization shared by the lexer and diagnostics; the scalar-text rules every point where text enters AgL applies, so a surrogate is rejected at its source rather than at the sink that would encode it; the AgL identifier grammar; the `%{name}` interpolation parser shared by agent command arguments and config paths; a `ContextVar` scoping guard; an overlap-safe raise of the process-global recursion limit, used by the AgL interpreter, whose runs may overlap on threads; and the pinned AgL decimal context with exact number parsing, conversion, and int/decimal comparison.
+`util/` is a dependency-free leaf usable from any layer: graph algorithms, newline and Unicode scalar-text rules, the AgL identifier grammar, `%{name}` interpolation, `ContextVar` scoping, a thread-safe recursion-limit raise, and the pinned AgL decimal context.
 
 ## Code Entry Points
 
-- `src/agnette/core/process.py` — foreground/capture execution, success requirements, process-group termination, cleanup-command registration.
-- `src/agnette/core/env.py` — environment cloning/resolution, env-file sourcing, installation prefix.
-- `src/agnette/core/fs.py` — dry-run-aware filesystem operations; `src/agnette/core/path.py` — path resolution, display, and the safe-relative-path predicate shared by archives, `RECORD` files, and AgL resources.
-- `src/agnette/core/toml.py` — the single entry for reading a TOML document from outside, and `src/agnette/core/dotenv.py` — round-trip TOML and dotenv helpers.
-- `src/agnette/core/cleanup.py` — primary-error-preserving cleanup; `src/agnette/core/dry_run.py` — global dry-run state; `src/agnette/core/log.py` — logging and JSONL append.
-- `src/agnette/core/pyenv.py` — requirement satisfaction and installation for AgM's interpreter environment.
-- `src/agnette/core/http.py` — the `requests`-backed HTTP transport seam: session, request/response streaming, failure classification, charset decoding.
-- `src/agnette/__init__.py` — lifts Python's int/text digit limit for the whole process, tests included, because AgL ints are unbounded.
-- `src/agnette/util/graph.py`, `text.py`, `unicode.py`, `ident.py`, `interp.py`, `scoping.py`, `recursion.py`, `decimal.py` — the pure helpers.
+- `src/agnette/core/process.py`, `env.py` — subprocess execution and cleanup registration; environment handling.
+- `src/agnette/core/fs.py`, `path.py`, `toml.py`, `dotenv.py` — dry-run-aware filesystem, path, TOML, and dotenv I/O.
+- `src/agnette/core/http.py` — the HTTP transport seam; `pyenv.py` — interpreter requirements.
+- `src/agnette/core/dry_run.py`, `cleanup.py`, `log.py` — dry-run state, error-preserving cleanup, logging.
+- `src/agnette/__init__.py` — lifts Python's int digit limit process-wide, since AgL ints are unbounded.
+- `src/agnette/util/` — the pure helpers.
