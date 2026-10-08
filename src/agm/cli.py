@@ -1,4 +1,4 @@
-"""AGM command-line interface implemented with Typer."""
+"""AgM (Agnette Manager) command-line interface implemented with Typer."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ _RUN_CONTEXT_SETTINGS: dict[str, bool | list[str]] = {
 
 
 class _ContextWithMetadata(Protocol):
-    """The Click context metadata AGM stores for one invocation."""
+    """The Click context metadata AgM stores for one invocation."""
 
     meta: dict[str, object]
 
@@ -115,8 +115,8 @@ def _print_versions(ctx: typer.Context, param: object, value: bool) -> None:
     from agm.version import AGM_VERSION
 
     stdlib_manifest = load_manifest(shipped_stdlib_root() / "package.toml")
-    print(f"AGM version: {AGM_VERSION}")
-    print(f"AgL stdlib version: {stdlib_manifest.version}")
+    print(f"AgM (Agnette Manager) version: {AGM_VERSION}")
+    print(f"AgL (Agnette Language) stdlib version: {stdlib_manifest.version}")
     raise typer.Exit()
 
 
@@ -148,7 +148,7 @@ def _version_option() -> bool:
         callback=_print_versions,
         expose_value=False,
         is_eager=True,
-        help="Show the AGM and AgL standard-library versions.",
+        help="Show the AgM and AgL standard-library versions.",
     )
 
 

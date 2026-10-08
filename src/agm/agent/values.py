@@ -86,7 +86,7 @@ def parse_agent_shorthand(text: str) -> AgentSpec | None:
     Forms: ``claude[/MODEL][:EFFORT]``, ``codex[/MODEL][:EFFORT]``,
     ``pi[/PROVIDER[/MODEL]][:EFFORT]``, and any other ``PROVIDER/MODEL[:EFFORT]``
     (Pi). Omitted native names and effort are ``""``. The effort follows the final
-    colon and is opaque to AGM; a trailing colon leaves it empty. Provider and effort are
+    colon and is opaque to AgM; a trailing colon leaves it empty. Provider and effort are
     ``[A-Za-z0-9][A-Za-z0-9._@+-]*``; the model also admits ``:``, ``[`` and ``]``.
     Native text is stripped text starting with a native name (ASCII, any case) followed by
     its end, ``/`` or ``:``; native text breaking its form -- surrounding whitespace

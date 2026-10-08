@@ -1,4 +1,4 @@
-"""Shared text helpers for AGM.
+"""Shared text helpers for AgM.
 
 This is a small, dependency-free leaf module so that *both* the lexer
 (``agm.agl.lexer.scanner``) and lowering/runtime diagnostics

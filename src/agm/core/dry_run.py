@@ -42,7 +42,7 @@ def print_command(cmd: list[str], *, cwd: Path | None = None) -> None:
 
 
 def print_operation(name: str, detail: str) -> None:
-    """Print a high-level AGM operation that would be executed."""
+    """Print a high-level AgM operation that would be executed."""
 
     print(f"dry-run: agm {name} {detail}")
 

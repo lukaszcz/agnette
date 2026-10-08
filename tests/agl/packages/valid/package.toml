@@ -3,7 +3,7 @@ name = "review_tools"
 version = "0.2.0"
 description = "Review workflow commands"
 license = "MIT"
-authors = ["AGM"]
+authors = ["Agnette"]
 repository = "https://example.test/review-tools"
 keywords = ["review", "workflow"]
 

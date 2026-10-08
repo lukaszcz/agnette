@@ -121,14 +121,14 @@ def assemble_roots(
         keeps a package-owned entry's directory from becoming a loose root.
     stdlib_root:
         The selected standard-library package root (normally the active
-        ``<AGM home>/packages/std/<AGM version>`` tree), or ``None`` if the
+        ``<AgM home>/packages/std/<AgM version>`` tree), or ``None`` if the
         caller does not want to add one.  It mounts ``std`` rather than
         becoming a loose root, so only its module tree is importable.
     lib_root:
         The global library root (e.g. ``~/.agm/lib``), or ``None`` if not
         configured.  Applied as-is; caller supplies the default if desired.
     configured:
-        ``(raw_path, origin_dir)`` pairs from AGM config, already interpolated
+        ``(raw_path, origin_dir)`` pairs from AgM config, already interpolated
         by :func:`agm.config.module_roots.load_module_roots`.  Relative
         *raw_path* values are resolved against *origin_dir* (the directory of
         the config file that declared them).

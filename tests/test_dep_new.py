@@ -52,7 +52,7 @@ def _bare_repo(
 
 
 def _make_project(tmp_path: Path, env: dict[str, str]) -> Path:
-    """Create a split-layout AGM project whose ``repo/`` is a real checkout."""
+    """Create a split-layout AgM project whose ``repo/`` is a real checkout."""
     origin = _bare_repo(tmp_path, "proj-origin", env)
     project = tmp_path / "proj"
     for name in ("worktrees", "deps", "config", "notes"):

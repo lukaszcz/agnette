@@ -922,7 +922,7 @@ def test_package_root_selection_rejects_a_std_requirement_newer_than_agm(tmp_pat
         env={"AGM_HOME": str(home)},
     )
 
-    with pytest.raises(PackageActivationError, match="AGM"):
+    with pytest.raises(PackageActivationError, match="AgM"):
         select_package_roots(
             home=home,
             proj_dir=None,

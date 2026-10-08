@@ -1,4 +1,4 @@
-"""AGM's schema config sections are neither AgL module routes nor registrable names."""
+"""AgM's schema config sections are neither AgL module routes nor registrable names."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
-"""Python requirements of AGM's own interpreter environment.
+"""Python requirements of AgM's own interpreter environment.
 
-Package companions run in the interpreter running AGM, so their third-party
+Package companions run in the interpreter running AgM, so their third-party
 requirements are checked against, and installed into, ``sys.executable``'s
 environment.
 """

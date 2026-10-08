@@ -1,4 +1,4 @@
-"""General TOML-backed AGM configuration helpers."""
+"""General TOML-backed AgM configuration helpers."""
 
 from __future__ import annotations
 

@@ -134,7 +134,7 @@ class TestQualifiedConfigKeys:
 
     @pytest.mark.parametrize("schema_name", ("deps", "modules", "packages", "params"))
     def test_schema_sections_are_not_config_modules_at_any_depth(self, schema_name: str) -> None:
-        """A section keyed by AGM's own schema never doubles as a program table."""
+        """A section keyed by AgM's own schema never doubles as a program table."""
         key = QualifiedConfigKey((schema_name,), ("main",), "region")
         config = {schema_name: {"main": {"region": "configured"}}}
 
@@ -262,7 +262,7 @@ class TestQualifiedConfigKeys:
 
     def test_a_schema_rooted_command_path_has_no_config_table(self) -> None:
         """A command registered under a schema section (``agent review``) reads no
-        ``[agent.review]`` or inherited ``[agent]`` table, which belong to AGM's schema."""
+        ``[agent.review]`` or inherited ``[agent]`` table, which belong to AgM's schema."""
         key = QualifiedConfigKey(
             ("tools", "review"), ("main",), "strict", command_paths=(("agent", "review"),)
         )

@@ -1,4 +1,4 @@
-"""Minimal Typer core stubs used by AGM's custom command classes."""
+"""Minimal Typer core stubs used by AgM's custom command classes."""
 
 from __future__ import annotations
 

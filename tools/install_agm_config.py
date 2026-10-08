@@ -1,4 +1,4 @@
-"""Install AGM user configuration files."""
+"""Install AgM user configuration files."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "prefix",
         nargs="?",
-        help="Install AGM config files under PREFIX/.agm instead of $HOME/.agm.",
+        help="Install AgM config files under PREFIX/.agm instead of $HOME/.agm.",
     )
     parser.add_argument(
         "-f",

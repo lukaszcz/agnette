@@ -4,7 +4,7 @@ Line coverage cannot express this guarantee.  A command's implementation can be
 fully covered by in-process unit tests while the command itself is never once
 driven through the real ``agm`` binary, so a broken argument container, a
 missing registration or a crash in CLI wiring ships unnoticed.  What has to be
-checked is the *command surface*: every leaf command AGM registers must be
+checked is the *command surface*: every leaf command AgM registers must be
 invoked, as a subprocess, by at least one e2e test.
 
 Both halves of that comparison are derived, never written down:
@@ -14,7 +14,7 @@ Both halves of that comparison are derived, never written down:
   recursively.  Adding a subcommand anywhere in the tree therefore adds a gate
   obligation with no test-side bookkeeping.  Walking the Typer objects rather
   than the Click tree also keeps package-registered commands (resolved
-  dynamically at invocation time) out of the set: they are not AGM's own
+  dynamically at invocation time) out of the set: they are not AgM's own
   surface.
 * The invoked set is recorded at runtime by ``tests.test_e2e.run_agm``, the one
   helper every e2e test uses to spawn the binary.  Recording the *actual* argv
@@ -81,7 +81,7 @@ def group_alias_map(root: typer.Typer = app) -> dict[str, str]:
 
     An alias registers the *same* sub-application under a second name, so the
     canonical spelling is found by identity: the non-alias name that carries the
-    same ``Typer`` instance.  Which names are aliases is AGM's own declaration
+    same ``Typer`` instance.  Which names are aliases is AgM's own declaration
     (``agm.command_catalog.COMMAND_ALIASES``), not a guess.
     """
     canonical: dict[int, str] = {
@@ -106,7 +106,7 @@ def _walk(node: typer.Typer, prefix: tuple[str, ...]) -> Iterable[tuple[str, ...
 
 
 def leaf_commands(root: typer.Typer = app) -> frozenset[tuple[str, ...]]:
-    """Return every canonical leaf-command path AGM registers."""
+    """Return every canonical leaf-command path AgM registers."""
     aliases = group_alias_map(root)
     return frozenset((aliases.get(path[0], path[0]), *path[1:]) for path in _walk(root, ()) if path)
 
@@ -130,7 +130,7 @@ def _command_tree(root: typer.Typer = app) -> dict[str, object]:
 def resolve_leaf_path(args: Sequence[str], root: typer.Typer = app) -> tuple[str, ...] | None:
     """Return the canonical leaf command *args* invokes, or ``None``.
 
-    Options (and, by construction, AGM's global options — all of them flags) are
+    Options (and, by construction, AgM's global options — all of them flags) are
     skipped; the walk descends through group names and stops at the first token
     that is not one.  Argv that names no registered leaf — a package-registered
     command, a bare group, a usage error — resolves to ``None``.

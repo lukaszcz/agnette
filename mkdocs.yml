@@ -1,5 +1,5 @@
-site_name: AGM documentation
-site_description: AgL language reference, AGM command reference, and implementation architecture
+site_name: Agnette documentation
+site_description: AgL language reference, AgM command reference, and Agnette architecture
 site_url: !ENV [READTHEDOCS_CANONICAL_URL, '']
 repo_url: https://github.com/lukaszcz/agm
 edit_uri: ''
@@ -32,7 +32,7 @@ validation:
 
 nav:
   - Home: index.md
-  - Language reference:
+  - AgL:
       - Overview: agl/reference/index.md
       - Lexical structure: agl/reference/lexical-structure.md
       - Program structure: agl/reference/program-structure.md
@@ -54,7 +54,7 @@ nav:
       - Python FFI: agl/reference/ffi.md
       - Host environment: agl/reference/host-environment.md
       - Grammar: agl/reference/grammar.md
-  - Command reference:
+  - AgM:
       - Overview: commands/index.md
       - Workspace and project lifecycle: commands/workspaces.md
       - AgL workflow DSL: commands/agl.md
@@ -66,7 +66,7 @@ nav:
       - tmux sessions: commands/tmux.md
   - Architecture:
       - Overview: arch/index.md
-      - AGM:
+      - AgM:
           - CLI and command dispatch: arch/cli.md
           - Core primitives: arch/core.md
           - Configuration: arch/config.md

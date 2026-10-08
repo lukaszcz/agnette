@@ -1,8 +1,11 @@
 # AgL Emacs mode
 
-An Emacs major mode for AgL: context-sensitive syntax, structural
-highlighting, layout-aware indentation, declaration navigation, on-save
-diagnostics from the real AGM pipeline, and an inferior REPL.
+An Emacs major mode for AgL (Agnette Language), Agnette's complete agent workflow DSL.
+Agnette (Agentic Notation & Execution Toolkit) also provides CLI agent management
+facilities through AgM (Agnette Manager), the CLI agent project manager.
+The mode provides context-sensitive syntax, structural highlighting, layout-aware
+indentation, declaration navigation, on-save diagnostics through `agm check`,
+and an inferior `agm repl`.
 
 ## Files
 
@@ -23,7 +26,7 @@ just setup-emacs
 
 This stages the Elisp as a package and installs it with Emacs's own
 package machinery, which generates the autoloads and byte-compiles the
-sources. The package version tracks AGM's. `just install` runs the same
+sources. The package version tracks AgM's. `just install` runs the same
 step last, when an `emacs` binary is available, and skips it with a notice
 otherwise. Nothing is ever written to your init file.
 
@@ -63,7 +66,7 @@ region leaves a block open — a layout block always accepts one more line — s
 the blank line that closes it is sent too.
 
 Sent source and its intermediate prompts are not echoed back into the REPL
-buffer; AGM's concise result or definition summary and its final prompt remain
+buffer; AgM's concise result or definition summary and its final prompt remain
 visible. Input typed at the REPL prompt uses the same native AgL syntax
 highlighting as source buffers.
 
@@ -125,6 +128,6 @@ diagnostic actions.
 just test-emacs
 ```
 
-The suites never run `agm` and need no AGM installation. They are not
+The suites never run `agm` and need no AgM installation. They are not
 part of `just check`, which stays deterministic on machines without
 Emacs.

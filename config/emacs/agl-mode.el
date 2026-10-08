@@ -4,8 +4,8 @@
 
 ;;; Commentary:
 
-;; A major mode for AgL, the statically typed workflow language implemented
-;; by AGM (Agent Project Management).  This file provides the package
+;; A major mode for AgL (Agnette Language), Agnette's statically typed
+;; workflow DSL, run by AgM (Agnette Manager).  This file provides the package
 ;; skeleton, the context-sensitive lexing layer, structural font-lock, and
 ;; declaration navigation (imenu, `beginning-of-defun'/`end-of-defun').
 ;;

@@ -17,7 +17,7 @@ from agm.core.toml import TomlDict, load_toml_file, toml_dict
 
 @dataclass(frozen=True)
 class CurrentWorkspace:
-    """Describes the currently active AGM workspace."""
+    """Describes the currently active AgM workspace."""
 
     workspace_dir: Path
     branch: str | None
@@ -25,7 +25,7 @@ class CurrentWorkspace:
 
 @dataclass(frozen=True)
 class Workspace:
-    """An AGM workspace: the main repository or a worktree under the worktrees directory."""
+    """An AgM workspace: the main repository or a worktree under the worktrees directory."""
 
     name: str
     """``repo`` for the main workspace, else the path relative to the worktrees directory."""
@@ -118,7 +118,7 @@ def _valid_project_dir_from_cwd(cwd: Path, *, env: Mapping[str, str] | None = No
 def current_workspace_or_project_root(
     cwd: Path | None = None, *, env: Mapping[str, str] | None = None
 ) -> Path:
-    """Return the current AGM project, Git checkout root, or current directory."""
+    """Return the current AgM project, Git checkout root, or current directory."""
 
     current = _resolved_cwd(cwd)
     cwd_project_dir = _valid_project_dir_from_cwd(current, env=env)
@@ -144,7 +144,7 @@ def current_workspace_or_project_root(
 def discover_current_project_dir(
     cwd: Path | None = None, *, env: Mapping[str, str] | None = None
 ) -> Path | None:
-    """Return the current valid AGM project directory, if one can be discovered."""
+    """Return the current valid AgM project directory, if one can be discovered."""
 
     current = _resolved_cwd(cwd)
     cwd_project_dir = _valid_project_dir_from_cwd(current, env=env)
@@ -172,20 +172,20 @@ def is_embedded_project(project_dir: Path) -> bool:
 
 
 def is_project_dir(project_dir: Path) -> bool:
-    """Return whether *project_dir* is a valid AGM project directory."""
+    """Return whether *project_dir* is a valid AgM project directory."""
 
     return is_embedded_project(project_dir) or git_helpers.is_git_repo(project_dir / "repo")
 
 
 def require_project_dir(project_dir: Path) -> Path:
-    """Return *project_dir* or exit when it is not a valid AGM project."""
+    """Return *project_dir* or exit when it is not a valid AgM project."""
 
     resolved = project_dir.resolve()
     if is_project_dir(resolved):
         return resolved
     print(
         (
-            f"error: {resolved} is not a valid AGM project directory "
+            f"error: {resolved} is not a valid AgM project directory "
             "(expected embedded layout with a git repo and .agm/, or split layout with repo/)"
         ),
         file=sys.stderr,
@@ -196,7 +196,7 @@ def require_project_dir(project_dir: Path) -> Path:
 def require_current_project_dir(
     cwd: Path | None = None, *, env: Mapping[str, str] | None = None
 ) -> Path:
-    """Resolve and validate the current AGM project directory."""
+    """Resolve and validate the current AgM project directory."""
 
     project_dir = discover_current_project_dir(cwd, env=env)
     if project_dir is not None:
@@ -210,7 +210,7 @@ def current_workspace(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> CurrentWorkspace | None:
-    """Return the current AGM workspace within *project_dir*.
+    """Return the current AgM workspace within *project_dir*.
 
     Prefers the ``REPO_DIR`` environment variable when it points into a git
     checkout (main or branch workspace) inside *project_dir*, resolving its root.
@@ -270,7 +270,7 @@ def current_workspace(
 
 
 def project_root(project_dir: Path) -> Path:
-    """Return the top-level directory of the AGM project.
+    """Return the top-level directory of the AgM project.
 
     For embedded layout this is the git repository directory (``.agm``'s
     parent); for split layout it is the project root directory (same

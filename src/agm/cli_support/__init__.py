@@ -1,1 +1,1 @@
-"""Shared helpers for AGM CLI parsing and command dispatch."""
+"""Shared helpers for AgM CLI parsing and command dispatch."""

@@ -163,7 +163,7 @@ class TestWorktreeNewRun:
         monkeypatch.setattr(worktree_new_cmd, "discover_current_project_dir", lambda *a, **kw: None)
 
         def fail_commit(*_args: object, **_kwargs: object) -> None:
-            raise AssertionError("commit should not run outside an AGM project")
+            raise AssertionError("commit should not run outside an AgM project")
 
         monkeypatch.setattr(worktree_new_cmd, "commit_config_dir_changes", fail_commit)
 

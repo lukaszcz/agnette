@@ -1,4 +1,4 @@
-"""Pure, generic context-variable scoping for AGM (stdlib-only, zero agm imports).
+"""Pure, generic context-variable scoping for AgM (stdlib-only, zero agm imports).
 
 Provides:
 - ``ScopedVar`` — bind a :class:`~contextvars.ContextVar` for a ``with`` block.

@@ -1,4 +1,4 @@
-"""AGM home directory resolution; a leaf module ``agm.project.layout`` can import."""
+"""AgM home directory resolution; a leaf module ``agm.project.layout`` can import."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from agm.packages.layout import activation_index_path
 def expand_env_root(override: str) -> Path:
     """Expand ``~`` in an environment root override and force it absolute.
 
-    ``AGM_HOME`` / ``AGM_STDLIB`` relocate the whole AGM tree, so a relative
+    ``AGM_HOME`` / ``AGM_STDLIB`` relocate the whole AgM tree, so a relative
     value must be anchored to the current directory once (via ``abspath``)
     rather than silently re-resolving against wherever ``agm`` happens to be
     invoked from.  A leading ``~`` / ``~user`` is expanded first.
@@ -33,7 +33,7 @@ def installation_agm_home() -> Path | None:
 
 
 def agm_home_dir(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
-    """Return the AGM home directory (the ``.agm`` data/config root).
+    """Return the AgM home directory (the ``.agm`` data/config root).
 
     ``AGM_HOME`` selects the directory explicitly. Otherwise, an installed
     package activation index beneath the executable's installation prefix
@@ -58,7 +58,7 @@ def agm_home_dir(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
 def agm_path_candidates(
     *, home: Path, relative_path: Path, env: Mapping[str, str] | None = None
 ) -> list[Path]:
-    """Return AGM-home-rooted candidates for *relative_path*, most-general first."""
+    """Return AgM-home-rooted candidates for *relative_path*, most-general first."""
     candidates: list[Path] = []
     install_prefix = agm_installation_prefix()
     if install_prefix is not None:

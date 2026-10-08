@@ -1,4 +1,4 @@
-"""Environment helpers for AGM workspaces."""
+"""Environment helpers for AgM workspaces."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def load_workspace_env(
     workspace_dir: Path,
     env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Return the sourced environment for an AGM workspace."""
+    """Return the sourced environment for an AgM workspace."""
 
     return load_config_env(project_dir, branch, workspace_dir=workspace_dir, env=env)
 
@@ -59,7 +59,7 @@ def load_current_workspace_env(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Return the config-refreshed environment for the current AGM workspace."""
+    """Return the config-refreshed environment for the current AgM workspace."""
 
     current = Path.cwd() if cwd is None else cwd.resolve()
     project_dir = require_current_project_dir(current)

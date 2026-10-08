@@ -77,7 +77,7 @@ def _restore_dry_run() -> Generator[None, None, None]:
 
 
 def _newer_agm_requirement() -> str:
-    """Return a valid std requirement no running AGM release can satisfy."""
+    """Return a valid std requirement no running AgM release can satisfy."""
     return str(semver.Version.parse(AGM_VERSION).bump_major())
 
 
@@ -260,7 +260,7 @@ def prebuilt_store(
     tmp_path_factory: pytest.TempPathFactory,
     _prebuilt_stores: dict[_StoreSpecs, Path],
 ) -> Callable[..., Path]:
-    """Return a factory for an AGM home whose store already holds the given packages.
+    """Return a factory for an AgM home whose store already holds the given packages.
 
     Every install runs package-discipline validation over a freshly loaded
     module graph, so setup installs that several tests share dominate this
@@ -781,7 +781,7 @@ def test_install_refuses_a_package_requiring_a_newer_agm(tmp_path: Path) -> None
     )
     home = tmp_path / "home"
 
-    with pytest.raises(PackageInstallError, match="AGM"):
+    with pytest.raises(PackageInstallError, match="AgM"):
         install_directory(source, home=home, env={})
 
     assert not (home / ".agm" / "packages" / "alpha").exists()
@@ -796,7 +796,7 @@ def test_install_rejects_an_older_incompatible_std_before_publication(tmp_path: 
     )
     home = tmp_path / "home"
 
-    with pytest.raises(PackageInstallError, match="AGM"):
+    with pytest.raises(PackageInstallError, match="AgM"):
         install_directory(source, home=home, env={})
 
     assert not (home / ".agm" / "packages" / "alpha").exists()
@@ -830,7 +830,7 @@ def test_install_archive_refuses_a_package_requiring_a_newer_agm(tmp_path: Path)
     archive = tmp_path / "alpha.agmpkg"
     write_archive(source, archive)
 
-    with pytest.raises(PackageInstallError, match="AGM"):
+    with pytest.raises(PackageInstallError, match="AgM"):
         install_archive(archive, home=tmp_path / "home", env={})
 
 
@@ -847,7 +847,7 @@ def test_dry_run_archive_install_refuses_a_package_requiring_a_newer_agm(
     write_archive(source, archive)
     dry_run.set_enabled(True)
 
-    with pytest.raises(PackageInstallError, match="AGM"):
+    with pytest.raises(PackageInstallError, match="AgM"):
         install_archive(archive, home=tmp_path / "home", env={})
 
 

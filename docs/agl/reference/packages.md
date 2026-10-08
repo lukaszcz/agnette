@@ -29,7 +29,7 @@ review-tools/
 ```
 
 The package name must be a single AgL identifier segment and not a reserved
-keyword; validating a package also rejects a name AGM reserves for its own
+keyword; validating a package also rejects a name AgM reserves for its own
 commands or config sections ([`agm pkg`](../../commands/pkg.md#layout)). It is
 the mandatory first segment of every module the package provides:
 `review-tools/src/review.agl` has identity `review-tools/review`, both inside
@@ -192,7 +192,7 @@ are declared as PEP 508 requirements in the manifest:
 dependencies = ["typesafe-sdk>=0.7,<1"]
 ```
 
-Companions run in AGM's own interpreter, so the requirements are checked
+Companions run in AgM's own interpreter, so the requirements are checked
 against its environment (see [`agm pkg`](../../commands/pkg.md#python)).
 [`agm pkg install`](../../commands/pkg.md#commands) and
 [`agm pkg sync`](../../commands/pkg.md#commands) install unsatisfied

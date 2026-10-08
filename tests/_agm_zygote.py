@@ -2,14 +2,14 @@
 
 Every e2e invocation of the checkout CLI pays a fresh interpreter start and
 the import of several hundred modules before the command under test runs any
-AGM code at all — around 70 ms for a command that never touches AgL and around
+AgM code at all — around 70 ms for a command that never touches AgL and around
 340 ms for one that does, against roughly 620 invocations per suite run.
 
 This module amortizes that. A *zygote* process per xdist worker imports the CLI
 and the AgL stack once, then forks a child for each invocation. The child is an
 ordinary OS process: it gets the invocation's own argv, environment, working
 directory and standard file descriptors, and its exit status is the real one.
-Two things it cannot re-prove: that a *cold* interpreter can import AGM in the
+Two things it cannot re-prove: that a *cold* interpreter can import AgM in the
 order a given command needs, and that a command survives a hash seed of its
 own, since every child inherits the zygote's. :envvar:`AGM_TEST_NO_ZYGOTE`
 turns the whole mechanism off and returns every invocation to a plain
@@ -69,7 +69,7 @@ def _charge(seconds: float) -> None:
     """Report CPU the zygote burned on a test's behalf, or take it back when negative.
 
     Imported on use rather than at module scope: the server half of this module
-    runs as ``__main__`` with only AGM's source on its path, and every module it
+    runs as ``__main__`` with only AgM's source on its path, and every module it
     holds is inherited by every child it forks.
     """
     from tests._durations import charge_external_cpu_seconds

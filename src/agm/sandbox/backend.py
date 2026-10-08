@@ -96,7 +96,7 @@ class SandboxBackend(Protocol):
 
 
 def default_backend() -> SandboxBackend:
-    """Return the sandbox backend AGM ships: SRT.
+    """Return the sandbox backend AgM ships: SRT.
 
     The import is local because this is a registry lookup, not a cycle
     workaround: `srt.py` depends on this module and on `request.py`, never

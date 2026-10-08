@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "agm"
+name = "agnette"
 version = "0.1.2"
 source = { editable = "." }
 dependencies = [

@@ -326,7 +326,7 @@ def _install_fake_command(
 # Populated once per session (per xdist worker) by the ``_agm_install`` fixture.
 # Keys: ``"bin_dir"`` (the temporary ``bin/`` directory), ``"bin"`` (the staged
 # ``agm`` executable) and ``"guard_dir"`` (the guard-shim directory).  Tests
-# invoke ``"bin"`` directly, so AGM resolves this temporary install prefix.
+# invoke ``"bin"`` directly, so AgM resolves this temporary install prefix.
 _AGM_INSTALL: dict[str, Path] = {}
 
 # The preforking launcher this worker's invocations go through, or ``None``
@@ -364,7 +364,7 @@ def _agm_install(
     spawns it by hand still starts a cold interpreter. Invocations made through
     :func:`run_agm` go to the session's zygote instead — see
     :mod:`tests._agm_zygote` — which runs them from a process that has already
-    imported AGM.
+    imported AgM.
     """
     global _AGM_LAUNCHER
     repo_root = Path(__file__).resolve().parents[1]
@@ -388,7 +388,7 @@ def _agm_install(
     # own fake-CLI dirs and the staged ``bin/`` but BEFORE the rest of PATH, so:
     #   - a test-installed fake (prepended first) shadows the guard shim → the
     #     fake is used (intended);
-    #   - a bare ``agm`` that AGM itself spawns (the tmux ``agm workspace
+    #   - a bare ``agm`` that AgM itself spawns (the tmux ``agm workspace
     #     setup`` command, ``agm config env`` in a generated workspace rc)
     #     resolves to the staged ``agm``, never a developer's global install;
     #   - a forgotten fake resolves to the guard shim, which fails loudly
@@ -463,8 +463,8 @@ def _agm_env(env: dict[str, str]) -> dict[str, str]:
     test-installed fakes shadow everything.  Ordering guarantees:
 
     - A bare ``agm`` resolves to the checkout entry point (in the temporary
-      ``bin/``), so a command AGM spawns for itself can never reach a
-      developer's global install.  Which prefix AGM resolves for *itself* is
+      ``bin/``), so a command AgM spawns for itself can never reach a
+      developer's global install.  Which prefix AgM resolves for *itself* is
       independent of PATH: it comes from the path the binary was invoked
       through (see :func:`_install_agm_at_prefix`).
     - A test-installed fake (in a prepended dir) shadows both the entry point and the
@@ -503,7 +503,7 @@ def run_agm(
 
     Pass *executable* — see :func:`_install_agm_at_prefix` — to invoke that same
     binary through another prefix's entry point, which is what selects the
-    install prefix AGM resolves for itself.
+    install prefix AgM resolves for itself.
 
     The process comes from the session's preforking launcher when there is one
     (:mod:`tests._agm_zygote`), which only changes where it was started from;
@@ -539,7 +539,7 @@ def _install_agm_at_prefix(prefix: Path) -> Path:
     This mirrors how a tool installer places an entry point: a link in the
     prefix's ``bin`` directory pointing at the real console script elsewhere.
     Invoking the returned path makes *prefix* the resolved install prefix, so a
-    test can populate ``<prefix>/.agm`` and have AGM read it.
+    test can populate ``<prefix>/.agm`` and have AgM read it.
     """
     bin_dir = prefix / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -7035,7 +7035,7 @@ class TestHelp:
     def test_overview_lists_all_commands(self, tmp_path: Path, env: dict[str, str]) -> None:
         result = run_agm(["help"], env=env, cwd=str(tmp_path))
         assert result.returncode == 0
-        assert "agm - Agent Management Framework" in result.stdout
+        assert all(name in result.stdout for name in ("Agnette", "AgM", "AgL"))
         assert "Commands:" in result.stdout
         assert "--install-completion" in result.stdout
         assert "--show-completion" in result.stdout
@@ -8005,7 +8005,7 @@ class TestExecCommand:
         ambient = tmp_path / "ambient"
         package = ambient / "agm"
         package.mkdir(parents=True)
-        (package / "__init__.py").write_text('raise RuntimeError("ambient AGM imported")\n')
+        (package / "__init__.py").write_text('raise RuntimeError("ambient AgM imported")\n')
         env["PYTHONPATH"] = str(ambient)
         write_installed_package(Path(env["HOME"]), "std")
         program = tmp_path / "main.agl"

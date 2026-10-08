@@ -71,7 +71,7 @@ def requirement_installed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def package_active() -> None:
-    """Activate the fixture package, editable at its own root, in the test's AGM home."""
+    """Activate the fixture package, editable at its own root, in the test's AgM home."""
     active = ActivePackage(_package().manifest.version, editable=_PACKAGE)
     write_activation_index(ActivationIndex({"python_requirement": active}), home=Path.home())
 

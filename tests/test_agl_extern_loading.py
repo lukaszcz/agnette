@@ -230,7 +230,7 @@ class TestExternRegistryLoadAndResolve:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # An installed package's companion lives in the immutable store, which
-        # AGM must leave exactly as its RECORD describes it.
+        # AgM must leave exactly as its RECORD describes it.
         monkeypatch.setattr(sys, "dont_write_bytecode", False)
         py_path = tmp_path / "mod.py"
         py_path.write_text("def f(x):\n    return x + 1\n")

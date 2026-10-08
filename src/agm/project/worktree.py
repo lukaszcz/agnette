@@ -84,7 +84,7 @@ def ensure_worktree(
     repo_branch = git_helpers.current_branch(repo_dir, env=env)
     if project_dir is None:
         print(
-            "warning: no AGM project found; running git worktree operation only",
+            "warning: no AgM project found; running git worktree operation only",
             file=sys.stderr,
         )
     else:
@@ -157,7 +157,7 @@ def remove_worktree(
     repo_branch = git_helpers.current_branch(repo_dir, env=env)
     if project_dir is None:
         print(
-            "warning: no AGM project found; running git worktree operation only",
+            "warning: no AgM project found; running git worktree operation only",
             file=sys.stderr,
         )
     else:

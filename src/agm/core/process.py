@@ -149,7 +149,7 @@ def terminating_signals_raise_interrupt() -> AbstractContextManager[None]:
 
     Under the default disposition a termination signal tears the interpreter
     down without unwinding, so cleanup that lives in ``except`` handlers never
-    runs.  That is exactly how a nested AGM dies: the outer process cleans up
+    runs.  That is exactly how a nested AgM dies: the outer process cleans up
     by signalling the process group of the runner it spawned, and the inner
     ``agm run`` in that group owns a transient systemd scope that only its
     cleanup command removes.  Raising instead routes the signal through the

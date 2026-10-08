@@ -1,6 +1,6 @@
 # AgL Language Implementation
 
-AgL is the statically typed workflow language AGM programs are written in; agent and shell calls are ordinary typed expressions. The implementation is a conventional compiler frontend, a typeless execution layer, and a host runtime, driven by one pipeline orchestrator that `agm exec`, `agm repl`, `agm check`, package validation, and registered package commands all share.
+AgL (Agnette Language) is the statically typed workflow DSL run by AgM (Agnette Manager); agent and shell calls are ordinary typed expressions. The implementation is a conventional compiler frontend, a typeless execution layer, and a host runtime, driven by one pipeline orchestrator that `agm exec`, `agm repl`, `agm check`, package validation, and registered package commands all share.
 
 ## Compilation Pipeline
 
@@ -25,9 +25,9 @@ The linked IR is the only execution format; checked frontend objects never reach
 
 The lexer and parser are the only Lark-aware code. Every pass from scope onward depends solely on the AST dataclasses, so the front end is replaceable without touching the static passes or the evaluator. One consequence shapes the whole codebase: identifier case carries no semantic category. Types, constructors, and variables are told apart by their declaration and binding namespace, never by spelling, and no pass branches on capitalization.
 
-## Shared AGM Layers
+## Shared AgM Layers
 
-The firewall is semantic, not an I/O boundary. AgL reuses AGM's lower layers rather than reimplementing them:
+The firewall is semantic, not an I/O boundary. AgL reuses AgM's lower layers rather than reimplementing them:
 
 - **Agents** come from `agm.agent`: `Agent` values decode into host specs, asks dispatch through the shared runner or the session service, and `runtime/sessions.py` bridges AgL session values to it ([agents.md](../agents.md)).
 - **Primitives** come from `agm.core`: shell `exec` and CLI agent subprocesses use `core.process`, environments `core.env`, files and trace logs `core.fs`/`core.log`, outbound HTTP `core.http` (the `std/http` companion's transport). `util.graph` and `util.text` supply SCC computation and newline normalization.
@@ -61,7 +61,7 @@ A **program** is the entry module plus its transitive import and re-export depen
 | REPL | `src/agm/agl/repl/` |
 | Pipeline orchestrator and host leaves | `src/agm/agl/pipeline.py`, `capabilities.py`, `diagnostics.py`, `type_schema.py`, `artifact_cache.py`, `artifact_storage.py`, `self_validation.py` |
 
-Layering is enforced by `tests/test_agl_dependencies.py`: `semantics` is the foundation, `syntax` is an AST-only leaf, `typecheck` reaches only scope's output and the layers beneath it, `matchcompile` imports nothing downstream, the IR depends only on its own data, the engine-key catalog, and the constraint-kind leaf, the evaluator never imports the frontend, the runtime is eval-free, and the pipeline sits on top. `agl/value_syntax/` is a leaf below the lexer, match compiler, and runtime, holding the literal scanning rules (text escapes, numbers, identifiers, environment holes) and a reader for AgL's data-only value syntax; it imports only `agm.util` and `agl/keywords.py`. `agl/zones.py`, `agl/attributes.py` (the built-in attribute catalog, which names zones and carries the host-facing shapes the `@opt-*` and `@command` attributes describe; it is the one place the language reaches out to an AGM leaf, holding a `@command` path to the CLI's own reserved-name rule), `agl/modules/ids.py`, and `agl/constraints.py` (the `Eq`/`Hashable` structural constraint kinds) are the vocabulary leaves below every pass, so both scope and the IR can name a parameter's zone and a module's identity without seeing each other, and `syntax`/`semantics`/`ir` can each name a constraint kind — carried on a function signature or descriptor's `bounds` — without importing each other. `artifact_storage.py` is a further leaf: the disk-cache envelope shared by the module cache, artifact serialization, and the runtime's companion bytecode cache, importing nothing under `agm`.
+Layering is enforced by `tests/test_agl_dependencies.py`: `semantics` is the foundation, `syntax` is an AST-only leaf, `typecheck` reaches only scope's output and the layers beneath it, `matchcompile` imports nothing downstream, the IR depends only on its own data, the engine-key catalog, and the constraint-kind leaf, the evaluator never imports the frontend, the runtime is eval-free, and the pipeline sits on top. `agl/value_syntax/` is a leaf below the lexer, match compiler, and runtime, holding the literal scanning rules (text escapes, numbers, identifiers, environment holes) and a reader for AgL's data-only value syntax; it imports only `agm.util` and `agl/keywords.py`. `agl/zones.py`, `agl/attributes.py` (the built-in attribute catalog, which names zones and carries the host-facing shapes the `@opt-*` and `@command` attributes describe; it is the one place the language reaches out to an AgM leaf, holding a `@command` path to the CLI's own reserved-name rule), `agl/modules/ids.py`, and `agl/constraints.py` (the `Eq`/`Hashable` structural constraint kinds) are the vocabulary leaves below every pass, so both scope and the IR can name a parameter's zone and a module's identity without seeing each other, and `syntax`/`semantics`/`ir` can each name a constraint kind — carried on a function signature or descriptor's `bounds` — without importing each other. `artifact_storage.py` is a further leaf: the disk-cache envelope shared by the module cache, artifact serialization, and the runtime's companion bytecode cache, importing nothing under `agm`.
 
 ## What To Read Next
 

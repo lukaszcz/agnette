@@ -3336,7 +3336,7 @@ class TestEntryModuleConfig:
     def test_schema_named_entry_stem_has_no_qualified_program_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A stem keyed by AGM's own schema keeps its section; the program falls back."""
+        """A stem keyed by AgM's own schema keeps its section; the program falls back."""
         from agm.config.context import ConfigContext
 
         home = tmp_path / "home"

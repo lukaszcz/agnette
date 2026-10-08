@@ -219,7 +219,7 @@ def test_ask_runs_the_process_under_the_environment_fixed_at_open(
 def test_ask_runs_the_process_under_an_explicitly_empty_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``env = {}`` at open means an empty environment, never the AGM process's own."""
+    """``env = {}`` at open means an empty environment, never the AgM process's own."""
     captured_envs: list[dict[str, str] | None] = []
 
     def fake_run_capture_result(argv: list[str], **kwargs: object) -> ProcessCaptureResult:

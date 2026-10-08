@@ -1022,7 +1022,7 @@ def test_current_project_root_candidate_falls_back_when_no_markers_and_not_git(
 
 
 # ---------------------------------------------------------------------------
-# discovery must never treat the AGM home directory as an embedded project
+# discovery must never treat the AgM home directory as an embedded project
 # ---------------------------------------------------------------------------
 
 

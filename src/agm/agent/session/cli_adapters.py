@@ -662,7 +662,7 @@ def _require_claude_session_id(output: str) -> str:
 def _parse_codex_jsonl(output: str) -> tuple[str, str]:
     """Validate Codex's JSONL event stream and extract its completed reply.
 
-    The stream belongs to Codex, not to AGM, so unrecognized event types are
+    The stream belongs to Codex, not to AgM, so unrecognized event types are
     ignored rather than rejected; only a failed turn and a malformed stream
     stop the parse.
     """

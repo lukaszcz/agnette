@@ -4,12 +4,12 @@
 |---|---|
 | `agm run [--no-sandbox] [--no-patch] [--pty\|--no-pty] [--memory LIMIT] [--swap LIMIT] [--no-memory-limit] [--no-swap-limit] [-f\|--file SETTINGS] COMMAND [ARGS...]` | Run a command directly or in an Anthropic Sandbox Runtime container |
 
-Arguments after `COMMAND` are passed as separate values, including quoted strings with spaces (for example, `agm run cmd "AA BB CC"`). In sandbox mode AGM shell-quotes them before passing them to SRT, which runs a shell command string; without sandboxing they are passed directly to the command.
+Arguments after `COMMAND` are passed as separate values, including quoted strings with spaces (for example, `agm run cmd "AA BB CC"`). In sandbox mode AgM shell-quotes them before passing them to SRT, which runs a shell command string; without sandboxing they are passed directly to the command.
 
 `agm run` config lookup merges all matching layers in order (later layers override earlier ones):
 
-1. `<install-prefix>/.agm/config.toml` when AGM is installed with one
-2. the selected AGM home's `config.toml` when distinct (`$AGM_HOME`, otherwise the
+1. `<install-prefix>/.agm/config.toml` when AgM is installed with one
+2. the selected AgM home's `config.toml` when distinct (`$AGM_HOME`, otherwise the
    populated installation home, otherwise `$HOME/.agm`)
 3. `<project-config-dir>/config.toml`
 4. `./.agm/config.toml`
@@ -46,7 +46,7 @@ Sandbox settings resolution:
 
 - per config directory: prefer `<command>.json`, else the aliased command's settings file, else `default.json`
 - merge matching files in this order (later over earlier):
-  1. `<AGM-home>/sandbox/`, using the same runtime-home selection described above
+  1. `<AgM-home>/sandbox/`, using the same runtime-home selection described above
   2. the project sandbox config directory
   3. `./.sandbox/`
 - `network` and `filesystem` are merged by key; their list-valued keys are appended and deduplicated in precedence order

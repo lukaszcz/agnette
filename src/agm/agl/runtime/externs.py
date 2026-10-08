@@ -305,7 +305,7 @@ class _CompanionBytecodeLoader(importlib.machinery.SourceFileLoader):
     CPython's source loader caches compiled bytecode in a ``__pycache__``
     directory next to the module it imports.  A companion is imported from
     wherever its AgL module lives, including an installed package's immutable
-    store tree, which AGM must never write into: unrecorded files there are
+    store tree, which AgM must never write into: unrecorded files there are
     not part of the package and would strand its removal.  This loader instead
     reads and writes the AgL artifact cache, keyed by compiler digest,
     canonical path, optimization level, and the file identity stamp the

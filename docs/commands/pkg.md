@@ -59,8 +59,8 @@ review-tools/
 ```
 
 The package name is one AgL identifier segment and not a reserved keyword. `pkg check`,
-`pkg create`, and `pkg install` also reject a name AGM reserves: a built-in command or root alias
-(`wsp`, `wt`), or one of AGM's own config sections (`agent`, `deps`, `modules`, `packages`,
+`pkg create`, and `pkg install` also reject a name AgM reserves: a built-in command or root alias
+(`wsp`, `wt`), or one of AgM's own config sections (`agent`, `deps`, `modules`, `packages`,
 `params`). Package modules may
 import only their own tree, packages declared in `[dependencies]`, and `std`.
 
@@ -99,7 +99,7 @@ remote = { version = "2.0.0", url = "https://example.test/remote.agmpkg", hash =
 - A value is a minimum version with no upper bound; build metadata is ignored when matching.
 - `path` and `url` are optional development and download sources; they cannot be combined. A
   `url` requires a SHA-256 `hash` with a `sha256=`, `sha256:`, or `sha256-` prefix.
-- `std` is an AGM compatibility contract: the running AGM must be at least the declared version
+- `std` is an AgM compatibility contract: the running AgM must be at least the declared version
   and in the same release line (same minor for `0.x`, same major from `1.x`).
 - Only direct dependencies are importable; a dependency's own dependencies are not.
 
@@ -112,7 +112,7 @@ dependencies = ["typesafe-sdk>=0.7,<1", "tomli; python_version < '3.11'"]
 
 `dependencies` lists the third-party Python distributions the package's
 [companions](../agl/reference/ffi.md) import, as [PEP 508](https://peps.python.org/pep-0508/)
-requirements. Companions run in AGM's own interpreter, so requirements are checked against its
+requirements. Companions run in AgM's own interpreter, so requirements are checked against its
 environment: one whose marker does not apply is always satisfied, and a requested extra holds when
 every requirement the installed distribution declares for that extra is itself satisfied.
 An invalid requirement, a direct URL reference (`name @ url`), and a marker that does not evaluate
@@ -142,7 +142,7 @@ program = "review-tools/main::batch"
 - Nested table components become command words: `[commands.devel.review]` registers `devel
   review`. The equivalent quoted flat form, `[commands."devel review"]`, is also accepted. A path
   cannot start with a built-in command or root alias (`wsp`, `wt`). `pkg check`/`create`/`install`
-  also reject a path (including an `@command` path) starting with one of AGM's config sections,
+  also reject a path (including an `@command` path) starting with one of AgM's config sections,
   like a package name; an already-installed registration still loads, dispatches, and uninstalls,
   but one starting with a schema section (`agent`, `deps`, `modules`, `packages`, `params`) gets
   no command-path config table, exact or inherited.
@@ -306,8 +306,8 @@ exists; refuses a directory that already holds a manifest.
 `[commands]`, then validates the manifest, the `src/` module tree, command program references,
 literal `resource` targets, import visibility, and dependency satisfiability without modifying
 anything — the same diagnostics `install` reports. The `std` floor is checked against the running
-AGM; other dependencies resolve from the store, then a `path`; a `url` counts as satisfiable and
-is not fetched. Each `[python]` requirement AGM's interpreter environment does not satisfy is
+AgM; other dependencies resolve from the store, then a `path`; a `url` counts as satisfiable and
+is not fetched. Each `[python]` requirement AgM's interpreter environment does not satisfy is
 reported with its status (as `info` shows it) and fails the check; `check` never installs it —
 `sync` does, once the package is active.
 
@@ -319,7 +319,7 @@ files; a resource excluded this way fails creation. The archived manifest drops 
 every path-only dependency needs a stored version or `url` first.
 
 **`install`** takes a directory or archive, resolves the dependency closure, validates, and stores
-the distribution in `<AGM-home>/packages/<name>/<version>/` with a SHA-256 `RECORD`. From a
+the distribution in `<AgM-home>/packages/<name>/<version>/` with a SHA-256 `RECORD`. From a
 directory source it first merges the module tree's `@command` registrations into the manifest, so
 the stored package carries one complete command table. Activation is published atomically only
 after the resulting selection validates; a failed install leaves nothing active. If a package with
@@ -330,7 +330,7 @@ from the store first, then a declared `path` (installed alongside), then a `url`
 hash-verified; never in `--dry-run`). Versions are kept side by side, one per identity (build
 metadata included, as above). `--editable` activates the source directory in place: no copy, no
 `RECORD`, edits visible immediately, and its command table is re-derived from source on each
-dispatch. Before activation is published, if AGM's interpreter environment does not satisfy some
+dispatch. Before activation is published, if AgM's interpreter environment does not satisfy some
 `[python]` requirement of a package in the new selection, the union of every selected package's
 requirements is installed into it with `uv pip install --python <interpreter>`
 (`<interpreter> -m pip install` when `uv` is not on `PATH`). The installer resolves them jointly:
@@ -352,11 +352,11 @@ package.
 
 **`info`** shows metadata, command registrations with their prose, whether each direct
 dependency is active, unsatisfied, or missing, including the inferred `std` upper bound, and, as
-`requires python package SPEC: STATUS`, each `[python]` requirement's status in AGM's interpreter
+`requires python package SPEC: STATUS`, each `[python]` requirement's status in AgM's interpreter
 environment: `installed VERSION`, `installed VERSION (unsatisfied)`, `missing`, or
 `not applicable` (its marker does not hold).
 
-**`sync`** repairs AGM's interpreter environment, for example after an AGM upgrade replaced it:
+**`sync`** repairs AgM's interpreter environment, for example after an AgM upgrade replaced it:
 when some `[python]` requirement of an active package (store or editable) is unsatisfied, the
 union of every active package's requirements is installed exactly as `install` does, and each
 previously unsatisfied requirement is listed; otherwise it reports that all are satisfied and runs
@@ -373,7 +373,7 @@ review-tools = "1.2.3"
 platform-tools = "1.0.0+linux"
 ```
 
-Pins live in any layered `config.toml` (install prefix, AGM home, project `config/config.toml`,
+Pins live in any layered `config.toml` (install prefix, AgM home, project `config/config.toml`,
 then `.agm/config.toml`), merge by name with later layers winning, and select an exact identity that
 must already be a valid stored version. A pin affects module roots, command dispatch, help, and
 completion for the invocation only; it never installs or fetches. The `list` and `info` commands
@@ -382,7 +382,7 @@ execution root still takes precedence.
 
 ## The `std` package
 
-The standard library is a managed package at the running AGM's version. Installation accepts
+The standard library is a managed package at the running AgM's version. Installation accepts
 only the shipped source at that version, and the package cannot be uninstalled.
 
 ## Limits

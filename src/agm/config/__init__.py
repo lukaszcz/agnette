@@ -1,1 +1,1 @@
-"""Configuration helpers for AGM."""
+"""Configuration helpers for AgM."""

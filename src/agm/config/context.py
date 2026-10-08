@@ -14,7 +14,7 @@ from agm.project.layout import discover_current_project_dir
 
 @dataclass(frozen=True)
 class ConfigContext:
-    """Resolved context used to load AGM configuration."""
+    """Resolved context used to load AgM configuration."""
 
     home: Path
     proj_dir: Path | None

@@ -189,7 +189,7 @@ class FakeShell:
 # Agent boundary
 #
 # Every agent call is spawned through the ``run_capture`` subprocess helper.
-# Faking it there — rather than stubbing the AGM functions above it — leaves
+# Faking it there — rather than stubbing the AgM functions above it — leaves
 # runner resolution, interpolation, prompt rendering, output streaming and
 # temp-file cleanup running for real.
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Tests for the AGM command-tree layout.
+"""Tests for the AgM command-tree layout.
 
 End-to-end command coverage is enforced separately and dynamically by
 ``tests/_command_coverage.py``, which records the commands actually executed

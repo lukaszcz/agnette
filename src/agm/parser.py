@@ -1,4 +1,4 @@
-"""Help text and usage utilities for AGM's Typer CLI."""
+"""Help text and usage utilities for AgM's Typer CLI."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ _HELP_TEXTS: dict[str, str] = {
         commit of the generated .gitignore.
 
         Options:
-          --embedded           Embedded layout: AGM data under .agm/.
+          --embedded           Embedded layout: AgM data under .agm/.
           --split              Split layout: repo/, deps/, notes/, worktrees/,
                                config/.
           --clone              Name the project directory after REPO_URL.
@@ -130,7 +130,7 @@ _HELP_TEXTS: dict[str, str] = {
 
         Config files, later ones overriding earlier:
           <install-prefix>/.agm/config.toml
-          the AGM home's config.toml ($AGM_HOME, else an installed
+          the AgM home's config.toml ($AGM_HOME, else an installed
             <install-prefix>/.agm, else ~/.agm)
           the project config directory's config.toml
           ./.agm/config.toml
@@ -164,7 +164,7 @@ _HELP_TEXTS: dict[str, str] = {
     "pkg": textwrap.dedent("""\
         agm pkg COMMAND
 
-        Manage AgL packages in AGM's versioned store.
+        Manage AgL packages in AgM's versioned store.
 
         Commands:
           init       Create a package
@@ -213,7 +213,7 @@ _HELP_TEXTS: dict[str, str] = {
 
         Settings: each directory below contributes COMMAND.json, else the
         alias's file, else default.json; later files override earlier:
-          1. $AGM_HOME/sandbox/ (for the AGM home default, see agm help config)
+          1. $AGM_HOME/sandbox/ (for the AgM home default, see agm help config)
           2. the project config directory's sandbox/
           3. ./.sandbox/
         network and filesystem merge by key; lists append, deduplicated. A later
@@ -486,7 +486,7 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         Install a package directory or .agmpkg archive into the store and
         activate it. URL dependencies are fetched and verified against their
         SHA-256. If any [python] requirement of the active packages is
-        unsatisfied, all of them are installed together into AGM's interpreter
+        unsatisfied, all of them are installed together into AgM's interpreter
         (uv, else pip); a failure fails the install.
 
         Options:
@@ -524,7 +524,7 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         agm pkg sync [--dry-run]
 
         If any [python] requirement of the active packages is unsatisfied,
-        install all of them together into AGM's interpreter (uv, else pip) and
+        install all of them together into AgM's interpreter (uv, else pip) and
         list the unsatisfied ones. Nothing is uninstalled.
     """),
     ("tmux", "open"): textwrap.dedent("""\
@@ -544,7 +544,7 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
     ("tmux", "layout"): textwrap.dedent("""\
         agm tmux layout [-w WINDOW_ID] [--dry-run] PANES
 
-        Apply AGM's tiled layout for PANES panes to the current tmux window.
+        Apply AgM's tiled layout for PANES panes to the current tmux window.
 
         Options:
           -w, --window WINDOW_ID  Target window WINDOW_ID instead.
@@ -574,7 +574,8 @@ def _registered_command_overview() -> tuple[tuple[str, str], ...]:
 
 def _overview_text() -> str:
     lines = [
-        "agm - Agent Management Framework",
+        "Agnette - Agentic Notation & Execution Toolkit",
+        "AgM (Agnette Manager) CLI and AgL (Agnette Language) workflow DSL",
         "",
         "Usage: agm COMMAND [ARGS]...",
         "",
@@ -590,7 +591,7 @@ def _overview_text() -> str:
         [
             "",
             "Options:",
-            "  --version             Show the AGM and AgL standard-library versions.",
+            "  --version             Show the AgM and AgL standard-library versions.",
             "  --install-completion  Install shell completion for the current shell.",
             "  --show-completion     Print the shell completion script.",
             "",

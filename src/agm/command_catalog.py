@@ -1,4 +1,4 @@
-"""Canonical catalog of AGM top-level CLI commands.
+"""Canonical catalog of AgM top-level CLI commands.
 
 Single source of truth for the top-level command names and their one-line
 overview descriptions, consumed by the CLI help layer (:mod:`agm.parser`), and
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-# Ordered (name, one-line description) for every top-level AGM command, as shown
+# Ordered (name, one-line description) for every top-level AgM command, as shown
 # by ``agm help``.
 COMMAND_OVERVIEW: tuple[tuple[str, str], ...] = (
     ("open", "Open a workspace's tmux session"),
@@ -39,10 +39,10 @@ COMMAND_NAMES: tuple[str, ...] = tuple(name for name, _ in COMMAND_OVERVIEW)
 # reserve the same package-command and config-routing namespace as commands.
 COMMAND_ALIASES: tuple[str, ...] = ("wsp", "wt")
 
-# Every name reserved by AGM's built-in command surface.
+# Every name reserved by AgM's built-in command surface.
 RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(COMMAND_NAMES) | frozenset(COMMAND_ALIASES)
 
-# Top-level config sections that describe AGM's configuration schema rather than
+# Top-level config sections that describe AgM's configuration schema rather than
 # AgL modules, and key their own nested tables by user-chosen names -- an agent
 # CLI, a dependency, a module root, a package pin. ``params`` keeps the removed
 # legacy ``[params.*]`` namespace from reading as an AgL module route.
@@ -50,8 +50,8 @@ SCHEMA_CONFIG_SECTION_NAMES: frozenset[str] = frozenset(
     {"agent", "deps", "modules", "packages", "params"}
 )
 
-# Every top-level config section name AGM owns. A validated package's name and
-# command paths never take one, so neither collides with AGM's own config.
+# Every top-level config section name AgM owns. A validated package's name and
+# command paths never take one, so neither collides with AgM's own config.
 RESERVED_CONFIG_SECTION_NAMES: frozenset[str] = RESERVED_COMMAND_NAMES | SCHEMA_CONFIG_SECTION_NAMES
 
 
@@ -60,7 +60,7 @@ def invalid_command_path(
 ) -> str | None:
     """Describe why *command_path* cannot name a registered command, or ``None``.
 
-    Package commands extend the same command tree as AGM's own commands, so a
+    Package commands extend the same command tree as AgM's own commands, so a
     registered path must be plain space-separated words that neither start at
     a *reserved* name nor look like an option. The default reserves only what
     would clash at dispatch, which is all an already-installed registration is
@@ -71,7 +71,7 @@ def invalid_command_path(
     if not words or " ".join(words) != command_path:
         return "must be space-separated words"
     if words[0] in reserved:
-        return "begins with a name reserved by AGM"
+        return "begins with a name reserved by AgM"
     if any(word.startswith("-") for word in words):
         return "contains an option"
     return None

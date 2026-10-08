@@ -316,7 +316,7 @@ def run_case(
 
 
 def worker(args: list[str]) -> int:
-    """Install the mutation before pytest imports conftest or AGM."""
+    """Install the mutation before pytest imports conftest or AgM."""
     # Pytest fixture discovery requires a hashable plugin object.
     plugin = ModuleType("mutation_evidence")
     cast(dict[str, object], plugin.__dict__).update(

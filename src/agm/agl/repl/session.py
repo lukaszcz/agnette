@@ -482,7 +482,7 @@ class ReplSession:
         """Build the ``RootSet`` lazily on first import use.
 
         Resolves ``_stdlib_root`` here too when the constructor was not given
-        one explicitly, using the same AGM-home seam ``commands/repl.py`` uses
+        one explicitly, using the same AgM-home seam ``commands/repl.py`` uses
         (:func:`agm.config.context.current_config_context`) rather than a
         hardcoded ``Path.home()``, so a relocated ``AGM_HOME`` is honored the
         same way here as everywhere else. A stdlib version mismatch therefore

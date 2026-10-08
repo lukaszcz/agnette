@@ -3,7 +3,7 @@
 Stages the Elisp in ``config/emacs/`` as a package tar and installs it with
 Emacs's own package machinery, so package.el generates the autoloads and
 byte-compiles the sources.  The package version is taken from
-:mod:`agm.version`, keeping it in lockstep with AGM.
+:mod:`agm.version`, keeping it in lockstep with AgM.
 
 The installer never edits the user's init file.  On Emacs 27+ an installed
 package activates at the next start, so opening a ``.agl`` file selects

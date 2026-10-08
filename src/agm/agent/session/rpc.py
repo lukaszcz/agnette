@@ -915,7 +915,7 @@ def _rpc_result_text(value: object) -> str:
 
 
 def _extension_ui_cancellation(event: dict[str, object]) -> dict[str, object] | None:
-    """Cancel extension dialog requests that AGM cannot present to a user."""
+    """Cancel extension dialog requests that AgM cannot present to a user."""
     if event["type"] != "extension_ui_request":
         return None
     method = event.get("method")

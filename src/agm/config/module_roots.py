@@ -1,4 +1,4 @@
-"""AGM configuration reader for AgL module roots.
+"""AgM configuration reader for AgL module roots.
 
 Each configured root path retains the *origin directory* — the directory of
 the config file that declared it — so the assembler can resolve relative paths
@@ -13,8 +13,8 @@ Config schema (in any of the layered ``config.toml`` files):
         "relative/to/config",
     ]
 
-Layering follows the same order as all other AGM config:
-    AGM home config.toml  →  project config/config.toml  →  cwd/.agm/config.toml
+Layering follows the same order as all other AgM config:
+    AgM home config.toml  →  project config/config.toml  →  cwd/.agm/config.toml
 
 For ``lib_root``, later layers override earlier ones (last-write-wins).
 For ``roots``, entries from *all* layers are accumulated (union).
@@ -66,7 +66,7 @@ def load_module_roots(
     proj_dir: Path | None,
     cwd: Path,
 ) -> ModuleRootsConfig:
-    """Read module-root configuration from all AGM config layers.
+    """Read module-root configuration from all AgM config layers.
 
     Visits each config file in layering order (home → project → cwd).  For
     ``[modules] lib_root``, later files override earlier ones.  For
@@ -126,7 +126,7 @@ def resolve_lib_root(
     Path
         Resolved ``lib_root`` path (not yet canonicalized; ``assemble_roots``
         applies ``expanduser`` + ``resolve`` on its own paths).  When no
-        ``lib_root`` is configured, returns the default AGM home ``lib``
+        ``lib_root`` is configured, returns the default AgM home ``lib``
         directory, honouring ``AGM_HOME`` when *home* is supplied (or when the
         process environment is consulted with the implicit ``Path.home()``).
     """
@@ -147,7 +147,7 @@ def resolve_stdlib_root(
     trees. Otherwise this delegates to the package domain, which prefers a
     development ``std`` checkout whose modules contain *anchor* (the entry file
     or the working directory), then an active immutable store ``std`` package
-    matching the running AGM version, then the shipped standard library.
+    matching the running AgM version, then the shipped standard library.
     """
     override = resolve_env(env).get("AGM_STDLIB")
     if override is not None and override.strip():

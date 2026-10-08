@@ -1,4 +1,4 @@
-"""Pure, generic graph algorithms for AGM (stdlib-only, zero agm imports).
+"""Pure, generic graph algorithms for AgM (stdlib-only, zero agm imports).
 
 Provides:
 - ``GraphCycleError`` — raised by :func:`toposort` when a cycle is detected.

@@ -1,7 +1,7 @@
 """Anchor-aware selection of the AgL standard-library package root.
 
 The choice between a development ``std`` checkout containing the anchored
-path, the active managed store package, and AGM's shipped tree is
+path, the active managed store package, and AgM's shipped tree is
 package-domain work — development discovery, activation lookup, canonical
 identity, store paths, and manifest loading — so it lives here rather than in
 the configuration layer. ``agm.config.module_roots`` handles only the
@@ -35,13 +35,13 @@ class StdlibResolutionError(RuntimeError):
 
 
 class StdlibVersionMismatchError(StdlibResolutionError):
-    """Raised when the active store ``std`` version differs from AGM's version."""
+    """Raised when the active store ``std`` version differs from AgM's version."""
 
     def __init__(self, installed_version: str, running_version: str) -> None:
         self.installed_version = installed_version
         self.running_version = running_version
         super().__init__(
-            f"Active std package version {installed_version} does not match running AGM version "
+            f"Active std package version {installed_version} does not match running AgM version "
             f"{running_version}. Re-run `just install` to install the matching std package."
         )
 
@@ -55,8 +55,8 @@ def resolve_std_package_root(
     outright, so working inside the standard library resolves it from the tree
     being edited rather than from a possibly stale installed copy. Otherwise an
     active immutable store ``std`` package wins, but only when its version
-    exactly matches the running AGM binary. Without an active store package,
-    AGM uses the stdlib bundled in an installed wheel or the repository
+    exactly matches the running AgM binary. Without an active store package,
+    AgM uses the stdlib bundled in an installed wheel or the repository
     ``packages/stdlib/`` tree in a source checkout.
     """
     if anchor is not None:

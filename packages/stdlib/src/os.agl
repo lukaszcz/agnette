@@ -97,7 +97,7 @@ exception LaunchError extends Exception
   Opens `file` for editing: the first non-empty `VISUAL`, then `EDITOR`, from `env`, else the first
   of `micro`, `vi` found on `env`'s `PATH`. Blocks until the editor exits, inheriting stdio; the
   editor value is a shell snippet (`code --wait` works). `env` is the child's complete environment,
-  not an overlay on AGM's own. While waiting, AGM ignores SIGINT and SIGQUIT (git's editor behavior)
+  not an overlay on AgM's own. While waiting, AgM ignores SIGINT and SIGQUIT (git's editor behavior)
   and restores them once the editor exits. Raises `LaunchError`: `exit-code = None` when the editor
   command itself could not be found (including a shell "command not found"), `Some(code)` for any
   other non-zero exit.

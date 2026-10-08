@@ -127,7 +127,7 @@ def _package_operation_lock(*, home: Path, env: Mapping[str, str] | None) -> Ite
 def sync_active_python_dependencies(
     *, home: Path, env: Mapping[str, str] | None = None
 ) -> tuple[str, ...]:
-    """Sync AGM's interpreter environment to every active package's Python requirements.
+    """Sync AgM's interpreter environment to every active package's Python requirements.
 
     Returns the requirements that were unsatisfied, hence installed (or, in
     dry-run, reported). Raises :class:`PackageInstallError`.
@@ -163,13 +163,13 @@ def _validate_managed_stdlib_install(
         STD_PACKAGE_NAME, semver.Version.parse(AGM_VERSION)
     ):
         raise PackageInstallError(
-            f"managed std package version must exactly match AGM version {AGM_VERSION}"
+            f"managed std package version must exactly match AgM version {AGM_VERSION}"
         )
     if editable:
         raise PackageInstallError("the managed std package cannot be installed editable")
     if source is None or source.resolve() != shipped_stdlib_root().resolve():
         raise PackageInstallError(
-            "the managed std package must be installed from AGM's shipped stdlib"
+            "the managed std package must be installed from AgM's shipped stdlib"
         )
 
 
@@ -253,7 +253,7 @@ def activate_installed_package_with_plan(
 
     def activate(state: _InstallState) -> PackageInfo:
         if is_std_package_name(name):
-            raise PackageInstallError("the AGM-managed std package cannot be installed or switched")
+            raise PackageInstallError("the AgM-managed std package cannot be installed or switched")
         package = next(
             (
                 package
@@ -298,7 +298,7 @@ def refresh_managed_stdlib(
     home: Path,
     env: Mapping[str, str] | None = None,
 ) -> PackageInfo:
-    """Safely replace and activate AGM's shipped standard-library package.
+    """Safely replace and activate AgM's shipped standard-library package.
 
     The complete replacement is staged beside its versioned store path while
     holding the package-operation lock. Publication only renames complete
@@ -402,7 +402,7 @@ def _uninstall_package(target: str, *, home: Path, env: Mapping[str, str] | None
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot load package activation: {exc}") from exc
     if is_std_package_name(name):
-        raise PackageInstallError("the AGM-managed std package cannot be uninstalled")
+        raise PackageInstallError("the AgM-managed std package cannot be uninstalled")
     placeholder_version = semver.Version(0, 0, 0)
     try:
         package_store_path(name, placeholder_version, home=home, env=env)
@@ -832,7 +832,7 @@ def _install_archive(
 
 
 def _validate_agm_compatibility(manifest: PackageManifest) -> None:
-    """Reject packages outside their ``std`` requirement's AGM release line."""
+    """Reject packages outside their ``std`` requirement's AgM release line."""
     requirement = manifest.dependencies.get(STD_PACKAGE_NAME)
     if requirement is None:
         return
@@ -905,7 +905,7 @@ def _set_transaction_index(state: _InstallState, index: ActivationIndex) -> None
 
 
 def _deactivate_release_incompatible_packages(state: _InstallState) -> None:
-    """Drop selections that cannot remain active after an AGM release-line change."""
+    """Drop selections that cannot remain active after an AgM release-line change."""
 
     packages = _transaction_resolved_packages(state)
     deactivated = {
@@ -963,7 +963,7 @@ def _resolve_dependencies(package: PackageInfo, state: _InstallState) -> None:
 
 def _resolve_dependency_requirements(package: PackageInfo, state: _InstallState) -> None:
     for name, requirement in package.manifest.dependencies.items():
-        # ``std`` is an AGM compatibility contract, already checked before
+        # ``std`` is an AgM compatibility contract, already checked before
         # dependency resolution. It is not a package-store dependency.
         if is_std_package_name(name):
             continue

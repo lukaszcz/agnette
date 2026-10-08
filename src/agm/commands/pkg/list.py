@@ -1,4 +1,4 @@
-"""List active AGM packages."""
+"""List active AgM packages."""
 
 from __future__ import annotations
 

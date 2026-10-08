@@ -54,7 +54,7 @@ class CommandSpec:
 class UnknownField:
     """One manifest key the schema does not define, and where it was found.
 
-    Loading records these rather than refusing the file: a manifest AGM baked
+    Loading records these rather than refusing the file: a manifest AgM baked
     into its own store may have been written by a build with fields this one
     does not know, and a package that cannot be read at all takes the whole CLI
     down with it. Authored manifests are held to the schema by

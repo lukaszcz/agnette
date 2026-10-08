@@ -115,7 +115,7 @@ class ActivationIndex:
 
 
 def activation_index_path(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
-    """Return the selected AGM home's package activation-index path."""
+    """Return the selected AgM home's package activation-index path."""
 
     return _resolved_activation_index_path(agm_home_dir(home=home, env=env))
 

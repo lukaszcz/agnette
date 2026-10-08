@@ -28,7 +28,7 @@ class StoreIdentityError(ValueError):
 
 
 def store_root(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
-    """Return the package-store root under the selected AGM home."""
+    """Return the package-store root under the selected AgM home."""
 
     return store_root_path(agm_home_dir(home=home, env=env))
 

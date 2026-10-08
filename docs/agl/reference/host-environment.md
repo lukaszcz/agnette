@@ -489,7 +489,7 @@ layer; a leaf an inherited table sets still joins cross-route ambiguity
 checks, but is exempt from undeclared-key warnings, since a descendant
 command may be the one that consumes it.
 
-AGM's own schema sections — `[agent]`, `[deps]`, `[modules]`, `[packages]`,
+AgM's own schema sections — `[agent]`, `[deps]`, `[modules]`, `[packages]`,
 and `[params]` — name user-chosen entries in their nested tables, so no route
 passes through one at any depth. A loose file or module whose stem is `agent`
 therefore has no `[agent]` or `[agent.<program>]` config route: such tables

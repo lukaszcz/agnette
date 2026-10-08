@@ -1,8 +1,9 @@
-# AGM commands reference
+# AgM commands reference
 
-AGM is an Agent Project Management CLI. A single `agm` executable manages
-agent-oriented project directories — workspaces, dependencies, sandboxing, git
-worktrees, and tmux sessions — and runs programs written in the AgL workflow DSL.
+AgM (Agnette Manager) is Agnette's CLI agent project manager. Agnette (Agentic
+Notation & Execution Toolkit) provides CLI agent management facilities and a complete
+agent workflow DSL, AgL (Agnette Language). The `agm` executable manages workspaces,
+dependencies, sandboxing, git worktrees, and tmux sessions, and runs AgL programs.
 
 ## Global usage
 
@@ -12,7 +13,7 @@ agm <command> [options] [args]
 
 Global options:
 
-- `--version` prints the AGM and AgL standard-library versions.
+- `--version` prints the AgM and AgL standard-library versions.
 - `--install-completion`
 - `--show-completion`
 

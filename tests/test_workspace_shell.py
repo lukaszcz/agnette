@@ -657,7 +657,7 @@ class TestSelfHealE2E:
 class TestCommandArguments:
     """A wrapper invoked with arguments must run them, not an interactive shell.
 
-    AGM registers the wrapper as ``$SHELL``, so every ``$SHELL -c COMMAND``
+    AgM registers the wrapper as ``$SHELL``, so every ``$SHELL -c COMMAND``
     caller — a compilation command from an editor, ``xargs -S``, git — reaches
     it.  Dropping the arguments and exec'ing an interactive shell instead left
     those callers with a shell prompt and no command run.

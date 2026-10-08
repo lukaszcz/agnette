@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agm"
+name = "agnette"
 version = "0.1.2"
-description = "Unified CLI for managing worktrees, project dependencies, configuration and tmux sessions"
+description = "Agnette - Agentic Notation & Execution Toolkit: AgM CLI and AgL workflow DSL"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [

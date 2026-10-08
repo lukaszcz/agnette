@@ -156,7 +156,7 @@ def test_agm_installation_prefix_returns_none_for_a_script_outside_a_bin_directo
     """A script run from a source tree has no installation prefix at all.
 
     Treating its grandparent as a prefix would invent a runtime tree — and an
-    AGM home — beside an arbitrary directory.
+    AgM home — beside an arbitrary directory.
     """
     script = tmp_path / "repo" / "tools" / "install_agm_config.py"
     script.parent.mkdir(parents=True)

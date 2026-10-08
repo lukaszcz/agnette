@@ -68,7 +68,7 @@ charlie = { version = "3", url = "https://example.test/charlie.agmpkg", hash = "
         assert manifest.name == "review_tools"
         assert manifest.version == semver.Version.parse("0.2.0")
         assert manifest.description == "Review workflow commands"
-        assert manifest.authors == ("AGM",)
+        assert manifest.authors == ("Agnette",)
         assert manifest.dependencies["std"].version == semver.Version.parse("0.1.0")
         assert manifest.dependencies["judge"].path == "../judge"
         assert manifest.dependencies["tools"].url == "https://example.test/tools.agmpkg"

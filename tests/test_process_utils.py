@@ -1654,9 +1654,9 @@ class TestDrainLoopTimeoutSentinel:
 
 
 class TestTerminationSignalsReachCleanup:
-    """A signalled AGM must still release what it registered for cleanup.
+    """A signalled AgM must still release what it registered for cleanup.
 
-    An outer AGM cleans up by signalling the process group of the runner it
+    An outer AgM cleans up by signalling the process group of the runner it
     spawned.  A nested ``agm run`` in that group owns a transient systemd scope
     that only its cleanup command removes, so dying on the default SIGTERM
     disposition left the scope — and everything still running inside it — alive.

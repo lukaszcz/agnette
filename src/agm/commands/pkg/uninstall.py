@@ -1,4 +1,4 @@
-"""Remove an active package from AGM's store."""
+"""Remove an active package from AgM's store."""
 
 from __future__ import annotations
 

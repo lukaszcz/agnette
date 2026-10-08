@@ -243,7 +243,7 @@ def test_codex_stream_echoes_tool_progress_but_not_final_message() -> None:
         },
         {
             "type": "item.started",
-            "item": {"id": "search-1", "type": "web_search", "query": "AGM"},
+            "item": {"id": "search-1", "type": "web_search", "query": "AgM"},
         },
         {
             "type": "item.started",
@@ -333,7 +333,7 @@ def test_codex_stream_echoes_tool_progress_but_not_final_message() -> None:
             "type": "tool_call",
             "tool_name": "web_search",
             "tool_call_id": "search-1",
-            "text": "[AGM]\n",
+            "text": "[AgM]\n",
         },
         {
             "phase": "progress",

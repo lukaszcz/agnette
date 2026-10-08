@@ -1,4 +1,4 @@
-"""Tests for AGM workspace discovery in agm.project.layout."""
+"""Tests for AgM workspace discovery in agm.project.layout."""
 
 from __future__ import annotations
 

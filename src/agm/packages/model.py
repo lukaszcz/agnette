@@ -16,7 +16,7 @@ from agm.version import AGM_VERSION
 PackageIdentity = tuple[str, str]
 
 STD_PACKAGE_NAME = "std"
-"""The name of AGM's managed, lockstep standard-library package."""
+"""The name of AgM's managed, lockstep standard-library package."""
 
 
 def canonical_package_identity(name: str, version: semver.Version) -> PackageIdentity:
@@ -26,13 +26,13 @@ def canonical_package_identity(name: str, version: semver.Version) -> PackageIde
 
 
 def is_std_package_name(name: str) -> bool:
-    """Return whether *name* names AGM's managed, lockstep standard-library package."""
+    """Return whether *name* names AgM's managed, lockstep standard-library package."""
 
     return name == STD_PACKAGE_NAME
 
 
 def std_compatibility_upper_bound(requirement: DependencySpec) -> semver.Version:
-    """Return the exclusive AGM compatibility bound for a ``std`` requirement.
+    """Return the exclusive AgM compatibility bound for a ``std`` requirement.
 
     Pre-1.0 releases are compatible within one minor line; stable releases
     are compatible within one major line.
@@ -47,8 +47,8 @@ def std_compatibility_upper_bound(requirement: DependencySpec) -> semver.Version
 def unmet_std_requirement(requirement: DependencySpec) -> str | None:
     """Describe an incompatible ``std`` dependency, or return ``None``.
 
-    ``std`` is shipped by AGM rather than resolved like an ordinary package.
-    Its version is a minimum within one compatible AGM release line. Callers
+    ``std`` is shipped by AgM rather than resolved like an ordinary package.
+    Its version is a minimum within one compatible AgM release line. Callers
     prefix the returned clause with their own subject and raise their own
     error type.
     """
@@ -58,8 +58,8 @@ def unmet_std_requirement(requirement: DependencySpec) -> str | None:
     if requirement.version <= running < upper_bound:
         return None
     return (
-        f"requires AGM >= {requirement.version}, < {upper_bound} via std, "
-        f"but running AGM is {AGM_VERSION}"
+        f"requires AgM >= {requirement.version}, < {upper_bound} via std, "
+        f"but running AgM is {AGM_VERSION}"
     )
 
 

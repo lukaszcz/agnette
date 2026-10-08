@@ -1,9 +1,15 @@
-# AGM
+# Agnette
 
-Agent Management Framework is a CLI for setting up agent-oriented project directories, managing
-AGM workspaces, opening tmux sessions, running setup scripts, executing
-commands with sandbox settings, and running AgL agent workflows — as whole programs (`agm exec`)
-or in an interactive REPL (`agm repl`).
+Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities
+and a complete agent workflow DSL:
+
+- **AgM (Agnette Manager)** — the CLI agent project manager for workspaces, git worktrees,
+  dependencies, tmux sessions, setup scripts, and sandboxed commands.
+- **AgL (Agnette Language)** — the statically typed workflow DSL for orchestrating agents
+  and shell commands, run through `agm exec` or explored interactively with `agm repl`.
+
+The Python distribution is `agnette`; the executable and import package remain `agm`.
+Configuration retains `.agm` directories and `AGM_*` variables; AgL source files use `.agl`.
 
 ## Documentation
 
@@ -38,9 +44,12 @@ Set up the development environment:
 just setup
 ```
 
-Install the CLI with the runtime versions from `uv.lock` into an isolated `uv tool`
-environment and copy AGM config files and sandbox templates into the selected
-AGM home (`$AGM_HOME`, or `$HOME/.agm/` by default). The config installer refreshes the
+When upgrading an existing `agm` tool installation, first run `uv tool uninstall agm`
+to release its executable; existing `.agm` configuration and projects remain usable.
+
+Install Agnette with the runtime versions from `uv.lock` into an isolated `uv tool`
+environment and copy AgM config files and sandbox templates into the selected
+AgM home (`$AGM_HOME`, or `$HOME/.agm/` by default). The config installer refreshes the
 managed standard library; the recipe reinstalls the other packages under `packages/` with
 `agm pkg install --reinstall`, then runs `agm pkg sync` to restore the active packages'
 Python requirements. It also installs the AgL editor support: the Micro syntax file into
@@ -57,7 +66,7 @@ through `agm check`, and an inferior `agm repl` with buffer reloads — see
 [config/emacs/README.md](config/emacs/README.md).
 
 Built wheels also contain a bundled standard-library fallback, so a direct wheel
-installation can execute AgL before an AGM home or managed `std` store is populated.
+installation can execute AgL before an AgM home or managed `std` store is populated.
 
 Pass arguments through to the config installer when needed:
 
@@ -73,7 +82,7 @@ different backups are preserved recursively as `<file>.bak.bak`.
 An explicit prefix installs the executable link into `<prefix>/bin` and the complete
 runtime tree into `<prefix>/.agm`; add `<prefix>/bin` to `PATH`. That prefix takes
 precedence over `AGM_HOME` while installing. At runtime, `AGM_HOME` explicitly overrides
-an installation-local tree; otherwise AGM uses the populated `.agm` beside its executable,
+an installation-local tree; otherwise AgM uses the populated `.agm` beside its executable,
 then falls back to `$HOME/.agm`.
 
 ## Project layouts
@@ -103,7 +112,7 @@ myproject/
 └── <main workspace files>
 ```
 
-Without `--embedded` or `--split`, AGM chooses:
+Without `--embedded` or `--split`, AgM chooses:
 
 - embedded when the target project directory already exists and is a git repo
 - split otherwise
@@ -112,7 +121,7 @@ Without `--embedded` or `--split`, AGM chooses:
 already exist. When initializing an embedded Git repository with no commits, it commits the
 generated `.gitignore` as the repository's initial commit.
 
-For split layouts without a repository URL, AGM initializes `repo/` as an empty git repository.
+For split layouts without a repository URL, AgM initializes `repo/` as an empty git repository.
 Use `--no-repo-git` to skip that repository, or `--no-git-init` to skip all git repositories
 created by `agm init`.
 
@@ -124,7 +133,7 @@ agm <command> [options] [args]
 
 Use `agm help` for the command list and `agm help <command>` for detailed help. Global options:
 
-- `--version` prints the AGM and AgL standard-library versions.
+- `--version` prints the AgM and AgL standard-library versions.
 - `--install-completion`
 - `--show-completion`
 
@@ -160,10 +169,10 @@ checks that its distribution dependencies are portable, then writes a determinis
 local dependency paths from the archived manifest without changing the source manifest. Archive installs
 verify the archive contents before atomically activating them. `--dry-run` reports package archive creation
 or installation without writing an archive, store tree, or activation index. Installation also
-installs the third-party Python requirements a manifest declares under `[python]` into AGM's
+installs the third-party Python requirements a manifest declares under `[python]` into AgM's
 environment; `pkg sync` restores them for every active package.
 
-The repository's `packages/sysone` package (not shipped with AGM) asks TypeSafe's System One
+The repository's `packages/sysone` package (not shipped with AgM) asks TypeSafe's System One
 model typed questions from AgL through its `sysone/jev` module. Install it from a checkout with
 `agm pkg install packages/sysone`.
 
@@ -171,7 +180,7 @@ model typed questions from AgL through its `sysone/jev` module. Install it from 
 
 Shortcut for `agm workspace open`. Open a tmux session for the main workspace or a branch
 workspace, creating or checking out the branch when needed. `--parent` bases only new
-branches; AGM warns if the target branch already exists and errors if its workspace already
+branches; AgM warns if the target branch already exists and errors if its workspace already
 exists.
 
 ```bash
@@ -213,12 +222,12 @@ agm init --split -b develop myproject https://github.com/org/repo.git
 agm init --embedded myproject
 ```
 
-When only `REPO_URL` is provided, AGM derives the project name from the repository URL.
+When only `REPO_URL` is provided, AgM derives the project name from the repository URL.
 
 ### `agm workspace`
 
-Manage AGM workspaces. A workspace may be the main repo or a linked Git worktree in the project's
-worktrees directory, interpreted with AGM project config, workspace config, dependency environment,
+Manage AgM workspaces. A workspace may be the main repo or a linked Git worktree in the project's
+worktrees directory, interpreted with AgM project config, workspace config, dependency environment,
 setup scripts, and tmux session lifecycle.
 
 ```bash
@@ -257,7 +266,7 @@ agm sync pull
 
 ### `agm exec`
 
-Execute an AgL (Agent Language) workflow program. AgL is a statically-typed, expression-oriented
+Execute an AgL (Agnette Language) workflow program. AgL is a statically-typed, expression-oriented
 DSL for composable agent workflows: it supports typed program and module parameters and outputs,
 user-defined functions (`def`/`fn`), functions implemented by a co-located Python file (`extern def`),
 structured JSON targets, do-loops with retry/abort policies, control flow (if/case/try), shell
@@ -286,8 +295,8 @@ expansion includes `std/prelude` supplies the prelude contribution instead, so p
 std/prelude` leaves its names qualified-only. `--no-stdlib` disables the automatic prelude
 throughout the loaded program. Other imports are qualified by default; an import tail or `use`
 declaration makes selected names bare. `agm exec` searches the entry file's directory, the
-selected standard library (the active `<AGM-home>/packages/std/<AGM_VERSION>/` package, then the
-wheel-bundled or source-checkout fallback), the selected AGM home's global `lib` directory, and
+selected standard library (the active `<AgM-home>/packages/std/<AGM_VERSION>/` package, then the
+wheel-bundled or source-checkout fallback), the selected AgM home's global `lib` directory, and
 any configured `[modules] roots` for imported modules.
 
 ```bash
@@ -352,7 +361,7 @@ agm run --no-sandbox --memory 8G make lint
 `agm run` loads config from:
 
 1. `<install-prefix>/.agm/config.toml` when present
-2. the selected AGM home's `config.toml` when distinct (`$AGM_HOME`, otherwise
+2. the selected AgM home's `config.toml` when distinct (`$AGM_HOME`, otherwise
    `<install-prefix>/.agm` when populated, otherwise `$HOME/.agm`)
 3. `<project-config-dir>/config.toml`
 4. `./.agm/config.toml`
@@ -421,7 +430,7 @@ agm wt rm old-branch
 
 ### `agm tmux`
 
-Manage tmux sessions and apply AGM pane layouts directly.
+Manage tmux sessions and apply AgM pane layouts directly.
 
 ```bash
 agm tmux open

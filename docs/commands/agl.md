@@ -37,7 +37,7 @@ Imports resolve against an unordered set of search roots:
   its relative-`path` manifest dependencies, each contributing its `src/` tree under its package
   name;
 - the selected standard library (below);
-- the AGM home's global `lib` directory (overridable by `[modules] lib_root`);
+- the AgM home's global `lib` directory (overridable by `[modules] lib_root`);
 - `[modules] roots` from any config layer;
 - `-I`/`--module-path` roots.
 
@@ -46,9 +46,9 @@ The standard library is the first of:
 1. `AGM_STDLIB`, replacing the whole selection (the active package is not mounted as well);
 2. a development `std` checkout whose module tree holds `FILE` (or the working directory),
    whatever version it declares;
-3. the active immutable `<AGM-home>/packages/std/<AGM_VERSION>/` package matching the running
+3. the active immutable `<AgM-home>/packages/std/<AGM_VERSION>/` package matching the running
    binary; a selected active package of another version is an error;
-4. AGM's bundled copy (`agm/stdlib` in a wheel, `packages/stdlib/` in a source checkout) when no active
+4. AgM's bundled copy (`agm/stdlib` in a wheel, `packages/stdlib/` in a source checkout) when no active
    package is selected or its store tree is absent, so a wheel runs AgL even when the home has
    no active `std`.
 
@@ -56,7 +56,7 @@ The standard library is the first of:
 [path-valued settings](config.md#path-valued-settings).
 
 `AGM_HOME` selects the whole runtime home (config, sandbox settings, global library,
-package store); by default AGM uses a populated `.agm` beside the executable, then `~/.agm`.
+package store); by default AgM uses a populated `.agm` beside the executable, then `~/.agm`.
 `AGM_STDLIB` relocates only the standard library.
 
 A module name must resolve to exactly one file across all roots; zero or several distinct files
@@ -337,7 +337,7 @@ program def main() -> unit =
 defaults to `""`; free `chat` uses the current `std/config::default-agent`. Each call starts a
 fresh conversation and waits until the agent exits, inheriting stdin, stdout, and stderr.
 They accept `sandbox` and `env` with the same defaults as an explicit-agent `ask`, apply
-configured agent defaults, and allocate a controlling terminal inside an AGM sandbox. AGM
+configured agent defaults, and allocate a controlling terminal inside an AgM sandbox. AgM
 ignores SIGINT and SIGQUIT while waiting, as for `std/os::edit`. There is no idle timeout,
 response capture, parsing, or retry. Launch failures and nonzero exits raise `AgentCallError`.
 `AgentCommand` keeps its command and prompt-file interpolation; supply an interactive command.
@@ -428,13 +428,13 @@ The argv an `Agent` builds (an `AgentCommand`'s command string; provider records
 interpolates `%{name}` strictly from the process environment plus `PROMPT_FILE`, which wins on
 conflicts. No workflow variables are added. The `%%` alias, `\%{` escape, and shlex splitting
 follow the same runner argument rules. A prompt-file placeholder places the prompt file there;
-otherwise AGM appends `@<path>`, except `AgentCodex`, which pipes the prompt on stdin. AgL text
+otherwise AgM appends `@<path>`, except `AgentCodex`, which pipes the prompt on stdin. AgL text
 literals interpolate `%{…}` themselves, so write `\%{PROMPT_FILE}` inside `AgentCommand("…")`.
 An unresolvable hole raises a catchable `AgentCallError` with `cause` `"interpolation_failure"`.
 
 ### Session runners
 
-A continuing `AgentCommand` session requires an unescaped `%{SESSION_ID}` in its command. AGM
+A continuing `AgentCommand` session requires an unescaped `%{SESSION_ID}` in its command. AgM
 substitutes a generated id into the argv (not the child environment); the command must use it to
 create or resume its transcript. Free `ask` with an `AgentCommand` default agent and
 `Session::open(AgentCommand(...))` open continuing sessions; opening one from a command without

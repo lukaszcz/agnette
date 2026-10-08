@@ -184,7 +184,7 @@ def validate_distribution_view(
 def _validate_manifest_schema(manifest: PackageManifest) -> None:
     """Reject manifest keys the schema does not define.
 
-    Loading tolerates them so that a store AGM itself baked stays readable
+    Loading tolerates them so that a store AgM itself baked stays readable
     across builds; a package presented for validation — checked, installed, or
     packaged — is held to the schema here, where a typo is still the author's
     to fix and refusing it strands nothing.
@@ -399,10 +399,10 @@ def _resource_calls(resolution: ModuleResolution) -> list[tuple[Call, BuiltinKin
 
 
 def validate_unreserved_package_name(name: str) -> None:
-    """Reject a package name that AGM's own commands or config sections reserve."""
+    """Reject a package name that AgM's own commands or config sections reserve."""
 
     if name in RESERVED_CONFIG_SECTION_NAMES:
-        raise DisciplineError(f"package name {name!r} is reserved by AGM")
+        raise DisciplineError(f"package name {name!r} is reserved by AgM")
 
 
 def package_module_files(package: PackageInfo) -> dict[ModuleId, Path]:

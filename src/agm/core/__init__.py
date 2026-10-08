@@ -1,1 +1,1 @@
-"""Core runtime helpers with minimal AGM coupling."""
+"""Core runtime helpers with minimal AgM coupling."""

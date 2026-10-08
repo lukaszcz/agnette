@@ -1,9 +1,12 @@
 # AgL Language Reference
 
-AgL (Agent Language) is a small, statically checked DSL for writing
-**agent workflows**: programs that call AI agents with typed output contracts,
-chain prompt results, run review/fix/refine loops, and branch on structured
-agent outcomes.
+AgL (Agnette Language) is Agnette's complete, statically checked agent workflow DSL.
+Agnette (Agentic Notation & Execution Toolkit) also provides CLI agent management
+facilities through AgM (Agnette Manager), the CLI agent project manager that runs AgL
+through `agm exec` and `agm repl`.
+
+AgL programs call AI agents with typed output contracts, chain prompt results,
+run review/fix/refine loops, and branch on structured agent outcomes.
 
 AgL is not a general-purpose programming language. It is a typed, expression-
 oriented orchestration language whose core ideas are:

@@ -768,7 +768,7 @@ def session_sandbox_context(
 def write_sandbox_home(
     home: Path, *, run_toml: str = "", extra_settings_files: tuple[str, ...] = ()
 ) -> None:
-    """Set up *home* as an AGM home with a default sandbox settings candidate.
+    """Set up *home* as an AgM home with a default sandbox settings candidate.
 
     Writes ``[home]/.agm/sandbox/default.json`` so sandbox preparation
     succeeds, *run_toml* as ``[home]/.agm/config.toml`` when given, and an

@@ -1,4 +1,4 @@
-"""Tests for AGM's release-version contract."""
+"""Tests for Agnette's release-version contract."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def test_agm_version_has_plain_semver_shape() -> None:
 
 
 def test_release_metadata_matches_runtime_version() -> None:
-    assert version("agm") == AGM_VERSION
+    assert version("agnette") == AGM_VERSION
 
 
 def test_shipped_standard_library_matches_runtime_version() -> None:
@@ -36,5 +36,6 @@ def test_bare_version_option_displays_agm_and_agl_stdlib_versions() -> None:
 
     assert result.exit_code == 0
     assert result.stdout == (
-        f"AGM version: {AGM_VERSION}\nAgL stdlib version: {manifest.version}\n"
+        f"AgM (Agnette Manager) version: {AGM_VERSION}\n"
+        f"AgL (Agnette Language) stdlib version: {manifest.version}\n"
     )

@@ -23,7 +23,7 @@
     {
       "name": "render_valid_table",
       "params": {"mode": 5},
-      "expect": {"stdout": "title = \"AGM\"\nenabled = true\n\n", "calls": {}}
+      "expect": {"stdout": "title = \"Agnette\"\nenabled = true\n\n", "calls": {}}
     },
     {
       "name": "render_rejects_null_values",

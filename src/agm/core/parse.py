@@ -1,4 +1,4 @@
-"""Generic string-parsing helpers shared across AGM layers."""
+"""Generic string-parsing helpers shared across AgM layers."""
 
 from __future__ import annotations
 

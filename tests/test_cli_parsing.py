@@ -1164,7 +1164,7 @@ class TestHelp:
     def test_help_bare(self, runner: CliRunner) -> None:
         result = invoke(runner, ["help"])
         assert result.exit_code == 0
-        assert "agm - Agent Management Framework" in result.stdout
+        assert all(name in result.stdout for name in ("Agnette", "AgM", "AgL"))
 
     def test_help_with_command(self, runner: CliRunner) -> None:
         result = invoke(runner, ["help", "open"])
@@ -1197,7 +1197,7 @@ class TestTopLevel:
     def test_no_command(self, runner: CliRunner) -> None:
         result = invoke(runner, [])
         assert result.exit_code == 0
-        assert "agm - Agent Management Framework" in result.stdout
+        assert all(name in result.stdout for name in ("Agnette", "AgM", "AgL"))
 
     def test_unknown_command(self, runner: CliRunner) -> None:
         result = invoke(runner, ["bogus"])
@@ -1344,7 +1344,7 @@ class TestPrintContextHelp:
         with pytest.raises((SystemExit, click.exceptions.Exit, TyperExit)):
             cli._print_context_help(root, None, True)
         captured = capsys.readouterr()
-        assert "agm - Agent Management Framework" in captured.out
+        assert all(name in captured.out for name in ("Agnette", "AgM", "AgL"))
 
     def test_prints_command_help_for_subcommand(self, capsys: pytest.CaptureFixture[str]) -> None:
         root = click.Context(click.Command("agm"))

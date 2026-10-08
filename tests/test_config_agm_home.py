@@ -1,4 +1,4 @@
-"""AGM home directory and stdlib root environment overrides."""
+"""AgM home directory and stdlib root environment overrides."""
 
 from __future__ import annotations
 

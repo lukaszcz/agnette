@@ -628,7 +628,7 @@ class TestPackageDiscipline:
     def test_rejects_a_manifest_field_the_schema_does_not_define(
         self, tmp_path: Path, manifest: str
     ) -> None:
-        """An authored manifest is input: a field AGM cannot act on is an error."""
+        """An authored manifest is input: a field AgM cannot act on is an error."""
         root = tmp_path / "package"
         (root / MODULE_TREE_DIRNAME).mkdir(parents=True)
         (root / "package.toml").write_text(manifest, encoding="utf-8")

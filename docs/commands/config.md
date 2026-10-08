@@ -35,7 +35,7 @@ lenient: unresolved or malformed holes stay verbatim — one config file serves 
 command, so an irrelevant broken path must not block loading; any resulting failure
 follows the consuming command's normal path semantics.
 
-When the config directory is a git repository, AGM auto-commits changes it makes
+When the config directory is a git repository, AgM auto-commits changes it makes
 there — covering `agm config update`, `agm init`, `agm open`, `agm close`,
 `agm dep new`, `agm dep switch`, and `agm worktree new`, each committing the config it
 adds, updates, or removes for the affected workspace. `agm init --no-git-init` (or

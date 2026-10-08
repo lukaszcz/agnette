@@ -1,4 +1,4 @@
-"""Checking and installing Python requirements in AGM's own interpreter environment."""
+"""Checking and installing Python requirements in AgM's own interpreter environment."""
 
 from __future__ import annotations
 

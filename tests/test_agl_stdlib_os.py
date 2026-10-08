@@ -858,7 +858,7 @@ def test_os_edit_raises_launch_error_when_sh_is_absent_from_the_given_path(
 def test_os_edit_gets_exactly_env_as_the_child_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The child sees only `env`'s variables — never the AGM process environment."""
+    """The child sees only `env`'s variables — never the AgM process environment."""
     monkeypatch.setenv("AGM_TEST_PARENT_ONLY", "leak")
     editor = tmp_path / "editor.sh"
     marker = tmp_path / "marker"

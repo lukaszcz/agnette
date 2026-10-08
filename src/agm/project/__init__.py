@@ -1,1 +1,1 @@
-"""AGM project and workspace helpers."""
+"""AgM project and workspace helpers."""

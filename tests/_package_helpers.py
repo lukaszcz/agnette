@@ -1,12 +1,12 @@
 """Shared helpers for tests that need a real activated package on disk.
 
 ``write_installed_package`` lays out a minimal single-module package under an
-AGM home's package store, writes its ``RECORD``, and activates it, so tests
+AgM home's package store, writes its ``RECORD``, and activates it, so tests
 that exercise installed-reference resolution can work against the same store
 layout production code reads.
 
 ``older_incompatible_std_requirement`` and ``std_compatibility_bound`` derive
-``std`` requirements and bounds from the running AGM version, so release-line
+``std`` requirements and bounds from the running AgM version, so release-line
 tests keep testing the rule rather than one release's literals.
 
 ``archive_contents`` and ``write_zip`` read and rewrite a ``.agmpkg`` archive's
@@ -53,11 +53,11 @@ from agm.version import AGM_VERSION
 
 
 def older_incompatible_std_requirement() -> str:
-    """Return a ``std`` requirement one release line below the running AGM.
+    """Return a ``std`` requirement one release line below the running AgM.
 
     ``std`` is compatible within one minor line before 1.0 and one major line
     from 1.0 on, so stepping the running version back a whole line yields a
-    requirement the running AGM must reject as too old.
+    requirement the running AgM must reject as too old.
     """
     running = semver.Version.parse(AGM_VERSION)
     if running.major == 0:
@@ -66,7 +66,7 @@ def older_incompatible_std_requirement() -> str:
 
 
 def std_compatibility_bound(requirement: str) -> str:
-    """Return the exclusive AGM bound a ``std`` *requirement* implies."""
+    """Return the exclusive AgM bound a ``std`` *requirement* implies."""
     version = semver.Version.parse(requirement)
     if version.major == 0:
         return str(semver.Version(0, version.minor + 1, 0))
@@ -249,7 +249,7 @@ class InstalledPackageSnapshot:
 
 @dataclass
 class PythonInstaller:
-    """Records installer runs under AGM home *home*; each run returns *returncode*."""
+    """Records installer runs under AgM home *home*; each run returns *returncode*."""
 
     home: Path
     returncode: int = 0

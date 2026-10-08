@@ -1,4 +1,4 @@
-"""Locate the standard library shipped with AGM.
+"""Locate the standard library shipped with AgM.
 
 Source checkouts keep ``packages/stdlib/`` in the repository, while built wheels
 install the same tree inside the ``agm`` package.  Runtime resolution and the
@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def shipped_stdlib_root() -> Path:
-    """Return AGM's bundled or source-checkout standard-library root."""
+    """Return AgM's bundled or source-checkout standard-library root."""
     package_root = Path(__file__).resolve().parent
     bundled_root = package_root / "stdlib"
     if bundled_root.is_dir():

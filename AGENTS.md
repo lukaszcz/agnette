@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-AGM is an Agent Project Management CLI tool.
+Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities and a complete agent workflow DSL. AgM (Agnette Manager) is the CLI agent project manager; AgL (Agnette Language) is the workflow DSL. The executable remains `agm`.
 
 ## Tech stack
 
@@ -12,9 +12,9 @@ Use `uv run` for all Python tooling.
 
 ## Architecture and project structure
 
-Read @docs/arch/index.md to understand AGM implementation architecture.
+Read @docs/arch/index.md to understand Agnette implementation architecture.
 
-**IMPORTANT**: Update docs/arch/**/*.md whenever AGM implementation architecture changes – always keep these files up-to-date with the codebase.
+**IMPORTANT**: Update docs/arch/**/*.md whenever Agnette implementation architecture changes – always keep these files up-to-date with the codebase.
 
 The primary purpose of architecture docs in docs/arch/**/*.md is to provide agents with a quick but comprehensive overview of the system's architecture and the codebase. Treat the docs as an onboarding guide. When updating, do not add brittle implementation details, but do include info on where to find relevant codebase references. Be *radically* concise and precise - convey essential *high-level* architectural information without extra prose. Remove redundant prose, implementation details, and duplicated information. Architecture docs provide architectural overview *only* - implementation mechanisms should be explained in comments and docstrings instead. Match the existing writing style and succinctness level.
 
@@ -63,7 +63,7 @@ Run the CLI locally with `uv run agm ...` when iterating on a command.
 
 ## Documentation
 
-- Keep docs (`README.md` and `docs/commands/*.md`) and command help texts up to date with implemented command functionality. `README.md` is a brief description of the AGM program and should not contain overhwelming details, while `docs/commands/*.md` and the help texts are comprehensive command references.
+- Keep docs (`README.md` and `docs/commands/*.md`) and command help texts up to date with implemented command functionality. `README.md` is a brief description of Agnette and should not contain overhwelming details, while `docs/commands/*.md` and the help texts are comprehensive command references.
 - ALWAYS keep comments and docstrings up-to-date with the codebase.
 - Avoid references to plans, milestones, or unversioned files in the docs, comments and docstrings.
 

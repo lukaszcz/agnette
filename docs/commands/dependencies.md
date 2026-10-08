@@ -37,4 +37,4 @@ Dependency commands track selected checkout names in `config.toml`'s `[deps]` ta
 
 - `--all DEP`: remove the entire dependency directory, including the main checkout and any linked worktrees
 
-Removal targets must be relative paths without `.` or `..` components. A dependency must resolve below `deps/`, and its worktrees below that dependency's directory. With `--all`, AGM checks every linked worktree before removing any; a detached worktree or one outside the dependency stops removal.
+Removal targets must be relative paths without `.` or `..` components. A dependency must resolve below `deps/`, and its worktrees below that dependency's directory. With `--all`, AgM checks every linked worktree before removing any; a detached worktree or one outside the dependency stops removal.

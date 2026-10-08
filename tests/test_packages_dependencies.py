@@ -117,9 +117,9 @@ def test_dependency_check_validates_std_against_the_running_agm(tmp_path: Path) 
         tmp_path / "newer-alpha", "newer_alpha", "1.0.0", f'\n[dependencies]\nstd = "{newer_agm}"\n'
     )
 
-    with pytest.raises(DependencyError, match="AGM"):
+    with pytest.raises(DependencyError, match="AgM"):
         validate_dependencies(package, home=tmp_path / "home", env={})
-    with pytest.raises(DependencyError, match="AGM"):
+    with pytest.raises(DependencyError, match="AgM"):
         validate_dependencies(
             PackageInfo(package.root, distribution_manifest(package.manifest)),
             home=tmp_path / "home",

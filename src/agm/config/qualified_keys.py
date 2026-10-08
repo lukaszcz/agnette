@@ -365,11 +365,11 @@ def route_table_paths(
     Every module-suffix spelling, shortest first, then the exact quoted module
     anchor, then each *command path* the declaration is registered under, whose
     own segments are the whole table path: ``agm dev review`` reads
-    ``[dev.review]``. AGM's top-level configuration sections are excluded,
+    ``[dev.review]``. AgM's top-level configuration sections are excluded,
     except that a single-segment loose-file module named after a *command* may
     address one of its nested declaration tables: a command section holds its
     own settings as leaf keys, so a table one level below it is free. A
-    section keyed by AGM's own schema (:data:`SCHEMA_CONFIG_SECTION_NAMES`) is
+    section keyed by AgM's own schema (:data:`SCHEMA_CONFIG_SECTION_NAMES`) is
     excluded at every depth, because its nested tables already belong to
     user-chosen names, so a loose file named ``packages.agl`` -- or a command
     registered as ``agent review`` -- has no config table for its programs at
@@ -407,7 +407,7 @@ def _config_command_paths(
     Package validation rejects such a registration, but the activation index
     tolerates one from an earlier install (e.g. ``agent review``). Like a loose
     file named after a schema section, it has no config table, exact or
-    inherited, so its tables never collide with AGM's own schema.
+    inherited, so its tables never collide with AgM's own schema.
     """
     return tuple(path for path in command_paths if path[0] not in SCHEMA_CONFIG_SECTION_NAMES)
 

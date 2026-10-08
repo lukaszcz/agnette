@@ -4,7 +4,7 @@
 |---|---|
 | `agm tmux open [-d\|--detach] [-n\|--num-panes PANES] [SESSION]` | Open a tmux session |
 | `agm tmux close SESSION` | Close a tmux session |
-| `agm tmux layout PANES [-w\|--window WINDOW_ID]` | Apply AGM's tmux pane layout to a window |
+| `agm tmux layout PANES [-w\|--window WINDOW_ID]` | Apply AgM's tmux pane layout to a window |
 
 `agm tmux open` options:
 

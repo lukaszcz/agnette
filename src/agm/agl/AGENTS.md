@@ -1,4 +1,4 @@
-# AgL area guidance
+# AgL (Agnette Language) area guidance
 
 ## Architecture and project layout
 

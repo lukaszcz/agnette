@@ -1,4 +1,4 @@
-"""Syncing active packages' Python requirements into AGM's interpreter environment."""
+"""Syncing active packages' Python requirements into AgM's interpreter environment."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from tests._package_helpers import (
     write_rollback_package,
 )
 
-# ``packaging`` is an AGM runtime dependency, so it is always installed; the
+# ``packaging`` is an AgM runtime dependency, so it is always installed; the
 # ``agm-test-absent-*`` distributions never are.
 _PRESENT = "packaging>=1"
 _ABSENT_A = "agm-test-absent-a>=1"

@@ -3,7 +3,7 @@
 ;;; Commentary:
 
 ;; Tests the parsing and region mapping of the AgL flymake backend.  The
-;; suite never runs `agm' and needs no AGM installation: parsing is a pure
+;; suite never runs `agm' and needs no AgM installation: parsing is a pure
 ;; function over the checker's output, which is what these tests drive.
 
 ;;; Code:
@@ -21,7 +21,7 @@
   (declare (indent 1))
   ;; `agl-flymake-enable' is bound off so entering the mode never starts a
   ;; real `agm check': this suite drives the parsing and mapping directly
-  ;; and must not depend on an AGM installation.
+  ;; and must not depend on an AgM installation.
   `(let ((file (make-temp-file "agl-flymake-" nil ".agl"))
          (agl-flymake-enable nil))
      (unwind-protect

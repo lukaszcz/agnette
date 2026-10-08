@@ -60,7 +60,7 @@ missing callables, import failures, and unsatisfied
 package are load-time diagnostics. In a REPL session a companion is imported
 once until `:reset`.
 
-During the import, AGM temporarily supplies a module named `agl`. A companion
+During the import, AgM temporarily supplies a module named `agl`. A companion
 imports the program's nominal classes, value constructors, and exception carrier from it:
 
 ```python
@@ -541,7 +541,7 @@ else as the [value mapping](#value-mapping) prescribes.
 
 ## Trust boundary
 
-A companion runs unsandboxed and in-process with the privileges of the AGM
+A companion runs unsandboxed and in-process with the privileges of the AgM
 process. Load only companions you trust as much as the AgL program. A host can
 disable the Python FFI entirely; then any program declaring an extern is
 rejected before execution.

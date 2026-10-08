@@ -1,4 +1,4 @@
-"""Display metadata for an active AGM package."""
+"""Display metadata for an active AgM package."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def run(args: PkgInfoArgs) -> None:
         requirement = f">= {dependency.version}"
         if is_std_package_name(name):
             requirement += f", < {std_compatibility_upper_bound(dependency)}"
-            status = f"running AGM {AGM_VERSION}"
+            status = f"running AgM {AGM_VERSION}"
             if unmet_std_requirement(dependency) is not None:
                 status += " (unsatisfied)"
         else:

@@ -1,6 +1,6 @@
 # AgL Host Runtime
 
-The runtime package is the eval-free services layer: agent dispatch and session bridging, codecs, parameter conversion, host-environment types, rendering, serialization, tracing, and the Python FFI registry. It imports neither the evaluator nor the pipeline, and it builds on AGM's shared agent and core layers rather than reimplementing them.
+The runtime package is the eval-free services layer: agent dispatch and session bridging, codecs, parameter conversion, host-environment types, rendering, serialization, tracing, and the Python FFI registry. It imports neither the evaluator nor the pipeline, and it builds on AgM's shared agent and core layers rather than reimplementing them.
 
 ## Agents and Sessions
 

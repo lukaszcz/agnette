@@ -1,4 +1,4 @@
-"""Lazy public façade for AGM package-domain types and operations."""
+"""Lazy public façade for AgM package-domain types and operations."""
 
 from __future__ import annotations
 

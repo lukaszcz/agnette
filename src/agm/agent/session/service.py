@@ -54,7 +54,7 @@ class _HostSession:
 
 
 class AglSessionHost:
-    """Adapt the AGM session service to the firewall-safe AgL host protocol."""
+    """Adapt the AgM session service to the firewall-safe AgL host protocol."""
 
     def __init__(self, service: SessionService) -> None:
         self._service = service
@@ -417,7 +417,7 @@ class _SessionEntry:
 
 
 class SessionService:
-    """Own live session backends behind AGM-generated opaque handle ids."""
+    """Own live session backends behind AgM-generated opaque handle ids."""
 
     def __init__(self, backend_factory: SessionBackendFactory) -> None:
         self._backend_factory = backend_factory

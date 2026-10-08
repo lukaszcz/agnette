@@ -1,4 +1,4 @@
-"""Report dead code in AGM's Python sources with vulture.
+"""Report dead code in AgM's Python sources with vulture.
 
 Vulture cannot see names that frameworks invoke by name. Lark calls
 ``AstBuilder`` methods by grammar rule and alias, so every rule and alias in the

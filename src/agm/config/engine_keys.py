@@ -1,4 +1,4 @@
-"""Canonical schema of AGM's AgL engine config keys.
+"""Canonical schema of AgM's AgL engine config keys.
 
 Pure data leaf (no ``agm`` imports) shared by the config layer — which reads
 these keys from ``[exec]`` and qualified program TOML tables — AgL semantics,

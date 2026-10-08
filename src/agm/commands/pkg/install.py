@@ -1,4 +1,4 @@
-"""Install a directory package into AGM's versioned store."""
+"""Install a directory package into AgM's versioned store."""
 
 from __future__ import annotations
 

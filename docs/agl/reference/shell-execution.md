@@ -47,7 +47,7 @@ exec(
 ```
 
 `env` is the complete environment given to the shell; it replaces rather than
-merges with the AGM process environment. The default is the current ambient
+merges with the AgM process environment. The default is the current ambient
 `std/env::environ`, which carries `PWD`/`OLDPWD` as `std/os::chdir` updates
 them. Use `environ.extended(overrides)` when a command needs an explicit
 overlay. `cwd` is an optional working directory the command runs in; `None`

@@ -102,7 +102,7 @@ builtin def ask-request[T](
   Open the agent's interactive terminal UI and wait for it to exit.
 
   Starts a fresh conversation with `prompt`, inheriting stdio. Uses configured agent defaults,
-  sandboxing, and `env`. While waiting, AGM ignores SIGINT and SIGQUIT as for `std/os::edit`.
+  sandboxing, and `env`. While waiting, AgM ignores SIGINT and SIGQUIT as for `std/os::edit`.
   Has no idle timeout or response parsing. Raises `AgentCallError` on launch failure or nonzero exit.
 """)
 extern def chat(

@@ -26,7 +26,7 @@ Settings are discovered and merged across the same install/home/project/workspac
 
 ## `agm run`
 
-`commands/run.py` is a thin client: it maps CLI flags and config to a `SandboxRequest`/`SandboxSpec` (alias remapping happens here only, never for agent or `exec` argv), calls `prepare()`, and runs the result in the foreground or, under `--dry-run`, prints the same detail lines. It holds no limit, PTY, or settings logic of its own. Interactive commands run through AGM's PTY relay by default; sandbox and PTY can each be bypassed explicitly.
+`commands/run.py` is a thin client: it maps CLI flags and config to a `SandboxRequest`/`SandboxSpec` (alias remapping happens here only, never for agent or `exec` argv), calls `prepare()`, and runs the result in the foreground or, under `--dry-run`, prints the same detail lines. It holds no limit, PTY, or settings logic of its own. Interactive commands run through AgM's PTY relay by default; sandbox and PTY can each be bypassed explicitly.
 
 ## Code Entry Points
 

@@ -584,7 +584,7 @@ class TestPackageOwnedEntry:
     _REPO_STDLIB = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
 
     def _isolated_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Point the AGM home and cwd at *tmp_path*, away from the developer's own."""
+        """Point the AgM home and cwd at *tmp_path*, away from the developer's own."""
         home = tmp_path / "agm-home"
         home.mkdir()
         monkeypatch.setenv("AGM_HOME", str(home))
@@ -593,7 +593,7 @@ class TestPackageOwnedEntry:
     def _development_package(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
     ) -> Path:
-        """Lay out an empty development package *name* and isolate the AGM home."""
+        """Lay out an empty development package *name* and isolate the AgM home."""
         self._isolated_home(tmp_path, monkeypatch)
         root = tmp_path / name
         (root / "src").mkdir(parents=True)

@@ -97,7 +97,7 @@ from agm.util.unicode import surrogate_index
 # ---------------------------------------------------------------------------
 
 # ``IDENT_STOP`` (the characters that terminate an identifier scan) lives in
-# ``agm.util.ident`` so that AgL identifiers and the ``%{name}`` holes AGM
+# ``agm.util.ident`` so that AgL identifiers and the ``%{name}`` holes AgM
 # interpolates at runtime cannot drift apart.  The scan itself is greedy:
 # an identifier starts with a letter or ``_`` and continues until one of those
 # structural delimiters.  ``=`` and ``@`` are stop characters so that ``a=b``

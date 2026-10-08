@@ -419,7 +419,7 @@ def test_info_command_reads_manifest_metadata_and_current_dependency_status(
     assert "run: alpha/main::main" in output
     assert "Run Alpha" in output
     bound = std_compatibility_bound(AGM_VERSION)
-    assert f"requires std >= {AGM_VERSION}, < {bound}: running AGM {AGM_VERSION}" in output
+    assert f"requires std >= {AGM_VERSION}, < {bound}: running AgM {AGM_VERSION}" in output
     assert "requires bravo >= 1.0.0: missing" in output
     assert "requires charlie >= 2.0.0: active 1.0.0 (unsatisfied)" in output
     assert "requires delta >= 1.0.0: editable 1.0.0" in output
@@ -443,9 +443,9 @@ def test_info_command_reads_manifest_metadata_and_current_dependency_status(
 def test_a_stored_manifest_field_this_build_does_not_know_keeps_the_package_usable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A package another AGM installed stays listable and inspectable.
+    """A package another AgM installed stays listable and inspectable.
 
-    Its baked manifest is AGM's own artifact, rewritten whole by the next
+    Its baked manifest is AgM's own artifact, rewritten whole by the next
     install; a field this build has no meaning for must not strand the store.
     """
     home = _context(tmp_path).home

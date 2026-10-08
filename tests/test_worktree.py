@@ -57,7 +57,7 @@ def _bare_origin(
 
 
 def _make_project(tmp_path: Path, env: dict[str, str], *, branches: Sequence[str] = ()) -> Path:
-    """Create a split-layout AGM project whose ``repo/`` is a real checkout."""
+    """Create a split-layout AgM project whose ``repo/`` is a real checkout."""
     origin = _bare_origin(tmp_path, env, branches=branches)
     project = tmp_path / "proj"
     for name in ("worktrees", "deps", "config"):
@@ -67,7 +67,7 @@ def _make_project(tmp_path: Path, env: dict[str, str], *, branches: Sequence[str
 
 
 def _plain_repo(tmp_path: Path, env: dict[str, str]) -> Path:
-    """Create a standalone checkout that belongs to no AGM project."""
+    """Create a standalone checkout that belongs to no AgM project."""
     origin = _bare_origin(tmp_path, env, name="plain-origin")
     repo = tmp_path / "plain"
     subprocess.run(["git", "clone", "-q", str(origin), str(repo)], env=env, check=True)

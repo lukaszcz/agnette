@@ -1,4 +1,4 @@
-"""Setup helpers for AGM workspaces."""
+"""Setup helpers for AgM workspaces."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from agm.project.workspace_env import load_workspace_env
 
 
 def run_setup(*, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
-    """Run all configured setup scripts for the current AGM workspace."""
+    """Run all configured setup scripts for the current AgM workspace."""
 
     current = Path.cwd() if cwd is None else cwd.resolve()
     project_dir = require_current_project_dir(current)

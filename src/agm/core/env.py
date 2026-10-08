@@ -15,7 +15,7 @@ from dotenv.variables import parse_variables
 
 from agm.core.process import exit_with_output
 
-#: The widest and narrowest help AGM renders itself, whatever the terminal
+#: The widest and narrowest help AgM renders itself, whatever the terminal
 #: reports: wide help grows unreadable, and a very narrow one leaves no room
 #: for a description column.
 _HELP_WIDTH_RANGE = (40, 80)
@@ -32,7 +32,7 @@ def resolve_home(env: Mapping[str, str] | None = None) -> Path:
 
 
 def help_width() -> int:
-    """Return the column count AGM's hand-rendered help wraps to.
+    """Return the column count AgM's hand-rendered help wraps to.
 
     The terminal's width, clamped: ``COLUMNS`` overrides it, as it does for
     every other command's Click-rendered help.
@@ -76,23 +76,23 @@ def is_shell_identifier(name: str) -> bool:
 
 
 def is_safe_shell_env_assignment_name(name: str) -> bool:
-    """Return whether AGM may safely emit or inject *name* as a shell env assignment."""
+    """Return whether AgM may safely emit or inject *name* as a shell env assignment."""
 
     return is_shell_identifier(name) and name not in _SHELL_ENV_ASSIGNMENT_SKIP_NAMES
 
 
 def agm_installation_prefix() -> Path | None:
-    """Return the installation prefix of the running AGM executable, if any.
+    """Return the installation prefix of the running AgM executable, if any.
 
     The prefix is the parent of the executable's ``bin`` directory, taken from
     the invocation path rather than PATH, so a development build reports its own
-    environment instead of an unrelated AGM installed elsewhere. The path is not
+    environment instead of an unrelated AgM installed elsewhere. The path is not
     resolved through symlinks: a tool installer's entry point is a link in the
     prefix's ``bin`` directory, and the prefix is that link's location.
 
     Only a ``<prefix>/bin/<executable>`` invocation names a prefix. Any other
     entry point — a repository script, a directly invoked module — belongs to no
-    installation, and reporting its grandparent would attach an AGM home and a
+    installation, and reporting its grandparent would attach an AgM home and a
     config layer to an arbitrary directory.
     """
 

@@ -922,7 +922,7 @@ def test_registered_command_reaches_the_programs_end_of_options_marker(
 ) -> None:
     """A registered command inherits ``agm exec``'s single-``--`` rule.
 
-    AGM's own parser keeps the marker the reader wrote, so one bare ``--``
+    AgM's own parser keeps the marker the reader wrote, so one bare ``--``
     is the program's own end-of-options marker and a flag-shaped positional
     value reaches it behind that single marker. A second marker is then an
     ordinary positional value of its own.

@@ -1,4 +1,4 @@
-"""agm workspace list — list AGM workspaces."""
+"""agm workspace list — list AgM workspaces."""
 
 from __future__ import annotations
 

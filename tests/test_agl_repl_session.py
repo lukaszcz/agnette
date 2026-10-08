@@ -11382,7 +11382,7 @@ class TestDeferredStdlibResolution:
         (``current_config_context(...).home``): the deferred resolution in
         ``_ensure_roots`` must use the same seam, not a hardcoded
         ``Path.home()``, so a relocated ``AGM_HOME`` is honored here exactly
-        as it is for every other AGM home lookup.
+        as it is for every other AgM home lookup.
         """
         import semver
 

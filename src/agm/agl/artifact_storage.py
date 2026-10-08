@@ -20,7 +20,7 @@ _COMPILER_DIGEST: bytes | None = None
 
 
 def _compiler_digest() -> bytes:
-    """Invalidate artifacts when AGM code, grammar, Python, or the parser dependency changes."""
+    """Invalidate artifacts when AgM code, grammar, Python, or the parser dependency changes."""
     global _COMPILER_DIGEST
     if _COMPILER_DIGEST is not None:
         return _COMPILER_DIGEST

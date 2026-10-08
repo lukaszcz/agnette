@@ -41,7 +41,7 @@ _CandidateT = TypeVar("_CandidateT")
 
 
 class _ContextWithMetadata(Protocol):
-    """The Click context fields AGM uses beyond Typer's narrow stub."""
+    """The Click context fields AgM uses beyond Typer's narrow stub."""
 
     meta: dict[str, object]
 

@@ -1,4 +1,4 @@
-"""Sync AGM's interpreter environment to the active packages' Python requirements."""
+"""Sync AgM's interpreter environment to the active packages' Python requirements."""
 
 from __future__ import annotations
 

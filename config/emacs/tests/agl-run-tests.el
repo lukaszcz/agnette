@@ -3,7 +3,7 @@
 ;;; Commentary:
 
 ;; Tests the command lines `agl-run' and `agl-check' hand to `compile',
-;; and that AGM's GNU-style diagnostics are recognized by the default
+;; and that AgM's GNU-style diagnostics are recognized by the default
 ;; compilation error regexp.  No process is ever spawned: `compile' is
 ;; stubbed.
 
@@ -106,10 +106,10 @@
           (should (equal sent "let x = 1")))
       (cua-mode -1))))
 
-;; --- AGM diagnostics are clickable in a compilation buffer ---
+;; --- AgM diagnostics are clickable in a compilation buffer ---
 
 (ert-deftest agl-run-compilation-recognizes-agm-diagnostics ()
-  ;; AGM renders `path:line:col: error: message', which the default
+  ;; AgM renders `path:line:col: error: message', which the default
   ;; compilation regexps already match -- no mode-specific entry needed.
   (with-temp-buffer
     (let ((line "/tmp/work/flow.agl:3:5: error: 'x' is not defined."))

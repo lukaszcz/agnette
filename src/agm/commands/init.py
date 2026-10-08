@@ -73,10 +73,10 @@ def ensure_gitignore_entry(path: Path, entry: str) -> None:
 def ensure_git_exclude_entry(repo_dir: Path, entry: str) -> None:
     """Ignore *entry* in every worktree of *repo_dir* without touching its tracked tree.
 
-    A split-layout project clones the user's repository, so AGM must not commit an
+    A split-layout project clones the user's repository, so AgM must not commit an
     ignore rule into their history; the generated ``.gitignore`` is left untracked
     for them to adopt. Untracked files are invisible to branch worktrees, whose
-    committed tree carries no such rule, so AGM's own ``.agent-files`` artifacts
+    committed tree carries no such rule, so AgM's own ``.agent-files`` artifacts
     would make a fresh worktree look dirty and block ``close``. ``info/exclude``
     lives in the common git directory shared by every worktree, which is where a
     per-clone ignore rule belongs.

@@ -66,7 +66,7 @@ def _is_usage_error(error: Exception) -> bool:
 
     Typer vendors its own copy of Click (``typer._click``) from 0.25 onward, so
     the ``UsageError`` raised by command resolution is a *different class* from
-    ``click.UsageError`` whenever AGM is installed against such a Typer.  An
+    ``click.UsageError`` whenever AgM is installed against such a Typer.  An
     ``isinstance`` check alone silently stops recognizing unknown commands
     there, which disables the registered-package-command fallback below.
     """

@@ -289,7 +289,7 @@ GIT_IDENTITY: Mapping[str, str] = MappingProxyType(
     }
 )
 
-#: Variables that tell AGM which project and terminal it is running inside.  A
+#: Variables that tell AgM which project and terminal it is running inside.  A
 #: suite launched from an agm workspace inherits them and would otherwise
 #: resolve *that* project instead of the one the test built.
 _HOST_CONTEXT_VARIABLES = ("PROJ_DIR", "REPO_DIR", "TMUX", "TMUX_PANE")
@@ -316,7 +316,7 @@ def isolate_host_environment(
 ) -> None:
     """Run every test against its own empty home, never the developer's.
 
-    ``HOME`` resolves the AGM home (``~/.agm``), so without this a developer who
+    ``HOME`` resolves the AgM home (``~/.agm``), so without this a developer who
     has run ``agm pkg install`` makes the suite read their installed package
     store and their ``config.toml`` — the suite would then pass
     or fail depending on the machine.  Point ``HOME`` (and the XDG roots git
@@ -351,9 +351,9 @@ def fence_project_discovery_at_temp_root(
     """Stop ancestor-walking project discovery at the suite's temporary root.
 
     Discovery walks every ancestor of its starting directory. ``isolate_host_environment``
-    already keeps ``HOME`` (and so the AGM home) out of the way, but ``TMPDIR`` itself is
+    already keeps ``HOME`` (and so the AgM home) out of the way, but ``TMPDIR`` itself is
     host-controlled -- an agent sandbox routinely confines writable paths to somewhere
-    under the invoking user's real home -- so a real AGM project sitting above the
+    under the invoking user's real home -- so a real AgM project sitting above the
     temporary root would otherwise decide what a test's temporary tree resolves to.
     Every directory above the base temporary directory belongs to the host, never to a
     test.
@@ -389,7 +389,7 @@ def pin_agm_stdlib_to_repo(
 
 @pytest.fixture(autouse=True)
 def detach_installed_agm_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hide any AGM installed at the test runner's own prefix from the suite.
+    """Hide any AgM installed at the test runner's own prefix from the suite.
 
     Tests that exercise the installation-prefix fallback take the
     ``installed_agm_prefix`` fixture instead.
@@ -466,7 +466,7 @@ def refuse_real_httpx2_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def python_installer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> PythonInstaller:
-    """Replace the Python installer with a recorder for AGM home ``tmp_path / "home"``."""
+    """Replace the Python installer with a recorder for AgM home ``tmp_path / "home"``."""
     recorder = PythonInstaller(home=tmp_path / "home")
     monkeypatch.setattr(process, "run_foreground", recorder.run_foreground)
     monkeypatch.setattr("agm.core.pyenv.shutil.which", lambda _name: "/opt/tools/uv")
@@ -478,7 +478,7 @@ def env(tmp_path: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, s
     """Environment dict with git identity and a home of its own.
 
     A separate home from the one :func:`isolate_host_environment` installs, so a
-    test that passes this mapping to a subprocess can inspect what AGM wrote
+    test that passes this mapping to a subprocess can inspect what AgM wrote
     under it.
     """
     e = os.environ.copy()

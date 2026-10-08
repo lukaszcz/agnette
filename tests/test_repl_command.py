@@ -8,7 +8,7 @@ Covers:
   is no pre-seed CLI option;
 - ``repl.run`` resolves ``[exec]`` config, builds a session, and hands off to
   a REPL front end (mocked) with the echo flag and a history path derived from
-  AGM home.
+  AgM home.
 - front-end selection: ``--plain``, and the ``plain_mode_engaged`` predicate,
   decide between the plain and prompt_toolkit front ends.
 
@@ -1349,7 +1349,7 @@ class TestReplModuleRoots:
     ) -> None:
         """When [modules] lib_root is set in config, it is resolved and passed to the session."""
         home = _isolated_home(monkeypatch, tmp_path)
-        # Create an AGM home config with a lib_root pointing to a local dir.
+        # Create an AgM home config with a lib_root pointing to a local dir.
         lib_dir = tmp_path / "mylib"
         lib_dir.mkdir()
         # Put a minimal module in lib_dir so we can verify it is importable.

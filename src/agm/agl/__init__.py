@@ -1,6 +1,6 @@
-"""Public façade for the AgL agent workflow DSL.
+"""Public façade for AgL (Agnette Language), Agnette's workflow DSL.
 
-The façade exports the pipeline API lazily so lower AGM domains can depend on
+The façade exports the pipeline API lazily so lower AgM domains can depend on
 AgL leaves such as module identifiers without importing the execution stack.
 """
 

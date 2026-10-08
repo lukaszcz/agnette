@@ -995,7 +995,7 @@ def test_sandbox_preparation_receives_the_asks_evaluated_environment(
     """Sandbox preparation gets ``ask``'s own evaluated ``env``, not a fresh host copy.
 
     Regression coverage for the bug this fix addresses: an agent call used to
-    spawn under a bare ``clone_env()`` of the AGM process, so ``std/env``
+    spawn under a bare ``clone_env()`` of the AgM process, so ``std/env``
     edits (``setenv``, an explicit ``env =``) never reached a sandboxed call.
     """
     home = tmp_path / "home"

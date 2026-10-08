@@ -6,7 +6,7 @@
 | `agm close [-f\|--force] [-D] [--keep-branch] [--keep-workspace] BRANCH` | Shortcut for `agm workspace close` |
 | `agm workspace open [-d\|--detach] [-n\|--num-panes PANES] [-p\|--parent PARENT] [--fetch \| --no-fetch] TARGET` | Open the main workspace or a branch workspace, creating or checking it out when needed |
 | `agm workspace close [-f\|--force] [-D] [--keep-branch] [--keep-workspace] BRANCH` | Remove a branch workspace and close its tmux session |
-| `agm workspace list [-v\|--verbose]` | List all open AGM workspaces |
+| `agm workspace list [-v\|--verbose]` | List all open AgM workspaces |
 | `agm workspace setup` | Run setup scripts for the current workspace |
 | `agm workspace shell-regen SHELL_DIR` | Regenerate the per-session shell wrapper and rc files in `SHELL_DIR` |
 | `agm wsp open [-d\|--detach] [-n\|--num-panes PANES] [-p\|--parent PARENT] [--fetch \| --no-fetch] TARGET` | Alias form of `agm workspace open` |
@@ -21,8 +21,8 @@
 | `agm sync fetch` | Prune stale worktrees, fetch the main repo and checked-out dependencies, then create missing tracking branches |
 | `agm sync pull` | Run `agm sync fetch`, then run `git merge` in the main workspace, every branch workspace, and every dependency |
 
-An AGM workspace is the main repo or a linked Git worktree in the project's worktrees directory,
-combined with AGM project config, workspace config, dependency environment, setup scripts, and tmux
+An AgM workspace is the main repo or a linked Git worktree in the project's worktrees directory,
+combined with AgM project config, workspace config, dependency environment, setup scripts, and tmux
 session lifecycle. A branch workspace is named by its path under the worktrees directory (the
 branch it was opened for); other Git worktrees of the repo are not workspaces.
 
@@ -92,7 +92,7 @@ branch it was opened for); other Git worktrees of the repo are not workspaces.
 
 `agm init` options:
 
-- `--embedded`: force the embedded layout with AGM data under `.agm/`
+- `--embedded`: force the embedded layout with AgM data under `.agm/`
 - `--split`: force the split layout with `repo/`, `deps/`, `notes/`, `worktrees/`, and `config/`
 - `--clone`: initialize a child directory derived from `REPO_URL` when no `PROJECT_NAME` is provided
 - `-b`, `--branch BRANCH`: clone this branch when `REPO_URL` is provided
@@ -105,12 +105,12 @@ branch it was opened for); other Git worktrees of the repo are not workspaces.
 
 - with `REPO_URL`, split layout by default unless `--embedded`; without `REPO_URL`, embedded layout only when the target project directory is a git repo, otherwise split
 - initializes the current directory by default, a child directory named `PROJECT_NAME` when given, or a `REPO_URL`-derived child directory with `--clone`
-- when an embedded repository has no commits, AGM creates its initial commit containing the
+- when an embedded repository has no commits, AgM creates its initial commit containing the
   generated `.gitignore`
 
 `agm init` split layout notes:
 
-- without `REPO_URL`, AGM initializes `repo/` as an empty git repository
-- AGM writes a `.agent-files` entry into `repo/.gitignore` and the repository's `info/exclude`,
+- without `REPO_URL`, AgM initializes `repo/` as an empty git repository
+- AgM writes a `.agent-files` entry into `repo/.gitignore` and the repository's `info/exclude`,
   leaving the tracked tree untouched; every branch worktree inherits the `info/exclude` copy, so
   agent artifacts never make a workspace look dirty

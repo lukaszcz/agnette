@@ -149,7 +149,7 @@ check:
     cat "$static_log"; \
     exit "$other_status"
 
-# Install the agm CLI with the project's locked runtime dependencies
+# Install Agnette's AgM CLI with the project's locked runtime dependencies
 install-agm *args:
     @constraints_file="$(mktemp)"; \
     trap 'rm -f "$constraints_file"' EXIT; \
@@ -165,7 +165,7 @@ install-prefix *args:
         if [[ "$arg" != -* ]]; then echo "$arg"; break; fi; \
     done
 
-# Install agm, its user config, editor modes, and repository packages, then sync
+# Install Agnette, its user config, editor modes, and repository packages, then sync
 # the active packages' Python requirements into the freshly installed environment
 install *args:
     just install-agm {{args}}
