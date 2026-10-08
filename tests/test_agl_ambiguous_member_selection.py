@@ -19,13 +19,13 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError, ReferencedMemberError
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglTypeError, ReferencedMemberError
+from agnette.agl.scope.symbols import (
     AmbiguousConstructorError,
     AmbiguousQualificationError,
     UnknownMemberError,
 )
-from agm.agl.typecheck.checker import EnumOwnerMismatchError
+from agnette.agl.typecheck.checker import EnumOwnerMismatchError
 from tests.agl.qualifier_support import (
     Scenario,
     accepted,

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.semantics.arguments import (
+from agnette.agl.semantics.arguments import (
     ArgumentBindingError,
     ArgumentBindingErrorKind,
     BindParam,

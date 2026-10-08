@@ -40,10 +40,16 @@ from __future__ import annotations
 
 import decimal
 
-from agm.agl.ir.nodes import IrCoerce, IrMakeArray, IrMakeDict, IrMakeJsonArray, IrMakeJsonObject
-from agm.agl.ir.operations import IntToDecimal, ToJson
-from agm.agl.ir.program import ExecutableProgram
-from agm.agl.semantics.values import (
+from agnette.agl.ir.nodes import (
+    IrCoerce,
+    IrMakeArray,
+    IrMakeDict,
+    IrMakeJsonArray,
+    IrMakeJsonObject,
+)
+from agnette.agl.ir.operations import IntToDecimal, ToJson
+from agnette.agl.ir.program import ExecutableProgram
+from agnette.agl.semantics.values import (
     ArrayValue,
     DecimalValue,
     DictValue,
@@ -189,7 +195,7 @@ def test_array_ref_identity_no_coercion() -> None:
     assert ir["b"] == expected
 
     # Structural: IrBind for b is a plain IrLoad (no IrCoerce).
-    from agm.agl.ir.nodes import IrLoad
+    from agnette.agl.ir.nodes import IrLoad
 
     prog = _lower(source)
     inits = inline_main_items(prog)

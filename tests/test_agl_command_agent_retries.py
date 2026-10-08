@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from agm.agent.session import AglSessionHost, SessionService
-from agm.agent.session.cli_adapters import open_cli_session
-from agm.agl import PipelineDriver
-from agm.agl.pipeline import RunResult
-from agm.core.process import CapturedOutput, ProcessCaptureResult
+from agnette.agent.session import AglSessionHost, SessionService
+from agnette.agent.session.cli_adapters import open_cli_session
+from agnette.agl import PipelineDriver
+from agnette.agl.pipeline import RunResult
+from agnette.core.process import CapturedOutput, ProcessCaptureResult
 from tests._agl_helpers import agl_roots, run_inline_code, unavailable_sandbox_context
 
 
@@ -36,7 +36,7 @@ class _Command:
 
 
 def _run(monkeypatch: pytest.MonkeyPatch, command: _Command, source: str) -> RunResult:
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", command)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", command)
     host = AglSessionHost(
         SessionService(
             lambda request: open_cli_session(

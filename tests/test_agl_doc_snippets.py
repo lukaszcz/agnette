@@ -35,8 +35,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.runtime.agents import AgentRequest
+from agnette.agl import PipelineDriver
+from agnette.agl.runtime.agents import AgentRequest
 
 _REFERENCE_DIR = Path(__file__).resolve().parents[1] / "docs" / "agl" / "reference"
 _FENCE = re.compile(r"^[ \t]*```agl\s*$")

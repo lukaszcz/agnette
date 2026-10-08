@@ -50,7 +50,7 @@ end ChdirInternals
   Change the host working directory and update `OLDPWD` and `PWD` in `environ`.
 
   Records the previous directory in `OLDPWD` and the new `cwd()` in `PWD`. Restores the starting
-  directory when the host session ends, if it remains accessible. Raises `std/fs::FsError(path =
+  directory when the host session ends, if it is accessible. Raises `std/fs::FsError(path =
   dir, operation = "chdir")` on failure, or `EncodingError` if the previous or new directory is not
   valid Unicode, restoring the previous directory when possible. A deleted working directory can be
   left; `OLDPWD` then keeps the previous `PWD`, and that directory cannot be restored.

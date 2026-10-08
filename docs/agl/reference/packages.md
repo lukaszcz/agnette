@@ -84,7 +84,7 @@ module route and declaration path, `review-tools/review::main`, which is how
 the host selects it for execution and how a manifest `[commands]` entry names
 it. A command-backed program may declare value parameters and takes no type
 parameters; its result is unit like that of any `program def`, whether written
-or left to inference. It remains an ordinary callable function inside the
+or left to inference. It is an ordinary callable function inside the
 package.
 
 A program registers itself as a command by carrying

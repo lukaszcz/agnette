@@ -7,8 +7,8 @@ from dataclasses import replace
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir import (
     ExecutableProgram,
     IrBind,
     IrCase,
@@ -18,15 +18,15 @@ from agm.agl.ir import (
     IrLoad,
     IrSequence,
 )
-from agm.agl.matchcompile import DecisionDecompose
-from agm.agl.matchcompile.model import (
+from agnette.agl.matchcompile import DecisionDecompose
+from agnette.agl.matchcompile.model import (
     DecisionBranch,
     DecisionSwitch,
     Occurrence,
     OccurrenceId,
     PathDecomposition,
 )
-from agm.agl.syntax.nodes import (
+from agnette.agl.syntax.nodes import (
     ConstructorPattern,
     LiteralPattern,
     VarPattern,

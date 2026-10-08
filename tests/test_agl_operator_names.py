@@ -26,9 +26,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError
-from agm.agl.parser import AglSyntaxError
-from agm.agl.scope.symbols import AglScopeError, AmbiguousQualificationError
+from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.parser import AglSyntaxError
+from agnette.agl.scope.symbols import AglScopeError, AmbiguousQualificationError
 from tests._timeouts import fail_if_slow
 from tests.agl.qualifier_support import (
     Probe,

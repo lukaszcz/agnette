@@ -1,4 +1,4 @@
-"""Tests for the AgL AST package (agm.agl.syntax).
+"""Tests for the AgL AST package (agnette.agl.syntax).
 
 Covers:
 - SourceSpan construction and import from diagnostics
@@ -28,7 +28,7 @@ from dataclasses import FrozenInstanceError, fields
 
 import pytest
 
-from agm.agl.syntax import (
+from agnette.agl.syntax import (
     # sentinel
     ELSE,
     AppliedT,
@@ -178,9 +178,9 @@ class TestSourceSpan:
 
     def test_diagnostics_import_same_class(self) -> None:
         # The lexer imports SourceSpan from diagnostics; it must be the same class.
-        # Import lazily to avoid triggering the full agm.agl pipeline (which is
+        # Import lazily to avoid triggering the full agnette.agl pipeline (which is
         # temporarily broken while downstream stages are being updated).
-        from agm.agl.syntax.spans import SourceSpan as SpansSourceSpan
+        from agnette.agl.syntax.spans import SourceSpan as SpansSourceSpan
 
         assert SourceSpan is SpansSourceSpan
 
@@ -257,7 +257,7 @@ class TestTypeExprs:
         assert t.value is val
 
     def test_walk_visits_dict_t_key(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         key = NameT(name="OnlyThroughDictKey", span=self._s(), node_id=3)
         value = TextT(span=self._s(), node_id=2)
@@ -269,7 +269,7 @@ class TestTypeExprs:
     def test_walk_dispatches_every_syntax_node_class(self) -> None:
         from typing import get_args, get_origin
 
-        from agm.agl.syntax import visitor
+        from agnette.agl.syntax import visitor
 
         classes = {
             get_origin(member) or member for member in get_args(visitor.SyntaxNode.__value__)
@@ -280,7 +280,7 @@ class TestTypeExprs:
         # A dict field's KEY position is scanned too: an inline enum member
         # capturing an owner type parameter only through the key must still
         # be recognized as using it.
-        from agm.agl.syntax.types import member_type_params
+        from agnette.agl.syntax.types import member_type_params
 
         key = NameT(name="K", span=self._s(), node_id=1)
         value = IntT(span=self._s(), node_id=2)
@@ -981,7 +981,7 @@ class TestBreakContinueNodes:
         return span()
 
     def test_walk_visits_break_as_leaf(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         node = Break(span=self._s(), node_id=1)
         visited: list[object] = []
@@ -989,7 +989,7 @@ class TestBreakContinueNodes:
         assert visited == [node]  # only the Break itself — no children
 
     def test_walk_visits_continue_as_leaf(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         node = Continue(span=self._s(), node_id=1)
         visited: list[object] = []
@@ -1281,7 +1281,7 @@ class TestDeclarations:
 
     def test_exception_def_walk_visits_fields(self) -> None:
         """walk(ExceptionDef) visits the node and each Param in its fields."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         t = IntT(span=s, node_id=3)
@@ -1695,7 +1695,7 @@ class TestWalk:
         return Program(body=top_block, span=s, node_id=0)
 
     def test_walk_visits_program(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         prog = self._build_tree()
         visited: list[object] = []
@@ -1703,7 +1703,7 @@ class TestWalk:
         assert any(isinstance(n, Program) for n in visited)
 
     def test_walk_visits_all_binder_kinds(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         prog = self._build_tree()
         visited: list[object] = []
@@ -1715,7 +1715,7 @@ class TestWalk:
             assert kind in kinds, f"Expected {kind.__name__} to be visited"
 
     def test_walk_visits_all_expr_kinds(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         prog = self._build_tree()
         visited: list[object] = []
@@ -1763,7 +1763,7 @@ class TestWalk:
             assert kind in kinds, f"Expected {kind.__name__} to be visited"
 
     def test_walk_visits_typed_call_type_arg(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         # A Call with ``type_args`` set: walk must descend into each type_arg so
         # the TypeExpr nodes are visited (covers the type_args traversal branch).
@@ -1783,7 +1783,7 @@ class TestWalk:
         assert callee in visited
 
     def test_walk_visits_type_apply_children(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         callee = VarRef(name="id", span=self._s(), node_id=710)
         type_arg = IntT(span=self._s(), node_id=711)
@@ -1793,7 +1793,7 @@ class TestWalk:
         assert visited == [node, callee, type_arg]
 
     def test_walk_visits_let_type_and_value(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         let = LetDecl(
@@ -1808,7 +1808,7 @@ class TestWalk:
         assert visited == [let, let.type_ann, let.value]
 
     def test_walk_visits_all_pattern_kinds(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         prog = self._build_tree()
         visited: list[object] = []
@@ -1827,7 +1827,7 @@ class TestWalk:
             assert kind in kinds, f"Expected {kind.__name__} to be visited"
 
     def test_walk_visits_param(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         prog = self._build_tree()
         visited: list[object] = []
@@ -1837,7 +1837,7 @@ class TestWalk:
 
     def test_walk_call_visits_callee_args_named_args(self) -> None:
         """walk(Call) visits callee, then each positional arg, then each named_arg."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         callee = VarRef(name="f", span=s, node_id=2)
@@ -1863,7 +1863,7 @@ class TestWalk:
 
     def test_walk_block_visits_all_items(self) -> None:
         """walk(Block) visits each item in order."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         a = IntLit(value=1, span=s, node_id=2)
@@ -1878,7 +1878,7 @@ class TestWalk:
 
     def test_walk_func_def_visits_params_return_body(self) -> None:
         """walk(FuncDef) visits each param, the return type, then the body."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         p_type = IntT(span=s, node_id=3)
@@ -1898,7 +1898,7 @@ class TestWalk:
 
     def test_walk_func_def_no_return_type(self) -> None:
         """walk(FuncDef) skips return_type when it is omitted."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         body = VarRef(name="x", span=s, node_id=5)
@@ -1913,7 +1913,7 @@ class TestWalk:
 
     def test_walk_lambda_visits_params_return_type_body(self) -> None:
         """walk(Lambda) visits params, return_type (if present), then body."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         p_type = IntT(span=s, node_id=3)
@@ -1934,7 +1934,7 @@ class TestWalk:
 
     def test_walk_lambda_no_return_type(self) -> None:
         """walk(Lambda) skips return_type when None."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         body = UnitLit(span=s, node_id=2)
@@ -1949,7 +1949,7 @@ class TestWalk:
 
     def test_walk_if_visits_branches(self) -> None:
         """walk(If) visits each IfBranch; IfBranch visits cond and body."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         cond = BoolLit(value=True, span=s, node_id=3)
@@ -1967,7 +1967,7 @@ class TestWalk:
 
     def test_walk_case_visits_subject_and_branches(self) -> None:
         """walk(Case) visits subject, then each CaseBranch (pattern + body)."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         subject = VarRef(name="x", span=s, node_id=2)
@@ -1987,7 +1987,7 @@ class TestWalk:
 
     def test_walk_loop_visits_body_then_until_cond(self) -> None:
         """walk(Loop) visits body, then until_cond (when until_cond is set)."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         body = UnitLit(span=s, node_id=2)
@@ -2015,7 +2015,7 @@ class TestWalk:
 
     def test_walk_loop_done_visits_only_body(self) -> None:
         """walk(Loop with done/omitted) visits only body when until_cond is None."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         body = UnitLit(span=s, node_id=2)
@@ -2042,7 +2042,7 @@ class TestWalk:
 
     def test_walk_loop_with_bound_visits_bound_before_body(self) -> None:
         """walk(Loop) with bound visits the bound expression before body."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         bound = IntLit(value=5, span=s, node_id=4)
@@ -2072,7 +2072,7 @@ class TestWalk:
 
     def test_walk_loop_with_for_iter_and_while_cond(self) -> None:
         """walk(Loop) with for_iter and while_cond visits them in order."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         for_iter = IntLit(value=0, span=s, node_id=5)
@@ -2105,7 +2105,7 @@ class TestWalk:
 
     def test_walk_loop_range_for_visits_range_fields(self) -> None:
         """walk(Loop with range fields) visits start, range_to, range_step in order."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         start = IntLit(value=1, span=s, node_id=10)
@@ -2138,7 +2138,7 @@ class TestWalk:
 
     def test_walk_try_visits_body_then_handlers(self) -> None:
         """walk(Try) visits body, then each CatchClause (which visits its body)."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         try_body = IntLit(value=1, span=s, node_id=2)
@@ -2156,7 +2156,7 @@ class TestWalk:
 
     def test_walk_func_t_visits_param_types_then_result(self) -> None:
         """walk(FuncT) visits each param type then the result type."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         p1 = IntT(span=s, node_id=2)
@@ -2174,7 +2174,7 @@ class TestWalk:
 
     def test_walk_param_with_default_visits_type_then_default(self) -> None:
         """walk(Param) visits type_expr then default (when not None)."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         p_type = IntT(span=s, node_id=2)
@@ -2190,7 +2190,7 @@ class TestWalk:
 
     def test_walk_param_no_default_visits_type_only(self) -> None:
         """walk(Param) skips default when None."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         p_type = IntT(span=s, node_id=2)
@@ -2202,7 +2202,7 @@ class TestWalk:
         assert visited == [p, p_type]
 
     def test_walk_return_visits_optional_value(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = span()
         value = IntLit(value=1, span=s, node_id=2)
@@ -2212,7 +2212,7 @@ class TestWalk:
         assert visited == [node, value]
 
     def test_walk_bare_return_is_leaf(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         node = Return(value=None, span=span(), node_id=1)
         visited: list[object] = []
@@ -2220,7 +2220,7 @@ class TestWalk:
         assert visited == [node]
 
     def test_walk_unit_lit_is_leaf(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         node = UnitLit(span=span(), node_id=1)
         visited: list[object] = []
@@ -2228,7 +2228,7 @@ class TestWalk:
         assert visited == [node]
 
     def test_walk_unit_t_is_leaf(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         node = UnitT(span=span(), node_id=1)
         visited: list[object] = []
@@ -2236,7 +2236,7 @@ class TestWalk:
         assert visited == [node]
 
     def test_walk_reaches_call_nodes(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         s = self._s()
         callee = VarRef(name="f", span=s, node_id=2)
@@ -2250,9 +2250,9 @@ class TestWalk:
 
     def test_walk_qual_var_ref_visits_qualifier_chain(self) -> None:
         """walk() on a slash-qualified VarRef visits its qualifier chain."""
-        from agm.agl.parser import parse_program
-        from agm.agl.syntax import QualifierChain
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.parser import parse_program
+        from agnette.agl.syntax import QualifierChain
+        from agnette.agl.syntax.visitor import walk
 
         prog = parse_program("foo/bar::thing")
         visited: list[object] = []
@@ -2261,9 +2261,9 @@ class TestWalk:
 
     def test_walk_qual_constructor_visits_qualifier_chain(self) -> None:
         """walk() on a slash-qualified reference visits its qualifier chain."""
-        from agm.agl.parser import parse_program
-        from agm.agl.syntax import QualifierChain
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.parser import parse_program
+        from agnette.agl.syntax import QualifierChain
+        from agnette.agl.syntax.visitor import walk
 
         prog = parse_program("foo/bar::Color")
         visited: list[object] = []
@@ -2279,9 +2279,9 @@ class TestWalk:
         ),
     )
     def test_walk_qualified_references_visits_qualifier_chains(self, source: str) -> None:
-        from agm.agl.parser import parse_program
-        from agm.agl.syntax import QualifierChain
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.parser import parse_program
+        from agnette.agl.syntax import QualifierChain
+        from agnette.agl.syntax.visitor import walk
 
         visited: list[object] = []
         walk(parse_program(source), visited.append)
@@ -2289,8 +2289,8 @@ class TestWalk:
 
     def test_walk_constructor_pattern_visits_positional(self) -> None:
         """walk() on a ConstructorPattern with positional sub-patterns visits each one."""
-        from agm.agl.parser import parse_program
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.parser import parse_program
+        from agnette.agl.syntax.visitor import walk
 
         prog = parse_program("case x of | Some(v) => 1")
         visited: list[object] = []
@@ -2464,7 +2464,7 @@ class TestRemovedNodes:
         ],
     )
     def test_v1_node_not_exported(self, name: str) -> None:
-        module = importlib.import_module("agm.agl.syntax")
+        module = importlib.import_module("agnette.agl.syntax")
         assert not hasattr(module, name)
 
 
@@ -2533,7 +2533,7 @@ class TestCastNode:
 
     def test_cast_walk_visits_cast_and_children(self) -> None:
         """walk() visits Cast, its expr child, and its target_type child."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         expr = IntLit(value=1, span=self._sp(), node_id=0)
         target = TextT(span=self._sp(), node_id=1)
@@ -2557,7 +2557,7 @@ class TestModuleSystemNodes:
         return SourceSpan(1, 0, 1, 1, 0, 1)
 
     def test_import_decl_preserves_tail_and_hidden_items(self) -> None:
-        from agm.agl.syntax import ImportDecl, ImportItem
+        from agnette.agl.syntax import ImportDecl, ImportItem
 
         item = ImportItem(name="member", rename="renamed", span=self._sp(), node_id=1)
         hidden = ImportItem(name="secret", rename=None, span=self._sp(), node_id=2)
@@ -2574,7 +2574,7 @@ class TestModuleSystemNodes:
         assert decl.hidden == (hidden,)
 
     def test_use_decl_preserves_target_and_selection(self) -> None:
-        from agm.agl.syntax import ImportItem, ScopeSegment, UseDecl
+        from agnette.agl.syntax import ImportItem, ScopeSegment, UseDecl
 
         target = ScopeSegment(name="Scope", span=self._sp(), node_id=1)
         item = ImportItem(name="member", rename=None, span=self._sp(), node_id=2)
@@ -2591,8 +2591,8 @@ class TestModuleSystemNodes:
         assert decl.tail == (item,)
 
     def test_parsed_use_preserves_current_module_anchor(self) -> None:
-        from agm.agl.parser import parse_program
-        from agm.agl.syntax import UseDecl
+        from agnette.agl.parser import parse_program
+        from agnette.agl.syntax import UseDecl
 
         program = parse_program("use ::Scope::*\nuse ::Scope as S")
         glob, alias = program.body.items
@@ -2606,8 +2606,8 @@ class TestModuleSystemNodes:
         assert alias.tail is None
 
     def test_module_declarations_walk_selection_items(self) -> None:
-        from agm.agl.syntax import ExportDecl, ExportItem, ImportDecl, ImportItem
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax import ExportDecl, ExportItem, ImportDecl, ImportItem
+        from agnette.agl.syntax.visitor import walk
 
         import_item = ImportItem(name="x", rename=None, span=self._sp(), node_id=1)
         export_item = ExportItem(name="x", rename=None, span=self._sp(), node_id=3)
@@ -2635,8 +2635,8 @@ class TestModuleSystemNodes:
         assert export_item in visited
 
     def test_infix_decl_walk_is_leaf(self) -> None:
-        from agm.agl.syntax import InfixAssoc, InfixDecl
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax import InfixAssoc, InfixDecl
+        from agnette.agl.syntax.visitor import walk
 
         decl = InfixDecl(
             name="|>",
@@ -2652,8 +2652,13 @@ class TestModuleSystemNodes:
         assert visited == [decl]
 
     def test_raw_infix_chain_walk_visits_all_raw_nodes(self) -> None:
-        from agm.agl.syntax import RawInfixChain, RawInfixOperand, RawInfixOperator, RawPrefixNot
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax import (
+            RawInfixChain,
+            RawInfixOperand,
+            RawInfixOperator,
+            RawPrefixNot,
+        )
+        from agnette.agl.syntax.visitor import walk
 
         raw_not = RawPrefixNot(span=self._sp(), node_id=1)
         operand = RawInfixOperand(
@@ -2684,7 +2689,7 @@ class TestModuleSystemNodes:
         assert ref.qualifier is None
 
     def test_var_ref_with_qualifier_chain(self) -> None:
-        from agm.agl.syntax import QualifierChain, QualifierSegment
+        from agnette.agl.syntax import QualifierChain, QualifierSegment
 
         segment = QualifierSegment(name="foo", type_args=None, span=self._sp(), node_id=0)
         chain = QualifierChain(
@@ -2825,7 +2830,7 @@ class TestDeclarationAttributes:
             setattr(attribute, "name", "other")
 
     def test_walk_visits_attribute_arguments_of_every_declaration(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         for name, node in self._declarations((self._attribute(),)).items():
             visited: list[object] = []
@@ -2836,7 +2841,7 @@ class TestDeclarationAttributes:
             )
 
     def test_walk_visits_attribute_keyed_arguments(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         value = StringLit(value="named", span=self._sp(), node_id=nid())
         key = VarRef(name="text", span=self._sp(), node_id=nid())
@@ -2856,7 +2861,7 @@ class TestDeclarationAttributes:
         assert value in visited
 
     def test_walk_visits_attribute_keyed_argument_qualified_key(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         chain = QualifierChain(
             anchor=None, segments=(), member="log", span=self._sp(), node_id=nid()
@@ -2870,7 +2875,7 @@ class TestDeclarationAttributes:
         assert chain in visited
 
     def test_walk_reaches_declaration_attributes(self) -> None:
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         visited: list[object] = []
         walk(

@@ -7,15 +7,15 @@ from pathlib import Path
 
 import pytest
 
-AGL_ROOT = Path(__file__).parents[1] / "src" / "agm" / "agl"
-SRC_ROOT = AGL_ROOT.parents[1]
+SRC_ROOT = Path(__file__).parents[1] / "src"
+AGL_ROOT = SRC_ROOT / "agnette" / "agl"
 
 
 def _agl_imports(package: str) -> list[tuple[Path, str]]:
-    """Return every ``agm.agl`` dependency the package declares, relatives resolved.
+    """Return every ``agnette.agl`` dependency the package declares, relatives resolved.
 
-    A bare ``from agm.agl import x`` (or a relative resolving to the same
-    package) names the submodule ``agm.agl.x``, not the package ``agm.agl``
+    A bare ``from agnette.agl import x`` (or a relative resolving to the same
+    package) names the submodule ``agnette.agl.x``, not the package ``agnette.agl``
     itself, so it is reported qualified with each imported name.
     """
     imports: list[tuple[Path, str]] = []
@@ -25,9 +25,7 @@ def _agl_imports(package: str) -> list[tuple[Path, str]]:
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
             for module in _imported_modules(path, node):
-                if isinstance(node, ast.ImportFrom) and module == "agm.agl":
-                    imports.extend((path, f"agm.agl.{alias.name}") for alias in node.names)
-                elif module.startswith("agm.agl."):
+                if module.startswith("agnette.agl."):
                     imports.append((path, module))
     return imports
 
@@ -37,34 +35,36 @@ def _imported_modules(path: Path, node: ast.Import | ast.ImportFrom) -> tuple[st
 
     A relative import resolves against the importing module's own package, so
     ``from . import zones`` cannot hide a dependency from a contract that reads
-    module names.
+    module names. Imports from namespace and language roots name their child modules.
     """
     if isinstance(node, ast.Import):
         return tuple(alias.name for alias in node.names)
     if not node.level:
-        return () if node.module is None else (node.module,)
-    module_parts = path.relative_to(SRC_ROOT).with_suffix("").parts
-    package_parts = module_parts[:-1]
-    keep = len(package_parts) - (node.level - 1)
-    imported_parts = () if node.module is None else tuple(node.module.split("."))
-    return (".".join((*package_parts[:keep], *imported_parts)),)
+        if node.module is None:
+            return ()
+        module = node.module
+    else:
+        module_parts = path.relative_to(SRC_ROOT).with_suffix("").parts
+        package_parts = module_parts[:-1]
+        keep = len(package_parts) - (node.level - 1)
+        imported_parts = () if node.module is None else tuple(node.module.split("."))
+        module = ".".join((*package_parts[:keep], *imported_parts))
+    if module in {"agnette", "agnette.agl"}:
+        return tuple(f"{module}.{alias.name}" for alias in node.names)
+    return (module,)
 
 
-def _is_agm(module: str) -> bool:
-    return module == "agm" or module.startswith("agm.")
+def _is_agnette(module: str) -> bool:
+    return module == "agnette" or module.startswith("agnette.")
 
 
-def _agm_imports(package: str) -> list[tuple[Path, str]]:
-    """Return every import under the shared ``agm`` namespace, relatives included."""
-    imports: list[tuple[Path, str]] = []
-    for path in sorted((AGL_ROOT / package).rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                imports.extend(
-                    (path, module) for module in _imported_modules(path, node) if _is_agm(module)
-                )
-    return imports
+def _agnette_imports(package: str) -> list[tuple[Path, str]]:
+    """Return every internal ``agnette`` dependency, including relative imports."""
+    return [
+        (path, module)
+        for path in sorted((AGL_ROOT / package).rglob("*.py"))
+        for module in _agnette_imports_of_file(path)
+    ]
 
 
 def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
@@ -74,119 +74,127 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
 @pytest.mark.parametrize(
     ("package", "allowed"),
     [
-        ("ir", ("agm.agl.constraints", "agm.agl.ir", "agm.agl.modules.ids", "agm.agl.zones")),
+        (
+            "ir",
+            (
+                "agnette.agl.constraints",
+                "agnette.agl.ir",
+                "agnette.agl.modules.ids",
+                "agnette.agl.zones",
+            ),
+        ),
         (
             "lower",
             (
-                "agm.agl.artifact_cache",
-                "agm.agl.artifact_serialization",
-                "agm.agl.ir",
-                "agm.agl.lower",
-                "agm.agl.matchcompile",
-                "agm.agl.modules.ids",
-                "agm.agl.scope",
-                "agm.agl.self_validation",
-                "agm.agl.semantics",
-                "agm.agl.syntax",
-                "agm.agl.type_schema",
-                "agm.agl.typecheck",
+                "agnette.agl.artifact_cache",
+                "agnette.agl.artifact_serialization",
+                "agnette.agl.ir",
+                "agnette.agl.lower",
+                "agnette.agl.matchcompile",
+                "agnette.agl.modules.ids",
+                "agnette.agl.scope",
+                "agnette.agl.self_validation",
+                "agnette.agl.semantics",
+                "agnette.agl.syntax",
+                "agnette.agl.type_schema",
+                "agnette.agl.typecheck",
             ),
         ),
         (
             "matchcompile",
             (
-                "agm.agl.diagnostics",
-                "agm.agl.matchcompile",
-                "agm.agl.modules.ids",
-                "agm.agl.scope",
-                "agm.agl.self_validation",
-                "agm.agl.semantics",
-                "agm.agl.syntax",
-                "agm.agl.typecheck",
-                "agm.agl.value_syntax",
+                "agnette.agl.diagnostics",
+                "agnette.agl.matchcompile",
+                "agnette.agl.modules.ids",
+                "agnette.agl.scope",
+                "agnette.agl.self_validation",
+                "agnette.agl.semantics",
+                "agnette.agl.syntax",
+                "agnette.agl.typecheck",
+                "agnette.agl.value_syntax",
             ),
         ),
         (
             "scope",
             (
-                "agm.agl.attributes",
-                "agm.agl.constraints",
-                "agm.agl.diagnostics",
-                "agm.agl.artifact_cache",
-                "agm.agl.infix",
-                "agm.agl.modules",
-                "agm.agl.scope",
-                "agm.agl.semantics",
-                "agm.agl.syntax",
-                "agm.agl.zones",
+                "agnette.agl.attributes",
+                "agnette.agl.constraints",
+                "agnette.agl.diagnostics",
+                "agnette.agl.artifact_cache",
+                "agnette.agl.infix",
+                "agnette.agl.modules",
+                "agnette.agl.scope",
+                "agnette.agl.semantics",
+                "agnette.agl.syntax",
+                "agnette.agl.zones",
             ),
         ),
         (
             "typecheck",
             (
-                "agm.agl.attributes",
-                "agm.agl.capabilities",
-                "agm.agl.constraints",
-                "agm.agl.diagnostics",
-                "agm.agl.ir.ids",
-                "agm.agl.ir.reserved_nominals",
-                "agm.agl.artifact_cache",
-                "agm.agl.modules.ids",
-                "agm.agl.scope",
-                "agm.agl.self_validation",
-                "agm.agl.semantics",
-                "agm.agl.syntax",
-                "agm.agl.typecheck",
-                "agm.agl.zones",
+                "agnette.agl.attributes",
+                "agnette.agl.capabilities",
+                "agnette.agl.constraints",
+                "agnette.agl.diagnostics",
+                "agnette.agl.ir.ids",
+                "agnette.agl.ir.reserved_nominals",
+                "agnette.agl.artifact_cache",
+                "agnette.agl.modules.ids",
+                "agnette.agl.scope",
+                "agnette.agl.self_validation",
+                "agnette.agl.semantics",
+                "agnette.agl.syntax",
+                "agnette.agl.typecheck",
+                "agnette.agl.zones",
             ),
         ),
         (
             "semantics",
             (
-                "agm.agl.constraints",
-                "agm.agl.ir",
-                "agm.agl.modules.ids",
-                "agm.agl.self_validation",
-                "agm.agl.semantics",
-                "agm.agl.zones",
+                "agnette.agl.constraints",
+                "agnette.agl.ir",
+                "agnette.agl.modules.ids",
+                "agnette.agl.self_validation",
+                "agnette.agl.semantics",
+                "agnette.agl.zones",
             ),
         ),
         (
             "syntax",
             (
-                "agm.agl.constraints",
-                "agm.agl.modules.ids",
-                "agm.agl.syntax",
-                "agm.agl.value_syntax",
+                "agnette.agl.constraints",
+                "agnette.agl.modules.ids",
+                "agnette.agl.syntax",
+                "agnette.agl.value_syntax",
             ),
         ),
         (
             "eval",
             (
-                "agm.agl.eval",
-                "agm.agl.ir",
-                "agm.agl.modules.ids",
-                "agm.agl.runtime",
-                "agm.agl.semantics",
+                "agnette.agl.eval",
+                "agnette.agl.ir",
+                "agnette.agl.modules.ids",
+                "agnette.agl.runtime",
+                "agnette.agl.semantics",
             ),
         ),
         (
             "runtime",
             (
-                "agm.agl.artifact_storage",
-                "agm.agl.attributes",
-                "agm.agl.capabilities",
-                "agm.agl.diagnostics",
-                "agm.agl.ir",
-                "agm.agl.modules.ids",
-                "agm.agl.runtime",
-                "agm.agl.self_validation",
-                "agm.agl.semantics",
-                "agm.agl.syntax.spans",
-                "agm.agl.typecheck.env",
-                "agm.agl.type_schema",
-                "agm.agl.value_syntax",
-                "agm.agl.zones",
+                "agnette.agl.artifact_storage",
+                "agnette.agl.attributes",
+                "agnette.agl.capabilities",
+                "agnette.agl.diagnostics",
+                "agnette.agl.ir",
+                "agnette.agl.modules.ids",
+                "agnette.agl.runtime",
+                "agnette.agl.self_validation",
+                "agnette.agl.semantics",
+                "agnette.agl.syntax.spans",
+                "agnette.agl.typecheck.env",
+                "agnette.agl.type_schema",
+                "agnette.agl.value_syntax",
+                "agnette.agl.zones",
             ),
         ),
     ],
@@ -194,7 +202,7 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
 def test_execution_package_dependency_contract(package: str, allowed: tuple[str, ...]) -> None:
     """Keep each pass on the layers below it.
 
-    ``agm.agl.artifact_cache`` is admitted into the scope and type-check passes
+    ``agnette.agl.artifact_cache`` is admitted into the scope and type-check passes
     because it is a leaf: it reaches only data leaves and the storage envelope,
     never another pass, so consulting it couples a pass to no other layer.
     """
@@ -207,73 +215,120 @@ def test_execution_package_dependency_contract(package: str, allowed: tuple[str,
     assert violations == []
 
 
-def _agm_imports_of_file(path: Path) -> list[str]:
-    """Return every ``agm`` module one file imports, relatives resolved."""
+def _agnette_imports_of_file(path: Path) -> list[str]:
+    """Return every internal ``agnette`` module one file imports, relatives resolved."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return [
         module
         for node in ast.walk(tree)
         if isinstance(node, (ast.Import, ast.ImportFrom))
         for module in _imported_modules(path, node)
-        if _is_agm(module)
+        if _is_agnette(module)
     ]
+
+
+def test_import_collectors_find_language_and_shared_dependencies() -> None:
+    """Ensure the relocated roots and namespace filters cannot make contracts vacuous."""
+    language_imports = {module for _, module in _agl_imports("value_syntax")}
+    internal_imports = {module for _, module in _agnette_imports("value_syntax")}
+
+    assert "agnette.agl.keywords" in language_imports
+    assert "agnette.agl.keywords" in internal_imports
+    assert "agnette.util.ident" in internal_imports
+    assert "agnette.util.ident" in _agnette_imports_of_file(AGL_ROOT / "keywords.py")
+    assert "agnette.core.fs" in _agnette_imports_of_file(SRC_ROOT / "agnette/core/dotenv.py")
+    assert "agnette.util.ident" in _agnette_imports_of_file(SRC_ROOT / "agnette/util/interp.py")
+
+
+@pytest.mark.parametrize(
+    ("statement", "expected"),
+    [
+        ("from . import fs", ("agnette.core",)),
+        ("from ..util import ident", ("agnette.util",)),
+        ("from .. import agl, agm", ("agnette.agl", "agnette.agm")),
+        ("from agnette import agl, agm", ("agnette.agl", "agnette.agm")),
+        ("from ..agl import zones", ("agnette.agl.zones",)),
+        ("from agnette.agl import zones", ("agnette.agl.zones",)),
+    ],
+)
+def test_internal_imports_resolve_relative_and_namespace_imports(
+    statement: str, expected: tuple[str, ...]
+) -> None:
+    node = ast.parse(statement).body[0]
+    assert isinstance(node, ast.ImportFrom)
+    assert _imported_modules(SRC_ROOT / "agnette/core/dotenv.py", node) == expected
+
+
+@pytest.mark.parametrize("package", ("core", "util"))
+def test_shared_primitives_do_not_import_manager_or_language(package: str) -> None:
+    """Keep shared primitives below both application subsystems."""
+    paths = sorted((SRC_ROOT / "agnette" / package).rglob("*.py"))
+    assert paths
+    violations = [
+        f"{path.relative_to(SRC_ROOT)} imports {module}"
+        for path in paths
+        for module in _agnette_imports_of_file(path)
+        if _is_allowed(module, ("agnette.agm", "agnette.agl"))
+    ]
+
+    assert violations == []
 
 
 @pytest.mark.parametrize(
     ("leaf", "allowed"),
     [
         ("zones.py", ()),
-        ("attributes.py", ("agm.agl.keywords", "agm.agl.zones", "agm.command_catalog")),
+        ("attributes.py", ("agnette.agl.keywords", "agnette.agl.zones", "agnette.command_catalog")),
         ("artifact_storage.py", ()),
-        ("keywords.py", ("agm.util.ident",)),
+        ("keywords.py", ("agnette.util.ident",)),
         ("constraints.py", ()),
     ],
 )
 def test_shared_leaves_sit_below_every_pass(leaf: str, allowed: tuple[str, ...]) -> None:
     """Keep the shared vocabulary modules, plus the storage envelope leaf, below every pass.
 
-    ``zones`` is the bottom leaf and imports nothing under ``agm``;
+    ``zones`` is the bottom leaf and imports nothing under ``agnette``;
     ``attributes`` names the zones its ``@arg-*`` entries select, the
     command-path rule its ``@command`` entry shares with a package manifest,
     and the plain-name predicate its ``@name`` argument rule shares, all pure
     data leaves, and nothing else; ``artifact_storage`` is the disk envelope
     every disk cache writes through and, like ``zones``, imports nothing
-    under ``agm``; ``keywords`` names only the identifier grammar leaf its
+    under ``agnette``; ``keywords`` names only the identifier grammar leaf its
     plain-name predicate cross-checks.
     """
     violations = [
         f"{leaf} imports {module}"
-        for module in _agm_imports_of_file(AGL_ROOT / leaf)
+        for module in _agnette_imports_of_file(AGL_ROOT / leaf)
         if module not in allowed
     ]
 
     assert violations == []
 
 
-def test_ir_all_agm_dependencies_are_explicit() -> None:
+def test_ir_all_agnette_dependencies_are_explicit() -> None:
     """Keep the IR on its own data plus the canonical config-key data leaf."""
     allowed = (
-        "agm.agl.constraints",
-        "agm.agl.ir",
-        "agm.agl.modules.ids",
-        "agm.agl.zones",
-        "agm.config.engine_keys",
+        "agnette.agl.constraints",
+        "agnette.agl.ir",
+        "agnette.agl.modules.ids",
+        "agnette.agl.zones",
+        "agnette.config.engine_keys",
     )
     violations = [
         f"{path.relative_to(AGL_ROOT)} imports {module}"
-        for path, module in _agm_imports("ir")
+        for path, module in _agnette_imports("ir")
         if not _is_allowed(module, allowed)
     ]
 
     assert violations == []
 
 
-def test_value_syntax_all_agm_dependencies_are_explicit() -> None:
+def test_value_syntax_all_agnette_dependencies_are_explicit() -> None:
     """Keep the value-syntax leaf on shared vocabulary only, below the frontend."""
-    allowed = ("agm.util", "agm.agl.keywords", "agm.agl.value_syntax")
+    allowed = ("agnette.util", "agnette.agl.keywords", "agnette.agl.value_syntax")
     violations = [
         f"{path.relative_to(AGL_ROOT)} imports {module}"
-        for path, module in _agm_imports("value_syntax")
+        for path, module in _agnette_imports("value_syntax")
         if not _is_allowed(module, allowed)
     ]
 
@@ -284,7 +339,7 @@ def test_lower_consumes_only_matchcompile_public_contract() -> None:
     violations = [
         f"{path.relative_to(AGL_ROOT)} imports {module}"
         for path, module in _agl_imports("lower")
-        if module.startswith("agm.agl.matchcompile.")
+        if module.startswith("agnette.agl.matchcompile.")
     ]
 
     assert violations == []
@@ -295,8 +350,8 @@ def test_execution_packages_do_not_import_the_inference_engine(package: str) -> 
     violations = [
         f"{path.relative_to(AGL_ROOT)} imports {module}"
         for path, module in _agl_imports(package)
-        if module == "agm.agl.typecheck.inference"
-        or module.startswith("agm.agl.typecheck.inference.")
+        if module == "agnette.agl.typecheck.inference"
+        or module.startswith("agnette.agl.typecheck.inference.")
     ]
 
     assert violations == []

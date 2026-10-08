@@ -1,4 +1,4 @@
-"""Tests for agm.tmux.session — create_tmux_session, queue_command_in_session,
+"""Tests for agnette.agm.tmux.session — create_tmux_session, queue_command_in_session,
 focus_tmux_session, kill_tmux_session, close_tmux_session."""
 
 from __future__ import annotations
@@ -9,9 +9,8 @@ from typing import Any
 
 import pytest
 
-import agm.tmux.session as session_module
-from agm.core import dry_run
-from agm.tmux.session import (
+import agnette.agm.tmux.session as session_module
+from agnette.agm.tmux.session import (
     _filter_env,
     close_tmux_session,
     create_tmux_session,
@@ -21,6 +20,7 @@ from agm.tmux.session import (
     require_session_absent,
     session_exists,
 )
+from agnette.core import dry_run
 
 # ---------------------------------------------------------------------------
 # Helpers

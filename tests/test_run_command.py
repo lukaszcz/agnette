@@ -17,9 +17,9 @@ from typing import Any
 
 import pytest
 
-from agm.cli_support.args import RunArgs
-from agm.commands import run as run_command
-from agm.config.general import CommandSetting, RunConfig
+from agnette.agm.cli_support.args import RunArgs
+from agnette.agm.commands import run as run_command
+from agnette.config.general import CommandSetting, RunConfig
 
 
 def _make_run_config(
@@ -177,7 +177,7 @@ def test_run_allocates_pty_only_for_enabled_interactive_runs(
     assert cmd[-2:] == ["echo", "hi"]
     if wrapped:
         pty_index = cmd.index(sys.executable)
-        assert cmd[pty_index : pty_index + 4] == [sys.executable, "-m", "agm.sandbox.pty", "--"]
+        assert cmd[pty_index : pty_index + 4] == [sys.executable, "-m", "agnette.sandbox.pty", "--"]
     else:
         assert sys.executable not in cmd
 
@@ -195,7 +195,7 @@ def test_run_patches_sandbox_when_project_is_discovered(
     monkeypatch.setattr(run_command.Path, "cwd", staticmethod(lambda: cwd))
     monkeypatch.setattr(os, "environ", env)
     monkeypatch.setattr(
-        "agm.config.context.discover_current_project_dir",
+        "agnette.config.context.discover_current_project_dir",
         lambda current, env=None: project,
     )
     monkeypatch.setattr(run_command, "load_run_config", lambda **_: _make_run_config())
@@ -725,14 +725,14 @@ class TestRunSandboxErrors:
 class TestRunDryRun:
     @pytest.fixture(autouse=True)
     def reset_dry_run(self) -> Generator[None, None, None]:
-        from agm.core import dry_run
+        from agnette.core import dry_run
 
         original = dry_run.enabled()
         yield
         dry_run.set_enabled(original)
 
     def _enable_dry_run(self) -> None:
-        from agm.core import dry_run
+        from agnette.core import dry_run
 
         dry_run.set_enabled(True)
 
@@ -831,7 +831,7 @@ class TestRunDryRun:
         assert "myagent.json" not in out
         assert (
             f"srt --settings '<dry-run-settings>' -- {sys.executable} -m "
-            "agm.sandbox.pty -- claude --some-arg"
+            "agnette.sandbox.pty -- claude --some-arg"
         ) in out
 
     def test_dry_run_with_invalid_memory_limit_exits_with_error(

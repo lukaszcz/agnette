@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError, HiddenMemberError
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     DuplicateDeclarationError,
@@ -602,8 +602,8 @@ _TWO_BAD_ITEMS = {
 _FIRST_BAD_ITEM_PROBE = """
 import sys
 from pathlib import Path
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import UnknownMemberError
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import UnknownMemberError
 from tests.agl.ir_harness import make_inline_graph_from_files
 
 modules = {modules!r}

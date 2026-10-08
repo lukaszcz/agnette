@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.config.general import GeneralConfig, load_general_config
-from agm.config.qualified_keys import (
+from agnette.config.general import GeneralConfig, load_general_config
+from agnette.config.qualified_keys import (
     QualifiedConfigKey,
     QualifiedConfigLookupError,
     configured_leaf_table_candidates,
@@ -17,7 +17,7 @@ from agm.config.qualified_keys import (
     resolve_qualified_values,
     route_table_paths,
 )
-from agm.core.toml import toml_dict
+from agnette.core.toml import toml_dict
 
 
 def _config(*layers: Mapping[str, object]) -> GeneralConfig:

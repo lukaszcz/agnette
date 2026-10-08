@@ -19,15 +19,15 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.contracts import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.contracts import (
     ConversionFailureMode,
     ConversionStrategy,
     RecordEncode,
     ToJsonRecipe,
 )
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.nodes import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.nodes import (
     IrArith,
     IrAsk,
     IrAssign,
@@ -73,7 +73,7 @@ from agm.agl.ir.nodes import (
     IrTry,
     UseDefault,
 )
-from agm.agl.ir.operations import (
+from agnette.agl.ir.operations import (
     ArithKind,
     ArithOp,
     CmpOp,
@@ -83,24 +83,24 @@ from agm.agl.ir.operations import (
     IterKind,
     ToJson,
 )
-from agm.agl.ir.program import (
+from agnette.agl.ir.program import (
     ExecutableProgram,
     FunctionDescriptor,
     IrFunctionBody,
 )
-from agm.agl.ir.validate import validate_ir
-from agm.agl.lower import LinkImage, LoweredReplEntry, compile_coercion, lower_repl_program
-from agm.agl.lower.lowerer import InitializerOrigin, _Lowerer
-from agm.agl.lower.repl import ReplPromotionPlan
-from agm.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.loader import build_repl_graph
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import parse_program_seeded
-from agm.agl.runtime.arguments import decode_param_value
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import ScopeNode
-from agm.agl.semantics.types import (
+from agnette.agl.ir.validate import validate_ir
+from agnette.agl.lower import LinkImage, LoweredReplEntry, compile_coercion, lower_repl_program
+from agnette.agl.lower.lowerer import InitializerOrigin, _Lowerer
+from agnette.agl.lower.repl import ReplPromotionPlan
+from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.loader import build_repl_graph
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import parse_program_seeded
+from agnette.agl.runtime.arguments import decode_param_value
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import ScopeNode
+from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
     DecimalType,
@@ -113,8 +113,8 @@ from agm.agl.semantics.types import (
     TypeVarType,
     UnitType,
 )
-from agm.agl.semantics.values import ArrayValue, IntValue, RecordValue, TextValue
-from agm.agl.syntax.nodes import (
+from agnette.agl.semantics.values import ArrayValue, IntValue, RecordValue, TextValue
+from agnette.agl.syntax.nodes import (
     AssignStmt,
     Block,
     Case,
@@ -124,9 +124,9 @@ from agm.agl.syntax.nodes import (
     LetDecl,
     VarRef,
 )
-from agm.agl.typecheck.env import CheckedModule
-from agm.agl.typecheck.program import check_program
-from agm.agl.zones import ParamZone
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import check_program
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import agl_roots
 from tests.agl.ir_harness import _compiled_checked, compile_checked_module, lower_compiled_module
 from tests.agl.module_graph import resolve_and_check_inline_entry
@@ -322,7 +322,7 @@ def test_lowering_registers_a_generic_enum_nominal_with_enum_kind() -> None:
     generic *enum* -- ``all_generic_types()``
     otherwise only ever yields a record in this file's other fixtures.
     """
-    from agm.agl.ir.program import NominalKind
+    from agnette.agl.ir.program import NominalKind
     from tests.agl.ir_harness import nominal_id_for
 
     source = "enum Box[T]\n  | empty\n  | full(value: T)\nlet b: Box[int] = full(value = 1)\n()"
@@ -371,7 +371,7 @@ def _ir_fields(value: object) -> tuple[IrField, ...]:
 
 def _contains_flexible_inference_state(value: object, seen: set[int]) -> bool:
     """Recursively inspect IR data without treating declared rigid variables as leaks."""
-    from agm.agl.semantics.types import InferenceVarType
+    from agnette.agl.semantics.types import InferenceVarType
 
     if isinstance(value, InferenceVarType):
         return True
@@ -404,10 +404,10 @@ def _function_body(desc: FunctionDescriptor) -> object:
 
 def _make_lowerer(checked: CheckedModule, source: str) -> "_Lowerer":
     """Match-compile ``checked`` and create a lowerer with fresh link state."""
-    from agm.agl.ir.ids import SourceId
-    from agm.agl.ir.program import SourceFile
-    from agm.agl.lower.lowerer import _LinkState, _Lowerer
-    from agm.util.text import normalize_newlines
+    from agnette.agl.ir.ids import SourceId
+    from agnette.agl.ir.program import SourceFile
+    from agnette.agl.lower.lowerer import _LinkState, _Lowerer
+    from agnette.util.text import normalize_newlines
 
     link = _LinkState()
     source_id = SourceId(link.next_source)
@@ -599,7 +599,7 @@ class TestCompileCoercion:
     def test_record_field_mismatch_is_none(self) -> None:
         # Box[int] → Box[decimal] is already a type error (type arguments are
         # invariant), so compile_coercion never needs to build one.
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         module_id = ModuleId.from_path("generics_mod")
         box_int = RecordType("Box", type_args=(IntType(),), module_id=module_id)
@@ -689,7 +689,7 @@ class TestProgramSignatures:
         """
         import os
 
-        from agm.agl.lower.program import lower_program
+        from agnette.agl.lower.program import lower_program
         from tests.agl.module_graph import load_graph
 
         lib_source = "record Coord\n  x: int\n  y: int\n\ntype Ints = array[int]\n"
@@ -1109,8 +1109,8 @@ class TestBlockLowering:
         # Build a CheckedModule from a simple multi-statement source so we
         # can reuse its node_types and resolution tables.  Then construct
         # a synthetic Block wrapping those items and call lower_expr directly.
-        from agm.agl.syntax.nodes import Block, LetDecl, VarRef
-        from agm.agl.syntax.spans import SourceSpan
+        from agnette.agl.syntax.nodes import Block, LetDecl, VarRef
+        from agnette.agl.syntax.spans import SourceSpan
 
         src = "let _a: int = 1\n_a"
         checked = _check(src)
@@ -1165,7 +1165,7 @@ class TestBlockLowering:
         assert isinstance(body.items[0], IrBind)
 
     def test_trailing_loop_binder_remains_available_to_until_condition(self) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
         from tests.agl.ir_harness import evaluate_ir
 
         values = evaluate_ir(
@@ -1221,8 +1221,8 @@ class TestNominalsEmpty:
         Even an empty program populates nominals with all built-in prelude
         records/enums and exceptions. User-declared records/enums are added on top.
         """
-        from agm.agl.ir.program import NominalKind
-        from agm.agl.semantics.types import BUILTIN_EXCEPTIONS, BUILTIN_PRELUDE_TYPES
+        from agnette.agl.ir.program import NominalKind
+        from agnette.agl.semantics.types import BUILTIN_EXCEPTIONS, BUILTIN_PRELUDE_TYPES
         from tests.agl.ir_harness import nominal_id_for
 
         prog = _lower("()")
@@ -1255,7 +1255,7 @@ class TestNominalsEmpty:
         Declares the exception before a record so ``lower_program``'s nominal
         loop continues past the exception branch onto another declaration.
         """
-        from agm.agl.ir.program import NominalKind
+        from agnette.agl.ir.program import NominalKind
         from tests.agl.ir_harness import nominal_id_for
 
         source = (
@@ -1471,7 +1471,7 @@ class TestBuiltinNominalsTable:
         library's declarations, no declarations at all, a program's own root
         ``builtin`` declaration, and a scoped one.
         """
-        from agm.agl.semantics.types import BUILTIN_EXCEPTIONS, BUILTIN_PRELUDE_TYPES
+        from agnette.agl.semantics.types import BUILTIN_EXCEPTIONS, BUILTIN_PRELUDE_TYPES
         from tests.agl.ir_harness import lower_inline_ir
 
         program = lower_inline_ir(source, default_stdlib=default_stdlib)
@@ -1521,7 +1521,7 @@ class TestUnsupportedNodes:
         lowers to IrMakeRecord (eagerly constructed).  A variant with fields lowers to
         IrMakeConstructor.  Here Red is nullary, so the binding value must be IrMakeRecord.
         """
-        from agm.agl.ir.nodes import IrMakeRecord
+        from agnette.agl.ir.nodes import IrMakeRecord
 
         source = """\
 enum Color
@@ -1546,7 +1546,7 @@ let c = Color::Red
 
     def test_if_lowers_correctly(self) -> None:
         """If expressions are lowered to IrIf in A."""
-        from agm.agl.ir.nodes import IrIf
+        from agnette.agl.ir.nodes import IrIf
 
         prog = _lower("let x = if true => 1 | else => 2\n()")
         entry = prog.modules[prog.entry_module]
@@ -1556,7 +1556,7 @@ let c = Color::Red
 
     def test_indexed_assign_lowers_to_ir_index_set(self) -> None:
         """IndexTarget assignment lowers to IrIndexSet with a container reference."""
-        from agm.agl.ir import IrIndexSet, IrLoad
+        from agnette.agl.ir import IrIndexSet, IrLoad
 
         prog = _lower('var _d: dict[text, int] = {"a": 1}\n_d["a"] := 2\n()')
         entry = prog.modules[prog.entry_module]
@@ -1633,9 +1633,9 @@ class TestIrFieldLowering:
         constructor reference, pair it with a UnitLit obj (so lower_expr
         can recurse cleanly), and assert the result is IrField.
         """
-        from agm.agl.ir.nodes import IrField
-        from agm.agl.syntax.nodes import FieldAccess, UnitLit
-        from agm.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
+        from agnette.agl.ir.nodes import IrField
+        from agnette.agl.syntax.nodes import FieldAccess, UnitLit
+        from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
 
         # Build a CheckedModule with a concrete record declaration — we only
         # need the resolved/type-table scaffolding, not the actual program body.
@@ -1671,10 +1671,10 @@ class TestIrFieldLowering:
 
     def test_abstract_exception_field_access_projects_the_base_nominal(self) -> None:
         """Field access on abstract Exception projects against Exception's own nominal."""
-        from agm.agl.ir.reserved_nominals import require_reserved_nominal_id
-        from agm.agl.modules.ids import STD_PRELUDE_ID
-        from agm.agl.syntax.nodes import FieldAccess, UnitLit
-        from agm.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
+        from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+        from agnette.agl.modules.ids import STD_PRELUDE_ID
+        from agnette.agl.syntax.nodes import FieldAccess, UnitLit
+        from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
 
         source = "()"
         checked = _check(source)
@@ -1769,7 +1769,7 @@ class TestLowerFunctions:
 
     def test_builtin_print_in_function_body_lowers_to_ir_print(self) -> None:
         """print() inside a function body lowers to IrPrint."""
-        from agm.agl.ir.nodes import IrPrint
+        from agnette.agl.ir.nodes import IrPrint
 
         source = "def f(x: int) -> int =\n  print(x)\n  x + 1\nlet result = f(5)\n()"
         prog = _lower(source)
@@ -1777,7 +1777,7 @@ class TestLowerFunctions:
         assert len(prog.functions) == 1
         fn_desc = next(iter(prog.functions.values()))
         # The function body is a block: [IrPrint(...), IrArith(x + 1)]
-        from agm.agl.ir.nodes import IrBlock
+        from agnette.agl.ir.nodes import IrBlock
 
         body = _function_body(fn_desc)
         assert isinstance(body, IrBlock)
@@ -1890,9 +1890,9 @@ class TestScanCapturesLoopForIterWhileCond:
         synthetic Loop nodes directly so it can isolate the capture-scanning
         branches from the rest of the lowering pipeline.
         """
-        from agm.agl.scope.symbols import BindingRef
-        from agm.agl.syntax.nodes import Loop, UnitLit, VarRef
-        from agm.agl.syntax.spans import SourceSpan
+        from agnette.agl.scope.symbols import BindingRef
+        from agnette.agl.syntax.nodes import Loop, UnitLit, VarRef
+        from agnette.agl.syntax.spans import SourceSpan
 
         # Minimal program with an outer var 'x' that is referenced so the
         # resolution table contains a BindingRef for it.
@@ -2064,7 +2064,7 @@ let result = make(10).add(2)
         self, tmp_path: Path
     ) -> None:
         """Foreign receiver methods retain direct calls and receiver-bound closures."""
-        from agm.agl.lower.program import lower_program
+        from agnette.agl.lower.program import lower_program
         from tests.agl.module_graph import load_graph
 
         (tmp_path / "geometry.agl").write_text(
@@ -2329,10 +2329,10 @@ class TestLowerGraph:
         """
         import os
 
-        from agm.agl.lower.program import lower_program
-        from agm.agl.modules.ids import ModuleId
-        from agm.agl.scope.program import resolve_program
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.lower.program import lower_program
+        from agnette.agl.modules.ids import ModuleId
+        from agnette.agl.scope.program import resolve_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.module_graph import load_graph
 
         # Library defines a record type + a function using it.
@@ -2422,11 +2422,11 @@ class TestLowerGraph:
     ) -> None:
         import os
 
-        from agm.agl.lower.lowerer import _LinkState
-        from agm.agl.lower.program import lower_program
-        from agm.agl.modules.ids import ModuleId
-        from agm.agl.scope.program import resolve_program
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.lower.lowerer import _LinkState
+        from agnette.agl.lower.program import lower_program
+        from agnette.agl.modules.ids import ModuleId
+        from agnette.agl.scope.program import resolve_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.module_graph import load_graph
 
         lib_source = "let retained = 1\ndef first() -> int = 1\ndef second() -> int = 2\n"
@@ -2485,10 +2485,10 @@ class TestLowerGraph:
         """
         import os
 
-        from agm.agl.lower.program import lower_program
-        from agm.agl.modules.ids import ModuleId
-        from agm.agl.scope.program import resolve_program
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.lower.program import lower_program
+        from agnette.agl.modules.ids import ModuleId
+        from agnette.agl.scope.program import resolve_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.module_graph import load_graph
 
         # Library defines a record and an enum, each with an alias pointing to them.
@@ -2561,7 +2561,7 @@ class TestHostOpLowering:
 
     def test_print_lowers_to_ir_print(self) -> None:
         """print(x) lowers to IrPrint wrapping the argument expression."""
-        from agm.agl.ir.nodes import IrPrint
+        from agnette.agl.ir.nodes import IrPrint
 
         source = "let x = 42\nprint(x)\n()"
         prog = _lower(source)
@@ -2573,7 +2573,7 @@ class TestHostOpLowering:
 
     def test_render_lowers_to_ir_render_value(self) -> None:
         """render(x, pretty:, quote-strings:) lowers to IrRenderValue."""
-        from agm.agl.ir.nodes import IrRenderValue
+        from agnette.agl.ir.nodes import IrRenderValue
 
         source = 'let s = render("x", pretty = false, quote-strings = false)\n()'
         prog = _lower(source)
@@ -2585,7 +2585,7 @@ class TestHostOpLowering:
 
     def test_print_no_explicit_target_lowers_argument_unchanged(self) -> None:
         """print(x) with no ``::[T]`` type argument never wraps the argument in IrCoerce."""
-        from agm.agl.ir.nodes import IrCoerce, IrPrint
+        from agnette.agl.ir.nodes import IrCoerce, IrPrint
 
         source = 'print("hi")\n()'
         prog = _lower(source)
@@ -2602,8 +2602,8 @@ class TestHostOpLowering:
         re-resolve ``T`` from ``call_node.type_args`` rather than reading it off
         the call node (which is how ``copy``/``shallow-copy`` do it).
         """
-        from agm.agl.ir.nodes import IrCoerce, IrPrint
-        from agm.agl.ir.operations import ToJson
+        from agnette.agl.ir.nodes import IrCoerce, IrPrint
+        from agnette.agl.ir.operations import ToJson
 
         source = 'print::[json]("hi")\n()'
         prog = _lower(source)
@@ -2615,8 +2615,8 @@ class TestHostOpLowering:
 
     def test_render_explicit_target_inserts_coercion(self) -> None:
         """render::[json](x, ...) coerces the argument to the explicit target type."""
-        from agm.agl.ir.nodes import IrCoerce, IrRenderValue
-        from agm.agl.ir.operations import ToJson
+        from agnette.agl.ir.nodes import IrCoerce, IrRenderValue
+        from agnette.agl.ir.operations import ToJson
 
         source = 'let s = render::[json]("hi", quote-strings = false)\n()'
         prog = _lower(source)
@@ -2628,8 +2628,8 @@ class TestHostOpLowering:
 
     def test_print_explicit_target_scalar_widening(self) -> None:
         """print::[decimal](5) widens the int argument through IrCoerce, like copy."""
-        from agm.agl.ir.nodes import IrCoerce, IrPrint
-        from agm.agl.ir.operations import IntToDecimal
+        from agnette.agl.ir.nodes import IrCoerce, IrPrint
+        from agnette.agl.ir.operations import IntToDecimal
 
         source = "print::[decimal](5)\n()"
         prog = _lower(source)
@@ -2645,7 +2645,7 @@ class TestHostOpLowering:
         No coercion is inserted (a bare type variable never triggers one), matching
         ``copy::[T](x)`` in the same position.
         """
-        from agm.agl.ir.nodes import IrCoerce, IrPrint
+        from agnette.agl.ir.nodes import IrCoerce, IrPrint
 
         source = "def show[T](x: T) -> unit = print::[T](x)\n\nshow::[json]('hi')\n"
         prog = _lower(source)
@@ -2657,8 +2657,8 @@ class TestHostOpLowering:
 
     def test_copy_lowers_to_ir_copy_value(self) -> None:
         """copy(x) lowers to IrCopyValue wrapping the argument expression."""
-        from agm.agl.ir import CopyKind
-        from agm.agl.ir.nodes import IrCopyValue
+        from agnette.agl.ir import CopyKind
+        from agnette.agl.ir.nodes import IrCopyValue
 
         source = "let x = [1, 2]\nlet y = copy(x)\n()"
         prog = _lower(source)
@@ -2671,8 +2671,8 @@ class TestHostOpLowering:
 
     def test_shallow_copy_lowers_to_shallow_ir_copy_value(self) -> None:
         """shallow-copy(x) lowers to an IrCopyValue with the shallow kind."""
-        from agm.agl.ir import CopyKind
-        from agm.agl.ir.nodes import IrCopyValue
+        from agnette.agl.ir import CopyKind
+        from agnette.agl.ir.nodes import IrCopyValue
 
         source = "let x = [1, 2]\nlet y = shallow-copy(x)\n()"
         prog = _lower(source)
@@ -2683,8 +2683,8 @@ class TestHostOpLowering:
 
     def test_copy_explicit_type_arg_inserts_scalar_coercion(self) -> None:
         """copy::[decimal](5) lowers the int argument through IrCoerce to decimal."""
-        from agm.agl.ir import CopyKind
-        from agm.agl.ir.nodes import IrCoerce, IrCopyValue
+        from agnette.agl.ir import CopyKind
+        from agnette.agl.ir.nodes import IrCoerce, IrCopyValue
 
         source = "let x = copy::[decimal](5)\n()"
         prog = _lower(source)
@@ -2696,7 +2696,7 @@ class TestHostOpLowering:
 
     def test_ask_lowers_to_ir_ask_m6b(self) -> None:
         """ask() now lowers to IrAsk."""
-        from agm.agl.ir.nodes import IrAsk
+        from agnette.agl.ir.nodes import IrAsk
 
         source = 'let impl = AgentCommand("impl")\nlet r: text = ask("prompt", agent = impl)\n()'
         prog = _lower(source)
@@ -2712,7 +2712,7 @@ class TestHostOpLowering:
 
     def test_exec_lowers_to_ir_exec(self) -> None:
         """exec() lowers to IrExec."""
-        from agm.agl.ir.nodes import IrExec
+        from agnette.agl.ir.nodes import IrExec
 
         source = 'exec("ls -la")\n()'
         prog = _lower(source)
@@ -2721,8 +2721,8 @@ class TestHostOpLowering:
         assert len(exec_nodes) == 1, f"Expected 1 IrExec, found {len(exec_nodes)}"
 
     def test_unit_exec_lowers_to_outputless_contract(self) -> None:
-        from agm.agl.ir.contracts import UnitContractRequest
-        from agm.agl.ir.nodes import IrExec
+        from agnette.agl.ir.contracts import UnitContractRequest
+        from agnette.agl.ir.nodes import IrExec
 
         prog = _lower('exec("emit")\n()')
         (node,) = [
@@ -2736,7 +2736,7 @@ class TestHostOpLowering:
 
     def test_ask_request_lowers_to_ir_ask_request_with_its_contract(self) -> None:
         """ask-request lowers to IrAskRequest carrying the contract it describes."""
-        from agm.agl.ir.nodes import IrAskRequest
+        from agnette.agl.ir.nodes import IrAskRequest
 
         source = (
             'let worker = AgentCommand("worker")\n'
@@ -2762,7 +2762,7 @@ class TestHostOpLowering:
 
     def test_ask_request_method_form_allocates_the_same_contract(self) -> None:
         """Agent::ask-request(...) goes through the same contract lowering path."""
-        from agm.agl.ir.nodes import IrAskRequest
+        from agnette.agl.ir.nodes import IrAskRequest
 
         source = (
             'let worker: Agent = AgentCommand("worker")\n'
@@ -2783,7 +2783,7 @@ class TestHostOpLowering:
 
     def test_ask_request_does_not_shift_the_contracts_of_other_host_calls(self) -> None:
         """Mixing ask-request with ask/exec leaves every allocated contract resolvable."""
-        from agm.agl.ir.nodes import IrAsk, IrAskRequest, IrExec
+        from agnette.agl.ir.nodes import IrAsk, IrAskRequest, IrExec
 
         source = (
             'let worker = AgentCommand("worker")\n'
@@ -2809,7 +2809,7 @@ class TestHostOpLowering:
 
     def test_ask_sandbox_lowers_the_explicit_operand(self) -> None:
         """ask(..., sandbox = ...) lowers the operand rather than loading the default."""
-        from agm.agl.ir.nodes import IrBuiltinLoad, IrMakeRecord
+        from agnette.agl.ir.nodes import IrBuiltinLoad, IrMakeRecord
 
         source = (
             'let impl = AgentCommand("impl")\n'
@@ -2829,9 +2829,9 @@ class TestHostOpLowering:
 
     def test_ask_without_sandbox_lowers_the_default_sandbox_builtin_load(self) -> None:
         """An agent-routed ask() without 'sandbox' loads std/config::default-sandbox."""
-        from agm.agl.ir.builtin_vars import builtin_var_key
-        from agm.agl.ir.nodes import IrBuiltinLoad
-        from agm.agl.modules.ids import STD_CONFIG_ID
+        from agnette.agl.ir.builtin_vars import builtin_var_key
+        from agnette.agl.ir.nodes import IrBuiltinLoad
+        from agnette.agl.modules.ids import STD_CONFIG_ID
 
         source = 'let impl = AgentCommand("impl")\nlet r: text = ask("prompt", agent = impl)\n()'
         prog = _lower(source)
@@ -2848,7 +2848,7 @@ class TestHostOpLowering:
 
     def test_ask_request_sandbox_lowers_the_explicit_operand(self) -> None:
         """ask-request(..., sandbox = ...) lowers its own explicit operand, undecoded."""
-        from agm.agl.ir.nodes import IrAskRequest, IrBuiltinLoad, IrMakeRecord
+        from agnette.agl.ir.nodes import IrAskRequest, IrBuiltinLoad, IrMakeRecord
 
         source = 'let req = ask-request("prompt", sandbox = AgentSandbox::Disabled)\n()'
         prog = _lower(source)
@@ -2866,9 +2866,9 @@ class TestHostOpLowering:
 
     def test_ask_request_without_sandbox_lowers_the_default_sandbox_builtin_load(self) -> None:
         """An ask-request() without 'sandbox' loads std/config::default-sandbox, like ask()."""
-        from agm.agl.ir.builtin_vars import builtin_var_key
-        from agm.agl.ir.nodes import IrAskRequest, IrBuiltinLoad
-        from agm.agl.modules.ids import STD_CONFIG_ID
+        from agnette.agl.ir.builtin_vars import builtin_var_key
+        from agnette.agl.ir.nodes import IrAskRequest, IrBuiltinLoad
+        from agnette.agl.modules.ids import STD_CONFIG_ID
 
         source = (
             'let worker = AgentCommand("worker")\n'
@@ -2889,7 +2889,7 @@ class TestHostOpLowering:
 
     def test_session_ask_lowers_with_no_sandbox_operand(self) -> None:
         """Session::ask lowers to IrSessionAsk, which carries no sandbox field at all."""
-        from agm.agl.ir.nodes import IrSessionAsk
+        from agnette.agl.ir.nodes import IrSessionAsk
 
         source = 'let s = Session::default()\nlet r: text = s.ask("prompt")\n()'
         prog = _lower(source)
@@ -4133,9 +4133,9 @@ class TestRangeForDesugar:
 
     def test_range_error_in_builtin_exceptions(self) -> None:
         """RangeError is present in BUILTIN_EXCEPTIONS with the expected fields."""
-        from agm.agl.semantics.type_table import create_seeded_type_table
-        from agm.agl.semantics.types import BUILTIN_EXCEPTIONS
-        from agm.agl.semantics.types import TextType as _TextType
+        from agnette.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.types import BUILTIN_EXCEPTIONS
+        from agnette.agl.semantics.types import TextType as _TextType
 
         assert "RangeError" in BUILTIN_EXCEPTIONS
         exc = BUILTIN_EXCEPTIONS["RangeError"]

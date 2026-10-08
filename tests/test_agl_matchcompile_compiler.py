@@ -12,10 +12,10 @@ from typing import cast
 
 import pytest
 
-import agm.agl.matchcompile.compiler as compiler_module
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.ids import NominalId
-from agm.agl.matchcompile import (
+import agnette.agl.matchcompile.compiler as compiler_module
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.matchcompile import (
     BoolWitness,
     ConstructorWitness,
     LiteralWitness,
@@ -27,17 +27,17 @@ from agm.agl.matchcompile import (
     WitnessField,
     render_witness,
 )
-from agm.agl.matchcompile.compiler import (
+from agnette.agl.matchcompile.compiler import (
     CompiledMatchSite,
     compile_match_site,
     validate_compiled_case,
     validate_decision_dag,
 )
-from agm.agl.matchcompile.matrix import (
+from agnette.agl.matchcompile.matrix import (
     OccurrenceAllocator,
     matrix_from_normalized,
 )
-from agm.agl.matchcompile.model import (
+from agnette.agl.matchcompile.model import (
     BoolConstructor,
     CaseSite,
     ClosedSignature,
@@ -54,19 +54,19 @@ from agm.agl.matchcompile.model import (
     OccurrenceId,
     Signature,
 )
-from agm.agl.matchcompile.normalize import (
+from agnette.agl.matchcompile.normalize import (
     MatchCompileInvariantError,
     normalize_case,
     signature_for_type,
 )
-from agm.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
-from agm.agl.scope.program import resolve_program
-from agm.agl.semantics.type_table import DeclKey, TypeTable
-from agm.agl.semantics.types import EnumType, IntType, RecordType, Type
-from agm.agl.semantics.values import BoolValue, RecordValue, Value
-from agm.agl.syntax.nodes import Case
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck import (
+from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.semantics.type_table import DeclKey, TypeTable
+from agnette.agl.semantics.types import EnumType, IntType, RecordType, Type
+from agnette.agl.semantics.values import BoolValue, RecordValue, Value
+from agnette.agl.syntax.nodes import Case
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck import (
     CheckedModule,
     check_program,
 )

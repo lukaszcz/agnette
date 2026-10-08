@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
+from agnette.agl import PipelineDriver
 from tests._agl_helpers import agl_roots, repl_session, run_inline_code
 from tests.agl.qualifier_support import all_groupings, eval_grouped_final
 

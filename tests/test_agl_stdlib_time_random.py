@@ -11,13 +11,13 @@ from typing import Protocol, cast
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.runtime.boundary import AglArrayView, AglException
-from agm.agl.runtime.externs import ExternRegistry
-from agm.agl.semantics.values import ArrayValue, IntValue, TextValue
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.runtime.boundary import AglArrayView, AglException
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.semantics.values import ArrayValue, IntValue, TextValue
 from tests._agl_helpers import option_nominal_descriptors
 from tests.agl.ir_harness import extern_caps, lower_ir
 

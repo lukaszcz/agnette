@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules.roots import RootSet, assemble_roots
-from agm.agl.pipeline import PipelineDriver, RunResult
-from agm.agl.repl.entry import EntryResult
-from agm.agl.repl.session import ReplSession
-from agm.agl.semantics.values import IntValue
-from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
-from agm.packages.manifest import load_manifest
-from agm.packages.model import PackageInfo
+from agnette.agl.modules.roots import RootSet, assemble_roots
+from agnette.agl.pipeline import PipelineDriver, RunResult
+from agnette.agl.repl.entry import EntryResult
+from agnette.agl.repl.session import ReplSession
+from agnette.agl.semantics.values import IntValue
+from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
+from agnette.packages.manifest import load_manifest
+from agnette.packages.model import PackageInfo
 from tests._agl_helpers import REPO_STDLIB_ROOT, run_inline_code
 from tests.agl.ir_harness import write_companion_file, write_module_file
 

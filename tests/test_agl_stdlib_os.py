@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import RunResult
+from agnette.agl import PipelineDriver
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import RunResult
 from tests._agl_helpers import NONE_FIELD, agl_roots, repl_session, some_field
 from tests._proc_helpers import wait_for_signal_ignored_script
 
@@ -101,7 +101,7 @@ def test_os_exit_reaches_the_cli_process_and_finalizes_its_trace(
         [
             sys.executable,
             "-c",
-            "from agm.cli import main; main()",
+            "from agnette.agm.cli import main; main()",
             "exec",
             "--trace-file",
             str(trace_path),
@@ -162,7 +162,7 @@ def test_os_metadata_matches_the_subprocess_identity(tmp_path: Path, env: dict[s
         [
             sys.executable,
             "-c",
-            "from agm.cli import main; main()",
+            "from agnette.agm.cli import main; main()",
             "exec",
             "--no-trace",
             str(program),

@@ -40,9 +40,9 @@ from typesafe_sdk import (
     TypeSafeUnprocessableEntityError,
 )
 
-from agm.agl.runtime.convert import StrictJsonParseError, parse_json_strict
-from agm.agl.runtime.serialize import dumps_exact
-from agm.core.parse import format_timeout, parse_positive_timeout
+from agnette.agl.runtime.convert import StrictJsonParseError, parse_json_strict
+from agnette.agl.runtime.serialize import dumps_exact
+from agnette.core.parse import format_timeout, parse_positive_timeout
 
 if TYPE_CHECKING:
     import httpx2

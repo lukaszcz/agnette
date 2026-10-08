@@ -61,10 +61,10 @@ from pathlib import Path
 
 from lark.lexer import Token
 
-from agm.agl.diagnostics import AglError
-from agm.agl.lexer import LexError, lex_comment_spans, tokenize
-from agm.agl.parser.parser import parse_program
-from agm.agl.syntax.nodes import Program
+from agnette.agl.diagnostics import AglError
+from agnette.agl.lexer import LexError, lex_comment_spans, tokenize
+from agnette.agl.parser.parser import parse_program
+from agnette.agl.syntax.nodes import Program
 
 INDENT_WIDTH = 2
 

@@ -1,10 +1,10 @@
-"""Comprehensive tests for agm.tmux.session — validate_pane_count and _filter_env."""
+"""Comprehensive tests for agnette.agm.tmux.session — validate_pane_count and _filter_env."""
 
 from __future__ import annotations
 
 import pytest
 
-from agm.tmux.session import _filter_env, validate_pane_count
+from agnette.agm.tmux.session import _filter_env, validate_pane_count
 
 # ===========================================================================
 # validate_pane_count

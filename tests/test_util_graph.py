@@ -1,10 +1,10 @@
-"""Unit tests for agm.util.graph — sccs, toposort, and bfs_first."""
+"""Unit tests for agnette.util.graph — sccs, toposort, and bfs_first."""
 
 from __future__ import annotations
 
 import pytest
 
-from agm.util.graph import GraphCycleError, bfs_first, sccs, toposort
+from agnette.util.graph import GraphCycleError, bfs_first, sccs, toposort
 
 # ---------------------------------------------------------------------------
 # GraphCycleError

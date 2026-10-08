@@ -1,11 +1,11 @@
-"""Headless tests for the prompt_toolkit console (``agm.agl.repl.console``).
+"""Headless tests for the prompt_toolkit console (``agnette.agl.repl.console``).
 
 Drives :func:`run_console` through prompt_toolkit's ``create_pipe_input`` +
 ``DummyOutput`` so no real terminal is required, and exercises the highlighting
 lexer and the completer directly. Tests for the UI-free predicates and helpers
 ``run_console`` delegates to (``format_banner``, ``is_incomplete``,
 ``has_runnable_statements``) live in
-``tests/test_agl_repl_loop.py`` alongside the rest of ``agm.agl.repl.loop``'s
+``tests/test_agl_repl_loop.py`` alongside the rest of ``agnette.agl.repl.loop``'s
 direct tests; this file covers only what actually needs the console driven.
 
 Scripted keystrokes use ``\\r`` for the Enter key (so the custom multiline Enter
@@ -31,10 +31,10 @@ from prompt_toolkit.history import FileHistory, InMemoryHistory
 from prompt_toolkit.input import PipeInput, create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-import agm.agl.repl.console as console
-from agm.agl.lexer import tokenize
-from agm.agl.repl import ReplSession as _ReplSession
-from agm.agl.repl.console import (
+import agnette.agl.repl.console as console
+from agnette.agl.lexer import tokenize
+from agnette.agl.repl import ReplSession as _ReplSession
+from agnette.agl.repl.console import (
     AglCompleter,
     AglPromptLexer,
     _highlighted_agl_fragments,
@@ -42,7 +42,7 @@ from agm.agl.repl.console import (
     build_prompt_session,
     run_console,
 )
-from agm.agl.runtime.request import AgentRequest, AgentResponse
+from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from tests._process_helpers import FakeShell
 from tests._timeouts import fail_if_slow
 
@@ -288,7 +288,7 @@ class TestMultiline:
         # one"/"echo two") so the assertion cannot pass merely because the
         # input line was echoed back.
         shell = FakeShell([{"command": "echo one\necho two", "stdout": "ONE\nTWO\n"}])
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             output = drive(
                 "exec $\r  echo one\r  echo two\r\r\x04",
                 session=ReplSession(default_stdlib=True),
@@ -320,7 +320,7 @@ class TestMultiline:
         # continuation. The scripted stdout differs from the typed payload so
         # the assertion cannot pass merely because the input line was echoed.
         shell = FakeShell([{"command": "echo hi", "stdout": "HI\n"}])
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             output = drive("exec $ echo hi\r\x04", session=ReplSession(default_stdlib=True))
 
         assert ": error:" not in output.lower()
@@ -403,7 +403,7 @@ class TestLexer:
         source = "let x = 1 + foo"
         expected = AglPromptLexer().lex_document(Document(source))(0)
         with patch(
-            "agm.agl.repl.console.tokenize",
+            "agnette.agl.repl.console.tokenize",
             side_effect=lambda text: iter([Token("NAME", "ghost"), *tokenize(text)]),
         ):
             fragments = AglPromptLexer().lex_document(Document(source))(0)
@@ -1023,8 +1023,8 @@ class TestIsIncompleteSourceMemo:
     def test_repeated_call_with_same_text_parses_only_once(self) -> None:
         from unittest.mock import patch
 
-        import agm.agl.parser.parser as parser_mod
-        from agm.agl.parser import is_incomplete_source
+        import agnette.agl.parser.parser as parser_mod
+        from agnette.agl.parser import is_incomplete_source
 
         text = "let x = 42"
         real_parse = parser_mod._PARSER.parse
@@ -1043,8 +1043,8 @@ class TestIsIncompleteSourceMemo:
         """Changing the text invalidates the memo and re-parses."""
         from unittest.mock import patch
 
-        import agm.agl.parser.parser as parser_mod
-        from agm.agl.parser import is_incomplete_source
+        import agnette.agl.parser.parser as parser_mod
+        from agnette.agl.parser import is_incomplete_source
 
         real_parse = parser_mod._PARSER.parse
         with patch.object(parser_mod._PARSER, "parse", wraps=real_parse) as mock_parse:
@@ -1057,8 +1057,8 @@ class TestIsIncompleteSourceMemo:
         """Memo works correctly for incomplete (True) classification too."""
         from unittest.mock import patch
 
-        import agm.agl.parser.parser as parser_mod
-        from agm.agl.parser import is_incomplete_source
+        import agnette.agl.parser.parser as parser_mod
+        from agnette.agl.parser import is_incomplete_source
 
         text = "record MemoRecord"
         real_parse = parser_mod._PARSER.parse
@@ -1233,14 +1233,14 @@ class TestThemeThroughLoop:
         assert saved == [("echo", False), ("echo-unit", True)]
 
     def test_build_prompt_session_dark_theme(self) -> None:
-        from agm.agl.repl.themes import DARK_THEME
+        from agnette.agl.repl.themes import DARK_THEME
 
         with create_pipe_input() as pipe:
             ps = build_prompt_session(ReplSession(), theme="dark", input=pipe, output=DummyOutput())
         assert ps.style is DARK_THEME
 
     def test_build_prompt_session_light_theme(self) -> None:
-        from agm.agl.repl.themes import LIGHT_THEME
+        from agnette.agl.repl.themes import LIGHT_THEME
 
         with create_pipe_input() as pipe:
             ps = build_prompt_session(

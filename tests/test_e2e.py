@@ -34,8 +34,8 @@ from typing import TypedDict, cast
 
 import pytest
 
-from agm.packages.record import write_record
-from agm.project.workspace_shell import _sanitize_session_key
+from agnette.agm.project.workspace_shell import _sanitize_session_key
+from agnette.packages.record import write_record
 from tests import _agm_zygote
 from tests._agl_helpers import (
     write_file_program,
@@ -53,7 +53,7 @@ from tests._proc_helpers import wait_for_path
 def _workspace_shell_path(env: dict[str, str], session_name: str) -> Path:
     """Return the per-session wrapper path the real agm writes under *env*.
 
-    Mirrors ``agm.project.workspace_shell.workspace_shell_dir`` but resolves
+    Mirrors ``agnette.agm.project.workspace_shell.workspace_shell_dir`` but resolves
     ``XDG_CACHE_HOME``/``HOME`` against *env* (the checkout CLI runs with
     this env), not the test process environment.
     """
@@ -378,7 +378,7 @@ def _agm_install(
         "' '''\n"
         "import sys\n"
         f"sys.path.insert(0, {str(repo_root / 'src')!r})\n"
-        "from agm.cli import main\n"
+        "from agnette.agm.cli import main\n"
         "sys.exit(main())\n",
         encoding="utf-8",
     )
@@ -5771,7 +5771,7 @@ class TestTmuxOpenSession:
 
         log = tmux_log.read_text()
         assert "run-shell" in log
-        assert "agm.cli tmux layout 4" in log
+        assert "agnette.agm.cli tmux layout 4" in log
         # The non-detached path delegates layout to run-shell rather than
         # calling display-message directly.  The compound command line
         # (logged as a single CMD entry with ';' separators) must not
@@ -6848,7 +6848,7 @@ class TestPackageInstall:
         env["AGM_HOME"] = str(tmp_path / "agm-home")
         bravo = _write_store_test_package(tmp_path / "bravo-source", "bravo", "1.0.0")
         archive = tmp_path / "bravo.agmpkg"
-        from agm.packages.archive import write_archive
+        from agnette.packages.archive import write_archive
 
         write_archive(bravo, archive)
         alpha = _write_store_test_package(tmp_path / "alpha-source", "alpha", "1.0.0")

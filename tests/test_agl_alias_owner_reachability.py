@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglError, HiddenMemberError
-from agm.agl.scope import AglScopeError
+from agnette.agl.diagnostics import AglError, HiddenMemberError
+from agnette.agl.scope import AglScopeError
 from tests._agl_helpers import check_agl_program
 
 _LIBRARIES = {

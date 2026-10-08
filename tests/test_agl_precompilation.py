@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import lower
-from agm.agl.artifact_cache import clear_retained_artifacts
-from agm.agl.ir.contracts import ContractPayload, TypeNode, TypeTree
-from agm.agl.ir.program import ExecutableProgram
-from agm.agl.matchcompile import MatchCompiledProgram
-from agm.agl.modules.parsed_module_cache import clear_parsed_module_cache
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import PipelineDriver, RunResult
+from agnette.agl import lower
+from agnette.agl.artifact_cache import clear_retained_artifacts
+from agnette.agl.ir.contracts import ContractPayload, TypeNode, TypeTree
+from agnette.agl.ir.program import ExecutableProgram
+from agnette.agl.matchcompile import MatchCompiledProgram
+from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import PipelineDriver, RunResult
 from tests._agl_helpers import run_inline_code
 
 
@@ -27,7 +27,7 @@ def _run(root: Path, source: str) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
         "-m",
-        "agm.cli",
+        "agnette.agm.cli",
         "exec",
         "--no-stdlib",
         "-I",
@@ -50,7 +50,7 @@ def _check(root: Path, source: str) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
         "-m",
-        "agm.cli",
+        "agnette.agm.cli",
         "check",
         "--no-stdlib",
         "-I",

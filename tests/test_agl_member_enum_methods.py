@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.scope import AglScopeError
-from agm.agl.syntax.nodes import LetDecl
-from agm.agl.typecheck import (
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.scope import AglScopeError
+from agnette.agl.syntax.nodes import LetDecl
+from agnette.agl.typecheck import (
     AglTypeError,
     ArrayType,
     CheckedModule,

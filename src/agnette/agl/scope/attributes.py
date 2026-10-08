@@ -1,0 +1,675 @@
+"""Recognition of the attributes a module's declarations carry.
+
+The parser keeps every attribute exactly as written. This step is where an
+attribute acquires meaning: one walk over a module's declarations checks each
+one against :mod:`agnette.agl.attributes` — the name exists, the declaration is an
+admitted target, the arguments match the declared schema, the attribute is not
+repeated or contradicted — and turns the surviving attributes into typed
+side-table entries.
+
+Eight facts are built: a parameter's zone, from the ``@arg-*`` attribute an
+entry or its owning declaration carries; an ``extern def``'s Python companion
+name, from ``@extern-name`` — the walk sees every extern of a module, so it is
+also where their companion names are held apart; host-facing parameters'
+presentation, from ``@param`` and the ``@opt-*`` attributes; the package command
+a ``program def`` registers itself as, from ``@command`` and its prose; a
+declaration's documentation text, from ``@doc``; a field, inline enum
+member, or record declaration's external spellings, from ``@name``/
+``@json-name``; and a ``program def``'s ``@config`` entries, filed raw for
+resolution and type checking to give meaning to. The walk is the seam a
+further attribute meaning joins through — a new fact reads the attributes the
+walk already hands it and fills a table of its own, so it costs one more
+builder, never one more traversal.
+"""
+
+from __future__ import annotations
+
+import keyword
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+
+from agnette.agl.attributes import (
+    BUILTIN_ATTRIBUTES,
+    COMMAND_ATTRIBUTE,
+    CONFIG_ATTRIBUTE,
+    DOC_ATTRIBUTE,
+    EXTERN_NAME_ATTRIBUTE,
+    JSON_NAME_ATTRIBUTE,
+    NAME_ADDRESSED_OPTION_ATTRIBUTES,
+    NAME_ATTRIBUTE,
+    OPTION_ENV_ATTRIBUTE,
+    OPTION_HIDDEN_ATTRIBUTE,
+    OPTION_METAVAR_ATTRIBUTE,
+    OPTION_NAME_ATTRIBUTE,
+    OPTION_SHORT_ATTRIBUTE,
+    PARAM_ATTRIBUTE,
+    ZONE_ATTRIBUTES,
+    AttributeArguments,
+    AttributeSpec,
+    AttributeTarget,
+    ProgramOptionSpec,
+    ProgramRegistration,
+    invalid_external_name,
+    invalid_json_name,
+    invalid_program_command_path,
+)
+from agnette.agl.scope.symbols import AglScopeError, AttributeFacts
+from agnette.agl.semantics.external_names import ExternalName
+from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants
+from agnette.agl.syntax.nodes import (
+    Attribute,
+    AttributeKeyedArg,
+    BuiltinVarDecl,
+    EnumDef,
+    ExceptionDef,
+    FuncDef,
+    Item,
+    Lambda,
+    LetDecl,
+    Param,
+    Program,
+    RecordDef,
+    TypeAlias,
+    VarDecl,
+    VariantDef,
+    static_binding_name,
+    static_binding_node_id,
+    static_items,
+)
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.zones import ParamZone
+
+__all__ = ["AttributeFacts", "recognize_attributes", "recognize_program_registration"]
+
+
+@dataclass(frozen=True, slots=True)
+class _Recognized:
+    """One declaration's validated attribute prefix, ready for a fact builder.
+
+    ``nodes`` locates every attribute the declaration carries by name — for a
+    builder reporting one that may not sit where it does — and ``texts`` the
+    already-validated argument of every attribute whose schema takes one.
+    """
+
+    nodes: dict[str, Attribute]
+    texts: dict[str, str]
+
+    def text_of(self, name: str) -> str | None:
+        """Return the text argument attribute *name* carries, if it is present."""
+        return self.texts.get(name)
+
+
+#: The order entries run in: positional-only, then standard, then named-only.
+_ZONE_SEQUENCE: tuple[ParamZone, ...] = (
+    ParamZone.POSITIONAL_ONLY,
+    ParamZone.STANDARD,
+    ParamZone.NAMED_ONLY,
+)
+
+#: Declarations carrying both their own attributes and an attributed field list.
+_FIELD_OWNERS: Mapping[type[object], AttributeTarget] = {
+    RecordDef: AttributeTarget.RECORD,
+    ExceptionDef: AttributeTarget.EXCEPTION,
+    VariantDef: AttributeTarget.ENUM_MEMBER,
+}
+
+#: Declarations whose attributes attach to the declaration and nothing else.
+_PLAIN_TARGETS: Mapping[type[object], AttributeTarget] = {
+    EnumDef: AttributeTarget.ENUM,
+    TypeAlias: AttributeTarget.TYPE_ALIAS,
+}
+
+#: How each zone is named in a diagnostic.
+_ZONE_LABEL: Mapping[ParamZone, str] = {
+    ParamZone.POSITIONAL_ONLY: "positional-only",
+    ParamZone.STANDARD: "standard",
+    ParamZone.NAMED_ONLY: "named-only",
+}
+
+#: How each target kind is named in a diagnostic.
+_TARGET_LABEL: Mapping[AttributeTarget, str] = {
+    AttributeTarget.FUNCTION: "function declaration",
+    AttributeTarget.PROGRAM: "program declaration",
+    AttributeTarget.EXTERN: "extern declaration",
+    AttributeTarget.BUILTIN_FUNCTION: "builtin function declaration",
+    AttributeTarget.RECORD: "record declaration",
+    AttributeTarget.ENUM: "enum declaration",
+    AttributeTarget.ENUM_MEMBER: "enum member",
+    AttributeTarget.EXCEPTION: "exception declaration",
+    AttributeTarget.TYPE_ALIAS: "type alias",
+    AttributeTarget.BINDING: "binding",
+    AttributeTarget.PARAM_BINDING: "parameter binding",
+    AttributeTarget.BUILTIN_VAR: "builtin var",
+    AttributeTarget.PARAMETER: "parameter",
+    AttributeTarget.FIELD: "field",
+    AttributeTarget.PROGRAM_PARAMETER: "program parameter",
+}
+
+
+def _function_target(node: FuncDef) -> AttributeTarget:
+    """Return the target kind of one ``def`` flavor."""
+    if node.is_program:
+        return AttributeTarget.PROGRAM
+    if node.is_extern:
+        return AttributeTarget.EXTERN
+    if node.is_builtin:
+        return AttributeTarget.BUILTIN_FUNCTION
+    return AttributeTarget.FUNCTION
+
+
+def recognize_program_registration(
+    node: FuncDef, constants: ModuleConstants
+) -> ProgramRegistration:
+    """Return what a ``program def``'s attribute prefix says about hosting it.
+
+    Validates *node*'s attribute prefix against the catalog exactly as the
+    scope walk does — this is the one place both share, so a parse-only
+    caller (package command discovery) and the full scope pass raise the
+    same diagnostics for the same source. *constants* folds the module's own
+    constants into any attribute argument that interpolates or names one, and
+    is likewise the one the scope walk uses. The caller is responsible for
+    passing a ``program def``; this function trusts that and does not check it.
+    """
+    recognized = _validate_attribute_prefix(
+        node.attributes,
+        AttributeTarget.PROGRAM,
+        constants,
+        constants.static_scope_path_of(node.node_id) or (),
+    )
+    return ProgramRegistration(
+        doc=recognized.text_of(DOC_ATTRIBUTE), command=_program_command_path(recognized)
+    )
+
+
+def recognize_attributes(
+    program: Program, *, declares_receiver: Callable[[FuncDef], bool]
+) -> AttributeFacts:
+    """Validate *program*'s declaration attributes and build their facts.
+
+    *declares_receiver* reports scope's method classification for a ``def``:
+    a classified method's first parameter is its ``self`` receiver, which is
+    positional-only and admits no zone attribute of its own.
+    """
+    static_binding_ids = frozenset(
+        item.node_id
+        for item in static_items(program.body.items)
+        if isinstance(item, (LetDecl, VarDecl))
+    )
+    recognizer = _Recognizer(declares_receiver, static_binding_ids, ModuleConstants(program))
+    walk(program, recognizer.visit)
+    return AttributeFacts(
+        param_zones=recognizer.param_zones,
+        extern_names=recognizer.extern_names,
+        program_options=recognizer.program_options,
+        params=recognizer.params,
+        command_registrations=recognizer.command_registrations,
+        docs=recognizer.docs,
+        external_names=recognizer.external_names,
+        program_configs=recognizer.program_configs,
+    )
+
+
+class _Recognizer:
+    """One module's attribute walk, accumulating facts as it goes."""
+
+    def __init__(
+        self,
+        declares_receiver: Callable[[FuncDef], bool],
+        static_binding_ids: frozenset[int],
+        constants: ModuleConstants,
+    ) -> None:
+        self._declares_receiver = declares_receiver
+        self._static_binding_ids = static_binding_ids
+        self._constants = constants
+        self._scope_path: tuple[str, ...] = ()
+        self.param_zones: dict[int, ParamZone] = {}
+        self.extern_names: dict[int, str] = {}
+        self.program_options: dict[int, ProgramOptionSpec] = {}
+        self.params: dict[int, ProgramOptionSpec] = {}
+        self.command_registrations: dict[int, str] = {}
+        self.docs: dict[int, str] = {}
+        self.external_names: dict[int, ExternalName] = {}
+        self.program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = {}
+        self._companion_owners: dict[str, str] = {}
+
+    def visit(self, node: object) -> None:
+        """Recognize the attributes of *node*, if it is a defining declaration.
+
+        A static item sets the scope path its own attributes — and those of
+        its parameters or fields — resolve a constant reference from; a
+        declaration nested in a body keeps the enclosing item's path.
+        """
+        if isinstance(node, Item):
+            declared_scope = self._constants.static_scope_path_of(node.node_id)
+            if declared_scope is not None:
+                self._scope_path = declared_scope
+        if isinstance(node, FuncDef):
+            recognized = self._check(node.attributes, _function_target(node), node.node_id)
+            if node.is_extern:
+                self._extern_name(node, recognized)
+            if node.is_program:
+                self._command_registration(node, recognized)
+                self._program_config(node, recognized)
+            self._entries(
+                node.params,
+                _zone_attribute(recognized),
+                target=(
+                    AttributeTarget.PROGRAM_PARAMETER
+                    if node.is_program
+                    else AttributeTarget.PARAMETER
+                ),
+                form_default=(ParamZone.NAMED_ONLY if node.is_program else ParamZone.STANDARD),
+                has_receiver=self._declares_receiver(node),
+                owner_name=node.name,
+            )
+        elif isinstance(node, Lambda):
+            self._entries(node.params, None, target=AttributeTarget.PARAMETER)
+        elif isinstance(node, (RecordDef, ExceptionDef, VariantDef)):
+            recognized = self._check(node.attributes, _FIELD_OWNERS[type(node)], node.node_id)
+            self._entries(node.fields, _zone_attribute(recognized), target=AttributeTarget.FIELD)
+        elif isinstance(node, (LetDecl, VarDecl)):
+            self._binding(node)
+        elif isinstance(node, BuiltinVarDecl):
+            self._check(node.attributes, AttributeTarget.BUILTIN_VAR, node.node_id)
+        elif isinstance(node, (EnumDef, TypeAlias)):
+            self._check(node.attributes, _PLAIN_TARGETS[type(node)], node.node_id)
+
+    # ------------------------------------------------------------------
+    # Catalog validation
+    # ------------------------------------------------------------------
+
+    def _check(
+        self,
+        attributes: tuple[Attribute, ...],
+        target: AttributeTarget,
+        node_id: int,
+        *,
+        param_allowed: bool = False,
+    ) -> _Recognized:
+        """Validate the whole attribute prefix of the declaration *node_id*.
+
+        Delegates to :func:`_validate_attribute_prefix` and additionally files
+        ``@doc`` text, admitted on every declaration kind, since documentation
+        has no fact builder of its own.
+        """
+        param = next((item for item in attributes if item.name == PARAM_ATTRIBUTE), None)
+        if target is AttributeTarget.BINDING and param is not None:
+            if not param_allowed:
+                raise AglScopeError(
+                    "Attribute '@param' can only be attached to a static binding at module "
+                    "root or in a scope region.",
+                    span=param.span,
+                )
+            target = AttributeTarget.PARAM_BINDING
+        recognized = _validate_attribute_prefix(
+            attributes, target, self._constants, self._scope_path
+        )
+        documentation = recognized.text_of(DOC_ATTRIBUTE)
+        if documentation is not None:
+            self.docs[node_id] = documentation
+        self._external_name(node_id, recognized)
+        return recognized
+
+    # ------------------------------------------------------------------
+    # Fact builder: static host parameters
+    # ------------------------------------------------------------------
+
+    def _binding(self, node: LetDecl | VarDecl) -> None:
+        """Recognize one static or nested binding's attributes."""
+        is_static = node.node_id in self._static_binding_ids
+        recognized = self._check(
+            node.attributes,
+            AttributeTarget.BINDING,
+            node.node_id,
+            param_allowed=is_static,
+        )
+        marker = recognized.nodes.get(PARAM_ATTRIBUTE)
+        if marker is None:
+            return
+        name = static_binding_name(node)
+        if name == "_":
+            raise AglScopeError(
+                "Attribute '@param' requires a binding with a single name.",
+                span=marker.span,
+            )
+        binding_node_id = static_binding_node_id(node)
+        self.params[binding_node_id] = _option_spec(name, recognized)
+
+    # ------------------------------------------------------------------
+    # Fact builder: field/member/record external spellings
+    # ------------------------------------------------------------------
+
+    def _external_name(self, node_id: int, recognized: _Recognized) -> None:
+        """Record a field/enum-member/record's ``@name``/``@json-name`` spellings.
+
+        Only these three target kinds admit either attribute (enforced by the
+        catalog before *recognized* exists), so this runs unconditionally for
+        every declaration :meth:`_check` sees and simply finds nothing to
+        file for the rest.
+        """
+        texts: dict[str, str | None] = {}
+        for attribute, invalid_text in (
+            (NAME_ATTRIBUTE, invalid_external_name),
+            (JSON_NAME_ATTRIBUTE, invalid_json_name),
+        ):
+            attribute_node = recognized.nodes.get(attribute)
+            if attribute_node is None:
+                texts[attribute] = None
+                continue
+            text = recognized.texts[attribute]
+            invalid = invalid_text(text)
+            if invalid is not None:
+                raise AglScopeError(
+                    f"Attribute '@{attribute}' argument {text!r} {invalid}.",
+                    span=attribute_node.span,
+                )
+            texts[attribute] = text
+        if texts[NAME_ATTRIBUTE] is None and texts[JSON_NAME_ATTRIBUTE] is None:
+            return
+        self.external_names[node_id] = ExternalName(
+            name=texts[NAME_ATTRIBUTE], json_name=texts[JSON_NAME_ATTRIBUTE]
+        )
+
+    # ------------------------------------------------------------------
+    # Fact builder: extern companion names
+    # ------------------------------------------------------------------
+
+    def _extern_name(self, node: FuncDef, recognized: _Recognized) -> None:
+        """Record the Python companion name one ``extern def`` resolves to.
+
+        *recognized* is the declaration's validated attribute prefix; its
+        ``@extern-name`` argument names the companion when it carries one, and
+        without it the declared member name is the companion name verbatim.
+        The companion module has to define a Python function spelled exactly
+        this way, so the effective name must be a valid identifier that is not
+        a hard Python keyword — soft keywords (``match``, ``type``, …) are
+        legal Python ``def`` names and pass — and a module's externs, wherever
+        they are declared, must each claim a different one of its companion's
+        functions.
+        """
+        supplied = recognized.nodes.get(EXTERN_NAME_ATTRIBUTE)
+        name = node.name if supplied is None else recognized.texts[EXTERN_NAME_ATTRIBUTE]
+        span = node.span if supplied is None else supplied.span
+        if not name.isidentifier() or keyword.iskeyword(name):
+            remedy = (
+                ""
+                if supplied is not None
+                else f" Supply one with '@{EXTERN_NAME_ATTRIBUTE}(\"python_name\")'."
+            )
+            raise AglScopeError(
+                f"Extern companion name '{name}' must be a valid Python identifier and not a "
+                "Python keyword, because the companion module must define a Python function "
+                f"with exactly this name.{remedy}",
+                span=span,
+            )
+        owner = self._companion_owners.get(name)
+        if owner is not None:
+            raise AglScopeError(
+                f"Extern declarations '{owner}' and '{node.name}' both map to companion "
+                f"function '{name}'; a module's externs need distinct companion names, "
+                f"supplied with '@{EXTERN_NAME_ATTRIBUTE}'.",
+                span=span,
+            )
+        self._companion_owners[name] = node.name
+        self.extern_names[node.node_id] = name
+
+    # ------------------------------------------------------------------
+    # Fact builder: package command registrations
+    # ------------------------------------------------------------------
+
+    def _command_registration(self, node: FuncDef, recognized: _Recognized) -> None:
+        """Record the package command path one ``program def`` registers itself as."""
+        path = _program_command_path(recognized)
+        if path is not None:
+            self.command_registrations[node.node_id] = path
+
+    # ------------------------------------------------------------------
+    # Fact builder: program config entries
+    # ------------------------------------------------------------------
+
+    def _program_config(self, node: FuncDef, recognized: _Recognized) -> None:
+        """Record one ``program def``'s ``@config`` entries, if it carries one."""
+        attribute = recognized.nodes.get(CONFIG_ATTRIBUTE)
+        if attribute is not None:
+            self.program_configs[node.node_id] = attribute.keyed_args
+
+    # ------------------------------------------------------------------
+    # Fact builder: parameter zones
+    # ------------------------------------------------------------------
+
+    def _entries(
+        self,
+        entries: tuple[Param, ...],
+        owner_zone: ParamZone | None,
+        *,
+        target: AttributeTarget,
+        form_default: ParamZone = ParamZone.STANDARD,
+        has_receiver: bool = False,
+        owner_name: str | None = None,
+    ) -> None:
+        """Validate and zone every entry of one parameter or field list.
+
+        An entry's own ``@arg-*`` attribute wins; otherwise the owning
+        declaration's sets the list default; otherwise *form_default* applies.
+        A classified method's receiver is positional-only regardless. Entries
+        then have to run positional-only, standard, named-only.
+        """
+        list_default = form_default if owner_zone is None else owner_zone
+        highest = _ZONE_SEQUENCE[0]
+        for index, entry in enumerate(entries):
+            recognized = self._check(entry.attributes, target, entry.node_id)
+            declared = _zone_attribute(recognized)
+            if has_receiver and index == 0:
+                if declared is not None:
+                    raise AglScopeError(
+                        f"Receiver '{entry.name}' of '{owner_name}' is positional-only and "
+                        "cannot carry a zone attribute.",
+                        span=entry.span,
+                    )
+                zone = ParamZone.POSITIONAL_ONLY
+            else:
+                zone = list_default if declared is None else declared
+            if _ZONE_SEQUENCE.index(zone) < _ZONE_SEQUENCE.index(highest):
+                raise AglScopeError(
+                    f"{entry.name!r} is {_ZONE_LABEL[zone]} but follows a "
+                    f"{_ZONE_LABEL[highest]} entry; entries are ordered "
+                    "positional-only, then standard, then named-only.",
+                    span=entry.span,
+                )
+            highest = zone
+            self.param_zones[entry.node_id] = zone
+            if target is AttributeTarget.PROGRAM_PARAMETER:
+                self._program_option(
+                    entry,
+                    recognized,
+                    zone,
+                    cli_positional=(
+                        declared is None
+                        and owner_zone is None
+                        and entry.default is None
+                        and OPTION_NAME_ATTRIBUTE not in recognized.nodes
+                        and OPTION_SHORT_ATTRIBUTE not in recognized.nodes
+                    ),
+                )
+
+    # ------------------------------------------------------------------
+    # Fact builder: program option presentation
+    # ------------------------------------------------------------------
+
+    def _program_option(
+        self, entry: Param, recognized: _Recognized, zone: ParamZone, *, cli_positional: bool
+    ) -> None:
+        """Record how one ``program def`` parameter presents itself to a host.
+
+        Every program parameter gets an entry: without any ``@opt-*``
+        attribute it is addressed by its declared name and carries nothing
+        else. A positional-only parameter is addressed by position alone, so
+        the attributes that only mean something for a named one are rejected
+        rather than silently ignored, and the two argument shapes a host has
+        to spell — a one-letter short option and a flag word it can also
+        negate — are checked here, where the attribute is still in view.
+        """
+        if zone is ParamZone.POSITIONAL_ONLY:
+            for name in NAME_ADDRESSED_OPTION_ATTRIBUTES:
+                attribute = recognized.nodes.get(name)
+                if attribute is not None:
+                    raise AglScopeError(
+                        f"Attribute '@{name}' cannot be attached to positional-only parameter "
+                        f"{entry.name!r}, which a host addresses by position and never by name.",
+                        span=attribute.span,
+                    )
+        self.program_options[entry.node_id] = _option_spec(
+            entry.name, recognized, cli_positional=cli_positional
+        )
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_attribute_prefix(
+    attributes: tuple[Attribute, ...],
+    target: AttributeTarget,
+    constants: ModuleConstants,
+    scope_path: tuple[str, ...],
+) -> _Recognized:
+    """Validate one declaration's whole attribute prefix against the catalog.
+
+    Checks that each attribute is known, admits *target*, is not repeated,
+    conflicts with nothing else present, and carries an argument matching its
+    schema. This is the one place both the full scope walk (:meth:`_Recognizer._check`)
+    and a parse-only caller (:func:`recognize_program_command`) validate an
+    attribute prefix, so both raise the same diagnostics for the same source.
+    """
+    nodes: dict[str, Attribute] = {}
+    texts: dict[str, str] = {}
+    for attribute in attributes:
+        spec = BUILTIN_ATTRIBUTES.get(attribute.name)
+        if spec is None:
+            raise AglScopeError(f"Unknown attribute '@{attribute.name}'.", span=attribute.span)
+        validation_target = (
+            AttributeTarget.BINDING
+            if target is AttributeTarget.PARAM_BINDING and attribute.name == PARAM_ATTRIBUTE
+            else target
+        )
+        if validation_target not in spec.targets:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' cannot be attached to a {_TARGET_LABEL[target]}.",
+                span=attribute.span,
+            )
+        if attribute.name in nodes:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' cannot be repeated.", span=attribute.span
+            )
+        for other in spec.conflicts:
+            if other in nodes:
+                raise AglScopeError(
+                    f"Attribute '@{attribute.name}' conflicts with '@{other}'.",
+                    span=attribute.span,
+                )
+        text = _check_arguments(attribute, spec, constants, scope_path)
+        if text is not None:
+            texts[attribute.name] = text
+        nodes[attribute.name] = attribute
+    return _Recognized(nodes=nodes, texts=texts)
+
+
+def _option_spec(
+    name: str, recognized: _Recognized, *, cli_positional: bool = False
+) -> ProgramOptionSpec:
+    """Build one host-facing parameter's presentation spec."""
+    external = recognized.text_of(OPTION_NAME_ATTRIBUTE)
+    return ProgramOptionSpec(
+        name=name if external is None else external,
+        short=recognized.text_of(OPTION_SHORT_ATTRIBUTE),
+        env=recognized.text_of(OPTION_ENV_ATTRIBUTE),
+        metavar=recognized.text_of(OPTION_METAVAR_ATTRIBUTE),
+        hidden=OPTION_HIDDEN_ATTRIBUTE in recognized.nodes,
+        doc=recognized.text_of(DOC_ATTRIBUTE),
+        cli_positional=cli_positional,
+    )
+
+
+def _program_command_path(recognized: _Recognized) -> str | None:
+    """Return the package command path an attribute prefix registers, or ``None``.
+
+    The path is held to the rule a package manifest's command paths answer
+    to, since both register into the same command tree; whether the path
+    reaches a CLI at all is a package fact, so a program outside a package is
+    simply never asked for its registration.
+    """
+    command = recognized.nodes.get(COMMAND_ATTRIBUTE)
+    if command is None:
+        return None
+    path = recognized.texts[COMMAND_ATTRIBUTE]
+    invalid = invalid_program_command_path(path)
+    if invalid is not None:
+        raise AglScopeError(f"Command path {path!r} {invalid}.", span=command.span)
+    return path
+
+
+def _check_arguments(
+    attribute: Attribute,
+    spec: AttributeSpec,
+    constants: ModuleConstants,
+    scope_path: tuple[str, ...],
+) -> str | None:
+    """Reject arguments a built-in attribute's constant schema does not admit.
+
+    Returns the text an attribute taking one argument carries, and ``None``
+    for an attribute whose schema takes none or keyed entries. The argument is
+    a constant text expression: a literal, a template whose holes name the
+    module's own constants, or a reference to one, folded here so everything
+    downstream reads plain text. A schema narrowing that text to a spelling a
+    host has to form (``AttributeSpec.pattern``) is enforced on the folded
+    text, so a fact builder downstream reads an argument already known to be
+    well shaped.
+    """
+    if spec.arguments is AttributeArguments.KEYED_ENTRIES:
+        if attribute.args:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' takes only keyed arguments.", span=attribute.span
+            )
+        if not attribute.keyed_args:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' requires at least one keyed argument.",
+                span=attribute.span,
+            )
+        return None
+    if attribute.keyed_args:
+        raise AglScopeError(
+            f"Attribute '@{attribute.name}' takes no named argument.", span=attribute.span
+        )
+    if spec.arguments is AttributeArguments.NONE:
+        if attribute.args:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' takes no arguments.", span=attribute.span
+            )
+        return None
+    if len(attribute.args) != 1:
+        raise AglScopeError(
+            f"Attribute '@{attribute.name}' takes exactly one text argument.",
+            span=attribute.span,
+        )
+    folded = constants.fold_text(attribute.args[0], scope_path=scope_path)
+    if isinstance(folded, FoldFailure):
+        raise AglScopeError(
+            f"Attribute '@{attribute.name}' requires a constant text argument: {folded.message}.",
+            span=folded.span,
+        )
+    if spec.pattern is not None and spec.pattern.fullmatch(folded) is None:
+        raise AglScopeError(
+            f"Attribute '@{attribute.name}' {spec.expected} {folded!r}.",
+            span=attribute.span,
+        )
+    return folded
+
+
+def _zone_attribute(recognized: _Recognized) -> ParamZone | None:
+    """Return the zone the recognized ``@arg-*`` attribute selects."""
+    for name in recognized.nodes:
+        zone = ZONE_ATTRIBUTES.get(name)
+        if zone is not None:
+            return zone
+    return None

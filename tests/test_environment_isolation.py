@@ -16,9 +16,9 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from agm.config.context import current_config_context
-from agm.config.home import agm_home_dir
-from agm.packages.activation import load_activation_index
+from agnette.config.context import current_config_context
+from agnette.config.home import agm_home_dir
+from agnette.packages.activation import load_activation_index
 from tests._git_helpers import git_output, init_repo
 from tests.conftest import LAUNCH_ENVIRONMENT
 

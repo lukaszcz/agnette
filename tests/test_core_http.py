@@ -1,4 +1,4 @@
-"""Behavior tests for the HTTP transport seam (agm.core.http), never touching a real network."""
+"""Behavior tests for the HTTP transport seam (agnette.core.http), never touching a real network."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 import requests.exceptions
 import urllib3.exceptions
 
-from agm.core import http
+from agnette.core import http
 from tests._http_helpers import FakeHttp, fake_session
 
 

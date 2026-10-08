@@ -1,7 +1,7 @@
 """Tests for the host-known reserved nominal identity catalog.
 
-Covers ``agm.agl.ir.reserved_nominals`` (a pure data leaf) and how
-``agm.agl.semantics.types``/``agm.agl.semantics.type_table`` stamp its ids
+Covers ``agnette.agl.ir.reserved_nominals`` (a pure data leaf) and how
+``agnette.agl.semantics.types``/``agnette.agl.semantics.type_table`` stamp its ids
 onto the module-level built-in handle constants and canonical seeded
 ``TypeDef``s.
 """
@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.ir.reserved_nominals import (
+from agnette.agl import PipelineDriver
+from agnette.agl.ir.reserved_nominals import (
     NO_DECL_ID,
     RESERVED_ENUM_MEMBER_IDS,
     RESERVED_NOMINAL_IDS,
@@ -19,8 +19,8 @@ from agm.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     reserved_nominal_id,
 )
-from agm.agl.runtime.engine_config import convert_host_value
-from agm.agl.semantics.type_table import (
+from agnette.agl.runtime.engine_config import convert_host_value
+from agnette.agl.semantics.type_table import (
     BUILTIN_EXCEPTION_TYPE_DEFS,
     BUILTIN_PRELUDE_TYPE_DEFS,
     OPTION_TYPE_DEF,
@@ -29,7 +29,7 @@ from agm.agl.semantics.type_table import (
     TypeDef,
     create_seeded_type_table,
 )
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.types import (
     BUILTIN_EXCEPTION_NAMES,
     BUILTIN_EXCEPTIONS,
     BUILTIN_PRELUDE_TYPE_NAMES,
@@ -39,7 +39,7 @@ from agm.agl.semantics.types import (
     RecordType,
     Type,
 )
-from agm.agl.semantics.values import Value
+from agnette.agl.semantics.values import Value
 from tests._agl_helpers import agl_roots, run_inline_code, run_program, shapes_match
 
 

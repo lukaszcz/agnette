@@ -8,11 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors, VariantDescriptor
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.runtime.boundary import (
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.program import (
+    NominalDescriptor,
+    NominalKind,
+    ValueDescriptors,
+    VariantDescriptor,
+)
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.runtime.boundary import (
     AglArrayView,
     AglDictView,
     AglJson,
@@ -22,10 +27,10 @@ from agm.agl.runtime.boundary import (
     encode_boundary_value,
     synthesize_nominal_classes,
 )
-from agm.agl.runtime.externs import ExternRegistry
-from agm.agl.runtime.render import render_value
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.values import (
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.runtime.render import render_value
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.values import (
     UNIT_VALUE,
     ArrayValue,
     BoolValue,
@@ -125,7 +130,7 @@ class TestValueDirectedBoundary:
         )
         companion = (
             "from agl import Missing, Point\n"
-            "from agm.agl.runtime.boundary import raise_key_error\n"
+            "from agnette.agl.runtime.boundary import raise_key_error\n"
             f"def lookup(): raise_key_error(Missing, 'no such key', {key})\n"
         )
 

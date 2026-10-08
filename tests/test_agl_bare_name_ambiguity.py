@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.scope.symbols import (
+from agnette.agl.scope.symbols import (
     AmbiguousConstructorError,
     AmbiguousQualificationError,
     DeclaredOrigin,

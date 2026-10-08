@@ -13,9 +13,9 @@ from typing import NoReturn, Protocol
 
 from agl import AglException, nominals, option_none, option_some, runtime
 
-from agm.agl.runtime.host_fs import run_fs_action
-from agm.agl.runtime.host_text import scalar_host_text
-from agm.core.process import run_foreground, run_foreground_ignoring_signals
+from agnette.agl.runtime.host_fs import run_fs_action
+from agnette.agl.runtime.host_text import scalar_host_text
+from agnette.core.process import run_foreground, run_foreground_ignoring_signals
 
 EncodingError = nominals.std.errors.EncodingError
 FsError = nominals.std.fs.FsError

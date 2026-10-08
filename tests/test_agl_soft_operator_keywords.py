@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.lexer import tokenize
+from agnette.agl import PipelineDriver
+from agnette.agl.lexer import tokenize
 from tests._agl_helpers import run_inline_code
 
 OPERATOR_WORDS = ("or", "and", "not", "is", "in", "to", "downto", "step", "with")

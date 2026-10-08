@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.ir.nodes import (
+from agnette.agl import PipelineDriver
+from agnette.agl.ir.nodes import (
     CopyKind,
     IrBind,
     IrBlock,
@@ -17,13 +17,13 @@ from agm.agl.ir.nodes import (
     IrPrint,
     IrRenderValue,
 )
-from agm.agl.ir.program import IrFunctionBody
-from agm.agl.lower.program import lower_program
-from agm.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID, ModuleId
-from agm.agl.modules.roots import RootSet
-from agm.agl.runtime.arguments import ProgramArguments
-from agm.agl.semantics.type_table import MethodDef, TypeTable
-from agm.agl.semantics.types import (
+from agnette.agl.ir.program import IrFunctionBody
+from agnette.agl.lower.program import lower_program
+from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID, ModuleId
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.semantics.type_table import MethodDef, TypeTable
+from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
     DecimalType,
@@ -35,7 +35,7 @@ from agm.agl.semantics.types import (
     Type,
     UnitType,
 )
-from agm.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._agl_helpers import agl_std_package_roots
 
 

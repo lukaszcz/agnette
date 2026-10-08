@@ -1,4 +1,4 @@
-"""Report dead code in AgM's Python sources with vulture.
+"""Report dead code in Agnette's Python sources with vulture.
 
 Vulture cannot see names that frameworks invoke by name. Lark calls
 ``AstBuilder`` methods by grammar rule and alias, so every rule and alias in the
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GRAMMAR = REPO_ROOT / "src/agm/agl/grammar/agl.lark"
-SCANNED_PATHS = ("src/agm", "packages/stdlib/src", "tools")
+GRAMMAR = REPO_ROOT / "src/agnette/agl/grammar/agl.lark"
+SCANNED_PATHS = ("src/agnette", "packages/stdlib/src", "tools")
 
 EXTERNALLY_USED = (
     # pickle hooks

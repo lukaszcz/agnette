@@ -41,7 +41,7 @@ type Transform[A, B] = A -> B
 A declaration may have several parameters (`def apply[A, B](…)`,
 `enum Outcome[T, E]`), and each must be a distinct name. `_` is not accepted
 here; it is reserved for a method's receiver type-parameter prefix (see
-[Generic methods](#generic-methods)). A `var` field remains mutable at every
+[Generic methods](#generic-methods)). A `var` field is mutable at every
 instantiation; type arguments substitute its field type but do not change its
 mutability. Inside the body, a type parameter may be
 used anywhere a type is expected — including as a field type, a function
@@ -235,7 +235,7 @@ let e: Option[int] = None          # T inferred from the annotation
 Partial application placeholders participate in the same inference. Non-hole
 arguments constrain type parameters first; sibling arguments and an expected
 function type can constrain the placeholder positions and the call result. If
-any type parameter remains unknown, use `::[…]` to pin the instantiation
+any type parameter is still unknown, use `::[…]` to pin the instantiation
 explicitly:
 
 ```agl

@@ -6,16 +6,16 @@ from typing import cast
 
 import pytest
 
-from agm.agl.ir.builtin_vars import builtin_var_key
-from agm.agl.ir.contracts import (
+from agnette.agl.ir.builtin_vars import builtin_var_key
+from agnette.agl.ir.contracts import (
     ContractRequest,
     JsonContractRequest,
     ScalarDecode,
     ScalarKind,
     TextContractRequest,
 )
-from agm.agl.ir.ids import ContractId, Location, SourceId
-from agm.agl.ir.nodes import (
+from agnette.agl.ir.ids import ContractId, Location, SourceId
+from agnette.agl.ir.nodes import (
     IrBind,
     IrBlock,
     IrBuiltinLoad,
@@ -31,17 +31,17 @@ from agm.agl.ir.nodes import (
     IrSessionOpen,
     IrSessionOpKind,
 )
-from agm.agl.ir.program import (
+from agnette.agl.ir.program import (
     ExecutableModule,
     ExecutableProgram,
     IrFunctionBody,
     SourceFile,
 )
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.lower.lowerer import _Lowerer
-from agm.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID
-from agm.agl.semantics.type_table import MethodDef
-from agm.agl.semantics.types import (
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.lower.lowerer import _Lowerer
+from agnette.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID
+from agnette.agl.semantics.type_table import MethodDef
+from agnette.agl.semantics.types import (
     BUILTIN_PRELUDE_TYPES,
     FunctionType,
     RecordType,

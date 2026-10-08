@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from agm.config.general import (
+from agnette.config.general import (
     _optional_bool,
     load_merged_config,
     load_run_config,
 )
-from agm.config.sandbox import sandbox_settings_candidates
+from agnette.config.sandbox import sandbox_settings_candidates
 
 
 def test_load_run_config_merges_global_and_local_sections(tmp_path: Path) -> None:
@@ -127,7 +127,7 @@ def test_load_run_config_prefers_home_over_install_prefix(
     (home / ".agm").mkdir(parents=True)
     (home / ".agm" / "config.toml").write_text('[run.echo]\nalias = "cat"\n')
 
-    monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: prefix)
+    monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: prefix)
 
     config = load_run_config(home=home, proj_dir=None, cwd=tmp_path / "work")
 
@@ -141,7 +141,7 @@ def test_load_run_config_falls_back_to_home_when_install_prefix_is_missing(
     (home / ".agm").mkdir(parents=True)
     (home / ".agm" / "config.toml").write_text('[run.echo]\nalias = "printf"\n')
 
-    monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: tmp_path / "prefix")
+    monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: tmp_path / "prefix")
 
     config = load_run_config(home=home, proj_dir=None, cwd=tmp_path / "work")
 
@@ -247,7 +247,7 @@ def test_every_path_valued_engine_key_resolves_in_exec_and_program_sections(
     tmp_path: Path,
 ) -> None:
     """Path resolution follows the catalog, not a hand-listed key name."""
-    from agm.config.engine_keys import PATH_ENGINE_KEYS
+    from agnette.config.engine_keys import PATH_ENGINE_KEYS
 
     home = tmp_path / "home"
     config_dir = home / ".agm"

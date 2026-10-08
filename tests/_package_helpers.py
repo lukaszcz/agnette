@@ -37,19 +37,19 @@ import semver
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.packages.archive as package_archive
-from agm.packages.activation import (
+import agnette.packages.archive as package_archive
+from agnette.packages.activation import (
     ActivationIndex,
     ActivePackage,
     load_activation_index,
     write_activation_index,
 )
-from agm.packages.install import install_archive_with_plan, install_directory_with_plan
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import load_manifest
-from agm.packages.model import PackageInfo
-from agm.packages.record import verify_record, write_record
-from agm.version import AGM_VERSION
+from agnette.packages.install import install_archive_with_plan, install_directory_with_plan
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import load_manifest
+from agnette.packages.model import PackageInfo
+from agnette.packages.record import verify_record, write_record
+from agnette.version import AGM_VERSION
 
 
 def older_incompatible_std_requirement() -> str:
@@ -120,7 +120,7 @@ def write_zip(path: Path, contents: list[tuple[str, bytes]]) -> None:
     """Write a canonical-metadata ZIP at *path* from ``(name, content)`` pairs.
 
     Tests use this to graft tampered or hand-built entries onto an archive,
-    reusing the same per-entry metadata :mod:`agm.packages.archive` writes.
+    reusing the same per-entry metadata :mod:`agnette.packages.archive` writes.
     """
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for name, content in contents:
@@ -232,7 +232,7 @@ class InstalledPackageSnapshot:
 
     def assert_restored(self) -> None:
         """Verify rollback integrity, cleanup, and the original CLI behavior."""
-        import agm.cli as cli
+        import agnette.agm.cli as cli
 
         assert _file_snapshot(self.root) == self.files
         assert verify_record(self.root)

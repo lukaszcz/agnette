@@ -13,15 +13,15 @@ from typing import NamedTuple
 import pytest
 import typesafe_sdk
 
-from agm.agl.pipeline import PipelineDriver, RunResult
-from agm.agl.runtime.arguments import OptionSome
-from agm.agl.runtime.externs import ExternRegistry
-from agm.cli_support.program_options import (
+from agnette.agl.pipeline import PipelineDriver, RunResult
+from agnette.agl.runtime.arguments import OptionSome
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agm.cli_support.program_options import (
     EXEC_RESERVED_FLAGS,
     ProgramCommand,
     build_program_command,
 )
-from agm.core.parse import parse_timeout
+from agnette.core.parse import parse_timeout
 from tests._agl_helpers import NONE_FIELD, prepare_inline_code, run_inline_code, some_field
 from tests._jev_helpers import (
     JEV_MODULE,

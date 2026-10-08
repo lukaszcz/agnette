@@ -1,4 +1,4 @@
-"""Tests for agm.project.workspace_shell."""
+"""Tests for agnette.agm.project.workspace_shell."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.project.workspace_shell import (
+from agnette.agm.project.workspace_shell import (
     SHELL_SUBDIR,
     WRAPPER_NAME,
     _sanitize_session_key,
@@ -242,7 +242,7 @@ class TestShellRegenCommand:
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
         shell_dir = workspace_shell_dir("s")
         shell_dir.mkdir(parents=True)
-        from agm.commands.workspace import shell_regen as cmd
+        from agnette.agm.commands.workspace import shell_regen as cmd
 
         cmd.run(str(shell_dir))
         assert (shell_dir / WRAPPER_NAME).is_file()

@@ -1,0 +1,84 @@
+"""Host-neutral diagnostics shared by agent transport implementations."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal, Protocol, TypeAlias
+
+AgentOutputPhase: TypeAlias = Literal["progress", "final", "stderr"]
+AgentOutputType: TypeAlias = Literal["message", "tool_call", "tool_result"]
+
+
+class AgentOutputCallback(Protocol):
+    def __call__(
+        self,
+        phase: AgentOutputPhase,
+        text: str,
+        *,
+        event_type: AgentOutputType | None = None,
+        tool_name: str | None = None,
+        tool_call_id: str | None = None,
+    ) -> None: ...
+
+
+AgentTransportFailureCause: TypeAlias = Literal[
+    "spawn_failure", "timeout", "nonzero_exit", "interpolation_failure", "protocol_failure"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class AgentCallInfo:
+    """Process details from one agent invocation, when a process was prepared.
+
+    ``sandboxed``/``permission_mode`` record whether the call ran under the
+    sandbox library and which :class:`~agnette.agent.spec.PermissionMode` its argv
+    was built with, as that mode's plain string value — this module never
+    imports ``agent.spec``, so callers pass ``PermissionMode.X.value``.
+    """
+
+    argv: list[str]
+    prompt_via_stdin: bool
+    elapsed: float
+    exit_code: int | None
+    sandboxed: bool
+    permission_mode: str
+
+    def to_trace(self) -> dict[str, object]:
+        """Return the host-neutral call details in trace-record form."""
+        return {
+            "argv": self.argv,
+            "prompt_via_stdin": self.prompt_via_stdin,
+            "elapsed": self.elapsed,
+            "exit_code": self.exit_code,
+            "sandboxed": self.sandboxed,
+            "permission_mode": self.permission_mode,
+        }
+
+
+def stderr_tail(stderr: str, *, max_chars: int = 500) -> str:
+    """Return the bounded stderr diagnostic retained for an agent failure."""
+    return stderr[-max_chars:] if len(stderr) > max_chars else stderr
+
+
+class AgentTransportError(Exception):
+    """A transport failure with diagnostics independent of a host's error model."""
+
+    def __init__(
+        self,
+        *,
+        cause: AgentTransportFailureCause,
+        exit_code: int | None,
+        stderr_tail: str,
+        elapsed: float,
+        call_info: AgentCallInfo,
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(cause)
+        self.cause = cause
+        self.exit_code = exit_code
+        self.stderr_tail = stderr_tail
+        self.elapsed = elapsed
+        self.call_info = call_info
+        # Where a stream stopped being valid UTF-8, which the cause alone
+        # cannot locate. Carried to whichever host error model reports it.
+        self.detail = detail

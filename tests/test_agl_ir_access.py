@@ -9,10 +9,10 @@ import decimal
 
 import pytest
 
-from agm.agl.eval.indexing import AglIndexOutOfRange, AglMissingKey, index_get, index_set
-from agm.agl.ir.operations import IndexKind
-from agm.agl.ir.program import ExecutableProgram
-from agm.agl.semantics.values import (
+from agnette.agl.eval.indexing import AglIndexOutOfRange, AglMissingKey, index_get, index_set
+from agnette.agl.ir.operations import IndexKind
+from agnette.agl.ir.program import ExecutableProgram
+from agnette.agl.semantics.values import (
     ArrayValue,
     DecimalValue,
     DictValue,
@@ -421,7 +421,7 @@ xss[0][1] := 99
 
 def _lower(source: str) -> "ExecutableProgram":
     """Parse → check → lower the source; return ExecutableProgram."""
-    from agm.agl.capabilities import HostCapabilities
+    from agnette.agl.capabilities import HostCapabilities
 
     caps = HostCapabilities(
         supports_shell_exec=True,
@@ -442,7 +442,7 @@ def test_golden_field_access_lowers_to_ir_field() -> None:
     to IrMakeRecord, and then p.x lowers to IrField.
     The IrField node is also tested directly in test_agl_ir_interpreter.py::TestIrField.
     """
-    from agm.agl.ir.nodes import IrBind, IrField, IrSequence
+    from agnette.agl.ir.nodes import IrBind, IrField, IrSequence
 
     source = """\
 record Point
@@ -466,7 +466,7 @@ let px = p.x
 
 def test_golden_index_access_lowers_to_ir_index() -> None:
     """IndexAccess lowers to IrIndex with correct kind."""
-    from agm.agl.ir.nodes import IrBind, IrIndex, IrSequence
+    from agnette.agl.ir.nodes import IrBind, IrIndex, IrSequence
 
     source = """\
 let xs = [10, 20, 30]
@@ -487,7 +487,7 @@ let x = xs[1]
 
 def test_golden_template_lowers_to_ir_render_template() -> None:
     """Template lowers to IrRenderTemplate."""
-    from agm.agl.ir.nodes import (
+    from agnette.agl.ir.nodes import (
         IrBind,
         IrRenderTemplate,
         IrSequence,
@@ -514,7 +514,7 @@ def test_golden_template_lowers_to_ir_render_template() -> None:
 
 def test_golden_field_assign_lowers_to_ir_field_set() -> None:
     """Field assignment lowers to an exact nominal mutable-field store."""
-    from agm.agl.ir.nodes import IrFieldSet, IrLoad
+    from agnette.agl.ir.nodes import IrFieldSet, IrLoad
 
     source = """\
 record Point
@@ -537,8 +537,8 @@ point.x := 2
 
 def test_golden_field_assign_coerces_rhs_to_declared_field_type() -> None:
     """A field store lowers its replacement against the selected field type."""
-    from agm.agl import ir
-    from agm.agl.ir.nodes import IrCoerce, IrFieldSet
+    from agnette.agl import ir
+    from agnette.agl.ir.nodes import IrCoerce, IrFieldSet
 
     prog = _lower(
         """\
@@ -557,7 +557,7 @@ point.x := 2
 
 def test_golden_indexed_assign_lowers_to_ir_index_set() -> None:
     """Indexed assignment lowers to IrIndexSet with a container reference."""
-    from agm.agl.ir.nodes import IrIndexSet, IrLoad
+    from agnette.agl.ir.nodes import IrIndexSet, IrLoad
 
     source = """\
 var xs = [1, 2, 3]

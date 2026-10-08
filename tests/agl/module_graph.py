@@ -2,15 +2,15 @@
 
 AgL has no per-module ``resolve_module``/``check_module`` entry points:
 resolution and checking are always driven by a real
-:class:`~agm.agl.modules.loader.ModuleGraph` (entry plus the standard
-library), through :func:`~agm.agl.scope.program.resolve_program` /
-:func:`~agm.agl.typecheck.program.check_program`. This module gives unit-level
+:class:`~agnette.agl.modules.loader.ModuleGraph` (entry plus the standard
+library), through :func:`~agnette.agl.scope.program.resolve_program` /
+:func:`~agnette.agl.typecheck.program.check_program`. This module gives unit-level
 scope/typecheck tests a cheap way to build that same real graph for one
 source string, so no test exercises a configuration production does not.
 
 :func:`resolve_entry` and :func:`resolve_and_check_entry` build a real
 ``ModuleGraph`` for a single entry source (using
-:func:`~agm.agl.modules.loader.build_repl_graph`, the same seam the REPL
+:func:`~agnette.agl.modules.loader.build_repl_graph`, the same seam the REPL
 uses) and run the real program-level passes, returning the entry module's
 ``ModuleResolution``/``CheckedModule``. :func:`resolve_program_ast` and
 :func:`resolve_and_check_program_ast` are the same seam for a caller that
@@ -57,28 +57,28 @@ import dataclasses
 from collections.abc import Mapping
 from pathlib import Path
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.lexer import SpacedQualifier, spaced_qualifier_collector
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.loader import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.lexer import SpacedQualifier, spaced_qualifier_collector
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.loader import (
     LoadedModule,
     ModuleGraph,
     build_repl_graph,
     parse_entry_module,
 )
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser.parser import parse_program_seeded
-from agm.agl.parser.wrap import wrap_inline_program
-from agm.agl.scope import ModuleResolution
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import ScopeNode, ScopePath, TypeOwner
-from agm.agl.syntax.nodes import Block, ExportDecl, FuncDef, ImportDecl, Program, static_items
-from agm.agl.syntax.spans import SourceId
-from agm.agl.typecheck import CheckedModule
-from agm.agl.typecheck.checker import _check_prepared_module
-from agm.agl.typecheck.env import TypeEnvironment
-from agm.agl.typecheck.program import check_program
-from agm.util.text import normalize_newlines
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser.parser import parse_program_seeded
+from agnette.agl.parser.wrap import wrap_inline_program
+from agnette.agl.scope import ModuleResolution
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import ScopeNode, ScopePath, TypeOwner
+from agnette.agl.syntax.nodes import Block, ExportDecl, FuncDef, ImportDecl, Program, static_items
+from agnette.agl.syntax.spans import SourceId
+from agnette.agl.typecheck import CheckedModule
+from agnette.agl.typecheck.checker import _check_prepared_module
+from agnette.agl.typecheck.env import TypeEnvironment
+from agnette.agl.typecheck.program import check_program
+from agnette.util.text import normalize_newlines
 from tests._agl_helpers import agl_roots
 
 # A general-purpose capability set (default agent, shell exec, json/text
@@ -255,10 +255,10 @@ def resolve_entry(
 ) -> ModuleResolution:
     """Resolve *source* as the entry of a real module graph.
 
-    Builds a real :class:`~agm.agl.modules.loader.ModuleGraph` (entry plus
+    Builds a real :class:`~agnette.agl.modules.loader.ModuleGraph` (entry plus
     ``std/prelude`` unless *default_stdlib* is ``False``) and runs
-    :func:`~agm.agl.scope.program.resolve_program` over it, returning the
-    entry module's :class:`~agm.agl.scope.symbols.ModuleResolution` with the
+    :func:`~agnette.agl.scope.program.resolve_program` over it, returning the
+    entry module's :class:`~agnette.agl.scope.symbols.ModuleResolution` with the
     injected ``std/prelude`` import removed from ``program.body.items`` (see
     the module docstring) — so it always mirrors the source the test wrote.
 
@@ -435,9 +435,9 @@ def resolve_and_check_entry(
     """Resolve and type-check *source* as the entry of a real module graph.
 
     Like :func:`resolve_entry`, but also runs
-    :func:`~agm.agl.typecheck.program.check_program` over the resolved graph
+    :func:`~agnette.agl.typecheck.program.check_program` over the resolved graph
     and returns the entry module's
-    :class:`~agm.agl.typecheck.env.CheckedModule`. Resolution and checking
+    :class:`~agnette.agl.typecheck.env.CheckedModule`. Resolution and checking
     both run with the injected ``std/prelude`` import present — that is the
     real graph production builds — and only the returned
     ``checked.resolved.program.body.items`` has that one synthetic item
@@ -510,7 +510,7 @@ def _single_module_graph(program: Program, *, origin_path: Path | None) -> Modul
     - A virtual, non-existent *origin_path*, isolating the scope resolver's
       own file-backed-origin rule (only checks ``path is not None``) from
       the module loader's separate companion-file check
-      (:class:`~agm.agl.modules.errors.MissingExternCompanion`, raised only
+      (:class:`~agnette.agl.modules.errors.MissingExternCompanion`, raised only
       while loading a module's *real* file from disk) — passing the same
       virtual path to ``resolve_entry``/``resolve_and_check_entry`` would
       hit that loader check first.

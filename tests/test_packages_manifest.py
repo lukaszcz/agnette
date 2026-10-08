@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 import semver
 
-from agm.agl.keywords import KEYWORDS
-from agm.packages.archive import extract_archive, write_archive
-from agm.packages.distribution import normalized_manifest
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import (
+from agnette.agl.keywords import KEYWORDS
+from agnette.packages.archive import extract_archive, write_archive
+from agnette.packages.distribution import normalized_manifest
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import (
     CommandSpec,
     ManifestError,
     UnknownField,

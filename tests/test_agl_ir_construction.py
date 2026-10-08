@@ -10,8 +10,8 @@ import decimal
 
 import pytest
 
-from agm.agl.ir.ids import NominalId, SourceId
-from agm.agl.ir.nodes import (
+from agnette.agl.ir.ids import NominalId, SourceId
+from agnette.agl.ir.nodes import (
     IrBind,
     IrConstInt,
     IrMakeConstructor,
@@ -19,15 +19,15 @@ from agm.agl.ir.nodes import (
     IrMakeRecord,
     IrSequence,
 )
-from agm.agl.ir.program import (
+from agnette.agl.ir.program import (
     ExecutableProgram,
     NominalDescriptor,
     NominalKind,
     VariantDescriptor,
 )
-from agm.agl.ir.validate import InvalidIrError
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.semantics.values import (
+from agnette.agl.ir.validate import InvalidIrError
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.semantics.values import (
     BoolValue,
     ConstructorValue,
     DecimalValue,
@@ -46,7 +46,7 @@ from tests.agl.ir_harness import evaluate_ir, inline_main_items, lower_inline_ir
 
 def _lower(source: str) -> ExecutableProgram:
     """Parse → check → lower the source; return ExecutableProgram."""
-    from agm.agl.capabilities import HostCapabilities
+    from agnette.agl.capabilities import HostCapabilities
 
     caps = HostCapabilities(
         supports_shell_exec=False,
@@ -209,7 +209,7 @@ def test_enum_inequality_different_nominals() -> None:
     Instead we verify that evaluation produces RecordValues with different nominals.
 
     NominalId is an opaque per-declaration handle unique within a single
-    ``ExecutableProgram`` (see ``agm.agl.ir.ids.NominalId``), not a globally
+    ``ExecutableProgram`` (see ``agnette.agl.ir.ids.NominalId``), not a globally
     comparable name+module key, so both enums are declared in the same
     program to keep this identity check meaningful.
     """
@@ -540,8 +540,8 @@ let e = ArithmeticError(message = "oops", operation = "/")
 
 def test_golden_record_field_coercion_lowered() -> None:
     """Record field with int→decimal coercion: the field expr is wrapped in IrCoerce."""
-    from agm.agl.ir.nodes import IrCoerce
-    from agm.agl.ir.operations import IntToDecimal
+    from agnette.agl.ir.nodes import IrCoerce
+    from agnette.agl.ir.operations import IntToDecimal
 
     source = """\
 record Score
@@ -684,9 +684,9 @@ enum Bar | A | B(n: int)
 
 def test_validate_rejects_ir_make_record_with_unknown_nominal() -> None:
     """Validator rejects IrMakeRecord whose nominal is absent from program.nominals."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -696,7 +696,7 @@ def test_validate_rejects_ir_make_record_with_unknown_nominal() -> None:
         nominal=unknown_nominal,
         fields=(),
     )
-    from agm.agl.modules.ids import ENTRY_ID as EID
+    from agnette.agl.modules.ids import ENTRY_ID as EID
 
     prog = ExecutableProgram(
         entry_module=EID,
@@ -711,14 +711,14 @@ def test_validate_rejects_ir_make_record_with_unknown_nominal() -> None:
 
 def test_validate_accepts_enum_member_ir_make_record() -> None:
     """An enum constructor is an ordinary record construction of its member."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.program import (
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.program import (
         ExecutableModule,
         ExecutableProgram,
         NominalDescriptor,
         SourceFile,
     )
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -742,7 +742,7 @@ def test_validate_accepts_enum_member_ir_make_record() -> None:
         nominal=NominalId(2),
         fields=(),
     )
-    from agm.agl.modules.ids import ENTRY_ID as EID
+    from agnette.agl.modules.ids import ENTRY_ID as EID
 
     prog = ExecutableProgram(
         entry_module=EID,
@@ -789,8 +789,8 @@ def test_validate_rejects_duplicate_enum_descriptor_members(
     variants: tuple[VariantDescriptor, VariantDescriptor],
 ) -> None:
     """Deep validation requires each enum descriptor to identify each member once."""
-    from agm.agl.ir.program import ExecutableModule, SourceFile
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.program import ExecutableModule, SourceFile
+    from agnette.agl.ir.validate import validate_ir
 
     enum = NominalId(1)
     member_one = NominalId(2)
@@ -819,14 +819,14 @@ def test_validate_rejects_duplicate_enum_descriptor_members(
 
 def test_validate_accepts_valid_ir_make_record() -> None:
     """Validator accepts IrMakeRecord with a known nominal."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.program import (
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.program import (
         ExecutableModule,
         ExecutableProgram,
         NominalDescriptor,
         SourceFile,
     )
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -846,7 +846,7 @@ def test_validate_accepts_valid_ir_make_record() -> None:
         nominal=nominal_id,
         fields=(("x", IrConstInt(location=loc, value=1)),),
     )
-    from agm.agl.modules.ids import ENTRY_ID as EID
+    from agnette.agl.modules.ids import ENTRY_ID as EID
 
     prog = ExecutableProgram(
         entry_module=EID,
@@ -915,7 +915,7 @@ def test_nominal_descriptor_enum_with_variants() -> None:
 
 def test_ir_make_record_node_frozen() -> None:
     """IrMakeRecord is a frozen dataclass."""
-    from agm.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.ids import Location, SourceId
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -936,9 +936,9 @@ def test_validate_non_deep_accepts_unknown_nominal_in_ir_make_record() -> None:
     A program with an IrMakeRecord referencing an unknown nominal must pass
     shallow validation (location and sub-expr checks only).
     """
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -947,7 +947,7 @@ def test_validate_non_deep_accepts_unknown_nominal_in_ir_make_record() -> None:
         nominal=NominalId(1),
         fields=(),
     )
-    from agm.agl.modules.ids import ENTRY_ID as EID
+    from agnette.agl.modules.ids import ENTRY_ID as EID
 
     prog = ExecutableProgram(
         entry_module=EID,
@@ -967,9 +967,9 @@ def test_validate_non_deep_accepts_unknown_nominal_in_member_ir_make_record() ->
     IrMakeRecord.  Shallow validation accepts it; only the deep tier rejects
     the dangling member nominal.
     """
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -980,7 +980,7 @@ def test_validate_non_deep_accepts_unknown_nominal_in_member_ir_make_record() ->
         nominal=member_nominal,
         fields=(),
     )
-    from agm.agl.modules.ids import ENTRY_ID as EID
+    from agnette.agl.modules.ids import ENTRY_ID as EID
 
     prog = ExecutableProgram(
         entry_module=EID,
@@ -1013,9 +1013,9 @@ def test_validate_non_deep_accepts_unknown_nominal_in_member_ir_make_record() ->
 
 def test_validate_non_deep_accepts_unknown_nominal_in_ir_make_exception() -> None:
     """Non-deep validation skips nominal checks for IrMakeException."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -1024,7 +1024,7 @@ def test_validate_non_deep_accepts_unknown_nominal_in_ir_make_exception() -> Non
         nominal=NominalId(1),
         fields=(),
     )
-    from agm.agl.modules.ids import ENTRY_ID as EID
+    from agnette.agl.modules.ids import ENTRY_ID as EID
 
     prog = ExecutableProgram(
         entry_module=EID,
@@ -1038,9 +1038,9 @@ def test_validate_non_deep_accepts_unknown_nominal_in_ir_make_exception() -> Non
 
 def test_validate_non_deep_accepts_ir_make_constructor_with_unknown_nominal() -> None:
     """Non-deep validation skips nominal checks for IrMakeConstructor."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -1048,7 +1048,7 @@ def test_validate_non_deep_accepts_ir_make_constructor_with_unknown_nominal() ->
         location=loc,
         nominal=NominalId(1),
     )
-    from agm.agl.modules.ids import ENTRY_ID as EID
+    from agnette.agl.modules.ids import ENTRY_ID as EID
 
     prog = ExecutableProgram(
         entry_module=EID,
@@ -1062,9 +1062,9 @@ def test_validate_non_deep_accepts_ir_make_constructor_with_unknown_nominal() ->
 
 def test_validate_accepts_ir_make_constructor_for_a_record() -> None:
     """A first-class constructor carries its record identity directly."""
-    from agm.agl.ir.ids import Location
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.ids import Location
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)

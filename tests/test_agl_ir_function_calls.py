@@ -19,13 +19,13 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.ir.nodes import UseDefault
-from agm.agl.lower.program import lower_program
-from agm.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.values import BoolValue, DecimalValue, IntValue, TextValue
-from agm.agl.typecheck.program import check_program
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.ir.nodes import UseDefault
+from agnette.agl.lower.program import lower_program
+from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.values import BoolValue, DecimalValue, IntValue, TextValue
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
     base_caps,
     evaluate_ir,
@@ -175,7 +175,7 @@ def test_closure_value_normalized() -> None:
 
 def test_call_depth_guard_ir_only() -> None:
     """IR call-depth guard raises RecursionError at a custom low depth (IR-side only)."""
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     source = "def inf(n: int) -> int = inf(n + 1)\nlet result = inf(0)\n()"
     executable = lower_inline_ir(source)
@@ -308,7 +308,7 @@ def test_function_with_array_in_body() -> None:
         "def make-array(x: int) -> array[int] = [base, x, x * 2]\n"
         "let result = make-array(3)\n()"
     )
-    from agm.agl.semantics.values import ArrayValue
+    from agnette.agl.semantics.values import ArrayValue
 
     ir = evaluate_ir(source)
     assert ir["result"] == ArrayValue([IntValue(1), IntValue(3), IntValue(6)])
@@ -441,7 +441,7 @@ def test_function_with_dict_literal_and_root_binding() -> None:
         'def make-dict(x: int) -> dict[text, int] = {"a": base + x, "b": x}\n'
         "let result = make-dict(5)\n()"
     )
-    from agm.agl.semantics.values import DictValue
+    from agnette.agl.semantics.values import DictValue
 
     ir = evaluate_ir(source)
     assert ir["result"] == DictValue({"a": IntValue(15), "b": IntValue(5)})
@@ -493,7 +493,7 @@ def test_static_let_calls_function_assigning_prior_static_var() -> None:
 
 def test_index_target_static_root_access() -> None:
     """A root function can mutate a static root array through an index target."""
-    from agm.agl.semantics.values import ArrayValue
+    from agnette.agl.semantics.values import ArrayValue
 
     source = (
         "var arr = [0, 0, 0]\n"
@@ -518,7 +518,7 @@ def test_assignment_as_function_result_yields_unit() -> None:
     assignment exposes it: `let z = setit()` must observe UnitValue in both
     evaluators, not the mutated container/value.
     """
-    from agm.agl.semantics.values import UnitValue
+    from agnette.agl.semantics.values import UnitValue
 
     # Index-target assignment as the function body / return value.
     index_source = (

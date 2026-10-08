@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.pipeline import RunResult
-from agm.agl.semantics.values import BoolValue, Value
-from agm.core import fs as core_fs
+from agnette.agl import PipelineDriver
+from agnette.agl.pipeline import RunResult
+from agnette.agl.semantics.values import BoolValue, Value
+from agnette.core import fs as core_fs
 from tests._agl_helpers import agl_roots
 
 

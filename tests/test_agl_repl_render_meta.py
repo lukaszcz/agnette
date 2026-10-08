@@ -2,9 +2,9 @@
 
 These are pure-data modules (no terminal), so they are tested directly:
 
-- :func:`agm.agl.repl.render.render_entry_result` for each entry kind, warnings,
+- :func:`agnette.agl.repl.render.render_entry_result` for each entry kind, warnings,
   pre-execution diagnostics, and runtime-error rendering;
-- :func:`agm.agl.repl.meta.dispatch_meta` for ``:help`` / ``:quit`` / ``:exit`` /
+- :func:`agnette.agl.repl.meta.dispatch_meta` for ``:help`` / ``:quit`` / ``:exit`` /
   unknown commands.
 """
 
@@ -15,31 +15,31 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import (
+from agnette.agl.diagnostics import (
     AglError,
     Diagnostic,
     HiddenMemberError,
     RelatedDiagnostic,
     format_diagnostic_location,
 )
-from agm.agl.ir.program import ValueDescriptors
-from agm.agl.matchcompile.diagnostics import NonExhaustiveMatchError
-from agm.agl.parser import AglSyntaxError
-from agm.agl.pipeline import RunError
-from agm.agl.repl import meta as meta_mod
-from agm.agl.repl import render as render_mod
-from agm.agl.repl.entry import EntryKind, EntryResult
-from agm.agl.repl.session import ReplSession
-from agm.agl.runtime.request import AgentRequest, AgentResponse
-from agm.agl.scope.symbols import (
+from agnette.agl.ir.program import ValueDescriptors
+from agnette.agl.matchcompile.diagnostics import NonExhaustiveMatchError
+from agnette.agl.parser import AglSyntaxError
+from agnette.agl.pipeline import RunError
+from agnette.agl.repl import meta as meta_mod
+from agnette.agl.repl import render as render_mod
+from agnette.agl.repl.entry import EntryKind, EntryResult
+from agnette.agl.repl.session import ReplSession
+from agnette.agl.runtime.request import AgentRequest, AgentResponse
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.semantics.types import IntType, TextType, Type
-from agm.agl.semantics.values import IntValue, TextValue, Value
+from agnette.agl.semantics.types import IntType, TextType, Type
+from agnette.agl.semantics.values import IntValue, TextValue, Value
 from tests._agl_helpers import repl_session_with_root
 
 # A descriptor view with no nominal/function entries: enough for every test
@@ -50,7 +50,7 @@ _EMPTY_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field
 def _open_session(**kwargs: object) -> ReplSession:
     """Build a session and open it, exactly as a REPL host does.
 
-    ``agm.commands.repl`` opens a session before accepting an entry, which
+    ``agnette.agm.commands.repl`` opens a session before accepting an entry, which
     loads and type-checks the initial library image once per session instead
     of leaving every entry to re-check the standard library.
     """
@@ -165,10 +165,10 @@ class TestRenderEntryResult:
         assert rendered == "x : int = 5"
 
     def test_expression_echo_pretty_prints_structured_values(self) -> None:
-        from agm.agl.ir.ids import NominalId
-        from agm.agl.ir.program import NominalDescriptor, NominalKind
-        from agm.agl.modules.ids import ENTRY_ID
-        from agm.agl.semantics.values import ArrayValue, IntValue, RecordValue
+        from agnette.agl.ir.ids import NominalId
+        from agnette.agl.ir.program import NominalDescriptor, NominalKind
+        from agnette.agl.modules.ids import ENTRY_ID
+        from agnette.agl.semantics.values import ArrayValue, IntValue, RecordValue
 
         nominal = NominalId(1)
         value = RecordValue(
@@ -210,8 +210,8 @@ class TestRenderEntryResult:
         assert render_mod.render_entry_result(result, echo=True) is None
 
     def test_unit_expression_echo_is_none_by_default(self) -> None:
-        from agm.agl.semantics.types import UnitType
-        from agm.agl.semantics.values import UNIT_VALUE
+        from agnette.agl.semantics.types import UnitType
+        from agnette.agl.semantics.values import UNIT_VALUE
 
         result = _result(
             kind="expression",
@@ -222,8 +222,8 @@ class TestRenderEntryResult:
         assert render_mod.render_entry_result(result, echo=True) is None
 
     def test_unit_binding_echo_is_none_by_default(self) -> None:
-        from agm.agl.semantics.types import UnitType
-        from agm.agl.semantics.values import UNIT_VALUE
+        from agnette.agl.semantics.types import UnitType
+        from agnette.agl.semantics.values import UNIT_VALUE
 
         result = _result(
             kind="binding",
@@ -235,23 +235,23 @@ class TestRenderEntryResult:
         assert render_mod.render_entry_result(result, echo=True) is None
 
     def test_unit_expression_echoes_when_echo_unit_on(self) -> None:
-        from agm.agl.semantics.types import UnitType
-        from agm.agl.semantics.values import UNIT_VALUE
+        from agnette.agl.semantics.types import UnitType
+        from agnette.agl.semantics.values import UNIT_VALUE
 
         result = _result(kind="expression", value=UNIT_VALUE, value_type=UnitType(), ok=True)
         assert render_mod.render_entry_result(result, echo=True, echo_unit=True) == "()"
 
     def test_unit_binding_echoes_when_echo_unit_on(self) -> None:
-        from agm.agl.semantics.types import UnitType
-        from agm.agl.semantics.values import UNIT_VALUE
+        from agnette.agl.semantics.types import UnitType
+        from agnette.agl.semantics.values import UNIT_VALUE
 
         result = _result(kind="binding", name="x", value=UNIT_VALUE, value_type=UnitType(), ok=True)
         rendered = render_mod.render_entry_result(result, echo=True, echo_unit=True)
         assert rendered == "x : unit = ()"
 
     def test_unit_entry_still_suppressed_when_echo_is_off(self) -> None:
-        from agm.agl.semantics.types import UnitType
-        from agm.agl.semantics.values import UNIT_VALUE
+        from agnette.agl.semantics.types import UnitType
+        from agnette.agl.semantics.values import UNIT_VALUE
 
         result = _result(kind="expression", value=UNIT_VALUE, value_type=UnitType(), ok=True)
         assert render_mod.render_entry_result(result, echo=False, echo_unit=True) is None
@@ -515,18 +515,18 @@ class TestType:
         assert outcome.text == "record Point\n  x: int\n  y: text"
 
     def test_empty_record_type_display_is_bare(self) -> None:
-        from agm.agl.modules.ids import ENTRY_ID
-        from agm.agl.repl.type_display import format_type_for_repl
-        from agm.agl.semantics.type_table import TypeDef, TypeTable
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.modules.ids import ENTRY_ID
+        from agnette.agl.repl.type_display import format_type_for_repl
+        from agnette.agl.semantics.type_table import TypeDef, TypeTable
+        from agnette.agl.semantics.types import RecordType
 
         table = TypeTable()
         table.register(TypeDef(kind="record", name="Empty", module_id=ENTRY_ID, decl_node_id=1))
         assert format_type_for_repl(RecordType(name="Empty", decl_id=1), table) == "record Empty"
 
     def test_no_type_table_falls_back_to_compact_repr(self) -> None:
-        from agm.agl.repl.type_display import format_type_for_repl
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.repl.type_display import format_type_for_repl
+        from agnette.agl.semantics.types import RecordType
 
         typ = RecordType(name="Empty", decl_id=1)
         assert format_type_for_repl(typ, None) == repr(typ)
@@ -1051,10 +1051,10 @@ class TestInfo:
         assert described.endswith("\nLocation: <repl>:2:1")
 
     def test_info_formats_full_function_parameter_metadata(self) -> None:
-        from agm.agl.repl.session import _format_repl_signature
-        from agm.agl.semantics.types import BoolType, IntType, TextType
-        from agm.agl.typecheck.env import FunctionSignature, ParamSpec
-        from agm.agl.zones import ParamZone
+        from agnette.agl.repl.session import _format_repl_signature
+        from agnette.agl.semantics.types import BoolType, IntType, TextType
+        from agnette.agl.typecheck.env import FunctionSignature, ParamSpec
+        from agnette.agl.zones import ParamZone
 
         signature = FunctionSignature(
             params=(

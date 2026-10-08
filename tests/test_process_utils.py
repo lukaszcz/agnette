@@ -1,4 +1,4 @@
-"""Comprehensive tests for agm.core.process utilities."""
+"""Comprehensive tests for agnette.core.process utilities."""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ from typing import Any, cast
 
 import pytest
 
-from agm.core import dry_run
-from agm.core.process import (
+from agnette.core import dry_run
+from agnette.core.process import (
     CapturedOutput,
     _read_pipe_chunks,
     _run_cleanup_command,
@@ -773,7 +773,7 @@ class TestRunSubprocess:
         The process wait raises KeyboardInterrupt directly so this test covers the
         cleanup path without relying on OS signal timing.
         """
-        import agm.core.process as process_module
+        import agnette.core.process as process_module
 
         cleanup_calls: list[tuple[list[str] | None, Path | None, dict[str, str] | None]] = []
         terminated: list[object] = []
@@ -966,7 +966,7 @@ class TestRequireSuccess:
         assert "dry-run" in captured.out
 
     def test_dry_run_does_not_execute_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import agm.core.process as process_module
+        import agnette.core.process as process_module
 
         executed: list[bool] = []
 
@@ -999,7 +999,7 @@ class TestRequireSuccess:
         assert "make build" in captured.out
 
     def test_passes_env_to_run_foreground(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import agm.core.process as process_module
+        import agnette.core.process as process_module
 
         captured_kwargs: dict[str, Any] = {}
 
@@ -1380,7 +1380,7 @@ class TestRunSubprocessBaseExceptionWithCapture:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """BaseException raised while draining captured streams still runs cleanup."""
-        import agm.core.process as process_module
+        import agnette.core.process as process_module
 
         cleanup_calls: list[tuple[list[str] | None, Path | None, dict[str, str] | None]] = []
         terminated: list[object] = []
@@ -1425,7 +1425,7 @@ class TestRunSubprocessBaseExceptionWithCapture:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """BaseException path in _drain_process_streams calls kill_process_group when isolated."""
-        import agm.core.process as process_module
+        import agnette.core.process as process_module
 
         killed: list[bool] = []
 
@@ -1458,7 +1458,7 @@ class TestRunSubprocessBaseExceptionIsolatedNoCapture:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """BaseException in no-capture mode with isolate_process_group calls kill_process_group."""
-        import agm.core.process as process_module
+        import agnette.core.process as process_module
 
         killed: list[bool] = []
 
@@ -1754,7 +1754,7 @@ class TestTerminationSignalsReachCleanup:
         command — the only way to reach resources outside this process — has to
         be the request that gets out first.
         """
-        import agm.core.process as process_module
+        import agnette.core.process as process_module
 
         marker = tmp_path / "cleaned"
         cleaned_first: list[bool] = []

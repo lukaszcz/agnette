@@ -1,10 +1,10 @@
-"""Tests for the plain-name predicate in `agm.agl.keywords`."""
+"""Tests for the plain-name predicate in `agnette.agl.keywords`."""
 
 from __future__ import annotations
 
 import pytest
 
-from agm.agl.keywords import is_plain_name
+from agnette.agl.keywords import is_plain_name
 
 
 @pytest.mark.parametrize(

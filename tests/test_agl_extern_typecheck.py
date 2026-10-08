@@ -21,26 +21,26 @@ from typing import cast
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.diagnostics import Diagnostic
-from agm.agl.parser import parse_program
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import AglScopeError
-from agm.agl.semantics.types import CastSpec
-from agm.agl.syntax.nodes import Block, FuncDef
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.typecheck import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.parser import parse_program
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import AglScopeError
+from agnette.agl.semantics.types import CastSpec
+from agnette.agl.syntax.nodes import Block, FuncDef
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.typecheck import (
     AglTypeError,
     CheckedModule,
     FunctionSignature,
     FunctionType,
     IntType,
 )
-from agm.agl.typecheck.env import (
+from agnette.agl.typecheck.env import (
     OutputContractSpec,
     PartialCallSpec,
 )
-from agm.agl.typecheck.program import CheckedProgram, check_program
+from agnette.agl.typecheck.program import CheckedProgram, check_program
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.module_graph import (
     resolve_and_check_inline_program_ast,
@@ -413,7 +413,7 @@ class TestExternCallTyping:
         source = "extern def f(x: int) -> int\nlet g: (int) -> int = f\ng(1)"
         cp = check_extern(source)
         assert _extern_signature(cp, "f").result == IntType()
-        from agm.agl.syntax.nodes import LetDecl
+        from agnette.agl.syntax.nodes import LetDecl
 
         program = cp.resolved.program
         g_decl = next(
@@ -439,7 +439,7 @@ class TestExternCallTyping:
 
 def _last_call_node_id(cp: CheckedModule, name: str) -> int:
     """Find the ``node_id`` of the ``Call`` to *name* for a node-type lookup."""
-    from agm.agl.syntax.nodes import Call, LetDecl, VarRef
+    from agnette.agl.syntax.nodes import Call, LetDecl, VarRef
 
     for item in cp.resolved.program.body.items:
         if isinstance(item, LetDecl) and isinstance(item.value, Call):
@@ -492,10 +492,10 @@ class TestExternProvenanceFinalization:
         # virtual origin_path with no real companion file, which is exactly
         # what a real module graph's loader would reject before this
         # internal-state assertion ever ran.
-        from agm.agl.syntax.nodes import Call
-        from agm.agl.typecheck.builder import _TypeBuilder
-        from agm.agl.typecheck.checker import _Checker
-        from agm.agl.typecheck.env import TypeEnvironment
+        from agnette.agl.syntax.nodes import Call
+        from agnette.agl.typecheck.builder import _TypeBuilder
+        from agnette.agl.typecheck.checker import _Checker
+        from agnette.agl.typecheck.env import TypeEnvironment
 
         resolved = resolve_inline_program_ast(
             parse_program(
@@ -562,10 +562,10 @@ class TestExternProvenanceFinalization:
         assert isinstance(checker._check_expr(successful_call, expected=None), FunctionType)
 
     def test_region_finalization_zonks_only_added_extern_provenance(self) -> None:
-        from agm.agl.modules.ids import ENTRY_ID
-        from agm.agl.typecheck.checker import _Checker, _ExternTarget, _InferenceRegion
-        from agm.agl.typecheck.env import TypeEnvironment
-        from agm.agl.typecheck.inference import InferenceEngine
+        from agnette.agl.modules.ids import ENTRY_ID
+        from agnette.agl.typecheck.checker import _Checker, _ExternTarget, _InferenceRegion
+        from agnette.agl.typecheck.env import TypeEnvironment
+        from agnette.agl.typecheck.inference import InferenceEngine
 
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), _CAPS)
         target = _ExternTarget("id", IntType(), 1, ENTRY_ID)
@@ -592,9 +592,9 @@ class TestExternProvenanceFinalization:
         assert checker._return_extern_targets_stack == [[target]]
 
     def test_finalization_defensively_rejects_an_unresolved_extern_obligation(self) -> None:
-        from agm.agl.typecheck.checker import PendingExternCallObligation, _Checker
-        from agm.agl.typecheck.env import TypeEnvironment
-        from agm.agl.typecheck.inference import InferenceEngine
+        from agnette.agl.typecheck.checker import PendingExternCallObligation, _Checker
+        from agnette.agl.typecheck.env import TypeEnvironment
+        from agnette.agl.typecheck.inference import InferenceEngine
 
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), _CAPS)
         unresolved = InferenceEngine().fresh("target")

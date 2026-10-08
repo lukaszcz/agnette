@@ -6,10 +6,10 @@ from collections.abc import Callable
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.modules.ids import ModuleId
-from agm.agl.semantics.type_table import TypeDef, TypeTable
-from agm.agl.semantics.types import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.semantics.type_table import TypeDef, TypeTable
+from agnette.agl.semantics.types import (
     ArrayType,
     BottomType,
     DictType,
@@ -22,10 +22,10 @@ from agm.agl.semantics.types import (
     Type,
     TypeVarType,
 )
-from agm.agl.syntax.nodes import FuncDef
-from agm.agl.syntax.spans import SourceId, SourceSpan
-from agm.agl.typecheck.env import AglTypeError
-from agm.agl.typecheck.inference import (
+from agnette.agl.syntax.nodes import FuncDef
+from agnette.agl.syntax.spans import SourceId, SourceSpan
+from agnette.agl.typecheck.env import AglTypeError
+from agnette.agl.typecheck.inference import (
     ConstraintOrigin,
     ConstraintRole,
     InferenceEngine,

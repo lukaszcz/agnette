@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.core import dry_run, fs
+from agnette.core import dry_run, fs
 
 
 @pytest.fixture(autouse=True)

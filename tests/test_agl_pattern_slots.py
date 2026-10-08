@@ -13,18 +13,18 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.parser import parse_program
-from agm.agl.scope import ModuleResolution
-from agm.agl.scope.symbols import AglScopeError, AmbiguousConstructorError, BinderKind
-from agm.agl.syntax import (
+from agnette.agl import PipelineDriver
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.parser import parse_program
+from agnette.agl.scope import ModuleResolution
+from agnette.agl.scope.symbols import AglScopeError, AmbiguousConstructorError, BinderKind
+from agnette.agl.syntax import (
     Case,
     ConstructorPattern,
     pattern_binder_candidates,
     pattern_binding_node_ids,
 )
-from agm.agl.typecheck import AglTypeError
+from agnette.agl.typecheck import AglTypeError
 from tests._agl_helpers import run_inline_code
 from tests.agl.module_graph import (
     check_resolved,

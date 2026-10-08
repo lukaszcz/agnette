@@ -13,25 +13,25 @@ import semver
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.cli_dispatch as dispatch
-from agm.cli_support.args import ExecArgs
-from agm.config.context import ConfigContext
-from agm.packages.activation import (
+import agnette.agm.cli as cli
+import agnette.agm.cli_dispatch as dispatch
+from agnette.agm.cli_support.args import ExecArgs
+from agnette.config.context import ConfigContext
+from agnette.packages.activation import (
     ActivationIndex,
     ActivePackage,
     CommandRegistration,
     PackageActivationError,
     write_activation_index,
 )
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import CommandSpec, PackageManifest
-from agm.packages.model import PackageInfo
-from agm.packages.record import write_record
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import CommandSpec, PackageManifest
+from agnette.packages.model import PackageInfo
+from agnette.packages.record import write_record
 from tests._package_helpers import install_directory, write_installed_package
 
 if TYPE_CHECKING:
-    from agm.agl.runtime.types import ProgramDeclInfo
+    from agnette.agl.runtime.types import ProgramDeclInfo
 
 
 _PARAM_SURFACE_PACKAGE = Path(__file__).parent / "agl" / "packages" / "param_surface"
@@ -41,7 +41,10 @@ def registered_help(
     path_name: str, registration: CommandRegistration, *, program: "ProgramDeclInfo | None"
 ) -> str:
     """Render one registered command's help from an already-discovered program."""
-    from agm.cli_support.program_options import REGISTERED_RESERVED_FLAGS, program_command_for
+    from agnette.agm.cli_support.program_options import (
+        REGISTERED_RESERVED_FLAGS,
+        program_command_for,
+    )
 
     return dispatch.registered_command_help(
         path_name,
@@ -84,7 +87,7 @@ def test_group_help_keeps_the_indented_blocks_of_its_doc() -> None:
 
 
 def test_registered_command_resolution_prefers_the_longest_path() -> None:
-    from agm.cli_dispatch import resolve_registered_command
+    from agnette.agm.cli_dispatch import resolve_registered_command
 
     commands = {
         "tools": CommandRegistration("tools", "tools/review::main"),
@@ -99,7 +102,7 @@ def test_registered_command_resolution_prefers_the_longest_path() -> None:
 
 
 def test_registered_command_resolution_tries_shorter_paths_after_a_longer_miss() -> None:
-    from agm.cli_dispatch import resolve_registered_command
+    from agnette.agm.cli_dispatch import resolve_registered_command
 
     commands = {
         "tools": CommandRegistration("tools", "tools/review::main"),
@@ -114,7 +117,7 @@ def test_registered_command_resolution_tries_shorter_paths_after_a_longer_miss()
 
 
 def test_command_index_loader_reads_the_active_index(tmp_path: Path) -> None:
-    from agm.cli_dispatch import load_command_index
+    from agnette.agm.cli_dispatch import load_command_index
 
     home = tmp_path / "home"
     assert load_command_index(home=home, proj_dir=None, cwd=tmp_path).commands == {}
@@ -123,7 +126,7 @@ def test_command_index_loader_reads_the_active_index(tmp_path: Path) -> None:
 def test_command_index_loader_uses_project_selected_package_commands(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.packages.activation as activation
+    import agnette.packages.activation as activation
 
     home = tmp_path / "home"
     pinned_package = PackageInfo(
@@ -152,7 +155,7 @@ def test_command_index_loader_uses_project_selected_package_commands(
 def test_registered_command_dispatches_trailing_arguments(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
     index = ActivationIndex(
@@ -180,7 +183,7 @@ def test_a_stored_manifest_field_this_build_does_not_know_still_dispatches(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """One unreadable field in one installed package must not disable the CLI."""
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     home = tmp_path / "home"
     write_installed_package(
@@ -212,7 +215,7 @@ def test_a_stored_manifest_field_this_build_does_not_know_still_dispatches(
 def test_plain_registered_command_does_not_discover_during_outer_parsing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
     index = ActivationIndex(
@@ -247,7 +250,7 @@ def test_registered_command_passes_dry_run_spelling_to_program(
     Registered commands reserve no ``--dry-run`` flag of their own, so this
     spelling is never intercepted, whether as an option value or a bare token.
     """
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
     index = ActivationIndex(
@@ -276,7 +279,7 @@ def test_registered_command_passes_dry_run_spelling_to_program(
 def test_registered_command_preserves_a_host_looking_program_option_value(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     home = tmp_path / "home"
     context = ConfigContext(home=home, proj_dir=None, cwd=tmp_path)
@@ -327,7 +330,7 @@ def _record_registered_exec_args(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> list[ExecArgs | None]:
     """Register ``tools lint`` (``level: text``) and record the execution arguments it runs with."""
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
     from tests._agl_helpers import discover_program_declarations_from_source
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
@@ -473,8 +476,8 @@ def test_registered_command_conflict_help_includes_module_parameters(
 def test_ambiguous_registered_value_reuses_static_pipeline_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from agm.agl.matchcompile.stage import MatchCompiledProgram
-    from agm.agl.pipeline import PipelineDriver, PreparedProgram, ProgramDiscovery
+    from agnette.agl.matchcompile.stage import MatchCompiledProgram
+    from agnette.agl.pipeline import PipelineDriver, PreparedProgram, ProgramDiscovery
 
     home = tmp_path / "home"
     write_installed_package(
@@ -515,8 +518,8 @@ def test_ambiguous_registered_value_reuses_static_pipeline_artifacts(
 def test_registered_value_named_like_short_help_reuses_static_pipeline_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from agm.agl.matchcompile.stage import MatchCompiledProgram
-    from agm.agl.pipeline import PipelineDriver, PreparedProgram, ProgramDiscovery
+    from agnette.agl.matchcompile.stage import MatchCompiledProgram
+    from agnette.agl.pipeline import PipelineDriver, PreparedProgram, ProgramDiscovery
 
     home = tmp_path / "home"
     write_installed_package(
@@ -558,7 +561,7 @@ def test_registered_value_named_like_short_help_reuses_static_pipeline_artifacts
 def test_registered_command_help_does_not_dispatch_program(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
     from tests._agl_helpers import discover_program_declarations_from_source
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
@@ -606,7 +609,7 @@ def test_registered_command_help_recognizes_program_value_argument_flags(
     value parameters: a bare ``-h`` is short help, but ``-h`` supplied as a
     value-taking flag's own VALUE is not.
     """
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
     from tests._agl_helpers import discover_program_declarations_from_source
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
@@ -1159,9 +1162,9 @@ def test_help_overview_degrades_when_the_command_index_is_unavailable(tmp_path: 
 def test_exec_installed_reference_preserves_all_file_options(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec as exec_command
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec as exec_command
+    import agnette.agm.commands.exec_program as exec_program
 
     root = tmp_path / "tools"
     module = root / "src" / "review.agl"
@@ -1201,8 +1204,8 @@ def test_exec_installed_reference_preserves_all_file_options(
 def test_exec_prefers_an_existing_file_path_containing_a_reference_separator(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.commands.exec as exec_command
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec as exec_command
+    import agnette.agm.commands.exec_program as exec_program
 
     agl_file = tmp_path / "tools::review.agl"
     agl_file.write_text("program def main() -> unit = ()\n", encoding="utf-8")
@@ -1630,9 +1633,9 @@ def test_program_argument_parse_failure_raises_a_typed_usage_error(tmp_path: Pat
     carrying the parse-failure message and the selected program's own
     declaration, so the CALLER (a plain ``agm exec`` invocation, or
     registered-command dispatch) can render it appropriately. See
-    ``agm.commands.exec`` and ``agm.cli_dispatch``."""
-    import agm.commands.exec_program as exec_program
-    from agm.commands.exec_program import RegisteredProgramUsageError
+    ``agnette.agm.commands.exec`` and ``agnette.agm.cli_dispatch``."""
+    import agnette.agm.commands.exec_program as exec_program
+    from agnette.agm.commands.exec_program import RegisteredProgramUsageError
 
     source = tmp_path / "main.agl"
     source.write_text("program def main(@arg-named level: text) -> unit = ()\n", encoding="utf-8")
@@ -1747,7 +1750,7 @@ def test_plain_exec_argument_error_still_renders_the_base_exec_usage(
     """A direct ``agm exec FILE`` argument-parse failure still renders the
     ordinary ``agm exec`` usage error, unaffected by the registered-command
     usage-error rendering."""
-    import agm.commands.exec as exec_command
+    import agnette.agm.commands.exec as exec_command
 
     source = tmp_path / "main.agl"
     source.write_text("program def main() -> unit = ()\n", encoding="utf-8")
@@ -1772,7 +1775,7 @@ def test_plain_exec_argument_error_still_renders_the_base_exec_usage(
 
 @pytest.mark.parametrize("reference", ["not-a-reference", "1bad/main::main"])
 def test_exec_rejects_malformed_installed_references(reference: str) -> None:
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered(reference, [])
@@ -1781,7 +1784,7 @@ def test_exec_rejects_malformed_installed_references(reference: str) -> None:
 
 
 def test_exec_rejects_incomplete_registered_command_metadata() -> None:
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered("tools/review::main", [], package="tools")
@@ -1792,8 +1795,8 @@ def test_exec_rejects_incomplete_registered_command_metadata() -> None:
 def test_exec_rejects_invalid_active_package_selection(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec_program as exec_program
 
     monkeypatch.setattr(
         exec_program,
@@ -1815,8 +1818,8 @@ def test_exec_rejects_invalid_active_package_selection(
 def test_registered_dispatch_rejects_a_stale_cached_program(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec_program as exec_program
 
     root = tmp_path / "tools"
     module = root / "src" / "review.agl"
@@ -1848,8 +1851,8 @@ def test_registered_dispatch_rejects_a_stale_cached_program(
 def test_editable_registered_dispatch_uses_the_live_manifest(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec_program as exec_program
 
     root = tmp_path / "tools"
     updated = root / "src" / "updated.agl"
@@ -1910,8 +1913,8 @@ def test_editable_registered_dispatch_rejects_invalid_live_manifest_command(
     tmp_path: Path,
     commands: dict[str, CommandSpec],
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec_program as exec_program
 
     root = tmp_path / "tools"
     package = PackageInfo(
@@ -1934,8 +1937,8 @@ def test_editable_registered_dispatch_rejects_invalid_live_manifest_command(
 def test_registered_dispatch_rejects_a_program_owned_by_another_package(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec_program as exec_program
 
     tools_root = tmp_path / "tools"
     bravo_root = tmp_path / "bravo"
@@ -1994,8 +1997,8 @@ def test_malformed_activation_index_fallback_is_a_clean_cli_error(
 def test_exec_rejects_missing_module_in_an_active_package(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec_program as exec_program
 
     package = PackageInfo(
         tmp_path / "tools", PackageManifest("tools", semver.Version.parse("1.0.0"))
@@ -2016,9 +2019,9 @@ def test_exec_rejects_missing_module_in_an_active_package(
 def test_exec_unknown_installed_reference_exits_cleanly(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    import agm.commands.exec as exec_command
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.cli_support.exec_target as exec_target
+    import agnette.agm.commands.exec as exec_command
+    import agnette.agm.commands.exec_program as exec_program
 
     monkeypatch.setattr(
         exec_program,
@@ -2038,7 +2041,7 @@ def test_exec_unknown_installed_reference_exits_cleanly(
 def test_registered_declaration_ignores_a_program_owned_by_another_package(tmp_path: Path) -> None:
     """A registration whose program reference names a different package than
     the registration itself is not trusted to describe that command's arguments."""
-    from agm.commands.exec_program import registered_program_declaration
+    from agnette.agm.commands.exec_program import registered_program_declaration
 
     write_installed_package(
         tmp_path, "tools", source="program def main(@arg-named level: text) -> unit = ()\n"
@@ -2053,7 +2056,7 @@ def test_registered_declaration_degrades_when_the_active_packages_are_unreadable
     tmp_path: Path,
 ) -> None:
     """An unreadable config layer leaves a registered command undescribed, never crashes."""
-    from agm.commands.exec_program import registered_program_declaration
+    from agnette.agm.commands.exec_program import registered_program_declaration
 
     write_installed_package(tmp_path, "tools")
     config = tmp_path / "work" / ".agm" / "config.toml"
@@ -2069,8 +2072,8 @@ def test_registered_declaration_selects_the_active_packages_once(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Describing a registered command resolves its package once, not once per resolution step."""
-    import agm.cli_support.exec_target as exec_target
-    from agm.commands.exec_program import registered_program_declaration
+    import agnette.agm.cli_support.exec_target as exec_target
+    from agnette.agm.commands.exec_program import registered_program_declaration
 
     write_installed_package(tmp_path, "tools")
     context = ConfigContext(home=tmp_path, proj_dir=None, cwd=tmp_path)
@@ -2090,7 +2093,7 @@ def test_registered_declaration_selects_the_active_packages_once(
 
 
 def test_registered_program_declaration_finds_the_referenced_program(tmp_path: Path) -> None:
-    from agm.commands.exec_program import registered_program_declaration
+    from agnette.agm.commands.exec_program import registered_program_declaration
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
 
@@ -2102,7 +2105,7 @@ def test_registered_program_declaration_finds_the_referenced_program(tmp_path: P
 def test_registered_program_declaration_degrades_when_artifact_discovery_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     write_installed_package(tmp_path, "tools")
     context = ConfigContext(home=tmp_path, proj_dir=None, cwd=tmp_path)
@@ -2120,7 +2123,7 @@ def test_registered_program_declaration_finds_its_own_value_parameters(tmp_path:
     declaration, carrying its value-parameter signature — not a different
     program declared in the same module.
     """
-    from agm.commands.exec_program import registered_program_declaration
+    from agnette.agm.commands.exec_program import registered_program_declaration
 
     write_installed_package(
         tmp_path,
@@ -2146,7 +2149,7 @@ def test_registered_program_declaration_prefers_the_entry_module_over_an_import(
     """An imported module's same-named ``program def`` never shadows the entry
     module's own declaration sharing that declaration path.
     """
-    from agm.commands.exec_program import registered_program_declaration
+    from agnette.agm.commands.exec_program import registered_program_declaration
 
     home = tmp_path / "home"
     package_root = home / ".agm" / "packages" / "tools" / "1.0.0"
@@ -2176,8 +2179,8 @@ def test_registered_program_declaration_prefers_the_entry_module_over_an_import(
 def test_registered_program_declaration_degrades_when_selection_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_support.exec_target as exec_target
-    from agm.commands.exec_program import registered_program_declaration
+    import agnette.agm.cli_support.exec_target as exec_target
+    from agnette.agm.commands.exec_program import registered_program_declaration
 
     context = ConfigContext(tmp_path / "home", None, tmp_path)
     monkeypatch.setattr(
@@ -2195,7 +2198,7 @@ def test_registered_command_binds_module_parameters_from_its_command_table(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Registered execution shares module parameter precedence with ``agm exec``."""
-    import agm.commands.exec_program as exec_program
+    import agnette.agm.commands.exec_program as exec_program
 
     home = tmp_path / "home"
     source = "import tools/logging\nprogram def main() -> unit = print tools/logging::verbose\n"

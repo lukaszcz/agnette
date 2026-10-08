@@ -17,22 +17,22 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.program import NominalDescriptor, NominalKind
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.lower import LinkImage, lower_program, lower_repl_program
-from agm.agl.lower.lowerer import _LinkState
-from agm.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-from agm.agl.matchcompile.normalize import MatchCompileInvariantError
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.repl import ReplSession
-from agm.agl.runtime.externs import ExternRegistry
-from agm.agl.scope.program import resolve_program
-from agm.agl.self_validation import self_validation_enabled
-from agm.agl.semantics.type_table import TypeDef, TypeTable
-from agm.agl.semantics.types import InferenceVarType
-from agm.agl.typecheck.env import assert_checked_module_closed
-from agm.agl.typecheck.program import check_program
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.program import NominalDescriptor, NominalKind
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.lower import LinkImage, lower_program, lower_repl_program
+from agnette.agl.lower.lowerer import _LinkState
+from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+from agnette.agl.matchcompile.normalize import MatchCompileInvariantError
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.repl import ReplSession
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.self_validation import self_validation_enabled
+from agnette.agl.semantics.type_table import TypeDef, TypeTable
+from agnette.agl.semantics.types import InferenceVarType
+from agnette.agl.typecheck.env import assert_checked_module_closed
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
     _checked_inline_program,
     _compiled_inline_program,
@@ -427,8 +427,8 @@ def test_enabled_validation_rejects_a_re_registration_that_loses_a_field_default
     ``(None, None)`` is a real shape change, distinct from the identical
     default expression simply being rebuilt with fresh ids.
     """
-    from agm.agl.ir.ids import SourceId
-    from agm.agl.ir.nodes import IrConstInt, Location
+    from agnette.agl.ir.ids import SourceId
+    from agnette.agl.ir.nodes import IrConstInt, Location
 
     loc = Location(source_id=SourceId(0), start_offset=0, end_offset=1, start_line=1, start_col=0)
     nominal = NominalId(8_100_005)

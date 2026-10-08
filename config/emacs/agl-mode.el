@@ -50,7 +50,7 @@
 ;;
 ;; Canonical sources, kept in lockstep with this file and
 ;; config/micro/agl.yaml -- see the cross-reference comment in
-;; src/agm/agl/keywords.py.
+;; src/agnette/agl/keywords.py.
 ;; ---------------------------------------------------------------------------
 
 (defconst agl-keywords
@@ -61,7 +61,7 @@
     "true" "false" "null" "infixl" "infixr" "prio")
   "Reserved AgL keywords.
 
-Canonical source: `src/agm/agl/keywords.py' (the `KEYWORDS' frozenset).")
+Canonical source: `src/agnette/agl/keywords.py' (the `KEYWORDS' frozenset).")
 
 (defconst agl-constant-keywords
   '("true" "false" "null")
@@ -84,8 +84,8 @@ one.")
 Ordinary identifiers outside their promotion window.  The operator
 words are promoted in operator position only, so they name members
 and fields everywhere else.  Canonical source:
-`src/agm/agl/keywords.py' (the `SOFT_KEYWORDS' frozenset), whose
-promoted token types are `src/agm/agl/lexer/tokens.py''s
+`src/agnette/agl/keywords.py' (the `SOFT_KEYWORDS' frozenset), whose
+promoted token types are `src/agnette/agl/lexer/tokens.py''s
 `SOFT_KEYWORD_TOKENS'.")
 
 (defconst agl-contextual-builtins
@@ -95,7 +95,7 @@ promoted token types are `src/agm/agl/lexer/tokens.py''s
 
 These lex as ordinary NAME tokens; the stdlib declares them as
 `builtin def' across `packages/stdlib/src/*.agl'.  Canonical source:
-`src/agm/agl/scope/symbols.py' (the `BUILTIN_CALL_NAMES' mapping),
+`src/agnette/agl/scope/symbols.py' (the `BUILTIN_CALL_NAMES' mapping),
 mirrored here in full -- update this list with that one.
 
 `regexp-opt' folds shared prefixes into a greedy trie, so `ask-request'
@@ -115,7 +115,7 @@ keywords).")
 ;; ---------------------------------------------------------------------------
 ;; Identifier scanning.
 ;;
-;; Mirrors `IDENT_STOP' in `src/agm/util/ident.py': an identifier starts
+;; Mirrors `IDENT_STOP' in `src/agnette/util/ident.py': an identifier starts
 ;; with a Unicode letter or `_' and then consumes every character that is
 ;; not whitespace and not one of the structural delimiters below.
 ;; ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ keywords).")
 (defconst agl--ident-continue-skip "^][(){}:,.|;/@=\t\n\r "
   "`skip-chars-forward' spec matching AgL identifier-continuation characters.
 
-The complement of `IDENT_STOP' in `src/agm/util/ident.py'.")
+The complement of `IDENT_STOP' in `src/agnette/util/ident.py'.")
 
 (defconst agl--ident-stop-chars (substring agl--ident-continue-skip 1)
   "The characters that terminate an AgL identifier.
@@ -612,7 +612,7 @@ which is what makes that rule contextual rather than case-based .")
   "The characters an AgL operator name may never contain.
 
 Mirrors `_OPERATOR_NAME_EXCLUDED_CHARS' in
-`src/agm/agl/lexer/scanner.py'.")
+`src/agnette/agl/lexer/scanner.py'.")
 
 (defconst agl--colon-operator-re (regexp-opt '("::" ":="))
   "Regexp matching an AgL operator token that contains `:'.
@@ -847,7 +847,7 @@ group 1 covers the terminal segment.  Return non-nil on success."
 (defun agl--operator-name-char-p (char)
   "Return non-nil when CHAR may take part in an AgL operator name.
 
-Mirrors `_is_operator_name_char' in `src/agm/agl/lexer/scanner.py': a
+Mirrors `_is_operator_name_char' in `src/agnette/agl/lexer/scanner.py': a
 Unicode punctuation or symbol character that is not one of
 `agl--operator-name-excluded-chars'.  Whitespace is neither punctuation
 nor a symbol, so it is excluded by the category test itself."
@@ -885,7 +885,7 @@ token start right after one of them even when that character is itself
 the start of a longer *operator-name* run continuing through POS --
 `<|$', `=$', `!=$', `|$', and `/$' are each one operator name, `$'
 included, per `_is_operator_name_char' in
-`src/agm/agl/lexer/scanner.py'.  It also cannot tell a quote that
+`src/agnette/agl/lexer/scanner.py'.  It also cannot tell a quote that
 really closes a string/template (`\"hi\"$', a fresh token right after)
 from one merely swallowed into a longer identifier (`foo\"bar', no
 token boundary at all) -- its scan is characters only, blind to syntax.
@@ -1041,7 +1041,7 @@ backslash semantics.  A template pairs backslashes
 hole.  A verbatim payload instead \"owns\" its
 ordinary backslashes (docs/agl/reference/lexical-structure.md's
 Verbatim literals section), matching the real scanner
-\(`src/agm/agl/lexer/scanner.py'): any single immediately preceding `\\'
+\(`src/agnette/agl/lexer/scanner.py'): any single immediately preceding `\\'
 escapes the hole, with no parity counting, so `\\\\%{' is still escaped
 there."
   (if (get-text-property pos 'agl-verbatim-payload)

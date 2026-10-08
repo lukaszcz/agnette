@@ -13,7 +13,7 @@ import operator
 
 import pytest
 
-from agm.agl.attributes import (
+from agnette.agl.attributes import (
     BUILTIN_ATTRIBUTES,
     CONFIG_ATTRIBUTE,
     PARAM_ATTRIBUTE,

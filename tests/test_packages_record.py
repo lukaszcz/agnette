@@ -10,7 +10,7 @@ from typing import Never
 
 import pytest
 
-from agm.packages.record import RecordError, read_record, verify_record, write_record
+from agnette.packages.record import RecordError, read_record, verify_record, write_record
 
 
 def _package_tree(tmp_path: Path) -> Path:

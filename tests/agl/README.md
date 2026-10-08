@@ -183,7 +183,7 @@ Field notes:
   is one of `url`, `connection`, `timeout`, `tls`, `redirect` (with an optional `redirects`
   count) and raises before a response is built; `fail_mid_stream` is one of `connection`,
   `timeout`, `tls`, `decode` and raises after the scripted body streams. The harness
-  installs `FakeHttp` in place of `agm.core.http.open_session` and verifies the full script
+  installs `FakeHttp` in place of `agnette.core.http.open_session` and verifies the full script
   was used, so acceptance tests never touch the network; an absent key means no HTTP call
   is allowed.
 - `jev` — ordered scripted TypeSafe requests, in `tests/_jev_helpers.py`'s `JevTransport`

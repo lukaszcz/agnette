@@ -30,9 +30,9 @@ from decimal import Decimal
 import pytest
 from jsonschema import Draft202012Validator
 
-from agm.agl import PipelineDriver
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.contracts import (
+from agnette.agl import PipelineDriver
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.contracts import (
     ArrayDecode,
     CustomContractRequest,
     DecodeSchema,
@@ -46,22 +46,26 @@ from agm.agl.ir.contracts import (
     ScalarKind,
     VariantDecode,
 )
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.program import ValueDescriptors
-from agm.agl.ir.reserved_nominals import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.program import ValueDescriptors
+from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     require_reserved_nominal_id,
 )
-from agm.agl.modules.ids import ENTRY_ID, RESERVED_ID, ModuleId
-from agm.agl.parser.parser import parse_program
-from agm.agl.runtime.codec import JsonCodec, ParseResult, TextCodec, extract_json_text
-from agm.agl.runtime.contract import OutputContract, materialize_contract, materialize_ir_contract
-from agm.agl.runtime.render import render_value
-from agm.agl.runtime.request import AgentRequest
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.external_names import ExternalName
-from agm.agl.semantics.type_table import TypeDef, TypeTable
-from agm.agl.semantics.types import (
+from agnette.agl.modules.ids import ENTRY_ID, RESERVED_ID, ModuleId
+from agnette.agl.parser.parser import parse_program
+from agnette.agl.runtime.codec import JsonCodec, ParseResult, TextCodec, extract_json_text
+from agnette.agl.runtime.contract import (
+    OutputContract,
+    materialize_contract,
+    materialize_ir_contract,
+)
+from agnette.agl.runtime.render import render_value
+from agnette.agl.runtime.request import AgentRequest
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.external_names import ExternalName
+from agnette.agl.semantics.type_table import TypeDef, TypeTable
+from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
     DecimalType,
@@ -74,7 +78,7 @@ from agm.agl.semantics.types import (
     Type,
     TypeVarType,
 )
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     DecimalValue,
@@ -84,15 +88,15 @@ from agm.agl.semantics.values import (
     RecordValue,
     TextValue,
 )
-from agm.agl.syntax import nodes as ast
-from agm.agl.syntax import types as tast
-from agm.agl.syntax.nodes import (
+from agnette.agl.syntax import nodes as ast
+from agnette.agl.syntax import types as tast
+from agnette.agl.syntax.nodes import (
     Item,
     TemplateSegment,
 )
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.typecheck.env import CheckedModule, OutputContractSpec
-from agm.agl.zones import ParamZone
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.typecheck.env import CheckedModule, OutputContractSpec
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import (
     agl_roots,
     build_decode_schema,
@@ -257,7 +261,7 @@ def _ensure_expr_tail(body: tuple[Item, ...]) -> tuple[Item, ...]:
     Tests that end with ``let x = ...`` are migrated by appending ``()`` so
     the block type is ``unit`` and all bound names are still in scope.
     """
-    from agm.agl.syntax.nodes import LetDecl, VarDecl
+    from agnette.agl.syntax.nodes import LetDecl, VarDecl
 
     if body and isinstance(body[-1], (LetDecl, VarDecl)):
         return body + (ast.UnitLit(span=_sp(), node_id=_nid()),)
@@ -329,9 +333,9 @@ def _run_with_json_codec(
     strict_json: bool = False,
 ) -> _Bindings:
     """Build, check, and execute *body* with JSON output decoding enabled."""
-    from agm.agl.eval.ir_interpreter import IrInterpreter
-    from agm.agl.runtime.codec import JsonCodec, OutputCodec, TextCodec
-    from agm.agl.runtime.contract import materialize_ir_contracts
+    from agnette.agl.eval.ir_interpreter import IrInterpreter
+    from agnette.agl.runtime.codec import JsonCodec, OutputCodec, TextCodec
+    from agnette.agl.runtime.contract import materialize_ir_contracts
     from tests.agl.ir_harness import compile_checked_module, lower_compiled_module
 
     checked = _check_program_with_json(body)
@@ -641,7 +645,7 @@ class TestFieldDefaultsAtSchemaAndDecodeBoundary:
     """
 
     def test_record_field_default_dropped_from_required_and_marked_in_plan(self) -> None:
-        from agm.agl.type_schema import derive_schema_and_decode
+        from agnette.agl.type_schema import derive_schema_and_decode
 
         typ, typedef = record_type("Retry", {"count": IntType()}, field_has_default=(True,))
         schema, plan = derive_schema_and_decode(typ, type_table_for(typedef))
@@ -655,7 +659,7 @@ class TestFieldDefaultsAtSchemaAndDecodeBoundary:
         assert plan.root.fields[0].default_index == 0
 
     def test_record_mixed_required_and_defaulted_fields(self) -> None:
-        from agm.agl.type_schema import derive_schema_and_decode
+        from agnette.agl.type_schema import derive_schema_and_decode
 
         typ, typedef = record_type(
             "Pair",
@@ -674,7 +678,7 @@ class TestFieldDefaultsAtSchemaAndDecodeBoundary:
         assert y_field.default_index == 1
 
     def test_enum_member_field_default_dropped_from_required(self) -> None:
-        from agm.agl.type_schema import derive_schema_and_decode
+        from agnette.agl.type_schema import derive_schema_and_decode
 
         enum_id = next_decl_id()
         member_id = next_decl_id()
@@ -706,7 +710,7 @@ class TestFieldDefaultsAtSchemaAndDecodeBoundary:
     def test_derivation_order_does_not_affect_default_presence(self) -> None:
         """Presence is structural, never a lowering-run snapshot: deriving before or after
         another derivation site (or repeatedly) gives byte-identical results."""
-        from agm.agl.type_schema import derive_schema_and_decode
+        from agnette.agl.type_schema import derive_schema_and_decode
 
         typ, typedef = record_type(
             "Pair", {"x": IntType(), "y": IntType()}, field_has_default=(False, True)
@@ -1072,7 +1076,7 @@ class TestRecursiveSchemaDerivation:
         # `X_A_B`), all in the entry module (so module-qualification cannot
         # disambiguate them): the numeric suffix is the final,
         # always-available disambiguator, tried incrementally until free.
-        from agm.agl.type_schema import _assign_defs_keys
+        from agnette.agl.type_schema import _assign_defs_keys
 
         h1 = RecordType("X", type_args=(RecordType("A_B", module_id=ENTRY_ID),), module_id=ENTRY_ID)
         h2 = RecordType(
@@ -1146,7 +1150,7 @@ class TestRecursiveDecodeDerivation:
     """build_decode_schema goldens over the same matrix as the schema goldens."""
 
     def test_recursive_enum_root_is_refdecode_with_defs(self) -> None:
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             DecodePlan,
             EnumDecode,
             FieldDecode,
@@ -1155,7 +1159,7 @@ class TestRecursiveDecodeDerivation:
             ScalarKind,
             VariantDecode,
         )
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         tree, tree_def = _tree_type_and_def()
         plan = build_decode_schema(tree, type_table_for(tree_def))
@@ -1209,7 +1213,7 @@ class TestRecursiveDecodeDerivation:
         assert plan == DecodePlan(root=RefDecode("Tree"), defs=(("Tree", tree_body),))
 
     def test_array_guarded_recursive_record_is_refdecode_with_defs(self) -> None:
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             ArrayDecode,
             DecodePlan,
             FieldDecode,
@@ -1218,7 +1222,7 @@ class TestRecursiveDecodeDerivation:
             ScalarDecode,
             ScalarKind,
         )
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         category_id = next_decl_id()
         category, category_def = record_type(
@@ -1255,7 +1259,7 @@ class TestRecursiveDecodeDerivation:
         assert plan == DecodePlan(root=RefDecode("Category"), defs=(("Category", category_body),))
 
     def test_non_recursive_wrapper_inlined_recursive_field_in_defs(self) -> None:
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             EnumDecode,
             FieldDecode,
             RecordDecode,
@@ -1263,7 +1267,7 @@ class TestRecursiveDecodeDerivation:
             ScalarDecode,
             ScalarKind,
         )
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         tree, tree_def = _tree_type_and_def()
         wrapper, wrapper_def = record_type("Wrapper", {"root": tree, "label": TextType()})
@@ -1295,7 +1299,7 @@ class TestRecursiveDecodeDerivation:
         assert isinstance(tree_body, EnumDecode)
 
     def test_mutual_record_enum_pair_gets_two_defs_entries(self) -> None:
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             DecodePlan,
             EnumDecode,
             FieldDecode,
@@ -1303,7 +1307,7 @@ class TestRecursiveDecodeDerivation:
             RefDecode,
             VariantDecode,
         )
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         a_id = next_decl_id()
         b_id = next_decl_id()
@@ -1378,14 +1382,14 @@ class TestRecursiveDecodeDerivation:
 
     def test_non_recursive_decode_output_unchanged(self) -> None:
         """Spot-check: non-recursive DecodePlan has empty defs (representation-identical)."""
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             DecodePlan,
             FieldDecode,
             RecordDecode,
             ScalarDecode,
             ScalarKind,
         )
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         inner, inner_def = record_type("Inner", {"x": IntType()})
         outer, outer_def = record_type("Outer", {"inner": inner})
@@ -1425,7 +1429,7 @@ class TestRecursiveDecodeDerivation:
 
     def test_derive_schema_and_decode_shares_one_plan_and_matches_separate_calls(self) -> None:
         """derive_schema_and_decode matches (derive_schema(...), build_decode_schema(...))."""
-        from agm.agl.type_schema import derive_schema_and_decode
+        from agnette.agl.type_schema import derive_schema_and_decode
 
         tree, tree_def = _tree_type_and_def()
         table = type_table_for(tree_def)
@@ -2396,7 +2400,7 @@ class TestValidationErrorsThroughRuntime:
 
     def test_retry_request_carries_previous_validation_errors(self) -> None:
         """On retry, the AgentRequest exposes the prior attempt's ValidationErrors."""
-        from agm.agl.runtime.request import ValidationError as VE
+        from agnette.agl.runtime.request import ValidationError as VE
 
         seen: list[list[VE]] = []
 
@@ -2787,8 +2791,8 @@ class TestPipelineDriverWireUp:
 
     def test_json_codec_supports_type_kinds_registered(self) -> None:
         """HostCapabilities codec_kinds includes json codec kinds."""
-        from agm.agl.capabilities import HostCapabilities
-        from agm.agl.runtime.codec import JsonCodec, TextCodec
+        from agnette.agl.capabilities import HostCapabilities
+        from agnette.agl.runtime.codec import JsonCodec, TextCodec
 
         text_codec = TextCodec()
         json_codec = JsonCodec()
@@ -3132,8 +3136,8 @@ program def main(issue: Issue) -> unit =
 
     def test_structured_param_accepts_python_list(self) -> None:
         """Structured params may be provided as a Python list (JSON-compatible)."""
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.values import ArrayValue, IntValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.values import ArrayValue, IntValue
 
         result = convert_host_value("xs", [1, 2, 3], ArrayType(elem=IntType()), type_table_for())
         assert isinstance(result, ArrayValue)
@@ -3141,14 +3145,14 @@ program def main(issue: Issue) -> unit =
 
     def test_structured_param_must_be_string_or_compatible(self) -> None:
         """Structured params that are not a string or JSON-compatible Python value raise."""
-        from agm.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.runtime.engine_config import convert_host_value
 
         with pytest.raises(ValueError, match="JSON"):
             convert_host_value("xs", object(), ArrayType(elem=IntType()), type_table_for())
 
     def test_invalid_structured_param_raises(self) -> None:
         """A JSON string that fails schema validation for the declared type raises."""
-        from agm.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.runtime.engine_config import convert_host_value
 
         with pytest.raises(ValueError, match="severity"):
             issue_type, issue_def = record_type(
@@ -3168,7 +3172,7 @@ program def main(issue: Issue) -> unit =
         agent output) is malformed for both: not strict JSON, and a record
         type needs a constructor call, not a dict literal.
         """
-        from agm.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.runtime.engine_config import convert_host_value
 
         with pytest.raises(ValueError):
             issue_type, issue_def = record_type(
@@ -3184,7 +3188,7 @@ program def main(issue: Issue) -> unit =
     def test_structured_param_rejects_fenced_json(self) -> None:
         """A Markdown-fenced --param value reads as neither strict JSON nor
         AgL value syntax (no repair, no fence stripping)."""
-        from agm.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.runtime.engine_config import convert_host_value
 
         with pytest.raises(ValueError):
             convert_host_value(
@@ -3296,14 +3300,14 @@ class TestDecodeValueRejectsMismatchedPayloads:
     def test_payload_shape_mismatch_is_rejected(
         self, decode: DecodeSchema, payload: object, expected: str
     ) -> None:
-        from agm.agl.runtime.convert import decode_value
+        from agnette.agl.runtime.convert import decode_value
 
         with pytest.raises(ValueError, match=expected):
             decode_value(decode, payload)
 
     @pytest.mark.parametrize("payload", [[1, 2], {1: "val"}])
     def test_text_keyed_dict_rejects_a_non_object_or_non_text_key(self, payload: object) -> None:
-        from agm.agl.runtime.convert import decode_value
+        from agnette.agl.runtime.convert import decode_value
 
         decode = DictDecode(
             DictKeyForm.OBJECT_TEXT,
@@ -3394,8 +3398,8 @@ class TestLenientParseAfterRepair:
 
     def test_validate_and_decode_core_value_conversion_failure(self) -> None:
         """_validate_and_decode_core: schema passes (permissive) but decode_value raises."""
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.runtime.codec import _validate_and_decode_core
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.runtime.codec import _validate_and_decode_core
 
         # Permissive schema {} accepts anything; ScalarDecode(TEXT) rejects non-strings.
         decode = ScalarDecode(ScalarKind.TEXT)
@@ -3422,7 +3426,7 @@ class TestFencedRepairFallback:
         """_parse_lenient: _extract_json_text returns a string that json.loads still rejects."""
         from unittest.mock import patch
 
-        from agm.agl.runtime import codec as codec_module
+        from agnette.agl.runtime import codec as codec_module
 
         codec = JsonCodec()
         # Patch _extract_json_text to return a string that is NOT valid JSON.
@@ -3507,8 +3511,8 @@ class TestValidationErrorClassification:
 
         from jsonschema import ValidationError as JVE
 
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.runtime.codec import _make_validation_error
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.runtime.codec import _make_validation_error
 
         err = MagicMock(spec=JVE)
         err.validator = "required"
@@ -3527,8 +3531,8 @@ class TestValidationErrorClassification:
 
         from jsonschema import ValidationError as JVE
 
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.runtime.codec import _make_validation_error
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.runtime.codec import _make_validation_error
 
         err = MagicMock(spec=JVE)
         err.validator = "required"
@@ -3547,8 +3551,8 @@ class TestValidationErrorClassification:
 
         from jsonschema import ValidationError as JVE
 
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.runtime.codec import _make_validation_error
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.runtime.codec import _make_validation_error
 
         err = MagicMock(spec=JVE)
         err.validator = "const"
@@ -3563,7 +3567,7 @@ class TestValidationErrorClassification:
 
     def test_unknown_record_field_in_path_matches_no_enum(self) -> None:
         """A path naming a field the record does not have matches no enum."""
-        from agm.agl.runtime.codec import _find_enum_decode_at_path
+        from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
         rec, rec_def = record_type("R", {"a": IntType()})
         decode = build_decode_schema(rec, type_table_for(rec_def)).root
@@ -3626,15 +3630,15 @@ class TestValidationErrorClassification:
 
     def test_path_descending_past_a_scalar_matches_no_enum(self) -> None:
         """A path that descends past a scalar matches no enum."""
-        from agm.agl.runtime.codec import _find_enum_decode_at_path
+        from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
         decode = build_decode_schema(IntType(), type_table_for()).root
         assert _find_enum_decode_at_path(decode, ["deeper"]) is None
 
     def test_recursive_reference_resolves_to_the_enum_it_names(self) -> None:
         """A root RefDecode that DOES resolve reaches the EnumDecode it points to."""
-        from agm.agl.ir.contracts import RefDecode
-        from agm.agl.runtime.codec import _find_enum_decode_at_path
+        from agnette.agl.ir.contracts import RefDecode
+        from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
         tree, tree_def = _tree_type_and_def()
         plan = build_decode_schema(tree, type_table_for(tree_def))
@@ -3645,8 +3649,8 @@ class TestValidationErrorClassification:
 
     def test_resolve_decode_follows_a_multi_hop_defs_chain(self) -> None:
         """A ``$defs`` entry that is itself a reference forwards to the next hop."""
-        from agm.agl.ir.contracts import RefDecode, ScalarDecode, ScalarKind
-        from agm.agl.runtime.convert import resolve_decode
+        from agnette.agl.ir.contracts import RefDecode, ScalarDecode, ScalarKind
+        from agnette.agl.runtime.convert import resolve_decode
 
         body = ScalarDecode(ScalarKind.INT)
         defs = {"A": RefDecode("B"), "B": body}
@@ -3658,8 +3662,8 @@ class TestValidationErrorClassification:
 
         from jsonschema import ValidationError as JVE
 
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.runtime.codec import _classify_enum_failure
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.runtime.codec import _classify_enum_failure
 
         # decode_schema is a ScalarDecode (not EnumDecode) → _find_enum_decode_at_path returns None.
         # instance is a dict with a string $case to get past the first two guards.
@@ -3701,8 +3705,8 @@ class TestMakeContractNoTypeEnv:
 
     def test_materialize_contract_no_longer_constructs_type_env(self) -> None:
         """materialize_contract must not instantiate TypeEnvironment internally."""
-        from agm.agl.runtime.contract import materialize_contract
-        from agm.agl.typecheck.env import OutputContractSpec
+        from agnette.agl.runtime.contract import materialize_contract
+        from agnette.agl.typecheck.env import OutputContractSpec
 
         issue_type = _make_issue_type()
         codec = JsonCodec()
@@ -3854,7 +3858,7 @@ class TestRegisterCodec:
     """register_codec adds a custom codec to the runtime."""
 
     def test_register_codec_accepted(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from agm.agl.runtime.codec import TextCodec as TC
+        from agnette.agl.runtime.codec import TextCodec as TC
 
         rt = PipelineDriver(
             resolve_agent_spec=None,
@@ -3882,8 +3886,8 @@ class TestRegisterCodec:
         assert capsys.readouterr().out == "response\n"
 
     def test_register_duplicate_codec_raises(self) -> None:
-        from agm.agl.runtime.codec import ParseResult as PR
-        from agm.agl.runtime.contract import OutputContract as OC
+        from agnette.agl.runtime.codec import ParseResult as PR
+        from agnette.agl.runtime.contract import OutputContract as OC
 
         class CustomCodec:
             @property
@@ -3931,7 +3935,7 @@ class TestRegisterCodec:
         (observable as a distinctive prefix on the resulting binding) are
         exercised end-to-end through ``run()`` with a stub agent.
         """
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.semantics.values import TextValue
 
         class TagCodec:
             @property
@@ -3945,7 +3949,7 @@ class TestRegisterCodec:
             def make_contract(
                 self, type_ref: Type, type_table: TypeTable | None = None
             ) -> "OutputContract":
-                from agm.agl.runtime.contract import OutputContract
+                from agnette.agl.runtime.contract import OutputContract
 
                 return OutputContract(
                     target_type_label=repr(type_ref),
@@ -3964,7 +3968,7 @@ class TestRegisterCodec:
                 decode: DecodeSchema | None = None,
                 defs: dict[str, DecodeSchema] | None = None,
             ) -> "ParseResult":
-                from agm.agl.runtime.codec import ParseResult
+                from agnette.agl.runtime.codec import ParseResult
 
                 # Distinctive transform proving THIS codec parsed the output.
                 return ParseResult.success(TextValue(f"PARSED::{raw}"))
@@ -4076,8 +4080,8 @@ class TestRegisterCodec:
         rt.register_codec(LegacyCodec())
         result = run_inline_code(rt, 'let y: int = ask("Q", format = "legacy-int")\ny')
 
-        from agm.agl.runtime.contract import materialize_contract
-        from agm.agl.typecheck.env import OutputContractSpec
+        from agnette.agl.runtime.contract import materialize_contract
+        from agnette.agl.typecheck.env import OutputContractSpec
 
         materialize_contract(
             OutputContractSpec(IntType(), "legacy-int", strict_json=None),
@@ -4422,7 +4426,7 @@ class TestRegisterCodec:
 
     def test_custom_codec_contract_materialized_before_ir_pipeline(self) -> None:
         """Custom codecs see checked types before lowering; IR parse stays typeless."""
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         seen_contract_type: list[Type] = []
         seen_parse_type: list[Type] = []
@@ -4653,9 +4657,9 @@ class TestRegisterCodec:
 
     def test_custom_codec_parse_receives_recursive_defs(self) -> None:
         """The IR interpreter passes custom contract defs through to parse()."""
-        from agm.agl.eval.ir_interpreter import IrInterpreter
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.program import ExecutableModule, ExecutableProgram
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.program import ExecutableModule, ExecutableProgram
 
         seen_defs: Mapping[str, DecodeSchema] | None = None
 
@@ -4730,9 +4734,9 @@ class TestRegisterCodec:
 
     def test_custom_codec_parse_signature_probe_fallback(self) -> None:
         """Compatibility still works if a callable parse hook has no inspectable signature."""
-        from agm.agl.eval.ir_interpreter import IrInterpreter
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.program import ExecutableModule, ExecutableProgram
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.program import ExecutableModule, ExecutableProgram
 
         class ParseCallable:
             __signature__ = object()
@@ -4797,9 +4801,9 @@ class TestRegisterCodec:
 
     def test_custom_codec_parse_type_error_propagates(self) -> None:
         """Only old parse signatures are retried; codec TypeError bugs still propagate."""
-        from agm.agl.eval.ir_interpreter import IrInterpreter
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.program import ExecutableModule, ExecutableProgram
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.program import ExecutableModule, ExecutableProgram
 
         class BrokenCodec:
             @property
@@ -4868,7 +4872,7 @@ class TestRuntimeBuildsCodecKinds:
     """A custom codec is selectable via ``format:`` only after registration."""
 
     def test_runtime_builds_codec_kinds_from_registered_codec(self) -> None:
-        from agm.agl.runtime.codec import TextCodec
+        from agnette.agl.runtime.codec import TextCodec
 
         class AltCodec(TextCodec):
             @property

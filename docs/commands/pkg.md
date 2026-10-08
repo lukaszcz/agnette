@@ -338,11 +338,11 @@ already satisfied distributions are left alone, and conflicting requirements acr
 the install rather than downgrading one. An installer failure or interruption fails the install and
 leaves the store as it was. `--dry-run` prints the installer command instead of running it.
 
-**`switch NAME@VERSION`** selects an exact stored version as globally active. The previous version
-remains installed. Activation validates package dependencies and registered commands.
+**`switch NAME@VERSION`** selects an exact stored version as globally active. Other stored versions
+stay installed. Activation validates package dependencies and registered commands.
 
-**`uninstall`** verifies the `RECORD`, validates the remaining selection, deactivates, and removes
-the recorded files (plus cache and VCS residue). An editable package is only deactivated. Command
+**`uninstall`** verifies the `RECORD`, validates the selection without that package, deactivates,
+and removes the recorded files (plus cache and VCS residue). An editable package is only deactivated. Command
 ownership displaced by the removed package is restored. `uninstall NAME@VERSION` removes that exact
 stored version; when another version is active, activation stays unchanged. A matching active
 editable package is deactivated. Python distributions are never removed.
@@ -356,10 +356,10 @@ dependency is active, unsatisfied, or missing, including the inferred `std` uppe
 environment: `installed VERSION`, `installed VERSION (unsatisfied)`, `missing`, or
 `not applicable` (its marker does not hold).
 
-**`sync`** repairs AgM's interpreter environment, for example after an AgM upgrade replaced it:
+**`sync`** restores Python requirements for active packages in AgM's interpreter environment:
 when some `[python]` requirement of an active package (store or editable) is unsatisfied, the
 union of every active package's requirements is installed exactly as `install` does, and each
-previously unsatisfied requirement is listed; otherwise it reports that all are satisfied and runs
+requirement needing installation is listed; otherwise it reports that all are satisfied and runs
 no installer. An installer failure exits non-zero. `--dry-run` prints the installer command
 instead of running it.
 

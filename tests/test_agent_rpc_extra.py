@@ -14,16 +14,16 @@ from typing import IO, cast
 
 import pytest
 
-from agm.agent.session import (
+from agnette.agent.session import (
     SessionAskError,
     SessionAskRequest,
     SessionHostError,
     rpc,
 )
-from agm.agent.session.protocol import BackendSettings
-from agm.agent.spec import AgentPi
-from agm.agent.transport import AgentOutputPhase
-from agm.sandbox.request import SandboxLimits
+from agnette.agent.session.protocol import BackendSettings
+from agnette.agent.spec import AgentPi
+from agnette.agent.transport import AgentOutputPhase
+from agnette.sandbox.request import SandboxLimits
 from tests._agl_helpers import (
     session_sandbox_context,
     unavailable_sandbox_context,

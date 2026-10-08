@@ -13,18 +13,18 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules import disk_cache
-from agm.agl.modules.errors import MissingExternCompanion
-from agm.agl.modules.ids import STD_PRELUDE_ID
-from agm.agl.modules.loader import LoadedModule, _parse_imported_module
-from agm.agl.modules.parsed_module_cache import ParsedModuleCache, module_node_id_base
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import ParsedEntry, PipelineDriver
+from agnette.agl.modules import disk_cache
+from agnette.agl.modules.errors import MissingExternCompanion
+from agnette.agl.modules.ids import STD_PRELUDE_ID
+from agnette.agl.modules.loader import LoadedModule, _parse_imported_module
+from agnette.agl.modules.parsed_module_cache import ParsedModuleCache, module_node_id_base
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import ParsedEntry, PipelineDriver
 
 
 def _execute(root: Path, cache: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "agm.cli", "exec", "-c", "print marker"],
+        [sys.executable, "-m", "agnette.agm.cli", "exec", "-c", "print marker"],
         cwd=root,
         env={**os.environ, "AGM_STDLIB": str(root), "XDG_CACHE_HOME": str(cache)},
         capture_output=True,

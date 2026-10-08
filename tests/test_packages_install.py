@@ -17,16 +17,16 @@ from typing import NamedTuple
 import pytest
 import semver
 
-import agm.commands.pkg.install as install_command
-import agm.packages.archive as package_archive
-import agm.packages.fetch as package_fetch
-import agm.packages.install as package_install
-import agm.packages.model as package_model
-import agm.stdlib_locator as stdlib_locator
-from agm.cli_support.args import PkgInstallArgs
-from agm.config.context import ConfigContext
-from agm.core import dry_run
-from agm.packages.activation import (
+import agnette.agm.commands.pkg.install as install_command
+import agnette.packages.archive as package_archive
+import agnette.packages.fetch as package_fetch
+import agnette.packages.install as package_install
+import agnette.packages.model as package_model
+import agnette.stdlib_locator as stdlib_locator
+from agnette.agm.cli_support.args import PkgInstallArgs
+from agnette.config.context import ConfigContext
+from agnette.core import dry_run
+from agnette.packages.activation import (
     ActivationIndex,
     ActivePackage,
     CommandRegistration,
@@ -34,8 +34,8 @@ from agm.packages.activation import (
     load_activation_index,
     write_activation_index,
 )
-from agm.packages.archive import extract_archive, write_archive
-from agm.packages.install import (
+from agnette.packages.archive import extract_archive, write_archive
+from agnette.packages.install import (
     PackageInstallError,
     install_archive_with_plan,
     install_directory_with_plan,
@@ -43,10 +43,10 @@ from agm.packages.install import (
     refresh_managed_stdlib,
     uninstall_package,
 )
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import CommandSpec, PackageManifest, expanded_commands
-from agm.packages.model import PackageInfo
-from agm.packages.record import (
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import CommandSpec, PackageManifest, expanded_commands
+from agnette.packages.model import PackageInfo
+from agnette.packages.record import (
     RecordEntry,
     content_hash,
     read_record,
@@ -54,7 +54,7 @@ from agm.packages.record import (
     verify_record,
     write_record,
 )
-from agm.version import AGM_VERSION
+from agnette.version import AGM_VERSION
 from tests._package_helpers import (
     InstalledPackageSnapshot,
     archive_contents,
@@ -739,7 +739,7 @@ def test_install_refuses_an_unmanaged_standard_library_source(tmp_path: Path) ->
 def test_install_accepts_shipped_standard_library_from_wheel_layout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    locator = tmp_path / "site-packages" / "agm" / "stdlib_locator.py"
+    locator = tmp_path / "site-packages" / "agnette" / "stdlib_locator.py"
     source = locator.parent / "stdlib"
     shutil.copytree(Path(__file__).resolve().parent.parent / "packages" / "stdlib", source)
     monkeypatch.setattr(stdlib_locator, "__file__", str(locator))

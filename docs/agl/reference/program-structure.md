@@ -203,7 +203,7 @@ below, along with their parameters and fields — may carry an
 
 A block's **value** is the value of its last item. A final `let` or `var`
 binder has no in-block continuation, so the block value is `unit` (or bottom
-when its initializer exits). The binding remains available to an enclosing
+when its initializer exits). The binding is available to an enclosing
 continuation that evaluates after the block, such as a loop's `until`
 condition.
 

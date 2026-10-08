@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agm.util.interp import (
+from agnette.util.interp import (
     Hole,
     InterpolationError,
     Literal,

@@ -1,4 +1,4 @@
-"""Behavior tests for agm.commands.dep.new over real git repositories."""
+"""Behavior tests for agnette.agm.commands.dep.new over real git repositories."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import cast
 
 import pytest
 
-import agm.commands.dep.new as dep_new
-from agm.cli_support.args import DepNewArgs
+import agnette.agm.commands.dep.new as dep_new
+from agnette.agm.cli_support.args import DepNewArgs
 from tests._git_helpers import init_repo
 
 _GIT_ENV_NAMES = (

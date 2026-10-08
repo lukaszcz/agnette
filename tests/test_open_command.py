@@ -1,4 +1,4 @@
-"""Tests for agm.commands.workspace.open."""
+"""Tests for agnette.agm.commands.workspace.open."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ import pytest
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.workspace.open as open_module
-import agm.tmux.session as session_module
-from agm.cli_support.args import OpenArgs
-from agm.commands.workspace.open import (
+import agnette.agm.cli as cli
+import agnette.agm.commands.workspace.open as open_module
+import agnette.agm.tmux.session as session_module
+from agnette.agm.cli_support.args import OpenArgs
+from agnette.agm.commands.workspace.open import (
     checkout_workspace,
     create_workspace,
     open_or_create_workspace,
@@ -23,9 +23,9 @@ from agm.commands.workspace.open import (
     queue_setup_and_focus_workspace_session,
     validate_pane_count,
 )
-from agm.core import dry_run, process
-from agm.project import workspace_shell
-from agm.project.workspace_shell import ensure_workspace_shell
+from agnette.agm.project import workspace_shell
+from agnette.agm.project.workspace_shell import ensure_workspace_shell
+from agnette.core import dry_run, process
 from tests._git_helpers import clone_with_fork_remote, git_output, git_run, init_repo
 
 

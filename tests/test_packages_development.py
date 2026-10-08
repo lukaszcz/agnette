@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.packages.development import (
+from agnette.packages.development import (
     containing_development_package,
     discover_development_packages,
 )
@@ -27,14 +27,14 @@ def _write_package(
 def test_package_domain_imports_in_a_fresh_process_before_the_agl_facade() -> None:
     script = """
 import sys
-import agm.packages
-from agm.packages.development import discover_development_packages
-from agm.packages.manifest import load_manifest
-from agm.packages.model import PackageInfo
+import agnette.packages
+from agnette.packages.development import discover_development_packages
+from agnette.packages.manifest import load_manifest
+from agnette.packages.model import PackageInfo
 assert callable(discover_development_packages)
 assert callable(load_manifest)
 assert PackageInfo.__name__ == "PackageInfo"
-assert "agm.agl.pipeline" not in sys.modules
+assert "agnette.agl.pipeline" not in sys.modules
 """
 
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
@@ -43,9 +43,9 @@ assert "agm.agl.pipeline" not in sys.modules
 
 
 def test_agl_facade_lazily_exposes_its_public_api() -> None:
-    import agm.agl as agl
-    from agm.agl.diagnostics import Diagnostic
-    from agm.agl.pipeline import PipelineDriver
+    from agnette import agl
+    from agnette.agl.diagnostics import Diagnostic
+    from agnette.agl.pipeline import PipelineDriver
 
     exported = {name: getattr(agl, name) for name in agl.__all__}
     # Every advertised name serves the very object its owning module defines,
@@ -59,7 +59,7 @@ def test_agl_facade_lazily_exposes_its_public_api() -> None:
 
 @pytest.mark.parametrize(
     "module",
-    ("agm.agl.pipeline", "agm.agl.runtime.agents"),
+    ("agnette.agl.pipeline", "agnette.agl.runtime.agents"),
 )
 def test_agl_modules_import_in_a_fresh_process_before_the_package_facade(module: str) -> None:
     script = f"""
@@ -72,7 +72,7 @@ import {module}
 
 
 def test_package_facade_lazily_exposes_its_public_api() -> None:
-    import agm.packages as packages
+    import agnette.packages as packages
 
     assert packages.PackageInfo.__name__ == "PackageInfo"
     assert callable(packages.validate_package)

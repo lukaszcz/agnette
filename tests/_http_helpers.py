@@ -5,7 +5,7 @@
 ``FakeShell`` (see ``_process_helpers.py``): an ordered list of scripted
 outcomes, one per expected request. ``fake_session(outcomes)`` builds such a
 session directly; ``install(monkeypatch, outcomes)`` patches
-``agm.core.http.open_session`` to return one and hands back the adapter for
+``agnette.core.http.open_session`` to return one and hands back the adapter for
 assertions. ``assert_complete()`` checks every outcome was consumed.
 
 Each outcome is a mapping, kept JSON-friendly (no Python ``bytes``) so an e2e
@@ -38,11 +38,11 @@ transport populates it.
 is built, modelling a connect-time failure. A ``"redirect"`` failure may carry
 an optional ``redirects`` count, attaching a ``response`` whose ``history``
 has that many entries to the raised ``TooManyRedirects`` -- exercising
-``agm.core.http``'s classification of the actual redirect count rather than
+``agnette.core.http``'s classification of the actual redirect count rather than
 its ``session.max_redirects`` fallback. ``fail_mid_stream: "<kind>"``
 (``connection``, ``timeout``, ``tls``, or ``decode``) first yields the
 scripted body then raises while it is being streamed, exercising the
-failures that ``agm.core.http.perform`` must classify from what ``requests``
+failures that ``agnette.core.http.perform`` must classify from what ``requests``
 wraps them as when they occur mid-stream rather than at connect time.
 
 A 3xx ``status`` with a ``location`` header is an ordinary outcome:
@@ -51,7 +51,7 @@ adapter again, so script each hop as its own list entry.
 
 ``send()`` emits ``InsecureRequestWarning`` exactly when the transport is
 called with ``verify=False``, like urllib3, so a test can assert
-``agm.core.http.perform`` suppresses it precisely then and only for that one
+``agnette.core.http.perform`` suppresses it precisely then and only for that one
 call.
 """
 
@@ -70,7 +70,7 @@ import requests.structures
 import urllib3
 import urllib3.exceptions
 
-from agm.core import http as agm_http
+from agnette.core import http as agm_http
 
 
 class FakeHttp(requests.adapters.BaseAdapter):
@@ -128,7 +128,7 @@ class FakeHttp(requests.adapters.BaseAdapter):
 
 
 def fake_session(outcomes: Sequence[Mapping[str, Any]]) -> tuple[requests.Session, FakeHttp]:
-    """A session built by ``agm.core.http.open_session`` with a fresh ``FakeHttp`` mounted.
+    """A session built by ``agnette.core.http.open_session`` with a fresh ``FakeHttp`` mounted.
 
     Building through ``open_session`` (rather than a bare ``requests.Session``)
     means every test exercises the seam's real session configuration --
@@ -142,9 +142,9 @@ def fake_session(outcomes: Sequence[Mapping[str, Any]]) -> tuple[requests.Sessio
 
 
 def install(monkeypatch: pytest.MonkeyPatch, outcomes: Sequence[Mapping[str, Any]]) -> FakeHttp:
-    """Patch ``agm.core.http.open_session`` to return a faked session."""
+    """Patch ``agnette.core.http.open_session`` to return a faked session."""
     session, adapter = fake_session(outcomes)
-    monkeypatch.setattr("agm.core.http.open_session", lambda: session)
+    monkeypatch.setattr("agnette.core.http.open_session", lambda: session)
     return adapter
 
 

@@ -1,6 +1,6 @@
 """Tests for the AgL type model.
 
-Covers ``agm.agl.semantics.types`` and ``agm.agl.typecheck.env`` —
+Covers ``agnette.agl.semantics.types`` and ``agnette.agl.typecheck.env`` —
 both import cleanly without depending on the rest of the checker.
 
 Coverage:
@@ -22,11 +22,11 @@ from collections.abc import Iterator
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.semantics import types as types_module
-from agm.agl.semantics.type_table import TypeDef, TypeTable, comparable_types, is_assignable_in
-from agm.agl.semantics.types import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.semantics import types as types_module
+from agnette.agl.semantics.type_table import TypeDef, TypeTable, comparable_types, is_assignable_in
+from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
     BottomType,
@@ -56,7 +56,7 @@ from agm.agl.semantics.types import (
     match_type_template,
     substitute,
 )
-from agm.agl.typecheck.env import TypeEnvironment
+from agnette.agl.typecheck.env import TypeEnvironment
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
 # Comparability tests below only exercise scalar/agent/unit/function/typevar
@@ -440,7 +440,7 @@ class TestTypeReprAndKind:
         assert repr(ExceptionType(name="Abort")) == "Abort"
 
     def test_exception_repr_qualified_for_non_entry_module(self) -> None:
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         lib_id = ModuleId.from_path("lib")
         assert repr(ExceptionType(name="Boom", module_id=lib_id)) == "lib::Boom"
@@ -490,7 +490,7 @@ class TestTypeReprAndKind:
         assert ExceptionType(name="Ex").kind == "exception"
 
     def test_exception_equality_is_by_name_and_module_id_only(self) -> None:
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         lib_id = ModuleId.from_path("lib")
         assert ExceptionType(name="Boom") == ExceptionType(name="Boom")
@@ -606,7 +606,7 @@ class TestIsAssignable:
 
     def test_function_not_assignable_to_json(self) -> None:
         # json accepts JSON-shaped values; function is not JSON-shaped.
-        from agm.agl.semantics.types import JsonType
+        from agnette.agl.semantics.types import JsonType
 
         f = FunctionType(params=(IntType(),), result=TextType())
         assert is_assignable(f, JsonType()) is False
@@ -946,7 +946,7 @@ class TestInferenceVarType:
         assert TypeEnvironment().get_type("InferenceVarType") is None
 
     def test_is_not_reexported_by_the_public_typecheck_package(self) -> None:
-        import agm.agl.typecheck as typecheck
+        import agnette.agl.typecheck as typecheck
 
         assert "InferenceVarType" not in typecheck.__all__
 
@@ -991,9 +991,9 @@ class TestInferenceVarType:
         assert contains_inference_var(result) is True
 
     def test_shared_semantic_analyses_ignore_flexible_variables_as_source_names(self) -> None:
-        from agm.agl.modules.ids import ENTRY_ID
-        from agm.agl.semantics.analyses import compute_finite_closure, compute_uninhabited
-        from agm.agl.semantics.type_table import TypeDef
+        from agnette.agl.modules.ids import ENTRY_ID
+        from agnette.agl.semantics.analyses import compute_finite_closure, compute_uninhabited
+        from agnette.agl.semantics.type_table import TypeDef
 
         table = TypeTable()
         table.register(
@@ -1355,18 +1355,18 @@ class TestCapabilityGates:
 
 class TestNewExceptions:
     def test_cast_error_in_builtin_exceptions(self) -> None:
-        from agm.agl.semantics.types import BUILTIN_EXCEPTION_NAMES
+        from agnette.agl.semantics.types import BUILTIN_EXCEPTION_NAMES
 
         assert "CastError" in BUILTIN_EXCEPTION_NAMES
 
     def test_json_parse_error_in_builtin_exceptions(self) -> None:
-        from agm.agl.semantics.types import BUILTIN_EXCEPTION_NAMES
+        from agnette.agl.semantics.types import BUILTIN_EXCEPTION_NAMES
 
         assert "JsonParseError" in BUILTIN_EXCEPTION_NAMES
 
     def test_cast_error_fields(self) -> None:
-        from agm.agl.semantics.type_table import create_seeded_type_table
-        from agm.agl.semantics.types import BUILTIN_EXCEPTIONS, TextType
+        from agnette.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.types import BUILTIN_EXCEPTIONS, TextType
 
         e = BUILTIN_EXCEPTIONS["CastError"]
         fields = create_seeded_type_table().exception_fields(e)
@@ -1376,8 +1376,8 @@ class TestNewExceptions:
         assert fields["source-type"] == TextType()
 
     def test_json_parse_error_fields(self) -> None:
-        from agm.agl.semantics.type_table import create_seeded_type_table
-        from agm.agl.semantics.types import BUILTIN_EXCEPTIONS, TextType
+        from agnette.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.types import BUILTIN_EXCEPTIONS, TextType
 
         e = BUILTIN_EXCEPTIONS["JsonParseError"]
         fields = create_seeded_type_table().exception_fields(e)
@@ -1397,19 +1397,19 @@ class TestNominalEquality:
     them."""
 
     def _mod(self, name: str) -> "ModuleId":
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         return ModuleId(segments=(name,))
 
     def test_record_same_name_and_module_equal(self) -> None:
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.semantics.types import RecordType
 
         r1 = RecordType(name="Point")
         r2 = RecordType(name="Point")
         assert r1 == r2
 
     def test_enum_same_name_and_module_equal(self) -> None:
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.semantics.types import EnumType
 
         e1 = EnumType(name="Color")
         e2 = EnumType(name="Color")
@@ -1417,7 +1417,7 @@ class TestNominalEquality:
 
     def test_record_different_declaration_not_equal(self) -> None:
         """Two declarations of one name in one module are distinct types."""
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.semantics.types import RecordType
 
         r1 = RecordType(name="Point", decl_id=11)
         r2 = RecordType(name="Point", decl_id=12)
@@ -1426,7 +1426,7 @@ class TestNominalEquality:
 
     def test_enum_different_declaration_not_equal(self) -> None:
         """Two declarations of one name in one module are distinct types."""
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.semantics.types import EnumType
 
         e1 = EnumType(name="Color", decl_id=11)
         e2 = EnumType(name="Color", decl_id=12)
@@ -1436,7 +1436,7 @@ class TestNominalEquality:
     def test_exception_different_declaration_not_equal(self) -> None:
         """Exceptions carry no type arguments, so identity is all that separates
         two declarations sharing a name."""
-        from agm.agl.semantics.types import ExceptionType
+        from agnette.agl.semantics.types import ExceptionType
 
         x1 = ExceptionType(name="Boom", decl_id=11)
         x2 = ExceptionType(name="Boom", decl_id=12)
@@ -1444,7 +1444,7 @@ class TestNominalEquality:
         assert len({x1, x2}) == 2
 
     def test_record_different_module_not_equal(self) -> None:
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.semantics.types import RecordType
 
         mod_foo = self._mod("foo")
         mod_bar = self._mod("bar")
@@ -1453,7 +1453,7 @@ class TestNominalEquality:
         assert r1 != r2
 
     def test_enum_different_module_not_equal(self) -> None:
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.semantics.types import EnumType
 
         mod_foo = self._mod("foo")
         mod_bar = self._mod("bar")
@@ -1474,35 +1474,35 @@ class TestNominalEquality:
         )
 
     def test_record_different_name_not_equal(self) -> None:
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.semantics.types import RecordType
 
         r1 = RecordType(name="Point")
         r2 = RecordType(name="Color")
         assert r1 != r2
 
     def test_enum_different_name_not_equal(self) -> None:
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.semantics.types import EnumType
 
         e1 = EnumType(name="Color")
         e2 = EnumType(name="Shape")
         assert e1 != e2
 
     def test_record_hashable(self) -> None:
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.semantics.types import RecordType
 
         r = RecordType(name="Point")
         h = hash(r)
         assert isinstance(h, int)
 
     def test_enum_hashable(self) -> None:
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.semantics.types import EnumType
 
         e = EnumType(name="Color")
         h = hash(e)
         assert isinstance(h, int)
 
     def test_equal_records_hash_equal(self) -> None:
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.semantics.types import RecordType
 
         r1 = RecordType(name="Point")
         r2 = RecordType(name="Point")
@@ -1510,7 +1510,7 @@ class TestNominalEquality:
         assert hash(r1) == hash(r2)
 
     def test_equal_enums_hash_equal(self) -> None:
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.semantics.types import EnumType
 
         e1 = EnumType(name="Color")
         e2 = EnumType(name="Color")
@@ -1518,7 +1518,7 @@ class TestNominalEquality:
         assert hash(e1) == hash(e2)
 
     def test_record_usable_as_dict_key(self) -> None:
-        from agm.agl.semantics.types import RecordType
+        from agnette.agl.semantics.types import RecordType
 
         r1 = RecordType(name="Point")
         r2 = RecordType(name="Point")
@@ -1526,7 +1526,7 @@ class TestNominalEquality:
         assert d[r2] == "found"
 
     def test_enum_usable_in_set(self) -> None:
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.semantics.types import EnumType
 
         e1 = EnumType(name="Color")
         e2 = EnumType(name="Color")

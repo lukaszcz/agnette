@@ -7,9 +7,9 @@ import time
 
 import pytest
 
-from agm.config.general import parse_timeout
-from agm.core.parse import parse_positive_timeout
-from agm.core.process import run_capture, run_subprocess
+from agnette.config.general import parse_timeout
+from agnette.core.parse import parse_positive_timeout
+from agnette.core.process import run_capture, run_subprocess
 
 # ---------------------------------------------------------------------------
 # parse_timeout

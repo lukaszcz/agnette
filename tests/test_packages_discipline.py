@@ -7,24 +7,24 @@ from pathlib import Path
 import pytest
 import semver
 
-import agm.commands.pkg.check as check_command
-from agm.cli_support.args import PkgCheckArgs
-from agm.config.context import ConfigContext
-from agm.packages.discipline import (
+import agnette.agm.commands.pkg.check as check_command
+from agnette.agm.cli_support.args import PkgCheckArgs
+from agnette.config.context import ConfigContext
+from agnette.packages.discipline import (
     DisciplineError,
     validate_archive_package,
     validate_package,
 )
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import (
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import (
     CommandSpec,
     DependencySpec,
     PackageManifest,
     expanded_commands,
     load_manifest,
 )
-from agm.packages.model import PackageInfo, owning_package
-from agm.packages.source_commands import package_with_source_commands
+from agnette.packages.model import PackageInfo, owning_package
+from agnette.packages.source_commands import package_with_source_commands
 from tests._package_helpers import package_info
 from tests._timeouts import fail_if_slow
 
@@ -191,7 +191,7 @@ class TestPackageDiscipline:
             raise OSError(f"temporary directory unavailable for {prefix}")
 
         monkeypatch.setattr(
-            "agm.packages.discipline.TemporaryDirectory",
+            "agnette.packages.discipline.TemporaryDirectory",
             fail_to_create_temporary_directory,
         )
 

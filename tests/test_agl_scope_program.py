@@ -26,12 +26,12 @@ from weakref import ref
 
 import pytest
 
-from agm.agl.diagnostics import AglError, HiddenMemberError
-from agm.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID, ModuleId
-from agm.agl.parser import AglSyntaxError, parse_program_seeded
-from agm.agl.repl import ReplSession
-from agm.agl.scope.program import ResolvedModule, ResolvedProgram, resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglError, HiddenMemberError
+from agnette.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID, ModuleId
+from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+from agnette.agl.repl import ReplSession
+from agnette.agl.scope.program import ResolvedModule, ResolvedProgram, resolve_program
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousQualificationError,
     BinderKind,
@@ -41,8 +41,8 @@ from agm.agl.scope.symbols import (
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.semantics.values import BoolValue, IntValue
-from agm.agl.syntax.nodes import (
+from agnette.agl.semantics.values import BoolValue, IntValue
+from agnette.agl.syntax.nodes import (
     AssignStmt,
     Block,
     Case,
@@ -51,9 +51,9 @@ from agm.agl.syntax.nodes import (
     VarPattern,
     VarRef,
 )
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck.env import TypeEnvironment
-from agm.agl.typecheck.program import check_program
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck.env import TypeEnvironment
+from agnette.agl.typecheck.program import check_program
 from tests._timeouts import fail_if_slow
 from tests.agl.ir_harness import (
     base_caps,
@@ -120,7 +120,7 @@ def _rejection(
 
 def _find_varref(program: object, name: str) -> VarRef | None:
     """Recursively find the first VarRef with the given name in a Program."""
-    from agm.agl.syntax.nodes import (
+    from agnette.agl.syntax.nodes import (
         ArrayLit,
         AssignStmt,
         BinaryOp,
@@ -1029,7 +1029,7 @@ class TestSelfReference:
             },
         )
         result = resolve_program(graph)
-        from agm.agl.scope.symbols import BinderKind
+        from agnette.agl.scope.symbols import BinderKind
 
         entry_program = graph.modules[ENTRY_ID].program
         # Find the ::foo VarRef inside g's body — it should resolve to the
@@ -1038,11 +1038,11 @@ class TestSelfReference:
         # binding is the top-level function binding, not the parameter.
         # _find_varref finds by name; the first 'foo' VarRef in the body of 'g'
         # is the ::foo qualifier reference.  We need to find the one with qualifier.
-        from agm.agl.syntax.nodes import Block, Call, FuncDef, VarRef
+        from agnette.agl.syntax.nodes import Block, Call, FuncDef, VarRef
 
         def find_self_ref_varref(node: object) -> VarRef | None:
             """Find the first VarRef named 'foo' with a qualifier chain."""
-            from agm.agl.syntax.nodes import Program
+            from agnette.agl.syntax.nodes import Program
 
             if isinstance(node, VarRef) and node.name == "foo" and (node.qualifier is not None):
                 return node

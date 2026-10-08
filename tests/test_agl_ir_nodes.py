@@ -1,4 +1,4 @@
-"""Golden structural tests for the agm.agl.ir package.
+"""Golden structural tests for the agnette.agl.ir package.
 
 These tests pin the structural contract of the IR data model so that later
 work notice accidental shape changes.  They cover:
@@ -19,7 +19,7 @@ import decimal
 
 import pytest
 
-from agm.agl.ir import (
+from agnette.agl.ir import (
     NO_BUILTIN_DECLARATIONS,
     ArithOp,
     BuiltinNominals,
@@ -65,9 +65,9 @@ from agm.agl.ir import (
     SymbolId,
     ToJson,
 )
-from agm.agl.ir.builtin_nominals import DeclaredNominal
-from agm.agl.ir.reserved_nominals import require_reserved_nominal_id
-from agm.agl.modules.ids import ModuleId
+from agnette.agl.ir.builtin_nominals import DeclaredNominal
+from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.modules.ids import ModuleId
 
 # ---------------------------------------------------------------------------
 # Helpers

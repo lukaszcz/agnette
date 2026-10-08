@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.modules.ids import ModuleId
-from agm.agl.repl import ReplSession
-from agm.agl.scope.symbols import ModuleResolution
-from agm.agl.semantics.values import IntValue, TextValue
-from agm.agl.typecheck import program as typecheck_program
-from agm.agl.typecheck.env import TypeEnvironment
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.repl import ReplSession
+from agnette.agl.scope.symbols import ModuleResolution
+from agnette.agl.semantics.values import IntValue, TextValue
+from agnette.agl.typecheck import program as typecheck_program
+from agnette.agl.typecheck.env import TypeEnvironment
 
 
 def _open_session(root: Path | None = None) -> ReplSession:

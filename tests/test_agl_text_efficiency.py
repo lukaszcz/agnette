@@ -5,9 +5,9 @@ from collections.abc import Callable
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.lexer import tokenize
-from agm.agl.semantics.values import TextValue
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.lexer import tokenize
+from agnette.agl.semantics.values import TextValue
 from tests.agl.ir_harness import lower_inline_ir
 
 

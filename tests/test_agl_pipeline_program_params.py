@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.ir.static_keys import StaticBindingKey
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import (
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import (
     ArgumentPreflight,
     ArgumentPreflightFailure,
     PipelineDriver,
     PreparedProgram,
     ProgramDiscovery,
 )
-from agm.agl.runtime.arguments import ProgramArguments
+from agnette.agl.runtime.arguments import ProgramArguments
 from tests._agl_helpers import agl_roots
 
 
@@ -384,7 +384,7 @@ class TestParamValueTierMerge:
     program's own ``@config`` param values: upper > @config > lower."""
 
     def test_lower_is_used_when_upper_and_config_are_silent(self, tmp_path: Path) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
@@ -399,7 +399,7 @@ class TestParamValueTierMerge:
         assert preflight.param_seeds == {count.key: IntValue(5)}
 
     def test_upper_overrides_lower(self, tmp_path: Path) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
@@ -420,7 +420,7 @@ class TestParamValueTierMerge:
         assert preflight.param_seeds == {count.key: IntValue(7)}
 
     def test_config_overrides_lower(self, tmp_path: Path) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
@@ -436,7 +436,7 @@ class TestParamValueTierMerge:
         assert preflight.param_seeds == {count.key: IntValue(2)}
 
     def test_upper_overrides_config(self, tmp_path: Path) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
@@ -454,7 +454,7 @@ class TestParamValueTierMerge:
     def test_a_lower_value_overridden_by_config_is_never_decoded(self, tmp_path: Path) -> None:
         """An invalid module-route raw value that ``@config`` overrides must not
         surface a decode diagnostic — exactly as a program-route override today."""
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
@@ -472,7 +472,7 @@ class TestParamValueTierMerge:
         assert preflight.param_seeds == {count.key: IntValue(2)}
 
     def test_a_lower_value_overridden_by_upper_is_never_decoded(self, tmp_path: Path) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(

@@ -19,15 +19,15 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.diagnostics import (
+from agnette.agl.diagnostics import (
     AglError,
     Diagnostic,
     diagnostic_from_span,
     format_diagnostic,
     format_diagnostic_location,
 )
-from agm.agl.parser import AglSyntaxError, parse_program, parse_program_seeded
-from agm.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
+from agnette.agl.parser import AglSyntaxError, parse_program, parse_program_seeded
+from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
 
 # ---------------------------------------------------------------------------
 # SourceId

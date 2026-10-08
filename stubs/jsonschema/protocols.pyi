@@ -3,7 +3,7 @@
 Only ``Validator`` is typed: the protocol every jsonschema validator class
 (including one built by ``jsonschema.validators.extend``) satisfies. Typed
 with only the constructor and ``iter_errors``, the pieces agm uses (see
-``agm.agl.runtime.convert.AglValidator``).
+``agnette.agl.runtime.convert.AglValidator``).
 """
 
 from collections.abc import Iterator

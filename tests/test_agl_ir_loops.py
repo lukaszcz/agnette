@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.ir.ids import Location, NominalId, SourceId, SymbolId
-from agm.agl.ir.nodes import (
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.ir.ids import Location, NominalId, SourceId, SymbolId
+from agnette.agl.ir.nodes import (
     IrArith,
     IrAssign,
     IrBind,
@@ -38,8 +38,8 @@ from agm.agl.ir.nodes import (
     IrLoop,
     IrTry,
 )
-from agm.agl.ir.operations import ArithKind, ArithOp, CmpOp, CompareKind, IterKind
-from agm.agl.ir.program import (
+from agnette.agl.ir.operations import ArithKind, ArithOp, CmpOp, CompareKind, IterKind
+from agnette.agl.ir.program import (
     ExecutableModule,
     ExecutableProgram,
     NominalDescriptor,
@@ -47,10 +47,10 @@ from agm.agl.ir.program import (
     SourceFile,
     SymbolDescriptor,
 )
-from agm.agl.ir.reserved_nominals import require_reserved_nominal_id
-from agm.agl.ir.validate import validate_ir
-from agm.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
-from agm.agl.semantics.values import (
+from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.ir.validate import validate_ir
+from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
+from agnette.agl.semantics.values import (
     UNIT_VALUE,
     IntValue,
     TextValue,
@@ -88,8 +88,8 @@ def _make_minimal_program(
     symbols: dict | None = None,
 ) -> ExecutableProgram:
     """Build a minimal ExecutableProgram for hand-crafted IR tests."""
-    from agm.agl.semantics.type_table import create_seeded_type_table
-    from agm.agl.semantics.types import BUILTIN_EXCEPTIONS
+    from agnette.agl.semantics.type_table import create_seeded_type_table
+    from agnette.agl.semantics.types import BUILTIN_EXCEPTIONS
 
     max_iter_nominal = NominalId(require_reserved_nominal_id("MaxIterationsExceeded"))
     exc_type = BUILTIN_EXCEPTIONS["MaxIterationsExceeded"]
@@ -767,7 +767,7 @@ def test_for_loop_with_while_guard() -> None:
 
 def test_for_loop_non_iterable_bool_raises_type_error() -> None:
     """for x in bool do body done — non-iterable type is a typecheck error."""
-    from agm.agl.typecheck.env import AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError
     from tests.agl.ir_harness import base_caps
     from tests.agl.module_graph import resolve_and_check_inline_entry
 
@@ -778,7 +778,7 @@ def test_for_loop_non_iterable_bool_raises_type_error() -> None:
 
 def test_for_loop_int_collection_raises_type_error() -> None:
     """for x in int_expr do body done — int is not an iterable collection."""
-    from agm.agl.typecheck.env import AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError
     from tests.agl.ir_harness import base_caps
     from tests.agl.module_graph import resolve_and_check_inline_entry
 

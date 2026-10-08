@@ -18,11 +18,11 @@ import httpx2
 import pytest
 import requests
 
-from agm.agl.self_validation import self_validation_enabled, set_self_validation_enabled
-from agm.core import dry_run, process
-from agm.core import http as core_http
-from agm.core.process import CapturedOutput
-from agm.project import layout as project_layout
+from agnette.agl.self_validation import self_validation_enabled, set_self_validation_enabled
+from agnette.agm.project import layout as project_layout
+from agnette.core import dry_run, process
+from agnette.core import http as core_http
+from agnette.core.process import CapturedOutput
 from tests import _command_coverage
 from tests._durations import (
     pytest_runtest_protocol,
@@ -120,9 +120,9 @@ def compiler_gc_policy(pytestconfig: pytest.Config) -> Generator[None, None, Non
     try:
         yield
     finally:
-        from agm.agl.artifact_cache import clear_retained_artifacts
-        from agm.agl.modules.parsed_module_cache import clear_parsed_module_cache
-        from agm.agl.repl import session as repl_session_module
+        from agnette.agl.artifact_cache import clear_retained_artifacts
+        from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
+        from agnette.agl.repl import session as repl_session_module
 
         clear_retained_artifacts()
         clear_parsed_module_cache()
@@ -394,7 +394,7 @@ def detach_installed_agm_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     Tests that exercise the installation-prefix fallback take the
     ``installed_agm_prefix`` fixture instead.
     """
-    monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: None)
+    monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: None)
 
 
 @pytest.fixture()
@@ -402,7 +402,7 @@ def installed_agm_prefix(monkeypatch: pytest.MonkeyPatch) -> Callable[[Path], No
     """Opt out of ``detach_installed_agm_prefix`` for one test by pinning a staged prefix."""
 
     def pin(prefix: Path) -> None:
-        monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: prefix)
+        monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: prefix)
 
     return pin
 
@@ -412,7 +412,7 @@ def refuse_real_http_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Default every test's HTTP transport to one that refuses any request.
 
     A test that never scripts HTTP must not be able to reach the real network
-    by accident: patch ``agm.core.http.open_session`` to build a session
+    by accident: patch ``agnette.core.http.open_session`` to build a session
     through the real function -- preserving its proxy/cookie/``.netrc``
     configuration -- with an empty-script ``FakeHttp`` mounted, so an
     unscripted request fails immediately instead of dialing out.
@@ -423,7 +423,7 @@ def refuse_real_http_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     exactly the escape hatch ``installed_agm_prefix`` uses for
     ``detach_installed_agm_prefix``. ``test_core_http.py``'s own
     ``open_session`` tests need no such opt-out: they build their session
-    through ``fake_session``, which itself calls ``agm.core.http.open_session``
+    through ``fake_session``, which itself calls ``agnette.core.http.open_session``
     and so still exercises the real function's configuration, with this
     fixture's empty adapter simply replaced by their own scripted one.
 
@@ -469,7 +469,7 @@ def python_installer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> PythonI
     """Replace the Python installer with a recorder for AgM home ``tmp_path / "home"``."""
     recorder = PythonInstaller(home=tmp_path / "home")
     monkeypatch.setattr(process, "run_foreground", recorder.run_foreground)
-    monkeypatch.setattr("agm.core.pyenv.shutil.which", lambda _name: "/opt/tools/uv")
+    monkeypatch.setattr("agnette.core.pyenv.shutil.which", lambda _name: "/opt/tools/uv")
     return recorder
 
 
@@ -556,7 +556,7 @@ class FakeAgentTransport:
 
 @pytest.fixture()
 def fake_agent_transport(monkeypatch: pytest.MonkeyPatch) -> FakeAgentTransport:
-    """Stub the ``agm.agent.runner`` prepare/run seam that every agent dispatch uses.
+    """Stub the ``agnette.agent.runner`` prepare/run seam that every agent dispatch uses.
 
     Replaces ``prepare_rendered_prompt_run`` and ``run_prepared_prompt_result``
     so no real subprocess is spawned, regardless of whether the dispatch is
@@ -564,7 +564,7 @@ def fake_agent_transport(monkeypatch: pytest.MonkeyPatch) -> FakeAgentTransport:
     ``PipelineDriver`` — all three route through the same seam. See
     :class:`FakeAgentTransport` for recording/queuing behavior.
     """
-    from agm.agent.runner import PreparedPromptRun
+    from agnette.agent.runner import PreparedPromptRun
 
     transport = FakeAgentTransport()
 
@@ -574,9 +574,9 @@ def fake_agent_transport(monkeypatch: pytest.MonkeyPatch) -> FakeAgentTransport:
             command=runner, effective_file=Path("/dev/null"), env={}, temp_files=[]
         )
 
-    monkeypatch.setattr("agm.agent.runner.prepare_rendered_prompt_run", prepare)
+    monkeypatch.setattr("agnette.agent.runner.prepare_rendered_prompt_run", prepare)
     monkeypatch.setattr(
-        "agm.agent.runner.run_prepared_prompt_result",
+        "agnette.agent.runner.run_prepared_prompt_result",
         lambda _prepared, **_: transport._next_response(),
     )
     return transport

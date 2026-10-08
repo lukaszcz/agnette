@@ -1,4 +1,4 @@
-"""Tests for the AgL parser (agm.agl.parser) — parser.
+"""Tests for the AgL parser (agnette.agl.parser) — parser.
 
 Covers:
 - LALR(1) conflict-guard: zero shift/reduce and reduce/reduce conflicts.
@@ -31,8 +31,8 @@ from unittest.mock import patch
 
 import pytest
 
-import agm.agl.syntax as syntax
-from agm.agl.parser import (
+import agnette.agl.syntax as syntax
+from agnette.agl.parser import (
     AglSyntaxError,
     has_unterminated_triple_quoted_string,
     is_incomplete_source,
@@ -40,9 +40,9 @@ from agm.agl.parser import (
     parse_program_seeded,
     parse_type_expr,
 )
-from agm.agl.parser.transform import AstBuilder
-from agm.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
-from agm.agl.syntax import (
+from agnette.agl.parser.transform import AstBuilder
+from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
+from agnette.agl.syntax import (
     ArrayLit,
     AsPattern,
     AssignStmt,
@@ -111,8 +111,8 @@ from agm.agl.syntax import (
     VarRef,
     WildcardPattern,
 )
-from agm.agl.syntax.nodes import ELSE
-from agm.agl.syntax.types import (
+from agnette.agl.syntax.nodes import ELSE
+from agnette.agl.syntax.types import (
     AppliedT,
     ArrayT,
     BoolT,
@@ -125,8 +125,8 @@ from agm.agl.syntax.types import (
     TextT,
     UnitT,
 )
-from agm.agl.syntax.visitor import walk
-from agm.core.process import CapturedOutput, ProcessCaptureResult
+from agnette.agl.syntax.visitor import walk
+from agnette.core.process import CapturedOutput, ProcessCaptureResult
 from tests._agl_helpers import run_inline_code
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ class TestConflictGuard:
         import io
 
         grammar_text = (
-            importlib.resources.files("agm.agl")
+            importlib.resources.files("agnette.agl")
             .joinpath("grammar/agl.lark")
             .read_text(encoding="utf-8")
         )
@@ -207,7 +207,7 @@ class TestConflictGuard:
         from lark import Lark
         from lark.exceptions import GrammarError
 
-        from agm.agl.lexer.lexer import AglLexer
+        from agnette.agl.lexer.lexer import AglLexer
 
         # Capture the lark.grammar / lark.parsers.lalr_analysis DEBUG stream
         # so that Shift/Reduce conflicts (which are logged, not raised) are caught.
@@ -643,13 +643,13 @@ class TestTypeExpressions:
         assert isinstance(let.type_ann.value, IntT)
 
     def test_array_wrong_arg_count_raises(self) -> None:
-        from agm.agl.parser.errors import AglSyntaxError
+        from agnette.agl.parser.errors import AglSyntaxError
 
         with pytest.raises(AglSyntaxError, match="exactly one"):
             parse("let x: array[int, text] = []")
 
     def test_dict_wrong_arg_count_raises(self) -> None:
-        from agm.agl.parser.errors import AglSyntaxError
+        from agnette.agl.parser.errors import AglSyntaxError
 
         with pytest.raises(AglSyntaxError, match="exactly two"):
             parse("let d: dict[int] = {}")
@@ -1366,52 +1366,52 @@ class TestParseTypeExpr:
     """parse_type_expr(text) parses a single AgL type expression."""
 
     def test_int(self) -> None:
-        from agm.agl.syntax.types import IntT
+        from agnette.agl.syntax.types import IntT
 
         result = parse_type_expr("int")
         assert isinstance(result, IntT)
 
     def test_text(self) -> None:
-        from agm.agl.syntax.types import TextT
+        from agnette.agl.syntax.types import TextT
 
         result = parse_type_expr("text")
         assert isinstance(result, TextT)
 
     def test_bool(self) -> None:
-        from agm.agl.syntax.types import BoolT
+        from agnette.agl.syntax.types import BoolT
 
         result = parse_type_expr("bool")
         assert isinstance(result, BoolT)
 
     def test_decimal(self) -> None:
-        from agm.agl.syntax.types import DecimalT
+        from agnette.agl.syntax.types import DecimalT
 
         result = parse_type_expr("decimal")
         assert isinstance(result, DecimalT)
 
     def test_array_int(self) -> None:
-        from agm.agl.syntax.types import ArrayT, IntT
+        from agnette.agl.syntax.types import ArrayT, IntT
 
         result = parse_type_expr("array[int]")
         assert isinstance(result, ArrayT)
         assert isinstance(result.elem, IntT)
 
     def test_dict_text_int(self) -> None:
-        from agm.agl.syntax.types import DictT, IntT
+        from agnette.agl.syntax.types import DictT, IntT
 
         result = parse_type_expr("dict[text, int]")
         assert isinstance(result, DictT)
         assert isinstance(result.value, IntT)
 
     def test_named_type(self) -> None:
-        from agm.agl.syntax.types import NameT
+        from agnette.agl.syntax.types import NameT
 
         result = parse_type_expr("MyRecord")
         assert isinstance(result, NameT)
         assert result.name == "MyRecord"
 
     def test_applied_generic(self) -> None:
-        from agm.agl.syntax.types import AppliedT, IntT
+        from agnette.agl.syntax.types import AppliedT, IntT
 
         result = parse_type_expr("Option[int]")
         assert isinstance(result, AppliedT)
@@ -1420,7 +1420,7 @@ class TestParseTypeExpr:
         assert isinstance(result.args[0], IntT)
 
     def test_func_type(self) -> None:
-        from agm.agl.syntax.types import FuncT, IntT, TextT
+        from agnette.agl.syntax.types import FuncT, IntT, TextT
 
         result = parse_type_expr("(int) -> text")
         assert isinstance(result, FuncT)
@@ -1429,7 +1429,7 @@ class TestParseTypeExpr:
         assert isinstance(result.result, TextT)
 
     def test_unparenthesized_func_type(self) -> None:
-        from agm.agl.syntax.types import FuncT, IntT, TextT
+        from agnette.agl.syntax.types import FuncT, IntT, TextT
 
         result = parse_type_expr("int -> text")
         assert isinstance(result, FuncT)
@@ -1438,7 +1438,7 @@ class TestParseTypeExpr:
         assert isinstance(result.result, TextT)
 
     def test_unparenthesized_func_type_chain(self) -> None:
-        from agm.agl.syntax.types import BoolT, FuncT, IntT, TextT
+        from agnette.agl.syntax.types import BoolT, FuncT, IntT, TextT
 
         result = parse_type_expr("int -> text -> bool")
         assert isinstance(result, FuncT)
@@ -1448,13 +1448,13 @@ class TestParseTypeExpr:
         assert isinstance(result.result.result, BoolT)
 
     def test_unit_type(self) -> None:
-        from agm.agl.syntax.types import UnitT
+        from agnette.agl.syntax.types import UnitT
 
         result = parse_type_expr("unit")
         assert isinstance(result, UnitT)
 
     def test_qualified_named_type(self) -> None:
-        from agm.agl.syntax.types import AppliedT
+        from agnette.agl.syntax.types import AppliedT
 
         # mod::Box[int] — qualified applied type
         result = parse_type_expr("mymod::Box[int]")
@@ -1474,7 +1474,7 @@ class TestParseTypeExpr:
     def test_start_id_is_honoured(self) -> None:
         """start_id offsets the first assigned node_id."""
         result = parse_type_expr("int", start_id=100)
-        from agm.agl.syntax.types import IntT
+        from agnette.agl.syntax.types import IntT
 
         assert isinstance(result, IntT)
         # Node id is ≥ start_id (offset applied)
@@ -1493,8 +1493,8 @@ class TestBuiltinResolution:
     def test_builtin_calls_populated_for_print(self) -> None:
         """A 'print' call is classified in builtin_calls."""
         r = self._parse_and_resolve('program def main() -> unit = print "hello"')
-        from agm.agl.scope import BuiltinKind
-        from agm.agl.scope.symbols import ModuleResolution
+        from agnette.agl.scope import BuiltinKind
+        from agnette.agl.scope.symbols import ModuleResolution
 
         assert isinstance(r, ModuleResolution)
         assert BuiltinKind.PRINT in r.builtin_calls.values()
@@ -1502,8 +1502,8 @@ class TestBuiltinResolution:
     def test_builtin_calls_populated_for_exec(self) -> None:
         """An 'exec' call is classified in builtin_calls."""
         r = self._parse_and_resolve('program def main() -> unit =\n  let x = exec "ls"\n  ()')
-        from agm.agl.scope import BuiltinKind
-        from agm.agl.scope.symbols import ModuleResolution
+        from agnette.agl.scope import BuiltinKind
+        from agnette.agl.scope.symbols import ModuleResolution
 
         assert isinstance(r, ModuleResolution)
         assert BuiltinKind.EXEC in r.builtin_calls.values()
@@ -1521,7 +1521,7 @@ class TestBuiltinResolution:
             "    | Fail => ()\n"
         )
         r = self._parse_and_resolve(source)
-        from agm.agl.scope.symbols import ModuleResolution
+        from agnette.agl.scope.symbols import ModuleResolution
 
         assert isinstance(r, ModuleResolution)
         # Each bare constructor pattern retains its scope-independent candidates.
@@ -2836,7 +2836,7 @@ class TestBinaryOperators:
     def test_eq_eq_is_valid_equality(self) -> None:
         """'==' is the equality operator and is valid in expressions."""
         e = first(parse("let b = a == b"))
-        from agm.agl.syntax.nodes import LetDecl
+        from agnette.agl.syntax.nodes import LetDecl
 
         assert isinstance(e, LetDecl)
 
@@ -5021,7 +5021,7 @@ class TestFieldAssignmentSyntax:
 
         ``B(r = 1, x)`` is rejected at parse time.
         """
-        from agm.agl.parser.errors import AglSyntaxError
+        from agnette.agl.parser.errors import AglSyntaxError
 
         with pytest.raises(AglSyntaxError):
             parse("B(r = 1, x)")
@@ -5337,9 +5337,9 @@ class TestVerbatimTextLiteral:
             timed_out=False,
             spawn_error=None,
         )
-        from agm.agl import PipelineDriver
+        from agnette.agl import PipelineDriver
 
-        with patch("agm.core.process.run_capture_result", return_value=completed):
+        with patch("agnette.core.process.run_capture_result", return_value=completed):
             result = run_inline_code(
                 PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None), "exec $ true"
             )

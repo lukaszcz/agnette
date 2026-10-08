@@ -1,4 +1,4 @@
-"""Comprehensive tests for agm.core.fs, agm.core.dotenv, and agm.core.dry_run."""
+"""Comprehensive tests for agnette.core.fs, agnette.core.dotenv, and agnette.core.dry_run."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-import agm.core.dry_run as dry_run
-from agm.core.dotenv import write_dotenv_values
-from agm.core.env import load_dotenv_file
-from agm.core.fs import (
+import agnette.core.dry_run as dry_run
+from agnette.core.dotenv import write_dotenv_values
+from agnette.core.env import load_dotenv_file
+from agnette.core.fs import (
     access,
     append_text,
     chmod,
@@ -30,10 +30,10 @@ from agm.core.fs import (
     unlink,
     write_text,
 )
-from agm.core.fs import (
+from agnette.core.fs import (
     stat as fs_stat,
 )
-from agm.core.path import display_path
+from agnette.core.path import display_path
 
 # ---------------------------------------------------------------------------
 # Fixture: always reset dry-run state after each test
@@ -49,7 +49,7 @@ def reset_dry_run() -> Generator[None, None, None]:
 
 
 # ===========================================================================
-# agm.core.dry_run
+# agnette.core.dry_run
 # ===========================================================================
 
 
@@ -149,7 +149,7 @@ class TestPrintFunctions:
 
 
 # ===========================================================================
-# agm.core.fs — read-only wrappers
+# agnette.core.fs — read-only wrappers
 # ===========================================================================
 
 
@@ -266,7 +266,7 @@ class TestFsReadOnly:
 
 
 # ===========================================================================
-# agm.core.fs — write operations (normal mode)
+# agnette.core.fs — write operations (normal mode)
 # ===========================================================================
 
 
@@ -348,7 +348,7 @@ class TestFsWriteNormal:
 
 
 # ===========================================================================
-# agm.core.fs — write operations (dry-run mode)
+# agnette.core.fs — write operations (dry-run mode)
 # ===========================================================================
 
 
@@ -440,7 +440,7 @@ class TestFsWriteDryRun:
 
 
 # ===========================================================================
-# agm.core.dotenv
+# agnette.core.dotenv
 # ===========================================================================
 
 
@@ -476,7 +476,7 @@ class TestWriteDotenvValues:
 
 
 # ===========================================================================
-# agm.core.path — display_path
+# agnette.core.path — display_path
 # ===========================================================================
 
 
@@ -515,7 +515,7 @@ class TestReadTextArgUnicodeDecodeError:
 
     def test_binary_file_exits_1(self, tmp_path: Path) -> None:
         """A binary file (not valid UTF-8) causes read_text_arg to exit 1."""
-        from agm.core.fs import read_text_arg
+        from agnette.core.fs import read_text_arg
 
         binary_file = tmp_path / "prog.agl"
         binary_file.write_bytes(b"\xff\xfe binary garbage \x00\x01\x02")
@@ -527,7 +527,7 @@ class TestReadTextArgUnicodeDecodeError:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """The error message mentions the file is not valid UTF-8 text."""
-        from agm.core.fs import read_text_arg
+        from agnette.core.fs import read_text_arg
 
         binary_file = tmp_path / "prog.agl"
         binary_file.write_bytes(b"\xff\xfe binary garbage \x00\x01\x02")
@@ -541,7 +541,7 @@ class TestReadTextArgUnicodeDecodeError:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """The clean error message includes the file name."""
-        from agm.core.fs import read_text_arg
+        from agnette.core.fs import read_text_arg
 
         binary_file = tmp_path / "prog.agl"
         binary_file.write_bytes(b"\xff\xfe binary garbage \x00\x01\x02")
@@ -558,8 +558,8 @@ class TestReadTextArgNoneStrerror:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """An OSError with strerror=None must not print 'None' as the message."""
-        import agm.core.fs as fs_mod
-        from agm.core.fs import read_text_arg
+        import agnette.core.fs as fs_mod
+        from agnette.core.fs import read_text_arg
 
         existing_file = tmp_path / "prog.agl"
         existing_file.write_text("let x = 1\n")

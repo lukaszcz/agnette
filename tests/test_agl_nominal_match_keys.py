@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import pytest
 
-import agm.agl.matchcompile.compiler as compiler_module
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.matchcompile.model import (
+import agnette.agl.matchcompile.compiler as compiler_module
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.matchcompile.model import (
     ClosedSignature,
     NominalConstructor,
     Occurrence,
     OccurrenceId,
     RootOccurrenceProvenance,
 )
-from agm.agl.matchcompile.normalize import MatchCompileInvariantError, signature_for_type
-from agm.agl.semantics.types import EnumType, RecordType
-from agm.agl.syntax.nodes import Case
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.syntax.visitor import walk
+from agnette.agl.matchcompile.normalize import MatchCompileInvariantError, signature_for_type
+from agnette.agl.semantics.types import EnumType, RecordType
+from agnette.agl.syntax.nodes import Case
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.visitor import walk
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
 _CAPS = HostCapabilities(

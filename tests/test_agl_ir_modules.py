@@ -9,15 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.ir.ids import FunctionId
-from agm.agl.ir.nodes import IrBlock, IrConstUnit, IrDirectCall, IrPrint
-from agm.agl.ir.program import IrFunctionBody
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.lower.program import lower_program
-from agm.agl.modules.ids import ModuleId
-from agm.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue
-from agm.agl.typecheck import AglTypeError
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.ir.ids import FunctionId
+from agnette.agl.ir.nodes import IrBlock, IrConstUnit, IrDirectCall, IrPrint
+from agnette.agl.ir.program import IrFunctionBody
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.lower.program import lower_program
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue
+from agnette.agl.typecheck import AglTypeError
 from tests.agl.ir_harness import (
     _checked,
     _compiled_checked,

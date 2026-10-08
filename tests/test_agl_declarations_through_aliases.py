@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglError, AglTypeError, HiddenMemberError
-from agm.agl.repl.session import ReplSession
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglError, AglTypeError, HiddenMemberError
+from agnette.agl.repl.session import ReplSession
+from agnette.agl.scope.symbols import (
     AglScopeError,
     DuplicateDeclarationError,
     TypeArgumentsError,

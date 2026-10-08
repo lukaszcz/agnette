@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.pipeline import PreparedProgram, ProgramDiscovery, RunResult
-from agm.agl.repl.session import EntryResult, ReplSession
+from agnette.agl import PipelineDriver
+from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery, RunResult
+from agnette.agl.repl.session import EntryResult, ReplSession
 from tests._agl_helpers import agl_roots, prepare_inline_code, run_inline_code
 
 _FAILING_SOURCE = (

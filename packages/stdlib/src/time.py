@@ -8,7 +8,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 
 from agl import nominals
 
-from agm.agl.runtime.boundary import raise_parse_error
+from agnette.agl.runtime.boundary import raise_parse_error
 
 TimeParseError = nominals.std.time.TimeParseError
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)

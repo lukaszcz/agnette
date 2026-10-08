@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from agm.agent.spec_defaults import configured_defaults_resolver
-from agm.agl import PipelineDriver
-from agm.config.general import load_run_config
-from agm.sandbox.prepare import SandboxContext
+from agnette.agent.spec_defaults import configured_defaults_resolver
+from agnette.agl import PipelineDriver
+from agnette.config.general import load_run_config
+from agnette.sandbox.prepare import SandboxContext
 from tests._agl_helpers import agl_roots, write_sandbox_home, write_transparent_sandbox_shims
 
 
@@ -36,7 +36,7 @@ def test_chat_hands_the_prompt_and_environment_to_a_foreground_agent(
     expected: list[str],
     method: bool,
 ) -> None:
-    import agm.core.process as process
+    import agnette.core.process as process
 
     calls: list[tuple[list[str], dict[str, str] | None]] = []
     prompt_files: list[Path] = []
@@ -86,7 +86,7 @@ def test_chat_raises_a_catchable_agent_call_error(
     capsys: pytest.CaptureFixture[str],
     outcome: str,
 ) -> None:
-    import agm.core.process as process
+    import agnette.core.process as process
 
     def foreground(argv: list[str], **_: object) -> int:
         if outcome == "missing":
@@ -125,7 +125,7 @@ def test_chat_uses_current_defaults_without_opening_a_persistent_session(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    import agm.core.process as process
+    import agnette.core.process as process
 
     commands: list[list[str]] = []
 
@@ -172,7 +172,7 @@ def test_sandboxed_chat_prepares_a_controlling_terminal_and_cleans_up(
     agent: str,
     permission_flag: str,
 ) -> None:
-    import agm.core.process as process
+    import agnette.core.process as process
 
     home = tmp_path / "home"
     command = agent.lower()
@@ -185,7 +185,7 @@ def test_sandboxed_chat_prepares_a_controlling_terminal_and_cleans_up(
     settings: list[Path] = []
 
     def foreground(argv: list[str], *, env: dict[str, str] | None = None, **options: object) -> int:
-        assert "agm.sandbox.pty" in argv
+        assert "agnette.sandbox.pty" in argv
         assert command in argv
         assert permission_flag in argv
         assert ("--no-daemon" in argv) is (agent == "Codex")

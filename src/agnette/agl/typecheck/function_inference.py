@@ -1,0 +1,999 @@
+"""Function-header resolution and disposable candidate return inference.
+
+Whole-program checking and a lone module checked in isolation (the sanctioned
+test seam over ``_check_prepared_module``) share this seam. Candidate
+discovery builds function dependency SCCs within either one import SCC or a
+single isolated module, closes each component before its dependents, and
+publishes only concrete signatures outside that import SCC.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from enum import Enum
+from types import MappingProxyType
+from typing import TYPE_CHECKING, NamedTuple, cast
+
+from agnette.agl.constraints import ConstraintBounds, close_constraints
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.scope.symbols import DeclarationKey
+from agnette.agl.semantics.persistent import PersistentDict
+from agnette.agl.semantics.type_table import MethodDef, NominalOwner
+from agnette.agl.semantics.types import (
+    METHOD_TYPE_SLOT_PREFIX,
+    ArrayType,
+    BoolType,
+    DecimalType,
+    DictType,
+    ExceptionType,
+    FunctionType,
+    InferenceVarType,
+    IntType,
+    JsonType,
+    RecordType,
+    TextType,
+    Type,
+    TypeVarType,
+    contains_inference_var,
+    free_type_vars,
+    substitute,
+)
+from agnette.agl.syntax.nodes import (
+    Expr,
+    FieldAccess,
+    FuncDef,
+    LetDecl,
+    Param,
+    VarDecl,
+    VarRef,
+    static_items,
+)
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck.inference import ConstraintRole, InferenceEngine, InferenceError
+from agnette.util.graph import sccs
+
+if TYPE_CHECKING:
+    from agnette.agl.capabilities import HostCapabilities
+    from agnette.agl.scope.symbols import (
+        BindingRef,
+        ConstructorRef,
+        ModuleResolution,
+        ReceiverOwner,
+    )
+    from agnette.agl.typecheck.checker import _Checker
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.types import TYPE_PARAMETER_WILDCARD, TypeExpr
+from agnette.agl.typecheck.env import (
+    AglTypeError,
+    FunctionSignature,
+    GenericTypeDef,
+    ParamSpec,
+    TypeEnvironment,
+)
+from agnette.agl.zones import ParamZone
+
+
+@dataclass(frozen=True, slots=True)
+class GenericCandidateEdge:
+    """One provisional generic occurrence inside a candidate function component."""
+
+    caller_declaration_id: int
+    callee_declaration_id: int
+    type_args: tuple[Type, ...]
+    result: Type
+    span: SourceSpan
+
+
+@dataclass(slots=True)
+class CandidateSession:
+    """Disposable state shared while discovering one candidate component.
+
+    Candidate checkers use this session's engine and retain their expression
+    side tables only for body traversal. The final checker creates all
+    published artifacts after every component result is concrete.
+    """
+
+    engine: InferenceEngine
+    provisional_declaration_ids: frozenset[int]
+    evidence: list[SourceSpan] = field(default_factory=list)
+    binding_snapshots: dict[ModuleId, PersistentDict[int, Type]] = field(default_factory=dict)
+    visible_binding_snapshots: dict[tuple[ModuleId, int], PersistentDict[int, Type]] = field(
+        default_factory=dict
+    )
+    slot_resolution_snapshots: dict[ModuleId, dict[int, "BindingRef"]] = field(default_factory=dict)
+    slot_constructor_ref_snapshots: dict[ModuleId, dict[int, "ConstructorRef"]] = field(
+        default_factory=dict
+    )
+    generic_edges: list[GenericCandidateEdge] = field(default_factory=list)
+
+    def record_generic_edge(
+        self,
+        *,
+        caller_declaration_id: int,
+        callee_declaration_id: int,
+        type_args: tuple[Type, ...],
+        result: Type,
+        span: SourceSpan,
+    ) -> None:
+        """Retain a generic occurrence for component-wide uniformity validation."""
+        self.generic_edges.append(
+            GenericCandidateEdge(
+                caller_declaration_id,
+                callee_declaration_id,
+                type_args,
+                result,
+                span,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateBody:
+    """One provisional function body checked within a candidate session."""
+
+    session: CandidateSession
+    declaration_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateModule:
+    """One module participating in disposable candidate discovery."""
+
+    resolved: "ModuleResolution"
+    env: TypeEnvironment
+    capabilities: "HostCapabilities"
+    module_id: ModuleId
+    declaration_spans: Mapping[DeclarationKey, SourceSpan] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleCandidateComponent:
+    """One import-SCC candidate batch and the environments it publishes into.
+
+    ``modules`` is exactly one loader-provided import SCC. Provisional
+    signatures are visible only within those modules; ``publication_envs``
+    receives the closed candidates for later program checking. A lone module
+    checked in isolation uses the synthetic singleton.
+    """
+
+    modules: tuple[CandidateModule, ...]
+    publication_envs: tuple[TypeEnvironment, ...] = ()
+
+    @classmethod
+    def singleton(
+        cls,
+        resolved: "ModuleResolution",
+        env: TypeEnvironment,
+        capabilities: "HostCapabilities",
+        module_id: ModuleId,
+    ) -> "ModuleCandidateComponent":
+        """Build the synthetic component for one module checked in isolation."""
+        declaration_spans = {key: ref.decl_span for key, ref in resolved.declarations.items()}
+        return cls(
+            (CandidateModule(resolved, env, capabilities, module_id, declaration_spans),), (env,)
+        )
+
+    def discovery_targets(self) -> tuple[TypeEnvironment, ...]:
+        """Return the import-SCC environments that need provisional signatures."""
+        return tuple(module.env for module in self.modules)
+
+    def publication_targets(self) -> tuple[TypeEnvironment, ...]:
+        """Return every environment that receives this batch's closed signatures."""
+        return self.publication_envs or self.discovery_targets()
+
+
+class FunctionReturnSource(Enum):
+    """The source of a program-level function result type."""
+
+    DECLARED = "declared"
+    CANDIDATE = "candidate"
+
+
+@dataclass(frozen=True, slots=True)
+class FunctionSignatureRecord:
+    """Internal function-signature metadata keyed by a declaration node id.
+
+    Program header collection creates declared records first. Import-SCC
+    candidate discovery appends concrete candidate records before authoritative
+    module checking begins.
+    """
+
+    declaration_node_id: int
+    name: str
+    signature: FunctionSignature
+    function_type: FunctionType
+    is_builtin: bool
+    is_extern: bool
+    return_source: FunctionReturnSource
+    module_id: ModuleId
+    declaration_span: SourceSpan
+    scope_path: tuple[str, ...] = ()
+    candidate_evidence: tuple[SourceSpan, ...] = ()
+
+
+def _records_for_return_source(
+    records: Mapping[int, FunctionSignatureRecord], source: FunctionReturnSource
+) -> dict[int, FunctionSignatureRecord]:
+    """Return records with one result-type source, keyed by declaration id."""
+    return {
+        declaration_id: record
+        for declaration_id, record in records.items()
+        if record.return_source is source
+    }
+
+
+def candidate_records_for(
+    records: Mapping[int, FunctionSignatureRecord],
+) -> dict[int, FunctionSignatureRecord]:
+    """Return only the candidate-inferred records, keyed by declaration id.
+
+    The program signature table mixes explicitly declared and candidate-inferred
+    records; the final checker keys inferred-return provenance off the candidate
+    subset alone, so callers filter once and share the result.
+    """
+    return _records_for_return_source(records, FunctionReturnSource.CANDIDATE)
+
+
+def declared_records_for(
+    records: Mapping[int, FunctionSignatureRecord],
+) -> dict[int, FunctionSignatureRecord]:
+    """Return only the explicitly declared records, keyed by declaration id.
+
+    Complement of :func:`candidate_records_for`. Bulk environment seeding
+    (``_prepare_module_environment``) must seed only this subset: a candidate
+    record -- whether freshly inferred or restored from a cached module's
+    ``published_signatures`` -- is published solely through
+    :func:`publish_candidate_signature`'s narrower per-SCC rule.
+    """
+    return _records_for_return_source(records, FunctionReturnSource.DECLARED)
+
+
+def _declaration_key(node: FuncDef) -> tuple[int, int]:
+    """Return the stable source order for a top-level function declaration."""
+    return (node.span.start_offset, node.node_id)
+
+
+class _CandidateFunction(NamedTuple):
+    """One unannotated ordinary function participating in candidate inference."""
+
+    module: CandidateModule
+    node: FuncDef
+    body: Expr
+
+
+def _candidate_functions(component: ModuleCandidateComponent) -> dict[int, _CandidateFunction]:
+    """Return this import SCC's unannotated ordinary functions by declaration id."""
+    functions: dict[int, _CandidateFunction] = {}
+    for module in component.modules:
+        program = module.resolved.program
+        for item in static_items(program.body.items):
+            # Only ``builtin def`` and ``extern def`` declarations are body-less.
+            if (
+                isinstance(item, FuncDef)
+                and item.return_type is None
+                and item.body is not None
+                and not item.is_synthetic
+            ):
+                functions[item.node_id] = _CandidateFunction(module, item, item.body)
+    return functions
+
+
+def _function_key(
+    functions: dict[int, _CandidateFunction], declaration_id: int
+) -> tuple[tuple[str, ...], int, int]:
+    """Return global deterministic source order for a declaration id."""
+    module, node, _body = functions[declaration_id]
+    return (module.module_id.segments, *_declaration_key(node))
+
+
+def _candidate_methods_by_name(functions: dict[int, _CandidateFunction]) -> dict[str, list[int]]:
+    """Group this batch's candidate methods by declared name, once per batch.
+
+    Scope's ``receiver_owner_for`` is the definitive method classification;
+    a candidate belongs here only when scope already recognized it as a
+    method, never by re-deriving that from a ``self`` parameter.
+    """
+    by_name: dict[str, list[int]] = {}
+    for declaration_id, (module, node, _body) in functions.items():
+        if module.resolved.receiver_owner_for(module.module_id, node) is not None:
+            by_name.setdefault(node.name, []).append(declaration_id)
+    return by_name
+
+
+def _function_dependencies(
+    functions: dict[int, _CandidateFunction],
+) -> dict[int, tuple[int, ...]]:
+    """Collect candidate references from bodies and their top-level bindings."""
+    methods_by_name = _candidate_methods_by_name(functions)
+    binding_values: dict[int, tuple[CandidateModule, Expr]] = {}
+    modules = {function.module.module_id: function.module for function in functions.values()}
+    for module in modules.values():
+        program = module.resolved.program
+        for item in static_items(program.body.items):
+            if isinstance(item, LetDecl):
+                binding_values[item.node_id] = (module, item.value)
+            elif isinstance(item, VarDecl):
+                binding_values[item.node_id] = (module, item.value)
+
+    dependencies: dict[int, tuple[int, ...]] = {}
+    for declaration_id, (module, _node, body) in functions.items():
+        referenced: set[int] = set()
+        visited_bindings: set[int] = set()
+
+        def visit_from(owner: CandidateModule, value: Expr) -> None:
+            def visit(item: object) -> None:
+                if isinstance(item, VarRef):
+                    reference = owner.resolved.resolution.get(item.node_id)
+                    if reference is None:
+                        return
+                    if reference.decl_node_id in functions:
+                        referenced.add(reference.decl_node_id)
+                    binding = binding_values.get(reference.decl_node_id)
+                    if binding is not None and reference.decl_node_id not in visited_bindings:
+                        visited_bindings.add(reference.decl_node_id)
+                        visit_from(*binding)
+                elif isinstance(item, FieldAccess):
+                    # A member call's target is only disambiguated from a field
+                    # read later, by the checker; over-approximate here with an
+                    # edge to every same-named candidate method so a missing edge
+                    # never lets an SCC close out of order. Widening an SCC is
+                    # safe; missing an edge is the bug this closes.
+                    referenced.update(methods_by_name.get(item.field, ()))
+
+            walk(value, visit)
+
+        # Walking the whole body deliberately includes direct calls, function
+        # values, partial applications, type applications, member calls, and
+        # transitively referenced top-level binding initializers. Defaults are
+        # checked only by authoritative validation.
+        visit_from(module, body)
+
+        def dependency_key(node_id: int) -> tuple[tuple[str, ...], int, int]:
+            return _function_key(functions, node_id)
+
+        dependencies[declaration_id] = tuple(sorted(referenced, key=dependency_key))
+    return dependencies
+
+
+def infer_module_component_candidates(
+    component: ModuleCandidateComponent,
+) -> tuple[FunctionSignatureRecord, ...]:
+    """Infer import-SCC candidates and publish only closed signatures.
+
+    ``sccs`` returns sink components first, so an acyclic callee closes before
+    its callers. Within an import cycle, the graph spans every module and a
+    recursive component shares provisional results across module boundaries.
+    """
+    functions = _candidate_functions(component)
+    dependencies = _function_dependencies(functions)
+    records: list[FunctionSignatureRecord] = []
+
+    def component_key(node_id: int) -> tuple[tuple[str, ...], int, int]:
+        return _function_key(functions, node_id)
+
+    for declaration_ids in sccs(dependencies, key=component_key):
+        records.extend(
+            _infer_function_component(
+                component,
+                tuple(functions[node_id] for node_id in declaration_ids),
+            )
+        )
+    return tuple(records)
+
+
+def publish_candidate_signature(
+    env: TypeEnvironment,
+    *,
+    declaring_env: TypeEnvironment,
+    declaration_node_id: int,
+    name: str,
+    scope_path: tuple[str, ...],
+    signature: FunctionSignature,
+    function_type: FunctionType,
+) -> None:
+    """Install one candidate function signature into *env*, by the one shared rule.
+
+    By name: only into the signature's own declaring module environment
+    (``env is declaring_env``) -- same-name collisions across modules never
+    leak into the bare-name table. By node id
+    (``register_function_signature_by_node_id`` plus ``set_binding_type``):
+    into whatever environment the caller passes, typically its own import SCC
+    plus every later one. A freshly inferred candidate
+    (:func:`_register_signature`) and a candidate restored from a cached
+    module's ``published_signatures`` (the import-SCC loop's fully-cached
+    branch in ``program.py``) both publish through this one rule, so a
+    rehydrated compile seeds exactly what a fresh one would have.
+    """
+    if env is declaring_env:
+        env.register_function_signature(name, signature, scope_path=scope_path)
+    env.register_function_signature_by_node_id(declaration_node_id, signature)
+    env.set_binding_type(declaration_node_id, function_type)
+
+
+def _register_signature(
+    env: TypeEnvironment,
+    module: CandidateModule,
+    node: FuncDef,
+    signature: FunctionSignature,
+    function_type: FunctionType,
+) -> None:
+    """Install a freshly inferred candidate's signature via :func:`publish_candidate_signature`."""
+    publish_candidate_signature(
+        env,
+        declaring_env=module.env,
+        declaration_node_id=node.node_id,
+        name=node.name,
+        scope_path=tuple(segment.name for segment in node.scope_path),
+        signature=signature,
+        function_type=function_type,
+    )
+
+
+def _references_tainted_binding(
+    module: CandidateModule,
+    item: Expr | LetDecl | VarDecl,
+    tainted: set[int],
+    candidate_methods: Mapping[str, Sequence[int]],
+    checker: "_Checker",
+) -> bool:
+    """Whether a top-level binding reads a declaration whose type is not yet fixed."""
+    found = False
+
+    def visit(node: object) -> None:
+        nonlocal found
+        if isinstance(node, VarRef):
+            reference = module.resolved.resolution.get(node.node_id)
+            if reference is not None and reference.decl_node_id in tainted:
+                found = True
+        elif isinstance(node, FieldAccess) and any(
+            declaration_id in tainted for declaration_id in candidate_methods.get(node.field, ())
+        ):
+            if _references_tainted_binding(module, node.obj, tainted, candidate_methods, checker):
+                found = True
+                return
+            try:
+                receiver_type = checker._check_expr(node.obj, expected=None)
+            except AglTypeError:
+                found = True
+                return
+            fields = (
+                checker._env.type_table.exception_fields(receiver_type)
+                if isinstance(receiver_type, ExceptionType)
+                else (
+                    checker._env.type_table.record_fields(receiver_type)
+                    if isinstance(receiver_type, RecordType)
+                    else {}
+                )
+            )
+            # A declared field is selected independently of an unrelated
+            # same-named provisional method. The authoritative check still
+            # diagnoses a real field/method ambiguity if both apply.
+            if node.field not in fields:
+                found = True
+
+    walk(item, visit)
+    return found
+
+
+def _seed_candidate_visible_bindings(
+    component: ModuleCandidateComponent,
+    session: CandidateSession,
+    candidate_methods: Mapping[str, Sequence[int]],
+) -> None:
+    """Capture source-visible top-level value bindings for each function body."""
+    from agnette.agl.typecheck.checker import _Checker
+
+    for module in component.modules:
+        program = module.resolved.program
+        checker = _Checker(
+            env=module.env,
+            resolved=module.resolved,
+            capabilities=module.capabilities,
+            module_id=module.module_id,
+            declaration_spans=module.declaration_spans,
+        )
+        # A value binding that reads a component candidate (directly or through
+        # an earlier such binding) cannot be typed before that candidate closes:
+        # its provisional result var is owned by this session's engine and any
+        # unification here would corrupt it. Such bindings — and their transitive
+        # dependents — are typed by the authoritative pass once every signature
+        # is concrete.
+        tainted = set(session.provisional_declaration_ids)
+        for item in static_items(program.body.items):
+            if isinstance(item, FuncDef):
+                session.visible_binding_snapshots[(module.module_id, item.node_id)] = (
+                    module.env.snapshot_binding_types()
+                )
+            elif isinstance(item, (LetDecl, VarDecl)):
+                if _references_tainted_binding(module, item, tainted, candidate_methods, checker):
+                    tainted.add(item.node_id)
+                    continue
+                checker._check_item(item, expected=None)
+        session.slot_resolution_snapshots[module.module_id] = dict(checker._slot_resolution)
+        session.slot_constructor_ref_snapshots[module.module_id] = dict(
+            checker._slot_constructor_refs
+        )
+
+
+class _ProvisionalHeader(NamedTuple):
+    """One component member's header while its result type is still provisional."""
+
+    module: CandidateModule
+    node: FuncDef
+    body: Expr
+    result: InferenceVarType
+    signature: FunctionSignature
+    receiver: ResolvedReceiver | None
+
+
+def _infer_function_component(
+    component: ModuleCandidateComponent,
+    functions: tuple[_CandidateFunction, ...],
+) -> tuple[FunctionSignatureRecord, ...]:
+    """Infer one cross-module function component and publish concrete schemes."""
+    from agnette.agl.typecheck.checker import _Checker
+
+    engine = InferenceEngine(functions[0].module.env.type_table)
+    session = CandidateSession(engine, frozenset(function.node.node_id for function in functions))
+    provisional: list[_ProvisionalHeader] = []
+    discovery_envs = component.discovery_targets()
+    publication_envs = component.publication_targets()
+
+    # Make each member visible throughout its import SCC before traversing a
+    # body. Node-id keys retain declaration identity despite matching names.
+    for module, node, body in functions:
+        checker = _Checker(
+            env=module.env,
+            resolved=module.resolved,
+            capabilities=module.capabilities,
+            module_id=module.module_id,
+            declaration_spans=module.declaration_spans,
+        )
+        receiver_owner = module.resolved.receiver_owner_for(module.module_id, node)
+        checker._validate_funcdef_header(node, is_method=receiver_owner is not None)
+        result = engine.fresh(f"{node.name} result")
+        signature, function_type, receiver = resolve_function_header(
+            module.env,
+            node,
+            result_type=result,
+            param_zones=module.resolved.attributes.param_zones,
+            receiver_owner=receiver_owner,
+        )
+        register_method_header(module.env, node, signature, receiver, module.module_id)
+        for env in discovery_envs:
+            _register_signature(env, module, node, signature, function_type)
+        provisional.append(_ProvisionalHeader(module, node, body, result, signature, receiver))
+
+    session.binding_snapshots = {
+        module.module_id: module.env.snapshot_binding_types() for module in component.modules
+    }
+    candidate_methods: dict[str, list[int]] = {}
+    for module, node, _body in functions:
+        if module.resolved.receiver_owner_for(module.module_id, node) is not None:
+            candidate_methods.setdefault(node.name, []).append(node.node_id)
+    try:
+        _seed_candidate_visible_bindings(component, session, candidate_methods)
+        for module, node, body, result, signature, _receiver in provisional:
+            module.env.restore_binding_types(
+                session.visible_binding_snapshots[(module.module_id, node.node_id)]
+            )
+            checker = _Checker(
+                env=module.env,
+                resolved=module.resolved,
+                capabilities=module.capabilities,
+                module_id=module.module_id,
+                declaration_spans=module.declaration_spans,
+            )
+            checker._slot_resolution.update(session.slot_resolution_snapshots[module.module_id])
+            checker._slot_constructor_refs.update(
+                session.slot_constructor_ref_snapshots[module.module_id]
+            )
+            candidate_type = checker.check_candidate_funcdef_body(node, body, signature, session)
+            try:
+                engine.unify(
+                    result,
+                    candidate_type,
+                    engine.origin(
+                        node.span,
+                        role=ConstraintRole.EXPECTED_RESULT,
+                        subject=f"return type of function '{node.name}'",
+                    ),
+                )
+            except InferenceError as exc:
+                raise AglTypeError(
+                    f"Cannot infer return type of function '{node.name}': return values have "
+                    "incompatible types. Add a return type annotation.",
+                    span=node.span,
+                    related=exc.related,
+                ) from exc
+    finally:
+        for module in component.modules:
+            module.env.restore_binding_types(session.binding_snapshots[module.module_id])
+
+    _close_generic_candidate_edges(session, provisional)
+
+    unresolved = [
+        (module, node)
+        for module, node, _body, result, _signature, _receiver in provisional
+        if not engine.is_solved(result) or contains_inference_var(engine.zonk(result))
+    ]
+    if len(unresolved) == 1:
+        _, node = unresolved[0]
+        raise AglTypeError(
+            f"Cannot infer return type of function '{node.name}': insufficient concrete return "
+            "evidence. Add a return type annotation.",
+            span=node.span,
+        )
+    if unresolved:
+        names = ", ".join(f"'{node.name}'" for _, node in unresolved)
+        raise AglTypeError(
+            f"Cannot infer return types for functions {names}: insufficient concrete return "
+            "evidence. Add return type annotations.",
+            span=unresolved[0][1].span,
+            related=tuple(
+                (f"function '{node.name}' also has insufficient return evidence", node.span)
+                for _, node in unresolved[1:]
+            ),
+        )
+
+    records: list[FunctionSignatureRecord] = []
+    for module, node, body, result, signature, receiver in provisional:
+        concrete_result = engine.zonk(result)
+        concrete_signature = FunctionSignature(
+            params=signature.params,
+            result=concrete_result,
+            type_params=signature.type_params,
+            bounds=signature.bounds,
+        )
+        function_type = concrete_signature.value_type
+        for env in publication_envs:
+            _register_signature(env, module, node, concrete_signature, function_type)
+        register_method_header(module.env, node, concrete_signature, receiver, module.module_id)
+        records.append(
+            FunctionSignatureRecord(
+                declaration_node_id=node.node_id,
+                name=node.name,
+                signature=concrete_signature,
+                function_type=function_type,
+                is_builtin=False,
+                is_extern=False,
+                return_source=FunctionReturnSource.CANDIDATE,
+                module_id=module.module_id,
+                declaration_span=node.span,
+                scope_path=tuple(segment.name for segment in node.scope_path),
+                candidate_evidence=(body.span,),
+            )
+        )
+    return tuple(records)
+
+
+def _close_generic_candidate_edges(
+    session: CandidateSession,
+    provisional: list[_ProvisionalHeader],
+) -> None:
+    """Validate uniform generic recursion and connect its delayed result evidence."""
+    functions = {
+        node.node_id: (node, result, signature)
+        for _, node, _body, result, signature, _receiver in provisional
+    }
+    engine = session.engine
+    for edge in session.generic_edges:
+        caller, _, caller_signature = functions[edge.caller_declaration_id]
+        callee, _, _ = functions[edge.callee_declaration_id]
+        caller_vector = tuple(TypeVarType(name) for name in caller_signature.type_params)
+        type_args = tuple(engine.zonk(arg) for arg in edge.type_args)
+        if len(type_args) != len(caller_vector) or type_args != caller_vector:
+            raise AglTypeError(
+                f"Cannot infer return type of function '{caller.name}': recursive call to "
+                f"'{callee.name}' changes its generic type arguments. Add a return type "
+                "annotation.",
+                span=edge.span,
+            )
+
+    for edge in session.generic_edges:
+        callee, callee_result, callee_signature = functions[edge.callee_declaration_id]
+        result_template = engine.zonk(callee_result)
+        substitutions = dict(
+            zip(
+                callee_signature.type_params,
+                (engine.zonk(arg) for arg in edge.type_args),
+                strict=True,
+            )
+        )
+        result = substitute(result_template, substitutions)
+        try:
+            engine.unify(
+                edge.result,
+                result,
+                engine.origin(
+                    edge.span,
+                    role=ConstraintRole.EXPECTED_RESULT,
+                    subject=f"recursive call to '{callee.name}'",
+                ),
+            )
+        except InferenceError as exc:
+            raise AglTypeError(
+                f"Cannot infer return type of function '{callee.name}': recursive return "
+                "evidence is incompatible. Add a return type annotation.",
+                span=edge.span,
+                related=exc.related,
+            ) from exc
+
+
+def validate_required_after_defaulted(
+    params: Sequence[Param],
+    param_zones: Mapping[int, ParamZone],
+    *,
+    entry_desc: str = "Parameter",
+) -> None:
+    """Reject a required positional-fillable parameter after a defaulted one.
+
+    *entry_desc* names what *params* are in the diagnostic — ``"Parameter"``
+    for a function/lambda parameter list, ``"Field"`` for a record/enum-member/
+    exception field list.
+    """
+    seen_pos_default = False
+    for param in params:
+        is_pos_fillable = param_zones[param.node_id] in (
+            ParamZone.POSITIONAL_ONLY,
+            ParamZone.STANDARD,
+        )
+        if not is_pos_fillable:
+            continue
+        if param.default is not None:
+            seen_pos_default = True
+        elif seen_pos_default:
+            raise AglTypeError(
+                f"{entry_desc} '{param.name}' has no default but follows a defaulted "
+                f"positional {entry_desc.lower()}. Required positional "
+                f"{entry_desc.lower()}s must come before {entry_desc.lower()}s with "
+                "defaults.",
+                span=param.span,
+            )
+
+
+def _method_owner(
+    env: TypeEnvironment, owner: "ReceiverOwner"
+) -> tuple[NominalOwner, int, GenericTypeDef | None]:
+    """Return a classified method's nominal owner, generic arity, and definition.
+
+    Scope has already established the owner's declaration identity. This helper
+    looks it up through the program declaration indexes, so the owner need not
+    be declared in the method's module.
+    """
+    generic = env.get_generic_type_by_declaration(owner.module_id, owner.scope_path)
+    if generic is not None:
+        return generic.template, len(generic.type_params), generic
+    return env.nominal_by_declaration(owner.module_id, owner.scope_path), 0, None
+
+
+@dataclass(frozen=True, slots=True)
+class NominalResolvedReceiver:
+    """A classified method's nominal receiver, keyed by its declaration owner."""
+
+    scope_path: tuple[str, ...]
+    owner: NominalOwner
+    type_param_arity: int
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltinResolvedReceiver:
+    """A classified method's builtin receiver: its structural or scalar type and
+    the type ``constructor`` that publishes its methods for member selection."""
+
+    scope_path: tuple[str, ...]
+    owner: Type
+    type_param_arity: int
+    constructor: str
+
+
+ResolvedReceiver = NominalResolvedReceiver | BuiltinResolvedReceiver
+
+
+def _method_type_parameter_name(node: FuncDef, index: int) -> str:
+    """Return the private rigid name for one nonbinding receiver type slot."""
+    return f"{METHOD_TYPE_SLOT_PREFIX}{node.node_id}_{index}"
+
+
+def _method_signature_type_params(node: FuncDef, arity: int) -> tuple[str, ...]:
+    """Rename each receiver-prefix wildcard slot to its private rigid name.
+
+    Only the first ``arity`` slots (the receiver prefix) may be the ``_``
+    wildcard; the caller must already have rejected a wildcard at or beyond
+    that prefix, since it would otherwise become an unnameable method type
+    parameter.
+    """
+    return tuple(
+        _method_type_parameter_name(node, index)
+        if index < arity and name == TYPE_PARAMETER_WILDCARD
+        else name
+        for index, name in enumerate(node.type_param_slots)
+    )
+
+
+def _builtin_receiver_type(node: FuncDef, owner: "ReceiverOwner") -> tuple[Type, int, str] | None:
+    """Build the semantic type for a builtin receiver scope classified."""
+    receiver = owner.builtin
+    if receiver is None:
+        return None
+    slots = _method_signature_type_params(node, receiver.arity)
+    parameters = [TypeVarType(slots[index]) for index in receiver.parameters]
+    scalar_types: dict[str, Type] = {
+        "text": TextType(),
+        "json": JsonType(),
+        "int": IntType(),
+        "decimal": DecimalType(),
+        "bool": BoolType(),
+    }
+    if receiver.name == "array":
+        receiver_type: Type = ArrayType(parameters[0])
+    elif receiver.name == "dict":
+        receiver_type = (
+            DictType(*parameters) if len(parameters) == 2 else DictType(TextType(), parameters[0])
+        )
+    else:
+        receiver_type = scalar_types[receiver.name]
+    return receiver_type, receiver.arity, receiver.name
+
+
+def _receiver_type(
+    env: TypeEnvironment, node: FuncDef, owner: "ReceiverOwner"
+) -> tuple[Type, ResolvedReceiver]:
+    """Build the receiver type and its resolved owner from a classified method declaration."""
+    builtin = _builtin_receiver_type(node, owner)
+    declaration_scope_path = tuple(segment.name for segment in node.scope_path)
+    if builtin is not None:
+        receiver, arity, constructor = builtin
+        return receiver, BuiltinResolvedReceiver(
+            scope_path=declaration_scope_path,
+            owner=receiver,
+            type_param_arity=arity,
+            constructor=constructor,
+        )
+    nominal_owner, arity, generic = _method_owner(env, owner)
+    resolved = NominalResolvedReceiver(
+        scope_path=declaration_scope_path, owner=nominal_owner, type_param_arity=arity
+    )
+    if len(node.type_param_slots) < arity:
+        raise AglTypeError(
+            f"Method '{node.name}' declares {len(node.type_param_slots)} type parameter(s), "
+            f"but its receiver requires {arity}.",
+            span=node.span,
+        )
+    for index in range(arity, len(node.type_param_slots)):
+        if node.type_param_slots[index] == TYPE_PARAMETER_WILDCARD:
+            raise AglTypeError(
+                f"Method '{node.name}' type parameter {index} is its own, not a receiver "
+                "slot, so it needs a name; '_' may only fill an unused receiver slot.",
+                span=node.span,
+            )
+    if generic is None:
+        return nominal_owner, resolved
+
+    receiver_args = tuple(
+        TypeVarType(name) for name in _method_signature_type_params(node, arity)[:arity]
+    )
+    return (
+        env.instantiate_from_gdef("::".join(owner.scope_path), generic, receiver_args, node.span),
+        resolved,
+    )
+
+
+def register_method_header(
+    env: TypeEnvironment,
+    node: FuncDef,
+    signature: FunctionSignature,
+    receiver: ResolvedReceiver | None,
+    module_id: ModuleId,
+) -> None:
+    """Publish one already-resolved classified method into the shared type table."""
+    if receiver is None:
+        return
+    method = MethodDef(
+        module_id=module_id,
+        scope_path=receiver.scope_path,
+        name=node.name,
+        decl_node_id=node.node_id,
+        signature=signature.value_type,
+        receiver_type_param_arity=receiver.type_param_arity,
+        type_params=signature.type_params,
+        is_builtin=node.is_builtin,
+    )
+    env.register_method_def(
+        receiver.constructor if isinstance(receiver, BuiltinResolvedReceiver) else receiver.owner,
+        method,
+    )
+
+
+def _target_params(type_params: tuple[str, ...], params: Sequence[ParamSpec]) -> tuple[str, ...]:
+    """Return the type parameters no value parameter mentions, in declaration order."""
+    bound = {name for param in params for name in free_type_vars(param.type)}
+    return tuple(name for name in type_params if name not in bound)
+
+
+def _declaration_bounds(node: FuncDef) -> ConstraintBounds:
+    """Return *node*'s constraint block as a bound environment.
+
+    Scope validation (``resolver._validate_constraints``) already rejects a
+    duplicate or redundant pairing, so each parameter names at most one
+    constraint here; :func:`close_constraints` still closes it (``Hashable``
+    implies ``Eq``).
+    """
+    if not node.constraints:
+        return MappingProxyType({})
+    return MappingProxyType(
+        {c.param: close_constraints(frozenset({c.kind})) for c in node.constraints}
+    )
+
+
+def resolve_function_header(
+    env: TypeEnvironment,
+    node: FuncDef,
+    *,
+    result_type: TypeExpr | Type,
+    param_zones: Mapping[int, ParamZone],
+    receiver_owner: "ReceiverOwner | None" = None,
+) -> tuple[FunctionSignature, FunctionType, ResolvedReceiver | None]:
+    """Resolve one function's parameter scheme and declared or supplied result.
+
+    A classified method's resolved owner is returned alongside its signature so
+    :func:`register_method_header` reuses it instead of resolving it again.
+    """
+    validate_required_after_defaulted(node.params, param_zones)
+    source_type_params = node.type_params
+    type_vars = frozenset(source_type_params)
+    signature_type_params = source_type_params
+    receiver: Type | None = None
+    resolved_receiver: ResolvedReceiver | None = None
+    if receiver_owner is not None:
+        receiver, resolved_receiver = _receiver_type(env, node, receiver_owner)
+        signature_type_params = _method_signature_type_params(
+            node, resolved_receiver.type_param_arity
+        )
+
+    params: list[ParamSpec] = []
+    for index, param in enumerate(node.params):
+        if index == 0 and receiver is not None:
+            if param.type_expr is not None:
+                documented_receiver = env.resolve_type_expr(
+                    param.type_expr, span=param.span, type_vars=type_vars
+                )
+                if documented_receiver != receiver:
+                    raise AglTypeError(
+                        f"Receiver annotation on 'self' for method '{node.name}' must be exactly "
+                        "its enclosing type.",
+                        span=param.span,
+                    )
+            params.append(
+                ParamSpec(
+                    name=param.name,
+                    type=receiver,
+                    kind=param_zones[param.node_id],
+                    has_default=False,
+                )
+            )
+            continue
+        # The parser lets only a method's receiver omit its annotation.
+        annotation = cast(TypeExpr, param.type_expr)
+        params.append(
+            ParamSpec(
+                name=param.name,
+                type=env.resolve_type_expr(annotation, span=param.span, type_vars=type_vars),
+                kind=param_zones[param.node_id],
+                has_default=param.default is not None,
+            )
+        )
+    resolved_result = (
+        env.resolve_type_expr(result_type, span=node.span, type_vars=type_vars)
+        if isinstance(result_type, TypeExpr)
+        else result_type
+    )
+    signature = FunctionSignature(
+        params=tuple(params),
+        result=resolved_result,
+        type_params=signature_type_params,
+        target_params=_target_params(signature_type_params, params) if node.is_extern else (),
+        bounds=_declaration_bounds(node),
+    )
+    return signature, signature.value_type, resolved_receiver

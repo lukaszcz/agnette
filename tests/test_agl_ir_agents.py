@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agm.agl.ir.program import ValueDescriptors
-from agm.agl.semantics.values import (
+from agnette.agl.ir.program import ValueDescriptors
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     IntValue,
@@ -20,7 +20,7 @@ from agm.agl.semantics.values import (
     RecordValue,
     TextValue,
 )
-from agm.agl.zones import ParamZone
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import run_inline_code
 from tests.agl.ir_harness import (
     agent_caps,
@@ -31,7 +31,7 @@ from tests.agl.ir_harness import (
 )
 
 if TYPE_CHECKING:
-    from agm.agl.syntax.spans import SourceSpan
+    from agnette.agl.syntax.spans import SourceSpan
 
 
 def _variant_name(value: RecordValue, descriptors: ValueDescriptors) -> str:
@@ -466,7 +466,7 @@ b
 
 def test_unit_typed_ask() -> None:
     """A bare ask runs once and discards its successful output."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     calls: list[object] = []
 
@@ -799,7 +799,7 @@ def test_enum_bad_case_raises_agent_parse_error() -> None:
     """Enum ask: agent returns unknown $case → AgentParseError."""
     import json
 
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         EnumDecode,
         FieldDecode,
         JsonContractRequest,
@@ -807,8 +807,8 @@ def test_enum_bad_case_raises_agent_parse_error() -> None:
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -922,11 +922,11 @@ s
 def test_validate_ir_ask_missing_contract(request_only: bool) -> None:
     """validate_ir: an ask node referencing a missing contract_id → InvalidIrError."""
 
-    from agm.agl.ir.ids import ContractId, Location, SourceId
-    from agm.agl.ir.nodes import IrAsk, IrAskRequest, IrConstInt, IrConstText
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.ids import ContractId, Location, SourceId
+    from agnette.agl.ir.nodes import IrAsk, IrAskRequest, IrConstInt, IrConstText
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     src_id = SourceId(0)
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -981,8 +981,8 @@ prompt-text
 
 def test_parse_contract_output_ambiguous_multi_value() -> None:
     """_parse_contract_output: lenient mode with ambiguous multi-value → failure."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
         codec_name="json",
@@ -1001,8 +1001,8 @@ def test_parse_contract_output_ambiguous_multi_value() -> None:
 
 def test_parse_contract_output_lenient_no_json_found() -> None:
     """_parse_contract_output: lenient mode with no JSON at all → failure."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
         codec_name="json",
@@ -1019,8 +1019,8 @@ def test_parse_contract_output_lenient_no_json_found() -> None:
 
 def test_parse_contract_output_strict_parse_failure() -> None:
     """_parse_contract_output: strict mode with invalid JSON → failure."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
         codec_name="json",
@@ -1038,15 +1038,15 @@ def test_parse_contract_output_strict_parse_failure() -> None:
 
 def test_parse_agent_output_required_field_error() -> None:
     """parse_agent_output: missing required field on record → missing_field error."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         FieldDecode,
         JsonContractRequest,
         RecordDecode,
         ScalarDecode,
         ScalarKind,
     )
-    from agm.agl.ir.ids import NominalId as IrNominalId
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.ids import NominalId as IrNominalId
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     nom = IrNominalId(1)
     schema = _json.dumps(
@@ -1097,15 +1097,15 @@ def test_parse_agent_output_required_field_error() -> None:
 
 def test_parse_agent_output_additional_properties_error() -> None:
     """parse_agent_output: extra field on record → unknown_field error."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         FieldDecode,
         JsonContractRequest,
         RecordDecode,
         ScalarDecode,
         ScalarKind,
     )
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     nom = NominalId(1)
     schema = _json.dumps(
@@ -1147,8 +1147,8 @@ def test_parse_agent_output_additional_properties_error() -> None:
 
 def test_parse_agent_output_wrong_type_error() -> None:
     """parse_agent_output: wrong JSON type (string vs integer) → wrong_type error."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
         codec_name="json",
@@ -1166,8 +1166,8 @@ def test_parse_agent_output_wrong_type_error() -> None:
 
 def test_parse_agent_output_unknown_validator_fallback() -> None:
     """parse_agent_output: schema with minimum validator → wrong_type fallback."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     # Use a "minimum" constraint that fails — falls through to default ValidationError.
     schema = _json.dumps({"type": "integer", "minimum": 100})
@@ -1188,8 +1188,8 @@ def test_parse_agent_output_unknown_validator_fallback() -> None:
 
 def test_make_validation_error_non_error_object() -> None:
     """_make_validation_error: non-ValidationError argument → wrong_type with str()."""
-    from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _make_validation_error
+    from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _make_validation_error
 
     decode = ScalarDecode(ScalarKind.INT)
     ve = _make_validation_error("plain string error", decode)
@@ -1199,9 +1199,9 @@ def test_make_validation_error_non_error_object() -> None:
 
 def test_enum_instance_not_dict_bad_case() -> None:
     """_classify_enum_failure: non-dict instance → bad_case error."""
-    from agm.agl.ir.contracts import EnumDecode, JsonContractRequest, VariantDecode
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import EnumDecode, JsonContractRequest, VariantDecode
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -1263,8 +1263,8 @@ def test_enum_instance_not_dict_bad_case() -> None:
 
 def test_enum_no_case_tag_bad_case() -> None:
     """_classify_enum_failure: dict missing $case → bad_case error."""
-    from agm.agl.ir.contracts import EnumDecode, JsonContractRequest, VariantDecode
-    from agm.agl.ir.ids import NominalId
+    from agnette.agl.ir.contracts import EnumDecode, JsonContractRequest, VariantDecode
+    from agnette.agl.ir.ids import NominalId
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -1318,7 +1318,7 @@ def test_enum_no_case_tag_bad_case() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     # Missing $case key entirely.
     result = _parse_contract_output('{"value": 42}', contract, effective_strict=False)
@@ -1328,8 +1328,8 @@ def test_enum_no_case_tag_bad_case() -> None:
 
 def test_enum_bad_case_no_decode_schema() -> None:
     """decode=None in ContractRequest → failure (no decode schema check before validation)."""
-    from agm.agl.ir.contracts import JsonContractRequest
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     schema = _json.dumps(
         {
@@ -1359,9 +1359,9 @@ def test_enum_bad_case_no_decode_schema() -> None:
 
 def test_find_enum_decode_at_path_through_array() -> None:
     """_find_enum_decode_at_path: navigate through ArrayDecode to find EnumDecode."""
-    from agm.agl.ir.contracts import ArrayDecode, EnumDecode, JsonContractRequest, VariantDecode
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _find_enum_decode_at_path
+    from agnette.agl.ir.contracts import ArrayDecode, EnumDecode, JsonContractRequest, VariantDecode
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
     nominal = NominalId(1)
     enum_dec = EnumDecode(
@@ -1398,7 +1398,7 @@ def test_find_enum_decode_at_path_through_array() -> None:
 
 def test_find_enum_decode_at_path_through_dict() -> None:
     """_find_enum_decode_at_path: navigate through DictDecode to find EnumDecode."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         DictDecode,
         DictKeyForm,
         EnumDecode,
@@ -1407,8 +1407,8 @@ def test_find_enum_decode_at_path_through_dict() -> None:
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _find_enum_decode_at_path
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
     nominal = NominalId(1)
     enum_dec = EnumDecode(
@@ -1443,7 +1443,7 @@ def test_find_enum_decode_at_path_through_dict() -> None:
 
 def test_find_enum_decode_at_path_through_record() -> None:
     """_find_enum_decode_at_path: navigate through RecordDecode fields to find EnumDecode."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         EnumDecode,
         FieldDecode,
         JsonContractRequest,
@@ -1452,8 +1452,8 @@ def test_find_enum_decode_at_path_through_record() -> None:
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _find_enum_decode_at_path
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
     nominal = NominalId(1)
     enum_dec = EnumDecode(
@@ -1513,9 +1513,9 @@ def test_find_enum_decode_at_path_through_record() -> None:
 
 def test_find_enum_decode_at_path_enum_at_top_navigated_into() -> None:
     """_find_enum_decode_at_path: enum at top level navigated deeper → None."""
-    from agm.agl.ir.contracts import EnumDecode, JsonContractRequest, VariantDecode
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _find_enum_decode_at_path
+    from agnette.agl.ir.contracts import EnumDecode, JsonContractRequest, VariantDecode
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
     nominal = NominalId(1)
     enum_dec = EnumDecode(
@@ -1550,8 +1550,8 @@ def test_find_enum_decode_at_path_enum_at_top_navigated_into() -> None:
 
 def test_find_enum_decode_at_path_scalar_navigated_into() -> None:
     """_find_enum_decode_at_path: scalar navigated into → None (else branch)."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _find_enum_decode_at_path
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
     contract = JsonContractRequest(
         codec_name="json",
@@ -1569,15 +1569,15 @@ def test_find_enum_decode_at_path_scalar_navigated_into() -> None:
 
 def test_find_enum_decode_at_path_end_at_scalar() -> None:
     """_find_enum_decode_at_path: path ends at scalar → None (not EnumDecode)."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         FieldDecode,
         JsonContractRequest,
         RecordDecode,
         ScalarDecode,
         ScalarKind,
     )
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _find_enum_decode_at_path
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
     nom = NominalId(1)
     rec_dec = RecordDecode(
@@ -1611,7 +1611,7 @@ def test_find_enum_decode_at_path_end_at_scalar() -> None:
 
 def test_enum_known_case_with_additional_props_error() -> None:
     """_classify_enum_failure: known case but extra field → unknown_field."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         EnumDecode,
         FieldDecode,
         JsonContractRequest,
@@ -1619,7 +1619,7 @@ def test_enum_known_case_with_additional_props_error() -> None:
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import NominalId
+    from agnette.agl.ir.ids import NominalId
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -1681,7 +1681,7 @@ def test_enum_known_case_with_additional_props_error() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     # Ok with extra field → additionalProperties error.
     result = _parse_contract_output('{"$case": "Ok", "extra": 1}', contract, effective_strict=False)
@@ -1691,12 +1691,12 @@ def test_enum_known_case_with_additional_props_error() -> None:
 
 def test_validate_contract_request_json_decode_check_nominals() -> None:
     """validate.py: json codec with decode→_check_decode_nominals is called (808→exit path)."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.ir.ids import ContractId, Location, SourceId
-    from agm.agl.ir.nodes import IrConstUnit
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.ir.ids import ContractId, Location, SourceId
+    from agnette.agl.ir.nodes import IrConstUnit
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     src_id = SourceId(0)
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -1729,7 +1729,7 @@ def test_validate_contract_request_json_decode_check_nominals() -> None:
 
 def test_validate_contract_request_recursive_decode_defs() -> None:
     """validate.py accepts a ContractRequest whose decode is a recursive RefDecode + defs table."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         EnumDecode,
         FieldDecode,
         JsonContractRequest,
@@ -1738,9 +1738,9 @@ def test_validate_contract_request_recursive_decode_defs() -> None:
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import ContractId, Location, NominalId, SourceId
-    from agm.agl.ir.nodes import IrConstUnit
-    from agm.agl.ir.program import (
+    from agnette.agl.ir.ids import ContractId, Location, NominalId, SourceId
+    from agnette.agl.ir.nodes import IrConstUnit
+    from agnette.agl.ir.program import (
         ExecutableModule,
         ExecutableProgram,
         NominalDescriptor,
@@ -1748,8 +1748,8 @@ def test_validate_contract_request_recursive_decode_defs() -> None:
         SourceFile,
         VariantDescriptor,
     )
-    from agm.agl.ir.validate import validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.validate import validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     src_id = SourceId(0)
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -1844,12 +1844,12 @@ def test_validate_contract_request_recursive_decode_defs() -> None:
 
 def test_validate_contract_request_recursive_decode_unknown_defs_key() -> None:
     """An unresolvable RefDecode key in a ContractRequest's decode → InvalidIrError."""
-    from agm.agl.ir.contracts import JsonContractRequest, RefDecode
-    from agm.agl.ir.ids import ContractId, Location, SourceId
-    from agm.agl.ir.nodes import IrConstUnit
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.contracts import JsonContractRequest, RefDecode
+    from agnette.agl.ir.ids import ContractId, Location, SourceId
+    from agnette.agl.ir.nodes import IrConstUnit
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     src_id = SourceId(0)
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -1926,8 +1926,8 @@ n
 
 def test_parse_lenient_json_parse_failure_after_repair() -> None:
     """_parse_contract_output lenient: json_text found but json.loads fails → failure."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
         codec_name="json",
@@ -1946,8 +1946,8 @@ def test_parse_lenient_json_parse_failure_after_repair() -> None:
 
 def test_parse_value_conversion_failure() -> None:
     """_parse_contract_output: schema valid but decode raises ValueError → failure."""
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     schema = _json.dumps({"type": "string"})
     contract = JsonContractRequest(
@@ -1966,12 +1966,12 @@ def test_parse_value_conversion_failure() -> None:
 
 def test_validate_ir_ask_deep_valid_contract() -> None:
     """validate_ir: IrAsk with valid contract passes deep validation (656->exit path)."""
-    from agm.agl.ir.contracts import TextContractRequest
-    from agm.agl.ir.ids import ContractId, Location, SourceId
-    from agm.agl.ir.nodes import IrAsk, IrConstInt, IrConstText
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.contracts import TextContractRequest
+    from agnette.agl.ir.ids import ContractId, Location, SourceId
+    from agnette.agl.ir.nodes import IrAsk, IrConstInt, IrConstText
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     src_id = SourceId(0)
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -2006,12 +2006,12 @@ def test_validate_ir_ask_deep_valid_contract() -> None:
 
 def test_validate_ir_ask_request_deep_valid_contract() -> None:
     """validate_ir: a well-formed IrAskRequest passes deep validation."""
-    from agm.agl.ir.contracts import TextContractRequest
-    from agm.agl.ir.ids import ContractId, Location, SourceId
-    from agm.agl.ir.nodes import IrAskRequest, IrConstInt, IrConstText
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.contracts import TextContractRequest
+    from agnette.agl.ir.ids import ContractId, Location, SourceId
+    from agnette.agl.ir.nodes import IrAskRequest, IrConstInt, IrConstText
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     src_id = SourceId(0)
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -2067,11 +2067,11 @@ target
 @pytest.mark.parametrize("request_only", (False, True))
 def test_validate_ir_ask_shallow_does_not_check_contracts(request_only: bool) -> None:
     """validate_ir: shallow (deep=False) validation skips an ask node's contract checks."""
-    from agm.agl.ir.ids import ContractId, Location, SourceId
-    from agm.agl.ir.nodes import IrAsk, IrAskRequest, IrConstInt, IrConstText
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.ids import ContractId, Location, SourceId
+    from agnette.agl.ir.nodes import IrAsk, IrAskRequest, IrConstInt, IrConstText
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     src_id = SourceId(0)
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -2102,7 +2102,7 @@ def test_validate_ir_ask_shallow_does_not_check_contracts(request_only: bool) ->
 
 def _make_span() -> "SourceSpan":
     """Return a minimal SourceSpan for use in hand-built AST nodes."""
-    from agm.agl.syntax.spans import SourceSpan
+    from agnette.agl.syntax.spans import SourceSpan
 
     return SourceSpan(
         start_line=1, start_col=1, end_line=1, end_col=2, start_offset=0, end_offset=1
@@ -2111,7 +2111,7 @@ def _make_span() -> "SourceSpan":
 
 def test_enum_required_field_loop_partial_coverage() -> None:
     """_classify_enum_failure: known case with missing field → missing_field (loop covers all)."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         EnumDecode,
         FieldDecode,
         JsonContractRequest,
@@ -2119,7 +2119,7 @@ def test_enum_required_field_loop_partial_coverage() -> None:
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import NominalId
+    from agnette.agl.ir.ids import NominalId
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -2171,7 +2171,7 @@ def test_enum_required_field_loop_partial_coverage() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     # Both 'a' present but 'b' is missing → required error with 2 items in list.
     result = _parse_contract_output('{"$case": "Both", "a": 1}', contract, effective_strict=False)
@@ -2184,8 +2184,8 @@ def test_parse_lenient_extracted_json_fails_decode() -> None:
     """_parse_contract_output lenient: extracted JSON text fails json.loads."""
     from unittest.mock import patch
 
-    from agm.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
         codec_name="json",
@@ -2197,7 +2197,7 @@ def test_parse_lenient_extracted_json_fails_decode() -> None:
         format_instructions="",
     )
     # Patch _extract_json_text in codec to return a non-ambiguous broken string.
-    with patch("agm.agl.runtime.codec._extract_json_text", return_value="{broken: !}"):
+    with patch("agnette.agl.runtime.codec._extract_json_text", return_value="{broken: !}"):
         result = _parse_contract_output("irrelevant", contract, effective_strict=False)
     assert not result.ok
     assert "JSON parse failed" in result.error_msg
@@ -2209,8 +2209,8 @@ def test_make_validation_error_required_non_array() -> None:
 
     from jsonschema import ValidationError as JsError
 
-    from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _make_validation_error
+    from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _make_validation_error
 
     decode = ScalarDecode(ScalarKind.INT)
     fake_error = MagicMock(spec=JsError)
@@ -2231,8 +2231,8 @@ def test_make_validation_error_required_all_present() -> None:
 
     from jsonschema import ValidationError as JsError
 
-    from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-    from agm.agl.runtime.codec import _make_validation_error
+    from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+    from agnette.agl.runtime.codec import _make_validation_error
 
     decode = ScalarDecode(ScalarKind.INT)
     # Mock a required error where required=["x"] but instance already has "x".
@@ -2250,7 +2250,7 @@ def test_make_validation_error_required_all_present() -> None:
 
 def test_classify_enum_sub_error_type_only_fallback() -> None:
     """_classify_enum_failure: known case, type-mismatch payload → defensive bad_case fallback."""
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         EnumDecode,
         FieldDecode,
         JsonContractRequest,
@@ -2258,7 +2258,7 @@ def test_classify_enum_sub_error_type_only_fallback() -> None:
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import NominalId
+    from agnette.agl.ir.ids import NominalId
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -2315,7 +2315,7 @@ def test_classify_enum_sub_error_type_only_fallback() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agm.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import _parse_contract_output
 
     # Known case "Err" but wrong type for "msg" (integer): all fields present, no extra fields
     # → _classify_enum_failure falls through to the defensive bad_case fallback.
@@ -2331,9 +2331,9 @@ def test_classify_enum_failure_nullary_case_all_fields_present() -> None:
 
     from jsonschema import ValidationError as JsError
 
-    from agm.agl.ir.contracts import EnumDecode, VariantDecode
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _classify_enum_failure
+    from agnette.agl.ir.contracts import EnumDecode, VariantDecode
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _classify_enum_failure
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -2371,15 +2371,15 @@ def test_classify_enum_failure_known_case_all_payload_present() -> None:
 
     from jsonschema import ValidationError as JsError
 
-    from agm.agl.ir.contracts import (
+    from agnette.agl.ir.contracts import (
         EnumDecode,
         FieldDecode,
         ScalarDecode,
         ScalarKind,
         VariantDecode,
     )
-    from agm.agl.ir.ids import NominalId
-    from agm.agl.runtime.codec import _classify_enum_failure
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.codec import _classify_enum_failure
 
     nominal = NominalId(1)
     decode = EnumDecode(

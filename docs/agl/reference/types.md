@@ -778,7 +778,7 @@ A reference must name a record, including through a transparent type alias.
 An enum may not name the same member declaration twice, even with different
 type arguments, and its members must have distinct terminal names. The enum's
 scope contains only its inline declarations: `Stored::Fresh` is available,
-while `Stored::Saved` is not; `Saved` remains reachable at its original
+while `Stored::Saved` is not; `Saved` is reachable at its original
 declaration path. Referencing a record does not re-export it. Every member's
 terminal name is also an injected constructor and pattern candidate wherever
 the enum is reached: an enum declared at `S`, or reached there through an
@@ -795,13 +795,13 @@ it, widening the receiver to that enum when such a method is selected (see
 [Methods](functions.md#methods)). `with` applies while a value has its
 member-record type, not after it has widened to the enum. A
 member value widens to an enum only in a known enum-typed slot, so its inferred
-type remains the member record type. An inline member captures exactly the enum type parameters
+type is the member record type. An inline member captures exactly the enum type parameters
 used by its fields, in enum declaration order. Thus `Tree[T]::Leaf` is
 fieldless and non-generic, while `Tree[T]::Node(value: T)` captures `T`.
 
 Enums are the intended model for agent outcomes. An enum establishes a
 same-named scope for its declared members, so `Review::Pass` is a qualified
-member access. The unqualified member spelling remains available under the ordinary
+member access. The unqualified member spelling is available under the ordinary
 constructor rules.
 
 ```agl
@@ -1278,7 +1278,7 @@ Typing is exact nominal matching with these implicit coercions:
    when checking against a known enum slot; it never finds a common enum while
    inferring a mixed expression.
 4. **An enum widens to another enum that contains all of its constructors.**
-   Generic constructor instantiations must match; the value remains the same
+   Generic constructor instantiations must match; the value stays the same
    constructor record and no runtime check is needed. Like member widening,
    this applies against a known target slot and does not propagate through
    containers.

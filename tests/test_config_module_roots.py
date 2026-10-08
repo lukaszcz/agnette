@@ -1,4 +1,4 @@
-"""Tests for load_module_roots in src/agm/config/module_roots.py."""
+"""Tests for load_module_roots in src/agnette/config/module_roots.py."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 import semver
 
-import agm.stdlib_locator as stdlib_locator
-from agm.config.module_roots import (
+import agnette.stdlib_locator as stdlib_locator
+from agnette.config.module_roots import (
     ModuleRootsConfig,
     StdlibResolutionError,
     StdlibVersionMismatchError,
@@ -17,9 +17,9 @@ from agm.config.module_roots import (
     resolve_lib_root,
     resolve_stdlib_root,
 )
-from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
-from agm.packages.record import write_record
-from agm.version import AGM_VERSION
+from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
+from agnette.packages.record import write_record
+from agnette.version import AGM_VERSION
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -430,7 +430,7 @@ class TestResolveStdlibRoot:
     def test_missing_shipped_stdlib_fails_cleanly(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        locator = tmp_path / "site-packages" / "agm" / "stdlib_locator.py"
+        locator = tmp_path / "site-packages" / "agnette" / "stdlib_locator.py"
         locator.parent.mkdir(parents=True)
         monkeypatch.setattr(stdlib_locator, "__file__", str(locator))
 
@@ -440,7 +440,7 @@ class TestResolveStdlibRoot:
     def test_clean_wheel_context_falls_back_to_bundled_stdlib(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        locator = tmp_path / "site-packages" / "agm" / "stdlib_locator.py"
+        locator = tmp_path / "site-packages" / "agnette" / "stdlib_locator.py"
         bundled_stdlib = locator.parent / "stdlib"
         bundled_stdlib.mkdir(parents=True)
         monkeypatch.setattr(stdlib_locator, "__file__", str(locator))

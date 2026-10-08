@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from agm.core.process import CapturedOutput, ProcessCaptureResult
+from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
 
 def process_result(
@@ -323,5 +323,5 @@ def fake_agent(
             return constant
 
     fake = FakeAgent(respond)
-    monkeypatch.setattr("agm.agent.runner.run_capture", fake)
+    monkeypatch.setattr("agnette.agent.runner.run_capture", fake)
     return fake

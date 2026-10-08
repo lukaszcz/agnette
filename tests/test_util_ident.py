@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agm.util.ident import is_identifier
+from agnette.util.ident import is_identifier
 
 
 @pytest.mark.parametrize(

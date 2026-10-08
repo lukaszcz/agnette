@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-import agm.commands.exec as exec_command
+import agnette.agm.commands.exec as exec_command
 from tests._agl_helpers import write_file_program
 from tests.test_exec_command import _config_home, _exec_args_no_trace
 

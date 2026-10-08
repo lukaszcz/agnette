@@ -6,14 +6,21 @@ from pathlib import Path
 
 import pytest
 
-from agm.agent.runner import PromptDelivery
-from agm.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi, AgentSpec, PermissionMode
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.runtime.agents import decode_agent_value
-from agm.agl.semantics.values import RecordValue
-from agm.config.general import CommandSetting, RunConfig
-from agm.sandbox.prepare import SandboxContext, SandboxRun
-from agm.sandbox.request import PreparedSandboxCommand, SandboxSpec
+from agnette.agent.runner import PromptDelivery
+from agnette.agent.spec import (
+    AgentClaude,
+    AgentCodex,
+    AgentCommand,
+    AgentPi,
+    AgentSpec,
+    PermissionMode,
+)
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.runtime.agents import decode_agent_value
+from agnette.agl.semantics.values import RecordValue
+from agnette.config.general import CommandSetting, RunConfig
+from agnette.sandbox.prepare import SandboxContext, SandboxRun
+from agnette.sandbox.request import PreparedSandboxCommand, SandboxSpec
 from tests._agl_helpers import agent_value
 
 
@@ -139,7 +146,7 @@ def test_agent_prompt_via_stdin_flag_per_spec() -> None:
 
 
 def test_built_argv_feeds_shared_prompt_preparation() -> None:
-    from agm.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
+    from agnette.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
 
     temp_files: list[Path] = []
     try:
@@ -157,8 +164,8 @@ def test_built_argv_feeds_shared_prompt_preparation() -> None:
 
 
 def test_cleanup_temp_files_keeps_files_during_dry_run(tmp_path: Path) -> None:
-    from agm.agent.runner import cleanup_temp_files
-    from agm.core import dry_run
+    from agnette.agent.runner import cleanup_temp_files
+    from agnette.core import dry_run
 
     prompt_file = tmp_path / "prompt.md"
     prompt_file.write_text("prompt", encoding="utf-8")
@@ -172,13 +179,13 @@ def test_cleanup_temp_files_keeps_files_during_dry_run(tmp_path: Path) -> None:
 
 
 def test_cleanup_temp_files_ignores_missing_files(tmp_path: Path) -> None:
-    from agm.agent.runner import cleanup_temp_files
+    from agnette.agent.runner import cleanup_temp_files
 
     cleanup_temp_files([tmp_path / "missing.md"])
 
 
 def test_prepare_rendered_prompt_run_records_the_stdin_delivery_flag() -> None:
-    from agm.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
+    from agnette.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
 
     temp_files: list[Path] = []
     try:
@@ -199,12 +206,12 @@ def test_stdin_delivered_run_sends_prompt_as_stdin_and_appends_no_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A prepared codex run sends the rendered prompt via stdin, not ``@<path>``."""
-    from agm.agent.runner import (
+    from agnette.agent.runner import (
         cleanup_temp_files,
         prepare_rendered_prompt_run,
         run_prepared_prompt_result,
     )
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     captured: dict[str, object] = {}
 
@@ -220,7 +227,7 @@ def test_stdin_delivered_run_sends_prompt_as_stdin_and_appends_no_target(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     temp_files: list[Path] = []
     try:
@@ -253,12 +260,12 @@ def test_stdin_delivered_prompt_does_not_read_the_prompt_back_off_disk(
     file is created for this delivery mode at all, and nothing may read one
     back off disk.
     """
-    from agm.agent.runner import (
+    from agnette.agent.runner import (
         cleanup_temp_files,
         prepare_rendered_prompt_run,
         run_prepared_prompt_result,
     )
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     captured: dict[str, object] = {}
 
@@ -273,7 +280,7 @@ def test_stdin_delivered_prompt_does_not_read_the_prompt_back_off_disk(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     def _forbidden_read_text(self: Path, *args: object, **kwargs: object) -> str:
         raise AssertionError("stdin-delivered prompt must not be read back off disk")
@@ -304,12 +311,12 @@ def test_file_delivered_run_is_unchanged_by_the_stdin_delivery_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Claude/Pi (and any non-stdin spec) keep appending ``@<path>`` with no stdin text."""
-    from agm.agent.runner import (
+    from agnette.agent.runner import (
         cleanup_temp_files,
         prepare_rendered_prompt_run,
         run_prepared_prompt_result,
     )
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     captured: dict[str, object] = {}
 
@@ -325,7 +332,7 @@ def test_file_delivered_run_is_unchanged_by_the_stdin_delivery_mode(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     temp_files: list[Path] = []
     try:
@@ -346,7 +353,7 @@ def test_file_delivered_run_is_unchanged_by_the_stdin_delivery_mode(
 
 
 def test_agent_command_preserves_prompt_file_substitution() -> None:
-    from agm.agent.runner import command_with_prompt_target
+    from agnette.agent.runner import command_with_prompt_target
 
     command = AgentCommand("runner --input=%{PROMPT_FILE} --copy=%%").argv()
 
@@ -358,7 +365,7 @@ def test_agent_command_preserves_prompt_file_substitution() -> None:
 
 
 def test_agent_command_appends_prompt_file_without_placeholder() -> None:
-    from agm.agent.runner import command_with_prompt_target
+    from agnette.agent.runner import command_with_prompt_target
 
     command = AgentCommand("runner --quiet").argv()
 
@@ -371,7 +378,7 @@ def test_agent_command_appends_prompt_file_without_placeholder() -> None:
 
 def test_command_with_prompt_target_can_suppress_the_append_fallback() -> None:
     """A stdin-delivered command still interpolates argv but never gets ``@<target>``."""
-    from agm.agent.runner import command_with_prompt_target
+    from agnette.agent.runner import command_with_prompt_target
 
     command = AgentCommand("runner --quiet").argv()
 
@@ -382,7 +389,7 @@ def test_command_with_prompt_target_can_suppress_the_append_fallback() -> None:
 
 def test_command_with_prompt_target_still_resolves_the_hole_when_append_is_suppressed() -> None:
     """A ``%{PROMPT_FILE}`` hole still resolves even with the ``@<target>`` fallback off."""
-    from agm.agent.runner import command_with_prompt_target
+    from agnette.agent.runner import command_with_prompt_target
 
     command = AgentCommand("runner --input=%{PROMPT_FILE}").argv()
 
@@ -406,8 +413,8 @@ def test_agent_command_rejects_malformed_shell_words() -> None:
 def test_prepared_runner_maps_process_capture_result(
     monkeypatch: pytest.MonkeyPatch, spawn_error: str | None, timed_out: bool
 ) -> None:
-    from agm.agent.runner import PreparedPromptRun, run_prepared_prompt_result
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.agent.runner import PreparedPromptRun, run_prepared_prompt_result
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     capture = ProcessCaptureResult(
         returncode=None,
@@ -417,7 +424,7 @@ def test_prepared_runner_maps_process_capture_result(
         timed_out=timed_out,
         spawn_error=spawn_error,
     )
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", lambda *args, **kwargs: capture)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", lambda *args, **kwargs: capture)
     prepared = PreparedPromptRun(
         command=["runner"], effective_file=Path("prompt.md"), env={}, temp_files=[]
     )
@@ -431,8 +438,8 @@ def test_prepared_runner_maps_process_capture_result(
 def test_prepared_result_closes_stdin_for_no_prompt_delivery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agm.agent.runner import PreparedPromptRun, run_prepared_prompt_result
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.agent.runner import PreparedPromptRun, run_prepared_prompt_result
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     captured: dict[str, object] = {}
 
@@ -448,7 +455,7 @@ def test_prepared_result_closes_stdin_for_no_prompt_delivery(
             None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     prepared = PreparedPromptRun(
         command=["runner"],
         effective_file=Path("unused.md"),
@@ -647,7 +654,7 @@ def test_permission_mode_defaults_to_none_for_unmigrated_callers() -> None:
 
 
 def test_agent_call_info_trace_carries_sandbox_and_permission_mode() -> None:
-    from agm.agent.transport import AgentCallInfo
+    from agnette.agent.transport import AgentCallInfo
 
     info = AgentCallInfo(
         argv=["claude"],
@@ -671,7 +678,7 @@ def test_sandboxed_prepared_run_wraps_the_prompt_bearing_argv(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A sandboxed run's argv is ``limits prefix + srt --settings … -- <agent argv>``."""
-    from agm.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
+    from agnette.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
 
     monkeypatch.setattr("shutil.which", lambda *args, **kwargs: "/usr/bin/tool")
 
@@ -705,7 +712,7 @@ def test_sandboxed_prepared_run_wraps_a_non_file_delivery_argv(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The non-``FILE`` delivery branch also routes its argv through the sandbox."""
-    from agm.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
+    from agnette.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
 
     monkeypatch.setattr("shutil.which", lambda *args, **kwargs: "/usr/bin/tool")
 
@@ -739,12 +746,12 @@ def test_sandboxed_prepared_run_wraps_a_non_file_delivery_argv(
 def test_sandbox_is_closed_on_success_failure_and_interrupt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scenario: str
 ) -> None:
-    from agm.agent.runner import (
+    from agnette.agent.runner import (
         cleanup_temp_files,
         prepare_rendered_prompt_run,
         run_prepared_prompt_result,
     )
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     monkeypatch.setattr("shutil.which", lambda *args, **kwargs: "/usr/bin/tool")
 
@@ -771,7 +778,7 @@ def test_sandbox_is_closed_on_success_failure_and_interrupt(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     temp_files: list[Path] = []
     try:
@@ -800,12 +807,12 @@ def test_sandboxed_run_reaches_the_process_primitive_with_the_prepared_wrap(
     exactly the ones the sandbox library prepared -- not the runner's own
     (unwrapped) argv or ambient env/cwd, and not silently dropped.
     """
-    from agm.agent.runner import (
+    from agnette.agent.runner import (
         cleanup_temp_files,
         prepare_rendered_prompt_run,
         run_prepared_prompt_result,
     )
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     monkeypatch.setattr("shutil.which", lambda *args, **kwargs: "/usr/bin/tool")
 
@@ -825,7 +832,7 @@ def test_sandboxed_run_reaches_the_process_primitive_with_the_prepared_wrap(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     temp_files: list[Path] = []
     try:
@@ -872,7 +879,7 @@ def test_sandboxed_run_follows_the_process_working_directory(
     """A sandboxed agent runs in the process's current directory (e.g. after
     `os::chdir`), not the directory its sandbox context was built in.
     """
-    from agm.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
+    from agnette.agent.runner import cleanup_temp_files, prepare_rendered_prompt_run
 
     monkeypatch.setattr("shutil.which", lambda *args, **kwargs: "/usr/bin/tool")
     moved = tmp_path / "moved"
@@ -897,7 +904,7 @@ def test_sandboxed_run_follows_the_process_working_directory(
 def test_sandbox_preparation_failure_becomes_a_spawn_failure_without_stderr_prints(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    from agm.agent.runner import (
+    from agnette.agent.runner import (
         SandboxPreparationFailure,
         cleanup_temp_files,
         prepare_rendered_prompt_run,
@@ -912,7 +919,7 @@ def test_sandbox_preparation_failure_becomes_a_spawn_failure_without_stderr_prin
     def fail_run_capture_result(*args: object, **kwargs: object) -> None:
         raise AssertionError("must not spawn a process when sandbox preparation failed")
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fail_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fail_run_capture_result)
 
     temp_files: list[Path] = []
     try:
@@ -942,7 +949,7 @@ def test_sandbox_preparation_failure_becomes_a_spawn_failure_without_stderr_prin
 def test_sandboxed_run_with_removed_working_directory_is_a_spawn_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from agm.agent.runner import (
+    from agnette.agent.runner import (
         SandboxPreparationFailure,
         cleanup_temp_files,
         prepare_rendered_prompt_run,

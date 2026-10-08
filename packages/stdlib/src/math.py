@@ -8,8 +8,8 @@ from collections.abc import Callable
 
 from agl import nominals
 
-from agm.agl.runtime.boundary import raise_arithmetic_error
-from agm.util.decimal import AGL_DECIMAL_CONTEXT, integral_to_int
+from agnette.agl.runtime.boundary import raise_arithmetic_error
+from agnette.util.decimal import AGL_DECIMAL_CONTEXT, integral_to_int
 
 ArithmeticError = nominals.std.errors.ArithmeticError
 

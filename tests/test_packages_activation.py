@@ -8,11 +8,11 @@ from typing import Never
 import pytest
 import semver
 
-import agm.packages.activation as activation_module
-from agm.agl.keywords import KEYWORDS
-from agm.cli_support.exec_roots import effective_exec_roots
-from agm.core.toml import TomlDict
-from agm.packages.activation import (
+import agnette.packages.activation as activation_module
+from agnette.agl.keywords import KEYWORDS
+from agnette.agm.cli_support.exec_roots import effective_exec_roots
+from agnette.core.toml import TomlDict
+from agnette.packages.activation import (
     ActivationIndex,
     ActivePackage,
     CommandRegistration,
@@ -32,11 +32,11 @@ from agm.packages.activation import (
     write_activation_index,
     write_package_provenance,
 )
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import CommandSpec, load_manifest
-from agm.packages.model import PackageInfo
-from agm.packages.record import write_record
-from agm.version import AGM_VERSION
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import CommandSpec, load_manifest
+from agnette.packages.model import PackageInfo
+from agnette.packages.record import write_record
+from agnette.version import AGM_VERSION
 from tests._package_helpers import package_info
 
 

@@ -18,16 +18,16 @@ from types import ModuleType
 
 import pytest
 
-from agm.agl.ir.contracts import TargetContractRequest
-from agm.agl.ir.ids import ContractId
-from agm.agl.ir.program import ValueDescriptors
-from agm.agl.runtime.boundary import BoundaryViolation, encode_boundary_value
-from agm.agl.runtime.externs import ExternRegistry
-from agm.agl.runtime.render import render_value
-from agm.agl.runtime.serialize import AglNonDataValue, WalkTags, value_to_json_obj
-from agm.agl.runtime.type_contracts import TypeContract, build_type_contract
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.values import (
+from agnette.agl.ir.contracts import TargetContractRequest
+from agnette.agl.ir.ids import ContractId
+from agnette.agl.ir.program import ValueDescriptors
+from agnette.agl.runtime.boundary import BoundaryViolation, encode_boundary_value
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.runtime.render import render_value
+from agnette.agl.runtime.serialize import AglNonDataValue, WalkTags, value_to_json_obj
+from agnette.agl.runtime.type_contracts import TypeContract, build_type_contract
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.values import (
     ContractValue,
     IntValue,
     TextValue,

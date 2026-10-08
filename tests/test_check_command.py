@@ -24,9 +24,9 @@ import pytest
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.check as check_command
-from agm.cli_support.args import CheckArgs
+import agnette.agm.cli as cli
+import agnette.agm.commands.check as check_command
+from agnette.agm.cli_support.args import CheckArgs
 
 # Building the Typer app's Click command tree costs more than the assertions in
 # the parser-contract tests below; it is derived from module-level definitions
@@ -443,11 +443,11 @@ class TestCheckCommand:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Inject the failure at the lower-level ``effective_exec_roots`` (in
-        # ``agm.cli_support.exec_roots``) so ``check.py``'s own call to the
+        # ``agnette.agm.cli_support.exec_roots``) so ``check.py``'s own call to the
         # ``_or_none`` wrapper exercises the real error-reporting path,
         # instead of the test reimplementing it.
-        from agm.cli_support import exec_roots as exec_roots_module
-        from agm.config.module_roots import StdlibResolutionError
+        from agnette.agm.cli_support import exec_roots as exec_roots_module
+        from agnette.config.module_roots import StdlibResolutionError
 
         bad = tmp_path / "bad.agl"
         clean = tmp_path / "clean.agl"
@@ -492,8 +492,8 @@ def test_check_searches_the_development_std_checkout_holding_the_entry(
     """A standard-library module is checked against its own checkout, not the store."""
     import semver
 
-    from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
-    from agm.version import AGM_VERSION
+    from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
+    from agnette.version import AGM_VERSION
 
     home = tmp_path / "agm-home"
     monkeypatch.delenv("AGM_STDLIB", raising=False)

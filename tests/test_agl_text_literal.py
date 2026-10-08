@@ -7,20 +7,20 @@ from decimal import Decimal
 
 import pytest
 
-from agm.agl.ir.program import ValueDescriptors
-from agm.agl.lexer import tokenize
-from agm.agl.matchcompile import LiteralKind, LiteralWitness, render_witness
-from agm.agl.runtime.render import render_value
-from agm.agl.semantics.values import TextValue
-from agm.agl.value_syntax.lexical import (
+from agnette.agl.ir.program import ValueDescriptors
+from agnette.agl.lexer import tokenize
+from agnette.agl.matchcompile import LiteralKind, LiteralWitness, render_witness
+from agnette.agl.runtime.render import render_value
+from agnette.agl.semantics.values import TextValue
+from agnette.agl.value_syntax.lexical import (
     ESCAPE_DECODE,
     ESCAPE_ENCODE,
     quote_text,
     scalar_text,
 )
-from agm.agl.value_syntax.nodes import TextNode
-from agm.agl.value_syntax.reader import read_value
-from agm.util.interp import INTERP_OPEN, INTERP_TRIGGER
+from agnette.agl.value_syntax.nodes import TextNode
+from agnette.agl.value_syntax.reader import read_value
+from agnette.util.interp import INTERP_OPEN, INTERP_TRIGGER
 
 _NO_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field_encodes={})
 

@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 import pytest
 
-from agm.agent.stream import ClaudeOutputStream, CodexOutputStream, decode_claude_stream_json
+from agnette.agent.stream import ClaudeOutputStream, CodexOutputStream, decode_claude_stream_json
 
 
 def _output_collector(output: list[dict[str, str]]) -> Callable[..., None]:

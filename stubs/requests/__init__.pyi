@@ -1,7 +1,7 @@
 """Minimal type stubs for ``requests``.
 
-Only the pieces used by ``agm.core.http`` (the transport seam) and
-``agm.packages.fetch`` (the archive fetcher) are typed: ``Session``,
+Only the pieces used by ``agnette.core.http`` (the transport seam) and
+``agnette.packages.fetch`` (the archive fetcher) are typed: ``Session``,
 ``Request``/``PreparedRequest``/``Response`` (see ``requests.models``), and
 the auth base class (see ``requests.auth``). Kept free of ``Any`` throughout,
 unlike the real package's own inline types, so an isinstance check or a bare

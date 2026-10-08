@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-import agm.config.module_roots as module_roots
-from agm.agl.pipeline import PipelineDriver
-from agm.config.module_roots import StdlibResolutionError, StdlibVersionMismatchError
+import agnette.config.module_roots as module_roots
+from agnette.agl.pipeline import PipelineDriver
+from agnette.config.module_roots import StdlibResolutionError, StdlibVersionMismatchError
 
 
 def _raise_version_mismatch(*, home: Path, anchor: Path | None = None) -> Path:

@@ -9,8 +9,8 @@ from typing import Protocol, cast
 
 import pytest
 
-from agm.agl.ir.ids import FunctionId, NominalId, SymbolId
-from agm.agl.ir.program import (
+from agnette.agl.ir.ids import FunctionId, NominalId, SymbolId
+from agnette.agl.ir.program import (
     ExternFunctionBody,
     FunctionDescriptor,
     NominalDescriptor,
@@ -18,8 +18,8 @@ from agm.agl.ir.program import (
     ValueDescriptors,
     VariantDescriptor,
 )
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.runtime.boundary import (
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.runtime.boundary import (
     AglArrayView,
     AglDictView,
     AglJson,
@@ -30,8 +30,8 @@ from agm.agl.runtime.boundary import (
     encode_boundary_value,
     synthesize_nominal_classes,
 )
-from agm.agl.runtime.externs import AglCallableProxy, ExternCallWindow
-from agm.agl.semantics.values import (
+from agnette.agl.runtime.externs import AglCallableProxy, ExternCallWindow
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     DecimalValue,
@@ -638,7 +638,7 @@ def test_dict_view_items_values_and_pop_use_agl_equality() -> None:
 
 
 def test_agl_dict_builds_from_pairs_merging_agl_equal_keys() -> None:
-    from agm.agl.runtime.externs import _dict
+    from agnette.agl.runtime.externs import _dict
 
     assert dict(_dict({"a": 1}).items()) == {"a": 1}
     built = _dict([(1, "x"), (Decimal("1"), "y"), (True, "z"), (1, "w")])

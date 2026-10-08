@@ -7,26 +7,26 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import artifact_cache, artifact_storage
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.constraints import ConstraintKind
-from agm.agl.lower.program import lower_program
-from agm.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.loader import build_repl_graph, parse_entry_module
-from agm.agl.modules.parsed_module_cache import clear_parsed_module_cache
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.runtime.codec import TextCodec
-from agm.agl.scope.program import ResolvedProgram, resolve_program
-from agm.agl.syntax.nodes import static_function_items, static_type_items
-from agm.agl.typecheck.env import (
+from agnette.agl import artifact_cache, artifact_storage
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.constraints import ConstraintKind
+from agnette.agl.lower.program import lower_program
+from agnette.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.loader import build_repl_graph, parse_entry_module
+from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.runtime.codec import TextCodec
+from agnette.agl.scope.program import ResolvedProgram, resolve_program
+from agnette.agl.syntax.nodes import static_function_items, static_type_items
+from agnette.agl.typecheck.env import (
     AglTypeError,
     CheckedModule,
     CheckedModuleImage,
     EnvironmentFacts,
     TypeEnvironment,
 )
-from agm.agl.typecheck.program import _prepare_program, check_program
+from agnette.agl.typecheck.program import _prepare_program, check_program
 from tests._agl_helpers import agl_roots, run_inline_code
 from tests.agl.ir_harness import (
     base_caps,
@@ -128,7 +128,7 @@ def test_a_witness_of_a_cached_module_is_spelled_as_when_it_was_first_resolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A cached module's rejected ``case`` is spelled at its own region, from memory or disk."""
-    from agm.agl.typecheck import program as program_module
+    from agnette.agl.typecheck import program as program_module
 
     lookup = program_module.retained_checked_modules
     served: list[CheckedModule | CheckedModuleImage | None] = []
@@ -652,7 +652,7 @@ def _normalize_env_value(value: object) -> object:
     attribute values are never meaningfully comparable across instances, so
     they are treated as always equal.
     """
-    from agm.agl.semantics.type_table import TypeTable
+    from agnette.agl.semantics.type_table import TypeTable
 
     if isinstance(value, TypeTable):
         return (
@@ -760,7 +760,7 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
 
     artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
 
-    from agm.agl.typecheck import program as program_module
+    from agnette.agl.typecheck import program as program_module
 
     original_served = program_module.retained_checked_modules
     served_images: list[ModuleId] = []
@@ -800,7 +800,7 @@ def test_a_corrupted_binding_replay_fails_a_rehydrated_module_via_env_assert_clo
     below for the ``assert_checked_output_closed`` half, which this corruption
     does not exercise).
     """
-    from agm.agl.semantics.types import InferenceVarType
+    from agnette.agl.semantics.types import InferenceVarType
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     library_source = "def value() -> int = 1\n"
@@ -846,8 +846,8 @@ def test_a_corrupted_node_types_entry_fails_a_rehydrated_module_via_output_close
     corruption is invisible to ``env.assert_closed()`` and is caught only by
     ``assert_checked_output_closed``.
     """
-    from agm.agl.semantics.types import InferenceVarType
-    from agm.agl.typecheck import program as program_module
+    from agnette.agl.semantics.types import InferenceVarType
+    from agnette.agl.typecheck import program as program_module
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     library_source = "def value() -> int = 1\n"
@@ -899,7 +899,7 @@ def test_an_in_memory_reused_module_skips_closure_validation(
     rehydrated modules also validate their restored environment.
     """
     calls: list[ModuleId] = []
-    from agm.agl.typecheck import program as program_module
+    from agnette.agl.typecheck import program as program_module
 
     original = program_module._assert_checked_module_annotations_closed
 
@@ -1038,7 +1038,7 @@ def test_replayed_module_headers_reproduce_a_from_source_preparation(
     served: list[dict[ModuleId, EnvironmentFacts]] = []
     lookup = artifact_cache.retained_module_headers
     monkeypatch.setattr(
-        "agm.agl.typecheck.program.retained_module_headers",
+        "agnette.agl.typecheck.program.retained_module_headers",
         lambda *args: served.append(lookup(*args)) or served[-1],
     )
     replayed = _prepare_program(resolved, caps, retainable=retainable)

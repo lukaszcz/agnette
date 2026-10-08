@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.core.env import (
+from agnette.core.env import (
     agm_installation_prefix,
     is_safe_shell_env_assignment_name,
     is_shell_identifier,
@@ -103,7 +103,7 @@ def test_agm_installation_prefix_uses_running_executable_location(
     agm_executable.parent.mkdir(parents=True)
     agm_executable.write_text("", encoding="utf-8")
 
-    monkeypatch.setattr("agm.core.env.sys.argv", [str(agm_executable), "config", "env"])
+    monkeypatch.setattr("agnette.core.env.sys.argv", [str(agm_executable), "config", "env"])
 
     assert agm_installation_prefix() == prefix
 
@@ -118,7 +118,7 @@ def test_agm_installation_prefix_uses_symlink_location_without_resolving_target(
     agm_executable = prefix / "bin" / "agm"
     agm_executable.parent.mkdir(parents=True)
     agm_executable.symlink_to(tool_executable)
-    monkeypatch.setattr("agm.core.env.sys.argv", [str(agm_executable)])
+    monkeypatch.setattr("agnette.core.env.sys.argv", [str(agm_executable)])
 
     assert agm_installation_prefix() == prefix
 
@@ -136,7 +136,7 @@ def test_agm_installation_prefix_ignores_a_different_agm_on_path(
     installed_executable.parent.mkdir(parents=True)
     installed_executable.write_text("", encoding="utf-8")
 
-    monkeypatch.setattr("agm.core.env.sys.argv", [str(venv_executable)])
+    monkeypatch.setattr("agnette.core.env.sys.argv", [str(venv_executable)])
     monkeypatch.setattr(shutil, "which", lambda _name, **_kwargs: str(installed_executable))
 
     assert agm_installation_prefix() == venv_prefix
@@ -145,7 +145,7 @@ def test_agm_installation_prefix_ignores_a_different_agm_on_path(
 def test_agm_installation_prefix_returns_none_without_an_executable_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("agm.core.env.sys.argv", [""])
+    monkeypatch.setattr("agnette.core.env.sys.argv", [""])
 
     assert agm_installation_prefix() is None
 
@@ -162,7 +162,7 @@ def test_agm_installation_prefix_returns_none_for_a_script_outside_a_bin_directo
     script.parent.mkdir(parents=True)
     script.write_text("", encoding="utf-8")
 
-    monkeypatch.setattr("agm.core.env.sys.argv", [str(script)])
+    monkeypatch.setattr("agnette.core.env.sys.argv", [str(script)])
 
     assert agm_installation_prefix() is None
 
@@ -174,7 +174,7 @@ def test_agm_installation_prefix_returns_none_for_an_executable_beside_its_prefi
     executable.parent.mkdir(parents=True)
     executable.write_text("", encoding="utf-8")
 
-    monkeypatch.setattr("agm.core.env.sys.argv", [str(executable)])
+    monkeypatch.setattr("agnette.core.env.sys.argv", [str(executable)])
 
     assert agm_installation_prefix() is None
 
@@ -188,7 +188,7 @@ def test_agm_installation_prefix_accepts_a_relative_bin_invocation(
     (prefix / "bin" / "agm").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    monkeypatch.setattr("agm.core.env.sys.argv", ["prefix/bin/agm"])
+    monkeypatch.setattr("agnette.core.env.sys.argv", ["prefix/bin/agm"])
 
     assert agm_installation_prefix() == prefix
 

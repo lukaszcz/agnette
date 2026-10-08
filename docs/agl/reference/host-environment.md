@@ -87,7 +87,7 @@ required parameter such as `name: text` is positional-only unless it carries
 `@opt-name` or `@opt-short`, which keep it flag-addressed, or its type is
 `bool`, `Option[T]`, or `Optional[T]`, whose negated form a positional slot
 cannot spell; an unzoned defaulted
-parameter such as `name: text = "value"` remains named-only. An explicit
+parameter such as `name: text = "value"` is named-only. An explicit
 `@arg-pos`, `@arg-std`, or `@arg-named` sets both the AgL and CLI zones.
 A bare `--` ends option parsing, so a later `--`-prefixed token is collected
 positionally instead of being read as a flag.
@@ -297,7 +297,7 @@ a list, a table — keeps its line breaks and indentation.
 A static `let` or `var` marked `@param` is a **module parameter**. Its host
 surface belongs to every selected program whose transitive import closure
 contains its declaring module. The selected program's own module comes first;
-the imported modules follow. The initializer remains the fallback: a supplied
+the imported modules follow. The initializer is the fallback: a supplied
 value is bound during static initialization instead of evaluating that
 initializer. See [Attributes](attributes.md#module-parameters) for the
 declaration form and its restrictions.
@@ -340,7 +340,7 @@ by a package, its manifest [`[config]`](../../commands/pkg.md#config) table
 ranks next — its own command table, then an inherited group table, then the
 manifest root — and wins over the **module route**, even when the latter
 appears in a more-specific TOML layer. A module route addresses the binding's
-declaring module and scope, so it remains available too.
+declaring module and scope, so it is available too.
 
 For example, this program imports the `A/logging` module:
 
@@ -495,9 +495,8 @@ passes through one at any depth. A loose file or module whose stem is `agent`
 therefore has no `[agent]` or `[agent.<program>]` config route: such tables
 are validated as [`[agent]` defaults config](../../commands/agl.md#agent-defaults)
 instead, and the other schema sections likewise keep their own meaning. A
-package command registered under a schema-section first word by an earlier
-install (validation now rejects one) has no command-path config table, exact
-or inherited.
+package command whose first word is a schema-section name is rejected by
+validation and has no command-path config table, exact or inherited.
 
 A config-table string value must be valid Unicode, the same requirement a
 CLI token or `@opt-env` variable is held to above; a value holding a
@@ -510,7 +509,7 @@ no CLI/config seed is supplied. A `debug` seed of `true` also seeds `trace` as `
 no CLI/config seed sets `trace` or `trace-file`. Every setting takes effect
 **positionally** thereafter: a write to `std/config::X` governs the statements
 that follow it, in program order, and does not affect statements before it. A
-completed write remains effective if a later expression fails. Writing `trace`
+completed write stays effective if a later expression fails. Writing `trace`
 or `trace-file` updates the trace destination used by subsequent calls.
 Assigning `Some(path)` to `trace-file`
 enables tracing; a later `trace := false` disables it while retaining the path.

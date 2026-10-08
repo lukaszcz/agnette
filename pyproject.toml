@@ -27,17 +27,17 @@ dependencies = [
 ]
 
 [project.scripts]
-agm = "agm.cli:main"
+agm = "agnette.agm.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agm"]
+packages = ["src/agnette"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"packages/stdlib" = "agm/stdlib"
+"packages/stdlib" = "agnette/stdlib"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--cov=agm", "--cov=packages/stdlib/src", "--cov-branch", "--cov-fail-under=100"]
+addopts = ["--cov=agnette", "--cov=packages/stdlib/src", "--cov-branch", "--cov-fail-under=100"]
 
 [tool.mypy]
 # Keep direct invocations and the standard workflow on the same local stubs.

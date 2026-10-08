@@ -43,10 +43,10 @@ from typing import Any, NamedTuple
 import httpx2
 import pytest
 
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.runtime.externs import ExternRegistry
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.runtime.externs import ExternRegistry
 from tests._agl_helpers import package_roots, run_inline_code
 from tests._package_helpers import package_info
 

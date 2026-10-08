@@ -8,7 +8,7 @@ from types import MappingProxyType
 
 import pytest
 
-from agm.core import env
+from agnette.core import env
 
 
 def test_resolve_env_retains_the_supplied_mapping_without_copying() -> None:

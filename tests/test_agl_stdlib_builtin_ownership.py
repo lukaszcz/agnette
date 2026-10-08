@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import RunResult
-from agm.agl.runtime.request import AgentRequest
+from agnette.agl import PipelineDriver
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import RunResult
+from agnette.agl.runtime.request import AgentRequest
 from tests._agl_helpers import run_inline_code
 from tests._process_helpers import FakeShell
 
@@ -250,7 +250,7 @@ def test_exec_dispatches_to_the_declaration_in_its_own_standard_module(
     split_stdlib: RootSet, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shell = FakeShell([{"command": "echo hi", "stdout": "hi\n"}])
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run(
             'let r = exec("echo hi")\nprint(r.stdout)\nprint(r.exit-code)\n', split_stdlib
         )
@@ -263,7 +263,7 @@ def test_a_failing_exec_raises_the_catchable_standard_exec_error(
     split_stdlib: RootSet, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shell = FakeShell([{"command": "false", "returncode": 1}])
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run(
             'let code = try\n  let out: text = exec("false")\n  "no"\n'
             "catch ExecError as e =>\n  render(e.exit-code)\nprint(code)\n",

@@ -21,25 +21,25 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agm.agl import AglError, PipelineDriver, SourceSpan
-from agm.agl.diagnostics import Diagnostic, format_diagnostic, format_diagnostic_location
-from agm.agl.ir.contracts import EncodePlan, ExceptionFieldEncode, ScalarEncode, ScalarKind
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.program import (
+from agnette.agl import AglError, PipelineDriver, SourceSpan
+from agnette.agl.diagnostics import Diagnostic, format_diagnostic, format_diagnostic_location
+from agnette.agl.ir.contracts import EncodePlan, ExceptionFieldEncode, ScalarEncode, ScalarKind
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.program import (
     NominalDescriptor,
     NominalKind,
     ValueDescriptors,
     VariantDescriptor,
 )
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.pipeline import RunResult
-from agm.agl.runtime import AgentRequest
-from agm.agl.runtime.contract import OutputContract
-from agm.agl.runtime.serialize import WalkTags
-from agm.agl.semantics.types import Type
-from agm.agl.semantics.values import ExceptionValue
-from agm.agl.typecheck import AglTypeError
-from agm.commands import exec_program as exec_engine
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.pipeline import RunResult
+from agnette.agl.runtime import AgentRequest
+from agnette.agl.runtime.contract import OutputContract
+from agnette.agl.runtime.serialize import WalkTags
+from agnette.agl.semantics.types import Type
+from agnette.agl.semantics.values import ExceptionValue
+from agnette.agl.typecheck import AglTypeError
+from agnette.agm.commands import exec_program as exec_engine
 from tests._agl_helpers import (
     agl_roots,
     prepare_inline_code,
@@ -48,10 +48,10 @@ from tests._agl_helpers import (
 )
 
 if TYPE_CHECKING:
-    from agm.agl.ir.program import ExecutableProgram
-    from agm.agl.pipeline import PreparedProgram
-    from agm.agl.runtime.codec import OutputCodec
-    from agm.agl.semantics.values import IrClosureValue, Value
+    from agnette.agl.ir.program import ExecutableProgram
+    from agnette.agl.pipeline import PreparedProgram
+    from agnette.agl.runtime.codec import OutputCodec
+    from agnette.agl.semantics.values import IrClosureValue, Value
 
 # ---------------------------------------------------------------------------
 # Rendering helpers: build a minimal ValueDescriptors for ad-hoc test values.
@@ -89,7 +89,7 @@ def _named(
 
 def _walk_tags_for(*named_nominals: NominalDescriptor) -> WalkTags:
     """Build :class:`WalkTags` from real descriptors, the way a program's own table would."""
-    from agm.agl.runtime.serialize import _walk_tags
+    from agnette.agl.runtime.serialize import _walk_tags
 
     return _walk_tags({d.nominal: d for d in named_nominals})
 
@@ -103,7 +103,7 @@ def _descriptors(*named_nominals: NominalDescriptor) -> ValueDescriptors:
 
 def _scalar_kind_of(value: Value) -> ScalarKind:
     """The :class:`ScalarKind` matching *value*'s own scalar runtime type."""
-    from agm.agl.semantics.values import BoolValue, DecimalValue, IntValue, TextValue
+    from agnette.agl.semantics.values import BoolValue, DecimalValue, IntValue, TextValue
 
     if isinstance(value, TextValue):
         return ScalarKind.TEXT
@@ -141,7 +141,7 @@ def _preflight_builtin_nominal(
     nominal)`` — run with ``rt.run_prepared(prepared, executable=executable,
     select_default_program=True)`` to execute the already-lowered program.
     """
-    from agm.agl.runtime.arguments import ProgramArguments
+    from agnette.agl.runtime.arguments import ProgramArguments
 
     prepared = prepare_inline_code(source)
     discovery = rt.discover_programs(prepared)
@@ -438,7 +438,7 @@ class TestEmptyResponse:
         )
         result = run_inline_code(rt, 'let x = ask "Say nothing."\nx')
         assert result.ok is True
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.semantics.values import TextValue
 
         assert result.bindings["x"] == TextValue("")
 
@@ -460,7 +460,7 @@ class TestAgentRequest:
         assert received[0].prompt == "Hello world"
 
     def test_request_agent_value_for_default(self) -> None:
-        from agm.agent.spec import AgentClaude
+        from agnette.agent.spec import AgentClaude
 
         received: list[AgentRequest] = []
 
@@ -475,7 +475,7 @@ class TestAgentRequest:
         assert isinstance(received[0].agent, AgentClaude)
 
     def test_request_agent_value_for_named(self) -> None:
-        from agm.agent.spec import AgentCommand
+        from agnette.agent.spec import AgentCommand
 
         received: list[AgentRequest] = []
 
@@ -500,7 +500,7 @@ class TestUncaughtAgentCallErrorSpan:
     """
 
     def _failing_runtime(self) -> PipelineDriver:
-        from agm.agl.runtime.agents import AgentCallHostError
+        from agnette.agl.runtime.agents import AgentCallHostError
 
         def failing_agent(req: AgentRequest) -> str:
             raise AgentCallHostError(
@@ -516,8 +516,8 @@ class TestUncaughtAgentCallErrorSpan:
 
     def test_dispatch_preserves_existing_span(self) -> None:
         """A span the raise site already supplied is never overwritten."""
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
 
         existing = SourceSpan(
             start_line=99,
@@ -566,9 +566,9 @@ class TestUncaughtAgentCallErrorSpan:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """End to end: ``agm exec`` prints ``at <file>:N:C`` to stderr (exit 2)."""
-        from agm.agl.runtime.agents import AgentCallHostError
-        from agm.cli_support.args import ExecArgs
-        from agm.commands.exec import run as exec_run
+        from agnette.agl.runtime.agents import AgentCallHostError
+        from agnette.agm.cli_support.args import ExecArgs
+        from agnette.agm.commands.exec import run as exec_run
 
         agl_file = tmp_path / "prog.agl"
         from tests._agl_helpers import write_file_program
@@ -581,7 +581,7 @@ class TestUncaughtAgentCallErrorSpan:
             )
 
         monkeypatch.setattr(exec_engine, "value_driven_agent_factory", lambda **_: failing_agent)
-        from agm.agl.runtime.sessions import AgentDispatcherSessionHost
+        from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 
         monkeypatch.setattr(
             exec_engine,
@@ -730,14 +730,14 @@ class TestTokenConstants:
     """Verify the token alphabet is importable and has the expected constants."""
 
     def test_layout_tokens_defined(self) -> None:
-        from agm.agl.lexer.tokens import DEDENT, INDENT, NEWLINE
+        from agnette.agl.lexer.tokens import DEDENT, INDENT, NEWLINE
 
         assert NEWLINE == "_NEWLINE"
         assert INDENT == "_INDENT"
         assert DEDENT == "_DEDENT"
 
     def test_template_tokens_defined(self) -> None:
-        from agm.agl.lexer.tokens import (
+        from agnette.agl.lexer.tokens import (
             INTERP_END,
             INTERP_START,
             STRING_FRAGMENT,
@@ -752,18 +752,18 @@ class TestTokenConstants:
         assert TEMPLATE_END == "TEMPLATE_END"
 
     def test_identifier_tokens_defined(self) -> None:
-        from agm.agl.lexer.tokens import NAME
+        from agnette.agl.lexer.tokens import NAME
 
         assert NAME == "NAME"
 
     def test_number_tokens_defined(self) -> None:
-        from agm.agl.lexer.tokens import DECIMAL, INT
+        from agnette.agl.lexer.tokens import DECIMAL, INT
 
         assert INT == "INT"
         assert DECIMAL == "DECIMAL"
 
     def test_keywords_frozenset_contains_expected(self) -> None:
-        from agm.agl.keywords import KEYWORDS
+        from agnette.agl.keywords import KEYWORDS
 
         assert "let" in KEYWORDS
         assert "var" in KEYWORDS
@@ -780,7 +780,7 @@ class TestTokenConstants:
         assert "exec" not in KEYWORDS
 
     def test_operators_defined(self) -> None:
-        from agm.agl.lexer.tokens import (
+        from agnette.agl.lexer.tokens import (
             ARROW,
             COLON,
             COMMA,
@@ -817,7 +817,7 @@ class TestTokenConstants:
         assert SEMICOLON == "SEMICOLON"
 
     def test_bracket_tokens_defined(self) -> None:
-        from agm.agl.lexer.tokens import LBRACE, LPAR, LSQB, RBRACE, RPAR, RSQB
+        from agnette.agl.lexer.tokens import LBRACE, LPAR, LSQB, RBRACE, RPAR, RSQB
 
         assert LPAR == "LPAR"
         assert RPAR == "RPAR"
@@ -827,12 +827,12 @@ class TestTokenConstants:
         assert RBRACE == "RBRACE"
 
     def test_error_token_defined(self) -> None:
-        from agm.agl.lexer.tokens import EQ_EQ
+        from agnette.agl.lexer.tokens import EQ_EQ
 
         assert EQ_EQ == "EQ_EQ"
 
     def test_all_keyword_constants(self) -> None:
-        from agm.agl import keywords
+        from agnette.agl import keywords
 
         assert keywords.KW_RECORD == "record"
         assert keywords.KW_ENUM == "enum"
@@ -1024,8 +1024,8 @@ class TestDecimalSerialization:
     def test_run_error_preserves_decimal_exactness(self) -> None:
         import decimal
 
-        from agm.agl.pipeline import exception_value_to_run_error
-        from agm.agl.semantics.values import DecimalValue, ExceptionValue, TextValue
+        from agnette.agl.pipeline import exception_value_to_run_error
+        from agnette.agl.semantics.values import DecimalValue, ExceptionValue, TextValue
 
         exc = ExceptionValue(
             nominal=NominalId(1),
@@ -1053,8 +1053,8 @@ class TestWarningsThreadedOnFailurePaths:
         # real failure path (missing required program argument) while a warning is present.
         from dataclasses import replace
 
-        import agm.agl.typecheck.program as tc_mod
-        from agm.agl.diagnostics import Diagnostic
+        import agnette.agl.typecheck.program as tc_mod
+        from agnette.agl.diagnostics import Diagnostic
 
         real_check = tc_mod.check_program
         warning = Diagnostic(message="a checker warning", line=1, severity="warning")
@@ -1090,7 +1090,7 @@ class TestCapabilitiesBuiltFromRegistrations:
 
     def test_default_runtime_has_text_and_json_codecs(self) -> None:
         """Built-in text + json codecs are always present."""
-        from agm.agl.runtime.codec import JsonCodec, TextCodec
+        from agnette.agl.runtime.codec import JsonCodec, TextCodec
 
         rt = PipelineDriver(
             resolve_agent_spec=None, agent_dispatcher=lambda req: "ok", get_sandbox_context=None
@@ -1104,10 +1104,10 @@ class TestCapabilitiesBuiltFromRegistrations:
 
     def test_register_codec_before_run_extends_capabilities(self) -> None:
         """A custom codec registered before run() makes its kinds available to typecheck."""
-        from agm.agl.runtime.codec import ParseResult, TextCodec
-        from agm.agl.runtime.contract import OutputContract
-        from agm.agl.semantics.type_table import TypeTable
-        from agm.agl.semantics.values import TextValue as TV
+        from agnette.agl.runtime.codec import ParseResult, TextCodec
+        from agnette.agl.runtime.contract import OutputContract
+        from agnette.agl.semantics.type_table import TypeTable
+        from agnette.agl.semantics.values import TextValue as TV
 
         class FooCodec:
             @property
@@ -1146,10 +1146,10 @@ class TestCapabilitiesBuiltFromRegistrations:
         assert result.ok is True
 
     def test_custom_codec_named_none_materializes_its_contract(self) -> None:
-        from agm.agl.runtime.codec import TextCodec
-        from agm.agl.semantics.type_table import TypeTable
-        from agm.agl.semantics.types import TextType
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.runtime.codec import TextCodec
+        from agnette.agl.semantics.type_table import TypeTable
+        from agnette.agl.semantics.types import TextType
+        from agnette.agl.semantics.values import TextValue
 
         class NoneCodec(TextCodec):
             @property
@@ -1215,22 +1215,22 @@ class TestRenderValue:
 
     def test_text_verbatim_render_value(self) -> None:
         """render_value: top-level text is verbatim, no quotes."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import TextValue
 
         assert render_value(TextValue("hello world"), _NO_DESCRIPTORS) == "hello world"
 
     def test_text_quoted_when_requested(self) -> None:
         """render_value: top-level text can be wrapped in double quotes."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import TextValue
 
         assert render_value(TextValue("hello"), _NO_DESCRIPTORS, quote_strings=True) == '"hello"'
 
     def test_text_quote_escapes_special_chars(self) -> None:
         """render_value: JSON escape set applies to quoted top-level text."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import TextValue
 
         assert render_value(TextValue('a"b'), _NO_DESCRIPTORS, quote_strings=True) == '"a\\"b"'
         assert render_value(TextValue("a\\b"), _NO_DESCRIPTORS, quote_strings=True) == '"a\\\\b"'
@@ -1239,8 +1239,8 @@ class TestRenderValue:
 
     def test_text_quote_escapes_control_chars_as_unicode(self) -> None:
         """render_value: control chars below 0x20 render as \\uXXXX when quoted."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import TextValue
 
         assert (
             render_value(TextValue("a\x00b"), _NO_DESCRIPTORS, quote_strings=True) == '"a\\u0000b"'
@@ -1251,22 +1251,22 @@ class TestRenderValue:
     # ------------------------------------------------------------------
 
     def test_int_value_is_plain_text(self) -> None:
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue
 
         assert render_value(IntValue(42), _NO_DESCRIPTORS) == "42"
 
     def test_decimal_value_is_plain_text(self) -> None:
         from decimal import Decimal
 
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import DecimalValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import DecimalValue
 
         assert render_value(DecimalValue(Decimal("1.5")), _NO_DESCRIPTORS) == "1.5"
 
     def test_bool_value_is_plain_text(self) -> None:
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import BoolValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import BoolValue
 
         assert render_value(BoolValue(True), _NO_DESCRIPTORS) == "true"
         assert render_value(BoolValue(False), _NO_DESCRIPTORS) == "false"
@@ -1277,8 +1277,8 @@ class TestRenderValue:
 
     def test_unit_value_renders_as_unit_literal(self) -> None:
         """Unit value renders as ``()``."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import UnitValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import UnitValue
 
         assert render_value(UnitValue(), _NO_DESCRIPTORS) == "()"
 
@@ -1286,8 +1286,8 @@ class TestRenderValue:
         self, source: str, name: str
     ) -> "tuple[IrClosureValue, ValueDescriptors]":
         """Compile and run *source*, returning the *name*-bound closure and its descriptors."""
-        from agm.agl.eval.ir_interpreter import IrInterpreter
-        from agm.agl.semantics.values import IrClosureValue
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.semantics.values import IrClosureValue
         from tests.agl.ir_harness import lower_inline_ir
 
         executable = lower_inline_ir(source)
@@ -1298,7 +1298,7 @@ class TestRenderValue:
 
     def test_closure_renders_as_function_surface_form(self) -> None:
         """Closure renders as ``<function: (A, B) -> T>``."""
-        from agm.agl.runtime.render import render_value
+        from agnette.agl.runtime.render import render_value
 
         closure, descriptors = self._closure_and_descriptors(
             "let f = fn(x: int, y: int) -> int => x + y\nf\n", "f"
@@ -1307,7 +1307,7 @@ class TestRenderValue:
 
     def test_closure_single_arg_omits_arg_parentheses(self) -> None:
         """A single-parameter closure renders as ``<function: A -> T>``."""
-        from agm.agl.runtime.render import render_value
+        from agnette.agl.runtime.render import render_value
 
         closure, descriptors = self._closure_and_descriptors(
             "let f = fn(x: int) -> int => x + 1\nf\n", "f"
@@ -1316,7 +1316,7 @@ class TestRenderValue:
 
     def test_closure_function_arg_parenthesized(self) -> None:
         """A function-typed parameter stays parenthesized for unambiguous rendering."""
-        from agm.agl.runtime.render import render_value
+        from agnette.agl.runtime.render import render_value
 
         closure, descriptors = self._closure_and_descriptors(
             "let f = fn(g: int -> int) -> int => g(1)\nf\n", "f"
@@ -1325,7 +1325,7 @@ class TestRenderValue:
 
     def test_closure_multi_param_function_arg_parenthesized(self) -> None:
         """A single multi-parameter function argument keeps both required paren pairs."""
-        from agm.agl.runtime.render import render_value
+        from agnette.agl.runtime.render import render_value
 
         closure, descriptors = self._closure_and_descriptors(
             "let f = fn(g: (int, int) -> int) -> int => g(1, 2)\nf\n", "f"
@@ -1334,7 +1334,7 @@ class TestRenderValue:
 
     def test_closure_container_arg_with_nested_function_omits_outer_parentheses(self) -> None:
         """Only top-level arrows force parentheses around a single parameter label."""
-        from agm.agl.runtime.render import render_value
+        from agnette.agl.runtime.render import render_value
 
         closure, descriptors = self._closure_and_descriptors(
             "let f = fn(gs: array[int -> int]) -> int => 0\nf\n", "f"
@@ -1343,7 +1343,7 @@ class TestRenderValue:
 
     def test_closure_zero_arity_renders_correctly(self) -> None:
         """A zero-parameter closure renders as ``<function: () -> T>``."""
-        from agm.agl.runtime.render import render_value
+        from agnette.agl.runtime.render import render_value
 
         closure, descriptors = self._closure_and_descriptors(
             "let thunk = fn() -> int => 42\nthunk\n", "thunk"
@@ -1352,12 +1352,12 @@ class TestRenderValue:
 
     def test_closure_without_param_metadata_renders_unknown_arg_types(self) -> None:
         """A hand-built closure without declared labels uses ``?`` placeholders."""
-        from agm.agl.ir.ids import FunctionId, Location, SourceId, SymbolId
-        from agm.agl.ir.nodes import IrConstUnit, IrFunctionParam
-        from agm.agl.ir.program import FunctionDescriptor, IrFunctionBody
-        from agm.agl.modules.ids import ENTRY_ID
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IrClosureValue
+        from agnette.agl.ir.ids import FunctionId, Location, SourceId, SymbolId
+        from agnette.agl.ir.nodes import IrConstUnit, IrFunctionParam
+        from agnette.agl.ir.program import FunctionDescriptor, IrFunctionBody
+        from agnette.agl.modules.ids import ENTRY_ID
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IrClosureValue
 
         loc = Location(
             source_id=SourceId(0), start_offset=0, end_offset=0, start_line=1, start_col=0
@@ -1387,23 +1387,23 @@ class TestRenderValue:
 
     def test_array_single_line(self) -> None:
         """Arrays render as single-line ``[e1, e2, ...]``."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, IntValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, IntValue
 
         v = ArrayValue(elements=[IntValue(1), IntValue(2)])
         assert render_value(v, _NO_DESCRIPTORS) == "[1, 2]"
 
     def test_array_empty(self) -> None:
         """Empty array renders as ``[]``."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue
 
         assert render_value(ArrayValue(elements=[]), _NO_DESCRIPTORS) == "[]"
 
     def test_array_nested_text_is_quoted(self) -> None:
         """Text inside an array is quoted."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, TextValue
 
         v = ArrayValue(elements=[TextValue("tests"), TextValue("coverage")])
         assert render_value(v, _NO_DESCRIPTORS) == '["tests", "coverage"]'
@@ -1414,31 +1414,31 @@ class TestRenderValue:
 
     def test_dict_single_line_quoted_keys(self) -> None:
         """Dict renders single-line with always-quoted keys."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import DictValue, IntValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import DictValue, IntValue
 
         v = DictValue({"origin": IntValue(1)})
         assert render_value(v, _NO_DESCRIPTORS) == '{"origin": 1}'
 
     def test_dict_key_with_space_is_quoted(self) -> None:
         """Dict keys with spaces (or any content) are always quoted."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import DictValue, IntValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import DictValue, IntValue
 
         v = DictValue({"two words": IntValue(1)})
         assert render_value(v, _NO_DESCRIPTORS) == '{"two words": 1}'
 
     def test_dict_empty(self) -> None:
         """Empty dict renders as ``{}``."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import DictValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import DictValue
 
         assert render_value(DictValue({}), _NO_DESCRIPTORS) == "{}"
 
     def test_dict_multiple_entries(self) -> None:
         """Multiple dict entries, in insertion order, keys quoted."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import DictValue, IntValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import DictValue, IntValue
 
         v = DictValue({"origin": IntValue(1), "two words": IntValue(2)})
         assert render_value(v, _NO_DESCRIPTORS) == '{"origin": 1, "two words": 2}'
@@ -1449,8 +1449,8 @@ class TestRenderValue:
 
     def test_record_renders_fields_in_stored_order(self) -> None:
         """Record renders fields in the order they are stored (declaration order)."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, RecordValue, TextValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1462,8 +1462,8 @@ class TestRenderValue:
     def test_record_positional_fields_render_first_then_named(self) -> None:
         """A record's positional fields render bare, in field order, ahead of
         the rest as ``name = value``."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, RecordValue, TextValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1476,8 +1476,8 @@ class TestRenderValue:
         """A record with no fields renders bare, as ``TypeName`` (no parens):
         a nullary constructor is an auto-value, so its bare spelling
         round-trips as written."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import RecordValue
 
         v = RecordValue(nominal=NominalId(1), fields={})
         descriptors = _descriptors(_named(NominalId(1), "Empty"))
@@ -1485,8 +1485,8 @@ class TestRenderValue:
 
     def test_record_nested_record(self) -> None:
         """Nested records render inline."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import BoolValue, RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import BoolValue, RecordValue, TextValue
 
         author = RecordValue(
             nominal=NominalId(1),
@@ -1502,8 +1502,8 @@ class TestRenderValue:
 
     def test_record_with_array_field(self) -> None:
         """Record with an array field renders correctly (array inline)."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, IntValue, RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, IntValue, RecordValue, TextValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1523,8 +1523,8 @@ class TestRenderValue:
 
     def test_enum_with_payload(self) -> None:
         "Enum with payload renders as ``TypeName::Variant(field = value)``."
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, RecordValue
 
         v = RecordValue(nominal=NominalId(1), fields={"left": IntValue(2)})
         descriptors = _descriptors(_named(NominalId(1), "Outcome::Partial"))
@@ -1534,8 +1534,8 @@ class TestRenderValue:
         """Nullary enum variant renders as ``TypeName::Variant`` (no parens),
         the same bare rule applied to every fieldless record regardless of
         its display name."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import RecordValue
 
         v = RecordValue(nominal=NominalId(1), fields={})
         empty = RecordValue(nominal=NominalId(2), fields={})
@@ -1549,8 +1549,8 @@ class TestRenderValue:
         """A fieldless record and a fieldless exception spell differently:
         the record's nullary constructor is an auto-value so it renders bare,
         while an exception has no nullary auto-value form and keeps ``()``."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ExceptionValue, RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ExceptionValue, RecordValue
 
         record = RecordValue(nominal=NominalId(1), fields={})
         exception = ExceptionValue(nominal=NominalId(2), fields={})
@@ -1560,8 +1560,8 @@ class TestRenderValue:
 
     def test_enum_multi_field_payload(self) -> None:
         """Enum with multiple payload fields renders them in stored order."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, RecordValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1576,8 +1576,8 @@ class TestRenderValue:
 
     def test_exception_renders_record_style(self) -> None:
         """Exception renders like a record with all fields in declaration order."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
 
         empty_descriptors = _descriptors(_named(NominalId(2), "EmptyError"))
         assert render_value(ExceptionValue(NominalId(2), {}), empty_descriptors) == "EmptyError()"
@@ -1607,8 +1607,8 @@ class TestRenderValue:
         ``message`` — this hand-supplies ``positional_fields`` to exercise the
         renderer only; computing it across an `extends` chain is the lowerer's
         concern."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ExceptionValue, IntValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ExceptionValue, IntValue, TextValue
 
         v = ExceptionValue(
             nominal=NominalId(1),
@@ -1631,8 +1631,8 @@ class TestRenderValue:
 
     def test_exception_abort_renders_with_message(self) -> None:
         """Abort exception renders its sole message field."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
 
         v = ExceptionValue(
             nominal=NominalId(1),
@@ -1644,9 +1644,9 @@ class TestRenderValue:
         assert "<dsl-value" not in out
 
     def test_record_and_exception_cycles_raise_the_walk_sentinel(self) -> None:
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.cycles import AglCyclicValue
-        from agm.agl.semantics.values import ExceptionValue, RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.cycles import AglCyclicValue
+        from agnette.agl.semantics.values import ExceptionValue, RecordValue
 
         record = RecordValue(NominalId(1), {})
         record.fields["next"] = record
@@ -1660,8 +1660,8 @@ class TestRenderValue:
             render_value(exception, descriptors)
 
     def test_record_diamond_renders_each_shared_child(self) -> None:
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, RecordValue
 
         shared = RecordValue(NominalId(1), {"value": IntValue(1)})
         pair = RecordValue(NominalId(2), {"left": shared, "right": shared})
@@ -1678,8 +1678,8 @@ class TestRenderValue:
 
     def test_nested_text_escapes_percent(self) -> None:
         """Nested text containing ``%{`` escapes ``%`` as ``\\%``."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, TextValue
 
         v = ArrayValue(elements=[TextValue("a%{b}")])
         out = render_value(v, _NO_DESCRIPTORS)
@@ -1687,8 +1687,8 @@ class TestRenderValue:
 
     def test_nested_text_escapes_quotes_and_newlines(self) -> None:
         """Nested text: quotes and newlines are escaped."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, TextValue
 
         v = ArrayValue(elements=[TextValue('say "hi"\nbye')])
         out = render_value(v, _NO_DESCRIPTORS)
@@ -1696,8 +1696,8 @@ class TestRenderValue:
 
     def test_quoted_top_level_text_escapes_percent(self) -> None:
         """render_value: top-level text with ``%`` escapes it when quoted."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import TextValue
 
         out = render_value(TextValue("a%{b}"), _NO_DESCRIPTORS, quote_strings=True)
         assert out == r'"a\%{b}"'
@@ -1708,31 +1708,31 @@ class TestRenderValue:
 
     def test_json_top_level_is_single_line_by_default(self) -> None:
         """Top-level json value renders as single-line JSON by default."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import JsonValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import JsonValue
 
         out = render_value(JsonValue({"k": 1}), _NO_DESCRIPTORS)
         assert out == '{"k": 1}'
 
     def test_json_top_level_is_pretty_when_requested(self) -> None:
         """Top-level json value renders as pretty-printed JSON when requested."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import JsonValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import JsonValue
 
         out = render_value(JsonValue({"k": 1}), _NO_DESCRIPTORS, pretty=True)
         assert out == '{\n  "k": 1\n}'
 
     def test_json_scalar_pretty_has_no_extra_indentation(self) -> None:
         """Pretty rendering of scalar json remains a single scalar."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import JsonValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import JsonValue
 
         assert render_value(JsonValue(1), _NO_DESCRIPTORS, pretty=True) == "1"
 
     def test_json_nested_is_compact(self) -> None:
         """json nested inside a record field renders compact by default."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import JsonValue, RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import JsonValue, RecordValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1746,24 +1746,24 @@ class TestRenderValue:
 
     def test_array_pretty(self) -> None:
         """Pretty lists render over multiple indented lines."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, IntValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, IntValue
 
         v = ArrayValue(elements=[IntValue(1), IntValue(2)])
         assert render_value(v, _NO_DESCRIPTORS, pretty=True) == "[\n  1,\n  2\n]"
 
     def test_dict_pretty(self) -> None:
         """Pretty dicts render over multiple indented lines."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import DictValue, IntValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import DictValue, IntValue
 
         v = DictValue({"a": IntValue(1), "b": IntValue(2)})
         assert render_value(v, _NO_DESCRIPTORS, pretty=True) == '{\n  "a": 1,\n  "b": 2\n}'
 
     def test_record_pretty(self) -> None:
         """Pretty records render fields over multiple indented lines."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, RecordValue, TextValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1778,8 +1778,8 @@ class TestRenderValue:
     def test_record_pretty_positional_fields_first(self) -> None:
         """Pretty rendering keeps items in the same one-per-line layout, just
         in the positional-first, then-named order."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, RecordValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1790,8 +1790,8 @@ class TestRenderValue:
 
     def test_pretty_nested_indentation(self) -> None:
         """Pretty rendering indents nested structures recursively."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, IntValue, RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, IntValue, RecordValue, TextValue
 
         v = RecordValue(
             nominal=NominalId(1),
@@ -1814,8 +1814,8 @@ class TestRenderValue:
         """Display options do not alter scalar values."""
         from decimal import Decimal
 
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import (
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import (
             ArrayValue,
             BoolValue,
             DecimalValue,
@@ -1836,8 +1836,8 @@ class TestRenderValue:
 
     def test_nested_text_in_array_is_quoted(self) -> None:
         """Text inside an array is quoted regardless of top-level quote mode."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import ArrayValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import ArrayValue, TextValue
 
         out = render_value(
             ArrayValue(elements=[TextValue("v")]),
@@ -1852,8 +1852,8 @@ class TestRenderValue:
 
     def test_no_dsl_value_tags_in_interpolation(self) -> None:
         """Interpolation never wraps values in <dsl-value> tags."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IntValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IntValue, TextValue
 
         assert "<dsl-value" not in render_value(TextValue("x"), _NO_DESCRIPTORS)
         assert "<dsl-value" not in render_value(IntValue(1), _NO_DESCRIPTORS)
@@ -1868,22 +1868,22 @@ class TestSerialize:
     """AgL values convert to JSON-shaped objects and to exact JSON text."""
 
     def test_bool_value_serialized(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.values import BoolValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.values import BoolValue
 
         assert value_to_json_obj(BoolValue(True), tags=_NO_WALK_TAGS) is True
         assert value_to_json_obj(BoolValue(False), tags=_NO_WALK_TAGS) is False
 
     def test_dict_value_serialized(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.values import DictValue, IntValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.values import DictValue, IntValue
 
         result = value_to_json_obj(DictValue(entries={"a": IntValue(1)}), tags=_NO_WALK_TAGS)
         assert result == {"a": 1}
 
     def test_record_value_serialized(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.values import IntValue, RecordValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.values import IntValue, RecordValue
 
         tags = _walk_tags_for(_named(NominalId(1), "R", fields=("x",), field_json_names=("x",)))
         result = value_to_json_obj(
@@ -1892,8 +1892,8 @@ class TestSerialize:
         assert result == {"x": 5}
 
     def test_enum_value_serialized(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.values import RecordValue, TextValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.values import RecordValue, TextValue
 
         tags = _walk_tags_for(
             _named(NominalId(1), "E::V", fields=("msg",), field_json_names=("msg",))
@@ -1904,16 +1904,16 @@ class TestSerialize:
         assert result == {"msg": "hi"}
 
     def test_enum_nullary_value_serialized(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.values import RecordValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.values import RecordValue
 
         tags = _walk_tags_for(_named(NominalId(1), "E::V"))
         result = value_to_json_obj(RecordValue(nominal=NominalId(1), fields={}), tags=tags)
         assert result == {}
 
     def test_exception_value_serialized(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
 
         tags = _walk_tags_for(
             _named(
@@ -1934,9 +1934,9 @@ class TestSerialize:
         assert result == {"message": "oops"}
 
     def test_record_and_exception_cycles_raise_the_walk_sentinel(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.cycles import AglCyclicValue
-        from agm.agl.semantics.values import ExceptionValue, RecordValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.cycles import AglCyclicValue
+        from agnette.agl.semantics.values import ExceptionValue, RecordValue
 
         record = RecordValue(NominalId(1), {})
         record.fields["next"] = record
@@ -1959,8 +1959,8 @@ class TestSerialize:
             value_to_json_obj(exception, tags=tags)
 
     def test_record_diamond_serializes_each_shared_child(self) -> None:
-        from agm.agl.runtime.serialize import value_to_json_obj
-        from agm.agl.semantics.values import IntValue, RecordValue
+        from agnette.agl.runtime.serialize import value_to_json_obj
+        from agnette.agl.semantics.values import IntValue, RecordValue
 
         shared = RecordValue(NominalId(1), {"value": IntValue(1)})
         pair = RecordValue(NominalId(2), {"left": shared, "right": shared})
@@ -1993,7 +1993,7 @@ class TestSerialize:
         self, obj: object, indent: int | None, expected: str
     ) -> None:
         """``indent=None`` writes one line; an indent writes a nested block."""
-        from agm.agl.runtime.serialize import dumps_exact
+        from agnette.agl.runtime.serialize import dumps_exact
 
         assert dumps_exact(obj, indent=indent) == expected
 
@@ -2008,7 +2008,7 @@ class TestEngineSettingDefaults:
 
     def test_engine_default_settings_has_no_default_agent_floor(self) -> None:
         """``default-agent`` is declared by ``std/config``, not fabricated by the host."""
-        from agm.agl.runtime.engine_config import engine_default_settings
+        from agnette.agl.runtime.engine_config import engine_default_settings
 
         assert "default-agent" not in engine_default_settings()
 
@@ -2035,8 +2035,8 @@ class TestRuntimeErrorPaths:
 
     def test_uncaught_agl_raise_in_run(self) -> None:
         """AglRaise propagating from the interpreter → RunResult with error."""
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
 
         abort_nominal: list[NominalId] = []
 
@@ -2060,8 +2060,8 @@ class TestRuntimeErrorPaths:
 
     def test_text_param_not_str_raises(self) -> None:
         """convert_host_value: text type with non-str value → ValueError."""
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import TextType
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import TextType
 
         with pytest.raises(ValueError, match="text"):
             convert_host_value("msg", 42, TextType(), type_table_for())
@@ -2070,17 +2070,17 @@ class TestRuntimeErrorPaths:
         """convert_host_value: integral Decimal → IntValue for int type."""
         from decimal import Decimal
 
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import IntType
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import IntType
+        from agnette.agl.semantics.values import IntValue
 
         result = convert_host_value("n", Decimal("3"), IntType(), type_table_for())
         assert result == IntValue(3)
 
     def test_int_param_non_integral_fails(self) -> None:
         """convert_host_value: non-integral value → ValueError for int type."""
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import IntType
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import IntType
 
         with pytest.raises(ValueError, match="'integer'"):
             convert_host_value("n", "1.5", IntType(), type_table_for())
@@ -2089,9 +2089,9 @@ class TestRuntimeErrorPaths:
         """convert_host_value: int value → DecimalValue for decimal type."""
         from decimal import Decimal
 
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import DecimalType
-        from agm.agl.semantics.values import DecimalValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import DecimalType
+        from agnette.agl.semantics.values import DecimalValue
 
         result = convert_host_value("d", 3, DecimalType(), type_table_for())
         assert isinstance(result, DecimalValue)
@@ -2099,25 +2099,25 @@ class TestRuntimeErrorPaths:
 
     def test_decimal_param_invalid_type_fails(self) -> None:
         """convert_host_value: bool value → ValueError for decimal type."""
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import DecimalType
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import DecimalType
 
         with pytest.raises(ValueError, match="'number'"):
             convert_host_value("d", "true", DecimalType(), type_table_for())
 
     def test_bool_param_invalid_type_fails(self) -> None:
         """convert_host_value: non-bool value → ValueError for bool type."""
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import BoolType
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import BoolType
 
         with pytest.raises(ValueError, match="'boolean'"):
             convert_host_value("b", "1", BoolType(), type_table_for())
 
     def test_bool_param_true_succeeds(self) -> None:
         """convert_host_value: bool value → BoolValue for bool type."""
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import BoolType
-        from agm.agl.semantics.values import BoolValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import BoolType
+        from agnette.agl.semantics.values import BoolValue
 
         result = convert_host_value("b", True, BoolType(), type_table_for())
         assert result == BoolValue(True)
@@ -2130,7 +2130,7 @@ class TestRuntimeErrorPaths:
         A Python-level bug must crash loudly rather than masquerade as a
         user-facing pre-execution diagnostic.
         """
-        from agm.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
 
         def bad_execute(self: IrInterpreter, **_: object) -> dict[str, object]:
             raise RuntimeError("internal crash")
@@ -2149,8 +2149,8 @@ class TestRuntimeErrorPaths:
         """
         import decimal
 
-        from agm.agl.pipeline import RunError, exception_value_to_run_error
-        from agm.agl.semantics.values import (
+        from agnette.agl.pipeline import RunError, exception_value_to_run_error
+        from agnette.agl.semantics.values import (
             ArrayValue,
             BoolValue,
             DecimalValue,
@@ -2239,8 +2239,8 @@ class TestRuntimeErrorPaths:
         ``[{"key": ..., "value": ...}]`` array through the untyped JSON walk -- never a
         lossy ``str()``-collapsed object, which would silently merge distinct keys.
         """
-        from agm.agl.pipeline import exception_value_to_run_error
-        from agm.agl.semantics.values import (
+        from agnette.agl.pipeline import exception_value_to_run_error
+        from agnette.agl.semantics.values import (
             BoolValue,
             DictValue,
             ExceptionValue,
@@ -2312,9 +2312,9 @@ class TestRuntimeErrorPaths:
         ``line``/``col`` are still populated from the span; only the display
         name resolution is skipped (e.g. a caller with no sources table).
         """
-        from agm.agl.ir.ids import Location, SourceId
-        from agm.agl.pipeline import exception_value_to_run_error
-        from agm.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.ir.ids import Location, SourceId
+        from agnette.agl.pipeline import exception_value_to_run_error
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
 
         exc = ExceptionValue(nominal=NominalId(1), fields={"message": TextValue("bad")})
         nominals = {NominalId(1): _named(NominalId(1), "ValidationError")}
@@ -2336,10 +2336,10 @@ class TestRuntimeErrorPaths:
         Unlike a ``Location``, a ``SourceSpan`` already carries its display
         label directly, so no ``sources`` table is needed to resolve it.
         """
-        from agm.agl.pipeline import exception_value_to_run_error
-        from agm.agl.semantics.values import ExceptionValue, TextValue
-        from agm.agl.syntax.spans import SourceId as FrontendSourceId
-        from agm.agl.syntax.spans import SourceSpan
+        from agnette.agl.pipeline import exception_value_to_run_error
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.syntax.spans import SourceId as FrontendSourceId
+        from agnette.agl.syntax.spans import SourceSpan
 
         exc = ExceptionValue(nominal=NominalId(1), fields={"message": TextValue("bad")})
         nominals = {NominalId(1): _named(NominalId(1), "ValidationError")}
@@ -2362,9 +2362,9 @@ class TestRuntimeErrorPaths:
         assert error.source == "/tmp/mod.agl"
 
     def test_convert_host_value_json_type_accepts_any(self) -> None:
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import JsonType
-        from agm.agl.semantics.values import JsonValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import JsonType
+        from agnette.agl.semantics.values import JsonValue
 
         result = convert_host_value("meta", [1, 2, 3], JsonType(), type_table_for())
         assert result == JsonValue([1, 2, 3])
@@ -2372,9 +2372,9 @@ class TestRuntimeErrorPaths:
     def test_convert_host_value_json_type_keeps_exact_written_value(self) -> None:
         from decimal import Decimal
 
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import JsonType
-        from agm.agl.semantics.values import JsonValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import JsonType
+        from agnette.agl.semantics.values import JsonValue
 
         result = convert_host_value("meta", "1.0", JsonType(), type_table_for())
 
@@ -2383,9 +2383,9 @@ class TestRuntimeErrorPaths:
 
     def test_convert_host_value_array_type_parsed_via_json_codec(self) -> None:
         # array/dict/record/enum params are now accepted via the JsonCodec.
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import ArrayType, TextType
-        from agm.agl.semantics.values import ArrayValue, TextValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import ArrayType, TextType
+        from agnette.agl.semantics.values import ArrayValue, TextValue
 
         result = convert_host_value(
             "xs", '["a", "b"]', ArrayType(elem=TextType()), type_table_for()
@@ -2397,9 +2397,9 @@ class TestRuntimeErrorPaths:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An AglRaise from the interpreter → RunResult.error (not None)."""
-        from agm.agl.eval.ir_interpreter import IrInterpreter
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.agl.semantics.values import ExceptionValue, TextValue
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
 
         def bad_execute(self: IrInterpreter, **_: object) -> dict[str, object]:
             exc_val = ExceptionValue(
@@ -2428,9 +2428,9 @@ class TestRuntimeErrorPaths:
         """
         import decimal as _decimal
 
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import ArrayType, DecimalType
-        from agm.agl.semantics.values import ArrayValue, DecimalValue
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import ArrayType, DecimalType
+        from agnette.agl.semantics.values import ArrayValue, DecimalValue
 
         result = convert_host_value(
             "xs",
@@ -2449,8 +2449,8 @@ class TestRuntimeErrorPaths:
         param-validation error naming the param, not a stringified value or
         traceback.
         """
-        from agm.agl.runtime.engine_config import convert_host_value
-        from agm.agl.semantics.types import ArrayType, TextType
+        from agnette.agl.runtime.engine_config import convert_host_value
+        from agnette.agl.semantics.types import ArrayType, TextType
 
         with pytest.raises(ValueError, match="xs") as exc_info:
             convert_host_value("xs", {1, 2, 3}, ArrayType(elem=TextType()), type_table_for())
@@ -2664,7 +2664,7 @@ class TestTraceWriteFailureIsBestEffort:
         the store disables itself, and no further writes are attempted."""
         from pathlib import Path
 
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         store = TraceStore(path=Path(str(tmp_path)) / "trace.log")
         calls = {"n": 0}
@@ -2673,7 +2673,7 @@ class TestTraceWriteFailureIsBestEffort:
             calls["n"] += 1
             raise OSError("disk gone")
 
-        import agm.agl.runtime.trace as trace_mod
+        import agnette.agl.runtime.trace as trace_mod
 
         monkeypatch.setattr(trace_mod, "append_jsonl", failing_append)
         store.run_start()  # first emit → fails, warns, disables
@@ -2801,26 +2801,26 @@ class TestDeriveSchema:
     """Every AgL type either derives a JSON Schema or is rejected as non-data."""
 
     def test_bool_type(self) -> None:
-        from agm.agl.semantics.types import BoolType
+        from agnette.agl.semantics.types import BoolType
         from tests._agl_helpers import derive_schema
 
         assert derive_schema(BoolType(), type_table_for()) == {"type": "boolean"}
 
     def test_json_type(self) -> None:
-        from agm.agl.semantics.types import JsonType
+        from agnette.agl.semantics.types import JsonType
         from tests._agl_helpers import derive_schema
 
         assert derive_schema(JsonType(), type_table_for()) == {}
 
     def test_dict_type(self) -> None:
-        from agm.agl.semantics.types import DictType, IntType, TextType
+        from agnette.agl.semantics.types import DictType, IntType, TextType
         from tests._agl_helpers import derive_schema
 
         result = derive_schema(DictType(key=TextType(), value=IntType()), type_table_for())
         assert result == {"type": "object", "additionalProperties": {"type": "integer"}}
 
     def test_record_type(self) -> None:
-        from agm.agl.semantics.types import TextType
+        from agnette.agl.semantics.types import TextType
         from tests._agl_helpers import derive_schema, record_type
 
         typ, typedef = record_type("Point", {"x": TextType()})
@@ -2830,7 +2830,7 @@ class TestDeriveSchema:
         assert result["additionalProperties"] is False
 
     def test_enum_type_with_payload(self) -> None:
-        from agm.agl.semantics.types import TextType
+        from agnette.agl.semantics.types import TextType
         from tests._agl_helpers import derive_schema, enum_type
 
         typ, typedef = enum_type("Status", {"Pass": {}, "Fail": {"reason": TextType()}})
@@ -2849,26 +2849,26 @@ class TestBuildParamDecoder:
 
     def test_text_type_is_verbatim(self) -> None:
         """TextType params decode as a bare text scalar (host text is taken verbatim)."""
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.semantics.types import TextType
-        from agm.agl.type_schema import build_param_decoder
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.semantics.types import TextType
+        from agnette.agl.type_schema import build_param_decoder
 
         decoder = build_param_decoder(TextType(), type_table_for())
         assert decoder.decode == ScalarDecode(kind=ScalarKind.TEXT)
 
     def test_text_type_target_label(self) -> None:
         """target_type_label is repr(TextType())."""
-        from agm.agl.semantics.types import TextType
-        from agm.agl.type_schema import build_param_decoder
+        from agnette.agl.semantics.types import TextType
+        from agnette.agl.type_schema import build_param_decoder
 
         decoder = build_param_decoder(TextType(), type_table_for())
         assert decoder.target_type_label == repr(TextType())
 
     def test_int_type_not_verbatim(self) -> None:
         """Non-text types do NOT decode as a bare text scalar."""
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.semantics.types import IntType
-        from agm.agl.type_schema import build_param_decoder
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.semantics.types import IntType
+        from agnette.agl.type_schema import build_param_decoder
 
         decoder = build_param_decoder(IntType(), type_table_for())
         assert decoder.decode != ScalarDecode(kind=ScalarKind.TEXT)
@@ -2877,8 +2877,8 @@ class TestBuildParamDecoder:
         """json_schema is json.dumps(derive_schema(typ), sort_keys=True)."""
         import json
 
-        from agm.agl.semantics.types import IntType
-        from agm.agl.type_schema import build_param_decoder
+        from agnette.agl.semantics.types import IntType
+        from agnette.agl.type_schema import build_param_decoder
         from tests._agl_helpers import derive_schema
 
         typ = IntType()
@@ -2894,8 +2894,8 @@ class TestBuildParamDecoder:
         """A record type's json_schema embeds the full record schema."""
         import json
 
-        from agm.agl.semantics.types import TextType
-        from agm.agl.type_schema import build_param_decoder
+        from agnette.agl.semantics.types import TextType
+        from agnette.agl.type_schema import build_param_decoder
         from tests._agl_helpers import derive_schema, record_type
 
         typ, typedef = record_type("Point", {"x": TextType()})
@@ -2910,8 +2910,8 @@ class TestBuildParamDecoder:
 
     def test_int_type_target_label_is_repr(self) -> None:
         """target_type_label is repr(typ) for int."""
-        from agm.agl.semantics.types import IntType
-        from agm.agl.type_schema import build_param_decoder
+        from agnette.agl.semantics.types import IntType
+        from agnette.agl.type_schema import build_param_decoder
 
         typ = IntType()
         decoder = build_param_decoder(typ, type_table_for())
@@ -2923,7 +2923,7 @@ class TestBuildFormatInstructions:
 
     def test_unconstrained_schema_asks_for_json_without_a_fence(self) -> None:
         """With no schema to show there is nothing to fence."""
-        from agm.agl.type_schema import build_format_instructions
+        from agnette.agl.type_schema import build_format_instructions
 
         result = build_format_instructions({})
         assert "Return exactly one JSON value" in result
@@ -2932,7 +2932,7 @@ class TestBuildFormatInstructions:
     def test_schema_is_embedded_verbatim_in_a_json_fence(self) -> None:
         import json
 
-        from agm.agl.type_schema import build_format_instructions
+        from agnette.agl.type_schema import build_format_instructions
 
         schema: dict[str, object] = {"type": "object", "required": ["x"]}
         result = build_format_instructions(schema)
@@ -2952,16 +2952,16 @@ class TestSerializeOpaqueValues:
     user-facing ``kind``."""
 
     def test_unit_value_raises(self) -> None:
-        from agm.agl.runtime.serialize import AglNonDataValue, value_to_json_obj
-        from agm.agl.semantics.values import UnitValue
+        from agnette.agl.runtime.serialize import AglNonDataValue, value_to_json_obj
+        from agnette.agl.semantics.values import UnitValue
 
         with pytest.raises(AglNonDataValue) as exc_info:
             value_to_json_obj(UnitValue(), tags=_NO_WALK_TAGS)
         assert exc_info.value.kind == "unit"
 
     def test_constructor_value_raises(self) -> None:
-        from agm.agl.runtime.serialize import AglNonDataValue, value_to_json_obj
-        from agm.agl.semantics.values import ConstructorValue
+        from agnette.agl.runtime.serialize import AglNonDataValue, value_to_json_obj
+        from agnette.agl.semantics.values import ConstructorValue
 
         ctor = ConstructorValue(nominal=NominalId(1))
         with pytest.raises(AglNonDataValue) as exc_info:
@@ -2970,9 +2970,9 @@ class TestSerializeOpaqueValues:
 
     def test_ir_closure_value_raises(self) -> None:
         """IrClosureValue has no JSON representation — AglNonDataValue is raised."""
-        from agm.agl.ir.ids import FunctionId
-        from agm.agl.runtime.serialize import AglNonDataValue, value_to_json_obj
-        from agm.agl.semantics.values import IrClosureValue
+        from agnette.agl.ir.ids import FunctionId
+        from agnette.agl.runtime.serialize import AglNonDataValue, value_to_json_obj
+        from agnette.agl.semantics.values import IrClosureValue
 
         ir_closure = IrClosureValue(function_id=FunctionId(0), captures=())
         with pytest.raises(AglNonDataValue) as exc_info:
@@ -2981,7 +2981,7 @@ class TestSerializeOpaqueValues:
 
     def test_marker_text_matches_kind(self) -> None:
         """``degraded_marker`` produces the same text every degrade site relies on."""
-        from agm.agl.runtime.serialize import AglNonDataValue, degraded_marker
+        from agnette.agl.runtime.serialize import AglNonDataValue, degraded_marker
 
         exc = AglNonDataValue("unit")
         assert degraded_marker(exc) == "<unit has no JSON representation>"
@@ -3014,16 +3014,16 @@ class TestIrHostMetadata:
     def test_integral_decimal_decodes_to_int(self) -> None:
         from decimal import Decimal
 
-        from agm.agl.eval.conversions import decode_value
-        from agm.agl.ir.contracts import ScalarDecode, ScalarKind
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.eval.conversions import decode_value
+        from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
+        from agnette.agl.semantics.values import IntValue
 
         assert decode_value(ScalarDecode(ScalarKind.INT), Decimal("2.0")) == IntValue(2)
 
 
 class TestRunErrorToMessage:
     def test_to_message_includes_message_and_location(self) -> None:
-        from agm.agl.pipeline import RunError
+        from agnette.agl.pipeline import RunError
 
         err = RunError(
             type_name="AgentParseError",
@@ -3036,7 +3036,7 @@ class TestRunErrorToMessage:
         assert "at line 5, col 3" in msg
 
     def test_to_message_includes_line_without_column(self) -> None:
-        from agm.agl.pipeline import RunError
+        from agnette.agl.pipeline import RunError
 
         err = RunError(
             type_name="SomeError",
@@ -3065,7 +3065,7 @@ class TestConfigureExecutionServices:
     def test_run_prepared_uses_services_configured_after_preflight(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.agl.runtime.arguments import ProgramArguments
+        from agnette.agl.runtime.arguments import ProgramArguments
 
         prompts: list[str] = []
 
@@ -3115,10 +3115,10 @@ class TestRegisterCodecErrors:
     """register_codec raises for reserved names and duplicates."""
 
     def _make_codec(self, name: str) -> OutputCodec:
-        from agm.agl.runtime.codec import OutputCodec, ParseResult, TextCodec
-        from agm.agl.runtime.contract import OutputContract
-        from agm.agl.semantics.type_table import TypeTable
-        from agm.agl.semantics.values import TextValue
+        from agnette.agl.runtime.codec import OutputCodec, ParseResult, TextCodec
+        from agnette.agl.runtime.contract import OutputContract
+        from agnette.agl.semantics.type_table import TypeTable
+        from agnette.agl.semantics.values import TextValue
 
         class _Codec(OutputCodec):
             @property
@@ -3271,7 +3271,7 @@ class TestPrepareProgram:
         self, tmp_path: pathlib.Path
     ) -> None:
         """A module program with no imports produces a valid PreparedProgram."""
-        from agm.agl.pipeline import PreparedProgram
+        from agnette.agl.pipeline import PreparedProgram
 
         roots = agl_roots()
         prepared = prepare_inline_code("let x = 1\nx", entry_path=None, roots=roots)
@@ -3460,7 +3460,7 @@ class TestDiscoverProgramsGraph:
         assert discovery.programs[0].parameters[0].name == "name"
 
     def test_discover_programs_records_module_and_paths(self, tmp_path: pathlib.Path) -> None:
-        from agm.agl.modules.roots import RootSet
+        from agnette.agl.modules.roots import RootSet
 
         (tmp_path / "helper.agl").write_text("program def helper() -> unit = ()\n")
         source = (
@@ -3520,7 +3520,7 @@ class TestPrepareProgramFailures:
 
         related = SourceSpan(2, 1, 2, 2, 2, 3)
         error = AglError("parse failed", related=(("constraint", related),))
-        with patch("agm.agl.modules.loader.parse_program_seeded", side_effect=error):
+        with patch("agnette.agl.modules.loader.parse_program_seeded", side_effect=error):
             prepared = prepare_inline_code("let x = 1")
 
         assert prepared.diagnostics[0].related[0].message == "constraint"
@@ -3531,7 +3531,7 @@ class TestPrepareProgramFailures:
 
         related = SourceSpan(2, 1, 2, 2, 2, 3)
         error = AglError("scope failed", related=(("constraint", related),))
-        with patch("agm.agl.scope.program.resolve_program", side_effect=error):
+        with patch("agnette.agl.scope.program.resolve_program", side_effect=error):
             prepared = prepare_inline_code("let x = 1")
 
         assert prepared.diagnostics[0].related[0].message == "constraint"
@@ -3543,7 +3543,7 @@ class TestPrepareProgramFailures:
         roots = agl_roots(tmp_path.resolve())
         related = SourceSpan(2, 1, 2, 2, 2, 3)
         error = AglError("load failed", related=(("constraint", related),))
-        with patch("agm.agl.modules.loader.build_repl_graph", side_effect=error):
+        with patch("agnette.agl.modules.loader.build_repl_graph", side_effect=error):
             prepared = prepare_inline_code("let x = 1", entry_path=None, roots=roots)
 
         assert prepared.diagnostics[0].related[0].message == "constraint"
@@ -3557,7 +3557,7 @@ class TestPrepareProgramFailures:
         roots = agl_roots(tmp_path.resolve())
         related = SourceSpan(2, 1, 2, 2, 2, 3)
         error = AglError("scope failed", related=(("constraint", related),))
-        with patch("agm.agl.scope.program.resolve_program", side_effect=error):
+        with patch("agnette.agl.scope.program.resolve_program", side_effect=error):
             prepared = prepare_inline_code("let x = 1", entry_path=None, roots=roots)
 
         assert prepared.diagnostics[0].related[0].message == "constraint"
@@ -3584,7 +3584,10 @@ class TestPrepareProgramFailures:
 
     @pytest.mark.parametrize(
         "stage",
-        ("agm.agl.modules.loader.build_repl_graph", "agm.agl.scope.program.resolve_program"),
+        (
+            "agnette.agl.modules.loader.build_repl_graph",
+            "agnette.agl.scope.program.resolve_program",
+        ),
     )
     def test_prepare_program_propagates_an_internal_failure(
         self, tmp_path: pathlib.Path, stage: str
@@ -3605,7 +3608,9 @@ class TestPrepareProgramFailures:
 
         prepared = prepare_inline_code("let x = 1\nx", entry_path=None, roots=agl_roots())
         with (
-            patch("agm.agl.typecheck.program.check_program", side_effect=RuntimeError("internal")),
+            patch(
+                "agnette.agl.typecheck.program.check_program", side_effect=RuntimeError("internal")
+            ),
             pytest.raises(RuntimeError),
         ):
             PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None).discover_programs(
@@ -3627,7 +3632,7 @@ class TestDiscoverProgramsFailures:
         fake_checked = MagicMock()
         fake_checked.modules = {}
 
-        with patch("agm.agl.typecheck.program.check_program", return_value=fake_checked):
+        with patch("agnette.agl.typecheck.program.check_program", return_value=fake_checked):
             discovery = rt.discover_programs(prepared)
         assert len(discovery.diagnostics) >= 1
         assert "Entry module" in discovery.diagnostics[0].message
@@ -3636,12 +3641,12 @@ class TestDiscoverProgramsFailures:
         """discover_programs returns diagnostics when typecheck fails."""
         from unittest.mock import patch
 
-        from agm.agl.typecheck import AglTypeError
+        from agnette.agl.typecheck import AglTypeError
 
         prepared = prepare_inline_code('def f(x: int) -> text = "bad"\nlet r = f(1)\nprint r')
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         with patch(
-            "agm.agl.typecheck.program.check_program", side_effect=AglTypeError("type error")
+            "agnette.agl.typecheck.program.check_program", side_effect=AglTypeError("type error")
         ):
             discovery = rt.discover_programs(prepared)
         assert discovery.checked is None
@@ -3654,7 +3659,7 @@ class TestDiscoverProgramsFailures:
         prepared = prepare_inline_code("let x = 1")
         related = SourceSpan(2, 1, 2, 2, 2, 3)
         error = AglError("type failed", related=(("constraint", related),))
-        with patch("agm.agl.typecheck.program.check_program", side_effect=error):
+        with patch("agnette.agl.typecheck.program.check_program", side_effect=error):
             discovery = PipelineDriver(
                 resolve_agent_spec=None, get_sandbox_context=None
             ).discover_programs(prepared)
@@ -3667,7 +3672,7 @@ class TestDiscoverProgramsFailures:
         """The graph typecheck boundary uses AglError.to_diagnostic()."""
         from unittest.mock import MagicMock, patch
 
-        from agm.agl.pipeline import PreparedProgram
+        from agnette.agl.pipeline import PreparedProgram
 
         roots = agl_roots()
         prepared = PreparedProgram(
@@ -3680,7 +3685,7 @@ class TestDiscoverProgramsFailures:
         )
         related = SourceSpan(2, 1, 2, 2, 2, 3)
         error = AglError("type failed", related=(("constraint", related),))
-        with patch("agm.agl.typecheck.program.check_program", side_effect=error):
+        with patch("agnette.agl.typecheck.program.check_program", side_effect=error):
             discovery = PipelineDriver(
                 resolve_agent_spec=None, get_sandbox_context=None
             ).discover_programs(prepared)
@@ -3693,8 +3698,8 @@ class TestRunPreparedEdgeCases:
 
     def test_run_prepared_with_precomputed_compiled(self) -> None:
         """run_prepared skips static passes when a compiled artifact is passed."""
-        from agm.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+        from agnette.agl.typecheck.program import check_program
 
         prepared = prepare_inline_code("let x = 1\nx")
         assert prepared.resolved is not None
@@ -3710,11 +3715,13 @@ class TestRunPreparedEdgeCases:
         """run_prepared exits early when typecheck fails (checked is None)."""
         from unittest.mock import patch
 
-        from agm.agl.typecheck import AglTypeError
+        from agnette.agl.typecheck import AglTypeError
 
         prepared = prepare_inline_code("let x = 1\nx")
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        with patch("agm.agl.typecheck.program.check_program", side_effect=AglTypeError("tc fail")):
+        with patch(
+            "agnette.agl.typecheck.program.check_program", side_effect=AglTypeError("tc fail")
+        ):
             result = rt.run_prepared(prepared)
         assert result.ok is False
         assert any("tc fail" in d.message for d in result.diagnostics)
@@ -3723,7 +3730,7 @@ class TestRunPreparedEdgeCases:
         """run_prepared exits early when custom pre-lower materialization fails."""
         from unittest.mock import patch
 
-        from agm.agl.runtime.codec import TextCodec
+        from agnette.agl.runtime.codec import TextCodec
 
         class BadCodec(TextCodec):
             @property
@@ -3738,7 +3745,9 @@ class TestRunPreparedEdgeCases:
             resolve_agent_spec=None, agent_dispatcher=lambda req: "ok", get_sandbox_context=None
         )
         rt.register_codec(BadCodec())
-        with patch("agm.agl.runtime.contract.materialize_contract", side_effect=ValueError("bad")):
+        with patch(
+            "agnette.agl.runtime.contract.materialize_contract", side_effect=ValueError("bad")
+        ):
             result = rt.run_prepared(prepared)
         assert result.ok is False
         assert any("Contract error" in d.message for d in result.diagnostics)
@@ -3747,9 +3756,9 @@ class TestRunPreparedEdgeCases:
         self, tmp_path: pathlib.Path
     ) -> None:
         """A precompiled graph binds and executes a program's own value arguments."""
-        from agm.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-        from agm.agl.runtime.arguments import ProgramArguments
-        from agm.agl.typecheck.program import check_program as real_check_program
+        from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+        from agnette.agl.runtime.arguments import ProgramArguments
+        from agnette.agl.typecheck.program import check_program as real_check_program
 
         roots = agl_roots()
         prepared = prepare_inline_code(
@@ -3801,7 +3810,7 @@ print(B::bot.ask("second"))
 """
 
         def dispatch(request: AgentRequest) -> str:
-            from agm.agent.spec import AgentCommand
+            from agnette.agent.spec import AgentCommand
 
             assert isinstance(request.agent, AgentCommand)
             return {"a-bot": "from A", "b-bot": "from B"}[request.agent.command]
@@ -3816,7 +3825,7 @@ print(B::bot.ask("second"))
         assert capsys.readouterr().out == "from A\nfrom B\n"
 
     def test_scoped_agent_values_publish_distinct_full_path_names(self) -> None:
-        from agm.agl.semantics.values import RecordValue
+        from agnette.agl.semantics.values import RecordValue
 
         source = """\
 scope A
@@ -3837,7 +3846,7 @@ end B
         assert result.bindings["A::bot"] != result.bindings["B::bot"]
 
     def test_scoped_agent_value_does_not_mask_a_same_named_root_binding(self) -> None:
-        from agm.agl.semantics.values import IntValue, RecordValue
+        from agnette.agl.semantics.values import IntValue, RecordValue
 
         source = """\
 let bot = 42
@@ -3869,7 +3878,7 @@ class TestScopedBindingPublicName:
     """
 
     def test_scoped_let_and_var_publish_full_path_names(self) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         source = """\
 let x = 1
@@ -3891,7 +3900,7 @@ end A
         assert result.bindings["A::y"] == IntValue(20)
 
     def test_shorthand_and_region_spellings_publish_the_same_name(self) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         region_source = """\
 scope A

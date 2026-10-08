@@ -1,4 +1,4 @@
-"""Direct tests for the UI-free REPL loop core (``agm.agl.repl.loop``).
+"""Direct tests for the UI-free REPL loop core (``agnette.agl.repl.loop``).
 
 Both front ends (the prompt_toolkit console and the plain line console) drive
 this module and are exercised through their own test files
@@ -7,7 +7,7 @@ which cover ``run_repl_loop`` end to end with a real ``on_theme_change`` hook.
 This file covers what a front end cannot: calling :func:`run_repl_loop`
 directly with a bare reader/writer seam, including the case neither front end
 exercises — no ``on_theme_change`` hook at all — plus direct, driver-free tests
-of the other names ``agm.agl.repl.loop`` exports: :func:`format_banner`,
+of the other names ``agnette.agl.repl.loop`` exports: :func:`format_banner`,
 :func:`is_incomplete`, and :func:`has_runnable_statements`.
 """
 
@@ -17,8 +17,8 @@ from collections.abc import Callable
 
 import pytest
 
-from agm.agl.repl import ReplSession
-from agm.agl.repl.loop import (
+from agnette.agl.repl import ReplSession
+from agnette.agl.repl.loop import (
     format_banner,
     has_runnable_statements,
     is_incomplete,

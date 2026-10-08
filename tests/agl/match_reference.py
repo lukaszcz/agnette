@@ -11,11 +11,11 @@ import decimal
 from collections.abc import Mapping
 from typing import assert_never
 
-from agm.agl.eval.arith import value_eq
-from agm.agl.ir.ids import NominalId
-from agm.agl.matchcompile.compiler import CompiledMatchSite
-from agm.agl.matchcompile.matrix import PatternMatrix
-from agm.agl.matchcompile.model import (
+from agnette.agl.eval.arith import value_eq
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.matchcompile.compiler import CompiledMatchSite
+from agnette.agl.matchcompile.matrix import PatternMatrix
+from agnette.agl.matchcompile.model import (
     BoolConstructor,
     CaseSite,
     LiteralConstructor,
@@ -25,10 +25,10 @@ from agm.agl.matchcompile.model import (
     PatternCell,
     WildcardCell,
 )
-from agm.agl.matchcompile.normalize import CheckedPatternOwner
-from agm.agl.semantics.type_table import TypeTable
-from agm.agl.semantics.types import EnumType, RecordType, Type
-from agm.agl.semantics.values import (
+from agnette.agl.matchcompile.normalize import CheckedPatternOwner
+from agnette.agl.semantics.type_table import TypeTable
+from agnette.agl.semantics.types import EnumType, RecordType, Type
+from agnette.agl.semantics.values import (
     BoolValue,
     DecimalValue,
     IntValue,
@@ -37,7 +37,7 @@ from agm.agl.semantics.values import (
     TextValue,
     Value,
 )
-from agm.agl.syntax.nodes import (
+from agnette.agl.syntax.nodes import (
     AsPattern,
     BoolLit,
     Case,

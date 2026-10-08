@@ -12,38 +12,38 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.nodes import IrBlock, IrConstUnit, IrExpr
-from agm.agl.ir.program import ExecutableProgram, IrFunctionBody
-from agm.agl.lexer import spaced_qualifier_collector
-from agm.agl.lower.program import lower_program
-from agm.agl.matchcompile import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.nodes import IrBlock, IrConstUnit, IrExpr
+from agnette.agl.ir.program import ExecutableProgram, IrFunctionBody
+from agnette.agl.lexer import spaced_qualifier_collector
+from agnette.agl.lower.program import lower_program
+from agnette.agl.matchcompile import (
     CompiledMatchSite,
     MatchCompiledProgram,
     compile_program_matches,
 )
-from agm.agl.matchcompile.stage import _compile_owner_sites, _validate_sites
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.loader import ModuleGraph, build_repl_graph, parse_entry_module
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import parse_program_seeded
-from agm.agl.pipeline import PipelineDriver, RunError, RunResult
-from agm.agl.runtime.agents import AgentFn
-from agm.agl.runtime.request import AgentRequest, AgentResponse
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import ScopeNode
-from agm.agl.self_validation import self_validation_enabled
-from agm.agl.semantics.values import Value
-from agm.agl.typecheck.env import CheckedModule
-from agm.agl.typecheck.program import CheckedProgram, check_program
-from agm.core.process import ProcessCaptureResult
+from agnette.agl.matchcompile.stage import _compile_owner_sites, _validate_sites
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.loader import ModuleGraph, build_repl_graph, parse_entry_module
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import parse_program_seeded
+from agnette.agl.pipeline import PipelineDriver, RunError, RunResult
+from agnette.agl.runtime.agents import AgentFn
+from agnette.agl.runtime.request import AgentRequest, AgentResponse
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import ScopeNode
+from agnette.agl.self_validation import self_validation_enabled
+from agnette.agl.semantics.values import Value
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import CheckedProgram, check_program
+from agnette.core.process import ProcessCaptureResult
 from tests._agl_helpers import agl_roots, run_inline_code
 from tests._process_helpers import shell_command_from_argv
 from tests.agl.module_graph import build_module_graph, build_module_graph_from_program, load_graph
 
 if TYPE_CHECKING:
-    from agm.sandbox.prepare import SandboxContext
+    from agnette.sandbox.prepare import SandboxContext
 
 _REPO_STDLIB_ROOT = Path(__file__).resolve().parents[2] / "packages" / "stdlib"
 
@@ -166,10 +166,10 @@ def compile_checked_module(checked: CheckedModule) -> MatchCompiledModule:
     For a hand-resolved or virtual-path module (see
     :func:`~tests.agl.module_graph.resolve_and_check_program_ast`). Production
     compiles a whole program
-    (:func:`~agm.agl.matchcompile.compile_program_matches`); this runs the same
+    (:func:`~agnette.agl.matchcompile.compile_program_matches`); this runs the same
     per-module ``_compile_owner_sites`` step and asserts every site compiled
     cleanly. Callers that need a rejected (non-exhaustive/refutable) result
-    call :func:`~agm.agl.matchcompile.stage._compile_owner_sites` directly.
+    call :func:`~agnette.agl.matchcompile.stage._compile_owner_sites` directly.
     """
     sites, issues = _compile_owner_sites(checked)
     assert not issues
@@ -213,7 +213,7 @@ def nominal_id_for(program: ExecutableProgram, display_name: str) -> NominalId:
     """Return the ``NominalId`` a lowered *program* uses for *display_name*.
 
     Nominal identity is an opaque per-declaration handle (see
-    ``agm.agl.ir.ids.NominalId``), so a test asserting against lowered IR
+    ``agnette.agl.ir.ids.NominalId``), so a test asserting against lowered IR
     output cannot construct the expected id from a name and scope path: it
     looks the identity up from the program's own ``nominals`` table by the
     declaration's scoped source spelling (``NominalDescriptor.display_name``).
@@ -570,7 +570,7 @@ def _make_scripted_registry(
     )
 
     def dispatch(request: AgentRequest) -> AgentResponse:
-        from agm.agent.spec import AgentCommand
+        from agnette.agent.spec import AgentCommand
 
         if not isinstance(request.agent, AgentCommand):
             assert default is not None
@@ -678,7 +678,7 @@ def run_inline_ir_with_shell(
     get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
 ) -> tuple[RunResult, str]:
     """Run *source* like :func:`run_inline_ir` with every shell process faked by *shell_fake*."""
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell_fake):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell_fake):
         return run_inline_ir(
             source,
             process_environment=process_environment,

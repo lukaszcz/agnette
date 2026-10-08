@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agm.cli_support.execution_options import EXECUTION_OPTION_SPECS
+from agnette.agm.cli_support.execution_options import EXECUTION_OPTION_SPECS
 
 #: Every flag spelling of the shared execution options.
 EXECUTION_OPTION_FLAGS = frozenset(

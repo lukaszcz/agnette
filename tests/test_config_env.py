@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.commands.config.env import shell_env_delta
-from agm.core.env import source_env_files
+from agnette.agm.commands.config.env import shell_env_delta
+from agnette.core.env import source_env_files
 
 
 def test_shell_env_delta_exports_changed_values_with_shell_quoting() -> None:

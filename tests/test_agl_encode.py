@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from agm.agl.eval.ir_interpreter import _apply_coercion
-from agm.agl.ir import contracts
-from agm.agl.ir.contracts import (
+from agnette.agl.eval.ir_interpreter import _apply_coercion
+from agnette.agl.ir import contracts
+from agnette.agl.ir.contracts import (
     ArrayEncode,
     DictEncode,
     EncodeDefinition,
@@ -26,23 +26,23 @@ from agm.agl.ir.contracts import (
     TypeParameterEncode,
     VariantEncode,
 )
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.operations import ToJson
-from agm.agl.ir.reserved_nominals import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.operations import ToJson
+from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     require_reserved_nominal_id,
 )
-from agm.agl.modules.ids import ENTRY_ID, RESERVED_ID
-from agm.agl.runtime.arguments import decode_param_value
-from agm.agl.runtime.serialize import (
+from agnette.agl.modules.ids import ENTRY_ID, RESERVED_ID
+from agnette.agl.runtime.arguments import decode_param_value
+from agnette.agl.runtime.serialize import (
     WalkTags,
     dumps_exact,
     encode_value,
     value_to_json_obj,
 )
-from agm.agl.semantics.external_names import ExternalName
-from agm.agl.semantics.type_table import TypeDef, TypeTable
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.external_names import ExternalName
+from agnette.agl.semantics.type_table import TypeDef, TypeTable
+from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
     DecimalType,
@@ -55,7 +55,7 @@ from agm.agl.semantics.types import (
     TextType,
     TypeVarType,
 )
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     DecimalValue,
@@ -66,13 +66,13 @@ from agm.agl.semantics.values import (
     RecordValue,
     TextValue,
 )
-from agm.agl.type_schema import (
+from agnette.agl.type_schema import (
     _build_template_encode_plan,
     build_encode_plan,
     build_exception_field_encodes,
     build_param_decoder,
 )
-from agm.agl.zones import ParamZone
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import (
     derive_schema,
     enum_type,
@@ -93,8 +93,8 @@ _NO_EXCEPTIONS: dict[NominalId, tuple[ExceptionFieldEncode, ...]] = {}
 
 def _walk_tags_from(type_table: TypeTable, *handles: "RecordType | ExceptionType") -> WalkTags:
     """Build :class:`WalkTags` from *handles*' real fields/JSON-names, read off *type_table*."""
-    from agm.agl.lower.nominal_descriptors import exception_descriptor, record_descriptor
-    from agm.agl.runtime.serialize import _walk_tags
+    from agnette.agl.lower.nominal_descriptors import exception_descriptor, record_descriptor
+    from agnette.agl.runtime.serialize import _walk_tags
 
     nominals = {}
     for handle in handles:
@@ -597,7 +597,7 @@ def test_encode_plan_distinguishes_record_and_enum_slots_for_a_shared_member() -
 
 
 def test_encode_plan_detects_record_exception_and_enum_closed_cycles() -> None:
-    from agm.agl.semantics.cycles import AglCyclicValue
+    from agnette.agl.semantics.cycles import AglCyclicValue
 
     record = RecordValue(NominalId(1), {})
     record.fields["next"] = record

@@ -1,0 +1,283 @@
+"""Syntactic type-expression nodes for the AgL AST.
+
+Every TypeExpr node is an immutable frozen dataclass.  ``span`` and
+``node_id`` are always present but excluded from equality/hashing so that two
+structurally identical type expressions compare equal regardless of where they
+appear in the source.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
+
+from agnette.agl.syntax.spans import SourceSpan
+
+if TYPE_CHECKING:
+    from agnette.agl.syntax.nodes import QualifierChain
+
+# The builtin type spellings that lex as a plain ``NAME`` in type position
+# (the parser maps them to primitive/container TypeExpr nodes — see the
+# ``prim_or_name``/``applied_type`` transformers). Consumers that classify
+# identifiers without a parse — notably the REPL syntax highlighter — use this
+# set to recognise the builtin types case-faithfully (identifier capitalization
+# carries no meaning).
+BUILTIN_TYPE_NAMES: frozenset[str] = frozenset(
+    {"text", "json", "bool", "int", "decimal", "unit", "array", "dict"}
+)
+
+# The type-parameter wildcard occupies a source-level slot without introducing
+# a type variable.  A declaration retains every slot for later
+# declaration-specific interpretation (notably method receivers), while
+# semantic binding sites read its derived ``type_params``.
+TYPE_PARAMETER_WILDCARD = "_"
+
+
+@dataclass(frozen=True, slots=True)
+class TextT:
+    """The ``text`` primitive type."""
+
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class JsonT:
+    """The ``json`` primitive type (any JSON value)."""
+
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class BoolT:
+    """The ``bool`` primitive type."""
+
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class IntT:
+    """The ``int`` primitive type."""
+
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DecimalT:
+    """The ``decimal`` primitive type (exact fixed-point)."""
+
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class NameT:
+    """A named type reference (record, enum, or type-alias name)."""
+
+    name: str
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+    qualifier: QualifierChain | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArrayT:
+    """An ``array[T]`` type."""
+
+    elem: TypeExpr
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DictT:
+    """A ``dict[K, V]`` type, well-formed for any key type expression."""
+
+    key: TypeExpr
+    value: TypeExpr
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class UnitT:
+    """The ``unit`` primitive type — the type of side-effecting expressions."""
+
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class FuncT:
+    """A function type ``(A, B) -> C`` — positional parameters only in the type.
+
+    ``params`` is the ordered tuple of parameter types; ``result`` is the return type.
+    Named/optional arguments are erased from the value type (they only matter at
+    declared-name call sites).
+    """
+
+    params: tuple[TypeExpr, ...]
+    result: TypeExpr
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedT:
+    """A type application ``Name[args]`` or qualified ``Name[args]``."""
+
+    name: str
+    args: tuple[TypeExpr, ...]
+    span: SourceSpan = field(compare=False)
+    node_id: int = field(compare=False)
+    qualifier: QualifierChain | None = None
+
+
+# Closed union of all type-expression nodes.
+TypeExpr = (
+    TextT | JsonT | BoolT | IntT | DecimalT | NameT | ArrayT | DictT | UnitT | FuncT | AppliedT
+)
+
+
+def named_builtin_type(type_expr: TypeExpr) -> NameT | AppliedT | None:
+    """Return built-in type *type_expr* as the type name it is written with; ``None`` otherwise.
+
+    ``text`` is the name ``text``, ``array[int]`` the name ``array`` applied to
+    ``int``; a function type or a declared type name is no built-in's name.
+    """
+    span, node_id = type_expr.span, type_expr.node_id
+    if isinstance(type_expr, ArrayT):
+        return AppliedT("array", (type_expr.elem,), span, node_id)
+    if isinstance(type_expr, DictT):
+        return AppliedT("dict", (type_expr.key, type_expr.value), span, node_id)
+    if isinstance(type_expr, (TextT, JsonT, BoolT, IntT, DecimalT, UnitT)):
+        return NameT(render_type_expr(type_expr), span, node_id)
+    return None
+
+
+def substitute_type_names(type_expr: TypeExpr, bound: Mapping[str, TypeExpr]) -> TypeExpr:
+    """Return *type_expr* with each unqualified name *bound* maps replaced by its type."""
+    if isinstance(type_expr, NameT):
+        return (
+            type_expr if type_expr.qualifier is not None else bound.get(type_expr.name, type_expr)
+        )
+    if isinstance(type_expr, AppliedT):
+        return replace(
+            type_expr, args=tuple(substitute_type_names(arg, bound) for arg in type_expr.args)
+        )
+    if isinstance(type_expr, ArrayT):
+        return replace(type_expr, elem=substitute_type_names(type_expr.elem, bound))
+    if isinstance(type_expr, DictT):
+        return replace(
+            type_expr,
+            key=substitute_type_names(type_expr.key, bound),
+            value=substitute_type_names(type_expr.value, bound),
+        )
+    if isinstance(type_expr, FuncT):
+        return replace(
+            type_expr,
+            params=tuple(substitute_type_names(param, bound) for param in type_expr.params),
+            result=substitute_type_names(type_expr.result, bound),
+        )
+    return type_expr
+
+
+def member_type_params(
+    field_types: Iterable[TypeExpr], enum_params: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Return the enum parameters captured by an inline member record.
+
+    Inline enum members are record declarations in their own right, so they
+    carry only the owner parameters their field syntax mentions.
+    """
+    used: set[str] = set()
+
+    def visit(expr: TypeExpr) -> None:
+        if isinstance(expr, NameT):
+            if expr.qualifier is None:
+                used.add(expr.name)
+        elif isinstance(expr, AppliedT):
+            if expr.qualifier is None:
+                used.add(expr.name)
+            for arg in expr.args:
+                visit(arg)
+        elif isinstance(expr, ArrayT):
+            visit(expr.elem)
+        elif isinstance(expr, DictT):
+            visit(expr.key)
+            visit(expr.value)
+        elif isinstance(expr, FuncT):
+            for param in expr.params:
+                visit(param)
+            visit(expr.result)
+        qualifier = expr.qualifier if isinstance(expr, (NameT, AppliedT)) else None
+        if qualifier is not None:
+            for segment in qualifier.segments:
+                for arg in segment.type_args or ():
+                    visit(arg)
+
+    for field_type in field_types:
+        visit(field_type)
+    return tuple(param for param in enum_params if param in used)
+
+
+def render_type_expr(type_expr: TypeExpr, *, parenthesize_function: bool = False) -> str:
+    """Render a canonical, source-level spelling of a syntactic type expression."""
+    if isinstance(type_expr, TextT):
+        return "text"
+    if isinstance(type_expr, JsonT):
+        return "json"
+    if isinstance(type_expr, BoolT):
+        return "bool"
+    if isinstance(type_expr, IntT):
+        return "int"
+    if isinstance(type_expr, DecimalT):
+        return "decimal"
+    if isinstance(type_expr, UnitT):
+        return "unit"
+    if isinstance(type_expr, ArrayT):
+        return f"array[{render_type_expr(type_expr.elem)}]"
+    if isinstance(type_expr, DictT):
+        key = render_type_expr(type_expr.key)
+        return f"dict[{key}, {render_type_expr(type_expr.value)}]"
+    if isinstance(type_expr, FuncT):
+        if not type_expr.params:
+            params = "()"
+        elif len(type_expr.params) == 1:
+            params = render_type_expr(type_expr.params[0], parenthesize_function=True)
+        else:
+            params = f"({', '.join(render_type_expr(param) for param in type_expr.params)})"
+        rendered = f"{params} -> {render_type_expr(type_expr.result)}"
+        return f"({rendered})" if parenthesize_function else rendered
+    args = (
+        "[" + ", ".join(render_type_expr(arg) for arg in type_expr.args) + "]"
+        if isinstance(type_expr, AppliedT)
+        else ""
+    )
+    return render_qualified_name(type_expr.qualifier, type_expr.name) + args
+
+
+def render_qualifier_path(qualifier: QualifierChain) -> str:
+    """Render *qualifier*'s anchor and segments, without its member, as written."""
+    anchor = "" if qualifier.anchor is None else qualifier.anchor.value
+    return anchor + "::".join(
+        segment.name
+        + (
+            "[" + ", ".join(render_type_expr(arg) for arg in segment.type_args) + "]"
+            if segment.type_args is not None
+            else ""
+        )
+        for segment in qualifier.segments
+    )
+
+
+def render_qualified_name(qualifier: QualifierChain | None, name: str) -> str:
+    """Render *name* behind its optional *qualifier* as written."""
+    if qualifier is None:
+        return name
+    path = render_qualifier_path(qualifier)
+    return f"{path}::{name}" if qualifier.segments else f"{path}{name}"

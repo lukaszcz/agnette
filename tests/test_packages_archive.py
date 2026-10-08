@@ -15,9 +15,9 @@ from typing import IO, cast
 
 import pytest
 
-import agm.packages.archive as package_archive
-import agm.packages.distribution as package_distribution
-from agm.packages.archive import (
+import agnette.packages.archive as package_archive
+import agnette.packages.distribution as package_distribution
+from agnette.packages.archive import (
     ArchiveError,
     ArchiveMetadata,
     extract_archive,
@@ -25,9 +25,9 @@ from agm.packages.archive import (
     verify_archive_discipline,
     write_archive,
 )
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import CommandSpec, expanded_commands
-from agm.packages.record import RecordEntry, serialize_record
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import CommandSpec, expanded_commands
+from agnette.packages.record import RecordEntry, serialize_record
 from tests._package_helpers import archive_contents, write_zip
 from tests._parse_counts import parse_counts
 

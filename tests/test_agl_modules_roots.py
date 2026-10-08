@@ -1,4 +1,4 @@
-"""Tests for RootSet and assemble_roots in src/agm/agl/modules/roots.py."""
+"""Tests for RootSet and assemble_roots in src/agnette/agl/modules/roots.py."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.roots import RootSet, assemble_roots
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import load_manifest
-from agm.packages.model import PackageInfo
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.roots import RootSet, assemble_roots
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import load_manifest
+from agnette.packages.model import PackageInfo
 
 
 def _package_with_a_rogue_module(tmp_path: Path, name: str = "demo") -> PackageInfo:
@@ -503,7 +503,7 @@ class TestAssembleRoots:
         must not interpolate the already-resolved value a second time, or the
         escape is defeated and the wrong directory is searched.
         """
-        from agm.config.module_roots import load_module_roots
+        from agnette.config.module_roots import load_module_roots
 
         monkeypatch.setenv("TEAM", "alpha")
         home = tmp_path / "home"
@@ -540,7 +540,7 @@ class TestAssembleRoots:
         must remain literal — ``assemble_roots`` must not scan and expand it
         again against the environment.
         """
-        from agm.config.module_roots import load_module_roots
+        from agnette.config.module_roots import load_module_roots
 
         monkeypatch.setenv("LIB_BASE", str(tmp_path / "srv" / "%{TEAM}"))
         monkeypatch.setenv("TEAM", "core")

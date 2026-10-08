@@ -21,8 +21,8 @@ The stage visits every case in every reachable module. The result wraps the chec
 
 ## Code Entry Points
 
-- `src/agm/agl/matchcompile/model.py`, `normalize.py` — constructor identities, checked patterns, closed signatures.
-- `src/agm/agl/matchcompile/matrix.py`, `compiler.py`, `diagnostics.py` — decomposition, decision DAGs, issues and witnesses.
-- `src/agm/agl/matchcompile/stage.py` — whole-program artifacts and diagnostic adaptation.
-- `src/agm/agl/lower/` — the consumer ([execution/lowering.md](../execution/lowering.md)).
+- `src/agnette/agl/matchcompile/model.py`, `normalize.py` — constructor identities, checked patterns, closed signatures.
+- `src/agnette/agl/matchcompile/matrix.py`, `compiler.py`, `diagnostics.py` — decomposition, decision DAGs, issues and witnesses.
+- `src/agnette/agl/matchcompile/stage.py` — whole-program artifacts and diagnostic adaptation.
+- `src/agnette/agl/lower/` — the consumer ([execution/lowering.md](../execution/lowering.md)).
 - Tests: `tests/test_agl_matchcompile_*.py`.

@@ -120,7 +120,7 @@ A `return` inside a lambda returns from that lambda, not from an enclosing
 the program top level or in parameter defaults.
 
 Like `raise`, `return` is admitted directly in an inline branch or `catch`
-body (`if ready => return x else => 0`) and in a loop body. It remains an
+body (`if ready => return x else => 0`) and in a loop body. It is an
 `expr`-level form, so in an `or_expr` position — an `until` condition, a
 binder's right-hand side, an operand — it must be parenthesized. A `return`
 followed by a newline is a bare `return`; the operand never continues onto the
@@ -664,7 +664,7 @@ def fst[A, B](a: A, b: B) -> A = a
 
 An ordinary function in a named scope or in a module with a path identity may
 use the same name as a built-in function because it is reached through its own
-qualified namespace. The bare built-in spelling remains reserved, even after a
+qualified namespace. The bare built-in spelling is reserved, even after a
 `use` declaration makes that scope's or module's members bare:
 
 <!-- agl-check: fragment -->

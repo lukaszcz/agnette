@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.scope.symbols import UnknownQualifierError
-from agm.agl.typecheck import AglTypeError
+from agnette.agl.scope.symbols import UnknownQualifierError
+from agnette.agl.typecheck import AglTypeError
 from tests.agl.qualifier_support import (
     Probe,
     Scenario,

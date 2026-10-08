@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agent.spec import AgentCommand
-from agm.agl.runtime.codec import JsonCodec
-from agm.agl.runtime.contract import OutputContract
-from agm.agl.runtime.request import (
+from agnette.agent.spec import AgentCommand
+from agnette.agl.runtime.codec import JsonCodec
+from agnette.agl.runtime.contract import OutputContract
+from agnette.agl.runtime.request import (
     AgentRequest,
     ValidationError,
     compose_corrective_follow_up,

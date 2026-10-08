@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.ir.contracts import TypeNode, TypeNodeKind, TypeNodeRef, TypeTree, TypeTreeEntry
-from agm.agl.ir.ids import ContractId, FunctionId
-from agm.agl.ir.nodes import (
+from agnette.agl.ir.contracts import TypeNode, TypeNodeKind, TypeNodeRef, TypeTree, TypeTreeEntry
+from agnette.agl.ir.ids import ContractId, FunctionId
+from agnette.agl.ir.nodes import (
     IrConstInt,
     IrConstText,
     IrContract,
@@ -30,10 +30,10 @@ from agm.agl.ir.nodes import (
     IrLoad,
     UseDefault,
 )
-from agm.agl.ir.program import ExecutableProgram, ExternFunctionBody
-from agm.agl.parser import parse_program
-from agm.agl.scope.program import resolve_program
-from agm.agl.semantics.types import (
+from agnette.agl.ir.program import ExecutableProgram, ExternFunctionBody
+from agnette.agl.parser import parse_program
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
     EnumType,
@@ -43,8 +43,8 @@ from agm.agl.semantics.types import (
     TextType,
     Type,
 )
-from agm.agl.semantics.values import TextValue
-from agm.agl.syntax.nodes import (
+from agnette.agl.semantics.values import TextValue
+from agnette.agl.syntax.nodes import (
     Block,
     Call,
     Expr,
@@ -54,9 +54,9 @@ from agm.agl.syntax.nodes import (
     TypeApply,
     VarRef,
 )
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck import AglTypeError, CheckedModule, FunctionSignature, check_program
-from agm.agl.typecheck.env import OutputContractSpec
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck import AglTypeError, CheckedModule, FunctionSignature, check_program
+from agnette.agl.typecheck.env import OutputContractSpec
 from tests.agl.ir_harness import (
     base_caps,
     evaluate_ir_with_externs,

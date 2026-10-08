@@ -46,7 +46,7 @@ supply one but don't assert on its content.
 
 ``program_config_engine_seeds`` partitions a preflighted entry's evaluated
 ``@config`` into its engine-setting seeds, mirroring the production split
-``agm.commands.exec_program`` makes; ``run_inline_code`` uses it so an
+``agnette.agm.commands.exec_program`` makes; ``run_inline_code`` uses it so an
 inline scenario's ``@config`` engine settings reach the interpreter the same
 way the real host applies them.
 
@@ -68,32 +68,37 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agm.agl import PipelineDriver
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.builtin_vars import is_engine_builtin_var_key
-from agm.agl.ir.contracts import DecodePlan, ExceptionFieldEncode
-from agm.agl.ir.ids import Location, NominalId
-from agm.agl.ir.nodes import IrBind, IrConstInt, IrExpr, IrSequence
-from agm.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors, VariantDescriptor
-from agm.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
-from agm.agl.ir.static_keys import StaticBindingKey
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.loader import ModuleGraph
-from agm.agl.modules.roots import RootSet, assemble_roots
-from agm.agl.pipeline import ArgumentPreflight, PreparedProgram, ProgramDiscovery, RunResult
-from agm.agl.repl import EntryResult, ReplSession
-from agm.agl.runtime.arguments import ProgramArguments
-from agm.agl.runtime.engine_config import restamp_engine_setting
-from agm.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
-from agm.agl.scope.program import resolve_program
-from agm.agl.semantics.type_table import (
+from agnette.agl import PipelineDriver
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.builtin_vars import is_engine_builtin_var_key
+from agnette.agl.ir.contracts import DecodePlan, ExceptionFieldEncode
+from agnette.agl.ir.ids import Location, NominalId
+from agnette.agl.ir.nodes import IrBind, IrConstInt, IrExpr, IrSequence
+from agnette.agl.ir.program import (
+    NominalDescriptor,
+    NominalKind,
+    ValueDescriptors,
+    VariantDescriptor,
+)
+from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.loader import ModuleGraph
+from agnette.agl.modules.roots import RootSet, assemble_roots
+from agnette.agl.pipeline import ArgumentPreflight, PreparedProgram, ProgramDiscovery, RunResult
+from agnette.agl.repl import EntryResult, ReplSession
+from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.runtime.engine_config import restamp_engine_setting
+from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.semantics.type_table import (
     BUILTIN_PRELUDE_MEMBER_TYPE_DEFS,
     TypeDef,
     TypeTable,
     create_seeded_type_table,
 )
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.types import (
     EnumType,
     ExceptionType,
     RecordType,
@@ -102,8 +107,8 @@ from agm.agl.semantics.types import (
     free_type_vars,
     transform_type,
 )
-from agm.agl.semantics.values import BoolValue, RecordValue, TextValue, Value
-from agm.agl.syntax import (
+from agnette.agl.semantics.values import BoolValue, RecordValue, TextValue, Value
+from agnette.agl.syntax import (
     AssignStmt,
     Block,
     BuiltinVarDecl,
@@ -122,16 +127,16 @@ from agm.agl.syntax import (
     UseDecl,
     VarDecl,
 )
-from agm.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
-from agm.agl.type_schema import derive_schema_and_decode
-from agm.agl.typecheck.env import CheckedModule
-from agm.agl.typecheck.program import CheckedProgram, check_program
-from agm.agl.zones import ParamZone
-from agm.config.context import ConfigContext
-from agm.sandbox.prepare import SandboxContext, lazy_sandbox_context
+from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
+from agnette.agl.type_schema import derive_schema_and_decode
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import CheckedProgram, check_program
+from agnette.agl.zones import ParamZone
+from agnette.config.context import ConfigContext
+from agnette.sandbox.prepare import SandboxContext, lazy_sandbox_context
 
 if TYPE_CHECKING:
-    from agm.packages.model import PackageInfo
+    from agnette.packages.model import PackageInfo
 
 # Declaration identities for ad-hoc test TypeDefs, distinct from real AST node
 # ids (which start at 0) and from every reserved identity (<= -2, see
@@ -295,7 +300,7 @@ def program_config_engine_seeds(
 ) -> dict[StaticBindingKey, Value]:
     """Partition a preflighted entry's ``@config`` into its engine-setting seeds.
 
-    Mirrors ``agm.commands.exec_program``'s own split of
+    Mirrors ``agnette.agm.commands.exec_program``'s own split of
     ``ArgumentPreflight.program_config`` by ``is_engine_builtin_var_key``,
     restamped onto the executable's own nominal identity, so a scenario
     harness feeds an engine setting from ``@config`` (``std/config::trace``,
@@ -834,7 +839,7 @@ def agl_roots(*paths: Path, include_stdlib: bool = True) -> RootSet:
     """Assemble a search-root set the way a real invocation does.
 
     Every production caller assembles roots through
-    :func:`~agm.agl.modules.roots.assemble_roots`, which designates the
+    :func:`~agnette.agl.modules.roots.assemble_roots`, which designates the
     standard library's path in ``stdlib_roots``.  That designation both mounts
     the library's module tree under ``std`` and tells the loader and the
     process-global caches which modules are library code, so a test that
@@ -988,7 +993,7 @@ def unopened_repl_session(**kwargs: object) -> ReplSession:
 def repl_session(**kwargs: object) -> ReplSession:
     """Build a session over the repository standard library and open it.
 
-    ``agm.commands.repl`` opens a session before accepting an entry, which
+    ``agnette.agm.commands.repl`` opens a session before accepting an entry, which
     loads and type-checks the initial library image; going through
     :meth:`ReplSession.open` here exercises that same startup and lets the
     session reuse the process-wide bootstrap image instead of re-checking the

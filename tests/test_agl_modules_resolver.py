@@ -1,4 +1,4 @@
-"""Tests for ModuleId→path resolution in src/agm/agl/modules/resolver.py."""
+"""Tests for ModuleId→path resolution in src/agnette/agl/modules/resolver.py."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules.errors import AmbiguousModule, ModuleNotFound, ModulePrefixNotFound
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.resolver import expand_wildcard, resolve_module
-from agm.agl.modules.roots import RootSet, assemble_roots
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import load_manifest
-from agm.packages.model import PackageInfo
+from agnette.agl.modules.errors import AmbiguousModule, ModuleNotFound, ModulePrefixNotFound
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.resolver import expand_wildcard, resolve_module
+from agnette.agl.modules.roots import RootSet, assemble_roots
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import load_manifest
+from agnette.packages.model import PackageInfo
 
 # ---------------------------------------------------------------------------
 # Helpers

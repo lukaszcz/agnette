@@ -44,7 +44,7 @@ An import contributes a module's exports, by declaration identity, unfiltered: i
 
 ## Classification
 
-Scope classifies what typecheck will type: a built-in call is recognized by resolving its callee to a `builtin def` declaration, never by spelling, while a runtime built-in outside call position remains an ordinary resolved function reference. Most builtin call names are additionally reserved in bare position (`BUILTIN_CALL_NAMES`), forcing a bare spelling to the builtin even over an in-scope function of that name; `parse`/`try-parse` (`std/value`) are classified through a second, non-reserved name→kind map instead, so `std/json`'s and `std/toml`'s own declarations of those names stay reachable. Binding references retain builtin and method provenance across import aliases so typecheck can distinguish free, static, and unbound-method values. The link-time `resource` form stays call-only because its path must remain visible as a source literal. A `self`-receiver `def` attaches to the type its full path selects at the path's parent step (`lookup_declared`), with no outward fallback; a receiver through an alias is rejected, and only a built-in head takes type arguments; scope classifies built-in receivers (`BuiltinMethodReceiver`) and typecheck reads the result. Each module's resolution publishes the declarations reachable through its routes. `builtin var` bindings are host-backed values, of which only root `std/config` bindings are engine settings. A simple static `let`/`var` is exported like a declaration, and a cross-module reference to it keeps `var`'s mutability. Index and field assignment receivers resolve as ordinary reads; typecheck owns container, field, and mutability rules. A declaration's `{…}` constraint block is checked here: each constrained name must be one of its (or, for a method, its receiver's) type parameters, with no duplicate or redundant pairing.
+Scope classifies what typecheck will type: a built-in call is recognized by resolving its callee to a `builtin def` declaration, never by spelling, while a runtime built-in outside call position is an ordinary resolved function reference. Most builtin call names are additionally reserved in bare position (`BUILTIN_CALL_NAMES`), forcing a bare spelling to the builtin even over an in-scope function of that name; `parse`/`try-parse` (`std/value`) are classified through a second, non-reserved name→kind map instead, so `std/json`'s and `std/toml`'s own declarations of those names stay reachable. Binding references retain builtin and method provenance across import aliases so typecheck can distinguish free, static, and unbound-method values. The link-time `resource` form stays call-only because its path must be a source literal. A `self`-receiver `def` attaches to the type its full path selects at the path's parent step (`lookup_declared`), with no outward fallback; a receiver through an alias is rejected, and only a built-in head takes type arguments; scope classifies built-in receivers (`BuiltinMethodReceiver`) and typecheck reads the result. Each module's resolution publishes the declarations reachable through its routes. `builtin var` bindings are host-backed values, of which only root `std/config` bindings are engine settings. A simple static `let`/`var` is exported like a declaration, and a cross-module reference to it keeps `var`'s mutability. Index and field assignment receivers resolve as ordinary reads; typecheck owns container, field, and mutability rules. A declaration's `{…}` constraint block is checked here: each constrained name must be one of its (or, for a method, its receiver's) type parameters, with no duplicate or redundant pairing.
 
 ## Operators
 
@@ -68,16 +68,16 @@ The fact built from `@command` is `command_registrations`, one command path per 
 
 ## Code Entry Points
 
-- `src/agm/agl/scope/lookup.py` — full-path lookup: steps, anchors, decision, hidden verdict, misses.
-- `src/agm/agl/scope/hiding.py` — what `hiding` removes, by identity, and the shared predicate.
-- `src/agm/agl/scope/sources.py` — `ModuleSources`, what one module's lookups read: enum-member injection, reads beneath an alias, the constructor speller; `scope/uses.py` — `UseReader`, reading `use` targets.
-- `src/agm/agl/scope/resolver.py` — declaration collection, the ordered walk, receiver and built-in classification.
-- `src/agm/agl/scope/imports.py` — import contribution environments and item validation.
-- `src/agm/agl/scope/program.py` — export maps, per-SCC re-export settling (`_converge`, `Denotations`), cross-module resolution, `ResolvedProgram.speller`.
-- `src/agm/agl/scope/type_owners.py` — `TypeOwnerIndex`: type owners, alias targets and identity, own constructor candidates.
-- `src/agm/agl/infix.py` — operator fixity, chain grouping, and the rewrite replacing raw chains.
-- `src/agm/agl/scope/type_names.py` — alias member chains and the shared member selection.
-- `src/agm/agl/scope/attributes.py` — attribute recognition against the catalog and the fact builders it feeds.
-- `src/agm/agl/scope/bindings.py` — a module's own static bindings and which of them an expression reads.
-- `src/agm/agl/scope/symbols.py` — builtin call names, symbol kinds, `ConstructorRef`, `TypeOwner`, `ReceiverOwner`, selections, scope errors, and `AttributeFacts`.
+- `src/agnette/agl/scope/lookup.py` — full-path lookup: steps, anchors, decision, hidden verdict, misses.
+- `src/agnette/agl/scope/hiding.py` — what `hiding` removes, by identity, and the shared predicate.
+- `src/agnette/agl/scope/sources.py` — `ModuleSources`, what one module's lookups read: enum-member injection, reads beneath an alias, the constructor speller; `scope/uses.py` — `UseReader`, reading `use` targets.
+- `src/agnette/agl/scope/resolver.py` — declaration collection, the ordered walk, receiver and built-in classification.
+- `src/agnette/agl/scope/imports.py` — import contribution environments and item validation.
+- `src/agnette/agl/scope/program.py` — export maps, per-SCC re-export settling (`_converge`, `Denotations`), cross-module resolution, `ResolvedProgram.speller`.
+- `src/agnette/agl/scope/type_owners.py` — `TypeOwnerIndex`: type owners, alias targets and identity, own constructor candidates.
+- `src/agnette/agl/infix.py` — operator fixity, chain grouping, and the rewrite replacing raw chains.
+- `src/agnette/agl/scope/type_names.py` — alias member chains and the shared member selection.
+- `src/agnette/agl/scope/attributes.py` — attribute recognition against the catalog and the fact builders it feeds.
+- `src/agnette/agl/scope/bindings.py` — a module's own static bindings and which of them an expression reads.
+- `src/agnette/agl/scope/symbols.py` — builtin call names, symbol kinds, `ConstructorRef`, `TypeOwner`, `ReceiverOwner`, selections, scope errors, and `AttributeFacts`.
 - Tests: `tests/test_agl_scope*.py`, `test_agl_namespace_*.py`, `test_agl_qualifier_*.py`, `test_agl_full_path_lookup.py`, `test_agl_*alias*.py`, `test_agl_operator_names.py`, over the qualifier harness `tests/agl/qualifier_support.py` ([testing.md](../../testing.md)).

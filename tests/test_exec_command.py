@@ -26,11 +26,11 @@ import pytest
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.exec as exec_command
-from agm.cli_support.args import ExecArgs
-from agm.commands import exec_program as exec_engine
-from agm.packages.layout import MODULE_TREE_DIRNAME
+import agnette.agm.cli as cli
+import agnette.agm.commands.exec as exec_command
+from agnette.agm.cli_support.args import ExecArgs
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._agl_helpers import write_file_program
 from tests._help_helpers import assert_lists_execution_options, execution_options_is_last
 
@@ -70,7 +70,7 @@ def print_exec_help(
     no_stdlib: bool = False,
 ) -> bool:
     """Print the help *tokens* request, through the discovery ``agm exec`` shares."""
-    from agm.cli_support.program_discovery import ExecProgramDiscovery
+    from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
 
     discovery = ExecProgramDiscovery(
         code=code,
@@ -378,7 +378,7 @@ def recorded_runs(monkeypatch: pytest.MonkeyPatch) -> list[object]:
     Returns the list of recorded call arguments so parser-contract tests can
     assert how CLI flags map onto ``ExecArgs`` fields.
     """
-    import agm.commands.exec as exec_mod
+    import agnette.agm.commands.exec as exec_mod
 
     calls: list[object] = []
 
@@ -429,7 +429,7 @@ class TestExecArgsParsing:
         recorded_runs: list[object],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import agm.cli_support.program_discovery as program_discovery
+        import agnette.agm.cli_support.program_discovery as program_discovery
 
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "program def main() -> unit = ()\n")
@@ -485,11 +485,11 @@ class TestExecArgsParsing:
     def test_ambiguous_program_value_reuses_cli_static_artifacts(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.agl.pipeline as pipeline
-        from agm.agl.capabilities import HostCapabilities
-        from agm.agl.diagnostics import Diagnostic
-        from agm.agl.scope.program import ResolvedProgram
-        from agm.agl.typecheck.program import CheckedProgram
+        import agnette.agl.pipeline as pipeline
+        from agnette.agl.capabilities import HostCapabilities
+        from agnette.agl.diagnostics import Diagnostic
+        from agnette.agl.scope.program import ResolvedProgram
+        from agnette.agl.typecheck.program import CheckedProgram
 
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "program def main(@arg-named msg: text) -> unit = ()\n")
@@ -1045,10 +1045,10 @@ class TestExecDynamicHelp:
     ) -> None:
         agl_file = tmp_path / "prog.agl"
         agl_file.write_text("program def main(msg: text) -> unit = print msg\n")
-        from agm.packages.stdlib import StdlibResolutionError
+        from agnette.packages.stdlib import StdlibResolutionError
 
         monkeypatch.setattr(
-            "agm.cli_support.exec_roots.effective_exec_roots",
+            "agnette.agm.cli_support.exec_roots.effective_exec_roots",
             lambda **_kwargs: (_ for _ in ()).throw(StdlibResolutionError("unavailable roots")),
         )
 
@@ -1066,7 +1066,7 @@ class TestExecDynamicHelp:
     def test_exec_help_for_installed_reference_uses_its_selected_program(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
         from tests._package_helpers import write_installed_package
 
         home = tmp_path / "home"
@@ -1078,7 +1078,7 @@ class TestExecDynamicHelp:
             ),
         )
         monkeypatch.setattr(
-            "agm.config.context.current_config_context",
+            "agnette.config.context.current_config_context",
             lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
         )
 
@@ -1091,7 +1091,7 @@ class TestExecCommandBehavior:
     """Behavior tests for the exec command run() function."""
 
     def test_missing_file_exits_1(self, tmp_path: Path) -> None:
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         args = ExecArgs(
             file=str(tmp_path / "nonexistent.agl"),
@@ -1107,7 +1107,7 @@ class TestExecCommandBehavior:
     def test_missing_file_prints_error(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         args = ExecArgs(
             file=str(tmp_path / "nonexistent.agl"),
@@ -1125,7 +1125,7 @@ class TestExecCommandBehavior:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A path that is a directory (not a readable file) exits 1 with a friendly error."""
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         a_dir = tmp_path / "a_directory"
         a_dir.mkdir()
@@ -1158,7 +1158,7 @@ class TestExecCommandBehavior:
         installed-reference error), matching the classification rule shared
         with ``--help`` and shell completion.
         """
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         unreadable = tmp_path / "pkg::mod"
         unreadable.write_text("let level: int = 1\n", encoding="utf-8")
@@ -1186,7 +1186,7 @@ class TestExecCommandBehavior:
         """A valid .agl file with no agent calls exits 0 (success)."""
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "let x = 1\nx\n")
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         args = ExecArgs(
             file=str(agl_file),
@@ -1205,7 +1205,7 @@ class TestExecCommandBehavior:
         """A .agl file with a static error exits 1 and prints diagnostics to stderr."""
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "let x = undefined-name\n")
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         args = ExecArgs(
             file=str(agl_file),
@@ -1261,7 +1261,7 @@ def _exec_args_no_trace(agl_file: Path, **overrides: object) -> ExecArgs:
 
 def _config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: str) -> None:
     """Point the home config directory at a fresh ``config.toml`` holding *contents*."""
-    from agm.config.context import ConfigContext
+    from agnette.config.context import ConfigContext
 
     home = tmp_path / "home"
     (home / ".agm").mkdir(parents=True)
@@ -1418,7 +1418,7 @@ class TestExecExitCodeMapping:
         fields: dict[str, object],
         expected_fragments: list[str],
     ) -> None:
-        from agm.agl.pipeline import PipelineDriver, RunError, RunResult
+        from agnette.agl.pipeline import PipelineDriver, RunError, RunResult
 
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "let x = 1\nx\n")
@@ -1438,7 +1438,7 @@ class TestExecExitCodeMapping:
                 error=RunError(type_name="AgentParseError", fields=fields),
             )
 
-        import agm.agl.pipeline as pipeline_mod
+        import agnette.agl.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod.PipelineDriver, "run_prepared", fake_run)
 
@@ -1464,8 +1464,8 @@ class TestExecCommandWarnings:
     ) -> None:
         # Mocked warning: this pins that a
         # warning prints to stderr and never raises SystemExit (exit 0).
-        from agm.agl.diagnostics import Diagnostic
-        from agm.agl.pipeline import PipelineDriver, RunResult
+        from agnette.agl.diagnostics import Diagnostic
+        from agnette.agl.pipeline import PipelineDriver, RunResult
 
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "let x = 1\nx\n")
@@ -1488,7 +1488,7 @@ class TestExecCommandWarnings:
         ) -> RunResult:
             return RunResult(ok=True, diagnostics=[], error=None, warnings=[warning])
 
-        import agm.agl.pipeline as pipeline_mod
+        import agnette.agl.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod.PipelineDriver, "run_prepared", fake_run)
 
@@ -1555,8 +1555,8 @@ class TestExecCommandWarnings:
     ) -> None:
         # Mocked: combining a warning with an error requires an organic warning,
         # which is injected here to pin that both print and exit is 1.
-        from agm.agl.diagnostics import Diagnostic
-        from agm.agl.pipeline import PipelineDriver, RunResult
+        from agnette.agl.diagnostics import Diagnostic
+        from agnette.agl.pipeline import PipelineDriver, RunResult
 
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "let x = 1\nx\n")
@@ -1588,7 +1588,7 @@ class TestExecCommandWarnings:
                 return RunResult(ok=True, diagnostics=[], error=None)
             return RunResult(ok=False, diagnostics=[error], error=None, warnings=[warning])
 
-        import agm.agl.pipeline as pipeline_mod
+        import agnette.agl.pipeline as pipeline_mod
 
         monkeypatch.setattr(pipeline_mod.PipelineDriver, "run_prepared", fake_run)
 
@@ -1612,14 +1612,14 @@ class TestExecParsesSourceOnce:
     def test_exec_parses_and_scopes_source_exactly_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.agl.modules.loader as loader_mod
-        import agm.agl.scope.program as scope_graph_mod
-        from agm.agl.modules.ids import ModuleId
-        from agm.agl.modules.loader import LoadedModule, ModuleGraph
-        from agm.agl.modules.roots import RootSet
-        from agm.agl.scope.program import ResolvedProgram
-        from agm.agl.syntax.advisories import SpacedQualifier
-        from agm.agl.syntax.nodes import Program
+        import agnette.agl.modules.loader as loader_mod
+        import agnette.agl.scope.program as scope_graph_mod
+        from agnette.agl.modules.ids import ModuleId
+        from agnette.agl.modules.loader import LoadedModule, ModuleGraph
+        from agnette.agl.modules.roots import RootSet
+        from agnette.agl.scope.program import ResolvedProgram
+        from agnette.agl.syntax.advisories import SpacedQualifier
+        from agnette.agl.syntax.nodes import Program
 
         agl_file = tmp_path / "prog.agl"
         # The declaration exercises agent discovery without needing an agent
@@ -1684,8 +1684,8 @@ class TestExecLowersGraphOnce:
 
     def _count_lowerings(self, monkeypatch: pytest.MonkeyPatch) -> list[object]:
         """Record one entry per ``lower_program`` call while still lowering for real."""
-        import agm.agl.lower as lower_mod
-        from agm.agl.ir.program import ExecutableProgram
+        import agnette.agl.lower as lower_mod
+        from agnette.agl.ir.program import ExecutableProgram
 
         real_lower_program = lower_mod.lower_program
         lowerings: list[object] = []
@@ -1759,7 +1759,7 @@ class TestExecCommandExitCodes:
     def test_valid_program_exits_0(self, tmp_path: Path) -> None:
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "let x = 1\nx\n")
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         args = ExecArgs(
             file=str(agl_file),
@@ -1782,7 +1782,7 @@ class TestExecCommandExitCodes:
             "  std/config::trace := false\n"
             "  print value\n",
         )
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         args = ExecArgs(
             file=str(agl_file),
@@ -1821,7 +1821,7 @@ class TestExecCommandExitCodes:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -1843,8 +1843,8 @@ class TestExecCommandExitCodes:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``agm exec`` dispatches the default ``Agent`` value at runtime."""
-        from agm.agl.runtime.agents import AgentCallHostError
-        from agm.cli_support.args import ExecArgs
+        from agnette.agl.runtime.agents import AgentCallHostError
+        from agnette.agm.cli_support.args import ExecArgs
 
         agl_file = tmp_path / "prog.agl"
         write_file_program(agl_file, 'ask("hi")\n')
@@ -1864,7 +1864,7 @@ class TestExecCommandExitCodes:
             )
 
         monkeypatch.setattr(exec_engine, "value_driven_agent_factory", lambda **_: failing_agent)
-        from agm.agl.runtime.sessions import AgentDispatcherSessionHost
+        from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 
         monkeypatch.setattr(
             exec_engine,
@@ -1878,7 +1878,7 @@ class TestExecCommandExitCodes:
     def test_static_error_exits_1_not_2(self, tmp_path: Path) -> None:
         agl_file = tmp_path / "test.agl"
         write_file_program(agl_file, "let x = undefined-name\n")
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         args = ExecArgs(
             file=str(agl_file),
@@ -1900,7 +1900,7 @@ def _spy_runtime(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     preflight resolves any ``@config`` engine values), not the constructor,
     so that call is what this records.
     """
-    from agm.agl.pipeline import PipelineDriver as RealRuntime
+    from agnette.agl.pipeline import PipelineDriver as RealRuntime
 
     captured: dict[str, object] = {}
 
@@ -1957,8 +1957,8 @@ class TestExecConfigWiring:
     def test_config_values_reach_runtime_constructor(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agm.cli_support.args import ExecArgs
-        from agm.config.context import ConfigContext
+        from agnette.agm.cli_support.args import ExecArgs
+        from agnette.config.context import ConfigContext
 
         home = self._config_home(tmp_path)
         agl_file = tmp_path / "prog.agl"
@@ -1993,9 +1993,9 @@ class TestExecConfigWiring:
         from collections.abc import Callable
         from typing import cast
 
-        from agm.cli_support.args import ExecArgs
-        from agm.config.context import ConfigContext
-        from agm.sandbox.prepare import SandboxContext
+        from agnette.agm.cli_support.args import ExecArgs
+        from agnette.config.context import ConfigContext
+        from agnette.sandbox.prepare import SandboxContext
 
         home = tmp_path / "home"
         home.mkdir()
@@ -2032,7 +2032,7 @@ class TestExecConfigWiring:
         configuration resolves from and the `[run.*]` config loads at most once."""
         from collections.abc import Callable
 
-        from agm.sandbox.prepare import SandboxContext
+        from agnette.sandbox.prepare import SandboxContext
 
         real_factory = exec_engine.value_driven_agent_factory
         real_session_host = exec_engine.create_agl_session_host
@@ -2100,8 +2100,8 @@ class TestExecConfigWiring:
     def test_cli_strict_json_overrides_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agm.cli_support.args import ExecArgs
-        from agm.config.context import ConfigContext
+        from agnette.agm.cli_support.args import ExecArgs
+        from agnette.config.context import ConfigContext
 
         home = self._config_home(tmp_path)  # config sets strict-json = true
         agl_file = tmp_path / "prog.agl"
@@ -2129,8 +2129,8 @@ class TestExecConfigWiring:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """[exec] timeout config is wired to shell_exec_timeout on PipelineDriver."""
-        from agm.cli_support.args import ExecArgs
-        from agm.config.context import ConfigContext
+        from agnette.agm.cli_support.args import ExecArgs
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -2163,7 +2163,7 @@ class TestExecConfigWiring:
         monkeypatch: pytest.MonkeyPatch,
         capsys: "pytest.CaptureFixture[str]",
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -2302,7 +2302,7 @@ class TestUncaughtExceptionOutputFormat:
     """exec.py's exit-2 stderr includes the source location of runtime errors."""
 
     def _exec_args_no_trace_only(self, agl_file: Path) -> "ExecArgs":
-        from agm.cli_support.args import ExecArgs
+        from agnette.agm.cli_support.args import ExecArgs
 
         return ExecArgs(
             file=str(agl_file),
@@ -2438,7 +2438,7 @@ class TestExecAgentValues:
         self, args: list[str], *, env: dict[str, str], cwd: Path
     ) -> "subprocess.CompletedProcess[str]":
         return subprocess.run(
-            [sys.executable, "-m", "agm.cli", "exec", *args],
+            [sys.executable, "-m", "agnette.agm.cli", "exec", *args],
             capture_output=True,
             text=True,
             env=env,
@@ -2486,16 +2486,16 @@ class TestExecTimeoutAndLogFileFlags:
     def _capture_timeout(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
         from collections.abc import Mapping
 
-        from agm.agl.ir.ids import SymbolId
-        from agm.agl.ir.nodes import UseDefault
-        from agm.agl.ir.program import ExecutableProgram
-        from agm.agl.ir.static_keys import StaticBindingKey
-        from agm.agl.matchcompile import MatchCompiledProgram
-        from agm.agl.pipeline import PipelineDriver as RealRuntime
-        from agm.agl.pipeline import PreparedProgram, RunResult
-        from agm.agl.runtime.host_settings import HostSettingsPolicy
-        from agm.agl.semantics.values import Value
-        from agm.agl.syntax.spans import SourceSpan
+        from agnette.agl.ir.ids import SymbolId
+        from agnette.agl.ir.nodes import UseDefault
+        from agnette.agl.ir.program import ExecutableProgram
+        from agnette.agl.ir.static_keys import StaticBindingKey
+        from agnette.agl.matchcompile import MatchCompiledProgram
+        from agnette.agl.pipeline import PipelineDriver as RealRuntime
+        from agnette.agl.pipeline import PreparedProgram, RunResult
+        from agnette.agl.runtime.host_settings import HostSettingsPolicy
+        from agnette.agl.semantics.values import Value
+        from agnette.agl.syntax.spans import SourceSpan
 
         captured: dict[str, object] = {}
 
@@ -2635,7 +2635,7 @@ class TestExecTimeoutAndLogFileFlags:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -2922,7 +2922,7 @@ class TestExecModuleRoots:
         entry_source = "import util::*\nlet r = greet()\nprint r\n"
 
         # Patch current_config_context as imported in exec_command
-        from agm.config import context as ctx_mod
+        from agnette.config import context as ctx_mod
 
         original_ctx = ctx_mod.current_config_context()
 
@@ -2976,7 +2976,7 @@ class TestExecModuleRoots:
 
         with (
             patch(
-                "agm.cli_support.exec_roots.load_module_roots",
+                "agnette.agm.cli_support.exec_roots.load_module_roots",
                 side_effect=ValueError("bad config"),
             ),
             pytest.raises(SystemExit) as exc_info,
@@ -2991,7 +2991,7 @@ class TestExecModuleRoots:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A stdlib version mismatch from root resolution causes exit 1."""
-        from agm.config.module_roots import StdlibVersionMismatchError
+        from agnette.config.module_roots import StdlibVersionMismatchError
 
         entry = tmp_path / "prog.agl"
         write_file_program(entry, "let x = 1\nx\n")
@@ -3000,7 +3000,7 @@ class TestExecModuleRoots:
             raise StdlibVersionMismatchError("0.0.1", "0.1.0")
 
         monkeypatch.setattr(
-            "agm.cli_support.exec_roots.resolve_stdlib_root", fake_resolve_stdlib_root
+            "agnette.agm.cli_support.exec_roots.resolve_stdlib_root", fake_resolve_stdlib_root
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -3015,7 +3015,7 @@ class TestExecModuleRoots:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A configured lib_root in module roots config is resolved and used."""
-        from agm.config.module_roots import ModuleRootsConfig
+        from agnette.config.module_roots import ModuleRootsConfig
 
         lib_dir = tmp_path / "mylib"
         lib_dir.mkdir()
@@ -3029,7 +3029,7 @@ class TestExecModuleRoots:
         # Patch load_module_roots to return a ModuleRootsConfig with lib_root set.
         with monkeypatch.context() as mp:
             mp.setattr(
-                "agm.cli_support.exec_roots.load_module_roots",
+                "agnette.agm.cli_support.exec_roots.load_module_roots",
                 lambda *, home, proj_dir, cwd: ModuleRootsConfig(
                     lib_root=(str(lib_dir), tmp_path),  # absolute path
                     extra=(),
@@ -3087,7 +3087,7 @@ class TestExecModuleRoots:
         Each scenario drives exec_command.run end-to-end with a distinct mock
         response injected via runner_backed_agent_factory, asserting each output.
         """
-        from agm.agl.runtime.request import AgentRequest, AgentResponse
+        from agnette.agl.runtime.request import AgentRequest, AgentResponse
 
         (tmp_path / "greeter.agl").write_text(
             "def greet(prompt: text, bot: Agent) -> text =\n  bot.ask(prompt)\n"
@@ -3108,7 +3108,7 @@ class TestExecModuleRoots:
                 return AgentResponse(content=response)
 
             monkeypatch.setattr(exec_engine, "value_driven_agent_factory", lambda **_: mock_agent)
-            from agm.agl.runtime.sessions import AgentDispatcherSessionHost
+            from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 
             monkeypatch.setattr(
                 exec_engine,
@@ -3239,7 +3239,7 @@ class TestExecCliModulePaths:
         entry_dir = tmp_path / "work"
         entry_dir.mkdir()
 
-        from agm.config import context as ctx_mod
+        from agnette.config import context as ctx_mod
 
         original_ctx = ctx_mod.current_config_context()
 
@@ -3279,8 +3279,8 @@ class TestEntryModuleConfig:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        from agm.commands import exec_program
-        from agm.config.context import ConfigContext
+        from agnette.agm.commands import exec_program
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3315,7 +3315,7 @@ class TestEntryModuleConfig:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A loose file named after a command still addresses its program table."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3337,7 +3337,7 @@ class TestEntryModuleConfig:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A stem keyed by AgM's own schema keeps its section; the program falls back."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3375,7 +3375,7 @@ class TestEntryModuleConfig:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A CLI engine flag wins over the table for the ``-p``-selected program."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3408,7 +3408,7 @@ class TestEntryModuleConfig:
     def test_qualified_program_table_supplies_multiple_engine_keys(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3560,7 +3560,7 @@ class TestProgramValueArguments:
     def test_config_table_supplies_agent_argument_with_host_syntax(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3586,7 +3586,7 @@ class TestProgramValueArguments:
     def test_config_table_supplies_omitted_argument(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3606,7 +3606,7 @@ class TestProgramValueArguments:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A TOML string is a JSON string value, not serialized CLI JSON."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3682,7 +3682,7 @@ class TestProgramValueArguments:
     def test_cli_overrides_configured_argument(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3706,7 +3706,7 @@ class TestProgramValueArguments:
     def test_positional_argument_overrides_configured_standard_parameter(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3754,7 +3754,7 @@ class TestProgramValueArguments:
     def test_undeclared_config_key_in_program_table_warns_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3891,7 +3891,7 @@ class TestProgramValueArguments:
         genuinely misspelled key in the same table still gets the generic
         undeclared warning.
         """
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3921,7 +3921,7 @@ class TestProgramValueArguments:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A configured ``Option[T]`` value is wrapped ``Some``, like the CLI flag."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -3943,7 +3943,7 @@ class TestProgramValueArguments:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A program argument key set by two conflicting qualified spellings errors."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -4783,7 +4783,7 @@ class TestNegatedConstantDefaults:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A substitute standard library negates its ``strict-json`` default."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -4846,7 +4846,7 @@ class TestDefaultAgentDecodeWithNoStdlib:
     ) -> None:
         import json
 
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         agl_source = 'AgentCommand("nonexistent-bin -p \'oops")'
         home = tmp_path / "home"
@@ -5045,7 +5045,7 @@ class TestExecProgramSelection:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A -p naming no program never falls back to the sole program's config table."""
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -5098,7 +5098,7 @@ class TestExecProgramSelection:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A prepared inline entry with no discovered program does not invoke its main."""
-        from agm.agl.pipeline import PipelineDriver as RealRuntime
+        from agnette.agl.pipeline import PipelineDriver as RealRuntime
 
         class NoProgramDiscoveryRuntime(RealRuntime):
             def discover_programs(self, *args: object, **kwargs: object):
@@ -5126,7 +5126,7 @@ class TestExecProgramSelection:
         (non-leftover) legacy parser, which raises its own usage error for a
         token naming no declared param.
         """
-        from agm.agl.pipeline import PipelineDriver as RealRuntime
+        from agnette.agl.pipeline import PipelineDriver as RealRuntime
 
         class NoProgramDiscoveryRuntime(RealRuntime):
             def discover_programs(self, *args: object, **kwargs: object):
@@ -5196,8 +5196,8 @@ class TestProgramLogFilePathResolution:
     """Qualified program trace-file paths are anchored to their config directory."""
 
     def test_program_trace_file_relative_resolved_to_config_dir(self, tmp_path: Path) -> None:
-        from agm.config.general import load_general_config
-        from agm.config.qualified_keys import QualifiedConfigKey, resolve_qualified_values
+        from agnette.config.general import load_general_config
+        from agnette.config.qualified_keys import QualifiedConfigKey, resolve_qualified_values
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -5219,7 +5219,7 @@ class TestExecDevelopmentPackages:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
@@ -5353,7 +5353,7 @@ class TestExecStandardLibraryEntries:
 
     @staticmethod
     def _config_context(monkeypatch: pytest.MonkeyPatch, home: Path, cwd: Path) -> None:
-        from agm.config.context import ConfigContext
+        from agnette.config.context import ConfigContext
 
         monkeypatch.delenv("AGM_STDLIB", raising=False)
         monkeypatch.setattr(
@@ -5370,8 +5370,12 @@ class TestExecStandardLibraryEntries:
     ) -> None:
         import semver
 
-        from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
-        from agm.version import AGM_VERSION
+        from agnette.packages.activation import (
+            ActivationIndex,
+            ActivePackage,
+            write_activation_index,
+        )
+        from agnette.version import AGM_VERSION
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)

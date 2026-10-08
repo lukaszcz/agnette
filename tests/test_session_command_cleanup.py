@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.agent.session import (
+from agnette.agent.session import (
     AglSessionHost,
     SessionAskRequest,
     SessionAskResponse,
@@ -17,9 +17,9 @@ from agm.agent.session import (
     SessionOperations,
     SessionService,
 )
-from agm.agent.spec import PermissionMode
-from agm.commands import exec_program
-from agm.sandbox.request import SandboxLimits
+from agnette.agent.spec import PermissionMode
+from agnette.agm.commands import exec_program
+from agnette.sandbox.request import SandboxLimits
 from tests._agl_helpers import write_file_program
 from tests.test_exec_command import file_args
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.cli_support.exec_target import (
+from agnette.agm.cli_support.exec_target import (
     ExecTargetError,
     FileEntry,
     InlineSource,
@@ -171,7 +171,7 @@ class TestResolveInstalledReference:
     def test_broken_active_package_selection_is_an_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.cli_support.exec_target as exec_target
+        import agnette.agm.cli_support.exec_target as exec_target
 
         monkeypatch.setattr(
             exec_target,

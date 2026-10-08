@@ -8,18 +8,18 @@ from typing import Protocol, cast
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.runtime.externs import (
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.runtime.externs import (
     ExternRegistry,
     ExternRuntimeState,
     active_call_span,
     close_detached_state,
 )
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.values import (
     UNIT_VALUE,
     BoolValue,
     DecimalValue,
@@ -228,7 +228,7 @@ def test_extern_defaults_work_for_direct_calls(tmp_path: Path) -> None:
 def test_indirect_extern_call_uses_the_default_for_an_omitted_trailing_argument(
     tmp_path: Path,
 ) -> None:
-    from agm.agl.ir import (
+    from agnette.agl.ir import (
         ExecutableModule,
         ExecutableProgram,
         ExternFunctionBody,

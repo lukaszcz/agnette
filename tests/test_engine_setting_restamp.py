@@ -1,6 +1,6 @@
 """Generic tests for the engine-setting nominal-identity restamp mechanism.
 
-Covers ``agm.agl.runtime.engine_config.restamp_engine_setting``/
+Covers ``agnette.agl.runtime.engine_config.restamp_engine_setting``/
 ``_restamp_value_tree`` against their own contract, independent of any single
 engine key. Key-specific behavior lives in ``test_default_agent_setting.py``
 and ``test_default_sandbox_setting.py``.
@@ -8,12 +8,12 @@ and ``test_default_sandbox_setting.py``.
 
 from __future__ import annotations
 
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.ids import NominalId
-from agm.agl.semantics.engine_keys import ENGINE_KEY_TYPES
-from agm.agl.semantics.type_table import TypeTable, create_seeded_type_table
-from agm.agl.semantics.types import ArrayType, DictType, EnumType, RecordType, Type
-from agm.agl.semantics.values import RecordValue
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
+from agnette.agl.semantics.type_table import TypeTable, create_seeded_type_table
+from agnette.agl.semantics.types import ArrayType, DictType, EnumType, RecordType, Type
+from agnette.agl.semantics.values import RecordValue
 from tests._agl_helpers import agent_value
 
 
@@ -24,7 +24,7 @@ def test_restamp_engine_setting_ignores_non_enum_backed_keys() -> None:
     key at all, so :func:`restamp_engine_setting` leaves such a value untouched
     regardless of the ``from``/``to`` tables given.
     """
-    from agm.agl.runtime.engine_config import restamp_engine_setting
+    from agnette.agl.runtime.engine_config import restamp_engine_setting
 
     stray = agent_value("AgentCommand", command="unused")
     for key in ("trace", "strict-json", "not-an-engine-key"):
@@ -44,7 +44,7 @@ def test_restamp_engine_setting_leaves_an_unrecognized_nested_field_identity_alo
     field ``_restamp_value_tree`` cannot place in ``from_table`` keeps its
     original nominal rather than being restamped.
     """
-    from agm.agl.runtime.engine_config import restamp_engine_setting
+    from agnette.agl.runtime.engine_config import restamp_engine_setting
 
     sandbox_nominal = NO_BUILTIN_DECLARATIONS.resolve_standard_member(
         "AgentSandbox", "Sandbox"
@@ -89,7 +89,7 @@ def _contains_collection(typ: Type, type_table: TypeTable, seen: set[Type]) -> b
 def test_no_engine_key_type_contains_a_collection_payload() -> None:
     """No ``ENGINE_KEY_TYPES`` value carries an array/dict anywhere in its shape.
 
-    ``_restamp_value_tree`` (``agm.agl.runtime.engine_config``) only recurses
+    ``_restamp_value_tree`` (``agnette.agl.runtime.engine_config``) only recurses
     into records: an engine-setting value is always a scalar, an ``Option``/
     ``Optional``, or a record built from those, never a collection. This is
     the reachable guard for that assumption, iterating the real engine-key

@@ -7,24 +7,24 @@ from typing import Literal
 
 import pytest
 
-from agm.agl.modules.ids import ModuleId
-from agm.agl.scope import AglScopeError
-from agm.agl.scope.imports import (
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.imports import (
     ImportEnv,
     SingleTarget,
     build_import_env,
     qualifier_member_ways,
 )
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     TypeArgumentsError,
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.syntax.nodes import ImportDecl, ImportItem, QualifierChain, QualifierSegment
-from agm.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
-from agm.agl.typecheck import AglTypeError
-from agm.agl.typecheck.program import check_program
+from agnette.agl.syntax.nodes import ImportDecl, ImportItem, QualifierChain, QualifierSegment
+from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
+from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import base_caps, make_graph_from_files
 from tests.agl.module_graph import build_inline_entry_graph, resolve_inline_entry
 from tests.agl.qualifier_support import graph_verdict, inline_verdict

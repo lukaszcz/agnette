@@ -27,7 +27,7 @@ program def main() -> unit =
 ```
 
 Use an explicit lambda around a direct call to capture non-default spawn or
-parse options. `exec` remains legal as a field name. A host may statically
+parse options. `exec` is legal as a field name. A host may statically
 disallow shell execution altogether, in which case every `exec` call or value
 is a static error.
 

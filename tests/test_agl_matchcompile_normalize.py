@@ -9,9 +9,9 @@ from typing import cast
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.ids import NominalId
-from agm.agl.matchcompile.model import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.matchcompile.model import (
     BinderAssignment,
     BoolConstructor,
     CaseSite,
@@ -33,16 +33,16 @@ from agm.agl.matchcompile.model import (
     SourcePatternProvenance,
     WildcardCell,
 )
-from agm.agl.matchcompile.normalize import (
+from agnette.agl.matchcompile.normalize import (
     constructor_inhabits_type,
     normalize_case,
     pattern_cell_inhabits_type,
     signature_for_type,
 )
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.scope.program import resolve_program
-from agm.agl.semantics.type_table import TypeDef, TypeTable
-from agm.agl.semantics.types import (
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.semantics.type_table import TypeDef, TypeTable
+from agnette.agl.semantics.types import (
     BoolType,
     BottomType,
     DecimalType,
@@ -52,11 +52,11 @@ from agm.agl.semantics.types import (
     TextType,
     TypeVarType,
 )
-from agm.agl.semantics.values import DecimalValue, RecordValue, TextValue
-from agm.agl.syntax.nodes import AsPattern, Case, ConstructorPattern
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck import CheckedModule, check_program
+from agnette.agl.semantics.values import DecimalValue, RecordValue, TextValue
+from agnette.agl.syntax.nodes import AsPattern, Case, ConstructorPattern
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck import CheckedModule, check_program
 from tests._agl_helpers import next_decl_id, strip_decl_ids
 from tests.agl.ir_harness import evaluate_ir_output, make_graph_from_files
 from tests.agl.match_reference import reference_action

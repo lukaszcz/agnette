@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.config.general import ReplConfig, load_repl_config, save_repl_setting
+from agnette.config.general import ReplConfig, load_repl_config, save_repl_setting
 
 
 class TestReplConfig:

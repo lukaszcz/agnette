@@ -1,4 +1,4 @@
-"""Tests for agm.commands.workspace.close."""
+"""Tests for agnette.agm.commands.workspace.close."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import agm.commands.workspace.close as close_module
-from agm.cli_support.args import CloseArgs
-from agm.commands.workspace.close import close_workspace
+import agnette.agm.commands.workspace.close as close_module
+from agnette.agm.cli_support.args import CloseArgs
+from agnette.agm.commands.workspace.close import close_workspace
 from tests._git_helpers import add_linked_worktree, git_output, git_run, init_repo
 
 

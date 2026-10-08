@@ -10,7 +10,7 @@ Everything type-dependent is read from the checker's side tables — argument bi
 
 Notable lowering shapes:
 
-- **Built-in values.** Each typed runtime built-in reference lowers to a synthetic ordinary closure. A direct call, such a closure's body, and a bound method each collect their own arguments and meet in one operand-level dispatch over the closed operation set — built-in kind, type static, or session operation — so every route emits the same dedicated host-operation IR. Free functions, statics, unbound methods, and receiver-capturing method projections share this path. The closure exposes required parameters and evaluates omitted host defaults when invoked, while its occurrence-specific output contract stays compiled into the linked program. `resource-dir` follows this path; `resource` remains a direct link-time form.
+- **Built-in values.** Each typed runtime built-in reference lowers to a synthetic ordinary closure. A direct call, such a closure's body, and a bound method each collect their own arguments and meet in one operand-level dispatch over the closed operation set — built-in kind, type static, or session operation — so every route emits the same dedicated host-operation IR. Free functions, statics, unbound methods, and receiver-capturing method projections share this path. The closure exposes required parameters and evaluates omitted host defaults when invoked, while its occurrence-specific output contract stays compiled into the linked program. `resource-dir` follows this path; `resource` is a direct link-time form.
 - **Operator values.** `(op)` lowers to the same kind of synthetic closure over its checked operand types; its body is the operator IR a binary expression lowers to, shared through one operand-level helper, coerced to the closure's result type.
 - **Methods.** A checker-selected ordinary method call lowers to a direct receiver-first call; a host-backed builtin method reuses its builtin route with the receiver as operand; `Session` operations lower to dedicated session nodes; a free `ask` lowers to the lazy default session. Leading-dot invocations already have lambda/member-call shape, so they lower to an ordinary unary closure around the selected method call.
 - **Match sites.** `case` traverses the compiled decision DAG: singleton decisions project only the demanded fields, alternatives become `IrCase` keyed by member-record identity, and `IrField` is the single nominal projection. A named `let` is one bind instruction; `let _` evaluates and discards its initializer.
@@ -27,6 +27,6 @@ The IR is a runtime-neutral data model: identities and source locations, a close
 
 ## Code Entry Points
 
-- `src/agm/agl/lower/lowerer.py`, `program.py` — expected-type-directed lowering and module linking; `coercions.py`, `conversions.py` — coercion and cast recipes; `repl.py` — incremental linking for the REPL.
-- `src/agm/agl/ir/` — nodes, identities, contracts, the program container, builtin nominal and variable tables, `validate.py`.
+- `src/agnette/agl/lower/lowerer.py`, `program.py` — expected-type-directed lowering and module linking; `coercions.py`, `conversions.py` — coercion and cast recipes; `repl.py` — incremental linking for the REPL.
+- `src/agnette/agl/ir/` — nodes, identities, contracts, the program container, builtin nominal and variable tables, `validate.py`.
 - Tests: `tests/test_agl_lower.py`, `test_agl_case_lowering_decisions.py`, `test_agl_ir_*.py`.

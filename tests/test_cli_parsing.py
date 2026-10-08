@@ -14,30 +14,30 @@ from typer._click import Context as TyperContext
 from typer.core import TyperCommand, TyperGroup
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.config.copy as config_copy_command
-import agm.commands.config.env as config_env_command
-import agm.commands.config.update as config_update_command
-import agm.commands.dep.new as dep_new_command
-import agm.commands.dep.remove as dep_remove_command
-import agm.commands.dep.switch as dep_switch_command
-import agm.commands.init as init_command
-import agm.commands.run as run_command
-import agm.commands.sync.fetch as sync_fetch_command
-import agm.commands.sync.pull as sync_pull_command
-import agm.commands.tmux.close as tmux_close_command
-import agm.commands.tmux.layout as tmux_layout_command
-import agm.commands.tmux.open as tmux_open_command
-import agm.commands.workspace.close as workspace_close_command
-import agm.commands.workspace.list as workspace_list_command
-import agm.commands.workspace.open as workspace_open_command
-import agm.commands.workspace.setup as workspace_setup_command
-import agm.commands.workspace.shell_regen as workspace_shell_regen_command
-import agm.commands.worktree.new as worktree_new_command
-import agm.commands.worktree.remove as worktree_remove_command
-import agm.parser as parser_helpers
-from agm.core import dry_run as dry_run_state
-from agm.packages.layout import MODULE_TREE_DIRNAME
+import agnette.agm.cli as cli
+import agnette.agm.commands.config.copy as config_copy_command
+import agnette.agm.commands.config.env as config_env_command
+import agnette.agm.commands.config.update as config_update_command
+import agnette.agm.commands.dep.new as dep_new_command
+import agnette.agm.commands.dep.remove as dep_remove_command
+import agnette.agm.commands.dep.switch as dep_switch_command
+import agnette.agm.commands.init as init_command
+import agnette.agm.commands.run as run_command
+import agnette.agm.commands.sync.fetch as sync_fetch_command
+import agnette.agm.commands.sync.pull as sync_pull_command
+import agnette.agm.commands.tmux.close as tmux_close_command
+import agnette.agm.commands.tmux.layout as tmux_layout_command
+import agnette.agm.commands.tmux.open as tmux_open_command
+import agnette.agm.commands.workspace.close as workspace_close_command
+import agnette.agm.commands.workspace.list as workspace_list_command
+import agnette.agm.commands.workspace.open as workspace_open_command
+import agnette.agm.commands.workspace.setup as workspace_setup_command
+import agnette.agm.commands.workspace.shell_regen as workspace_shell_regen_command
+import agnette.agm.commands.worktree.new as worktree_new_command
+import agnette.agm.commands.worktree.remove as worktree_remove_command
+import agnette.agm.parser as parser_helpers
+from agnette.core import dry_run as dry_run_state
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._help_helpers import assert_lists_execution_options
 
 
@@ -72,13 +72,13 @@ class TestConfigCopy:
     def test_commands_without_dry_run_behavior_reject_the_option(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.check as check_command
-        import agm.commands.config.env as config_env_command
-        import agm.commands.dep.list as dep_list_command
-        import agm.commands.pkg.check as pkg_check_command
-        import agm.commands.pkg.info as pkg_info_command
-        import agm.commands.pkg.list as pkg_list_command
-        import agm.commands.workspace.list as workspace_list_command
+        import agnette.agm.commands.check as check_command
+        import agnette.agm.commands.config.env as config_env_command
+        import agnette.agm.commands.dep.list as dep_list_command
+        import agnette.agm.commands.pkg.check as pkg_check_command
+        import agnette.agm.commands.pkg.info as pkg_info_command
+        import agnette.agm.commands.pkg.list as pkg_list_command
+        import agnette.agm.commands.workspace.list as workspace_list_command
 
         calls: list[bool] = []
 
@@ -172,11 +172,11 @@ class TestPackageLifecycle:
     def test_pkg_lifecycle_options_map_to_typed_arguments(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.pkg.create as create_command
-        import agm.commands.pkg.info as info_command
-        import agm.commands.pkg.install as install_command
-        import agm.commands.pkg.list as list_command
-        import agm.commands.pkg.uninstall as uninstall_command
+        import agnette.agm.commands.pkg.create as create_command
+        import agnette.agm.commands.pkg.info as info_command
+        import agnette.agm.commands.pkg.install as install_command
+        import agnette.agm.commands.pkg.list as list_command
+        import agnette.agm.commands.pkg.uninstall as uninstall_command
 
         create_calls = make_recorder(monkeypatch, create_command, "run")
         install_calls = make_recorder(monkeypatch, install_command, "run")
@@ -207,7 +207,7 @@ class TestPackageCheck:
     def test_pkg_check_passes_optional_directory_to_command(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.pkg.check as check_command
+        import agnette.agm.commands.pkg.check as check_command
 
         calls = make_recorder(monkeypatch, check_command, "run")
 
@@ -220,7 +220,7 @@ class TestPackageCheck:
     def test_pkg_check_uses_current_directory_without_argument(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.pkg.check as check_command
+        import agnette.agm.commands.pkg.check as check_command
 
         calls = make_recorder(monkeypatch, check_command, "run")
 
@@ -1221,7 +1221,7 @@ class TestTopLevel:
 
 class TestEveryCommandHasHelpText:
     def test_every_canonical_command_has_help_text(self) -> None:
-        from agm.cli import _HELP_TEXTS
+        from agnette.agm.cli import _HELP_TEXTS
 
         canonical_commands = {
             "open",
@@ -1240,7 +1240,7 @@ class TestEveryCommandHasHelpText:
             assert cmd in _HELP_TEXTS, f"missing help text for '{cmd}'"
 
     def test_every_overview_command_has_help_text(self) -> None:
-        from agm.cli import _COMMAND_OVERVIEW
+        from agnette.agm.cli import _COMMAND_OVERVIEW
 
         for name, _ in _COMMAND_OVERVIEW:
             text = parser_helpers.help_text_for(name)
@@ -1266,7 +1266,7 @@ class TestEveryCommandHasHelpText:
             walk(command, (name,))
 
     def test_aliases_point_to_valid_commands(self) -> None:
-        from agm.cli import _HELP_ALIASES, _HELP_TEXTS
+        from agnette.agm.cli import _HELP_ALIASES, _HELP_TEXTS
 
         for alias, target in _HELP_ALIASES.items():
             assert target in _HELP_TEXTS, (
@@ -1274,13 +1274,13 @@ class TestEveryCommandHasHelpText:
             )
 
     def test_no_empty_help_texts(self) -> None:
-        from agm.cli import _HELP_TEXTS
+        from agnette.agm.cli import _HELP_TEXTS
 
         for cmd, text in _HELP_TEXTS.items():
             assert text.strip(), f"help text for '{cmd}' is empty"
 
     def test_help_texts_contain_command_name(self) -> None:
-        from agm.cli import _HELP_TEXTS
+        from agnette.agm.cli import _HELP_TEXTS
 
         for cmd, text in _HELP_TEXTS.items():
             assert f"agm {cmd}" in text, f"help text for '{cmd}' doesn't mention 'agm {cmd}'"
@@ -1291,7 +1291,7 @@ class TestEveryCommandHasHelpText:
 
         from typer.main import get_command
 
-        from agm.cli import app
+        from agnette.agm.cli import app
 
         cli_commands = set(get_command(app).list_commands(None))
         docs_dir = Path(__file__).resolve().parents[1] / "docs" / "commands"
@@ -1533,7 +1533,7 @@ class TestMainEntryPoint:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             with pytest.raises(SystemExit) as exc_info:
-                runpy.run_module("agm.cli", run_name="__main__")
+                runpy.run_module("agnette.agm.cli", run_name="__main__")
         assert exc_info.value.code == 0
 
 
@@ -1543,7 +1543,7 @@ class TestExecModulePathOption:
     def test_single_module_path_passed_to_exec_args(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.exec as exec_mod
+        import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
         monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
@@ -1561,7 +1561,7 @@ class TestExecModulePathOption:
     def test_multiple_module_paths_accumulate(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.exec as exec_mod
+        import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
         monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
@@ -1584,7 +1584,7 @@ class TestExecModulePathOption:
     def test_no_module_paths_defaults_to_empty_list(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.exec as exec_mod
+        import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
         monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
@@ -1624,9 +1624,9 @@ class TestExecEngineFlagExclusivity:
 
     def test_every_negatable_engine_key_excludes_its_own_negative(self) -> None:
         """The rule is derived from the projection, so a new key brings its own."""
-        from agm.cli_support.program_options import engine_key_option_flags
-        from agm.cli_support.run_options import _exclusive_flag_groups
-        from agm.config.engine_keys import ENGINE_KEYS
+        from agnette.agm.cli_support.program_options import engine_key_option_flags
+        from agnette.agm.cli_support.run_options import _exclusive_flag_groups
+        from agnette.config.engine_keys import ENGINE_KEYS
 
         groups = _exclusive_flag_groups()
         for spec in ENGINE_KEYS:
@@ -1638,8 +1638,8 @@ class TestExecEngineFlagExclusivity:
 
     def test_register_members_exclude_the_registers_switch(self) -> None:
         """Keys sharing a register name one destination, so only one may be given."""
-        from agm.cli_support.run_options import _exclusive_flag_groups
-        from agm.config.engine_keys import TRACE_ENGINE_KEYS
+        from agnette.agm.cli_support.run_options import _exclusive_flag_groups
+        from agnette.config.engine_keys import TRACE_ENGINE_KEYS
 
         flags = {f"--{name}" for name in TRACE_ENGINE_KEYS}
         assert any(
@@ -1651,7 +1651,7 @@ class TestReplStdlibOption:
     def test_no_stdlib_passed_to_repl_args(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.repl as repl_mod
+        import agnette.agm.commands.repl as repl_mod
 
         calls: list[object] = []
         monkeypatch.setattr(repl_mod, "run", lambda a: calls.append(a))
@@ -1669,7 +1669,7 @@ class TestMaxCallDepthOption:
     def test_exec_max_call_depth_passed_to_args(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.exec as exec_mod
+        import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
         monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
@@ -1685,7 +1685,7 @@ class TestMaxCallDepthOption:
     def test_exec_max_call_depth_defaults_to_none(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.exec as exec_mod
+        import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
         monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
@@ -1701,7 +1701,7 @@ class TestMaxCallDepthOption:
     def test_repl_max_call_depth_passed_to_args(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.commands.repl as repl_mod
+        import agnette.agm.commands.repl as repl_mod
 
         calls: list[object] = []
         monkeypatch.setattr(repl_mod, "run", lambda a: calls.append(a))
@@ -1733,8 +1733,8 @@ class TestParseErrorRetriesOption:
         flags: list[str],
         expected: int | None,
     ) -> None:
-        import agm.commands.exec as exec_mod
-        import agm.commands.repl as repl_mod
+        import agnette.agm.commands.exec as exec_mod
+        import agnette.agm.commands.repl as repl_mod
 
         calls: list[object] = []
         monkeypatch.setattr(exec_mod if command == "exec" else repl_mod, "run", calls.append)

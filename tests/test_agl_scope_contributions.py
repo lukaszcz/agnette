@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agm.agl.modules.ids import ModuleId
-from agm.agl.scope.imports import (
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.scope.imports import (
     ImportEnv,
     ImportTarget,
     NameAtom,
@@ -14,13 +14,13 @@ from agm.agl.scope.imports import (
     qualifier_candidates,
     qualifier_member_ways,
 )
-from agm.agl.scope.symbols import (
+from agnette.agl.scope.symbols import (
     BinderKind,
     BindingRef,
     ContributionLayer,
     ScopeNode,
 )
-from agm.agl.syntax.nodes import ImportDecl, ImportItem, ScopeSegment
+from agnette.agl.syntax.nodes import ImportDecl, ImportItem, ScopeSegment
 from tests._agl_helpers import dummy_span
 
 

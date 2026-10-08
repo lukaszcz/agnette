@@ -19,10 +19,10 @@ from collections.abc import Callable
 
 import pytest
 
-from agm.agl import artifact_serialization
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.semantics.type_table import MethodDef
-from agm.agl.semantics.types import (
+from agnette.agl import artifact_serialization
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.semantics.type_table import MethodDef
+from agnette.agl.semantics.types import (
     EnumType,
     FunctionType,
     IntType,
@@ -31,10 +31,10 @@ from agm.agl.semantics.types import (
     Type,
     TypeTemplate,
 )
-from agm.agl.syntax.types import IntT, NameT
-from agm.agl.typecheck import env as env_module
-from agm.agl.typecheck.checker import _check_prepared_module
-from agm.agl.typecheck.env import (
+from agnette.agl.syntax.types import IntT, NameT
+from agnette.agl.typecheck import env as env_module
+from agnette.agl.typecheck.checker import _check_prepared_module
+from agnette.agl.typecheck.env import (
     AliasFact,
     BindingTypeFact,
     EnvironmentFact,

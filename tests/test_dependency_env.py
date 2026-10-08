@@ -1,4 +1,4 @@
-"""Comprehensive tests for agm.project.dependency_env."""
+"""Comprehensive tests for agnette.agm.project.dependency_env."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import cast
 import pytest
 from tomlkit.exceptions import ParseError
 
-import agm.project.dependency_env as dep_env_module
-from agm.project.dependency_env import (
+import agnette.agm.project.dependency_env as dep_env_module
+from agnette.agm.project.dependency_env import (
     _dependency_config_checkout_name,
     _ensure_config_toml_file,
     _seed_from_parent_config,
@@ -26,7 +26,7 @@ from agm.project.dependency_env import (
     update_dependency_toml_config,
     update_main_dependency_configs,
 )
-from agm.vcs.git import WorktreeInfo
+from agnette.vcs.git import WorktreeInfo
 from tests._git_helpers import init_repo
 
 # ---------------------------------------------------------------------------

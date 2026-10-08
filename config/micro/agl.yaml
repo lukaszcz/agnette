@@ -6,7 +6,7 @@ detect:
 
 # Rule order is significant: micro paints the whole of each match and lets a
 # later rule overwrite an earlier one.  AgL identifiers are greedy -- they stop
-# only at the delimiters in `IDENT_STOP' (src/agm/util/ident.py), so every
+# only at the delimiters in `IDENT_STOP' (src/agnette/util/ident.py), so every
 # other character continues a name, operator characters such as `-', `?' and
 # `$' included.  Regexp `\b' does not know that, so word rules alone would
 # paint `resource' inside `resource-path'.  The file is therefore layered:

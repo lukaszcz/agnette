@@ -1,4 +1,4 @@
-"""HTTP requests for ``std/http``, over the pooled session in ``agm.core.http``."""
+"""HTTP requests for ``std/http``, over the pooled session in ``agnette.core.http``."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from urllib.parse import urlencode
 from agl import AglException, nominals, runtime
 from agl import dict as agl_dict
 
-from agm.agl.runtime.host_fs import raise_fs_error
-from agm.agl.runtime.serialize import dumps_exact
-from agm.core import http as core_http
-from agm.core.parse import parse_positive_timeout
+from agnette.agl.runtime.host_fs import raise_fs_error
+from agnette.agl.runtime.serialize import dumps_exact
+from agnette.core import http as core_http
+from agnette.core.parse import parse_positive_timeout
 
 Option = nominals.std.option.Option
 Headers = nominals.std.http.Headers

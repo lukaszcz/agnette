@@ -20,11 +20,11 @@ from shutil import copyfile
 
 import pytest
 
-from agm.agl.repl import ReplSession
-from agm.agl.runtime.engine_config import build_engine_config_seeds
-from agm.agl.runtime.host_settings import HostSettingsPolicy
-from agm.agl.runtime.request import AgentRequest, AgentResponse
-from agm.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue, Value
+from agnette.agl.repl import ReplSession
+from agnette.agl.runtime.engine_config import build_engine_config_seeds
+from agnette.agl.runtime.host_settings import HostSettingsPolicy
+from agnette.agl.runtime.request import AgentRequest, AgentResponse
+from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue, Value
 from tests._agl_helpers import (
     agent_value,
 )

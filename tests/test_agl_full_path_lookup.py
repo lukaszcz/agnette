@@ -23,9 +23,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError, HiddenMemberError, ReferencedMemberError
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglTypeError, HiddenMemberError, ReferencedMemberError
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
@@ -37,8 +37,8 @@ from agm.agl.scope.symbols import (
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.syntax.types import NameT
-from agm.agl.syntax.visitor import walk
+from agnette.agl.syntax.types import NameT
+from agnette.agl.syntax.visitor import walk
 from tests.agl.module_graph import resolve_inline_entry
 from tests.agl.qualifier_support import (
     Probe,

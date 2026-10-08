@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-import agm.core.process as process_mod
-from agm.core.process import (
+import agnette.core.process as process_mod
+from agnette.core.process import (
     CapturedOutput,
     ProcessCaptureResult,
     run_capture,

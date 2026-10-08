@@ -8,13 +8,13 @@ import pytest
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-from agm.agl.repl import ReplSession
-from agm.cli_support.args import ReplArgs
-from agm.commands import exec_program as exec_engine
-from agm.commands import repl as repl_command
-from agm.config.context import ConfigContext
-from agm.packages.layout import MODULE_TREE_DIRNAME
+import agnette.agm.cli as cli
+from agnette.agl.repl import ReplSession
+from agnette.agm.cli_support.args import ReplArgs
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.agm.commands import repl as repl_command
+from agnette.config.context import ConfigContext
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._agl_helpers import write_file_program
 from tests._package_helpers import install_directory
 from tests.conftest import FakeAgentTransport
@@ -436,7 +436,7 @@ def test_a_registered_command_applies_the_configured_effort(
 
 
 def _run_repl(monkeypatch: pytest.MonkeyPatch) -> list[ReplSession]:
-    import agm.agl.repl.plain_console as plain_console_mod
+    import agnette.agl.repl.plain_console as plain_console_mod
 
     sessions: list[ReplSession] = []
 

@@ -1,10 +1,10 @@
-"""Tests for agm.core.cleanup: exception-preserving cleanup helpers."""
+"""Tests for agnette.core.cleanup: exception-preserving cleanup helpers."""
 
 from __future__ import annotations
 
 import pytest
 
-from agm.core.cleanup import preserve_primary_error, run_cleanup_steps
+from agnette.core.cleanup import preserve_primary_error, run_cleanup_steps
 
 
 def test_preserve_primary_error_runs_cleanup_on_a_clean_exit() -> None:

@@ -6,17 +6,17 @@ import decimal
 
 import pytest
 
-from agm.agl.eval.arith import contains, order, value_eq
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.operations import CmpOp, ContainsKind
-from agm.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.runtime.contract import materialize_contract
-from agm.agl.runtime.engine_config import convert_host_value
-from agm.agl.runtime.render import render_value
-from agm.agl.runtime.serialize import AglNonDataValue, WalkTags, value_to_json_obj
-from agm.agl.semantics.types import DecimalType, TextType, UnitType
-from agm.agl.semantics.values import (
+from agnette.agl.eval.arith import contains, order, value_eq
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.operations import CmpOp, ContainsKind
+from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.runtime.contract import materialize_contract
+from agnette.agl.runtime.engine_config import convert_host_value
+from agnette.agl.runtime.render import render_value
+from agnette.agl.runtime.serialize import AglNonDataValue, WalkTags, value_to_json_obj
+from agnette.agl.semantics.types import DecimalType, TextType, UnitType
+from agnette.agl.semantics.values import (
     ArrayValue,
     ConstructorValue,
     DecimalValue,
@@ -29,7 +29,7 @@ from agm.agl.semantics.values import (
     json_eq,
     json_hash,
 )
-from agm.agl.typecheck.env import OutputContractSpec
+from agnette.agl.typecheck.env import OutputContractSpec
 from tests._agl_helpers import type_table_for
 from tests.agl.ir_harness import evaluate_ir
 

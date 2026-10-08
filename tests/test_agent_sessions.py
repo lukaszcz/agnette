@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from agm.agent.session import (
+from agnette.agent.session import (
     AglSessionHost,
     SessionAskError,
     SessionAskRequest,
@@ -22,12 +22,12 @@ from agm.agent.session import (
     SessionStats,
     create_agl_session_host,
 )
-from agm.agent.spec import AgentCommand, AgentPi, PermissionMode, SessionTransport
-from agm.agent.transport import AgentCallInfo, AgentOutputPhase
-from agm.agl.runtime.request import AgentRequest
-from agm.agl.runtime.sessions import SessionAskError as AglSessionAskError
-from agm.agl.runtime.sessions import SessionHostError as AglSessionHostError
-from agm.sandbox.request import SandboxLimits
+from agnette.agent.spec import AgentCommand, AgentPi, PermissionMode, SessionTransport
+from agnette.agent.transport import AgentCallInfo, AgentOutputPhase
+from agnette.agl.runtime.request import AgentRequest
+from agnette.agl.runtime.sessions import SessionAskError as AglSessionAskError
+from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
+from agnette.sandbox.request import SandboxLimits
 from tests._agl_helpers import hermetic_get_sandbox_context
 
 ALL_OPERATIONS = frozenset(SessionOperation)
@@ -164,7 +164,7 @@ def test_agl_session_host_adapts_all_lifecycle_operations() -> None:
 def test_production_session_host_selects_and_rejects_transports(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agm.agent.session import rpc
+    from agnette.agent.session import rpc
 
     spawned: list[list[str]] = []
 

@@ -1,0 +1,2291 @@
+"""IR evaluator for the AgL typeless execution IR.
+
+``IrInterpreter`` executes an ``ExecutableProgram`` using the per-invocation
+frame / let-by-value / var-by-cell model.
+
+Allowed imports:
+- ``agnette.agl.ir.*``
+- ``agnette.agl.semantics.values`` (all value types, Cell, Frame)
+- ``agnette.agl.semantics.exceptions`` (AglRaise, make_builtin_exception)
+- ``agnette.agl.semantics.copying`` (deep_copy_value, shallow_copy_value)
+- ``agnette.agl.semantics.arithmetic`` (shared pinned decimal context)
+- ``agnette.agl.runtime.serialize`` (untyped coercion and static direct JSON
+  construction)
+- ``agnette.config.engine_keys`` (the canonical engine-key catalog data leaf)
+
+NOT allowed: ``agnette.agl.syntax``, ``agnette.agl.scope``, ``agnette.agl.typecheck``.
+"""
+
+from __future__ import annotations
+
+import decimal
+import inspect
+from collections.abc import Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, ContextManager, Protocol, TypeVar, assert_never, cast
+
+from agnette.agl.eval.arith import (
+    add,
+    contains,
+    div,
+    logical_not,
+    mul,
+    negate,
+    order,
+    sub,
+    value_eq,
+)
+from agnette.agl.eval.conversions import AglCastConversion, run_recipe
+from agnette.agl.eval.effects import EffectHandlers
+from agnette.agl.eval.indexing import AglIndexOutOfRange, AglMissingKey, index_get, index_set
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.builtin_vars import BuiltinVarKey, builtin_var_key, is_engine_builtin_var_key
+from agnette.agl.ir.contracts import (
+    ConversionFailureMode,
+    CustomContractRequest,
+    JsonContractRequest,
+    TextContractRequest,
+)
+from agnette.agl.ir.ids import ContractId, FunctionId, Location, NominalId, SymbolId
+from agnette.agl.ir.nodes import (
+    IrAnd,
+    IrArith,
+    IrAsk,
+    IrAskRequest,
+    IrAssign,
+    IrBind,
+    IrBlock,
+    IrBreak,
+    IrBuiltinLoad,
+    IrBuiltinStore,
+    IrCase,
+    IrCoerce,
+    IrCompare,
+    IrConstBool,
+    IrConstDecimal,
+    IrConstInt,
+    IrConstJsonNull,
+    IrConstText,
+    IrConstUnit,
+    IrContains,
+    IrContinue,
+    IrContract,
+    IrConvert,
+    IrCopyValue,
+    IrDirectCall,
+    IrExec,
+    IrExpr,
+    IrField,
+    IrFieldSet,
+    IrFunctionParam,
+    IrIf,
+    IrIndex,
+    IrIndexSet,
+    IrIndirectCall,
+    IrIterHasNext,
+    IrIterInit,
+    IrIterNext,
+    IrLiteralCaseKey,
+    IrLiteralKind,
+    IrLoad,
+    IrLoop,
+    IrMakeArray,
+    IrMakeClosure,
+    IrMakeConstructor,
+    IrMakeDict,
+    IrMakeException,
+    IrMakeJsonArray,
+    IrMakeJsonObject,
+    IrMakeRecord,
+    IrNeg,
+    IrNominalCaseKey,
+    IrNominalCast,
+    IrNominalIs,
+    IrNot,
+    IrOr,
+    IrPrint,
+    IrRaise,
+    IrRenderTemplate,
+    IrRenderValue,
+    IrResource,
+    IrReturn,
+    IrSequence,
+    IrSessionAsk,
+    IrSessionDefault,
+    IrSessionOp,
+    IrSessionOpen,
+    IrTemplateText,
+    IrTemplateValue,
+    IrTry,
+    IrUpdateRecord,
+    UseDefault,
+)
+from agnette.agl.ir.operations import (
+    ArithOp,
+    CmpOp,
+    Coercion,
+    CopyKind,
+    IntToDecimal,
+    ToJson,
+)
+from agnette.agl.ir.program import (
+    ExecutableProgram,
+    ExternFunctionBody,
+    FunctionDescriptor,
+    IrFunctionBody,
+    NominalDescriptor,
+    ValueDescriptors,
+    nominal_conforms,
+)
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.modules.ids import STD_CONFIG_ID, STD_ENV_ID, ModuleId
+from agnette.agl.runtime.agents import AgentFn
+from agnette.agl.runtime.codec import ParseResult, _parse_contract_output
+from agnette.agl.runtime.convert import DefaultResolver
+from agnette.agl.runtime.engine_config import (
+    EngineRangeError,
+    engine_default_settings,
+    restamp_engine_setting,
+    validate_engine_value,
+)
+from agnette.agl.runtime.externs import (
+    AglCallableProxy,
+    ExternCallWindow,
+    ExternRegistry,
+    ExternRuntimeState,
+    active_call_span,
+)
+from agnette.agl.runtime.option import none_value, option_text, some_value
+from agnette.agl.runtime.render import render_key_value_syntax, render_value
+from agnette.agl.runtime.serialize import AglNonDataValue, encode_scalar
+from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
+from agnette.agl.runtime.trace import TraceStore, noop_trace
+from agnette.agl.semantics.arithmetic import (
+    AglArithmeticSignal,
+    arithmetic_signal_raise,
+    int_to_decimal,
+    signal_kind_for,
+)
+from agnette.agl.semantics.copying import deep_copy_value, shallow_copy_value
+from agnette.agl.semantics.cycles import AglCyclicValue, cyclic_value_raise
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.exceptions import make_builtin_exception as _make_exc_value
+from agnette.agl.semantics.values import (
+    UNIT_VALUE,
+    ArrayValue,
+    BoolValue,
+    Cell,
+    ConstructorValue,
+    ContractValue,
+    DecimalValue,
+    DictValue,
+    ExceptionValue,
+    Frame,
+    FunctionValue,
+    IntValue,
+    IrClosureValue,
+    IteratorValue,
+    JsonValue,
+    RecordValue,
+    TextValue,
+    Value,
+)
+from agnette.config.engine_keys import (
+    HOST_CONSUMED_ENGINE_KEYS,
+    RUNTIME_LIVE_ENGINE_KEYS,
+    TRACE_ENGINE_KEYS,
+    trace_write_implies_enabled,
+)
+from agnette.core.cleanup import preserve_primary_error
+from agnette.core.parse import format_timeout as _format_timeout
+from agnette.core.parse import parse_timeout as _parse_timeout
+from agnette.util.decimal import AGL_DECIMAL_CONTEXT, integral_to_int
+from agnette.util.recursion import raised_recursion_limit
+
+if TYPE_CHECKING:
+    from agnette.agent.spec_defaults import AgentSpecResolver
+    from agnette.agl.runtime.contract import OutputContract
+    from agnette.agl.runtime.host_settings import HostSettingsReconfigurer
+    from agnette.agl.runtime.sessions import SessionHost
+    from agnette.agl.semantics.types import Type
+    from agnette.sandbox.prepare import SandboxContext
+
+__all__ = [
+    "HostConfigurationError",
+    "MissingBuiltinVarSeedError",
+    "IrInterpreter",
+    "default_field_resolver",
+    "lazy_interpreter",
+    "resolver_over_interpreter",
+    "_apply_coercion",
+    "_make_exc_value",
+]
+
+
+_ArgT = TypeVar("_ArgT")
+
+
+class HostConfigurationError(Exception):
+    """A host-backed value cannot be materialized as a valid AgL binding.
+
+    The evaluator raises this for a malformed startup ``default-agent`` and
+    for a read of a non-engine ``builtin var`` that has neither a host seed nor
+    a declared default. Pipeline hosts translate it to an ordinary language
+    diagnostic rather than leaking a Python implementation exception.
+    """
+
+
+class MissingBuiltinVarSeedError(HostConfigurationError):
+    """A non-engine host-backed binding was read without a value source."""
+
+    def __init__(self, key: BuiltinVarKey) -> None:
+        module_id, scope_path, name = key
+        scoped_name = "::".join((*scope_path, name))
+        super().__init__(
+            f"builtin var '{module_id.path_str()}::{scoped_name}' has no value: "
+            "the host did not seed it and its declaration has no default"
+        )
+
+
+class _FlexibleParse(Protocol):
+    def __call__(self, *args: object, **kwargs: object) -> ParseResult: ...
+
+
+def _call_custom_codec_parse(
+    host_contract: "OutputContract",
+    request: CustomContractRequest,
+    raw: str,
+    *,
+    effective_strict: bool,
+    schema: dict[str, object] | None,
+) -> ParseResult:
+    """Call a custom codec parse hook with its supported arguments.
+
+    Hooks accept raw text alone or with a positional target type; keyword
+    arguments are filtered to the inspected signature unless it accepts ``**kwargs``.
+
+    Never passes a ``default_resolver``: the ``OutputCodec.parse`` protocol
+    has no such parameter, so a third-party codec registered under a
+    non-builtin name cannot fill a defaulted-but-omitted field. Nothing
+    shipped registers one.
+    """
+    kwargs: dict[str, object] = {
+        "strict_json": effective_strict,
+        "schema": schema,
+        "decode": host_contract.decode,
+        "defs": dict(host_contract.defs),
+        "type_table": None,
+    }
+    parse = cast(_FlexibleParse, host_contract.codec.parse)
+    try:
+        params = inspect.signature(host_contract.codec.parse).parameters
+    except (TypeError, ValueError):
+        return parse(raw, **kwargs)
+
+    accepts_var_kw = any(param.kind.name == "VAR_KEYWORD" for param in params.values())
+    accepted_kwargs = {
+        name: value for name, value in kwargs.items() if accepts_var_kw or name in params
+    }
+    positional = [
+        param
+        for param in params.values()
+        if param.kind.name in {"POSITIONAL_ONLY", "POSITIONAL_OR_KEYWORD"}
+    ]
+    accepts_varargs = any(param.kind.name == "VAR_POSITIONAL" for param in params.values())
+    if accepts_varargs or len(positional) >= 2:
+        return parse(raw, cast("Type", request.target_type), **accepted_kwargs)
+    return parse(raw, **accepted_kwargs)
+
+
+# Engine-key defaults, built on first use.  The evaluator owns no default of its
+# own: a register falls back to the ``builtin var`` declaration's initializer and
+# then to these host-runtime values.  They are fixed data, so they are built once
+# and shared.
+_ENGINE_DEFAULT_SETTINGS: dict[str, Value] = {}
+
+
+def _engine_default_settings() -> Mapping[str, Value]:
+    """Return the host runtime's engine-key defaults."""
+    if not _ENGINE_DEFAULT_SETTINGS:
+        _ENGINE_DEFAULT_SETTINGS.update(engine_default_settings())
+    return _ENGINE_DEFAULT_SETTINGS
+
+
+# Memos for :func:`_literal_key_value`, keyed by the frozen, hashable case key:
+# one for an int subject, one for every other subject.
+_LITERAL_KEY_VALUES: dict[IrLiteralCaseKey, Value] = {}
+_INT_SUBJECT_LITERAL_KEY_VALUES: dict[IrLiteralCaseKey, Value] = {}
+
+
+def _literal_key_value(key: IrLiteralCaseKey, *, int_subject: bool) -> Value:
+    """Materialize the runtime value represented by one typeless scalar key.
+
+    An integral numeric key tested against an int subject materializes as an
+    ``IntValue``, so dispatch compares two ints rather than a mixed pair.
+    Memoized on *key*: a literal case arm always materializes the same immutable
+    ``Value``, so the hot case-dispatch path reuses one instance instead of
+    reallocating per arm per evaluation.
+    """
+    memo = _INT_SUBJECT_LITERAL_KEY_VALUES if int_subject else _LITERAL_KEY_VALUES
+    cached = memo.get(key)
+    if cached is not None:
+        return cached
+    value = _make_literal_key_value(key, int_subject=int_subject)
+    memo[key] = value
+    return value
+
+
+def _make_literal_key_value(key: IrLiteralCaseKey, *, int_subject: bool) -> Value:
+    """Build the runtime value for one typeless scalar key (uncached)."""
+    if key.kind is IrLiteralKind.NUMERIC:
+        number = cast(decimal.Decimal, key.scalar_value)
+        if int_subject and number == number.to_integral_value():
+            return IntValue(integral_to_int(number))
+        return DecimalValue(number)
+    if key.kind is IrLiteralKind.BOOL:
+        return BoolValue(cast(bool, key.scalar_value))
+    if key.kind is IrLiteralKind.TEXT:
+        return TextValue(cast(str, key.scalar_value))
+    return JsonValue(None)
+
+
+# The tree-walking evaluator descends through several Python stack frames per AgL
+# call, so Python's own recursion limit — not the AgL call-depth guard — is what
+# a deep recursion hits first at the default ceiling.  Before running, ``run()``
+# raises Python's limit so the AgL guard (``max_call_depth``) trips first and its
+# ``RecursionError`` stays catchable.  This budget is a generous upper bound on
+# the Python frames one AgL call spans; ``_MAX_PYTHON_RECURSION_LIMIT`` caps how
+# high the limit is pushed, beyond which a genuine Python ``RecursionError`` is
+# converted to a catchable AgL ``RecursionError`` instead of escaping as a crash.
+_PYTHON_FRAMES_PER_AGL_CALL = 80
+_BASE_RECURSION_HEADROOM = 4000
+_MAX_PYTHON_RECURSION_LIMIT = 1_000_000
+
+
+def _noop() -> None:
+    """Provide an inert cleanup action when this interpreter owns no sessions."""
+
+
+# ---------------------------------------------------------------------------
+# Internal loop-control signals (not AglRaise — bypass IrTry catch handlers)
+# ---------------------------------------------------------------------------
+
+
+class _BreakSignal(Exception):
+    """Raised by ``IrBreak`` evaluation; caught only by the enclosing ``IrLoop``.
+
+    Propagates through ``IrTry`` bodies unchanged because those catch only
+    ``AglRaise``.  This ensures a ``break`` inside a ``try`` block exits the
+    loop, not the ``try``.
+    """
+
+
+class _ContinueSignal(Exception):
+    """Raised by ``IrContinue`` evaluation; caught only by the enclosing ``IrLoop``.
+
+    Propagates through ``IrTry`` bodies unchanged.  The ``IrLoop`` evaluator
+    catches this and executes ``continue`` on its Python ``while True`` loop to
+    start the next iteration.
+    """
+
+
+class _ReturnSignal(Exception):
+    """Raised by ``IrReturn`` evaluation; caught at the function-call boundary."""
+
+    def __init__(self, value: Value) -> None:
+        super().__init__()
+        self.value = value
+
+
+# ---------------------------------------------------------------------------
+# Coercion helper — module-level for test access
+# ---------------------------------------------------------------------------
+
+
+def _apply_coercion(value: Value, coercion: Coercion) -> Value:
+    """Apply a resolved ``Coercion`` to *value* and return the result.
+
+    Switches on the closed ``Coercion`` union — no runtime type
+    sniffing of *value*; the coercion op is pre-resolved by the lowerer.
+    Every coercion is a scalar leaf conversion; neither arm rebuilds a
+    structure. In particular ``ToJson`` is only ever compiled for a scalar
+    source (see ``lower.coercions.compile_coercion``) — a container literal
+    typed ``json`` lowers to ``IrMakeJsonArray``/``IrMakeJsonObject`` instead,
+    so ``value`` here is never already a ``JsonValue``, an ``ArrayValue``, or
+    a ``DictValue``.
+    """
+    match coercion:
+        case IntToDecimal(operation=operation):
+            return DecimalValue(int_to_decimal(cast(IntValue, value).value, operation))
+
+        case ToJson():
+            return JsonValue(encode_scalar(value))
+
+        case _ as unreachable:  # pragma: no cover
+            assert_never(unreachable)
+
+
+# ---------------------------------------------------------------------------
+# IrInterpreter
+# ---------------------------------------------------------------------------
+
+
+class IrInterpreter:
+    """Evaluates an ``ExecutableProgram`` using the frame/cell model.
+
+    The entry module starts with a root frame; function calls, closures, and loop
+    iterations allocate additional frames as needed.
+
+    ``run()`` executes the entry module's initializers in order and returns
+    its public non-function bindings. When explicitly invoked, a synthetic
+    inline ``main`` also contributes its direct public bindings.
+    """
+
+    DEFAULT_MAX_CALL_DEPTH: int = 256
+
+    def __init__(
+        self,
+        program: ExecutableProgram,
+        *,
+        trace: TraceStore | None = None,
+        max_call_depth: int = DEFAULT_MAX_CALL_DEPTH,
+        agent_dispatcher: AgentFn | None = None,
+        session_host: "SessionHost | None" = None,
+        get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
+        resolve_agent_spec: "AgentSpecResolver | None" = None,
+        close_sessions: bool = True,
+        strict_json: bool = False,
+        echo_agent_output: bool = False,
+        shell_exec_timeout: float | None = None,
+        host_contracts: Mapping[ContractId, "OutputContract"] | None = None,
+        base_frame: Frame | None = None,
+        extern_registry: ExternRegistry | None = None,
+        host_reconfigurer: "HostSettingsReconfigurer | None" = None,
+        builtin_host_settings: Mapping[str | BuiltinVarKey, Value] | None = None,
+        param_seeds: Mapping[StaticBindingKey, Value] | None = None,
+        process_environment: Mapping[str, str] | None = None,
+        extern_runtime_state: ExternRuntimeState | None = None,
+    ) -> None:
+        self._program = program
+        self._descriptors = ValueDescriptors.from_program(program)
+        self._frames: list[Frame] = [base_frame if base_frame is not None else {}]
+        self.initializer_values: list[Value] = []
+        self.module_initializer_values: dict[ModuleId, list[Value]] = {}
+        self.module_completed_initializer_indices: dict[ModuleId, set[int]] = {}
+        self._initializer_indices = {
+            id(initializer): index
+            for module in program.modules.values()
+            for index, initializer in enumerate(module.initializers)
+        }
+        self._synthetic_main_frame: Frame | None = None
+        self._call_depth: int = 0
+        self._current_module: ModuleId = program.entry_module
+        self._call_sites: list[tuple[ModuleId, Location | None]] = []
+        self._trace: TraceStore = trace if trace is not None else noop_trace()
+        self._echo_agent_output = echo_agent_output
+        self._max_call_depth: int = max_call_depth
+        self._agent_dispatcher = agent_dispatcher
+        self._session_host: SessionHost = (
+            session_host
+            if session_host is not None
+            else AgentDispatcherSessionHost(agent_dispatcher)
+        )
+        self._get_sandbox_context = get_sandbox_context
+        self._resolve_agent_spec = resolve_agent_spec
+        self._close_sessions = close_sessions
+        # Once the free-ask default session exists, its environment is fixed
+        # forever: skip evaluating and decoding ``environ`` on every later
+        # free ask in this run, only doing so while creating it.
+        self._default_session_opened = False
+        # Bootstrap the setting fields so declared defaults can be evaluated by
+        # the ordinary, typeless evaluator. Constant defaults cannot read a
+        # setting or invoke a host operation, so this temporary state is never
+        # observable by their evaluation.
+        self._strict_json = False
+        self._shell_exec_timeout: float | None = None
+        self._timeout_setting = none_value(nominals=self._program.builtin_nominals)
+        self._builtin_host_settings: dict[str, Value] = {}
+        self._builtin_vars: dict[BuiltinVarKey, Value] = {}
+        self._seeded_symbols: dict[SymbolId, Value] = {
+            symbol: value
+            for key, value in (param_seeds or {}).items()
+            if (symbol := self._program.param_bindings.get(key)) is not None
+        }
+        self._host_reconfigurer = host_reconfigurer
+        # Bound once and handed to every extern call's `ActiveCall`, so
+        # resolving a trace span never allocates a per-call closure.
+        self._extern_span_resolver: Callable[
+            [ModuleId, Location | None], tuple[Location | None, ModuleId | None]
+        ] = self._extern_trace_span
+
+        defaults: dict[BuiltinVarKey, Value] = {
+            builtin_var_key(STD_CONFIG_ID, (), key): value
+            for key, value in _engine_default_settings().items()
+        }
+        defaults.update(
+            {
+                self._builtin_var_key(key): self.evaluate_constant(value)
+                for key, value in self._program.builtin_setting_defaults.items()
+            }
+        )
+        seed: dict[BuiltinVarKey, Value] = {
+            (builtin_var_key(STD_CONFIG_ID, (), key) if isinstance(key, str) else key): value
+            for key, value in (builtin_host_settings or {}).items()
+        }
+        if process_environment is not None:
+            environ_seed = self._process_environ_seed(process_environment)
+            if environ_seed is not None:
+                seed.setdefault(environ_seed[0], environ_seed[1])
+
+        # Runtime-live settings use an explicit host seed when present.  Their
+        # driver arguments are fallbacks: an absent false/None
+        # must not suppress a declaration default.  Bootstrap through the same
+        # effect path as a source write so host-invalid declared values become
+        # normal AgL runtime errors.
+        strict_key = builtin_var_key(STD_CONFIG_ID, (), "strict-json")
+        strict_setting = seed.get(strict_key)
+        if strict_setting is None:
+            strict_default = cast(BoolValue, defaults[strict_key])
+            strict_setting = BoolValue(strict_json or strict_default.value)
+        self._apply_config_effect("strict-json", strict_setting)
+
+        timeout_key = builtin_var_key(STD_CONFIG_ID, (), "timeout")
+        timeout_setting = seed.get(timeout_key)
+        if timeout_setting is None:
+            timeout_setting = (
+                some_value(
+                    TextValue(_format_timeout(shell_exec_timeout)),
+                    nominals=self._program.builtin_nominals,
+                )
+                if shell_exec_timeout is not None
+                else defaults[timeout_key]
+            )
+        timeout_setting = cast(
+            RecordValue,
+            restamp_engine_setting(
+                "timeout",
+                timeout_setting,
+                from_table=NO_BUILTIN_DECLARATIONS,
+                to_table=self._program.builtin_nominals,
+            ),
+        )
+        self._timeout_setting = timeout_setting
+        self._apply_config_effect("timeout", timeout_setting)
+
+        # Host-consumed registers use the host seed when one is provided and
+        # otherwise the ``builtin var`` declaration's default. A key with
+        # neither gets no register at all rather than a fabricated value;
+        # a well-typed program never reads one that has no register (see
+        # ``_load_builtin_setting``).
+        effective = {**defaults, **seed}
+        self._builtin_host_settings = {
+            key: effective[builtin_var_key(STD_CONFIG_ID, (), key)]
+            for key in HOST_CONSUMED_ENGINE_KEYS
+            if builtin_var_key(STD_CONFIG_ID, (), key) in effective
+        }
+        self._builtin_vars = {
+            key: value for key, value in effective.items() if not is_engine_builtin_var_key(key)
+        }
+        default_agent = self._builtin_host_settings.get("default-agent")
+        if isinstance(default_agent, RecordValue):
+            default_agent = cast(
+                RecordValue,
+                restamp_engine_setting(
+                    "default-agent",
+                    default_agent,
+                    from_table=NO_BUILTIN_DECLARATIONS,
+                    to_table=self._program.builtin_nominals,
+                ),
+            )
+            self._builtin_host_settings["default-agent"] = default_agent
+            self._check_default_agent_dispatchable(default_agent)
+        # ``trace-file`` always has a declared default (unlike ``default-agent``),
+        # so it is always present here.
+        trace_file = cast(RecordValue, self._builtin_host_settings["trace-file"])
+        self._builtin_host_settings["trace-file"] = restamp_engine_setting(
+            "trace-file",
+            trace_file,
+            from_table=NO_BUILTIN_DECLARATIONS,
+            to_table=self._program.builtin_nominals,
+        )
+        if self._host_reconfigurer is not None:
+            self._reconfigure_host_service(self._host_reconfigurer)
+        self._host_contracts: Mapping[ContractId, OutputContract] = (
+            host_contracts if host_contracts is not None else {}
+        )
+        default_sandbox = self._builtin_host_settings.get("default-sandbox")
+        if isinstance(default_sandbox, RecordValue):
+            self._builtin_host_settings["default-sandbox"] = restamp_engine_setting(
+                "default-sandbox",
+                default_sandbox,
+                from_table=NO_BUILTIN_DECLARATIONS,
+                to_table=self._program.builtin_nominals,
+            )
+        self._extern_registry: ExternRegistry = (
+            extern_registry if extern_registry is not None else ExternRegistry()
+        )
+        self._extern_call_window_guard = ExternCallWindow()
+        # A host-supplied state bag outlives this interpreter; its host closes it.
+        self._owns_extern_runtime_state = extern_runtime_state is None
+        self._extern_runtime_state = (
+            extern_runtime_state if extern_runtime_state is not None else ExternRuntimeState()
+        )
+        self._effects = EffectHandlers(self)
+
+    def _parse_host_output(
+        self,
+        raw: str,
+        contract_id: ContractId,
+        contract: TextContractRequest | JsonContractRequest | CustomContractRequest,
+        *,
+        effective_strict: bool,
+    ) -> ParseResult:
+        """Parse *raw* per contract *contract_id*, whose non-unit request is *contract*."""
+        if isinstance(contract, CustomContractRequest):
+            host_contract = self._host_contracts[contract_id]
+            schema = (
+                host_contract.json_schema if isinstance(host_contract.json_schema, dict) else None
+            )
+            return _call_custom_codec_parse(
+                host_contract,
+                contract,
+                raw,
+                effective_strict=effective_strict,
+                schema=schema,
+            )
+        return _parse_contract_output(
+            raw,
+            contract,
+            effective_strict=effective_strict,
+            default_resolver=self.default_for_field,
+        )
+
+    @property
+    def _frame(self) -> Frame:
+        """Return the current (top-of-stack) frame."""
+        return self._frames[-1]
+
+    # ------------------------------------------------------------------
+    # Post-run engine-setting accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def strict_json(self) -> bool:
+        """Current strict-JSON setting (may have been updated by a ``builtin var`` write)."""
+        return self._strict_json
+
+    @property
+    def timeout_setting(self) -> RecordValue:
+        """Current raw ``Option[text]`` timeout value, in reserved fallback identity.
+
+        A host that persists this past the run that produced it (the REPL)
+        needs it recognizable once this run's own compiled program is gone --
+        see :func:`~agnette.agl.runtime.engine_config.restamp_engine_setting`.
+        """
+        return cast(
+            RecordValue,
+            restamp_engine_setting(
+                "timeout",
+                self._timeout_setting,
+                from_table=self._program.builtin_nominals,
+                to_table=NO_BUILTIN_DECLARATIONS,
+            ),
+        )
+
+    @property
+    def shell_exec_timeout(self) -> float | None:
+        """Current shell-exec timeout (may have been updated by a ``builtin var`` write)."""
+        return self._shell_exec_timeout
+
+    @property
+    def debug(self) -> bool:
+        """Current ``debug`` setting (may have been updated by a ``builtin var`` write)."""
+        return cast(BoolValue, self._builtin_host_settings["debug"]).value
+
+    @property
+    def builtin_vars(self) -> dict[BuiltinVarKey, Value]:
+        """Current non-engine host-backed bindings for incremental hosts."""
+        return dict(self._builtin_vars)
+
+    @property
+    def builtin_host_settings(self) -> dict[str, Value]:
+        """Current host-consumed register values, in reserved fallback identity.
+
+        A snapshot of the registers backing the host-consumed ``builtin var``
+        engine settings, reflecting any writes made during the run.  A key
+        with neither a host seed nor a declared default is absent.  Hosts that
+        persist settings across runs (the REPL) read this back after a run to
+        seed the next one; an enum-backed value (``Option``/``Agent``/``AgentSandbox``) is
+        already restamped onto the reserved fallback identity, so such a host
+        needs no program-specific nominal table of its own -- see
+        :func:`~agnette.agl.runtime.engine_config.restamp_engine_setting`.
+        """
+        return {
+            key: restamp_engine_setting(
+                key,
+                value,
+                from_table=self._program.builtin_nominals,
+                to_table=NO_BUILTIN_DECLARATIONS,
+            )
+            for key, value in self._builtin_host_settings.items()
+        }
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _index_failure(self, err: AglIndexOutOfRange | AglMissingKey) -> AglRaise:
+        """Convert an index/key sentinel into an ``AglRaise`` with the appropriate fields.
+
+        Centralises the identical sentinel-wrapping sites (the ``IrIndex`` and
+        ``IrIndexSet`` handlers) so the exception message and field shapes are
+        defined exactly once.
+        """
+        match err:
+            case AglIndexOutOfRange():
+                return AglRaise(
+                    _make_exc_value(
+                        "IndexError",
+                        str(err),
+                        nominals=self._program.builtin_nominals,
+                        fields={
+                            "index": IntValue(err.index),
+                            "length": IntValue(err.length),
+                        },
+                    ),
+                )
+            case AglMissingKey():
+                rendered_key = render_key_value_syntax(err.key, self._descriptors)
+                return AglRaise(
+                    _make_exc_value(
+                        "KeyError",
+                        f"Dict key {rendered_key} is missing",
+                        nominals=self._program.builtin_nominals,
+                        fields={"key": TextValue(rendered_key)},
+                    ),
+                )
+            case _ as unreachable:  # pragma: no cover
+                assert_never(unreachable)
+
+    def _duplicate_key_failure(self, key: Value) -> AglRaise:
+        """Build the ``AglRaise`` for a dict literal key computed twice at runtime."""
+        rendered_key = render_key_value_syntax(key, self._descriptors)
+        return AglRaise(
+            _make_exc_value(
+                "DuplicateKeyError",
+                f"Duplicate dict key {rendered_key}",
+                nominals=self._program.builtin_nominals,
+                fields={"key": TextValue(rendered_key)},
+            ),
+        )
+
+    def _cyclic_failure(self) -> AglRaise:
+        """Convert a detected reference cycle into an ``AglRaise(CyclicValueError)``.
+
+        Mirrors ``_index_failure``: centralizes the sentinel-to-exception
+        conversion so every ``render``/``as json``/coercion site that can
+        reach a cyclic value raises identical exception fields.
+        """
+        return cyclic_value_raise(nominals=self._program.builtin_nominals)
+
+    def _arithmetic_failure(self, exc: AglArithmeticSignal) -> AglRaise:
+        """Convert a trapped ``decimal`` signal into an ``AglRaise(ArithmeticError)``.
+
+        Mirrors ``_cyclic_failure``: centralizes the sentinel-to-exception
+        conversion so every arithmetic, negation, and conversion site that can
+        hit a decimal overflow or invalid operation raises identical
+        exception fields.
+        """
+        return arithmetic_signal_raise(exc, nominals=self._program.builtin_nominals)
+
+    def _render_or_raise(
+        self, value: Value, *, pretty: bool = False, quote_strings: bool = False
+    ) -> str:
+        """Render a value, converting the rendering-cycle sentinel."""
+        try:
+            return render_value(
+                value, self._descriptors, pretty=pretty, quote_strings=quote_strings
+            )
+        except AglCyclicValue:
+            raise self._cyclic_failure()
+
+    def _on_cast_failure(
+        self, failure_mode: ConversionFailureMode, exc: AglCastConversion
+    ) -> Value:
+        """Handle a fallible-cast failure per the conversion failure mode."""
+        match failure_mode:
+            case ConversionFailureMode.RAISE_CAST_ERROR:
+                raise self._cast_conversion_raise("CastError", exc)
+            case ConversionFailureMode.RAISE_VALUE_PARSE_ERROR:
+                raise self._cast_conversion_raise("ValueParseError", exc)
+            case ConversionFailureMode.RETURN_OPTION:
+                return self._option_none()
+            case _ as unreachable:  # pragma: no cover
+                assert_never(unreachable)
+
+    def _option_some(self, value: Value) -> Value:
+        """Build the ``Option::Some`` an ``as?`` conversion evaluates to."""
+        return some_value(value, nominals=self._program.builtin_nominals, declared=True)
+
+    def _option_none(self) -> Value:
+        """Build the ``Option::None`` a failed ``as?`` conversion evaluates to."""
+        return none_value(nominals=self._program.builtin_nominals, declared=True)
+
+    def _cast_conversion_raise(self, exception_name: str, exc: AglCastConversion) -> AglRaise:
+        """Build the ``AglRaise`` for a failed cast-like conversion, by exception name.
+
+        Shared by ``RAISE_CAST_ERROR`` (``CastError``) and
+        ``RAISE_VALUE_PARSE_ERROR`` (``ValueParseError``): both exceptions carry
+        the identical ``source-type``/``target-type``/``raw`` field shape.
+        """
+        return AglRaise(
+            _make_exc_value(
+                exception_name,
+                exc.message,
+                nominals=self._program.builtin_nominals,
+                fields={
+                    "source-type": TextValue(exc.source_label),
+                    "target-type": TextValue(exc.target_label),
+                    "raw": TextValue(exc.raw),
+                },
+            ),
+        )
+
+    def _cast_raw(self, value: Value) -> str:
+        """Render a failed nominal cast without letting a cycle mask CastError."""
+        try:
+            return render_value(value, self._descriptors)
+        except AglCyclicValue:
+            return "<cyclic value>"
+
+    def _get_closure_for(self, fn_id: FunctionId) -> IrClosureValue:
+        """Look up a direct-call closure in its lexical evaluation frame."""
+        desc = self._program.functions[fn_id]
+        slot = next(
+            frame[desc.function_symbol]
+            for frame in reversed(self._frames)
+            if desc.function_symbol in frame
+        )
+        val = slot.value if isinstance(slot, Cell) else slot
+        return cast(IrClosureValue, val)
+
+    def _enter_call(self, module_id: ModuleId, location: Location | None) -> ModuleId:
+        """Push *location* as this call's site and switch to *module_id*.
+
+        Pairs with :meth:`_exit_call`, which callers invoke with this
+        method's return value in a ``finally`` block — plain push/switch, no
+        generator overhead, entered around a callee's default-argument
+        resolution and body evaluation alike, so a default expression sees
+        the same ``_current_module``/``_call_sites`` state its callee's body
+        would (:meth:`_extern_trace_span`). *location* is this call's own
+        site (in the caller's module, or ``None`` for a companion callback
+        with no AgL call site of its own).
+        """
+        self._call_sites.append((self._current_module, location))
+        previous_module = self._current_module
+        self._current_module = module_id
+        return previous_module
+
+    def _exit_call(self, previous_module: ModuleId) -> None:
+        """Undo the matching :meth:`_enter_call`: restore its module, pop its call site."""
+        self._current_module = previous_module
+        self._call_sites.pop()
+
+    def _bind_and_invoke(
+        self,
+        desc: "FunctionDescriptor",
+        body: IrExpr,
+        closure_val: IrClosureValue,
+        bound_values: list[Value],
+        *,
+        retain_frame: bool = False,
+    ) -> Value:
+        """Build a call frame, push it, evaluate the function body, pop the frame, return result.
+
+        Shared by every call path that has already resolved its arguments and
+        entered *desc*'s call context via :meth:`_enter_call`.
+
+        Function parameters are immutable in AgL (they can never be the target of an
+        assignment), so they are bound by value — never boxed in a Cell.
+        """
+        call_frame: Frame = dict(closure_val.captures)
+        for param, val in zip(desc.params, bound_values, strict=True):
+            call_frame[param.symbol] = val
+
+        self._frames.append(call_frame)
+        self._call_depth += 1
+        try:
+            try:
+                result = self._eval(body)
+            except _ReturnSignal as signal:
+                result = signal.value
+        finally:
+            self._call_depth -= 1
+            if retain_frame:
+                self._synthetic_main_frame = call_frame
+            self._frames.pop()
+
+        return result
+
+    def _install_function_closures(self) -> None:
+        """Pre-install every module's zero-capture function closures.
+
+        Runs before parameter defaults so a default can call a function from
+        its declaring module, including an imported module whose initializers
+        have not yet run.
+        """
+        for module in self._program.modules.values():
+            for node in module.initializers:
+                match node:
+                    case IrBind(
+                        symbol=sym,
+                        value=IrMakeClosure(function_id=fn_id, captures=()) as closure_node,
+                    ):
+                        if self._program.functions[fn_id].function_symbol != sym:
+                            continue
+                        value = self._eval(closure_node)
+                        self._frames[0][sym] = value
+                        self.module_completed_initializer_indices.setdefault(
+                            module.module_id, set()
+                        ).add(self._initializer_indices[id(node)])
+                    case _:
+                        continue
+
+    def _recursion_error(self) -> AglRaise:
+        """Build the catchable AgL ``RecursionError`` for an exceeded call depth.
+
+        Shared by the ``max_call_depth`` guard and the backstop that converts a
+        Python ``RecursionError`` (raised when Python's own limit is hit before
+        the guard) into the same catchable AgL exception.
+        """
+        return AglRaise(
+            _make_exc_value(
+                "RecursionError",
+                f"Maximum call depth ({self._max_call_depth}) exceeded",
+                nominals=self._program.builtin_nominals,
+                fields={
+                    "limit": IntValue(self._max_call_depth),
+                },
+            )
+        )
+
+    def _check_call_depth(self) -> None:
+        if self._call_depth >= self._max_call_depth:
+            raise self._recursion_error()
+
+    def _eval_expr_in_frame(self, expr: IrExpr, frame: Frame) -> Value:
+        """Evaluate *expr* with *frame* pushed as the active frame."""
+        self._frames.append(frame)
+        try:
+            return self._eval(expr)
+        finally:
+            self._frames.pop()
+
+    def _eval_default_in_frame(self, param: "IrFunctionParam", frame: Frame) -> Value:
+        """Evaluate an omitted argument's default expression in *frame*."""
+        assert param.default is not None, "arg omitted but param has no default (lowerer bug)"
+        return self._eval_expr_in_frame(param.default, frame)
+
+    def _eval_extern_default(self, param: "IrFunctionParam") -> Value:
+        """Evaluate an omitted extern argument's default expression.
+
+        Extern closures never capture anything, so the default is evaluated
+        in a fresh empty frame — reads fall through to module (base-frame)
+        scope, mirroring how an ordinary closure's captures frame chains to
+        module scope for its own defaults.
+        """
+        return self._eval_default_in_frame(param, {})
+
+    def _eval_constructor_default(
+        self, descriptor: "NominalDescriptor", field_index: int, location: Location | None
+    ) -> Value:
+        """Evaluate an omitted constructor field's default expression.
+
+        Mirrors :meth:`_eval_extern_default`: a field default never captures
+        anything (it is a constant expression checked at the declaring
+        type's own scope), so it evaluates in a fresh empty frame. It runs in
+        the declaring module's call context, entered like any other callee's
+        (:meth:`_enter_call`), so trace spans attribute it correctly.
+        """
+        default = descriptor.field_defaults[field_index]
+        assert default is not None, "omitted constructor field has no default (lowerer bug)"
+        previous_module = self._enter_call(descriptor.module_id, location)
+        try:
+            return self._eval_expr_in_frame(default, {})
+        finally:
+            self._exit_call(previous_module)
+
+    def default_for_field(self, nominal: NominalId, field_index: int) -> Value:
+        """Evaluate one constructor field's default via its declaring nominal's own descriptor.
+
+        The decode-time default-fill seam: ``runtime.convert.decode_value``'s
+        ``default_resolver`` calls this to fill a record/enum-variant field a
+        JSON or value-syntax decode source omitted, through the same per-field
+        default evaluation an omitted constructor slot uses
+        (:meth:`_eval_constructor_default`) against this program's real,
+        fully-linked ``NominalDescriptor`` table.
+        """
+        return self._eval_constructor_default(self._program.nominals[nominal], field_index, None)
+
+    def _eval_constructor_fields(
+        self,
+        nominal: NominalId,
+        fields: "tuple[tuple[str, IrExpr | UseDefault], ...]",
+        location: Location | None,
+    ) -> dict[str, Value]:
+        """Evaluate one record/exception construction's field slots.
+
+        Shared by ``IrMakeRecord`` and ``IrMakeException``: a supplied slot
+        evaluates in the current frame, an omitted (``UseDefault``) one
+        through :meth:`_eval_constructor_default` against the constructed
+        nominal's own descriptor. The descriptor is looked up only when a
+        slot actually needs it, so a construction with every field supplied
+        never requires its nominal to be registered in ``program.nominals``
+        (some hand-built/reserved constructions are not).
+        """
+        return {
+            fname: (
+                self._eval_constructor_default(
+                    self._program.nominals[nominal], fexpr.param_index, location
+                )
+                if isinstance(fexpr, UseDefault)
+                else self._eval(fexpr)
+            )
+            for fname, fexpr in fields
+        }
+
+    def _extern_call_window(self) -> ContextManager[None]:
+        """Open this interpreter's callback window for one extern invocation."""
+        return self._extern_call_window_guard.active()
+
+    def _make_extern_callable_proxy(self, function: FunctionValue) -> AglCallableProxy:
+        """Wrap one AgL function value for a companion's synchronous callback."""
+
+        def invoke(args: tuple[Value, ...]) -> Value:
+            return self._invoke_crossed_function(function, args)
+
+        return AglCallableProxy(
+            arity=len(
+                self._program.nominals[function.nominal].fields
+                if isinstance(function, ConstructorValue)
+                else self._program.functions[function.function_id].params
+            ),
+            function=function,
+            require_active_window=self._extern_call_window_guard.require_active,
+            invoke=invoke,
+        )
+
+    def _construct(self, constructor: ConstructorValue, values: Sequence[Value]) -> RecordValue:
+        """Build *constructor*'s record from its field values, in declaration order."""
+        fields = self._program.nominals[constructor.nominal].fields
+        return RecordValue(
+            nominal=constructor.nominal, fields=dict(zip(fields, values, strict=True))
+        )
+
+    def _invoke_crossed_function(self, function: FunctionValue, args: tuple[Value, ...]) -> Value:
+        """Re-enter this interpreter to execute an AgL callback from an extern.
+
+        A constructor builds its record. A closure's callback has no AgL call
+        site of its own -- it is invoked directly by the companion holding it,
+        not through an ``IrCall`` node -- so it is attributed to the enclosing
+        active call's own span (the outer call that handed the companion this
+        closure in the first place, ``None`` outside any active call). An
+        extern callback resolves that further through
+        :meth:`_extern_trace_span`, exactly like an ordinary extern call, in
+        case the outer span still lies inside its own package.
+        """
+        if isinstance(function, ConstructorValue):
+            return self._construct(function, args)
+        desc = self._program.functions[function.function_id]
+        match desc.impl:
+            case ExternFunctionBody() as extern:
+                return self._effects.eval_extern_call(
+                    desc.module_id, extern, args, location=active_call_span()
+                )
+            case IrFunctionBody(body=body):
+                self._check_call_depth()
+                previous_module = self._enter_call(desc.module_id, active_call_span())
+                try:
+                    return self._bind_and_invoke(desc, body, function, list(args))
+                finally:
+                    self._exit_call(previous_module)
+            case other:  # pragma: no cover
+                assert_never(other)
+
+    def _extern_trace_span(
+        self, extern_module: ModuleId, location: Location | None
+    ) -> tuple[Location | None, ModuleId | None]:
+        """Return the (call site, its owning module) an extern call's trace record attributes to.
+
+        A package's own AgL wrappers often call its extern through several
+        layers of plain functions (``std/http``'s ``get`` calling its own
+        ``request`` extern, say): those internal call sites are the
+        package's own implementation, not something a program author wrote,
+        so a trace record naming one would point at the library rather than
+        the call the author made. This walks outward through the active call
+        stack -- innermost call first -- for the nearest site whose module is
+        mounted under a different root than the extern's own
+        (:meth:`ModuleId.shares_mount_with`), and falls back to the immediate
+        site when the whole active chain, down to the program root, stays
+        inside that package.
+
+        The owning module (the second element) is the module the returned
+        span's source location belongs to -- distinct from the extern's own
+        module (``origin``) whenever the span was found by walking outward.
+        It is ``None`` exactly when the span itself is ``None``: there is
+        nothing to attribute in that case.
+        """
+        if not self._current_module.shares_mount_with(extern_module):
+            return location, (self._current_module if location is not None else None)
+        for owner_module, site in reversed(self._call_sites):
+            if not owner_module.shares_mount_with(extern_module):
+                return site, (owner_module if site is not None else None)
+        return location, (self._current_module if location is not None else None)
+
+    def _resolve_defaults_and_invoke(
+        self,
+        desc: "FunctionDescriptor",
+        body: IrExpr,
+        closure_val: IrClosureValue,
+        arguments: "tuple[object, ...]",
+        eval_arg: "Callable[[_ArgT], Value]",
+        *,
+        location: Location | None = None,
+        retain_frame: bool = False,
+    ) -> Value:
+        """Resolve each argument against the callee, in one positional pass, then invoke.
+
+        The tail shared by the IR direct-call path (:meth:`_execute_direct_call`)
+        and the program entry point (:meth:`_invoke_program`). A single loop
+        walks *arguments* in parameter order: a plain argument is turned into a
+        value by *eval_arg* (``self._eval`` in the caller frame for a direct
+        call, or the identity function for the program entry point's
+        already-evaluated arguments), and a ``UseDefault`` argument evaluates
+        that parameter's default expression in the callee's captures frame —
+        interleaved in argument order, as an omitted argument does. Every
+        non-``UseDefault`` element of *arguments* is an ``_ArgT``, matching
+        *eval_arg*'s own parameter type; the caller's own signature enforces
+        that, so the per-element cast below only restates it for the type
+        checker. *location* is this call's own site: a default expression and
+        the callee's body run inside *desc*'s call context (:meth:`_enter_call`),
+        so they see the callee's own module and this call's site on
+        ``_call_sites``; a caller-supplied argument expression evaluates in
+        the caller's own unchanged context, exactly where it is written.
+        """
+        bound_values: list[Value] = []
+        for param, arg in zip(desc.params, arguments, strict=True):
+            if isinstance(arg, UseDefault):
+                previous_module = self._enter_call(desc.module_id, location)
+                try:
+                    val = self._eval_default_in_frame(param, dict(closure_val.captures))
+                finally:
+                    self._exit_call(previous_module)
+            else:
+                val = eval_arg(cast(_ArgT, arg))
+            bound_values.append(val)
+        previous_module = self._enter_call(desc.module_id, location)
+        try:
+            return self._bind_and_invoke(
+                desc, body, closure_val, bound_values, retain_frame=retain_frame
+            )
+        finally:
+            self._exit_call(previous_module)
+
+    def _execute_direct_call(
+        self,
+        fn_id: FunctionId,
+        arguments: "tuple[IrExpr | UseDefault, ...]",
+        location: Location | None,
+        *,
+        retain_frame: bool = False,
+    ) -> Value:
+        """Execute a direct call to a named user function or an extern.
+
+        An extern ``function_id`` skips the AgL body entirely and crosses
+        into the companion Python module via the effects layer, mirroring
+        the host-op dispatch pattern (no call-depth accounting — there is no
+        AgL frame to recurse into).  Otherwise: depth check → single
+        positional pass over *arguments*, evaluating each plain one in the
+        caller frame and each ``UseDefault`` one against the callee's
+        captures frame (:meth:`_resolve_defaults_and_invoke`).
+        """
+        desc = self._program.functions[fn_id]
+        match desc.impl:
+            case ExternFunctionBody() as extern:
+                # Leading target contracts precede the declared parameters' arguments.
+                contracts = arguments[: extern.target_count]
+                extern_bound_values = [self._eval(cast(IrExpr, arg)) for arg in contracts]
+                for param, arg in zip(desc.params, arguments[extern.target_count :], strict=True):
+                    val = (
+                        self._eval_extern_default(param)
+                        if isinstance(arg, UseDefault)
+                        else self._eval(arg)
+                    )
+                    extern_bound_values.append(val)
+                return self._effects.eval_extern_call(
+                    desc.module_id, extern, extern_bound_values, location=location
+                )
+            case IrFunctionBody(body=body):
+                self._check_call_depth()
+                closure_val = self._get_closure_for(fn_id)
+                return self._resolve_defaults_and_invoke(
+                    desc,
+                    body,
+                    closure_val,
+                    arguments,
+                    self._eval,
+                    location=location,
+                    retain_frame=retain_frame,
+                )
+            case other:  # pragma: no cover
+                assert_never(other)
+
+    def _execute_indirect_call(
+        self,
+        callee_expr: IrExpr,
+        arguments: "tuple[IrExpr, ...]",
+        location: Location,
+    ) -> Value:
+        """Execute an indirect (value) call.
+
+        User-function closure evaluation order:
+        1. Evaluate the callee in the current frame.
+        2. Depth-limit check (AFTER callee eval, BEFORE arg binding).
+        3. Evaluate each positional arg in the caller frame, NO coercion.
+        4. Use ``desc.params[i].default`` for omitted trailing params
+           (evaluated in a captures frame).
+        5. ``_bind_and_invoke``.
+        """
+        callee_val = self._eval(callee_expr)
+        if isinstance(callee_val, ConstructorValue):
+            return self._construct(callee_val, [self._eval(argument) for argument in arguments])
+        callee_val = cast(IrClosureValue, callee_val)
+
+        desc = self._program.functions[callee_val.function_id]
+        match desc.impl:
+            case ExternFunctionBody() as extern:
+                extern_bound_values: list[Value] = []
+                for i, param in enumerate(desc.params):
+                    val = (
+                        self._eval(arguments[i])
+                        if i < len(arguments)
+                        else self._eval_extern_default(param)
+                    )
+                    extern_bound_values.append(val)
+                return self._effects.eval_extern_call(
+                    desc.module_id, extern, extern_bound_values, location=location
+                )
+            case IrFunctionBody(body=body):
+                self._check_call_depth()
+
+                # Evaluate each positional argument in the CALLER frame (no
+                # coercion); a defaulted trailing one runs inside the
+                # callee's call context instead, like an ordinary default
+                # (see `_resolve_defaults_and_invoke`).
+                bound_values: list[Value] = []
+                for i, param in enumerate(desc.params):
+                    if i < len(arguments):
+                        val = self._eval(arguments[i])
+                    else:
+                        previous_module = self._enter_call(desc.module_id, location)
+                        try:
+                            val = self._eval_default_in_frame(param, dict(callee_val.captures))
+                        finally:
+                            self._exit_call(previous_module)
+                    bound_values.append(val)
+
+                previous_module = self._enter_call(desc.module_id, location)
+                try:
+                    return self._bind_and_invoke(desc, body, callee_val, bound_values)
+                finally:
+                    self._exit_call(previous_module)
+            case other:  # pragma: no cover
+                assert_never(other)
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
+    def _program_entry(self, symbol: SymbolId) -> "tuple[FunctionDescriptor, IrFunctionBody]":
+        """Look up a selected ``program def``'s descriptor and body."""
+        descriptor = self._program.functions[self._program.program_functions[symbol]]
+        return descriptor, cast(IrFunctionBody, descriptor.impl)
+
+    def _program_entry_location(self, symbol: SymbolId) -> Location:
+        """Return the selected ``program def`` body's source location."""
+        return self._program_entry(symbol)[1].body.location
+
+    def _invoke_program(
+        self, symbol: SymbolId, arguments: "tuple[Value | UseDefault, ...]"
+    ) -> Value:
+        """Invoke a selected linked ``program def`` with pre-evaluated arguments.
+
+        Reuses :meth:`_resolve_defaults_and_invoke`, the same tail an ordinary
+        direct call uses, so the entry point binds exactly like a call to the
+        same function descriptor. A depth-limit error (no span of its own) is
+        attributed to the program body's own location here; a body error
+        already carries its innermost failing node's span from :meth:`_eval`.
+        The pushed call site uses the program body's own location -- there is
+        no real caller expression -- so a default or an extern call reached
+        only through this entry still has a concrete site to report if the
+        whole chain proves to be inside one other package
+        (:meth:`_extern_trace_span`).
+        """
+        desc, impl = self._program_entry(symbol)
+        location = impl.body.location
+        try:
+            self._check_call_depth()
+            closure_val = self._get_closure_for(desc.function_id)
+            return self._resolve_defaults_and_invoke(
+                desc,
+                impl.body,
+                closure_val,
+                arguments,
+                lambda value: value,
+                location=location,
+                retain_frame=symbol == self._program.synthetic_main_symbol,
+            )
+        except AglRaise as exc:
+            if exc.span is None:
+                exc.span = location
+            raise
+
+    def evaluate_constant(self, expr: IrExpr) -> Value:
+        """Evaluate a checked constant expression: no binding, setting, or host effect.
+
+        Shared by ``builtin var`` default bootstrap and ``@config`` preflight
+        evaluation, both of which consume only checker-proven-constant IR.
+        """
+        return self._eval(expr)
+
+    def run(
+        self,
+        *,
+        program_symbol: SymbolId | None = None,
+        arguments: "tuple[Value | UseDefault, ...]" = (),
+    ) -> dict[str, Value]:
+        """Execute all modules in order and return the entry module's public bindings.
+
+        Iterates over all modules in insertion order (library modules first,
+        entry last), executing each module's initializers. When
+        *program_symbol* is provided, invokes that selected ``program def``
+        with *arguments* — its own pre-evaluated parameter values, positionally
+        matching its signature, with ``UseDefault`` in place of an omitted
+        defaulted parameter — before leaving the same managed execution
+        boundary. Arguments are bound after every module initializer has run,
+        so a defaulted parameter's default may read module bindings. All
+        evaluation runs under the pinned AgL decimal context.
+
+        Python's recursion limit is raised for the duration so the AgL
+        ``max_call_depth`` guard is reached before Python's own limit; a Python
+        ``RecursionError`` that still escapes (its limit is capped) is converted
+        to a catchable AgL ``RecursionError`` rather than crashing the host.
+
+        Companion state this interpreter owns is closed on every exit, honoring
+        the final ``debug`` setting; session cleanup stays gated by
+        ``close_sessions``.
+        """
+        needed = _BASE_RECURSION_HEADROOM + self._max_call_depth * _PYTHON_FRAMES_PER_AGL_CALL
+        target = min(needed, _MAX_PYTHON_RECURSION_LIMIT)
+        session_cleanup = self._session_host.close_all if self._close_sessions else _noop
+        state_cleanup = (
+            self._close_extern_runtime_state if self._owns_extern_runtime_state else _noop
+        )
+
+        with raised_recursion_limit(target):
+            try:
+                with preserve_primary_error(state_cleanup, label="companion state cleanup"):
+                    with preserve_primary_error(session_cleanup, label="agent session cleanup"):
+                        with decimal.localcontext(AGL_DECIMAL_CONTEXT):
+                            self._install_function_closures()
+                            for mod in self._program.modules.values():
+                                # Restored, not left at the last module visited:
+                                # module order is a lowering detail, not a call
+                                # chain, so this is a plain save/restore rather
+                                # than `_enter_call` (no call site to record).
+                                previous_module = self._current_module
+                                self._current_module = mod.module_id
+                                try:
+                                    for node in mod.initializers:
+                                        self._eval_and_record_initializer(mod.module_id, node)
+                                finally:
+                                    self._current_module = previous_module
+                            if program_symbol is not None:
+                                try:
+                                    self._invoke_program(program_symbol, arguments)
+                                except RecursionError:
+                                    error = self._recursion_error()
+                                    error.span = self._program_entry_location(program_symbol)
+                                    raise error from None
+                return self._collect_results()
+            except RecursionError:
+                raise self._recursion_error() from None
+
+    def _close_extern_runtime_state(self) -> None:
+        self._extern_runtime_state.close_all(debug=self.debug)
+
+    def _eval_and_record_initializer(self, module_id: ModuleId, node: IrExpr) -> None:
+        """Evaluate one initializer, retaining its result for result collection.
+
+        ``_eval_initializer``'s only raising path is :meth:`_eval`, which
+        already attributes an unspanned raise to its own failing node, so
+        nothing here needs to backfill a span.
+        """
+        value = self._eval_initializer(node)
+        self.initializer_values.append(value)
+        self.module_initializer_values.setdefault(module_id, []).append(value)
+        self.module_completed_initializer_indices.setdefault(module_id, set()).add(
+            self._initializer_indices[id(node)]
+        )
+
+    def _eval_initializer(self, node: IrExpr) -> Value:
+        match node:
+            case IrBind(symbol=sym) if sym in self._seeded_symbols:
+                value = self._seeded_symbols[sym]
+                if self._program.symbols[sym].mutable:
+                    self._frame[sym] = Cell(value)
+                else:
+                    self._frame[sym] = value
+                return value
+            case IrBind(symbol=sym, value=IrMakeClosure(function_id=fn_id)):
+                if self._program.functions[fn_id].function_symbol == sym:
+                    # A root FuncDef's closure always has empty captures (a
+                    # module binding is never captured, see lowerer
+                    # `_compute_captures_for`), so `_install_function_closures`
+                    # has already installed this exact symbol into frame 0.
+                    slot = self._frames[0][sym]
+                    return slot.value if isinstance(slot, Cell) else slot
+            case _:
+                pass
+        return self._eval(node)
+
+    # ------------------------------------------------------------------
+    # Expression evaluator (closed IrExpr dispatch)
+    # ------------------------------------------------------------------
+
+    def _eval_session_effect(
+        self, node: IrSessionOpen | IrSessionDefault | IrSessionAsk | IrSessionOp
+    ) -> Value:
+        if isinstance(node, IrSessionOpen):
+            return self._effects.eval_ir_session_open(node)
+        if isinstance(node, IrSessionDefault):
+            default_env = None if self._default_session_opened else self._eval(node.env)
+            result = self._effects.eval_ir_session_default(
+                node,
+                self._load_builtin_setting("default-agent"),
+                self._load_builtin_setting("default-sandbox"),
+                default_env,
+            )
+            self._default_session_opened = True
+            return result
+        if isinstance(node, IrSessionAsk):
+            return self._effects.eval_ir_session_ask(node)
+        return self._effects.eval_ir_session_op(node)
+
+    def _eval(self, node: IrExpr) -> Value:
+        """Evaluate *node* in the current frame and return its value.
+
+        Dispatches over the closed ``IrExpr`` union with a structural
+        ``match`` whose final arm is ``assert_never`` so mypy exhaustiveness
+        makes a missing case a compile-time error.
+
+        Also the sole span-attribution point: an ``AglRaise`` that reaches
+        here without a span already (a raise site with no closer location of
+        its own, e.g. index/key/duplicate-key/cast/arithmetic failures) is
+        stamped with *node*'s own location as it unwinds through this frame.
+        Recursive evaluation means the innermost failing (sub-)expression's
+        ``_eval`` call is always the first to see the exception, so it is
+        stamped there -- never with an enclosing statement's or the whole
+        function body's location -- and a deeper, already-attributed span is
+        never overwritten. The dispatch and the attribution share one frame
+        (no separate dispatch helper) so this hot recursive path costs no
+        extra Python stack frame per AgL evaluation step.
+        """
+        try:
+            match node:
+                case IrConstInt(value=v):
+                    return IntValue(v)
+
+                case IrConstDecimal(value=v):
+                    return DecimalValue(v)
+
+                case IrConstBool(value=v):
+                    return BoolValue(v)
+
+                case IrConstText(value=v):
+                    return TextValue(v)
+
+                case IrResource(path=path):
+                    return TextValue(path)
+
+                case IrConstUnit():
+                    return UNIT_VALUE
+
+                case IrConstJsonNull():
+                    return JsonValue(None)
+
+                case IrMakeArray(items=items):
+                    return ArrayValue([self._eval(item) for item in items])
+
+                case IrMakeDict(entries=entries):
+                    dict_value = DictValue()
+                    for key_expr, val_expr in entries:
+                        key_val = self._eval(key_expr)
+                        val_val = self._eval(val_expr)
+                        if not dict_value.insert(key_val, val_val):
+                            raise self._duplicate_key_failure(key_val)
+                    return dict_value
+
+                # `IrMakeJsonArray`/`IrMakeJsonObject`: every item/value here is already
+                # scalar or `JsonValue` (never a raw array/dict): the checker requires an
+                # explicit `as json` cast to embed a container in a json literal, and that
+                # cast's own `IrConvert` handling is what detects a cyclic source. So
+                # The scalar encode plan in both arms below is a leaf conversion, never a
+                # walk that could re-enter a container — no cycle guard needed in either.
+                case IrMakeJsonArray(items=json_items):
+                    return JsonValue([encode_scalar(self._eval(item)) for item in json_items])
+
+                case IrMakeJsonObject(entries=json_entries):
+                    json_result: dict[str, object] = {}
+                    for key_expr, val_expr in json_entries:
+                        key_val = cast(TextValue, self._eval(key_expr))
+                        if key_val.value in json_result:
+                            raise self._duplicate_key_failure(key_val)
+                        json_result[key_val.value] = encode_scalar(self._eval(val_expr))
+                    return JsonValue(json_result)
+
+                case IrLoad(symbol=sym):
+                    slot = next(frame[sym] for frame in reversed(self._frames) if sym in frame)
+                    if isinstance(slot, Cell):
+                        return slot.value
+                    return slot
+
+                case IrBind(symbol=sym, value=val_expr):
+                    value = self._eval(val_expr)
+                    if self._program.symbols[sym].mutable:
+                        self._frame[sym] = Cell(value)
+                    else:
+                        self._frame[sym] = value
+                    return value
+
+                case IrAssign(symbol=sym, value=val_expr):
+                    var_slot = self._frame.get(sym)
+                    if var_slot is None and self._frames[0] is not self._frame:
+                        # Module vars live in the base frame and are intentionally
+                        # not closure captures.
+                        var_slot = self._frames[0].get(sym)
+                    # A simple var-cell store.  An assignment statement yields unit;
+                    # the mutation is the side effect.
+                    cast(Cell, var_slot).value = self._eval(val_expr)
+                    return UNIT_VALUE
+
+                case IrFieldSet(value=value_expr, field=field, new=new_expr):
+                    # Plain left-to-right evaluation order: receiver, then
+                    # replacement, then store.
+                    value = cast(RecordValue, self._eval(value_expr))
+                    value.fields[field] = self._eval(new_expr)
+                    return UNIT_VALUE
+
+                # Plain left-to-right evaluation order: container, then index,
+                # then the right-hand side, then the checked in-place store.
+                case IrIndexSet(
+                    container=container_expr, kind=kind, index=idx_expr, value=val_expr
+                ):
+                    container = self._eval(container_expr)
+                    index_val = self._eval(idx_expr)
+                    new_value = self._eval(val_expr)
+                    try:
+                        index_set(kind, container, index_val, new_value)
+                    except (AglIndexOutOfRange, AglMissingKey) as e:
+                        raise self._index_failure(e)
+                    return UNIT_VALUE
+
+                case IrCoerce(value=val_expr, operation=op):
+                    value = self._eval(val_expr)
+                    try:
+                        return _apply_coercion(value, op)
+                    except AglArithmeticSignal as exc:
+                        raise self._arithmetic_failure(exc)
+
+                case IrSequence(items=items) | IrBlock(items=items):
+                    last: Value = UNIT_VALUE
+                    for item in items:
+                        last = self._eval(item)
+                    return last
+
+                case IrArith(op=arith_op, kind=kind, lhs=lhs_expr, rhs=rhs_expr):
+                    lhs_val = self._eval(lhs_expr)
+                    rhs_val = self._eval(rhs_expr)
+                    try:
+                        match arith_op:
+                            case ArithOp.ADD:
+                                return add(kind, lhs_val, rhs_val)
+                            case ArithOp.SUB:
+                                return sub(kind, lhs_val, rhs_val)
+                            case ArithOp.MUL:
+                                return mul(kind, lhs_val, rhs_val)
+                            case ArithOp.DIV:
+                                return div(cast(DecimalValue, lhs_val), cast(DecimalValue, rhs_val))
+                            case _ as unreachable:  # pragma: no cover
+                                assert_never(unreachable)
+                    except decimal.DecimalException as exc:
+                        raise self._arithmetic_failure(
+                            AglArithmeticSignal(arith_op.value, signal_kind_for(exc))
+                        )
+
+                case IrCompare(op=cmp_op, kind=_kind, lhs=lhs_expr, rhs=rhs_expr):
+                    lhs_val = self._eval(lhs_expr)
+                    rhs_val = self._eval(rhs_expr)
+                    match cmp_op:
+                        case CmpOp.EQ:
+                            return BoolValue(value_eq(lhs_val, rhs_val))
+                        case CmpOp.NEQ:
+                            return BoolValue(not value_eq(lhs_val, rhs_val))
+                        case CmpOp.LT | CmpOp.LE | CmpOp.GT | CmpOp.GE:
+                            return BoolValue(order(cmp_op, lhs_val, rhs_val))
+                        case _ as _unreachable_cmp:  # pragma: no cover
+                            assert_never(_unreachable_cmp)
+
+                case IrContains(kind=kind, item=item_expr, container=container_expr):
+                    item_val = self._eval(item_expr)
+                    container_val = self._eval(container_expr)
+                    return BoolValue(contains(kind, item_val, container_val))
+
+                case IrAnd(lhs=lhs_expr, rhs=rhs_expr):
+                    lhs_val = cast(BoolValue, self._eval(lhs_expr))
+                    if not lhs_val.value:
+                        return BoolValue(False)
+                    rhs_val = cast(BoolValue, self._eval(rhs_expr))
+                    return BoolValue(rhs_val.value)
+
+                case IrOr(lhs=lhs_expr, rhs=rhs_expr):
+                    lhs_val = cast(BoolValue, self._eval(lhs_expr))
+                    if lhs_val.value:
+                        return BoolValue(True)
+                    rhs_val = cast(BoolValue, self._eval(rhs_expr))
+                    return BoolValue(rhs_val.value)
+
+                case IrNot(value=val_expr):
+                    return logical_not(cast(BoolValue, self._eval(val_expr)))
+
+                case IrNeg(kind=kind, value=val_expr):
+                    # `negate` negates a decimal exactly (`copy_negate`), so
+                    # this can never raise.
+                    return negate(kind, self._eval(val_expr))
+
+                case IrField(value=val_expr, field=field_name):
+                    value = self._eval(val_expr)
+                    return cast("RecordValue | ExceptionValue", value).fields[field_name]
+
+                case IrUpdateRecord(value=val_expr, updates=updates):
+                    target = cast("RecordValue | ExceptionValue", self._eval(val_expr))
+                    updated_fields: dict[str, Value] = dict(target.fields)
+                    for fname, fexpr in updates:
+                        updated_fields[fname] = self._eval(fexpr)
+                    if isinstance(target, RecordValue):
+                        return RecordValue(nominal=target.nominal, fields=updated_fields)
+                    return ExceptionValue(nominal=target.nominal, fields=updated_fields)
+
+                case IrIndex(kind=kind, value=val_expr, index=idx_expr):
+                    container = self._eval(val_expr)
+                    index_val = self._eval(idx_expr)
+                    try:
+                        return index_get(kind, container, index_val)
+                    except (AglIndexOutOfRange, AglMissingKey) as e:
+                        raise self._index_failure(e)
+
+                case IrRenderTemplate(segments=segs):
+                    # The lexer has already applied the shared ``%{...}`` surface
+                    # rules, so splicing here is plain concatenation.
+                    parts: list[str] = []
+                    for seg in segs:
+                        match seg:
+                            case IrTemplateText(text=text):
+                                parts.append(text)
+                            case IrTemplateValue(value=value_expr):
+                                parts.append(self._render_or_raise(self._eval(value_expr)))
+                            case _ as unreachable_seg:  # pragma: no cover
+                                assert_never(unreachable_seg)
+                    return TextValue("".join(parts))
+
+                case IrMakeRecord(location=location, nominal=nominal, fields=fields):
+                    record_fields = self._eval_constructor_fields(nominal, fields, location)
+                    return RecordValue(nominal=nominal, fields=record_fields)
+
+                case IrMakeException(location=location, nominal=nominal, fields=fields):
+                    exc_fields = self._eval_constructor_fields(nominal, fields, location)
+                    return ExceptionValue(nominal=nominal, fields=exc_fields)
+
+                case IrMakeConstructor(nominal=nominal):
+                    return ConstructorValue(nominal=nominal)
+
+                case IrNominalCast(
+                    nominals=nominals,
+                    value=val_expr,
+                    test_only=test_only,
+                    source_label=source_label,
+                    target_label=target_label,
+                ):
+                    value = cast("RecordValue | ExceptionValue", self._eval(val_expr))
+                    matched = value.nominal in nominals or (
+                        isinstance(value, ExceptionValue)
+                        and nominal_conforms(self._program.nominals, value.nominal, nominals)
+                    )
+                    if matched:
+                        return self._option_some(value) if test_only else value
+                    if test_only:
+                        return self._option_none()
+                    raise AglRaise(
+                        _make_exc_value(
+                            "CastError",
+                            f"cannot cast '{source_label}' to '{target_label}'",
+                            nominals=self._program.builtin_nominals,
+                            fields={
+                                "source-type": TextValue(source_label),
+                                "target-type": TextValue(target_label),
+                                "raw": TextValue(self._cast_raw(value)),
+                            },
+                        )
+                    )
+
+                case IrNominalIs(nominal=nominal, value=val_expr, negated=negated):
+                    value = cast("RecordValue | ExceptionValue", self._eval(val_expr))
+                    matched = value.nominal == nominal or (
+                        isinstance(value, ExceptionValue)
+                        and nominal_conforms(self._program.nominals, value.nominal, (nominal,))
+                    )
+                    return BoolValue(matched != negated)
+
+                case IrConvert(value=val_expr, recipe=recipe, failure_mode=failure_mode):
+                    source_value = self._eval(val_expr)
+                    try:
+                        converted = run_recipe(
+                            recipe,
+                            source_value,
+                            self._descriptors,
+                            default_resolver=self.default_for_field,
+                        )
+                    except AglCastConversion as exc:
+                        return self._on_cast_failure(failure_mode, exc)
+                    except AglCyclicValue:
+                        # A conversion test reports a cycle as failure; ordinary
+                        # `as` still reports the catchable CyclicValueError.
+                        if failure_mode is ConversionFailureMode.RETURN_OPTION:
+                            return self._option_none()
+                        raise self._cyclic_failure()
+                    except AglNonDataValue as exc:
+                        # `as json` on a runtime exception subtype whose own
+                        # field has no JSON form fails like any other cast.
+                        return self._on_cast_failure(
+                            failure_mode,
+                            AglCastConversion(
+                                f"cannot cast '{recipe.source_label}' to"
+                                f" '{recipe.target_label}': {exc}",
+                                source_label=recipe.source_label,
+                                target_label=recipe.target_label,
+                                raw=self._cast_raw(source_value),
+                            ),
+                        )
+                    except AglArithmeticSignal as exc:
+                        # `as decimal` on an int too large for the pinned
+                        # context (``WIDEN_INT_TO_DECIMAL``) mirrors the cycle
+                        # case: a conversion test reports failure, ordinary `as`
+                        # raises the catchable ArithmeticError.
+                        if failure_mode is ConversionFailureMode.RETURN_OPTION:
+                            return self._option_none()
+                        raise self._arithmetic_failure(exc)
+                    if failure_mode is ConversionFailureMode.RETURN_OPTION:
+                        return self._option_some(converted)
+                    return converted
+
+                case IrIf(branches=branches, has_else=has_else):
+                    for branch in branches:
+                        if branch.cond is None:
+                            # Else branch — always taken.
+                            branch_val = self._eval(branch.body)
+                            return branch_val if has_else else UNIT_VALUE
+                        cond_val = cast(BoolValue, self._eval(branch.cond))
+                        if cond_val.value:
+                            branch_val = self._eval(branch.body)
+                            return branch_val if has_else else UNIT_VALUE
+                    # No branch matched and no else: return unit.
+                    return UNIT_VALUE
+
+                case IrRaise(exc=exc_expr):
+                    exc_val = cast(ExceptionValue, self._eval(exc_expr))
+                    raise AglRaise(exc_val, span=node.location)
+
+                case IrReturn(value=value_expr):
+                    raise _ReturnSignal(self._eval(value_expr))
+
+                case IrTry(body=body_expr, handlers=handlers):
+                    try:
+                        return self._eval(body_expr)
+                    except RecursionError:
+                        # Python's limit was hit before the AgL guard (its limit is
+                        # capped); surface it as the same catchable AgL exception so
+                        # a `catch RecursionError` handler still fires.
+                        pending = self._recursion_error()
+                    except AglRaise as exc:
+                        pending = exc
+                    for handler in handlers:
+                        if (
+                            handler.nominal is None
+                            or handler.nominal == pending.exc.nominal
+                            or nominal_conforms(
+                                self._program.nominals, pending.exc.nominal, (handler.nominal,)
+                            )
+                        ):
+                            if handler.symbol is not None:
+                                self._frame[handler.symbol] = pending.exc
+                            return self._eval(handler.body)
+                    raise pending
+
+                case IrCase(subject=subject_expr, arms=arms, default=default):
+                    subject_val = self._eval(subject_expr)
+                    # The subject's identity is invariant across the arm scan, so it
+                    # is read once here rather than per arm.
+                    subject_nominal = (
+                        subject_val.nominal
+                        if isinstance(subject_val, (RecordValue, ExceptionValue))
+                        else None
+                    )
+                    int_subject = isinstance(subject_val, IntValue)
+                    for arm in arms:
+                        key = arm.key
+                        if isinstance(key, IrNominalCaseKey):
+                            selected = subject_nominal == key.nominal
+                        else:
+                            selected = value_eq(
+                                subject_val, _literal_key_value(key, int_subject=int_subject)
+                            )
+                        if not selected:
+                            continue
+                        if arm.field_bindings:
+                            subject_val = cast("RecordValue | ExceptionValue", subject_val)
+                            for field_name, symbol in arm.field_bindings:
+                                self._frame[symbol] = subject_val.fields[field_name]
+                        return self._eval(arm.body)
+                    # Exhaustiveness is proven statically (match compilation): an
+                    # arm always matches, or `default` is present.
+                    return self._eval(cast(IrExpr, default))
+
+                case IrLoop(body=body_expr):
+                    # Unconditional repeat — all loop logic (bound checks, until
+                    # guards, for/while clauses) is desugared into the body by the
+                    # lowerer.  The only exits are IrBreak (leave the loop)
+                    # and IrContinue (next iteration).  Both signals propagate through
+                    # IrTry bodies (which catch only AglRaise) to reach this handler.
+                    while True:
+                        try:
+                            self._eval(body_expr)
+                        except _BreakSignal:
+                            return UNIT_VALUE
+                        except _ContinueSignal:
+                            continue
+
+                case IrBreak():
+                    raise _BreakSignal()
+
+                case IrContinue():
+                    raise _ContinueSignal()
+
+                case IrIterInit(collection=collection_expr):
+                    coll = self._eval(collection_expr)
+                    if isinstance(coll, ArrayValue):
+                        # Keep the live element list so mutations ahead of the
+                        # cursor remain visible. IteratorValue captures its entry
+                        # length so structural growth cannot extend the loop.
+                        return IteratorValue(elements=coll.elements)
+                    if isinstance(coll, DictValue):
+                        # The key set is fixed for the collection's lifetime, so a
+                        # one-time tuple of keys is sound even though the values
+                        # behind those keys may still be mutated.
+                        return IteratorValue(elements=tuple(coll.keys()))
+                    coll = cast(TextValue, coll)
+                    return IteratorValue(elements=coll.value)
+
+                case IrIterHasNext(iterator=iter_expr):
+                    it = cast(IteratorValue, self._eval(iter_expr))
+                    return BoolValue(it.pos < it.entry_length and it.pos < len(it.elements))
+
+                case IrIterNext(iterator=iter_expr):
+                    it = cast(IteratorValue, self._eval(iter_expr))
+                    elem = it.elements[it.pos]
+                    it.pos += 1
+                    return TextValue(elem) if isinstance(elem, str) else elem
+
+                case IrMakeClosure(function_id=fn_id, captures=captures):
+                    cap_slots: list[tuple[SymbolId, Value | Cell]] = []
+                    for cap in captures:
+                        slot = self._frame[cap.symbol]
+                        if cap.by_cell:
+                            cap_slots.append((cap.symbol, cast(Cell, slot)))
+                        else:
+                            val = slot.value if isinstance(slot, Cell) else slot
+                            cap_slots.append((cap.symbol, val))
+                    return IrClosureValue(function_id=fn_id, captures=tuple(cap_slots))
+
+                case IrDirectCall() | IrIndirectCall():
+                    # Both call kinds share this arm, which also avoids an extra
+                    # Python stack frame per call -- the recursive hot path (see
+                    # DEFAULT_MAX_CALL_DEPTH) cannot spare it. An AglRaise from
+                    # deeper in the callee already carries its own span by the
+                    # time it unwinds this far; :meth:`_eval` attributes any that
+                    # still doesn't to this call node.
+                    if isinstance(node, IrDirectCall):
+                        return self._execute_direct_call(
+                            node.function_id, node.arguments, node.location
+                        )
+                    return self._execute_indirect_call(node.callee, node.arguments, node.location)
+
+                case IrContract(contract_id=contract_id):
+                    return ContractValue(contract_id)
+
+                case IrPrint(value=val_expr):
+                    rendered = self._render_or_raise(self._eval(val_expr))
+                    print(rendered)
+                    self._trace.print_stmt(rendered=rendered, span=node.location)
+                    return UNIT_VALUE
+
+                case IrRenderValue(
+                    value=val_expr,
+                    pretty=pretty_expr,
+                    quote_strings=quote_strings_expr,
+                ):
+                    pretty = (
+                        cast(BoolValue, self._eval(pretty_expr)).value
+                        if pretty_expr is not None
+                        else True
+                    )
+                    quote_strings = (
+                        cast(BoolValue, self._eval(quote_strings_expr)).value
+                        if quote_strings_expr is not None
+                        else True
+                    )
+                    return TextValue(
+                        self._render_or_raise(
+                            self._eval(val_expr), pretty=pretty, quote_strings=quote_strings
+                        )
+                    )
+
+                case IrCopyValue(kind=kind, value=val_expr):
+                    value = self._eval(val_expr)
+                    if kind is CopyKind.DEEP:
+                        return deep_copy_value(value)
+                    return shallow_copy_value(value)
+
+                case IrAsk(
+                    env=env_expr,
+                    agent=agent_expr,
+                    prompt=prompt_expr,
+                    contract_id=contract_id,
+                    parse_error_retries=retries_expr,
+                    sandbox=sandbox_expr,
+                ):
+                    return self._effects.eval_ir_ask(
+                        node,
+                        agent_expr,
+                        prompt_expr,
+                        contract_id,
+                        retries_expr,
+                        sandbox_expr,
+                        env_expr,
+                    )
+
+                case IrSessionOpen() | IrSessionDefault() | IrSessionAsk() | IrSessionOp():
+                    return self._eval_session_effect(node)
+
+                case IrAskRequest(
+                    agent=agent_expr,
+                    prompt=prompt_expr,
+                    contract_id=contract_id,
+                    parse_error_retries=retries_expr,
+                    sandbox=sandbox_expr,
+                ):
+                    return self._effects.eval_ir_ask_request(
+                        node, agent_expr, prompt_expr, contract_id, retries_expr, sandbox_expr
+                    )
+
+                case IrExec(
+                    command=command_expr,
+                    env=env_expr,
+                    cwd=cwd_expr,
+                    timeout=timeout_expr,
+                    contract_id=contract_id,
+                    parse_error_retries=retries_expr,
+                    sandbox=sandbox_expr,
+                ):
+                    return self._effects.eval_ir_exec(
+                        node,
+                        command_expr,
+                        env_expr,
+                        cwd_expr,
+                        timeout_expr,
+                        sandbox_expr,
+                        contract_id,
+                        retries_expr,
+                    )
+
+                case IrBuiltinLoad(key=key):
+                    return self._load_builtin_setting(key)
+
+                case IrBuiltinStore(key=key, value=value_expr):
+                    stored = self._eval(value_expr)
+                    self._store_builtin_setting(key, stored)
+                    return UNIT_VALUE
+
+                case _ as unreachable:  # pragma: no cover
+                    assert_never(unreachable)
+        except AglRaise as exc:
+            if exc.span is None:
+                exc.span = node.location
+            raise
+
+    def _check_default_agent_dispatchable(self, value: RecordValue) -> None:
+        """Eagerly validate a materialized ``default-agent`` value's command shape.
+
+        Only the ``AgentCommand`` variant needs this: its command text is
+        host-supplied and must shell-split, exactly like a configured runner
+        command.  The other ``Agent`` variants build their argv from typed
+        fields with no parsing step, so decoding and building argv for them
+        here is cheap and can never fail — reusing
+        :func:`~agnette.agl.runtime.agents.decode_agent_value` keeps this in sync
+        with the variant shapes dispatch itself relies on, rather than
+        duplicating them.
+        """
+        from agnette.agl.runtime.agents import decode_agent_value
+
+        try:
+            decode_agent_value(value, self._program.builtin_nominals).argv()
+        except ValueError as exc:
+            raise HostConfigurationError(str(exc)) from exc
+
+    # ------------------------------------------------------------------
+    # Builtin-var register access
+    # ------------------------------------------------------------------
+
+    def _process_environ_seed(
+        self, process_environment: Mapping[str, str]
+    ) -> tuple[BuiltinVarKey, RecordValue] | None:
+        """Build ``std/env::environ`` from an immutable host environment snapshot."""
+        descriptor = next(
+            (
+                descriptor
+                for descriptor in self._program.nominals.values()
+                if descriptor.module_id == STD_ENV_ID and descriptor.declared_name == "Environ"
+            ),
+            None,
+        )
+        if descriptor is None:
+            return None
+        return (
+            builtin_var_key(STD_ENV_ID, (), "environ"),
+            RecordValue(
+                nominal=descriptor.nominal,
+                fields={
+                    "vars": DictValue(
+                        {name: TextValue(value) for name, value in process_environment.items()}
+                    )
+                },
+            ),
+        )
+
+    @staticmethod
+    def _builtin_var_key(key: BuiltinVarKey | str) -> BuiltinVarKey:
+        """Normalize engine string keys to their ``std/config`` owner."""
+        return builtin_var_key(STD_CONFIG_ID, (), key) if isinstance(key, str) else key
+
+    def _load_builtin_setting(self, key: BuiltinVarKey | str) -> Value:
+        """Return the current value of the host-backed binding *key*.
+
+        The runtime-live keys read the live interpreter fields; the
+        host-consumed keys read their register in ``_builtin_host_settings``,
+        always present there by the time a well-typed program reads it.
+        """
+        key = self._builtin_var_key(key)
+        _, _, name = key
+        if not is_engine_builtin_var_key(key):
+            try:
+                return self._builtin_vars[key]
+            except KeyError as exc:
+                raise MissingBuiltinVarSeedError(key) from exc
+        if name == "strict-json":
+            return BoolValue(self._strict_json)
+        if name == "timeout":
+            return self._timeout_setting
+        return self._builtin_host_settings[name]
+
+    def _store_builtin_setting(self, key: BuiltinVarKey | str, value: Value) -> None:
+        """Store *value* into the host-backed binding *key*.
+
+        The runtime-live keys route through ``_apply_config_effect`` so the
+        live effect (strict-json mode, shell timeout) takes hold from
+        the write onward; the host-consumed keys update their register.
+        Writes to the ``trace``/``trace-file`` register pair additionally
+        reconfigure the live trace service when a host reconfigurer is present;
+        ``default-agent`` remains a register-only value. A value outside the
+        key's range raises the catchable ``RangeError``, an otherwise invalid one
+        (blank path, bad duration) ``TypeError``; either leaves it unchanged.
+        """
+        key = self._builtin_var_key(key)
+        _, _, name = key
+        if not is_engine_builtin_var_key(key):
+            self._builtin_vars[key] = value
+            return
+        try:
+            validate_engine_value(name, value, nominals=self._program.builtin_nominals)
+        except ValueError as exc:
+            raise self._engine_setting_raise(exc) from exc
+        if name in RUNTIME_LIVE_ENGINE_KEYS:
+            self._apply_config_effect(name, value)
+            if name == "timeout":
+                self._timeout_setting = cast(RecordValue, value)
+            return
+
+        previous = dict(self._builtin_host_settings)
+        self._builtin_host_settings[name] = value
+        if trace_write_implies_enabled(
+            name,
+            isinstance(value, RecordValue)
+            and option_text(value, nominals=self._program.builtin_nominals) is not None,
+        ):
+            self._builtin_host_settings["trace"] = BoolValue(True)
+        if self._host_reconfigurer is None or name not in TRACE_ENGINE_KEYS:
+            return
+        try:
+            self._reconfigure_host_service(self._host_reconfigurer)
+        except Exception:
+            self._builtin_host_settings = previous
+            raise
+
+    def _reconfigure_host_service(self, reconfigurer: "HostSettingsReconfigurer") -> None:
+        """Reflect a host-consumed register write into the live host service.
+
+        ``trace``/``trace-file`` recompute the trace destination from the
+        current register pair (either write repoints the same trace store).
+        """
+        trace = cast(BoolValue, self._builtin_host_settings["trace"])
+        trace_file_reg = cast(RecordValue, self._builtin_host_settings["trace-file"])
+        reconfigurer.reconfigure_trace(
+            enabled=trace.value,
+            trace_file=option_text(trace_file_reg, nominals=self._program.builtin_nominals),
+        )
+
+    # ------------------------------------------------------------------
+    # Engine-setting effect
+    # ------------------------------------------------------------------
+
+    def _engine_setting_raise(self, exc: ValueError) -> AglRaise:
+        """Map an engine-value validation failure to its catchable AgL exception."""
+        return AglRaise(
+            _make_exc_value(
+                "RangeError" if isinstance(exc, EngineRangeError) else "TypeError",
+                str(exc),
+                nominals=self._program.builtin_nominals,
+            )
+        )
+
+    def _apply_config_effect(self, public_name: str, config_value: Value) -> None:
+        """Apply the live engine-setting effect for a runtime-live engine key.
+
+        Only ``strict-json`` and ``timeout`` update live
+        interpreter state; all other keys are inert here.
+        """
+        if public_name == "strict-json":
+            self._strict_json = cast(BoolValue, config_value).value
+        else:
+            config_value = cast(RecordValue, config_value)
+            raw = option_text(config_value, nominals=self._program.builtin_nominals)
+            try:
+                self._shell_exec_timeout = None if raw is None else _parse_timeout(raw)
+            except ValueError as exc:
+                raise self._engine_setting_raise(exc) from exc
+
+    # ------------------------------------------------------------------
+    # Result collection
+    # ------------------------------------------------------------------
+
+    def _collect_results(self) -> dict[str, Value]:
+        """Return file constants and, for wrapped input, final main locals.
+
+        A file run exposes entry-module bindings other than function closures.
+        Wrapped input additionally exposes the synthesized ``main`` frame
+        retained at return time.
+        """
+        entry_id: ModuleId = self._program.entry_module
+        function_symbols = {
+            function.function_symbol for function in self._program.functions.values()
+        }
+        results: dict[str, Value] = {}
+
+        def collect(frame: Frame, *, module_only: bool) -> None:
+            for sym_id, desc in self._program.symbols.items():
+                if (
+                    desc.public_name is None
+                    or sym_id in function_symbols
+                    or (module_only and desc.owner != entry_id)
+                ):
+                    continue
+                slot = frame.get(sym_id)
+                if slot is not None:
+                    results[desc.public_name] = slot.value if isinstance(slot, Cell) else slot
+
+        collect(self._frames[0], module_only=True)
+        if self._synthetic_main_frame is not None:
+            collect(self._synthetic_main_frame, module_only=False)
+        return results
+
+
+def lazy_interpreter(executable: ExecutableProgram) -> Callable[[], "IrInterpreter"]:
+    """Return a callable that lazily builds, once, an ``IrInterpreter`` over *executable*.
+
+    Shared by every pre-execution throwaway-interpreter site: two callers
+    holding the SAME returned callable build at most one interpreter between
+    them (see :func:`resolver_over_interpreter` and
+    ``PipelineDriver._evaluate_program_config``, which share one over one
+    preflight).
+    """
+    interp: IrInterpreter | None = None
+
+    def get() -> IrInterpreter:
+        nonlocal interp
+        if interp is None:
+            interp = IrInterpreter(executable)
+        return interp
+
+    return get
+
+
+def resolver_over_interpreter(get_interp: Callable[[], "IrInterpreter"]) -> DefaultResolver:
+    """Build a field-default resolver that calls *get_interp* only on first actual use.
+
+    The throwaway ``IrInterpreter`` *get_interp* builds carries no
+    engine-setting seeds, no ``@param`` seeds, no process environment, the
+    default call depth, and a no-op trace — safe only because a field
+    default is a constant expression that cannot observe any of those.
+    Widening what a field default may contain must revisit this resolver,
+    since it would silently diverge from a real run's interpreter otherwise.
+    """
+
+    def resolve(nominal: NominalId, field_index: int) -> Value:
+        return get_interp().default_for_field(nominal, field_index)
+
+    return resolve
+
+
+def default_field_resolver(executable: ExecutableProgram) -> DefaultResolver:
+    """Build a field-default resolver over *executable*'s real, fully-linked nominal table.
+
+    Shared by every pre-execution binding site (program arguments, module
+    parameters) that must fill an omitted defaulted field before this run's
+    own ``IrInterpreter`` exists. A throwaway interpreter is constructed only
+    on first actual use (most binds touch no defaulted field at all) — the
+    same throwaway-interpreter-over-a-real-program pattern
+    ``PipelineDriver._evaluate_program_config`` uses for ``@config`` constant
+    expressions, applied here to per-field constructor defaults instead. A
+    caller that also needs that same throwaway interpreter for another
+    purpose within the same preflight should build its own
+    :func:`lazy_interpreter` and pass it to :func:`resolver_over_interpreter`
+    instead, so only one interpreter is ever built between them.
+    """
+    return resolver_over_interpreter(lazy_interpreter(executable))

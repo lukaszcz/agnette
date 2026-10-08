@@ -10,7 +10,7 @@ from __future__ import annotations
 import decimal
 import textwrap
 
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     DecimalValue,

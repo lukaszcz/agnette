@@ -15,15 +15,15 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-from agm.agl.modules.ids import STD_PRELUDE_ID
-from agm.agl.pipeline import (
+from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+from agnette.agl.modules.ids import STD_PRELUDE_ID
+from agnette.agl.pipeline import (
     ArtifactProvenanceError,
     PipelineDriver,
     PreparedProgram,
     ProgramDiscovery,
 )
-from agm.agl.typecheck.program import check_program
+from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import agl_roots, prepare_inline_code
 
 
@@ -49,7 +49,7 @@ def _compiled(source: str) -> tuple[PreparedProgram, ProgramDiscovery]:
 
 
 def _change_capabilities(runtime: PipelineDriver) -> None:
-    from agm.agl.runtime.codec import TextCodec
+    from agnette.agl.runtime.codec import TextCodec
 
     class ExtraCodec(TextCodec):
         @property
@@ -130,7 +130,7 @@ def test_program_discovery_rejects_cached_artifact_with_different_module_set(
 
 
 def test_single_run_rechecks_cached_artifact_when_host_capabilities_change() -> None:
-    from agm.agl.runtime.codec import TextCodec
+    from agnette.agl.runtime.codec import TextCodec
 
     class ExtraCodec(TextCodec):
         @property

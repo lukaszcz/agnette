@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir import ExternFunctionBody, IrBind, IrMakeClosure
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import ArgumentPreflight, PipelineDriver
-from agm.agl.runtime.arguments import ProgramArguments
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir import ExternFunctionBody, IrBind, IrMakeClosure
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import ArgumentPreflight, PipelineDriver
+from agnette.agl.runtime.arguments import ProgramArguments
 
 _CAPS = HostCapabilities(
     supports_shell_exec=True,

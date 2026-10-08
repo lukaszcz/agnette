@@ -1,4 +1,4 @@
-"""Tests for agm.commands.init."""
+"""Tests for agnette.agm.commands.init."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-import agm.commands.init as init_module
-import agm.vcs.git as git_helpers
-from agm.cli_support.args import InitArgs
-from agm.commands.init import (
+import agnette.agm.commands.init as init_module
+import agnette.vcs.git as git_helpers
+from agnette.agm.cli_support.args import InitArgs
+from agnette.agm.commands.init import (
     configure_project_dir,
     derive_project_name,
     ensure_git_repo,

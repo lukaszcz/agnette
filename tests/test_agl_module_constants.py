@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agm.agl.parser import parse_program
-from agm.agl.syntax.module_constants import FoldFailure, ModuleConstants, constant_key
-from agm.agl.syntax.nodes import Expr, FuncDef, LetDecl, static_items
+from agnette.agl.parser import parse_program
+from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants, constant_key
+from agnette.agl.syntax.nodes import Expr, FuncDef, LetDecl, static_items
 
 
 def _fold(source: str, expression: str, *, scope: str = "") -> str | FoldFailure:

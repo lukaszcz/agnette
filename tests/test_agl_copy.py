@@ -1,4 +1,4 @@
-"""Tests for the agm.agl.semantics.copying value-level copy walks.
+"""Tests for the agnette.agl.semantics.copying value-level copy walks.
 
 This module tests ``deep_copy_value`` and ``shallow_copy_value`` directly at
 the value level (no source program involved):
@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import decimal
 
-from agm.agl.ir.ids import FunctionId, NominalId
-from agm.agl.semantics.copying import deep_copy_value, shallow_copy_value
-from agm.agl.semantics.values import (
+from agnette.agl.ir.ids import FunctionId, NominalId
+from agnette.agl.semantics.copying import deep_copy_value, shallow_copy_value
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     ConstructorValue,

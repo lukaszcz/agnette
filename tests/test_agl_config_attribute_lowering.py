@@ -15,18 +15,18 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.ir.nodes import IrCoerce, IrConstBool, IrConstInt, IrExpr
-from agm.agl.ir.static_keys import StaticBindingKey
-from agm.agl.lower.program import lower_program
-from agm.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-from agm.agl.modules.ids import STD_CONFIG_ID
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.runtime.arguments import ProgramArguments
-from agm.agl.scope.program import resolve_program
-from agm.agl.semantics.values import BoolValue, DecimalValue, IntValue, JsonValue
-from agm.agl.syntax.nodes import FuncDef, static_items
-from agm.agl.typecheck.env import CheckedModule
-from agm.agl.typecheck.program import check_program
+from agnette.agl.ir.nodes import IrCoerce, IrConstBool, IrConstInt, IrExpr
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.lower.program import lower_program
+from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+from agnette.agl.modules.ids import STD_CONFIG_ID
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.semantics.values import BoolValue, DecimalValue, IntValue, JsonValue
+from agnette.agl.syntax.nodes import FuncDef, static_items
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import agl_roots
 from tests.agl.ir_harness import base_caps, make_file_graph_from_files
 from tests.agl.module_graph import resolve_and_check_entry

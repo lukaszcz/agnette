@@ -33,7 +33,7 @@ syntax highlighting without requiring terminal emulation."
   "Whether saving an AgL buffer resets and reloads the inferior REPL.
 
 Reloading starts from a clean session, so deleted declarations disappear as
-well as changed ones taking effect.  It deliberately remains opt-in because
+well as changed ones taking effect.  Reloading is opt-in because
 it also discards expressions entered manually at the REPL prompt."
   :type 'boolean
   :group 'agl)
@@ -104,7 +104,7 @@ describes both.")
 (defun agl-repl--fontify-region (start end loudly)
   "Fontify AgL input after REPL prompts between START and END.
 
-LOUDLY is forwarded to `font-lock-default-fontify-region'.  Output remains
+LOUDLY is forwarded to `font-lock-default-fontify-region'.  Output is
 unstyled unless it carries styling of its own."
   (save-excursion
     (goto-char start)

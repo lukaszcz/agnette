@@ -11,8 +11,8 @@ from collections.abc import Callable
 import pytest
 from lark.lexer import LexerState, TextSlice
 
-from agm.agl.diagnostics import Diagnostic
-from agm.agl.lexer import (
+from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.lexer import (
     AglLexer,
     IncompleteInputError,
     LexError,
@@ -1905,7 +1905,7 @@ class TestAglLexerClass:
         assert "INT" in types
 
     def test_speculative_use_parse_does_not_duplicate_tab_warning(self) -> None:
-        from agm.agl.parser import parse_program
+        from agnette.agl.parser import parse_program
 
         with tab_warning_collector() as warnings:
             parse_program("import shared\nuse\tshared::*")
@@ -2129,7 +2129,7 @@ class TestNewlineNormalization:
     def test_shared_normalize_newlines_helper(self) -> None:
         """the shared universal-newline helper converts CRLF and lone CR to
         LF (the single source of truth shared by the scanner and the evaluator)."""
-        from agm.util.text import normalize_newlines
+        from agnette.util.text import normalize_newlines
 
         assert normalize_newlines("a\r\nb\rc\nd") == "a\nb\nc\nd"
         assert normalize_newlines("") == ""

@@ -13,15 +13,15 @@ from unittest.mock import patch
 
 import pytest
 
-from agm.config.general import CommandSetting, RunConfig
-from agm.core import dry_run
-from agm.sandbox import srt as srt_module
-from agm.sandbox.backend import (
+from agnette.config.general import CommandSetting, RunConfig
+from agnette.core import dry_run
+from agnette.sandbox import srt as srt_module
+from agnette.sandbox.backend import (
     ResolvedSettings,
     SandboxSettingsError,
     SandboxUnavailableError,
 )
-from agm.sandbox.prepare import (
+from agnette.sandbox.prepare import (
     DEFAULT_MEMORY_LIMIT,
     DEFAULT_SWAP_LIMIT,
     ResolvedLimits,
@@ -33,8 +33,8 @@ from agm.sandbox.prepare import (
     resolve_limits,
     settings_source,
 )
-from agm.sandbox.profile import profile_name, profile_name_for_shell
-from agm.sandbox.request import (
+from agnette.sandbox.profile import profile_name, profile_name_for_shell
+from agnette.sandbox.request import (
     DRY_RUN_SETTINGS_PLACEHOLDER,
     Default,
     PreparedSandboxCommand,
@@ -42,7 +42,7 @@ from agm.sandbox.request import (
     SandboxRequest,
     SandboxSpec,
 )
-from agm.sandbox.srt import SRT_BACKEND
+from agnette.sandbox.srt import SRT_BACKEND
 
 
 def _run_config(
@@ -344,7 +344,7 @@ class TestPrepareArgvComposition:
             assert prepared.argv[srt_index + 4 : srt_index + 8] == [
                 sys.executable,
                 "-m",
-                "agm.sandbox.pty",
+                "agnette.sandbox.pty",
                 "--",
             ]
             assert prepared.argv[-2:] == ["echo", "hi"]

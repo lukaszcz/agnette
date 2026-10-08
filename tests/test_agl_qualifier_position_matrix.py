@@ -22,14 +22,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import ReferencedMemberError
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import ReferencedMemberError
+from agnette.agl.scope.symbols import (
     AmbiguousQualificationError,
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.typecheck import AglTypeError
-from agm.agl.typecheck.checker import EnumOwnerMismatchError
+from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.checker import EnumOwnerMismatchError
 from tests.agl.qualifier_support import (
     Probe,
     Scenario,

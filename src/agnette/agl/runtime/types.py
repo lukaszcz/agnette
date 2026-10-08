@@ -1,0 +1,172 @@
+"""Runtime layer plain service dataclasses."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agnette.agent.spec_defaults import AgentSpecResolver
+    from agnette.agl.attributes import ProgramOptionSpec
+    from agnette.agl.capabilities import HostCapabilities
+    from agnette.agl.ir.static_keys import StaticBindingKey
+    from agnette.agl.modules.ids import ModuleId
+    from agnette.agl.runtime.agents import AgentFn
+    from agnette.agl.runtime.codec import OutputCodec
+    from agnette.agl.runtime.externs import ExternRegistry
+    from agnette.agl.runtime.sessions import SessionHost
+    from agnette.agl.semantics.types import Type as AglType
+    from agnette.agl.syntax.spans import SourceSpan
+    from agnette.agl.zones import ParamZone
+    from agnette.sandbox.prepare import SandboxContext
+
+__all__ = [
+    "HostEnvironment",
+    "ParamBindingInfo",
+    "ProgramDeclInfo",
+    "ProgramParamInfo",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class HostEnvironment:
+    """Assembled host-runtime environment shared by ``run`` and the REPL session.
+
+    Bundles the services that both the whole-program runner
+    (``PipelineDriver.run``) and the incremental ``ReplSession`` use:
+
+    ``agent_dispatcher``
+        The value-driven host dispatcher for ``Agent`` enum values.
+    ``session_host``
+        The opaque lifecycle service used by persistent ``Session`` values.
+    ``get_sandbox_context``
+        Lazily builds the `SandboxContext` a sandboxed ``exec`` call needs
+        (see `agnette.sandbox.prepare.lazy_sandbox_context`). ``None`` when the
+        host wires no sandbox context, in which case a sandboxed ``exec``
+        call cannot run.
+    ``resolve_agent_spec``
+        Applies host agent defaults (see
+        `agnette.agent.spec_defaults.configured_defaults_resolver`) to every
+        decoded ``Agent`` spec before it is dispatched. ``None`` dispatches
+        specs as decoded.
+    ``capabilities``
+        The ``HostCapabilities`` static catalog derived from codecs — consumed
+        by the type checker.
+    ``codecs``
+        The merged ``name → OutputCodec`` table (built-ins + host extras),
+        used for contract materialization.
+    ``extern_registry``
+        The ``ExternRegistry`` used to import extern-def companion modules
+        and resolve their callables.  Built empty; the pipeline populates it
+        from a program's loaded modules before evaluation.
+    """
+
+    agent_dispatcher: "AgentFn | None"
+    session_host: "SessionHost | None"
+    capabilities: "HostCapabilities"
+    codecs: dict[str, "OutputCodec"]
+    extern_registry: "ExternRegistry"
+    get_sandbox_context: "Callable[[], SandboxContext] | None" = None
+    resolve_agent_spec: "AgentSpecResolver | None" = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramParamInfo:
+    """Static summary of one ``program def`` value parameter, as the host sees it.
+
+    ``name``         — the declared parameter name.
+    ``kind``         — the parameter's AgL zone (positional-only, standard,
+                        named-only); ``cli`` may override its CLI projection.
+    ``type``         — the parameter's checked type.
+    ``has_default``  — ``True`` when the parameter has a default expression.
+    ``span``         — the parameter's declaration span, the anchor for a
+                        binding or decode diagnostic naming this parameter.
+    ``cli``          — how the parameter presents itself on a command line:
+                        its external name and whatever the ``@opt-*``
+                        attributes add to it.
+    ``is_path``      — ``True`` when the annotation spells the builtin ``path``
+                        alias (directly, through non-generic aliases, or as
+                        ``Option[path]``), which its checked ``text`` type
+                        no longer shows.
+    ``enum_values``  — the preferred value-syntax spelling of each enum member,
+                        using ``@name`` when present.
+    """
+
+    name: str
+    kind: "ParamZone"
+    type: "AglType"
+    has_default: bool
+    span: "SourceSpan"
+    cli: "ProgramOptionSpec"
+    is_path: bool = False
+    enum_values: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ParamBindingInfo:
+    """Static summary of one host-configurable ``@param`` binding.
+
+    ``is_path`` retains whether its annotation spells the builtin ``path``
+    alias, including ``Option[path]``, for host filesystem completion.
+    ``enum_values`` retains the preferred value-syntax spelling of each enum
+    member, using ``@name`` when present.
+    """
+
+    module: "ModuleId"
+    scope_path: tuple[str, ...]
+    name: str
+    node_id: int
+    span: "SourceSpan"
+    type: "AglType"
+    mutable: bool
+    cli: "ProgramOptionSpec"
+    doc: str | None
+    is_path: bool = False
+    enum_values: tuple[str, ...] = ()
+
+    @property
+    def key(self) -> "StaticBindingKey":
+        """Return this binding's structured static identity."""
+        from agnette.agl.ir.static_keys import static_binding_key
+
+        return static_binding_key(self.module, self.scope_path, self.name)
+
+    @property
+    def declaration_path(self) -> str:
+        """Return the module-qualified spelling of this binding."""
+        path = "::".join((*self.scope_path, self.name))
+        return f"{self.module.display()}::{path}"
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramDeclInfo:
+    """Static summary of one ``program def`` declaration.
+
+    ``module`` and ``scope_path`` retain the declaration identity in structured
+    form. ``declaration_path`` is the external spelling within that module.
+    ``is_entry`` records whether the declaration belongs to the graph's
+    host-selected entry, independently of whether that entry has an ordinary
+    package module id.
+    ``span`` is the declaration's own span, the anchor for a diagnostic that
+    names no single parameter (an unknown argument name, or an excess
+    positional argument). ``parameters`` is the program's own value-parameter
+    signature, in declaration order. ``doc`` is the declaration's own ``@doc``
+    text, or ``None`` when it carries none. ``closure`` holds this program's
+    module followed by its source-reachable modules in loader order.
+    """
+
+    module: "ModuleId"
+    scope_path: tuple[str, ...]
+    name: str
+    node_id: int
+    span: "SourceSpan"
+    parameters: tuple[ProgramParamInfo, ...]
+    is_entry: bool
+    doc: str | None
+    closure: tuple["ModuleId", ...] = ()
+
+    @property
+    def declaration_path(self) -> str:
+        """Return the program's scope-qualified declaration spelling."""
+        return "::".join((*self.scope_path, self.name))

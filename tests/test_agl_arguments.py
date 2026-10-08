@@ -11,11 +11,11 @@ import itertools
 
 import pytest
 
-from agm.agl.syntax.nodes import PatternField, VarPattern, WildcardPattern
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.typecheck.arguments import BindParam, BoundName, bind_arguments, bind_pattern_args
-from agm.agl.typecheck.env import AglTypeError
-from agm.agl.zones import ParamZone
+from agnette.agl.syntax.nodes import PatternField, VarPattern, WildcardPattern
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.typecheck.arguments import BindParam, BoundName, bind_arguments, bind_pattern_args
+from agnette.agl.typecheck.env import AglTypeError
+from agnette.agl.zones import ParamZone
 
 # ---------------------------------------------------------------------------
 # Test helpers

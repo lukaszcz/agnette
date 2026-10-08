@@ -12,9 +12,9 @@ import pytest
 import requests
 import requests.adapters
 
-import agm.packages.fetch as package_fetch
-from agm.core import http as core_http
-from agm.packages.fetch import FetchError, fetch_archive
+import agnette.packages.fetch as package_fetch
+from agnette.core import http as core_http
+from agnette.packages.fetch import FetchError, fetch_archive
 from tests._http_helpers import install
 
 _URL = "https://example.test/tools.agmpkg"
@@ -34,7 +34,7 @@ def _mount(monkeypatch: pytest.MonkeyPatch, adapter: requests.adapters.BaseAdapt
     session = core_http.open_session()
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-    monkeypatch.setattr("agm.core.http.open_session", lambda: session)
+    monkeypatch.setattr("agnette.core.http.open_session", lambda: session)
 
 
 class _BlockedAdapter(requests.adapters.BaseAdapter):

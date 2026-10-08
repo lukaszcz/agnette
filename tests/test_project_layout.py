@@ -1,4 +1,4 @@
-"""Comprehensive tests for agm.project.layout path-resolution helpers."""
+"""Comprehensive tests for agnette.agm.project.layout path-resolution helpers."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import agm.core.dry_run as dry_run
-import agm.project.layout as layout_module
-from agm.project.layout import (
+import agnette.agm.project.layout as layout_module
+import agnette.core.dry_run as dry_run
+from agnette.agm.project.layout import (
     _copy_existing_config_files,
     _project_dir_from_env,
     _project_dir_from_workspace,

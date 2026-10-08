@@ -1,4 +1,4 @@
-"""Comprehensive tests for agm.project.dependency_checkout, .remove, and .switch."""
+"""Comprehensive tests for agnette.agm.project.dependency_checkout, .remove, and .switch."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-import agm.commands.dep.remove as dep_remove
-import agm.commands.dep.switch as dep_switch
-from agm.cli_support.args import DepRemoveArgs, DepSwitchArgs
-from agm.project.dependency_checkout import (
+import agnette.agm.commands.dep.remove as dep_remove
+import agnette.agm.commands.dep.switch as dep_switch
+from agnette.agm.cli_support.args import DepRemoveArgs, DepSwitchArgs
+from agnette.agm.project.dependency_checkout import (
     derive_dep_name,
     main_dep_repo,
 )
-from agm.vcs.git import WorktreeInfo, default_branch_from_remote, default_branch_from_repo
+from agnette.vcs.git import WorktreeInfo, default_branch_from_remote, default_branch_from_repo
 from tests._git_helpers import (
     add_linked_worktree,
     clone_local_remote,
@@ -23,7 +23,7 @@ from tests._git_helpers import (
 )
 
 # ---------------------------------------------------------------------------
-# agm.project.dependency_checkout – derive_dep_name
+# agnette.agm.project.dependency_checkout – derive_dep_name
 # ---------------------------------------------------------------------------
 
 
@@ -80,7 +80,7 @@ class TestDeriveDependencyName:
 
 
 # ---------------------------------------------------------------------------
-# agm.project.dependency_checkout – default_branch_from_remote
+# agnette.agm.project.dependency_checkout – default_branch_from_remote
 # ---------------------------------------------------------------------------
 
 
@@ -121,7 +121,7 @@ class TestDefaultBranchFromRemote:
     # ``ref:`` line, so a truncated one cannot be produced by a real remote.
     def test_exits_when_ref_line_has_no_parts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "agm.vcs.git.ls_remote_head",
+            "agnette.vcs.git.ls_remote_head",
             lambda repo_url, env=None: "ref:\n",
         )
         with pytest.raises(SystemExit):
@@ -129,7 +129,7 @@ class TestDefaultBranchFromRemote:
 
 
 # ---------------------------------------------------------------------------
-# agm.project.dependency_checkout – default_branch_from_repo
+# agnette.agm.project.dependency_checkout – default_branch_from_repo
 # ---------------------------------------------------------------------------
 
 
@@ -153,7 +153,7 @@ class TestDefaultBranchFromRepo:
 
 
 # ---------------------------------------------------------------------------
-# agm.project.dependency_checkout – main_dep_repo
+# agnette.agm.project.dependency_checkout – main_dep_repo
 # ---------------------------------------------------------------------------
 
 
@@ -203,7 +203,7 @@ class TestMainDepRepo:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.dep.remove – run
+# agnette.agm.commands.dep.remove – run
 # ---------------------------------------------------------------------------
 
 
@@ -441,7 +441,7 @@ class TestDepRemoveRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.dep.switch – run
+# agnette.agm.commands.dep.switch – run
 # ---------------------------------------------------------------------------
 
 

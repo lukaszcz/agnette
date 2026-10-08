@@ -7,10 +7,10 @@ from typing import cast
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.ids import NominalId
-from agm.agl.matchcompile.compiler import compile_match_site, validate_compiled_case
-from agm.agl.matchcompile.matrix import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.matchcompile.compiler import compile_match_site, validate_compiled_case
+from agnette.agl.matchcompile.matrix import (
     OccurrenceAllocator,
     PatternMatrix,
     default_matrix,
@@ -18,7 +18,7 @@ from agm.agl.matchcompile.matrix import (
     matrix_from_normalized,
     specialize,
 )
-from agm.agl.matchcompile.model import (
+from agnette.agl.matchcompile.model import (
     BinderAssignment,
     BinderProvenance,
     Constructor,
@@ -29,9 +29,9 @@ from agm.agl.matchcompile.model import (
     PatternCell,
     WildcardCell,
 )
-from agm.agl.matchcompile.normalize import normalize_case
-from agm.agl.semantics.types import EnumType
-from agm.agl.semantics.values import (
+from agnette.agl.matchcompile.normalize import normalize_case
+from agnette.agl.semantics.types import EnumType
+from agnette.agl.semantics.values import (
     BoolValue,
     DecimalValue,
     IntValue,
@@ -40,9 +40,9 @@ from agm.agl.semantics.values import (
     TextValue,
     Value,
 )
-from agm.agl.syntax.nodes import Case, VarPattern
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck import CheckedModule
+from agnette.agl.syntax.nodes import Case, VarPattern
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck import CheckedModule
 from tests.agl.match_reference import (
     canonical_cell_matches,
     enum_variant_members,

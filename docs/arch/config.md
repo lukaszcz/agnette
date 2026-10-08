@@ -12,7 +12,7 @@ The context locates the directories that contribute configuration. The project d
 
 One AgM home holds config, sandbox settings, the AgL global library, and the package store: `AGM_HOME` when set, otherwise a populated `<install-prefix>/.agm` beside the executable, otherwise `~/.agm`. Setup copies the config templates from the repository's `config/` into the AgM home.
 
-The AgL standard library resolves from `AGM_STDLIB` (an unchecked escape hatch), then a development `std` checkout whose module tree holds the invocation's anchor (the entry file, or the working directory) so the library is checked and run from the tree being edited, then the active managed `std` store package, which must exactly match the running AgM version, then the shipped fallback tree that `stdlib_locator.py` finds at the repository root in a checkout or bundled inside the wheel. See [package-store.md](package-store.md) for the managed package.
+The AgL standard library resolves from `AGM_STDLIB` (an unchecked escape hatch), then a development `std` checkout whose module tree holds the invocation's anchor (the entry file, or the working directory) so the library is checked and run from the tree being edited, then the active managed `std` store package, which must exactly match the running AgM version, then the shipped fallback tree that `agnette.stdlib_locator` finds at `packages/stdlib/` in a checkout or `agnette/stdlib/` inside the wheel. See [package-store.md](package-store.md) for the managed package.
 
 ## Layering and Precedence
 
@@ -43,10 +43,10 @@ Sandbox settings follow their own discovery and merge chain across the same scop
 
 ## Code Entry Points
 
-- `src/agm/config/context.py` — config context and project-directory discovery.
-- `src/agm/config/home.py` — AgM home directory resolution (`AGM_HOME`, installation prefix, project-relative default) and AgM-home path candidates; a leaf module so `agm.project.layout` can depend on it.
-- `src/agm/config/general.py` — layer loading, merging, precedence retention, and per-feature readers.
-- `src/agm/config/engine_keys.py` — the engine-key catalog; `src/agm/config/qualified_keys.py` — qualified AgL config-key routing; `src/agm/cli_support/param_config.py` — module-parameter and selected-program-route resolution.
-- `src/agm/config/module_roots.py` — AgL module roots from `[modules]` and the `AGM_STDLIB` override; `src/agm/stdlib_locator.py` — the shipped stdlib tree.
-- `src/agm/config/sandbox/` — SRT sandbox settings discovery and merging.
-- `src/agm/commands/config/` — the `agm config` commands; `config/` (repository root) — templates copied into the AgM home during setup.
+- `src/agnette/config/context.py` — config context and project-directory discovery.
+- `src/agnette/config/home.py` — AgM home directory resolution (`AGM_HOME`, installation prefix, project-relative default) and AgM-home path candidates; a leaf module so `agnette.agm.project.layout` can depend on it.
+- `src/agnette/config/general.py` — layer loading, merging, precedence retention, and per-feature readers.
+- `src/agnette/config/engine_keys.py` — the engine-key catalog; `src/agnette/config/qualified_keys.py` — qualified AgL config-key routing; `src/agnette/agm/cli_support/param_config.py` — module-parameter and selected-program-route resolution.
+- `src/agnette/config/module_roots.py` — AgL module roots from `[modules]` and the `AGM_STDLIB` override; `src/agnette/stdlib_locator.py` — the shipped stdlib tree.
+- `src/agnette/config/sandbox/` — SRT sandbox settings discovery and merging.
+- `src/agnette/agm/commands/config/` — the `agm config` commands; `config/` (repository root) — templates copied into the AgM home during setup.

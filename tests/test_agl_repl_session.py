@@ -1,4 +1,4 @@
-"""Tests for the UI-free REPL session core (``agm.agl.repl.session``).
+"""Tests for the UI-free REPL session core (``agnette.agl.repl.session``).
 
 Drives ``ReplSession`` directly with source strings and fake agents.  Asserts
 user-visible behaviour: persistence across entries, redefinition/shadowing,
@@ -19,22 +19,22 @@ from unittest.mock import patch
 
 import pytest
 
-from agm.agl.diagnostics import (
+from agnette.agl.diagnostics import (
     AglError,
     HiddenMemberError,
     ReferencedMemberError,
     type_name_not_a_value,
 )
-from agm.agl.ir.static_keys import StaticBindingKey
-from agm.agl.matchcompile import NonExhaustiveMatchError
-from agm.agl.modules.ids import ModuleId
-from agm.agl.parser import AglSyntaxError
-from agm.agl.recursion import NestingTooDeepError
-from agm.agl.repl import EntryResult, ReplSession
-from agm.agl.runtime.request import AgentRequest, AgentResponse
-from agm.agl.runtime.sessions import AgentDispatcherSessionHost
-from agm.agl.runtime.types import ParamBindingInfo
-from agm.agl.scope.symbols import (
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.matchcompile import NonExhaustiveMatchError
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.parser import AglSyntaxError
+from agnette.agl.recursion import NestingTooDeepError
+from agnette.agl.repl import EntryResult, ReplSession
+from agnette.agl.runtime.request import AgentRequest, AgentResponse
+from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
+from agnette.agl.runtime.types import ParamBindingInfo
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
@@ -42,8 +42,8 @@ from agm.agl.scope.symbols import (
     UnknownMemberError,
     UseDeclarationOrigin,
 )
-from agm.agl.semantics.type_table import BUILTIN_PRELUDE_TYPE_DEFS, create_seeded_type_table
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.type_table import BUILTIN_PRELUDE_TYPE_DEFS, create_seeded_type_table
+from agnette.agl.semantics.types import (
     BUILTIN_EXCEPTIONS,
     BUILTIN_PRELUDE_TYPES,
     COMPATIBILITY_PRELUDE_TYPE_NAMES,
@@ -58,7 +58,7 @@ from agm.agl.semantics.types import (
     TextType,
     Type,
 )
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     UNIT_VALUE,
     ArrayValue,
     BoolValue,
@@ -69,9 +69,9 @@ from agm.agl.semantics.values import (
     UnitValue,
     Value,
 )
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.typecheck import AglTypeError
-from agm.packages.layout import MODULE_TREE_DIRNAME
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.typecheck import AglTypeError
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._agl_helpers import REPO_STDLIB_ROOT, agent_value, repl_session_with_root
 from tests._process_helpers import FakeShell
 from tests.agl.qualifier_support import (
@@ -94,7 +94,7 @@ from tests.agl.qualifier_support import (
 def open_session(**kwargs: object) -> ReplSession:
     """Build a session and open it, exactly as a REPL host does.
 
-    ``agm.commands.repl`` constructs a session and immediately calls
+    ``agnette.agm.commands.repl`` constructs a session and immediately calls
     :meth:`ReplSession.open`, which loads and type-checks the initial library
     image before the first entry is accepted.  Tests that only care about
     entry behaviour go through this helper so they exercise the same startup
@@ -703,7 +703,7 @@ class TestPersistence:
 
         related = SourceSpan(2, 1, 2, 2, 2, 3)
         error = AglError("load failed", related=(("constraint", related),))
-        with patch("agm.agl.modules.loader.build_repl_graph", side_effect=error):
+        with patch("agnette.agl.modules.loader.build_repl_graph", side_effect=error):
             result = open_session().eval_entry("1")
 
         assert not result.ok
@@ -750,7 +750,7 @@ class TestPersistence:
         scope (the entry that would raise already succeeded), so the REPL
         reports the same one-line message a runtime raise would rather than
         crashing the session."""
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         assert s.eval_entry("record Node\n  children: array[Node]").ok
@@ -1907,7 +1907,7 @@ class TestRetainedAliasTargetIdentity:
         self, tmp_path: Path, sizes: tuple[int, ...]
     ) -> None:
         """The REPL's bare-entry fallback (typing ``C::Red`` alone) must agree
-        with :meth:`~agm.agl.repl.session.ReplSession.type_of` about a member
+        with :meth:`~agnette.agl.repl.session.ReplSession.type_of` about a member
         the alias's declaration-time snapshot freezes as hidden, even though
         the current (post-shadowing) scope would resolve the spelling
         differently: the fallback never re-resolves against anything but the
@@ -3627,7 +3627,7 @@ class TestBuiltinIdentityAcrossEntries:
         assert declare.ok, declare.diagnostics
 
         shell = FakeShell([{"command": "echo hey", "stdout": "hey"}])
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             call = s.eval_entry('Stdlib::print(Stdlib::exec("echo hey"))')
         shell.assert_complete()
 
@@ -3771,7 +3771,7 @@ class TestBuiltinIdentityAcrossEntries:
         assert failed.error is not None
 
         shell = FakeShell(stdout="hi")
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             minted = s.eval_entry('let b = exec("echo hi")')
         assert minted.ok, minted.diagnostics
         assert isinstance(minted.value_type, RecordType)
@@ -3950,7 +3950,7 @@ class TestBuiltinIdentityWithStandardLibrary:
         assert declare.ok, declare.diagnostics
 
         shell = FakeShell(stdout="hi")
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             result = s.eval_entry('let a = exec("echo hi")')
         assert result.ok, result.diagnostics
         assert isinstance(result.value_type, RecordType)
@@ -3979,7 +3979,7 @@ class TestBuiltinIdentityWithStandardLibrary:
         assert declare.ok, declare.diagnostics
 
         shell = FakeShell(stdout="hi")
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             result = s.eval_entry('let a = exec("echo hi")')
         assert result.ok, result.diagnostics
         assert isinstance(result.value_type, RecordType)
@@ -4033,7 +4033,7 @@ class TestBuiltinIdentityWithStandardLibrary:
         ordinary record redeclaration already has."""
         s = open_session()
         shell = FakeShell(stdout="hi")
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             before = s.eval_entry('let a = exec("echo hi")')
         assert before.ok, before.diagnostics
         assert isinstance(before.value_type, RecordType)
@@ -4042,7 +4042,7 @@ class TestBuiltinIdentityWithStandardLibrary:
         declare = s.eval_entry(f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n")
         assert declare.ok, declare.diagnostics
 
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             after = s.eval_entry('let b = exec("echo hi")')
         assert after.ok, after.diagnostics
         assert isinstance(after.value_type, RecordType)
@@ -4086,7 +4086,7 @@ class TestBuiltinIdentityAcrossModules:
         assert declare.ok, declare.diagnostics
 
         shell = FakeShell(stdout="hi")
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             result = s.eval_entry('let a = exec("echo hi")')
         assert result.ok, result.diagnostics
         assert isinstance(result.value_type, RecordType)
@@ -4123,7 +4123,7 @@ class TestBuiltinIdentityAcrossModules:
         assert declare.ok, declare.diagnostics
 
         shell = FakeShell(stdout="hi")
-        with patch("agm.core.process.run_capture_result", side_effect=shell):
+        with patch("agnette.core.process.run_capture_result", side_effect=shell):
             result = s.eval_entry('let a = exec("echo hi")')
         assert result.ok, result.diagnostics
         assert isinstance(result.value_type, RecordType)
@@ -4649,7 +4649,7 @@ enum Agent
 
     def test_superseded_enum_member_values_survive_without_bare_spellings(self) -> None:
         """A superseded member's value still matches ``_``, casts, and renders."""
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         session = open_session()
         assert session.eval_entry("enum A\n  | Red\n  | Tint(level: int)").ok
@@ -5866,7 +5866,7 @@ class TestEchoData:
         self, source: str, rendered: str
     ) -> None:
         """REPL echoes every qualified built-in Agent constructor unambiguously."""
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         result = open_session().eval_entry(source)
 
@@ -5889,7 +5889,7 @@ class TestEchoData:
         self, source: str, rendered: str
     ) -> None:
         """REPL echo spells every dict key in value syntax, one line per key."""
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         session = open_session()
         assert session.eval_entry("enum Color\n  | Red\n  | Tint(level: int)").ok
@@ -5906,7 +5906,7 @@ class TestEchoData:
 
     @pytest.mark.parametrize("binder", ("let", "var"))
     def test_trailing_binder_echoes_declared_value(self, binder: str) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         r = s.eval_entry(f"{binder} total = 5")
@@ -5935,7 +5935,7 @@ class TestEchoData:
 
     @pytest.mark.parametrize("binder", ("let", "var"))
     def test_trailing_discard_binder_evaluates_and_echoes_nothing(self, binder: str) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         r = s.eval_entry(f"{binder} _ = 6")
@@ -5969,7 +5969,7 @@ class TestEchoData:
 
     def test_print_call_echo_kind(self) -> None:
         # ``print`` is a function call, but it yields unit so REPL echo suppresses it.
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         r = s.eval_entry("print 1")
@@ -5980,7 +5980,7 @@ class TestEchoData:
         assert render_entry_result(r, echo=True) is None
 
     def test_unit_literal_echoes_nothing(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         r = s.eval_entry("()")
@@ -5990,7 +5990,7 @@ class TestEchoData:
         assert render_entry_result(r, echo=True) is None
 
     def test_loop_echo_value_is_unit(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         r = s.eval_entry("do[0] () done")
@@ -6066,7 +6066,7 @@ class TestTypeOf:
             s.type_of("let q = 1")
 
     def test_type_of_propagates_type_error(self) -> None:
-        from agm.agl.typecheck import AglTypeError
+        from agnette.agl.typecheck import AglTypeError
 
         s = open_session()
         s.eval_entry('let s = "x"')
@@ -6086,7 +6086,7 @@ class TestTypeOf:
 
 class TestInferenceBoundaries:
     def test_generic_entry_infers_concrete_result_in_graph_and_type_sessions(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         assert s.eval_entry("def id[T](x: T) -> T = x").ok
@@ -6105,7 +6105,7 @@ class TestInferenceBoundaries:
     def test_failed_generic_entries_leave_next_entry_fresh_and_render_diagnostic_notes(
         self,
     ) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         assert s.eval_entry("def id[T](x: T) -> T = x").ok
@@ -6485,7 +6485,7 @@ class TestFailureEffects:
         assert vals["v"] == 99
 
     def test_runtime_raise_preserves_indexed_assign_to_prior_var(self) -> None:
-        from agm.agl.semantics.values import ArrayValue, IntValue
+        from agnette.agl.semantics.values import ArrayValue, IntValue
 
         s = open_session()
         r1 = s.eval_entry("var xs = [1, 2, 3]")
@@ -6646,7 +6646,7 @@ class TestExactlyOnce:
     def test_check_only_keeps_a_diverging_bindings_type_without_evaluating_or_promoting(
         self,
     ) -> None:
-        from agm.agl.semantics.types import BottomType
+        from agnette.agl.semantics.types import BottomType
 
         session = open_session()
         result = session.eval_entry(
@@ -6660,7 +6660,7 @@ class TestExactlyOnce:
         assert session.eval_entry("let doomed = 3").value == IntValue(3)
 
     def test_standalone_ask_echo_is_unquoted(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         agent = CountingAgent("the-answer")
         s = open_session(agent_dispatcher=agent)
@@ -6671,7 +6671,7 @@ class TestExactlyOnce:
         assert render_entry_result(result, echo=True) == "the-answer"
 
     def test_stored_ask_result_echo_uses_normal_text_quoting(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         agent = CountingAgent("the-answer")
         s = open_session(agent_dispatcher=agent)
@@ -6786,7 +6786,7 @@ class TestAgentDeclarations:
 
 class TestReset:
     def test_reset_starts_a_fresh_default_agent_session(self) -> None:
-        from agm.agent.spec import AgentCommand
+        from agnette.agent.spec import AgentCommand
 
         host = AgentDispatcherSessionHost(None)
         agent = AgentCommand(command="worker")
@@ -6846,7 +6846,7 @@ class TestLoadFile:
     def test_malformed_saved_transcript_is_treated_as_an_ordinary_file(
         self, transcript: str
     ) -> None:
-        from agm.agl.repl.session import _decode_transcript
+        from agnette.agl.repl.session import _decode_transcript
 
         assert _decode_transcript(transcript) is None
 
@@ -7090,7 +7090,7 @@ class TestWarnings:
 
 class TestRegistrationAndAgents:
     def test_register_codec_validation(self) -> None:
-        from agm.agl.runtime.codec import JsonCodec
+        from agnette.agl.runtime.codec import JsonCodec
 
         s = open_session()
         with pytest.raises(ValueError):
@@ -7106,13 +7106,13 @@ class TestContractError:
     def test_contract_materialization_error_fails_cleanly(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.agl.runtime.contract as contract_mod
+        import agnette.agl.runtime.contract as contract_mod
 
         def bad_materialize(spec: object, codecs: object, type_table: object = None) -> object:
             raise ValueError("bad contract")
 
         monkeypatch.setattr(contract_mod, "materialize_contract", bad_materialize)
-        from agm.agl.runtime.codec import TextCodec
+        from agnette.agl.runtime.codec import TextCodec
 
         class BadCodec(TextCodec):
             @property
@@ -7291,7 +7291,9 @@ class _InterruptAgent:
 class TestAgentCancellation:
     def test_interrupt_without_agent_reports_interrupted_entry(self) -> None:
         session = open_session()
-        with patch("agm.agl.eval.ir_interpreter.IrInterpreter.run", side_effect=KeyboardInterrupt):
+        with patch(
+            "agnette.agl.eval.ir_interpreter.IrInterpreter.run", side_effect=KeyboardInterrupt
+        ):
             result = session.eval_entry("1 + 1")
 
         assert not result.ok
@@ -7428,7 +7430,7 @@ class TestTraceLogging:
         """A transient write failure must not kill logging for the whole session."""
         import json
 
-        from agm.core import log as core_log
+        from agnette.core import log as core_log
 
         trace = tmp_path / "repl.log"
         s = open_session(agent_dispatcher=CountingAgent("a", "b"), trace_path=trace)
@@ -7441,7 +7443,7 @@ class TestTraceLogging:
                 raise OSError("transient failure")
             real_append(path, record)
 
-        with patch("agm.agl.runtime.trace.append_jsonl", side_effect=flaky):
+        with patch("agnette.agl.runtime.trace.append_jsonl", side_effect=flaky):
             first = s.eval_entry('print "one"')
             second = s.eval_entry('print "two"')
 
@@ -7863,7 +7865,7 @@ class TestInfixDecl:
     def test_used_scoped_facade_export_makes_operator_fixity_available(
         self, tmp_path: Path
     ) -> None:
-        from agm.agl.modules.roots import assemble_roots
+        from agnette.agl.modules.roots import assemble_roots
 
         root = tmp_path / "modules"
         root.mkdir()
@@ -7893,7 +7895,7 @@ class TestInfixDecl:
         (root / "operators.agl").write_text(
             "infixl %% at 5\ndef %%(x: int, y: int) -> int = x * 10 + y\n"
         )
-        from agm.agl.modules.roots import assemble_roots
+        from agnette.agl.modules.roots import assemble_roots
 
         s = ReplSession()
         s._roots = assemble_roots(
@@ -7919,7 +7921,7 @@ class TestInfixDecl:
         assert _int(result.value) == 213
 
     def test_session_operator_beats_a_bare_visible_import(self, tmp_path: Path) -> None:
-        from agm.agl.modules.roots import assemble_roots
+        from agnette.agl.modules.roots import assemble_roots
 
         root = tmp_path / "modules"
         root.mkdir()
@@ -8959,7 +8961,7 @@ class TestImports:
         # Import forces program context; ::x must still resolve to x=100, not the param.
         r2 = s.eval_entry("import dummy\ndef shadow(x: int) -> int = ::x\nshadow(7)")
         assert r2.ok, r2.diagnostics
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         assert r2.value == IntValue(100), f"Expected 100, got {r2.value}"
 
@@ -8999,7 +9001,7 @@ class TestImports:
         assert not r.ok
         assert _snapshot(s) == before
         # goodlib should NOT have been added to loaded lib modules
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         assert ModuleId(segments=("goodlib",)) not in s._loaded_lib_modules
 
@@ -9012,7 +9014,7 @@ class TestImports:
     def test_no_roots_set_but_import_attempted(self) -> None:
         # With only the stdlib root, an unrelated import should fail gracefully.
         s = open_session()
-        from agm.agl.modules.roots import RootSet
+        from agnette.agl.modules.roots import RootSet
 
         s._roots = RootSet(
             roots=frozenset(),
@@ -9026,7 +9028,7 @@ class TestImports:
         lib = tmp_path / "cached.agl"
         lib.write_text('def greet() -> text = "hello"\n')
         s = repl_session_with_root(tmp_path)
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         cached_id = ModuleId(segments=("cached",))
         # Import once to cache it with its bare members.
@@ -9050,7 +9052,7 @@ class TestImports:
 
     def test_interpreter_initialization_failure_rolls_back_link_image(self, tmp_path: Path) -> None:
         """A failed setting bootstrap leaves no linked declarations but consumes node ids."""
-        from agm.agl.lower import LinkImage
+        from agnette.agl.lower import LinkImage
 
         std_dir = tmp_path / MODULE_TREE_DIRNAME
         std_dir.mkdir()
@@ -9097,7 +9099,7 @@ class TestImports:
         allocated into the persistent image, exactly as a failing setting
         bootstrap does, so both discard the same complete link delta.
         """
-        from agm.agl.lower import LinkImage
+        from agnette.agl.lower import LinkImage
 
         (tmp_path / "broken.agl").write_text("extern def f() -> int\n")
         (tmp_path / "broken.py").write_text("raise RuntimeError('boom')\n")
@@ -9117,7 +9119,7 @@ class TestImports:
         # A library that completed before the entry raised keeps its loaded AST
         # and linked identities together. Re-importing must reuse both rather
         # than either reinitializing it or lowering fresh declaration IDs.
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         lib = tmp_path / "boom.agl"
         lib.write_text("def f() -> int = 42\n")
@@ -9143,9 +9145,9 @@ class TestImports:
         # module's own initializers would retain ``a`` anyway, even though it
         # depends on the now-dropped ``b`` through the import cycle -- the
         # module-adjacency fixpoint must prune ``a`` too.
-        from agm.agl.eval.ir_interpreter import IrInterpreter
-        from agm.agl.ir.nodes import IrExpr
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.ir.nodes import IrExpr
+        from agnette.agl.modules.ids import ModuleId
 
         (tmp_path / "a.agl").write_text("import b\ndef a-val() -> int = 1\n")
         (tmp_path / "b.agl").write_text("import a\nlet x = 1\nlet y = 2\ndef b-val() -> int = 2\n")
@@ -9195,9 +9197,9 @@ class TestImports:
         # successfully rather than crash IR validation on an orphaned
         # ``SymbolDescriptor``/``FunctionDescriptor`` still owned by a module
         # absent from the next program's ``modules`` table.
-        from agm.agl.eval.ir_interpreter import IrInterpreter
-        from agm.agl.ir.nodes import IrExpr
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.ir.nodes import IrExpr
+        from agnette.agl.modules.ids import ModuleId
 
         (tmp_path / "a.agl").write_text("import b\ndef a-val() -> int = 1\n")
         (tmp_path / "b.agl").write_text("import a\nlet x = 1\nlet y = 2\ndef b-val() -> int = 2\n")
@@ -9436,13 +9438,13 @@ class TestImports:
     ) -> None:
         # A ValueError from materialize_contract during program execution
         # returns a failed entry with a "Contract error:" diagnostic.
-        import agm.agl.runtime.contract as contract_mod
+        import agnette.agl.runtime.contract as contract_mod
 
         def bad_materialize(spec: object, codecs: object, type_table: object = None) -> object:
             raise ValueError("bad contract")
 
         monkeypatch.setattr(contract_mod, "materialize_contract", bad_materialize)
-        from agm.agl.runtime.codec import TextCodec
+        from agnette.agl.runtime.codec import TextCodec
 
         class BadCodec(TextCodec):
             @property
@@ -9504,7 +9506,7 @@ class TestImports:
         # Entry 3: val() from foo.a must still resolve (wildcard import persists)
         r3 = s.eval_entry("val()")
         assert r3.ok, r3.diagnostics
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         assert r3.value == IntValue(42)
 
@@ -9558,9 +9560,9 @@ class TestImports:
     @pytest.mark.parametrize(
         "stage",
         (
-            "agm.agl.modules.loader.build_repl_graph",
-            "agm.agl.scope.program.resolve_program",
-            "agm.agl.typecheck.program.check_program",
+            "agnette.agl.modules.loader.build_repl_graph",
+            "agnette.agl.scope.program.resolve_program",
+            "agnette.agl.typecheck.program.check_program",
         ),
     )
     def test_internal_frontend_failure_propagates(
@@ -9582,7 +9584,7 @@ class TestImports:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``open`` reports source failures only; an internal failure escapes it."""
-        import agm.agl.typecheck.program as program_mod
+        import agnette.agl.typecheck.program as program_mod
 
         def fail(*args: object, **kwargs: object) -> object:
             raise RuntimeError("internal")
@@ -9956,7 +9958,7 @@ class TestExternRepl:
     """
 
     def _make_session_with_root(self, root: Path) -> ReplSession:
-        from agm.agl.modules.roots import assemble_roots
+        from agnette.agl.modules.roots import assemble_roots
 
         roots = assemble_roots(
             invocation_root=root,
@@ -10185,14 +10187,14 @@ class TestExternRepl:
 
 
 def _int(value: object) -> int:
-    from agm.agl.semantics.values import IntValue
+    from agnette.agl.semantics.values import IntValue
 
     assert isinstance(value, IntValue)
     return value.value
 
 
 def _text(value: object) -> str:
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert isinstance(value, TextValue)
     return value.value
@@ -10217,7 +10219,7 @@ class TestHasRunnableStatements:
         ``eval_entry`` and surfaces a real diagnostic rather than being silently
         dropped.  Verifying with ``'@'`` (which raises ``LexError``).
         """
-        from agm.agl.repl.session import has_runnable_statements
+        from agnette.agl.repl.session import has_runnable_statements
 
         assert has_runnable_statements("@") is True
         assert has_runnable_statements('"unterminated') is True
@@ -10244,8 +10246,8 @@ class TestFunctionAgentValueEcho:
         assert r.kind == "expression"
         assert r.value is not None
         # The value is a Closure; render_value must not raise.
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IrClosureValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IrClosureValue
 
         assert isinstance(r.value, IrClosureValue)
         assert r.descriptors is not None
@@ -10261,8 +10263,8 @@ class TestFunctionAgentValueEcho:
         assert r.ok
         assert r.kind == "expression"
         assert r.value is not None
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IrClosureValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IrClosureValue
 
         assert isinstance(r.value, IrClosureValue)
         assert r.descriptors is not None
@@ -10275,8 +10277,8 @@ class TestFunctionAgentValueEcho:
         s.eval_entry("def dbl(x: int) -> int = x * 2")
         # bindings() returns Closure values; the meta-command renders them.
         binds = s.bindings()
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import IrClosureValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import IrClosureValue
 
         assert any(isinstance(v, IrClosureValue) for _n, _t, v in binds)
         # render_value on each must not raise.
@@ -10301,7 +10303,7 @@ class TestBareTypeEntry:
     """
 
     def test_builtin_primitive_type_echoes_as_type(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         r = s.eval_entry("int")
@@ -10312,7 +10314,7 @@ class TestBareTypeEntry:
         assert render_entry_result(r, echo=True) == "<type: int>"
 
     def test_builtin_container_types_echo_as_type(self) -> None:
-        from agm.agl.semantics.types import ArrayType, DictType
+        from agnette.agl.semantics.types import ArrayType, DictType
 
         s = open_session()
         r = s.eval_entry("array[int]")
@@ -10327,7 +10329,7 @@ class TestBareTypeEntry:
         assert isinstance(r2.value_type, DictType)
 
     def test_function_type_echoes_as_type(self) -> None:
-        from agm.agl.semantics.types import FunctionType
+        from agnette.agl.semantics.types import FunctionType
 
         s = open_session()
         r = s.eval_entry("(int) -> bool")
@@ -10336,8 +10338,8 @@ class TestBareTypeEntry:
         assert isinstance(r.value_type, FunctionType)
 
     def test_declared_enum_name_echoes_as_type(self) -> None:
-        from agm.agl.repl.render import render_entry_result
-        from agm.agl.semantics.types import EnumType
+        from agnette.agl.repl.render import render_entry_result
+        from agnette.agl.semantics.types import EnumType
 
         s = open_session()
         s.eval_entry("enum Color = Red | Green | Blue")
@@ -10351,7 +10353,7 @@ class TestBareTypeEntry:
         )
 
     def test_generic_type_application_echoes_as_type(self) -> None:
-        from agm.agl.semantics.types import ArrayType
+        from agnette.agl.semantics.types import ArrayType
 
         s = open_session()
         s.eval_entry("type Pair[A, B] = array[A]")
@@ -10375,7 +10377,7 @@ class TestBareTypeEntry:
         assert r.kind != "type"
 
     def test_bare_generic_enum_name_echoes_definition(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         s.eval_entry("enum Option[T]\n  | none\n  | some(value: T)")
@@ -10389,7 +10391,7 @@ class TestBareTypeEntry:
         )
 
     def test_bare_generic_record_name_echoes_definition(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         s.eval_entry("record Box[T]\n  value: T")
@@ -10427,7 +10429,7 @@ class TestBareTypeEntry:
         assert r.kind != "type"
 
     def test_use_exposed_generic_record_name_echoes_definition(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         session = open_session()
         assert session.eval_entry("scope S\n  record Box[T]\n    value: T\nend S").ok
@@ -10448,7 +10450,7 @@ class TestBareTypeEntry:
     def test_selective_use_exposed_generic_record_name_echoes_definition(
         self, use_decl: str, query: str, display_name: str
     ) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         session = open_session()
         assert session.eval_entry("scope S\n  record Box[T]\n    value: T\nend S").ok
@@ -10470,7 +10472,7 @@ class TestBareTypeEntry:
         assert not session.eval_entry("Box").ok
 
     def test_use_alias_qualified_generic_record_name_echoes_definition(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         session = open_session()
         assert session.eval_entry("scope S\n  record Box[T]\n    value: T\nend S").ok
@@ -10519,7 +10521,7 @@ class TestBareTypeEntry:
     def test_qualified_generic_type_entry_prefers_an_own_scope_over_a_module_route(
         self, tmp_path: Path
     ) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         (tmp_path / "a.agl").write_text("record Box[T]\n  value: T\n  imported: int\n")
         session = open_session(
@@ -10540,7 +10542,7 @@ class TestBareTypeEntry:
     def test_qualified_unapplied_generic_displays_equivalent_duplicate_routes(
         self, tmp_path: Path
     ) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         (tmp_path / "a.agl").write_text("record Box[T]\n  value: T\n")
         session = open_session(
@@ -10584,7 +10586,7 @@ class TestBareTypeEntry:
         the bare qualified name must resolve the same way the unqualified
         root form does, rather than being treated as an (absent) import.
         """
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         s.eval_entry("scope A\n  record Box[T]\n    value: T\nend A")
@@ -10595,7 +10597,7 @@ class TestBareTypeEntry:
         assert render_entry_result(r, echo=True) == "<type:\nrecord A::Box[T]\n  value: T\n>"
 
     def test_bare_generic_type_entry_echoes_definition(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         s.eval_entry("enum Option[T]\n  | none\n  | some(value: T)")
@@ -10608,7 +10610,7 @@ class TestBareTypeEntry:
         )
 
     def test_implicit_core_import_bare_generic_type_echoes_definition(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session(stdlib_root=Path(__file__).resolve().parents[1] / "packages" / "stdlib")
         r = s.eval_entry("Option")
@@ -10621,7 +10623,7 @@ class TestBareTypeEntry:
         )
 
     def test_implicit_core_import_qualified_generic_type_echoes_definition(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session(stdlib_root=Path(__file__).resolve().parents[1] / "packages" / "stdlib")
         r = s.eval_entry("std/prelude::Option")
@@ -10676,7 +10678,7 @@ class TestBareTypeEntry:
     def test_record_name_still_evaluates_as_constructor(self) -> None:
         # A record name doubles as a constructor value, so it must keep
         # evaluating normally (the type fallback only triggers on failure).
-        from agm.agl.semantics.values import ConstructorValue
+        from agnette.agl.semantics.values import ConstructorValue
 
         s = open_session()
         s.eval_entry("record Point\n  x: int\n  y: int")
@@ -10725,7 +10727,7 @@ class TestBareTypeEntry:
         assert s.type_names() == frozenset()
 
     def test_type_entry_echo_respects_echo_off(self) -> None:
-        from agm.agl.repl.render import render_entry_result
+        from agnette.agl.repl.render import render_entry_result
 
         s = open_session()
         r = s.eval_entry("int")
@@ -10939,7 +10941,7 @@ class TestSessionOpen:
     """
 
     def test_open_with_no_engine_seeds_preloads_the_default_stdlib(self) -> None:
-        from agm.agl.modules.ids import STD_CONFIG_ID, STD_PRELUDE_ID
+        from agnette.agl.modules.ids import STD_CONFIG_ID, STD_PRELUDE_ID
 
         s = ReplSession()
         assert s.open() == ()
@@ -11003,7 +11005,7 @@ class TestSessionOpen:
         self, tmp_path: Path
     ) -> None:
         """A same-text symlink replacement must not reuse the old module image."""
-        from agm.agl.modules.ids import STD_CONFIG_ID
+        from agnette.agl.modules.ids import STD_CONFIG_ID
 
         stdlib = tmp_path / "stdlib"
         copytree(Path(__file__).resolve().parent.parent / "packages" / "stdlib", stdlib)
@@ -11024,7 +11026,7 @@ class TestSessionOpen:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Source comparison uses the loader's universal-newline representation."""
-        import agm.agl.modules.loader as loader_mod
+        import agnette.agl.modules.loader as loader_mod
 
         stdlib = tmp_path / "stdlib"
         copytree(Path(__file__).resolve().parent.parent / "packages" / "stdlib", stdlib)
@@ -11069,7 +11071,7 @@ class TestSessionOpen:
         self, tmp_path: Path
     ) -> None:
         """A cached wildcard expansion cannot omit newly matching modules."""
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         stdlib = tmp_path / "stdlib"
         std = stdlib / MODULE_TREE_DIRNAME
@@ -11092,7 +11094,7 @@ class TestSessionOpen:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A second pristine session skips rebuilding the same stdlib image."""
-        import agm.agl.modules.loader as loader_mod
+        import agnette.agl.modules.loader as loader_mod
 
         stdlib = tmp_path / "stdlib"
         copytree(Path(__file__).resolve().parent.parent / "packages" / "stdlib", stdlib)
@@ -11145,8 +11147,8 @@ class TestSessionOpen:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Changing host capabilities recompiles the static bootstrap image."""
-        import agm.agl.modules.loader as loader_mod
-        from agm.agl.runtime.codec import TextCodec
+        import agnette.agl.modules.loader as loader_mod
+        from agnette.agl.runtime.codec import TextCodec
 
         class ExtraCodec(TextCodec):
             @property
@@ -11217,7 +11219,7 @@ class TestSessionOpen:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Reopening an evicted context must not pick up another library's values."""
-        import agm.agl.repl.session as session_mod
+        import agnette.agl.repl.session as session_mod
 
         monkeypatch.setattr(session_mod, "BOOTSTRAP_CACHE_MAX_ENTRIES", 2)
         roots = tuple(tmp_path / name for name in ("first", "second", "third"))
@@ -11287,7 +11289,7 @@ class TestSessionOpen:
         bootstrap cache, so a shared default root could otherwise be served
         from another test's cached image before ``build_repl_graph`` runs.
         """
-        import agm.agl.modules.loader as loader_mod
+        import agnette.agl.modules.loader as loader_mod
 
         stdlib = tmp_path / "stdlib"
         copytree(Path(__file__).resolve().parent.parent / "packages" / "stdlib", stdlib)
@@ -11356,8 +11358,8 @@ class TestDeferredStdlibResolution:
     def test_construction_does_not_raise_against_a_version_mismatch(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agm.config.module_roots as module_roots
-        from agm.config.module_roots import StdlibVersionMismatchError
+        import agnette.config.module_roots as module_roots
+        from agnette.config.module_roots import StdlibVersionMismatchError
 
         def _raise_version_mismatch(*, home: Path, anchor: Path | None = None) -> Path:
             raise StdlibVersionMismatchError("0.0.1", "0.1.0")
@@ -11386,9 +11388,13 @@ class TestDeferredStdlibResolution:
         """
         import semver
 
-        from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
-        from agm.packages.record import write_record
-        from agm.version import AGM_VERSION
+        from agnette.packages.activation import (
+            ActivationIndex,
+            ActivePackage,
+            write_activation_index,
+        )
+        from agnette.packages.record import write_record
+        from agnette.version import AGM_VERSION
 
         agm_home = tmp_path / "relocated-agm"
         stdlib_root = agm_home / "packages" / "std" / AGM_VERSION
@@ -11431,8 +11437,8 @@ class TestExceptionRootAcrossEntries:
         # guards the outcome rather than either one: it fails only once both
         # are gone, leaving the reserved id that stands in for a session with
         # no standard library.
-        from agm.agl.modules.ids import ENTRY_ID
-        from agm.agl.semantics.types import EXCEPTION_BASE
+        from agnette.agl.modules.ids import ENTRY_ID
+        from agnette.agl.semantics.types import EXCEPTION_BASE
 
         session = open_session()
         failed = session.eval_entry('let v: int = raise Abort(message = "stop")')

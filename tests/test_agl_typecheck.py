@@ -24,13 +24,13 @@ from typing import cast
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.constraints import ConstraintKind
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.parser import parse_program
-from agm.agl.scope import AglScopeError
-from agm.agl.scope.program import ResolvedProgram
-from agm.agl.scope.symbols import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.constraints import ConstraintKind
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.parser import parse_program
+from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.program import ResolvedProgram
+from agnette.agl.scope.symbols import (
     BinderKind,
     BindingRef,
     BuiltinKind,
@@ -40,15 +40,15 @@ from agm.agl.scope.symbols import (
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.scope.symbols import ModuleResolution as _ModuleResolution
-from agm.agl.semantics.type_table import (
+from agnette.agl.scope.symbols import ModuleResolution as _ModuleResolution
+from agnette.agl.semantics.type_table import (
     BUILTIN_PRELUDE_TYPE_DEFS,
     MethodDef,
     TypeDef,
     TypeTable,
     comparable_types,
 )
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.types import (
     BUILTIN_EXCEPTION_NAMES,
     BUILTIN_PRELUDE_TYPE_NAMES,
     BUILTIN_PRELUDE_TYPES,
@@ -60,7 +60,7 @@ from agm.agl.semantics.types import (
     is_assignable,
     is_json_shaped,
 )
-from agm.agl.syntax.nodes import (
+from agnette.agl.syntax.nodes import (
     ArrayLit,
     AsPattern,
     AssignStmt,
@@ -102,8 +102,8 @@ from agm.agl.syntax.nodes import (
     VarRef,
     WildcardPattern,
 )
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.syntax.types import (
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.types import (
     ArrayT,
     BoolT,
     DictT,
@@ -115,8 +115,8 @@ from agm.agl.syntax.types import (
     TypeExpr,
     UnitT,
 )
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck import (
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck import (
     AglTypeError,
     ArrayType,
     BoolType,
@@ -140,16 +140,16 @@ from agm.agl.typecheck import (
     UnitType,
     assert_checked_module_closed,
 )
-from agm.agl.typecheck.builder import _TypeBuilder
-from agm.agl.typecheck.env import (
+from agnette.agl.typecheck.builder import _TypeBuilder
+from agnette.agl.typecheck.env import (
     CheckedModuleImage,
     GenericTypeDef,
     OutputContractSpec,
     UnappliedGenericTypeError,
 )
-from agm.agl.typecheck.function_inference import resolve_function_header
-from agm.agl.typecheck.program import CheckedProgram
-from agm.agl.zones import ParamZone
+from agnette.agl.typecheck.function_inference import resolve_function_header
+from agnette.agl.typecheck.program import CheckedProgram
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import all_node_ids, enum_typedef, register_typedef, strip_decl_ids
 from tests.agl import module_graph
 from tests.agl.module_graph import (
@@ -820,7 +820,7 @@ class TestTypeEnvironment:
     def test_resolve_type_expr_decimal(self) -> None:
         env = TypeEnvironment()
         sp = mk_span()
-        from agm.agl.syntax.types import DecimalT
+        from agnette.agl.syntax.types import DecimalT
 
         assert env.resolve_type_expr(DecimalT(span=sp, node_id=1)) == DecimalType()
 
@@ -1003,7 +1003,7 @@ class TestTypeEnvironment:
             source.assert_shared_tables_closed()
 
     def test_persistent_binding_snapshot_tracks_only_local_changes(self) -> None:
-        from agm.agl.semantics.persistent import PersistentDict
+        from agnette.agl.semantics.persistent import PersistentDict
 
         source: PersistentDict[int, IntType] = PersistentDict()
         source[1] = IntType()
@@ -1151,7 +1151,7 @@ class TestTypeEnvironment:
 
     def test_get_generic_type_from_module_no_graph_table(self) -> None:
         # Coverage: env.py get_generic_type_from_module — module mode returns None.
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         env = TypeEnvironment()  # no program_generic_table
         result = env.get_generic_type_from_module(ModuleId.from_path("lib"), "Box")
@@ -1181,8 +1181,8 @@ class TestTypeEnvironment:
         An ``import lib::{A::Status as S}`` tail selects a name whose declaration
         path is ``("A",)``, which constructing and matching through ``S`` must keep.
         """
-        from agm.agl.scope.program import resolve_program
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.scope.program import resolve_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.ir_harness import make_graph_from_files
 
         graph = make_graph_from_files(root, {"entry": entry, "lib": self._SCOPED_ENUM_LIB_SOURCE})
@@ -1190,7 +1190,7 @@ class TestTypeEnvironment:
 
     def test_renamed_scoped_enum_import_constructs_and_matches(self, tmp_path: Path) -> None:
         """Constructing and matching through the renamed scoped enum resolves."""
-        from agm.agl.matchcompile import compile_program_matches
+        from agnette.agl.matchcompile import compile_program_matches
 
         checked = self._check_scoped_enum_import(
             tmp_path,
@@ -1629,7 +1629,7 @@ class TestQualifiedGenericFunctionBuiltinCollisions:
     def test_imported_qualified_generic_function_infers_while_bare_builtin_is_preserved(
         self, tmp_path: Path
     ) -> None:
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.ir_harness import make_repl_graph_from_files, resolve_repl_graph
 
         modules = {
@@ -2094,7 +2094,7 @@ class TestBuiltinTypeModuleIdentity:
         declares this root name. The entry module's declaration is therefore
         the only root ``ExecResult`` in scope here.
         """
-        from agm.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
+        from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
 
         checked = accept_type(
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}()", default_stdlib=False
@@ -2313,7 +2313,7 @@ class TestBuiltinPreludeTypes:
     """
 
     def test_exception_base_is_abstract(self) -> None:
-        from agm.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.type_table import create_seeded_type_table
 
         assert create_seeded_type_table().exception_def(EXCEPTION_BASE).abstract is True
         assert EXCEPTION_BASE.name == "Exception"
@@ -2389,7 +2389,7 @@ class TestFieldZonesAcrossDeclarationForms:
     """
 
     def test_plain_record_zones_alias_and_terminal_name(self) -> None:
-        from agm.agl.ir.contracts import RecordDecode
+        from agnette.agl.ir.contracts import RecordDecode
         from tests._agl_helpers import build_decode_schema
 
         r = accept_type(
@@ -2420,7 +2420,7 @@ class TestFieldZonesAcrossDeclarationForms:
         ]
 
     def test_generic_record_zones_share_the_template_across_instantiations(self) -> None:
-        from agm.agl.ir.contracts import RecordDecode
+        from agnette.agl.ir.contracts import RecordDecode
         from tests._agl_helpers import build_decode_schema
 
         r = accept_type(
@@ -2449,7 +2449,7 @@ class TestFieldZonesAcrossDeclarationForms:
         ]
 
     def test_inline_enum_member_zones_alias_and_variant_name(self) -> None:
-        from agm.agl.ir.contracts import EnumDecode
+        from agnette.agl.ir.contracts import EnumDecode
         from tests._agl_helpers import build_decode_schema
 
         r = accept_type(
@@ -3036,7 +3036,7 @@ class TestAskRequest:
         threads the result through the rest of the call's own validation."""
         from unittest.mock import patch
 
-        from agm.agl.typecheck.builtins import BuiltinCallChecker
+        from agnette.agl.typecheck.builtins import BuiltinCallChecker
 
         original = BuiltinCallChecker._resolve_host_record_contract
         calls: list[str] = []
@@ -5050,9 +5050,9 @@ class TestPartialConstructorAndValueCalls:
     def test_cross_module_constructor_partial(self, tmp_path: object) -> None:
         from pathlib import Path
 
-        from agm.agl.modules.ids import ENTRY_ID, ModuleId
-        from agm.agl.scope.program import resolve_program
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+        from agnette.agl.scope.program import resolve_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.ir_harness import make_file_graph_from_files
 
         modules = {
@@ -5112,8 +5112,8 @@ class TestPartialConstructorAndValueCalls:
     ) -> None:
         from pathlib import Path
 
-        from agm.agl.scope.program import resolve_program
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.scope.program import resolve_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.ir_harness import make_graph_from_files
 
         modules = {
@@ -5133,9 +5133,9 @@ class TestPartialConstructorAndValueCalls:
         verdict, not a further ambiguity."""
         from pathlib import Path
 
-        from agm.agl.scope import AglScopeError
-        from agm.agl.scope.program import resolve_program
-        from agm.agl.typecheck.program import check_program
+        from agnette.agl.scope import AglScopeError
+        from agnette.agl.scope.program import resolve_program
+        from agnette.agl.typecheck.program import check_program
         from tests.agl.ir_harness import make_graph_from_files
 
         modules = {
@@ -5898,7 +5898,7 @@ class TestCatchReachability:
         The base taken is the standard library's own declaration, never the
         reserved fallback identity that stands in for an unloaded one.
         """
-        from agm.agl import artifact_cache
+        from agnette.agl import artifact_cache
 
         artifact_cache.clear_retained_artifacts()
         source = self._HIERARCHY + "try 1 catch Plain => 2 catch _ => 3"
@@ -8008,7 +8008,7 @@ class TestConstructorRefDispatch:
         assert "pattern binding" in str(excinfo.value)
 
     def test_checker_has_no_scope_repair_state(self) -> None:
-        from agm.agl.typecheck.checker import _Checker
+        from agnette.agl.typecheck.checker import _Checker
 
         resolved = resolve_inline_entry("enum Flag\n  | on\non")
         checker = _Checker(TypeEnvironment(), resolved, default_capabilities())
@@ -8841,7 +8841,7 @@ class TestTypeDeclarations:
         assert "already declared" in str(err).lower() or "duplicate" in str(err).lower()
 
     def test_type_builder_duplicate_type_name_guard_raises(self) -> None:
-        from agm.agl.scope.symbols import AttributeFacts as _AttributeFacts
+        from agnette.agl.scope.symbols import AttributeFacts as _AttributeFacts
 
         program = parse_program("record A\n  x: int\nrecord A\n  y: int\nA(x = 1)")
         with pytest.raises(AglTypeError) as exc_info:
@@ -10207,7 +10207,7 @@ class TestStaticParameterBindingValidation:
         # A phantom argument does not affect Token's JSON boundary shape.
         # Bypassing only the closed-type rule therefore accepts the binding.
         monkeypatch.setattr(
-            "agm.agl.typecheck.checker.free_type_vars",
+            "agnette.agl.typecheck.checker.free_type_vars",
             lambda _typ: frozenset(),
         )
         checked = check_resolved(open_resolved, seed_env=seed_env)
@@ -10854,7 +10854,7 @@ class TestResolveTypeExprTypeVars:
         reject_type("let x: ::Missing[int] = null\nx")
 
     def test_name_in_type_vars_resolves_to_typevar(self) -> None:
-        from agm.agl.syntax.types import NameT
+        from agnette.agl.syntax.types import NameT
 
         env = TypeEnvironment()
         sp = mk_span()
@@ -10916,8 +10916,8 @@ class TestResolveTypeExprTypeVars:
         assert env2.get_generic_type("Box") == gdef
 
     def test_seed_from_copies_alias_type_params(self) -> None:
-        from agm.agl.syntax.types import ArrayT as _ListT
-        from agm.agl.syntax.types import NameT
+        from agnette.agl.syntax.types import ArrayT as _ListT
+        from agnette.agl.syntax.types import NameT
 
         env1 = TypeEnvironment()
         sp = mk_span()
@@ -11527,12 +11527,12 @@ class TestGenerics:
         assert "infer" in str(err).lower() or "type argument" in str(err).lower()
 
     def test_finalization_defensively_rejects_an_unresolved_obligation(self) -> None:
-        from agm.agl.typecheck.builtins import (
+        from agnette.agl.typecheck.builtins import (
             BuiltinObligationKind,
             PendingBuiltinObligation,
         )
-        from agm.agl.typecheck.checker import _Checker, _InferenceRegion
-        from agm.agl.typecheck.inference import InferenceEngine
+        from agnette.agl.typecheck.checker import _Checker, _InferenceRegion
+        from agnette.agl.typecheck.inference import InferenceEngine
 
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
         engine = InferenceEngine()
@@ -12065,8 +12065,8 @@ class TestGenericConstructorInference:
             checked.resolved.program.body.items[2].node_id
         ) == checked.type_env.instantiate_nominal("Box", (IntType(),))
 
-        from agm.agl.typecheck.checker import _Checker, _InferenceRegion
-        from agm.agl.typecheck.inference import InferenceEngine
+        from agnette.agl.typecheck.checker import _Checker, _InferenceRegion
+        from agnette.agl.typecheck.inference import InferenceEngine
 
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
         engine = InferenceEngine()
@@ -13455,7 +13455,7 @@ class TestNoFiniteSchemaUseSites:
         # wire-serializable even though its value is fine. The parser only
         # ever builds a text key, so this is checked at the type level
         # directly rather than through a program parameter.
-        from agm.agl.typecheck.checker import _Checker
+        from agnette.agl.typecheck.checker import _Checker
 
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
         fn_type = FunctionType(params=(), result=IntType())
@@ -13707,8 +13707,8 @@ class TestGenericNominalModuleId:
         which module the template belonged to.  After the fix, the result's
         module_id matches the template's module_id.
         """
-        from agm.agl.modules.ids import ENTRY_ID, ModuleId
-        from agm.agl.typecheck.env import GenericTypeDef
+        from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+        from agnette.agl.typecheck.env import GenericTypeDef
 
         lib_id = ModuleId.from_path("mylib")
         template = RecordType("Box", module_id=lib_id)
@@ -13724,8 +13724,8 @@ class TestGenericNominalModuleId:
 
     def test_instantiate_from_gdef_preserves_enum_module_id(self) -> None:
         """instantiate_from_gdef stamps EnumType result with gdef.template.module_id."""
-        from agm.agl.modules.ids import ENTRY_ID, ModuleId
-        from agm.agl.typecheck.env import GenericTypeDef
+        from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+        from agnette.agl.typecheck.env import GenericTypeDef
 
         lib_id = ModuleId.from_path("mylib")
         template = EnumType("Option", module_id=lib_id)
@@ -13744,8 +13744,8 @@ class TestGenericNominalModuleId:
 
         This directly tests the invariant that nominal identity includes module_id.
         """
-        from agm.agl.modules.ids import ModuleId
-        from agm.agl.typecheck.env import GenericTypeDef
+        from agnette.agl.modules.ids import ModuleId
+        from agnette.agl.typecheck.env import GenericTypeDef
 
         lib_a = ModuleId.from_path("libA")
         lib_b = ModuleId.from_path("libB")
@@ -13763,8 +13763,8 @@ class TestGenericNominalModuleId:
 
     def test_generic_completion_respects_different_declarations(self) -> None:
         """Contextual generic completion respects nominal declaration identity."""
-        from agm.agl.modules.ids import ModuleId
-        from agm.agl.typecheck.inference import ConstraintRole, InferenceEngine
+        from agnette.agl.modules.ids import ModuleId
+        from agnette.agl.typecheck.inference import ConstraintRole, InferenceEngine
 
         lib_a = ModuleId.from_path("libA")
         lib_b = ModuleId.from_path("libB")
@@ -13786,8 +13786,8 @@ class TestGenericNominalModuleId:
 
         Verified via parse+check.
         """
-        from agm.agl.modules.ids import ENTRY_ID
-        from agm.agl.typecheck.env import GenericTypeDef
+        from agnette.agl.modules.ids import ENTRY_ID
+        from agnette.agl.typecheck.env import GenericTypeDef
 
         # For the entry module the module_id is ENTRY_ID; verify the template
         # also has ENTRY_ID (consistency check: it's at least not wrong).
@@ -13840,7 +13840,7 @@ class TestFieldAssignmentSyntaxChecks:
 
     def test_positional_arg_after_named_arg_rejected(self) -> None:
         """A positional argument cannot follow a named argument."""
-        from agm.agl.parser.errors import AglSyntaxError
+        from agnette.agl.parser.errors import AglSyntaxError
 
         with pytest.raises(AglSyntaxError):
             accept_type(

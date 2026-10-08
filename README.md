@@ -8,8 +8,10 @@ and a complete agent workflow DSL:
 - **AgL (Agnette Language)** — the statically typed workflow DSL for orchestrating agents
   and shell commands, run through `agm exec` or explored interactively with `agm repl`.
 
-The Python distribution is `agnette`; the executable and import package remain `agm`.
-Configuration retains `.agm` directories and `AGM_*` variables; AgL source files use `.agl`.
+The Python distribution and root package are `agnette`: `agnette.agm` owns the manager,
+`agnette.agl` owns the language, and both use shared services under `agnette`.
+The executable is `agm`; Python companions use the temporary `agl` API.
+Configuration uses `.agm` directories and `AGM_*` variables; AgL source files use `.agl`.
 
 ## Documentation
 
@@ -43,9 +45,6 @@ Set up the development environment:
 ```bash
 just setup
 ```
-
-When upgrading an existing `agm` tool installation, first run `uv tool uninstall agm`
-to release its executable; existing `.agm` configuration and projects remain usable.
 
 Install Agnette with the runtime versions from `uv.lock` into an isolated `uv tool`
 environment and copy AgM config files and sandbox templates into the selected

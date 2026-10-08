@@ -1,6 +1,6 @@
 # Core Primitives
 
-Two foundation packages sit beneath everything else and serve both AgM and AgL. `core/` holds the OS-facing building blocks — process execution, environment handling, the interpreter's Python requirements, filesystem and TOML/dotenv I/O, outbound HTTP, logging, lifecycle cleanup, and the dry-run facility; AgL's host runtime runs shell commands and agents, writes files, makes HTTP requests, and emits trace logs through these same primitives. `util/` holds pure, stdlib-only helpers that import nothing from `agm`.
+Two shared foundation packages serve both `agnette.agm` and `agnette.agl`. `agnette.core` holds the OS-facing building blocks — process execution, environment handling, the interpreter's Python requirements, filesystem and TOML/dotenv I/O, outbound HTTP, logging, lifecycle cleanup, and the dry-run facility; AgL's host runtime runs shell commands and agents, writes files, makes HTTP requests, and emits trace logs through these same primitives. `agnette.util` holds pure, stdlib-only helpers with no higher-layer imports.
 
 ## Process Execution
 
@@ -34,12 +34,12 @@ Commands that support `--dry-run` set an invocation mode consulted by the proces
 
 ## Code Entry Points
 
-- `src/agm/core/process.py` — foreground/capture execution, success requirements, process-group termination, cleanup-command registration.
-- `src/agm/core/env.py` — environment cloning/resolution, env-file sourcing, installation prefix.
-- `src/agm/core/fs.py` — dry-run-aware filesystem operations; `src/agm/core/path.py` — path resolution, display, and the safe-relative-path predicate shared by archives, `RECORD` files, and AgL resources.
-- `src/agm/core/toml.py` — the single entry for reading a TOML document from outside, and `src/agm/core/dotenv.py` — round-trip TOML and dotenv helpers.
-- `src/agm/core/cleanup.py` — primary-error-preserving cleanup; `src/agm/core/dry_run.py` — global dry-run state; `src/agm/core/log.py` — logging and JSONL append.
-- `src/agm/core/pyenv.py` — requirement satisfaction and installation for AgM's interpreter environment.
-- `src/agm/core/http.py` — the `requests`-backed HTTP transport seam: session, request/response streaming, failure classification, charset decoding.
-- `src/agm/__init__.py` — lifts Python's int/text digit limit for the whole process, tests included, because AgL ints are unbounded.
-- `src/agm/util/graph.py`, `text.py`, `unicode.py`, `ident.py`, `interp.py`, `scoping.py`, `recursion.py`, `decimal.py` — the pure helpers.
+- `src/agnette/core/process.py` — foreground/capture execution, success requirements, process-group termination, cleanup-command registration.
+- `src/agnette/core/env.py` — environment cloning/resolution, env-file sourcing, installation prefix.
+- `src/agnette/core/fs.py` — dry-run-aware filesystem operations; `src/agnette/core/path.py` — path resolution, display, and the safe-relative-path predicate shared by archives, `RECORD` files, and AgL resources.
+- `src/agnette/core/toml.py` — the single entry for reading a TOML document from outside, and `src/agnette/core/dotenv.py` — round-trip TOML and dotenv helpers.
+- `src/agnette/core/cleanup.py` — primary-error-preserving cleanup; `src/agnette/core/dry_run.py` — global dry-run state; `src/agnette/core/log.py` — logging and JSONL append.
+- `src/agnette/core/pyenv.py` — requirement satisfaction and installation for AgM's interpreter environment.
+- `src/agnette/core/http.py` — the `requests`-backed HTTP transport seam: session, request/response streaming, failure classification, charset decoding.
+- `src/agnette/__init__.py` — lifts Python's int/text digit limit for the whole process, tests included, because AgL ints are unbounded.
+- `src/agnette/util/graph.py`, `text.py`, `unicode.py`, `ident.py`, `interp.py`, `scoping.py`, `recursion.py`, `decimal.py` — the pure helpers.

@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError, HiddenMemberError
-from agm.agl.scope.symbols import UnknownMemberError
+from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
+from agnette.agl.scope.symbols import UnknownMemberError
 from tests.agl.qualifier_support import (
     Part,
     Phase,

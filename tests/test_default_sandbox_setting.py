@@ -17,19 +17,19 @@ import pytest
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.cli as cli
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.reserved_nominals import (
+import agnette.agm.cli as cli
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     require_reserved_nominal_id,
 )
-from agm.agl.runtime.engine_config import build_engine_config_seeds
-from agm.agl.semantics.values import BoolValue, RecordValue
-from agm.cli_support.args import CheckArgs
-from agm.commands import check as check_command
-from agm.commands import exec as exec_command
-from agm.commands import exec_program as exec_engine
-from agm.config.context import ConfigContext
+from agnette.agl.runtime.engine_config import build_engine_config_seeds
+from agnette.agl.semantics.values import BoolValue, RecordValue
+from agnette.agm.cli_support.args import CheckArgs
+from agnette.agm.commands import check as check_command
+from agnette.agm.commands import exec as exec_command
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.config.context import ConfigContext
 from tests._agl_helpers import (
     assert_shape as _assert_shape,
 )
@@ -94,7 +94,7 @@ def _agent_sandbox_member_value(member_name: str) -> RecordValue:
 
 
 def test_engine_key_uses_the_agent_sandbox_nominal_type() -> None:
-    from agm.agl.semantics.engine_keys import get_engine_key_type
+    from agnette.agl.semantics.engine_keys import get_engine_key_type
 
     assert repr(get_engine_key_type("default-sandbox")) == "AgentSandbox"
 
@@ -156,7 +156,7 @@ def test_host_seed_overrides_initializer_until_source_write() -> None:
 
 def test_default_sandbox_write_does_not_reconfigure_host_services() -> None:
     """Only ``trace``/``trace-file`` writes reconfigure a live host service."""
-    from agm.agl.runtime.host_settings import HostSettingsPolicy
+    from agnette.agl.runtime.host_settings import HostSettingsPolicy
 
     trace_settings: list[tuple[bool, str | None]] = []
 
@@ -506,7 +506,7 @@ class TestCrossEntryPersistenceForDefaultSandbox:
 
     Together with :class:`TestResetHostSeedPrecedenceForDefaultSandbox`, this
     exercises both directions of
-    :func:`~agm.agl.runtime.engine_config.restamp_engine_setting`: a value
+    :func:`~agnette.agl.runtime.engine_config.restamp_engine_setting`: a value
     read back here carries the *host seed -> program* restamp (the seed's
     reserved-fallback identity onto this session's own running program), and
     the write persisted for the later read carries the *program ->

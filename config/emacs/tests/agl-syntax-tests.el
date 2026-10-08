@@ -360,8 +360,8 @@ opener line."
 ;; --- Keyword inventory constants (data only; not wired to font-lock yet) ---
 ;;
 ;; Each constant documents its own canonical Python source (see the
-;; docstrings in agl-mode.el: `src/agm/agl/keywords.py',
-;; `src/agm/agl/lexer/tokens.py'). A test that only asserts these
+;; docstrings in agl-mode.el: `src/agnette/agl/keywords.py',
+;; `src/agnette/agl/lexer/tokens.py'). A test that only asserts these
 ;; hand-written constants contain hand-written strings cannot detect drift
 ;; from those Python sources, so none is included here.
 

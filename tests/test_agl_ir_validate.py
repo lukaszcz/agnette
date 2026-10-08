@@ -1,4 +1,4 @@
-"""Tests for agm.agl.ir.validate — structural IR validator.
+"""Tests for agnette.agl.ir.validate — structural IR validator.
 
 TDD: these tests were written before the implementation.  Each invariant from
 the C task spec has at least one failing case to exercise the error path.
@@ -19,7 +19,7 @@ from dataclasses import replace
 
 import pytest
 
-from agm.agl.ir import (
+from agnette.agl.ir import (
     CmpOp,
     CompareKind,
     ExecutableModule,
@@ -81,7 +81,7 @@ from agm.agl.ir import (
     UseDefault,
     VariantDescriptor,
 )
-from agm.agl.ir.contracts import (
+from agnette.agl.ir.contracts import (
     ContractRequest,
     JsonContractRequest,
     ScalarDecode,
@@ -93,11 +93,11 @@ from agm.agl.ir.contracts import (
     TypeNodeRef,
     TypeTree,
 )
-from agm.agl.ir.ids import HOST_SOURCE_ID, ContractId
-from agm.agl.ir.nodes import IrContract, IrExpr
-from agm.agl.ir.static_keys import StaticBindingKey
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.modules.ids import STD_CONFIG_ID, ModuleId
+from agnette.agl.ir.ids import HOST_SOURCE_ID, ContractId
+from agnette.agl.ir.nodes import IrContract, IrExpr
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.modules.ids import STD_CONFIG_ID, ModuleId
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -538,7 +538,7 @@ class TestValidProgram:
         validate_ir(prog, deep=False)  # no exception
 
     def test_lowered_partial_application_program_passes_deep_validation(self) -> None:
-        from agm.agl.capabilities import HostCapabilities
+        from agnette.agl.capabilities import HostCapabilities
         from tests.agl.ir_harness import lower_inline_ir
 
         source = "def add(x: int, y: int) -> int = x + y\nlet add1 = add(1, ?)\nadd1(2)"
@@ -1623,7 +1623,7 @@ def _make_fn_param(sym: SymbolId = SYM1) -> IrFunctionParam:
 
 
 def _make_program_param(*, name: str = "n", required: bool = True) -> IrProgramParam:
-    from agm.agl.ir.contracts import ParamDecoder
+    from agnette.agl.ir.contracts import ParamDecoder
 
     return IrProgramParam(
         name=name,
@@ -2171,7 +2171,12 @@ class TestConstructorFieldUseDefault:
 
     def test_valid_omitted_exception_field_passes(self) -> None:
         """A UseDefault slot on IrMakeException for a defaulted field passes."""
-        from agm.agl.ir.contracts import EncodePlan, ExceptionFieldEncode, ScalarEncode, ScalarKind
+        from agnette.agl.ir.contracts import (
+            EncodePlan,
+            ExceptionFieldEncode,
+            ScalarEncode,
+            ScalarKind,
+        )
 
         descriptor = NominalDescriptor(
             nominal=NOM0,
@@ -2546,7 +2551,7 @@ class TestPrintParseJsonValidation:
 
     def test_ir_print_valid(self) -> None:
         """IrPrint with valid location and inner expr passes validation."""
-        from agm.agl.ir import IrPrint
+        from agnette.agl.ir import IrPrint
 
         node = IrPrint(location=LOC, value=IrConstInt(location=LOC, value=42))
         prog = _make_program(initializers=(node,))
@@ -2554,7 +2559,7 @@ class TestPrintParseJsonValidation:
 
     def test_ir_print_bad_location_raises(self) -> None:
         """IrPrint with invalid own location raises InvalidIrError."""
-        from agm.agl.ir import IrPrint
+        from agnette.agl.ir import IrPrint
 
         bad_loc = Location(
             source_id=SID0,
@@ -2570,7 +2575,7 @@ class TestPrintParseJsonValidation:
 
     def test_ir_print_bad_inner_location_raises(self) -> None:
         """IrPrint validator recurses into the inner value expression."""
-        from agm.agl.ir import IrPrint
+        from agnette.agl.ir import IrPrint
 
         bad_loc = Location(
             source_id=SID0,
@@ -2596,7 +2601,7 @@ class TestCopyValidation:
 
     def test_ir_copy_value_valid_for_both_kinds(self) -> None:
         """Both copy kinds with valid locations and inner expressions pass validation."""
-        from agm.agl.ir import CopyKind, IrCopyValue
+        from agnette.agl.ir import CopyKind, IrCopyValue
 
         for kind in CopyKind:
             node = IrCopyValue(location=LOC, kind=kind, value=IrConstInt(location=LOC, value=42))
@@ -2604,7 +2609,7 @@ class TestCopyValidation:
 
     def test_ir_copy_value_bad_location_raises(self) -> None:
         """An IrCopyValue with an invalid own location raises InvalidIrError."""
-        from agm.agl.ir import CopyKind, IrCopyValue
+        from agnette.agl.ir import CopyKind, IrCopyValue
 
         bad_loc = Location(
             source_id=SID0,
@@ -2623,7 +2628,7 @@ class TestCopyValidation:
 
     def test_ir_copy_value_bad_inner_location_raises(self) -> None:
         """An IrCopyValue validator recurses into the inner value expression."""
-        from agm.agl.ir import CopyKind, IrCopyValue
+        from agnette.agl.ir import CopyKind, IrCopyValue
 
         bad_loc = Location(
             source_id=SID0,
@@ -2674,11 +2679,11 @@ class TestIrExecValidation:
 
     def test_ir_exec_valid_cheap(self) -> None:
         """IrExec with valid location and command expr passes cheap validation."""
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             TextContractRequest,
         )
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
 
         cid = ContractId(value=0)
         contract = TextContractRequest(
@@ -2703,8 +2708,8 @@ class TestIrExecValidation:
 
     def test_ir_exec_bad_contract_id_raises_deep(self) -> None:
         """IrExec referencing a missing contract_id raises InvalidIrError in deep mode."""
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
 
         cid = ContractId(value=9999)
         node = IrExec(
@@ -2723,11 +2728,11 @@ class TestIrExecValidation:
 
     def test_contract_refdecode_cycle_raises_deep(self) -> None:
         """Contract decoders must not contain ref-only cycles in their defs."""
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             RefDecode,
         )
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
 
         cid = ContractId(value=0)
         contract = JsonContractRequest(
@@ -2756,11 +2761,11 @@ class TestIrExecValidation:
 
     def test_contract_duplicate_decode_defs_key_raises_deep(self) -> None:
         """Duplicate decode defs keys are rejected before dict coercion."""
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             RefDecode,
         )
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
 
         cid = ContractId(value=0)
         contract = JsonContractRequest(
@@ -2792,12 +2797,12 @@ class TestIrExecValidation:
 
     def test_custom_contract_rejects_defs_without_decode(self) -> None:
         """Custom contracts may carry decode metadata, but defs require a decode root."""
-        from agm.agl.ir.contracts import (
+        from agnette.agl.ir.contracts import (
             CustomContractRequest,
         )
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
-        from agm.agl.semantics.types import TextType
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
+        from agnette.agl.semantics.types import TextType
 
         cid = ContractId(value=0)
         contract = CustomContractRequest(
@@ -2827,10 +2832,10 @@ class TestIrExecValidation:
 
     def test_custom_contract_with_decode_checks_its_nominals(self) -> None:
         """A custom contract that does carry a decode schema still gets it nominal-checked."""
-        from agm.agl.ir.contracts import CustomContractRequest
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
-        from agm.agl.semantics.types import IntType
+        from agnette.agl.ir.contracts import CustomContractRequest
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
+        from agnette.agl.semantics.types import IntType
 
         cid = ContractId(value=0)
         contract = CustomContractRequest(

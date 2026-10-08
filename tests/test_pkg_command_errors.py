@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-import agm.commands.pkg.check as check_command
-import agm.commands.pkg.create as create_command
-import agm.commands.pkg.install as install_command
-from agm.cli_support.args import PkgCheckArgs, PkgCreateArgs, PkgInstallArgs
-from agm.config.context import ConfigContext
+import agnette.agm.commands.pkg.check as check_command
+import agnette.agm.commands.pkg.create as create_command
+import agnette.agm.commands.pkg.install as install_command
+from agnette.agm.cli_support.args import PkgCheckArgs, PkgCreateArgs, PkgInstallArgs
+from agnette.config.context import ConfigContext
 
 
 def _unreadable_source(tmp_path: Path) -> Path:

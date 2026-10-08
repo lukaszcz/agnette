@@ -17,25 +17,25 @@ from typing import TYPE_CHECKING, Protocol, cast
 import pytest
 import semver
 
-import agm.commands.exec as exec_command
-from agm.agent.spec_defaults import configured_defaults_resolver
-from agm.agl import PipelineDriver
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import RunResult
-from agm.agl.runtime import AgentRequest, AgentResponse
-from agm.agl.runtime.agents import AgentFn
-from agm.agl.runtime.externs import ExternRegistry
-from agm.cli_support.args import ExecArgs
-from agm.packages.manifest import PackageManifest
-from agm.packages.model import PackageInfo
+import agnette.agm.commands.exec as exec_command
+from agnette.agent.spec_defaults import configured_defaults_resolver
+from agnette.agl import PipelineDriver
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import RunResult
+from agnette.agl.runtime import AgentRequest, AgentResponse
+from agnette.agl.runtime.agents import AgentFn
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agm.cli_support.args import ExecArgs
+from agnette.packages.manifest import PackageManifest
+from agnette.packages.model import PackageInfo
 from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots, run_inline_code, write_file_program
 from tests._http_helpers import install as install_fake_http
 from tests._process_helpers import FakeShell
 from tests.agl.ir_harness import write_companion_file, write_module_file
 
 if TYPE_CHECKING:
-    from agm.sandbox.prepare import SandboxContext
+    from agnette.sandbox.prepare import SandboxContext
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -138,7 +138,7 @@ class TestTraceFileCreated:
         def fail_mkdir(*args: object, **kwargs: object) -> None:
             raise OSError("read-only filesystem")
 
-        monkeypatch.setattr("agm.core.fs.mkdir", fail_mkdir)
+        monkeypatch.setattr("agnette.core.fs.mkdir", fail_mkdir)
         result = _run_inline(
             PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
             'print "still runs"',
@@ -208,7 +208,8 @@ class TestExecCommandRecord:
         trace_path = tmp_path / "trace.jsonl"
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=get_sandbox_context)
         with unittest.mock.patch(
-            "agm.core.process.run_capture_result", side_effect=shell or FakeShell(stdout="captured")
+            "agnette.core.process.run_capture_result",
+            side_effect=shell or FakeShell(stdout="captured"),
         ):
             _run_inline(rt, source, trace_file=trace_path)
         records = [r for r in _load_jsonl(trace_path) if r.get("kind") == "exec_command"]
@@ -606,7 +607,7 @@ class TestRetryRecords:
         assert "parse_result" in kinds
 
     def test_transport_failure_has_failed_agent_response(self, tmp_path: Path) -> None:
-        from agm.agl.runtime.request import AgentCallHostError
+        from agnette.agl.runtime.request import AgentCallHostError
 
         trace_path = tmp_path / "trace.jsonl"
 
@@ -636,7 +637,7 @@ class TestRetryRecords:
     def test_successful_response_carries_sandboxed_and_permission_mode(
         self, tmp_path: Path
     ) -> None:
-        from agm.agent.transport import AgentCallInfo
+        from agnette.agent.transport import AgentCallInfo
 
         trace_path = tmp_path / "trace.jsonl"
 
@@ -666,8 +667,8 @@ class TestRetryRecords:
         assert response["permission_mode"] == "unrestricted"
 
     def test_transport_failure_carries_sandboxed_and_permission_mode(self, tmp_path: Path) -> None:
-        from agm.agent.transport import AgentCallInfo
-        from agm.agl.runtime.request import AgentCallHostError
+        from agnette.agent.transport import AgentCallInfo
+        from agnette.agl.runtime.request import AgentCallHostError
 
         trace_path = tmp_path / "trace.jsonl"
 
@@ -708,8 +709,8 @@ class TestRetryRecords:
         trace's ``sandboxed``/``permission_mode`` fields reflect what the
         sandbox change actually produces for the default (``Sandbox``) mode.
         """
-        from agm.agl.runtime.agents import value_driven_agent_factory
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.agl.runtime.agents import value_driven_agent_factory
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
         from tests._agl_helpers import session_sandbox_context, write_sandbox_home
 
         trace_path = tmp_path / "trace.jsonl"
@@ -728,7 +729,7 @@ class TestRetryRecords:
                 spawn_error=None,
             )
 
-        monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+        monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
         runtime = PipelineDriver(
             resolve_agent_spec=None,
@@ -755,8 +756,8 @@ class TestRetryRecords:
     ) -> None:
         """Same real-dispatch proof, for ``AgentSandbox::Native``: unsandboxed,
         each agent's own don't-ask permission mode."""
-        from agm.agl.runtime.agents import value_driven_agent_factory
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.agl.runtime.agents import value_driven_agent_factory
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
         from tests._agl_helpers import session_sandbox_context
 
         trace_path = tmp_path / "trace.jsonl"
@@ -772,7 +773,7 @@ class TestRetryRecords:
                 spawn_error=None,
             )
 
-        monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+        monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
         runtime = PipelineDriver(
             resolve_agent_spec=None,
@@ -950,8 +951,8 @@ class TestBuiltinExceptionFields:
 
 class TestRunBoundaryRecords:
     def test_run_start_records_program_arguments_and_config_values(self, tmp_path: Path) -> None:
-        from agm.agl.runtime.arguments import ProgramArguments
-        from agm.agl.semantics.values import BoolValue, IntValue
+        from agnette.agl.runtime.arguments import ProgramArguments
+        from agnette.agl.semantics.values import BoolValue, IntValue
         from tests._agl_helpers import agent_value
 
         source = (
@@ -1013,16 +1014,16 @@ class TestRunBoundaryRecords:
     def test_trace_values_keep_enum_data_and_degrade_cycles_and_non_data(self) -> None:
         from decimal import Decimal
 
-        from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-        from agm.agl.ir.ids import ContractId, FunctionId, NominalId
-        from agm.agl.ir.program import (
+        from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+        from agnette.agl.ir.ids import ContractId, FunctionId, NominalId
+        from agnette.agl.ir.program import (
             NominalDescriptor,
             NominalKind,
             ValueDescriptors,
             VariantDescriptor,
         )
-        from agm.agl.runtime.serialize import value_to_trace_json_obj
-        from agm.agl.semantics.values import (
+        from agnette.agl.runtime.serialize import value_to_trace_json_obj
+        from agnette.agl.semantics.values import (
             ArrayValue,
             BoolValue,
             ConstructorValue,
@@ -1317,14 +1318,14 @@ class TestSourceSpans:
 
 class TestAppendJsonl:
     def test_append_jsonl_creates_file(self, tmp_path: Path) -> None:
-        from agm.core.log import append_jsonl
+        from agnette.core.log import append_jsonl
 
         path = tmp_path / "out.jsonl"
         append_jsonl(path, {"kind": "test", "value": 1})
         assert path.exists()
 
     def test_append_jsonl_writes_valid_json_line(self, tmp_path: Path) -> None:
-        from agm.core.log import append_jsonl
+        from agnette.core.log import append_jsonl
 
         path = tmp_path / "out.jsonl"
         append_jsonl(path, {"kind": "test", "value": 42})
@@ -1335,7 +1336,7 @@ class TestAppendJsonl:
         assert obj["value"] == 42
 
     def test_append_jsonl_appends_multiple_lines(self, tmp_path: Path) -> None:
-        from agm.core.log import append_jsonl
+        from agnette.core.log import append_jsonl
 
         path = tmp_path / "out.jsonl"
         append_jsonl(path, {"kind": "a"})
@@ -1346,7 +1347,7 @@ class TestAppendJsonl:
         assert records[1]["kind"] == "b"
 
     def test_append_jsonl_none_path_is_noop(self) -> None:
-        from agm.core.log import append_jsonl
+        from agnette.core.log import append_jsonl
 
         # Must not raise when path is None.
         append_jsonl(None, {"kind": "noop"})
@@ -1358,7 +1359,7 @@ class TestAppendJsonl:
         (``dumps_exact``); callers MUST pre-serialize ``Decimal``-bearing values.
         Encoding it here would quote it as a JSON string and diverge.
         """
-        from agm.core.log import append_jsonl
+        from agnette.core.log import append_jsonl
 
         path = tmp_path / "out.jsonl"
         with pytest.raises(TypeError):
@@ -1366,7 +1367,7 @@ class TestAppendJsonl:
 
     def test_append_jsonl_unserializable_type_raises(self, tmp_path: Path) -> None:
         """Non-JSON-serializable, non-Decimal values raise TypeError."""
-        from agm.core.log import append_jsonl
+        from agnette.core.log import append_jsonl
 
         path = tmp_path / "out.jsonl"
         with pytest.raises(TypeError):
@@ -1380,7 +1381,7 @@ class TestAppendJsonl:
 
 class TestTraceStoreProperties:
     def test_trace_jsonl_orders_envelope_before_payload(self, tmp_path: Path) -> None:
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         path = tmp_path / "trace.jsonl"
         trace = TraceStore(path)
@@ -1390,8 +1391,8 @@ class TestTraceStoreProperties:
         assert list(json.loads(line)) == ["kind", "ts", "file", "line", "col", "rendered"]
 
     def test_trace_jsonl_orders_source_location_after_timestamp(self, tmp_path: Path) -> None:
-        from agm.agl.runtime.trace import TraceStore
-        from agm.agl.syntax.spans import SourceId, SourceSpan
+        from agnette.agl.runtime.trace import TraceStore
+        from agnette.agl.syntax.spans import SourceId, SourceSpan
 
         path = tmp_path / "trace.jsonl"
         trace = TraceStore(path)
@@ -1416,7 +1417,7 @@ class TestTraceStoreProperties:
 
     def test_activate_repoints_and_stops_writes(self, tmp_path: Path) -> None:
         """``activate`` routes later events to the new path; ``None`` stops writes."""
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         first = tmp_path / "first.jsonl"
         second = tmp_path / "second.jsonl"
@@ -1441,12 +1442,12 @@ class TestTraceStoreProperties:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Once an I/O failure disables logging, ``activate`` stays a no-op."""
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         def fail_append(_path: Path | None, _record: dict[str, object]) -> None:
             raise OSError("disk unavailable")
 
-        monkeypatch.setattr("agm.agl.runtime.trace.append_jsonl", fail_append)
+        monkeypatch.setattr("agnette.agl.runtime.trace.append_jsonl", fail_append)
         trace = TraceStore(path=tmp_path / "trace.jsonl")
         trace.run_start()
 
@@ -1460,7 +1461,7 @@ class TestTraceStoreProperties:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A repeated trace failure stays silent after the initial warning."""
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         trace = TraceStore(path=tmp_path / "trace.jsonl")
         trace.disable(OSError("first failure"))
@@ -1470,20 +1471,20 @@ class TestTraceStoreProperties:
         assert capsys.readouterr().err.count("trace logging disabled") == 1
 
     def test_trace_store_path_property(self, tmp_path: Path) -> None:
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         p = tmp_path / "t.jsonl"
         ts = TraceStore(path=p)
         assert ts.path == p
 
     def test_trace_store_none_path_property(self) -> None:
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         ts = TraceStore(path=None)
         assert ts.path is None
 
     def test_trace_store_omits_run_id(self, tmp_path: Path) -> None:
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         p = tmp_path / "t.jsonl"
         ts = TraceStore(path=p)
@@ -1495,7 +1496,7 @@ class TestTraceStoreProperties:
         """Methods called with span=None still emit valid JSONL with null location fields."""
         import json as _json
 
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         p = tmp_path / "t.jsonl"
         ts = TraceStore(path=p)
@@ -1540,8 +1541,8 @@ class TestTraceStoreProperties:
     ) -> None:
         from datetime import datetime, timezone
 
-        from agm.agl.runtime import trace as trace_module
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime import trace as trace_module
+        from agnette.agl.runtime.trace import TraceStore
 
         class Clock:
             values = iter(
@@ -1566,8 +1567,8 @@ class TestTraceStoreProperties:
         """exception() records line/col when a span is provided."""
         import json as _json
 
-        from agm.agl.runtime.trace import TraceStore
-        from agm.agl.syntax.spans import SourceSpan
+        from agnette.agl.runtime.trace import TraceStore
+        from agnette.agl.syntax.spans import SourceSpan
 
         p = tmp_path / "t.jsonl"
         ts = TraceStore(path=p)
@@ -1590,7 +1591,7 @@ class TestTraceStoreProperties:
         """``site=None`` (no attributable call site at all) omits the key."""
         import json as _json
 
-        from agm.agl.runtime.trace import TraceStore
+        from agnette.agl.runtime.trace import TraceStore
 
         p = tmp_path / "t.jsonl"
         ts = TraceStore(path=p)
@@ -1681,7 +1682,7 @@ class TestUnparseableFeedback:
         AgentParseError still raises (defensive fallback — last_errors = ())."""
         from unittest.mock import patch
 
-        from agm.agl.runtime.codec import ParseResult
+        from agnette.agl.runtime.codec import ParseResult
 
         rt = PipelineDriver(
             resolve_agent_spec=None, default_strict_json=True, get_sandbox_context=None
@@ -1693,7 +1694,9 @@ class TestUnparseableFeedback:
         rt = _agent_runtime(agent, strict_json=True)
         # Patch the IR output parser to return a failure with no details at all.
         bare_fail = ParseResult(ok=False, value=None, error_msg="", errors=())
-        with patch("agm.agl.eval.ir_interpreter._parse_contract_output", return_value=bare_fail):
+        with patch(
+            "agnette.agl.eval.ir_interpreter._parse_contract_output", return_value=bare_fail
+        ):
             result = _run_inline(
                 rt,
                 'let impl = AgentCommand("impl")\n'
@@ -1725,7 +1728,7 @@ class TestPrepareTraceLogTruncates:
 
     def test_prepare_trace_log_truncates_existing_content(self, tmp_path: Path) -> None:
         """Pre-existing content at an explicit trace path is erased by prepare_trace_log."""
-        from agm.core.log import prepare_trace_log
+        from agnette.core.log import prepare_trace_log
 
         trace_path = tmp_path / "trace.jsonl"
         # Pre-create the file with stale content from a previous run.
@@ -1743,7 +1746,7 @@ class TestPrepareTraceLogTruncates:
 
     def test_prepare_trace_log_subsequent_record_is_only_content(self, tmp_path: Path) -> None:
         """After truncation, only records written in the current run appear in the file."""
-        from agm.core.log import append_jsonl, prepare_trace_log
+        from agnette.core.log import append_jsonl, prepare_trace_log
 
         trace_path = tmp_path / "trace.jsonl"
         # Simulate a previous run by pre-populating the file.

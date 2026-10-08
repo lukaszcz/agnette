@@ -27,8 +27,8 @@ import pathlib
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.ir import (
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.ir import (
     ExecutableModule,
     ExecutableProgram,
     FunctionDescriptor,
@@ -85,10 +85,10 @@ from agm.agl.ir import (
     UseDefault,
     VariantDescriptor,
 )
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.reserved_nominals import require_reserved_nominal_id
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.semantics.values import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.semantics.values import (
     UNIT_VALUE,
     ArrayValue,
     BoolValue,
@@ -576,7 +576,7 @@ class TestCoerceIntToDecimal:
         the bit-length range check rejects it without ever constructing a
         ``Decimal``, so this stays cheap despite the huge magnitude.
         """
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         sym, desc = _let_sym(0, "d")
         prog = _make_program(
@@ -694,7 +694,7 @@ class TestRunReturnValues:
 
     def test_foreign_module_symbol_excluded(self) -> None:
         """A symbol owned by a different module should not appear in results."""
-        from agm.agl.modules.ids import ModuleId
+        from agnette.agl.modules.ids import ModuleId
 
         other_mod = ModuleId.from_path("other")
         sym = SymbolId(0)
@@ -756,7 +756,7 @@ class TestAdditionalEvaluatorBehavior:
 
     def test_index_set_mutates_array_in_place(self) -> None:
         """IrIndexSet performs an in-place indexed assignment on an array."""
-        from agm.agl.semantics.values import ArrayValue, IntValue
+        from agnette.agl.semantics.values import ArrayValue, IntValue
 
         sym, desc = _var_sym(0, "v")
         prog = _make_program(
@@ -779,7 +779,7 @@ class TestAdditionalEvaluatorBehavior:
         """IrNeg on a decimal negates exactly (``copy_negate``), never
         rounding to the ambient context's 28-digit precision -- a
         31-significant-digit operand stays exact rather than being clipped."""
-        from agm.agl.ir import IrNeg, NumericKind
+        from agnette.agl.ir import IrNeg, NumericKind
 
         big = decimal.Decimal(10**30 + 7)
         sym, desc = _let_sym(0, "n")
@@ -801,7 +801,7 @@ class TestAdditionalEvaluatorBehavior:
 
     def test_ir_nominal_cast_accepts_an_exact_exception_value(self) -> None:
         """IrNominalCast succeeds on an ExceptionValue whose nominal is accepted exactly."""
-        from agm.agl.ir import IrMakeException, IrNominalCast, NominalId
+        from agnette.agl.ir import IrMakeException, IrNominalCast, NominalId
 
         exc_nominal = NominalId(4)
         out_sym, out_desc = _let_sym(0, "out")
@@ -829,7 +829,7 @@ class TestAdditionalEvaluatorBehavior:
         self,
     ) -> None:
         """A miss on the exact nominal walks the `base` chain for an ExceptionValue."""
-        from agm.agl.ir import IrMakeException, IrNominalCast, NominalId
+        from agnette.agl.ir import IrMakeException, IrNominalCast, NominalId
 
         root_nominal = NominalId(4)
         leaf_nominal = NominalId(5)
@@ -867,7 +867,7 @@ class TestAdditionalEvaluatorBehavior:
         self,
     ) -> None:
         """A miss on the exact nominal walks the `base` chain for `is` on an ExceptionValue."""
-        from agm.agl.ir import IrMakeException, IrNominalIs, NominalId
+        from agnette.agl.ir import IrMakeException, IrNominalIs, NominalId
 
         root_nominal = NominalId(4)
         leaf_nominal = NominalId(5)
@@ -1018,7 +1018,7 @@ class TestEnumMemberDispatch:
             },
         )
 
-        from agm.agl.ir.validate import validate_ir
+        from agnette.agl.ir.validate import validate_ir
 
         with pytest.raises(InvalidIrError):
             validate_ir(program)
@@ -1421,7 +1421,7 @@ class TestIrIndexSetErrors:
 
     def test_index_set_container_array_oob_raises(self) -> None:
         """IrIndexSet: the container expression (IrIndex) raises out-of-bounds."""
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         # xss = [[1, 2]], then xss[5][0] := 99 — reaching the container is OOB
         sym, desc = self._var(0, "xss")
@@ -1450,7 +1450,7 @@ class TestIrIndexSetErrors:
 
     def test_index_set_container_dict_missing_key_raises(self) -> None:
         """IrIndexSet: the container expression (IrIndex) raises missing key."""
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         # m = {"a": [1, 2]}, then m["z"][0] := 99 — reaching the container is missing
         sym, desc = self._var(0, "m")
@@ -1479,7 +1479,7 @@ class TestIrIndexSetErrors:
 
     def test_index_set_final_array_oob_raises(self) -> None:
         """IrIndexSet: the final indexed store is out-of-bounds."""
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         # xs = [1, 2], then xs[5] := 99 — the store itself is OOB
         sym, desc = self._var(0, "xs")
@@ -1502,7 +1502,7 @@ class TestIrIndexSetErrors:
 
     def test_index_set_final_dict_missing_key_raises(self) -> None:
         """IrIndexSet: the final indexed store hits a missing key."""
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         # m = {"a": 1}, then m["z"] := 99 — the store itself is missing
         sym, desc = self._var(0, "m")
@@ -1537,8 +1537,8 @@ def _collect_import_names(source: str) -> set[str]:
     """Return all module names referenced in top-level import statements.
 
     Parses the source with ``ast`` and collects:
-    - ``import agm.agl.foo`` → ``"agm.agl.foo"``
-    - ``from agm.agl.foo import bar`` → ``"agm.agl.foo"``
+    - ``import agnette.agl.foo`` → ``"agnette.agl.foo"``
+    - ``from agnette.agl.foo import bar`` → ``"agnette.agl.foo"``
 
     TYPE_CHECKING guards are NOT executed at runtime, but we scan ALL imports
     so the check is conservative (catches even guarded ones).
@@ -1556,8 +1556,8 @@ def _collect_import_names(source: str) -> set[str]:
 
 
 def _ir_interpreter_source() -> str:
-    """Return the source text of ``agm.agl.eval.ir_interpreter``."""
-    spec = importlib.util.find_spec("agm.agl.eval.ir_interpreter")
+    """Return the source text of ``agnette.agl.eval.ir_interpreter``."""
+    spec = importlib.util.find_spec("agnette.agl.eval.ir_interpreter")
     assert spec is not None and spec.origin is not None
     return pathlib.Path(spec.origin).read_text(encoding="utf-8")
 
@@ -1566,7 +1566,7 @@ class TestImportIsolation:
     """Verify that ``ir_interpreter.py`` does not import forbidden packages.
 
     We parse the source file's import statements directly (AST-based) rather
-    than probing ``sys.modules``, because ``agm.agl.eval.__init__`` re-exports
+    than probing ``sys.modules``, because ``agnette.agl.eval.__init__`` re-exports
     unrelated frontend modules, so
     ``sys.modules`` would include those regardless of what ir_interpreter does.
     AST parsing checks what the file *itself* declares as a dependency.
@@ -1575,25 +1575,25 @@ class TestImportIsolation:
     def test_no_syntax_import(self) -> None:
         source = _ir_interpreter_source()
         imports = _collect_import_names(source)
-        forbidden = {n for n in imports if n.startswith("agm.agl.syntax")}
+        forbidden = {n for n in imports if n.startswith("agnette.agl.syntax")}
         assert not forbidden, f"ir_interpreter.py imports syntax modules: {sorted(forbidden)}"
 
     def test_no_scope_import(self) -> None:
         source = _ir_interpreter_source()
         imports = _collect_import_names(source)
-        # agm.agl.eval.scope (eval's own scope helpers) is allowed;
-        # agm.agl.scope (the AST resolver) is forbidden.
+        # agnette.agl.eval.scope (eval's own scope helpers) is allowed;
+        # agnette.agl.scope (the AST resolver) is forbidden.
         forbidden = {
             n
             for n in imports
-            if n.startswith("agm.agl.scope") and not n.startswith("agm.agl.eval.scope")
+            if n.startswith("agnette.agl.scope") and not n.startswith("agnette.agl.eval.scope")
         }
         assert not forbidden, f"ir_interpreter.py imports AST-scope modules: {sorted(forbidden)}"
 
     def test_no_typecheck_import(self) -> None:
         source = _ir_interpreter_source()
         imports = _collect_import_names(source)
-        forbidden = {n for n in imports if n.startswith("agm.agl.typecheck")}
+        forbidden = {n for n in imports if n.startswith("agnette.agl.typecheck")}
         assert not forbidden, f"ir_interpreter.py imports typecheck modules: {sorted(forbidden)}"
 
 
@@ -1658,7 +1658,7 @@ class TestFunctionEvaluation:
             functions={_FN_ID: fn_desc},
         )
         result = IrInterpreter(prog).run()
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         assert result["result"] == IntValue(42)
 
@@ -1686,7 +1686,7 @@ class TestFunctionEvaluation:
 
     def test_agl_raise_preserves_inner_function_span(self) -> None:
         """Nested AglRaise failures keep the innermost IR node location."""
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         raise_loc = _loc_at_line(1)
         call_loc = _loc_at_line(3)
@@ -1734,7 +1734,7 @@ class TestFunctionEvaluation:
         ``f()`` call site: an uncaught internal error reports exactly where it
         happened, not where it was called from.
         """
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         g_sid = SymbolId(710)
         g_id = FunctionId(1)
@@ -1802,7 +1802,7 @@ class TestFunctionEvaluation:
             functions={_FN_ID: fn_desc},
         )
         result = IrInterpreter(prog).run()
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         assert result["result"] == IntValue(7)
 
@@ -1828,7 +1828,7 @@ class TestFunctionEvaluation:
             functions={_FN_ID: fn_desc},
         )
         result = IrInterpreter(prog).run()
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         assert result["result"] == IntValue(99)
 
@@ -1862,7 +1862,7 @@ class TestFunctionEvaluation:
             functions={_FN_ID: fn_desc},
         )
         result = IrInterpreter(prog).run()
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         assert result["result2"] == IntValue(55)
 
@@ -1878,7 +1878,7 @@ class TestSelectedProgramExecution:
     def test_python_recursion_from_selected_program_has_an_entry_span(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         fn_id = FunctionId(99)
         fn_symbol = SymbolId(99)
@@ -1931,8 +1931,8 @@ class TestSelectedProgramExecution:
         ``program_symbol`` is provided, since the failure never reached the
         selected entry.
         """
-        from agm.agl.modules.ids import ModuleId
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.modules.ids import ModuleId
+        from agnette.agl.semantics.exceptions import AglRaise
 
         fn_id = FunctionId(99)
         fn_symbol = SymbolId(99)
@@ -1977,7 +1977,7 @@ class TestIndirectCallInterpreter:
 
     def test_indirect_call_depth_limit_raises(self) -> None:
         """IrIndirectCall with max_call_depth=1 raises AglRaise(RecursionError) on reentry."""
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         # Build: def f() = f(); let result = f()
         # f() calls itself via IrIndirectCall to test the depth guard.
@@ -2078,10 +2078,10 @@ class TestPrintParseJsonParam:
 class TestIrAsk:
     def test_ir_ask_preserves_a_prompt_expression_raise_span(self) -> None:
         """An ask node does not replace an exception's source span."""
-        from agm.agl.ir.contracts import TextContractRequest
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrAsk
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.ir.contracts import TextContractRequest
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrAsk
+        from agnette.agl.semantics.exceptions import AglRaise
 
         prompt_location = _loc_at_line(4)
         ask_location = _loc_at_line(8)
@@ -2146,9 +2146,9 @@ class TestIrExec:
         location: Location = _LOC,
     ) -> ExecutableProgram:
         """Build a minimal program with a single IrExec initializer (text contract)."""
-        from agm.agl.ir.contracts import TextContractRequest
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
+        from agnette.agl.ir.contracts import TextContractRequest
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
 
         cid = ContractId(value=0)
         contract = TextContractRequest(
@@ -2181,7 +2181,7 @@ class TestIrExec:
         """IrExec with a non-TextValue command renders via render_value."""
         import unittest.mock
 
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
         fake_result = ProcessCaptureResult(
             returncode=0,
@@ -2194,7 +2194,7 @@ class TestIrExec:
         # Use a bool command (non-text) — render_value("True") is "True"
         prog = self._make_exec_program(IrConstBool(_LOC, True))
         with unittest.mock.patch(
-            "agm.core.process.run_capture_result",
+            "agnette.core.process.run_capture_result",
             return_value=fake_result,
         ) as mock_rcr:
             result = IrInterpreter(prog).run()
@@ -2210,12 +2210,12 @@ class TestIrExec:
         command test above); rendering a self-referential array must raise
         rather than recurse forever, before any shell command is spawned.
         """
-        from agm.agl.ir.contracts import UnitContractRequest
-        from agm.agl.ir.ids import ContractId, SymbolId
-        from agm.agl.ir.nodes import IrConstInt, IrExec, IrIndexSet, IrLoad, IrMakeArray
-        from agm.agl.ir.operations import IndexKind
-        from agm.agl.ir.program import SymbolDescriptor
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.ir.contracts import UnitContractRequest
+        from agnette.agl.ir.ids import ContractId, SymbolId
+        from agnette.agl.ir.nodes import IrConstInt, IrExec, IrIndexSet, IrLoad, IrMakeArray
+        from agnette.agl.ir.operations import IndexKind
+        from agnette.agl.ir.program import SymbolDescriptor
+        from agnette.agl.semantics.exceptions import AglRaise
 
         cid = ContractId(value=0)
         contract = UnitContractRequest()
@@ -2265,8 +2265,8 @@ class TestIrExec:
         """On retry, spawn_error in subsequent shell call raises ExecError."""
         import unittest.mock
 
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
         call_count = [0]
 
@@ -2304,11 +2304,11 @@ class TestIrExec:
         # Use int codec so parse fails and retry triggers
         import json
 
-        from agm.agl.ir.contracts import JsonContractRequest
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
-        from agm.agl.semantics.type_table import create_seeded_type_table
-        from agm.agl.semantics.types import IntType
+        from agnette.agl.ir.contracts import JsonContractRequest
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
+        from agnette.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.types import IntType
         from tests._agl_helpers import build_decode_schema
 
         cid = ContractId(value=0)
@@ -2341,7 +2341,7 @@ class TestIrExec:
             functions={},
             contracts={cid: contract},
         )
-        with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=fake_rcr):
+        with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=fake_rcr):
             with pytest.raises(AglRaise) as exc_info:
                 IrInterpreter(prog).run()
         assert exc_info.value.exc.nominal == NominalId(require_reserved_nominal_id("ExecError"))
@@ -2383,9 +2383,9 @@ class TestIrExec:
         import json
         import unittest.mock
 
-        from agm.agl.runtime.trace import TraceStore
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.agl.runtime.trace import TraceStore
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
         fake_result = ProcessCaptureResult(
             returncode=None,
@@ -2399,7 +2399,7 @@ class TestIrExec:
         trace_path = tmp_path / "trace.jsonl"
         trace = TraceStore(path=trace_path)
         with unittest.mock.patch(
-            "agm.core.process.run_capture_result",
+            "agnette.core.process.run_capture_result",
             return_value=fake_result,
         ):
             with pytest.raises(AglRaise) as exc_info:
@@ -2417,7 +2417,7 @@ class TestIrExec:
 
     def test_ir_exec_preserves_command_expression_raise_span(self) -> None:
         """IrExec does not overwrite a span from its command expression."""
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         command_loc = _loc_at_line(4)
         exec_loc = _loc_at_line(8)
@@ -2441,13 +2441,13 @@ class TestIrExec:
         import json
         import unittest.mock
 
-        from agm.agl.ir.contracts import JsonContractRequest
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.agl.semantics.type_table import create_seeded_type_table
-        from agm.agl.semantics.types import IntType
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.agl.ir.contracts import JsonContractRequest
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.types import IntType
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
         from tests._agl_helpers import build_decode_schema
 
         call_count = [0]
@@ -2512,10 +2512,10 @@ class TestIrExec:
             functions={},
             contracts={cid: contract},
         )
-        with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=fake_rcr):
+        with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=fake_rcr):
             with pytest.raises(AglRaise) as exc_info:
                 IrInterpreter(prog).run()
-        from agm.agl.semantics.values import BoolValue
+        from agnette.agl.semantics.values import BoolValue
 
         assert exc_info.value.exc.nominal == NominalId(require_reserved_nominal_id("ExecError"))
         assert exc_info.value.exc.fields["timed-out"] == BoolValue(True)
@@ -2525,13 +2525,13 @@ class TestIrExec:
         import json
         import unittest.mock
 
-        from agm.agl.ir.contracts import JsonContractRequest
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.agl.semantics.type_table import create_seeded_type_table
-        from agm.agl.semantics.types import IntType
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.agl.ir.contracts import JsonContractRequest
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.types import IntType
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
         from tests._agl_helpers import build_decode_schema
 
         call_count = [0]
@@ -2596,7 +2596,7 @@ class TestIrExec:
             functions={},
             contracts={cid: contract},
         )
-        with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=fake_rcr):
+        with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=fake_rcr):
             with pytest.raises(AglRaise) as exc_info:
                 IrInterpreter(prog).run()
         assert exc_info.value.exc.nominal == NominalId(require_reserved_nominal_id("ExecError"))
@@ -2606,13 +2606,13 @@ class TestIrExec:
         import json
         import unittest.mock
 
-        from agm.agl.ir.contracts import JsonContractRequest
-        from agm.agl.ir.ids import ContractId
-        from agm.agl.ir.nodes import IrExec
-        from agm.agl.semantics.exceptions import AglRaise
-        from agm.agl.semantics.type_table import create_seeded_type_table
-        from agm.agl.semantics.types import IntType
-        from agm.core.process import CapturedOutput, ProcessCaptureResult
+        from agnette.agl.ir.contracts import JsonContractRequest
+        from agnette.agl.ir.ids import ContractId
+        from agnette.agl.ir.nodes import IrExec
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.type_table import create_seeded_type_table
+        from agnette.agl.semantics.types import IntType
+        from agnette.core.process import CapturedOutput, ProcessCaptureResult
         from tests._agl_helpers import build_decode_schema
 
         # JSON parse of a string where int is expected yields structured errors
@@ -2666,7 +2666,7 @@ class TestIrExec:
             functions={},
             contracts={cid: contract},
         )
-        with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=fake_rcr):
+        with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=fake_rcr):
             with pytest.raises(AglRaise) as exc_info:
                 IrInterpreter(prog).run()
         assert exc_info.value.exc.nominal == NominalId(require_reserved_nominal_id("ExecError"))
@@ -2726,7 +2726,7 @@ class TestCallDepthBoundary:
         assert IrInterpreter(program, max_call_depth=4).run() == {"result": IntValue(0)}
 
     def test_one_call_past_max_call_depth_raises_recursion_error(self) -> None:
-        from agm.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.exceptions import AglRaise
 
         program = self._call_chain(5)
         with pytest.raises(AglRaise) as exc:

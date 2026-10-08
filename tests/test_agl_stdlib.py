@@ -4,20 +4,20 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.parsed_module_cache import clear_parsed_module_cache
-from agm.agl.modules.roots import RootSet
-from agm.agl.scope import AglScopeError
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl import PipelineDriver
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     BUILTIN_CALL_NAMES,
     BUILTIN_TYPE_STATICS,
     NON_RESERVED_BUILTIN_CALL_NAMES,
 )
-from agm.agl.semantics.type_table import create_seeded_type_table
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.type_table import create_seeded_type_table
+from agnette.agl.semantics.types import (
     BUILTIN_EXCEPTIONS,
     BUILTIN_PRELUDE_TYPES,
     COMPATIBILITY_PRELUDE_TYPE_NAMES,
@@ -30,15 +30,15 @@ from agm.agl.semantics.types import (
     Type,
     TypeVarType,
 )
-from agm.agl.typecheck.builtins import BuiltinCallChecker
-from agm.agl.typecheck.checker import (
+from agnette.agl.typecheck.builtins import BuiltinCallChecker
+from agnette.agl.typecheck.checker import (
     _builtin_function_signature,
     _builtin_function_signature_alternates,
     _signature_matches,
 )
-from agm.agl.typecheck.env import AglTypeError, FunctionSignature, ParamSpec
-from agm.agl.typecheck.program import check_program
-from agm.agl.zones import ParamZone
+from agnette.agl.typecheck.env import AglTypeError, FunctionSignature, ParamSpec
+from agnette.agl.typecheck.program import check_program
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import agl_roots, run_inline_code
 from tests.agl.module_graph import load_graph, resolve_and_check_inline_entry, resolve_inline_entry
 
@@ -216,8 +216,8 @@ def test_builtin_signature_helpers_cover_negative_paths() -> None:
 
 
 def test_standard_library_declares_every_public_builtin() -> None:
-    from agm.agl.parser import parse_program
-    from agm.agl.syntax.nodes import EnumDef, ExceptionDef, FuncDef, RecordDef
+    from agnette.agl.parser import parse_program
+    from agnette.agl.syntax.nodes import EnumDef, ExceptionDef, FuncDef, RecordDef
 
     items = [
         item
@@ -253,11 +253,11 @@ def test_standard_library_declares_every_public_builtin() -> None:
 
 
 def test_std_option_declares_the_builtin_option_and_keeps_its_host_identity() -> None:
-    from agm.agl.parser import parse_program
+    from agnette.agl.parser import parse_program
     from tests.agl.ir_harness import lower_ir
 
     program = parse_program(_STD_OPTION.read_text())
-    from agm.agl.syntax.nodes import EnumDef
+    from agnette.agl.syntax.nodes import EnumDef
 
     enums = {
         item.name for item in program.body.items if isinstance(item, EnumDef) and item.is_builtin
@@ -273,8 +273,8 @@ def test_std_option_declares_the_builtin_option_and_keeps_its_host_identity() ->
 
 
 def test_std_optional_declares_the_builtin_optional_and_is_in_the_prelude() -> None:
-    from agm.agl.parser import parse_program
-    from agm.agl.syntax.nodes import EnumDef
+    from agnette.agl.parser import parse_program
+    from agnette.agl.syntax.nodes import EnumDef
 
     program = parse_program(_STD_OPTIONAL.read_text())
     enums = {

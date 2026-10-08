@@ -1,4 +1,4 @@
-"""Tests for agm.core.toml."""
+"""Tests for agnette.core.toml."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import tomlkit
 from tomlkit.exceptions import KeyAlreadyPresent, ParseError
 from tomlkit.items import Table
 
-from agm.config.general import load_run_config
-from agm.core.toml import (
+from agnette.config.general import load_run_config
+from agnette.core.toml import (
     _get_or_create_table,
     dumps_toml,
     load_toml_doc,
@@ -232,6 +232,6 @@ class TestHigherLevelConfigLoaderErrors:
         agm_dir = home / ".agm"
         agm_dir.mkdir(parents=True)
         (agm_dir / "config.toml").write_text("not = valid = toml = [", encoding="utf-8")
-        monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: None)
+        monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: None)
         with pytest.raises(ParseError):
             load_run_config(home=home, proj_dir=None, cwd=tmp_path)

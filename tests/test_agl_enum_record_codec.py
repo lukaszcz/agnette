@@ -6,14 +6,14 @@ import json
 
 import pytest
 
-from agm.agl.ir.contracts import DecodeSchema
-from agm.agl.ir.ids import NominalId
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.runtime.arguments import decode_param_value
-from agm.agl.runtime.convert import decode_value
-from agm.agl.runtime.serialize import dumps_exact, encode_value
-from agm.agl.semantics.type_table import TypeDef
-from agm.agl.semantics.types import (
+from agnette.agl.ir.contracts import DecodeSchema
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.runtime.arguments import decode_param_value
+from agnette.agl.runtime.convert import decode_value
+from agnette.agl.runtime.serialize import dumps_exact, encode_value
+from agnette.agl.semantics.type_table import TypeDef
+from agnette.agl.semantics.types import (
     ArrayType,
     EnumType,
     IntType,
@@ -22,7 +22,7 @@ from agm.agl.semantics.types import (
     Type,
     TypeVarType,
 )
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     ArrayValue,
     IntValue,
     JsonValue,
@@ -30,8 +30,8 @@ from agm.agl.semantics.values import (
     TextValue,
     Value,
 )
-from agm.agl.type_schema import build_encode_plan, build_param_decoder, derive_schema_and_decode
-from agm.agl.zones import ParamZone
+from agnette.agl.type_schema import build_encode_plan, build_param_decoder, derive_schema_and_decode
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import (
     build_decode_schema,
     derive_schema,

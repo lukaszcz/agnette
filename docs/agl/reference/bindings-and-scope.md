@@ -57,7 +57,7 @@ non-`unit` value is intentionally discarded.
 
 At the REPL top level, a completed `let` persists its binding across later
 entries and echoes the bound name, value, and type. If a later initializer
-fails, previously completed bindings and function closures remain available.
+fails, completed bindings and function closures stay available.
 
 ### Binder scope paths
 
@@ -72,7 +72,7 @@ aliases](types.md#type-aliases)). See
 region.
 
 A module-root or scope-region single-name binding may be marked `@param` to
-admit a host-supplied initial value. It remains an ordinary `let` or `var` in
+admit a host-supplied initial value. It is an ordinary `let` or `var` in
 all language semantics; the host-facing declaration and resolution rules are
 in [Module parameters](host-environment.md#module-parameters).
 
@@ -84,7 +84,7 @@ var_decl ::= "var" decl_head (":" type_expr)? "=" init_value
 
 Identical to `let` except the binding is **mutable** — it may later be
 updated with `:=`. A final `var` also makes its block unit-valued (or bottom
-when its initializer exits); like a final `let`, it remains visible to an
+when its initializer exits); like a final `let`, it is visible to an
 enclosing continuation:
 
 <!-- agl-check: fragment -->
@@ -142,7 +142,7 @@ function call result, and a qualified read all work as the container of
 cannot be rebound; it says nothing about the contents of what the name
 refers to, so mutating an array or dict through one is not a rebinding and is
 not restricted. A bare `name := value` — an actual rebinding, with no index —
-remains a static error unless `name` is a mutable `var` binding. Array
+is a static error unless `name` is a mutable `var` binding. Array
 assignment uses the same negative-index and `IndexError` rules as array
 access. A dictionary index follows [Indexing](expressions.md#indexing): it
 has, or coerces to, the key type, which must be `Hashable`. Dictionary
@@ -506,7 +506,7 @@ Whether an ordinary declaration may claim a constructor's spelling **in that
 constructor's own scope** depends on whether the constructor stays reachable:
 
 - An inline **enum member** may be claimed. Its name is `Owner::member`, and
-  the unqualified spelling is an injected convenience, so the member remains
+  the unqualified spelling is an injected convenience, so the member is
   reachable qualified. The claiming declaration owns expression position,
   while case-pattern constructor lookup stays independent.
 - A constructor **declared in another module** may be claimed, since module

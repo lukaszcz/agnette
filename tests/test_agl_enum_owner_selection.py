@@ -23,13 +23,13 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglError, AglTypeError, HiddenMemberError, ReferencedMemberError
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglError, AglTypeError, HiddenMemberError, ReferencedMemberError
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     NoVisibleConstructorError,
 )
-from agm.agl.typecheck.checker import EnumOwnerMismatchError
+from agnette.agl.typecheck.checker import EnumOwnerMismatchError
 from tests._agl_helpers import check_agl_program
 
 _LIBRARIES = {
@@ -1181,7 +1181,7 @@ _AMBIGUOUS_BARE_REPORT = """\
 import sys
 from pathlib import Path
 
-from agm.agl.scope.symbols import AmbiguousConstructorError
+from agnette.agl.scope.symbols import AmbiguousConstructorError
 from tests._agl_helpers import check_agl_program
 
 modules = {

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agent.spec import PermissionMode
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS, BuiltinNominals
-from agm.agl.runtime.sandbox_values import (
+from agnette.agent.spec import PermissionMode
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS, BuiltinNominals
+from agnette.agl.runtime.sandbox_values import (
     Disabled,
     Native,
     Sandboxed,
@@ -19,8 +19,8 @@ from agm.agl.runtime.sandbox_values import (
     sandbox_limits_value,
     sandbox_mode_from_permission,
 )
-from agm.agl.semantics.values import BoolValue, RecordValue, TextValue
-from agm.sandbox.request import Default, SandboxLimits
+from agnette.agl.semantics.values import BoolValue, RecordValue, TextValue
+from agnette.sandbox.request import Default, SandboxLimits
 
 
 def _member(nominals: BuiltinNominals, enum_name: str, member_name: str) -> RecordValue:
@@ -95,7 +95,7 @@ class TestDecodeAgentSandbox:
         different (fresh) identity, must not decode as the ``Sandbox`` member:
         member resolution goes through nominal identity, never by
         string/shape-matching the value itself."""
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         impostor = RecordValue(
             nominal=NominalId(-999_999),
@@ -116,7 +116,7 @@ class TestDecodeSandboxRecord:
         """A ``memory``/``swap`` field carrying a record that is neither
         ``Default``, ``None``, nor ``Some`` cannot be decoded -- identity
         resolution, not field shape, drives every member match here too."""
-        from agm.agl.ir.ids import NominalId
+        from agnette.agl.ir.ids import NominalId
 
         impostor = RecordValue(nominal=NominalId(-999_999), fields={})
         record = _sandbox_record(

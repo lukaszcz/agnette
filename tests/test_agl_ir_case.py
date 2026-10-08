@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.semantics.values import BoolValue, IntValue, TextValue
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.semantics.values import BoolValue, IntValue, TextValue
 from tests._agl_helpers import run_inline_code
 from tests.agl.ir_harness import evaluate_ir, lower_inline_ir
 
@@ -141,7 +141,7 @@ r"""
 
 def test_case_redundant_later_arm_is_rejected() -> None:
     """An earlier identical arm makes the later arm a static error."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     src = """\
 let x: int = 1
@@ -389,7 +389,7 @@ result
 
 def test_case_no_match_is_rejected_before_lowering() -> None:
     """An open-domain case without a catch-all is a static error."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     src = """\
 let x: int = 5
@@ -406,7 +406,7 @@ r"""
 
 def test_case_no_match_enum_reports_missing_constructor() -> None:
     """An enum witness names the missing constructor."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     src = """\
 enum Color | Red | Blue

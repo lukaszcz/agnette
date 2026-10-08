@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules.loader import ModuleGraph
-from agm.agl.parser import parse_program
-from agm.agl.parser.errors import AglSyntaxError
-from agm.agl.scope.symbols import (
+from agnette.agl.modules.loader import ModuleGraph
+from agnette.agl.parser import parse_program
+from agnette.agl.parser.errors import AglSyntaxError
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousQualificationError,
     SpacedQualifierError,
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.typecheck.program import check_program
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import base_caps, make_repl_graph_from_files, resolve_repl_graph
 
 

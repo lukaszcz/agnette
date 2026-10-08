@@ -9,7 +9,7 @@ from typing import Protocol
 
 from agl import nominals, runtime
 
-from agm.agl.runtime.boundary import raise_index_error
+from agnette.agl.runtime.boundary import raise_index_error
 
 IndexError = nominals.std.errors.IndexError
 

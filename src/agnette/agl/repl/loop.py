@@ -1,0 +1,183 @@
+"""UI-free interactive core shared by both AgL REPL front ends.
+
+:mod:`agnette.agl.repl.console` (prompt_toolkit) and :mod:`agnette.agl.repl.plain_console`
+(plain line-oriented input/output) are thin front ends around the single
+read-eval-print loop body defined here (:func:`run_repl_loop`), so meta-command
+dispatch, theme-change handling, blank/comment no-ops, entry evaluation, and
+result rendering exist exactly once. This module never imports prompt_toolkit;
+it provides:
+
+- :data:`PROMPT` / :data:`CONTINUATION` — the prompt spellings both front ends
+  print (styled by the console, plain by :mod:`plain_console`);
+- :func:`format_banner` — the startup banner;
+- :func:`is_incomplete` — the multiline continuation predicate (delegates to
+  the parser's structured incompleteness signal), shared so a pasted or
+  editor-sent multi-line block accumulates identically on both front ends;
+- :func:`run_repl_loop` — the loop itself, parameterized by a reader/writer
+  seam and an ``on_theme_change`` hook.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from agnette.agl.parser import (
+    has_open_verbatim_block,
+    has_unterminated_triple_quoted_string,
+    is_incomplete_source,
+)
+from agnette.agl.repl import meta as meta_mod
+from agnette.agl.repl import render as render_mod
+from agnette.agl.repl import session as session_mod
+
+if TYPE_CHECKING:
+    from agnette.agl.repl.session import ReplSession
+
+
+# ---------------------------------------------------------------------------
+# Prompts and banner
+# ---------------------------------------------------------------------------
+
+PROMPT = "agl> "
+CONTINUATION = "...> "
+
+
+def format_banner() -> str:
+    """Return the startup banner.
+
+    The first line is always ``AgL REPL …`` (a stable prefix other tooling and
+    tests key on); the rest state the prompt, how to get help, and how to quit.
+    """
+    return "\n".join(
+        [
+            "AgL REPL — an interactive read-eval-print loop for AgL.",
+            f"  Enter AgL at the {PROMPT!r} prompt; a block continues on {CONTINUATION!r}.",
+            "  Type :help for the meta-command list; :quit or Ctrl-D to exit.",
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Multiline continuation
+# ---------------------------------------------------------------------------
+
+
+def is_incomplete(text: str) -> bool:
+    """Return ``True`` when *text* is a prefix of a valid entry (keep prompting).
+
+    *text* is the current buffer content (no synthetic trailing newline).  Blank
+    or whitespace-only input force-submits (returns ``False``) so pressing Enter
+    on an empty prompt gives a fresh prompt rather than inserting a newline; the
+    loop then no-ops the blank entry.  A trailing blank line — the user pressed
+    Enter on an empty continuation line, so the buffer ends with ``\\n`` —
+    likewise force-submits so the user can always escape a continuation even when
+    the buffer is still syntactically incomplete.  Otherwise the structured
+    parser signal decides, except that an open `$`-literal block stays open
+    until its payload is closed by a blank line or dedent.
+
+    Both front ends drive this same predicate — the prompt_toolkit console from
+    its multiline Enter key binding, the plain console from its line-accumulating
+    reader — so a pasted or editor-sent multi-line block accumulates identically
+    on either.
+    """
+    if not text.strip():
+        return False
+    if text.endswith("\n") and not has_unterminated_triple_quoted_string(text):
+        return False
+    return is_incomplete_source(text) or has_open_verbatim_block(text)
+
+
+# ``has_runnable_statements`` (the blank/comment-only-entry predicate) lives in
+# the UI-free ``session`` module so ``load_file`` can share it; re-exported here
+# under its original name for the shared loop body and both front ends' tests.
+has_runnable_statements = session_mod.has_runnable_statements
+
+
+# ---------------------------------------------------------------------------
+# The read-eval-print loop
+# ---------------------------------------------------------------------------
+
+
+def run_repl_loop(
+    session: "ReplSession",
+    *,
+    reader: Callable[[], str],
+    writer: Callable[[str], None],
+    echo: bool = True,
+    echo_unit: bool = False,
+    theme: str = "auto",
+    on_setting_change: "Callable[[str, str | bool], None] | None" = None,
+    highlighted_writer: "Callable[[str, tuple[tuple[int, int], ...]], None] | None" = None,
+) -> None:
+    """Run the read-eval-print loop against *session*; the core both front ends share.
+
+    *reader* returns the next (possibly multiline) entry; it must raise
+    ``EOFError`` on end of input (Ctrl-D, or closed stdin in plain mode) and may
+    raise ``KeyboardInterrupt`` to cancel the entry in progress (Ctrl-C) without
+    exiting the loop. *writer* prints one block of output text. A rich front
+    end may supply *highlighted_writer* for ``:info``'s AgL-shaped output.
+    Together they are the
+    front end's whole UI seam: the prompt_toolkit console wires
+    ``prompt_session.prompt`` and ``print``; the plain console wires a
+    line-accumulating reader over plain stdin/stdout and a plain ``print``-alike.
+
+    A ``:`` line is routed to :func:`agnette.agl.repl.meta.dispatch_meta`; a blank or
+    comment-only entry is a no-op (fresh prompt, no error); any other entry is
+    evaluated and its result rendered via
+    :func:`agnette.agl.repl.render.render_entry_result`.
+
+    *echo_unit* selects whether a ``unit``-typed expression/binding entry also
+    echoes (off by default); ``:set echo-unit on|off`` toggles it live.
+
+    *theme* selects the initial colour palette. Every meta-command that changes
+    a persisted REPL setting (``:theme``, ``:set echo``, ``:set echo-unit``)
+    reports the change as ``(key, value)`` via ``MetaOutcome.setting_change``;
+    the loop forwards it, once, to *on_setting_change*. The prompt_toolkit
+    console swaps ``prompt_session.style`` live for a ``"theme"`` change and
+    persists every key; the plain console — which has no styling to swap —
+    only persists.
+
+    The loop is intentionally thin: formatting lives in ``render`` and meta
+    handling in ``meta`` so both paths can evolve without touching it.
+    """
+    ctx = meta_mod.MetaContext(
+        session=session,
+        echo=echo,
+        echo_unit=echo_unit,
+        theme=theme,
+    )
+
+    writer(format_banner())
+    while True:
+        try:
+            entry = reader()
+        except KeyboardInterrupt:
+            # Ctrl-C cancels the current entry but never exits the REPL.
+            continue
+        except EOFError:
+            # Ctrl-D (or closed stdin) exits.
+            break
+
+        if entry.lstrip().startswith(":"):
+            outcome = meta_mod.dispatch_meta(entry, ctx)
+            if outcome.text is not None:
+                if outcome.highlight_as_agl and highlighted_writer is not None:
+                    highlighted_writer(outcome.text, outcome.agl_ranges)
+                else:
+                    writer(outcome.text)
+            if outcome.setting_change is not None and on_setting_change is not None:
+                on_setting_change(*outcome.setting_change)
+            if outcome.quit:
+                break
+            continue
+
+        # Blank or comment-only entries have nothing to run; give a fresh prompt
+        # without invoking the evaluator (whose parser would reject them).
+        if not has_runnable_statements(entry):
+            continue
+
+        result = session.eval_entry(entry)
+        rendered = render_mod.render_entry_result(result, echo=ctx.echo, echo_unit=ctx.echo_unit)
+        if rendered is not None:
+            writer(rendered)

@@ -1,11 +1,11 @@
-"""Tests for the agm.agl.semantics.values value module.
+"""Tests for the agnette.agl.semantics.values value module.
 
 This module tests:
 - All value types (leaf tags, containers, nominals, IR closure, Cell/Slot/Frame)
-  are importable from agm.agl.semantics.values.
-- The single broad Value union defined in agm.agl.semantics.values.
+  are importable from agnette.agl.semantics.values.
+- The single broad Value union defined in agnette.agl.semantics.values.
 - Key eq/hash invariants for JsonValue.
-- That agm.agl.semantics.values does not import from eval/syntax/scope/typecheck/runtime —
+- That agnette.agl.semantics.values does not import from eval/syntax/scope/typecheck/runtime —
   not even under TYPE_CHECKING.
 - Container/nominal tag eq/hash tests.
 """
@@ -23,13 +23,13 @@ import pytest
 
 def test_values_module_has_correct_name() -> None:
     """The module's __name__ is as expected."""
-    import agm.agl.semantics.values as vals
+    import agnette.agl.semantics.values as vals
 
-    assert vals.__name__ == "agm.agl.semantics.values"
+    assert vals.__name__ == "agnette.agl.semantics.values"
 
 
 def test_values_module_no_forbidden_imports() -> None:
-    """agm.agl.semantics.values must not import from eval, syntax, scope, typecheck, or runtime.
+    """agnette.agl.semantics.values must not import from eval, syntax, scope, typecheck, or runtime.
 
     This guard is STRICT: no imports from forbidden packages are allowed at any
     level — not at module level AND not inside ``if TYPE_CHECKING:`` blocks.
@@ -38,17 +38,17 @@ def test_values_module_no_forbidden_imports() -> None:
     import ast
     import inspect
 
-    import agm.agl.semantics.values  # ensure it's loaded
+    import agnette.agl.semantics.values  # ensure it's loaded
 
-    src = inspect.getsource(agm.agl.semantics.values)
+    src = inspect.getsource(agnette.agl.semantics.values)
 
     # The forbidden sub-packages that values.py must not import from at all.
     forbidden_prefixes = [
-        "agm.agl.eval",
-        "agm.agl.syntax",
-        "agm.agl.scope",
-        "agm.agl.typecheck",
-        "agm.agl.runtime",
+        "agnette.agl.eval",
+        "agnette.agl.syntax",
+        "agnette.agl.scope",
+        "agnette.agl.typecheck",
+        "agnette.agl.runtime",
     ]
 
     # Walk the entire AST — both runtime and TYPE_CHECKING-guarded imports are forbidden.
@@ -58,14 +58,14 @@ def test_values_module_no_forbidden_imports() -> None:
         if isinstance(node, ast.ImportFrom) and node.module:
             for prefix in forbidden_prefixes:
                 assert not node.module.startswith(prefix), (
-                    f"agm.agl.semantics.values imports from {node.module!r}, "
+                    f"agnette.agl.semantics.values imports from {node.module!r}, "
                     f"which is in forbidden package {prefix!r}."
                 )
         if isinstance(node, ast.Import):
             for alias in node.names:
                 for prefix in forbidden_prefixes:
                     assert not alias.name.startswith(prefix), (
-                        f"agm.agl.semantics.values imports {alias.name!r}, "
+                        f"agnette.agl.semantics.values imports {alias.name!r}, "
                         f"which is in forbidden package {prefix!r}."
                     )
 
@@ -77,7 +77,7 @@ def test_values_module_no_forbidden_imports() -> None:
 
 def test_unit_value_singleton() -> None:
     """UNIT_VALUE is the singleton UnitValue instance."""
-    from agm.agl.semantics.values import UNIT_VALUE, UnitValue
+    from agnette.agl.semantics.values import UNIT_VALUE, UnitValue
 
     assert isinstance(UNIT_VALUE, UnitValue)
     assert UNIT_VALUE == UnitValue()
@@ -90,7 +90,7 @@ def test_unit_value_singleton() -> None:
 
 def test_json_value_bool_not_equal_to_int() -> None:
     """JsonValue([True]) != JsonValue([1]) — bool/number conflation is prevented."""
-    from agm.agl.semantics.values import JsonValue
+    from agnette.agl.semantics.values import JsonValue
 
     assert JsonValue([True]) != JsonValue([1])
     assert JsonValue(True) != JsonValue(1)
@@ -99,7 +99,7 @@ def test_json_value_bool_not_equal_to_int() -> None:
 
 def test_json_value_numeric_equality() -> None:
     """JsonValue(1) == JsonValue(Decimal('1')) — int and Decimal compare equal."""
-    from agm.agl.semantics.values import JsonValue
+    from agnette.agl.semantics.values import JsonValue
 
     assert JsonValue(1) == JsonValue(decimal.Decimal("1"))
     assert JsonValue(2) == JsonValue(decimal.Decimal("2.0"))
@@ -107,7 +107,7 @@ def test_json_value_numeric_equality() -> None:
 
 def test_json_value_hash_consistent_with_eq() -> None:
     """JsonValue hash is consistent with eq."""
-    from agm.agl.semantics.values import JsonValue
+    from agnette.agl.semantics.values import JsonValue
 
     jv1 = JsonValue(1)
     jv2 = JsonValue(decimal.Decimal("1"))
@@ -132,7 +132,7 @@ def test_json_value_hash_consistent_with_eq() -> None:
 )
 def test_equal_int_and_decimal_json_keys_are_one_dict_key(whole: object, same: object) -> None:
     """Equal int and decimal ``json`` numbers, of any size, hash equal and share a dict key."""
-    from agm.agl.semantics.values import DictValue, JsonValue, TextValue
+    from agnette.agl.semantics.values import DictValue, JsonValue, TextValue
 
     assert JsonValue(whole) == JsonValue(same)
     assert hash(JsonValue(whole)) == hash(JsonValue(same))
@@ -145,7 +145,7 @@ def test_equal_int_and_decimal_json_keys_are_one_dict_key(whole: object, same: o
 
 def test_json_value_nested_list_eq() -> None:
     """Nested JsonValue list equality follows the same bool/int rules."""
-    from agm.agl.semantics.values import JsonValue
+    from agnette.agl.semantics.values import JsonValue
 
     assert JsonValue([1, 2]) == JsonValue([1, 2])
     assert JsonValue([True, 2]) != JsonValue([1, 2])
@@ -153,7 +153,7 @@ def test_json_value_nested_list_eq() -> None:
 
 def test_json_value_dict_eq() -> None:
     """JsonValue dict equality is key-and-value structural."""
-    from agm.agl.semantics.values import JsonValue
+    from agnette.agl.semantics.values import JsonValue
 
     assert JsonValue({"a": 1}) == JsonValue({"a": 1})
     assert JsonValue({"a": 1}) != JsonValue({"a": 2})
@@ -162,7 +162,7 @@ def test_json_value_dict_eq() -> None:
 
 def test_dict_value_first_non_text_key_migrates_existing_text_entries() -> None:
     """Inserting a non-text key into text storage keeps every entry, in order."""
-    from agm.agl.semantics.values import DictValue, IntValue, TextValue
+    from agnette.agl.semantics.values import DictValue, IntValue, TextValue
 
     d = DictValue(entries={"a": IntValue(1), "b": IntValue(2)})
     assert d.insert(IntValue(3), IntValue(3)) is True
@@ -179,13 +179,13 @@ def test_dict_value_first_non_text_key_migrates_existing_text_entries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DictValue order-insensitive hash (type lives in agm.agl.semantics.values)
+# DictValue order-insensitive hash (type lives in agnette.agl.semantics.values)
 # ---------------------------------------------------------------------------
 
 
 def test_dict_value_eq_order_insensitive() -> None:
     """DictValue equality is order-insensitive (same keys/values → equal)."""
-    from agm.agl.semantics.values import DictValue, IntValue
+    from agnette.agl.semantics.values import DictValue, IntValue
 
     d1 = DictValue(entries={"a": IntValue(1), "b": IntValue(2)})
     d2 = DictValue(entries={"b": IntValue(2), "a": IntValue(1)})
@@ -195,7 +195,7 @@ def test_dict_value_eq_order_insensitive() -> None:
 
 def test_dict_value_eq_contract() -> None:
     """DictValue equality works correctly."""
-    from agm.agl.semantics.values import DictValue, IntValue, TextValue
+    from agnette.agl.semantics.values import DictValue, IntValue, TextValue
 
     d1 = DictValue(entries={"x": IntValue(5)})
     d2 = DictValue(entries={"x": IntValue(5)})
@@ -206,7 +206,7 @@ def test_dict_value_eq_contract() -> None:
 
 def test_dict_value_eq_different_key_sets_is_false() -> None:
     """Two dicts with different key sets are unequal (never reach a per-key compare)."""
-    from agm.agl.semantics.values import DictValue, IntValue
+    from agnette.agl.semantics.values import DictValue, IntValue
 
     d1 = DictValue(entries={"a": IntValue(1)})
     d2 = DictValue(entries={"a": IntValue(1), "b": IntValue(2)})
@@ -223,7 +223,7 @@ def test_array_value_eq_self_referential_array_terminates() -> None:
     see ``test_values_equal_diamond_short_circuit_bounded_calls`` for a test
     that genuinely pins the fast path.
     """
-    from agm.agl.semantics.values import ArrayValue, IntValue
+    from agnette.agl.semantics.values import ArrayValue, IntValue
 
     xs = ArrayValue([IntValue(1)])
     xs.elements.append(xs)  # a genuine self-reference, not just two equal arrays
@@ -247,8 +247,8 @@ def test_values_equal_diamond_short_circuit_bounded_calls(
     without it, the count would blow past the budget almost immediately, so this test
     fails fast rather than hanging even if the fast path regresses.
     """
-    import agm.agl.semantics.values as values_module
-    from agm.agl.semantics.values import IntValue, NominalId, RecordValue, Value
+    import agnette.agl.semantics.values as values_module
+    from agnette.agl.semantics.values import IntValue, NominalId, RecordValue, Value
 
     nominal = NominalId(1)
     depth = 32
@@ -280,7 +280,7 @@ def test_values_equal_diamond_short_circuit_bounded_calls(
 
 def test_dict_value_eq_terminates_on_cyclic_dicts() -> None:
     """`==` on two separately-built cyclic dicts is co-inductive and terminates."""
-    from agm.agl.semantics.values import DictValue, IntValue, TextValue
+    from agnette.agl.semantics.values import DictValue, IntValue, TextValue
 
     d1 = DictValue(entries={"tag": IntValue(1)})
     d1.insert(TextValue("self"), d1)
@@ -295,7 +295,7 @@ def test_dict_value_eq_terminates_on_cyclic_dicts() -> None:
 
 
 # ---------------------------------------------------------------------------
-# RecordValue eq/hash contract (type lives in agm.agl.semantics.values)
+# RecordValue eq/hash contract (type lives in agnette.agl.semantics.values)
 # ---------------------------------------------------------------------------
 
 
@@ -305,7 +305,7 @@ def test_record_value_eq() -> None:
     A record naming a different declaration is NOT equal, whether or not the
     two declarations render under the same spelling.
     """
-    from agm.agl.semantics.values import IntValue, NominalId, RecordValue
+    from agnette.agl.semantics.values import IntValue, NominalId, RecordValue
 
     nom_a = NominalId(1)
     nom_b = NominalId(2)
@@ -324,7 +324,7 @@ def test_record_value_eq() -> None:
 
 def test_constructor_value_eq_and_hash() -> None:
     """ConstructorValue equality considers its record nominal."""
-    from agm.agl.semantics.values import ConstructorValue, NominalId
+    from agnette.agl.semantics.values import ConstructorValue, NominalId
 
     nom_a = NominalId(1)
     nom_b = NominalId(2)
@@ -344,7 +344,7 @@ def test_constructor_value_eq_and_hash() -> None:
 
 def test_record_value_eq_with_json_payload() -> None:
     """RecordValue equality is consistent with JsonValue eq (numerically equal payloads)."""
-    from agm.agl.semantics.values import JsonValue, NominalId, RecordValue
+    from agnette.agl.semantics.values import JsonValue, NominalId, RecordValue
 
     nom = NominalId(1)
     r1 = RecordValue(nominal=nom, fields={"v": JsonValue(1)})
@@ -354,13 +354,13 @@ def test_record_value_eq_with_json_payload() -> None:
 
 
 # ---------------------------------------------------------------------------
-# RecordValue eq/hash (type lives in agm.agl.semantics.values)
+# RecordValue eq/hash (type lives in agnette.agl.semantics.values)
 # ---------------------------------------------------------------------------
 
 
 def test_enum_value_eq() -> None:
     """RecordValue equality considers member nominal identity and fields."""
-    from agm.agl.semantics.values import NominalId, RecordValue
+    from agnette.agl.semantics.values import NominalId, RecordValue
 
     nom_color = NominalId(1)
     nom_shape = NominalId(2)
@@ -378,13 +378,13 @@ def test_enum_value_eq() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ExceptionValue eq/hash (type lives in agm.agl.semantics.values)
+# ExceptionValue eq/hash (type lives in agnette.agl.semantics.values)
 # ---------------------------------------------------------------------------
 
 
 def test_exception_value_eq() -> None:
     """ExceptionValue equality considers nominal identity and fields."""
-    from agm.agl.semantics.values import ExceptionValue, NominalId, TextValue
+    from agnette.agl.semantics.values import ExceptionValue, NominalId, TextValue
 
     nom_err = NominalId(1)
     nom_err2 = NominalId(2)
@@ -400,8 +400,8 @@ def test_exception_value_eq() -> None:
 
 def test_builtin_exception_value_uses_std_core_id() -> None:
     """Built-in exception values carry the reserved NominalId for their name."""
-    from agm.agl.ir.reserved_nominals import require_reserved_nominal_id
-    from agm.agl.semantics.values import ExceptionValue, NominalId, TextValue
+    from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+    from agnette.agl.semantics.values import ExceptionValue, NominalId, TextValue
 
     exc = ExceptionValue(
         nominal=NominalId(require_reserved_nominal_id("AgentParseError")),
@@ -411,13 +411,13 @@ def test_builtin_exception_value_uses_std_core_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ArrayValue (type lives in agm.agl.semantics.values)
+# ArrayValue (type lives in agnette.agl.semantics.values)
 # ---------------------------------------------------------------------------
 
 
 def test_array_value_eq() -> None:
     """ArrayValue equality compares elements structurally."""
-    from agm.agl.semantics.values import ArrayValue, IntValue
+    from agnette.agl.semantics.values import ArrayValue, IntValue
 
     lv1 = ArrayValue(elements=[IntValue(1), IntValue(2)])
     lv2 = ArrayValue(elements=[IntValue(1), IntValue(2)])
@@ -429,7 +429,7 @@ def test_array_value_eq() -> None:
 
 def test_array_value_mutation_visible_through_alias() -> None:
     """Mutating ArrayValue.elements in place is observed through any reference to it."""
-    from agm.agl.semantics.values import ArrayValue, IntValue
+    from agnette.agl.semantics.values import ArrayValue, IntValue
 
     original = ArrayValue(elements=[IntValue(1), IntValue(2)])
     alias = original
@@ -451,7 +451,7 @@ def test_array_dict_record_enum_exception_are_genuinely_unhashable() -> None:
     around ``hash(...)``) proves the type itself is unhashable, as opposed to happening
     to hold an unhashable field (e.g. a ``dict``) that raises for an unrelated reason.
     """
-    from agm.agl.semantics.values import (
+    from agnette.agl.semantics.values import (
         ArrayValue,
         DictValue,
         ExceptionValue,
@@ -467,7 +467,7 @@ def test_array_dict_record_enum_exception_are_genuinely_unhashable() -> None:
 
 def test_array_dict_record_enum_exception_hash_raises() -> None:
     """Every mutable-payload value type raises TypeError on hash() — never a stable hash."""
-    from agm.agl.semantics.values import (
+    from agnette.agl.semantics.values import (
         ArrayValue,
         DictValue,
         ExceptionValue,
@@ -494,32 +494,32 @@ def test_array_dict_record_enum_exception_hash_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Broad Value union — all types live in agm.agl.semantics.values
+# Broad Value union — all types live in agnette.agl.semantics.values
 # ---------------------------------------------------------------------------
 
 
 def test_semantics_values_includes_callable_forms() -> None:
-    """The single Value union in agm.agl.semantics.values includes closure and constructor types."""
-    import agm.agl.semantics.values as vals
+    """The shared values module includes closure and constructor types."""
+    import agnette.agl.semantics.values as vals
 
     for name in ("ConstructorValue", "IrClosureValue"):
-        assert hasattr(vals, name), f"agm.agl.semantics.values missing {name!r}"
+        assert hasattr(vals, name), f"agnette.agl.semantics.values missing {name!r}"
 
 
 def test_semantics_values_includes_container_types() -> None:
-    """The single Value union in agm.agl.semantics.values includes all container/nominal types."""
-    import agm.agl.semantics.values as vals
+    """The shared values module includes all container and nominal types."""
+    import agnette.agl.semantics.values as vals
 
     for name in ("ArrayValue", "DictValue", "RecordValue", "RecordValue", "ExceptionValue"):
-        assert hasattr(vals, name), f"agm.agl.semantics.values missing {name!r}"
+        assert hasattr(vals, name), f"agnette.agl.semantics.values missing {name!r}"
 
 
 def test_semantics_values_includes_frame_model() -> None:
-    """agm.agl.semantics.values exports the frame model: Cell, Slot, Frame."""
-    import agm.agl.semantics.values as vals
+    """agnette.agl.semantics.values exports the frame model: Cell, Slot, Frame."""
+    import agnette.agl.semantics.values as vals
 
     for name in ("Cell", "Slot", "Frame"):
-        assert hasattr(vals, name), f"agm.agl.semantics.values missing {name!r}"
+        assert hasattr(vals, name), f"agnette.agl.semantics.values missing {name!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -531,7 +531,7 @@ def test_broad_value_includes_ir_callable_forms() -> None:
     """The broad runtime union includes IR closure and constructor values."""
     from typing import get_args
 
-    from agm.agl.semantics.values import ConstructorValue, IrClosureValue, Value
+    from agnette.agl.semantics.values import ConstructorValue, IrClosureValue, Value
 
     members = get_args(Value)
     assert IrClosureValue in members
@@ -539,8 +539,8 @@ def test_broad_value_includes_ir_callable_forms() -> None:
 
 
 def test_helpers_accessible_from_semantics_values() -> None:
-    """json_eq and json_hash are accessible from agm.agl.semantics.values."""
-    from agm.agl.semantics.values import json_eq, json_hash
+    """json_eq and json_hash are accessible from agnette.agl.semantics.values."""
+    from agnette.agl.semantics.values import json_eq, json_hash
 
     assert json_eq(1, decimal.Decimal("1")) is True
     assert json_eq(True, 1) is False
@@ -549,8 +549,8 @@ def test_helpers_accessible_from_semantics_values() -> None:
 
 def test_ir_closure_value_identity_equality() -> None:
     """IrClosureValue uses identity-based equality (__eq__ = self is other)."""
-    from agm.agl.ir.ids import FunctionId
-    from agm.agl.semantics.values import IrClosureValue
+    from agnette.agl.ir.ids import FunctionId
+    from agnette.agl.semantics.values import IrClosureValue
 
     v = IrClosureValue(function_id=FunctionId(0), captures=())
     # Same object is equal to itself
@@ -565,8 +565,8 @@ def test_ir_closure_value_identity_equality() -> None:
 
 def test_ir_closure_value_identity_hash() -> None:
     """IrClosureValue uses identity-based hash (__hash__ = id(self))."""
-    from agm.agl.ir.ids import FunctionId
-    from agm.agl.semantics.values import IrClosureValue
+    from agnette.agl.ir.ids import FunctionId
+    from agnette.agl.semantics.values import IrClosureValue
 
     v = IrClosureValue(function_id=FunctionId(0), captures=())
     # Hash is id(v)

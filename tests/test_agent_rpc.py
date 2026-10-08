@@ -15,7 +15,7 @@ from typing import cast
 
 import pytest
 
-from agm.agent.session import (
+from agnette.agent.session import (
     AglSessionHost,
     SessionAskError,
     SessionAskRequest,
@@ -25,11 +25,11 @@ from agm.agent.session import (
     create_agl_session_host,
     rpc,
 )
-from agm.agent.session.protocol import BackendSettings
-from agm.agent.session.rpc import PiRpcSessionBackend
-from agm.agent.spec import AgentPi, PermissionMode, SessionTransport
-from agm.agl.runtime.sessions import SessionHostError as AglSessionHostError
-from agm.sandbox.request import PreparedSandboxCommand, SandboxLimits
+from agnette.agent.session.protocol import BackendSettings
+from agnette.agent.session.rpc import PiRpcSessionBackend
+from agnette.agent.spec import AgentPi, PermissionMode, SessionTransport
+from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
+from agnette.sandbox.request import PreparedSandboxCommand, SandboxLimits
 from tests._agl_helpers import (
     session_sandbox_context,
     unavailable_sandbox_context,

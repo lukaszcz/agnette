@@ -1,10 +1,10 @@
-"""Unit tests for agm.util.text."""
+"""Unit tests for agnette.util.text."""
 
 from __future__ import annotations
 
 import click
 
-from agm.util.text import (
+from agnette.util.text import (
     first_paragraph,
     format_description_column,
     keep_indented_paragraphs,

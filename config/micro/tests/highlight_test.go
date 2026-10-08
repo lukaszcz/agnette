@@ -111,7 +111,7 @@ func assertNotFace(t *testing.T, source, substring, group string) {
 }
 
 // The builtin call names, mirroring BUILTIN_CALL_NAMES in
-// src/agm/agl/scope/symbols.py. Keep this list in step with that one.
+// src/agnette/agl/scope/symbols.py. Keep this list in step with that one.
 var builtins = []string{
 	"print", "render", "exec", "ask", "ask-request",
 	"copy", "shallow-copy", "resource", "resource-dir",
@@ -192,7 +192,7 @@ func TestVerbatimOpenerAfterAClosedStringIsFaced(t *testing.T) {
 }
 
 // `-', `?', `!' and `$' continue an AgL name (IDENT_STOP in
-// src/agm/util/ident.py), so a keyword or builtin spelling that merely starts
+// src/agnette/util/ident.py), so a keyword or builtin spelling that merely starts
 // or ends a longer name must not be faced. Regexp `\b' does not know that;
 // these pin the layering in agl.yaml that compensates for it.
 func TestLongerIdentifiersStayPlain(t *testing.T) {
@@ -322,7 +322,7 @@ func TestVerbatimPayloadInterpolationHoleIsFaced(t *testing.T) {
 }
 
 // A declaration attribute is a `@name' prefix, optionally followed by an
-// argument list. `@' is a true delimiter (IDENT_STOP in src/agm/util/ident.py),
+// argument list. `@' is a true delimiter (IDENT_STOP in src/agnette/util/ident.py),
 // so the prefix always starts at the `@' and its name runs to the next
 // delimiter -- the argument list is ordinary AgL and keeps its own faces.
 func TestAttributesAreFaced(t *testing.T) {

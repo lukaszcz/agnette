@@ -33,7 +33,7 @@ by a prompt for manually typed input.
 
 `EntryResult` carries the `ValueDescriptors` view of the entry's own compiled program alongside its value, so `repl/render.py` renders a live value without any global registry; `ReplSession.descriptors()` builds the analogous cumulative view over every retained declaration for `:bindings`. `render_entry_result` decides whether an entry echoes at all from its checked static type, once: a `unit`-typed expression or binding echoes nothing, unless the `echo-unit` setting is on. An entry that is no value but a type spelling (`S::Q`, `array[F]`) echoes the type scope selected for it.
 
-`:info NAME` reads its spelling through scope's one lookup exactly as an entry would (`_resolve_info_reference`), without evaluating source; a rejection is scope's own error, turned into data only at `_static_verdict` and displayed through `meta._static_query`. It retains the resolver's exact constructor identity and selects its signature through the checker's own constructor selection (`typecheck/constructors.py`), so qualified, applied-owner, and `use`-renamed spellings read as the checker types them. An alias is found by the declaration identity its spelling selects (`TypeEnvironment.type_name_declaration`) and renders as its source declaration however it is spelled. It reports live bindings, functions (at their written path, including qualified library functions and operators), constructors, and retained nominal, generic, or alias types as concise AgL fragments; the rich console styles only those fragments through its live lexer and theme, while plain output remains text.
+`:info NAME` reads its spelling through scope's one lookup exactly as an entry would (`_resolve_info_reference`), without evaluating source; a rejection is scope's own error, turned into data only at `_static_verdict` and displayed through `meta._static_query`. It retains the resolver's exact constructor identity and selects its signature through the checker's own constructor selection (`typecheck/constructors.py`), so qualified, applied-owner, and `use`-renamed spellings read as the checker types them. An alias is found by the declaration identity its spelling selects (`TypeEnvironment.type_name_declaration`) and renders as its source declaration however it is spelled. It reports live bindings, functions (at their written path, including qualified library functions and operators), constructors, and retained nominal, generic, or alias types as concise AgL fragments; the rich console styles only those fragments through its live lexer and theme, while plain output is unstyled text.
 
 ## Setting Persistence
 
@@ -41,8 +41,8 @@ Every `[repl]` setting (`theme`, `echo`, `echo-unit`) is saved through one path:
 
 ## Code Entry Points
 
-- `src/agm/agl/repl/session.py` — the incremental session core; `entry_pipeline.py` — the multi-module entry pipeline over `PipelineDriver`.
-- `src/agm/agl/repl/loop.py`, `console.py`, `plain_console.py` — the shared loop and the two front ends; `meta.py`, `render.py`, `themes.py` — meta commands, echo rendering, themes.
-- `src/agm/agl/lower/repl.py` — incremental linking.
-- `src/agm/commands/repl.py` — the CLI host and front-end selection.
+- `src/agnette/agl/repl/session.py` — the incremental session core; `entry_pipeline.py` — the multi-module entry pipeline over `PipelineDriver`.
+- `src/agnette/agl/repl/loop.py`, `console.py`, `plain_console.py` — the shared loop and the two front ends; `meta.py`, `render.py`, `themes.py` — meta commands, echo rendering, themes.
+- `src/agnette/agl/lower/repl.py` — incremental linking.
+- `src/agnette/agm/commands/repl.py` — the CLI host and front-end selection.
 - Tests: `tests/test_agl_repl_*.py`, `test_repl_command.py`.

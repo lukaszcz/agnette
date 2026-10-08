@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.modules.roots import RootSet
-from agm.agl.scope import AglScopeError
-from agm.agl.scope.symbols import AmbiguousQualificationError, UnknownMemberError
-from agm.agl.syntax.nodes import Call, LetDecl
-from agm.agl.typecheck import AglTypeError, CheckedModule, check_program
+from agnette.agl import PipelineDriver
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.symbols import AmbiguousQualificationError, UnknownMemberError
+from agnette.agl.syntax.nodes import Call, LetDecl
+from agnette.agl.typecheck import AglTypeError, CheckedModule, check_program
 from tests.agl.module_graph import resolve_and_check_repl_entry
 
 _CAPABILITIES = HostCapabilities(

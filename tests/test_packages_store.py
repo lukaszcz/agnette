@@ -10,11 +10,11 @@ from typing import cast
 import pytest
 import semver
 
-from agm.core.env import agm_installation_prefix
-from agm.packages.activation import ActivePackage
-from agm.packages.manifest import DependencySpec, ManifestError
-from agm.packages.record import write_record
-from agm.packages.store import (
+from agnette.core.env import agm_installation_prefix
+from agnette.packages.activation import ActivePackage
+from agnette.packages.manifest import DependencySpec, ManifestError
+from agnette.packages.record import write_record
+from agnette.packages.store import (
     StoreIdentityError,
     StorePathError,
     canonical_package_provenance_path,

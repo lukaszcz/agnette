@@ -7,21 +7,21 @@ from pathlib import Path, PurePosixPath
 import pytest
 import semver
 
-from agm.agl import PipelineDriver
-from agm.agl.ir.ids import Location, SourceId
-from agm.agl.ir.nodes import IrResource
-from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.lower.program import lower_program
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.modules.roots import RootSet
-from agm.agl.repl import ReplSession
-from agm.agl.semantics.values import IntValue, TextValue
-from agm.agl.syntax.resources import ResourceError, resolve_resource
-from agm.packages.discipline import DisciplineError, validate_package
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import PackageManifest
-from agm.packages.model import PackageInfo
+from agnette.agl import PipelineDriver
+from agnette.agl.ir.ids import Location, SourceId
+from agnette.agl.ir.nodes import IrResource
+from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.lower.program import lower_program
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.repl import ReplSession
+from agnette.agl.semantics.values import IntValue, TextValue
+from agnette.agl.syntax.resources import ResourceError, resolve_resource
+from agnette.packages.discipline import DisciplineError, validate_package
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import PackageManifest
+from agnette.packages.model import PackageInfo
 from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots
 
 

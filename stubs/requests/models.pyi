@@ -1,7 +1,7 @@
 """Minimal type stub for ``requests.models``.
 
 Only ``Request``, ``PreparedRequest``, and ``Response`` are typed, covering
-exactly what ``agm.core.http`` (the transport seam) and ``agm.packages.fetch``
+exactly what ``agnette.core.http`` (the transport seam) and ``agnette.packages.fetch``
 (the archive fetcher, structurally, through its own ``Response`` protocol)
 use. The real ``Response.raw`` is untyped (``Any``); ``_RawStream`` below is
 this stub's own concrete stand-in, typed without ``Any``.

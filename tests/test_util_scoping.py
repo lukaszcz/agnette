@@ -6,7 +6,7 @@ import contextvars
 
 import pytest
 
-from agm.util.scoping import ScopedVar
+from agnette.util.scoping import ScopedVar
 
 _VAR: contextvars.ContextVar[int] = contextvars.ContextVar("test_scoped_var", default=0)
 

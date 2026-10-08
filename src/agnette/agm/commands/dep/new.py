@@ -1,0 +1,56 @@
+"""agm dep new."""
+
+from __future__ import annotations
+
+import sys
+
+import agnette.vcs.git as git_helpers
+from agnette.agm.cli_support.args import DepNewArgs
+from agnette.agm.project.config_git import commit_config_dir_changes
+from agnette.agm.project.dependency_checkout import derive_dep_name
+from agnette.agm.project.dependency_env import (
+    config_toml_file,
+    current_config_branch,
+    update_dependency_config,
+)
+from agnette.agm.project.layout import project_deps_dir, require_current_project_dir
+from agnette.core import dry_run
+from agnette.core.fs import exists, mkdir, rmdir
+from agnette.core.process import require_success
+
+
+def run(args: DepNewArgs) -> None:
+    project_dir = require_current_project_dir()
+    dep = derive_dep_name(args.repo_url)
+    dep_dir = project_deps_dir(project_dir) / dep
+    if exists(dep_dir):
+        print(f"error: deps/{dep} already exists", file=sys.stderr)
+        raise SystemExit(1)
+
+    resolved_branch = args.branch or git_helpers.default_branch_from_remote(args.repo_url)
+    target_dir = dep_dir / resolved_branch
+    mkdir(target_dir.parent, parents=True, exist_ok=True)
+    try:
+        require_success(
+            ["git", "clone", "--branch", resolved_branch, args.repo_url, str(target_dir)],
+        )
+        config_branch = current_config_branch(project_dir)
+        update_dependency_config(
+            project_dir=project_dir,
+            dep_name=dep,
+            dep_branch=resolved_branch,
+            config_branch=config_branch,
+        )
+        commit_config_dir_changes(
+            project_dir,
+            f"chore: add dependency {dep}",
+            add_paths=[config_toml_file(project_dir, config_branch)],
+        )
+    except SystemExit:
+        if dry_run.enabled():
+            raise
+        try:
+            rmdir(dep_dir)
+        except OSError:
+            pass
+        raise

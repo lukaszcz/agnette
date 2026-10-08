@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.runtime.engine_config import convert_config_value
-from agm.agl.semantics.type_table import create_seeded_type_table
-from agm.agl.semantics.types import BUILTIN_PRELUDE_TYPES
-from agm.agl.semantics.values import RecordValue, TextValue
-from agm.commands import exec as exec_command
+from agnette.agl.runtime.engine_config import convert_config_value
+from agnette.agl.semantics.type_table import create_seeded_type_table
+from agnette.agl.semantics.types import BUILTIN_PRELUDE_TYPES
+from agnette.agl.semantics.values import RecordValue, TextValue
+from agnette.agm.commands import exec as exec_command
 from tests._agl_helpers import write_file_program
 from tests.test_exec_command import _config_home, _exec_args_no_trace
 

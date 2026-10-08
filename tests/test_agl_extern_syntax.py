@@ -23,15 +23,15 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.lexer import tokenize
-from agm.agl.modules.loader import build_repl_graph
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import AglSyntaxError, parse_program, parse_program_seeded
-from agm.agl.scope import AglScopeError, ModuleResolution
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import BinderKind
-from agm.agl.syntax.nodes import FuncDef
-from agm.agl.syntax.visitor import walk
+from agnette.agl.lexer import tokenize
+from agnette.agl.modules.loader import build_repl_graph
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import AglSyntaxError, parse_program, parse_program_seeded
+from agnette.agl.scope import AglScopeError, ModuleResolution
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import BinderKind
+from agnette.agl.syntax.nodes import FuncDef
+from agnette.agl.syntax.visitor import walk
 from tests._agl_helpers import agl_roots
 from tests.agl.ir_harness import make_graph_from_files, write_companion_file
 from tests.agl.module_graph import load_graph, resolve_program_ast

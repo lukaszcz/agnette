@@ -16,14 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.scope import (
+from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.scope import (
     AglScopeError,
     BuiltinKind,
     ModuleResolution,
 )
-from agm.agl.scope.symbols import (
+from agnette.agl.scope.symbols import (
     AmbiguousConstructorError,
     AmbiguousQualificationError,
     BinderKind,
@@ -34,7 +34,7 @@ from agm.agl.scope.symbols import (
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.syntax.nodes import (
+from agnette.agl.syntax.nodes import (
     AsPattern,
     AssignStmt,
     Block,
@@ -70,8 +70,8 @@ from agm.agl.syntax.nodes import (
     VarRef,
     WildcardPattern,
 )
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.syntax.types import IntT
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.types import IntT
 from tests.agl.module_graph import (
     resolve_entry,
     resolve_inline_entry,
@@ -138,7 +138,7 @@ def _find_varref(program: object, name: str, occurrence: int = -1) -> VarRef:
     occurrence=-1 (default) returns the last match; 0 returns the first.
     Raises AssertionError if no match found.
     """
-    from agm.agl.syntax.nodes import (
+    from agnette.agl.syntax.nodes import (
         ArrayLit,
         BinaryOp,
         Case,
@@ -930,7 +930,7 @@ class TestConstructorCandidateDeduplication:
         first candidate then recurs later in the sequence; only its first
         occurrence should survive, regardless of what was seen in between.
         """
-        from agm.agl.scope.symbols import ConstructorRef, dedupe_constructor_candidates
+        from agnette.agl.scope.symbols import ConstructorRef, dedupe_constructor_candidates
 
         first = ConstructorRef(owner_name="A", owner_decl_node_id=1, type_params=())
         second = ConstructorRef(owner_name="B", owner_decl_node_id=1, type_params=())
@@ -1024,8 +1024,8 @@ class TestScopeUseEnumOwners:
             "let s = Status::Good\n"
             "s is Status::Good\n"
         )
-        from agm.agl.syntax.nodes import IsTest
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.nodes import IsTest
+        from agnette.agl.syntax.visitor import walk
 
         found: list[IsTest] = []
         walk(r.program, lambda node: found.append(node) if isinstance(node, IsTest) else None)
@@ -1048,7 +1048,7 @@ class TestScopeUseEnumOwners:
             "  | Status::Good => 1\n"
             "  | Status::Bad => 2\n"
         )
-        from agm.agl.syntax.nodes import Case
+        from agnette.agl.syntax.nodes import Case
 
         case_node = r.program.body.items[-1]
         assert isinstance(case_node, Case)
@@ -1414,7 +1414,7 @@ class TestReservedNames:
             span=_sp(2),
             node_id=_nid(),
         )
-        from agm.agl.syntax.nodes import Case
+        from agnette.agl.syntax.nodes import Case
 
         case_node = Case(
             subject=_make_varref("x"),
@@ -2531,7 +2531,7 @@ class TestParentScopeSeam:
             retained_type_owners=prior.type_owners,
         )
         # The VarRef/Call for Pass() must be in constructor_refs.
-        from agm.agl.syntax.nodes import Call as _Call
+        from agnette.agl.syntax.nodes import Call as _Call
 
         call_node = entry.program.body.items[0]
         assert isinstance(call_node, _Call)
@@ -2547,8 +2547,8 @@ class TestParentScopeSeam:
         # qualified constructor reference.
         source = "record Box\n  x: int\ndef f(Box: Box) -> int = Box.x\nf(Box(x = 1))"
         entry = parse_and_resolve(source)
-        from agm.agl.syntax.nodes import FieldAccess as _FA
-        from agm.agl.syntax.nodes import FuncDef as _FD
+        from agnette.agl.syntax.nodes import FieldAccess as _FA
+        from agnette.agl.syntax.nodes import FuncDef as _FD
 
         fn_node = entry.program.body.items[1]
         assert isinstance(fn_node, _FD)
@@ -2566,8 +2566,8 @@ class TestParentScopeSeam:
             retained_type_owners=prior.type_owners,
             retained_scope_nodes=prior.scope_nodes,
         )
-        from agm.agl.syntax.nodes import Call as _Call
-        from agm.agl.syntax.nodes import VarRef as _VarRef
+        from agnette.agl.syntax.nodes import Call as _Call
+        from agnette.agl.syntax.nodes import VarRef as _VarRef
 
         call_node = entry.program.body.items[0]
         assert isinstance(call_node, _Call)
@@ -2603,7 +2603,7 @@ class TestResolutionSideTable:
         assert isinstance(let_q, LetDecl)
         tmpl = let_q.value
         assert isinstance(tmpl, Template)
-        from agm.agl.syntax.nodes import InterpSegment
+        from agnette.agl.syntax.nodes import InterpSegment
 
         interp = next(s for s in tmpl.segments if isinstance(s, InterpSegment))
         assert isinstance(interp.expr, VarRef)
@@ -2738,7 +2738,7 @@ class TestDirectASTConstruction:
         # Constructors are now ordinary Call nodes; a call to a record/enum
         # constructor is a Call whose callee is a VarRef.
         # Test that named-arg values in a constructor call are resolved.
-        from agm.agl.syntax.nodes import EnumDef, NamedArg, VariantDef
+        from agnette.agl.syntax.nodes import EnumDef, NamedArg, VariantDef
 
         sp = _sp()
         variant = VariantDef(name="point", fields=(), span=sp, node_id=_nid())
@@ -2763,7 +2763,7 @@ class TestDirectASTConstruction:
         assert r.resolution[callee.node_id].kind == BinderKind.constructor_binding
 
     def test_binary_op_resolved(self) -> None:
-        from agm.agl.syntax.nodes import BinaryOp, BinOp
+        from agnette.agl.syntax.nodes import BinaryOp, BinOp
 
         let_x = _make_let("x", _make_intlit(1))
         let_y = _make_let("y", _make_intlit(2))
@@ -2781,7 +2781,7 @@ class TestDirectASTConstruction:
         assert r.resolution[y_ref.node_id].kind == BinderKind.let_binding
 
     def test_unary_not_resolved(self) -> None:
-        from agm.agl.syntax.nodes import UnaryNot
+        from agnette.agl.syntax.nodes import UnaryNot
 
         let_b = _make_let("b", _make_boollit(True))
         b_ref = _make_varref("b")
@@ -2790,7 +2790,7 @@ class TestDirectASTConstruction:
         assert r.resolution[b_ref.node_id].kind == BinderKind.let_binding
 
     def test_unary_neg_resolved(self) -> None:
-        from agm.agl.syntax.nodes import UnaryNeg
+        from agnette.agl.syntax.nodes import UnaryNeg
 
         let_n = _make_let("n", _make_intlit(1))
         n_ref = _make_varref("n")
@@ -2806,7 +2806,7 @@ class TestDirectASTConstruction:
         assert r.resolution[x_ref.node_id].kind == BinderKind.let_binding
 
     def test_array_lit_resolved(self) -> None:
-        from agm.agl.syntax.nodes import ArrayLit
+        from agnette.agl.syntax.nodes import ArrayLit
 
         let_x = _make_let("x", _make_intlit(1))
         x_ref = _make_varref("x")
@@ -2815,7 +2815,7 @@ class TestDirectASTConstruction:
         assert r.resolution[x_ref.node_id].kind == BinderKind.let_binding
 
     def test_dict_lit_resolved(self) -> None:
-        from agm.agl.syntax.nodes import DictEntry, DictLit
+        from agnette.agl.syntax.nodes import DictEntry, DictLit
 
         let_x = _make_let("x", _make_intlit(1))
         key = StringLit(value="a", span=_sp(), node_id=_nid())
@@ -2842,7 +2842,7 @@ class TestDirectASTConstruction:
             span=_sp(),
             node_id=_nid(),
         )
-        from agm.agl.syntax.nodes import Case
+        from agnette.agl.syntax.nodes import Case
 
         case_node = Case(
             subject=_make_varref("x"),
@@ -2892,7 +2892,7 @@ class TestDirectASTConstruction:
         )
         v_in_branch = _make_varref("v")
         branch = CaseBranch(pattern=pv, body=v_in_branch, span=_sp(), node_id=_nid())
-        from agm.agl.syntax.nodes import Case
+        from agnette.agl.syntax.nodes import Case
 
         case_node = Case(subject=_make_varref("x"), branches=(branch,), span=_sp(), node_id=_nid())
         r = resolve_program(let_outer, let_x, case_node)
@@ -3114,7 +3114,7 @@ class TestLambdaDuplicateParam:
     def test_lambda_duplicate_param_rejected(self) -> None:
         """A lambda with two params with the same name is rejected."""
         sp = _sp()
-        from agm.agl.syntax.types import IntT as IntTNode
+        from agnette.agl.syntax.types import IntT as IntTNode
 
         int_t = IntTNode(span=sp, node_id=_nid())
         p1 = Param(
@@ -3150,8 +3150,8 @@ class TestLambdaDuplicateParam:
 
 # Helper: build a RecordDef with optional type-parameter slots
 def _make_record(name: str, *, type_param_slots: tuple[str, ...] = (), line: int = 1) -> RecordDef:
-    from agm.agl.syntax.nodes import Param
-    from agm.agl.syntax.types import IntT as IntTNode
+    from agnette.agl.syntax.nodes import Param
+    from agnette.agl.syntax.types import IntT as IntTNode
 
     sp = _sp(line)
     field_t = IntTNode(span=sp, node_id=_nid())
@@ -3719,7 +3719,7 @@ class TestCastScope:
 
     def test_copy_and_shallow_copy_resolve_as_builtins(self) -> None:
         """copy(x)/shallow-copy(x) resolve as builtins, not undefined names."""
-        from agm.agl.scope.symbols import BuiltinKind
+        from agnette.agl.scope.symbols import BuiltinKind
 
         r = parse_and_resolve("let x = [1]\nlet _ = copy(x)\nshallow-copy(x)")
         assert BuiltinKind.COPY in r.builtin_calls.values()

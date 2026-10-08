@@ -8,9 +8,9 @@ from __future__ import annotations
 import decimal
 from collections.abc import Iterable
 
-from agm.agl.ir.ids import NominalId
-from agm.agl.semantics.copying import deep_copy_value, shallow_copy_value
-from agm.agl.semantics.values import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.semantics.copying import deep_copy_value, shallow_copy_value
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     DecimalValue,

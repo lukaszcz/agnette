@@ -1,4 +1,4 @@
-"""Tests for ``agm.agl.runtime.arguments``: host program-argument binding.
+"""Tests for ``agnette.agl.runtime.arguments``: host program-argument binding.
 
 Covers ``ProgramSignature.fuse`` (pairing an executable's per-parameter
 decoders with a declaration's spans/types, by name), ``bind_program_arguments``
@@ -13,20 +13,20 @@ from decimal import Decimal
 
 import pytest
 
-from agm.agl.attributes import ProgramOptionSpec
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.diagnostics import Diagnostic
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.contracts import ParamDecoder
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.nodes import UseDefault
-from agm.agl.ir.program import IrProgramParam
-from agm.agl.ir.reserved_nominals import (
+from agnette.agl.attributes import ProgramOptionSpec
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.contracts import ParamDecoder
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.nodes import UseDefault
+from agnette.agl.ir.program import IrProgramParam
+from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     require_reserved_nominal_id,
 )
-from agm.agl.modules.ids import RESERVED_ID
-from agm.agl.runtime.arguments import (
+from agnette.agl.modules.ids import RESERVED_ID
+from agnette.agl.runtime.arguments import (
     OptionSome,
     ProgramArguments,
     ProgramParameter,
@@ -34,10 +34,10 @@ from agm.agl.runtime.arguments import (
     bind_program_arguments,
     decode_param_value,
 )
-from agm.agl.runtime.option import some_value
-from agm.agl.runtime.types import ProgramParamInfo
-from agm.agl.semantics.type_table import TypeTable, create_seeded_type_table
-from agm.agl.semantics.types import (
+from agnette.agl.runtime.option import some_value
+from agnette.agl.runtime.types import ProgramParamInfo
+from agnette.agl.semantics.type_table import TypeTable, create_seeded_type_table
+from agnette.agl.semantics.types import (
     BUILTIN_PRELUDE_TYPES,
     BoolType,
     DecimalType,
@@ -46,8 +46,8 @@ from agm.agl.semantics.types import (
     JsonType,
     TextType,
 )
-from agm.agl.semantics.types import Type as AglType
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.types import Type as AglType
+from agnette.agl.semantics.values import (
     BoolValue,
     DecimalValue,
     IntValue,
@@ -55,9 +55,9 @@ from agm.agl.semantics.values import (
     RecordValue,
     TextValue,
 )
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.type_schema import build_param_decoder
-from agm.agl.zones import ParamZone
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.type_schema import build_param_decoder
+from agnette.agl.zones import ParamZone
 from tests.agl.module_graph import resolve_and_check_repl_entry
 
 _TABLE = create_seeded_type_table()
@@ -478,7 +478,7 @@ class TestDecodeParamValue:
         """_is_json_shaped: a dict with non-str keys is not JSON-shaped (covers
         the dict branch of _is_json_shaped).
         """
-        from agm.agl.runtime.arguments import _is_json_shaped
+        from agnette.agl.runtime.arguments import _is_json_shaped
 
         # Dict with non-str key.
         assert _is_json_shaped({1: "a"}) is False
@@ -544,13 +544,13 @@ class TestDecodeParamValue:
         assert value.fields == {"x": IntValue(1)}
 
     def test_lone_surrogate_raw_value_is_rejected(self) -> None:
-        from agm.util.unicode import LoneSurrogateError
+        from agnette.util.unicode import LoneSurrogateError
 
         with pytest.raises(LoneSurrogateError):
             decode_param_value(_decoder(TextType()), "a" + "\udc00" + "b")
 
     def test_option_some_lone_surrogate_payload_is_rejected(self) -> None:
-        from agm.util.unicode import LoneSurrogateError
+        from agnette.util.unicode import LoneSurrogateError
 
         with pytest.raises(LoneSurrogateError):
             decode_param_value(_decoder(_option_type(TextType())), OptionSome("a" + "\udc00"))

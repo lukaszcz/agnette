@@ -7,18 +7,18 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.ids import FunctionId, NominalId
-from agm.agl.ir.program import ValueDescriptors
-from agm.agl.runtime.boundary import BoundaryTypeError, BoundaryViolation, encode_boundary_value
-from agm.agl.runtime.externs import (
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.ids import FunctionId, NominalId
+from agnette.agl.ir.program import ValueDescriptors
+from agnette.agl.runtime.boundary import BoundaryTypeError, BoundaryViolation, encode_boundary_value
+from agnette.agl.runtime.externs import (
     AglCallableProxy,
     CallableProxyError,
     ExternCallWindow,
     ExternRegistry,
 )
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.values import ConstructorValue, IntValue, IrClosureValue, Value
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.values import ConstructorValue, IntValue, IrClosureValue, Value
 from tests.agl.ir_harness import (
     evaluate_ir_raises_with_externs,
     evaluate_ir_with_externs,

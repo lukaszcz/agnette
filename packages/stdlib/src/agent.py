@@ -6,13 +6,13 @@ from typing import cast
 
 from agl import AglException, json, nominals, runtime
 
-from agm.agent.values import agent_spec_shape
-from agm.agl.runtime.agents import decode_agent_value, run_agent_chat
-from agm.agl.runtime.boundary import decode_boundary_value
-from agm.agl.runtime.host_agents import current_agent_services
-from agm.agl.runtime.request import AgentCallHostError, AgentRequest
-from agm.agl.runtime.sandbox_values import decode_agent_sandbox, permission_mode_and_limits
-from agm.agl.semantics.values import DictValue, RecordValue, TextValue
+from agnette.agent.values import agent_spec_shape
+from agnette.agl.runtime.agents import decode_agent_value, run_agent_chat
+from agnette.agl.runtime.boundary import decode_boundary_value
+from agnette.agl.runtime.host_agents import current_agent_services
+from agnette.agl.runtime.request import AgentCallHostError, AgentRequest
+from agnette.agl.runtime.sandbox_values import decode_agent_sandbox, permission_mode_and_limits
+from agnette.agl.semantics.values import DictValue, RecordValue, TextValue
 
 AgentCallError = nominals.std.agent.AgentCallError
 

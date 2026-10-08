@@ -10,8 +10,8 @@ from typing import cast
 import tomlkit
 from agl import AglException, json, nominals
 
-from agm.agl.runtime.boundary import raise_parse_error
-from agm.util.decimal import parse_json_decimal
+from agnette.agl.runtime.boundary import raise_parse_error
+from agnette.util.decimal import parse_json_decimal
 
 TomlParseError = nominals.std.toml.TomlParseError
 TomlRenderError = nominals.std.toml.TomlRenderError

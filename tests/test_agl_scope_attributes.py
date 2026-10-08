@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.attributes import ProgramOptionSpec, ProgramRegistration
-from agm.agl.parser.parser import parse_program_seeded
-from agm.agl.scope import AglScopeError, ModuleResolution, recognize_program_registration
-from agm.agl.scope.attributes import recognize_attributes
-from agm.agl.syntax.module_constants import ModuleConstants
-from agm.agl.syntax.nodes import (
+from agnette.agl.attributes import ProgramOptionSpec, ProgramRegistration
+from agnette.agl.parser.parser import parse_program_seeded
+from agnette.agl.scope import AglScopeError, ModuleResolution, recognize_program_registration
+from agnette.agl.scope.attributes import recognize_attributes
+from agnette.agl.syntax.module_constants import ModuleConstants
+from agnette.agl.syntax.nodes import (
     Attribute,
     BuiltinVarDecl,
     EnumDef,
@@ -37,8 +37,8 @@ from agm.agl.syntax.nodes import (
     VarRef,
     static_function_items,
 )
-from agm.agl.syntax.visitor import walk
-from agm.agl.zones import ParamZone
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.zones import ParamZone
 from tests.agl.module_graph import resolve_entry
 
 POSITIONAL_ONLY = ParamZone.POSITIONAL_ONLY
@@ -589,7 +589,7 @@ class TestCommandRegistrations:
 class TestParseOnlyCommandRecognition:
     """``recognize_program_registration`` validates a declaration header alone.
 
-    Package command discovery (``agm.packages.source_commands``) calls it on
+    Package command discovery (``agnette.packages.source_commands``) calls it on
     a parsed-but-unresolved program, so it must raise the exact diagnostics
     the full scope walk raises for the same source — the two share one
     implementation of the command-registration rules.

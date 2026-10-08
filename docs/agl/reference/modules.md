@@ -202,7 +202,7 @@ use Selected::*
 ## Imports and `use` inside a scope region
 
 `import`, `use`, and `export` are header items inside a named scope region.
-They precede the region's other items. A scoped import's qualified route remains
+They precede the region's other items. A scoped import's qualified route is
 available throughout its module, while a tail's bare names belong only to that
 region and its nested regions. A scoped `use` likewise contributes only to its
 enclosing region and nested regions; neither joins the region's qualified
@@ -322,7 +322,7 @@ tail or `use` declaration.
 
 An exported `var` is writable across a module boundary the same way it is
 read: a qualified target, or a bare target reached through an import tail or
-`use`. An exported `let` remains immutable at every reference site, including
+`use`. An exported `let` is immutable at every reference site, including
 one reached through a re-export.
 
 `export` forwards public declarations without injecting them into the exporting
@@ -379,7 +379,7 @@ wherever the prelude is enabled. That visibility follows the ordinary import
 route: `import std/prelude::* hiding text::trim` hides `trim` while retaining
 other prelude methods. The `--no-stdlib` option disables the implicit prelude;
 an explicit route to a module or facade exporting a method makes it visible.
-An explicit prelude import remains available with `--no-stdlib`.
+An explicit prelude import is available with `--no-stdlib`.
 
 ## Standard library modules
 

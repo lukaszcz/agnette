@@ -16,14 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousQualificationError,
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.typecheck.checker import EnumOwnerMismatchError
+from agnette.agl.typecheck.checker import EnumOwnerMismatchError
 from tests.agl.qualifier_support import (
     Scenario,
     accepted,

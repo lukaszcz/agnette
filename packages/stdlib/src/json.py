@@ -4,9 +4,9 @@ from decimal import Decimal
 
 from agl import array, json, nominals, option_none, option_some
 
-from agm.agl.runtime.boundary import raise_key_error, raise_parse_error
-from agm.agl.runtime.codec import extract_json_text
-from agm.agl.runtime.convert import StrictJsonParseError, parse_json_strict
+from agnette.agl.runtime.boundary import raise_key_error, raise_parse_error
+from agnette.agl.runtime.codec import extract_json_text
+from agnette.agl.runtime.convert import StrictJsonParseError, parse_json_strict
 
 JsonParseError = nominals.std.errors.JsonParseError
 KeyError = nominals.std.errors.KeyError

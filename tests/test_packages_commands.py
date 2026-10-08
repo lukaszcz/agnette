@@ -10,14 +10,14 @@ import semver
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.pkg.check as check_command
-import agm.commands.pkg.create as create_command
-import agm.commands.pkg.info as info_command
-import agm.commands.pkg.install as install_command
-import agm.commands.pkg.list as list_command
-import agm.commands.pkg.uninstall as uninstall_command
-from agm.cli_support.args import (
+import agnette.agm.cli as cli
+import agnette.agm.commands.pkg.check as check_command
+import agnette.agm.commands.pkg.create as create_command
+import agnette.agm.commands.pkg.info as info_command
+import agnette.agm.commands.pkg.install as install_command
+import agnette.agm.commands.pkg.list as list_command
+import agnette.agm.commands.pkg.uninstall as uninstall_command
+from agnette.agm.cli_support.args import (
     PkgCheckArgs,
     PkgCreateArgs,
     PkgInfoArgs,
@@ -25,20 +25,20 @@ from agm.cli_support.args import (
     PkgListArgs,
     PkgUninstallArgs,
 )
-from agm.config.context import ConfigContext
-from agm.core import dry_run
-from agm.packages.activation import (
+from agnette.config.context import ConfigContext
+from agnette.core import dry_run
+from agnette.packages.activation import (
     ActivationIndex,
     ActivePackage,
     load_activation_index,
     write_activation_index,
 )
-from agm.packages.archive import write_archive
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import PackageManifest
-from agm.packages.model import PackageInfo
-from agm.packages.record import write_record
-from agm.version import AGM_VERSION
+from agnette.packages.archive import write_archive
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import PackageManifest
+from agnette.packages.model import PackageInfo
+from agnette.packages.record import write_record
+from agnette.version import AGM_VERSION
 from tests._package_helpers import (
     PythonInstaller,
     install_archive,

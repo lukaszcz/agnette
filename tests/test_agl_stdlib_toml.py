@@ -9,12 +9,12 @@ from typing import Protocol, cast
 
 import pytest
 
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.program import NominalDescriptor, NominalKind
-from agm.agl.modules.ids import ModuleId
-from agm.agl.runtime.boundary import AglException, AglJson, decode_boundary_value
-from agm.agl.runtime.externs import ExternRegistry
-from agm.agl.semantics.values import JsonValue, TextValue
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.program import NominalDescriptor, NominalKind
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.runtime.boundary import AglException, AglJson, decode_boundary_value
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.semantics.values import JsonValue, TextValue
 
 _STDLIB_ROOT = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
 _TOML_MODULE = ModuleId(("std", "toml"))

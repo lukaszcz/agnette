@@ -1,4 +1,4 @@
-"""Tests for agm.commands.workspace.open helper functions."""
+"""Tests for agnette.agm.commands.workspace.open helper functions."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import agm.project.layout as layout_module
+import agnette.agm.project.layout as layout_module
 
 
 class TestResolveParentConfigBranch:

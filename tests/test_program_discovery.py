@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.runtime.types import ProgramDeclInfo
+from agnette.agl.runtime.types import ProgramDeclInfo
 
 # ---------------------------------------------------------------------------
 # Program declaration discovery
@@ -105,7 +105,7 @@ class TestProgramDeclarationDiscovery:
         assert [param.is_path for param in program.parameters] == [True, True, True]
 
     def test_discovers_the_option_presentation_and_documentation(self) -> None:
-        from agm.agl.attributes import ProgramOptionSpec
+        from agnette.agl.attributes import ProgramOptionSpec
         from tests._agl_helpers import discover_program_declarations_from_source
 
         programs = discover_program_declarations_from_source(
@@ -152,8 +152,8 @@ class TestProgramDeclarationDiscovery:
 
 def _make_program(name: str, *, is_entry: bool = True) -> ProgramDeclInfo:
     """Build a minimal ``ProgramDeclInfo`` for selection tests."""
-    from agm.agl.modules.ids import ENTRY_ID, ModuleId
-    from agm.agl.syntax.spans import SourceSpan
+    from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+    from agnette.agl.syntax.spans import SourceSpan
 
     return ProgramDeclInfo(
         module=ENTRY_ID if is_entry else ModuleId(segments=("helper",)),
@@ -169,7 +169,7 @@ def _make_program(name: str, *, is_entry: bool = True) -> ProgramDeclInfo:
 
 class TestSelectEntryProgram:
     def test_filters_out_a_non_entry_program(self) -> None:
-        from agm.cli_support.program_discovery import select_entry_program
+        from agnette.agm.cli_support.program_discovery import select_entry_program
 
         entry = _make_program("main")
         imported = _make_program("helper-main", is_entry=False)
@@ -181,7 +181,7 @@ class TestSelectEntryProgram:
         assert selection.requested_unmatched is False
 
     def test_no_entry_programs_selects_nothing(self) -> None:
-        from agm.cli_support.program_discovery import select_entry_program
+        from agnette.agm.cli_support.program_discovery import select_entry_program
 
         selection = select_entry_program((), requested=None)
 
@@ -190,7 +190,7 @@ class TestSelectEntryProgram:
         assert selection.requested_unmatched is False
 
     def test_several_entry_programs_without_a_request_selects_none(self) -> None:
-        from agm.cli_support.program_discovery import select_entry_program
+        from agnette.agm.cli_support.program_discovery import select_entry_program
 
         first = _make_program("first")
         second = _make_program("second")
@@ -202,7 +202,7 @@ class TestSelectEntryProgram:
         assert selection.requested_unmatched is False
 
     def test_a_request_matching_one_of_several_selects_it(self) -> None:
-        from agm.cli_support.program_discovery import select_entry_program
+        from agnette.agm.cli_support.program_discovery import select_entry_program
 
         first = _make_program("first")
         second = _make_program("second")
@@ -213,7 +213,7 @@ class TestSelectEntryProgram:
         assert selection.requested_unmatched is False
 
     def test_a_request_matching_nothing_reports_unmatched(self) -> None:
-        from agm.cli_support.program_discovery import select_entry_program
+        from agnette.agm.cli_support.program_discovery import select_entry_program
 
         entry = _make_program("main")
 
@@ -231,7 +231,7 @@ class TestSelectEntryProgram:
 
 class TestDiscoverProgramsForTarget:
     def test_a_readable_file_returns_its_discovered_programs(self, tmp_path: Path) -> None:
-        from agm.cli_support.program_discovery import discover_programs_for_target
+        from agnette.agm.cli_support.program_discovery import discover_programs_for_target
 
         source = tmp_path / "main.agl"
         source.write_text("program def main() -> unit = ()\n", encoding="utf-8")
@@ -254,7 +254,7 @@ class TestDiscoverProgramsForTarget:
         tokens, so a token that names no readable file must degrade to no
         programs without writing anything a caller cannot suppress.
         """
-        from agm.cli_support.program_discovery import discover_programs_for_target
+        from agnette.agm.cli_support.program_discovery import discover_programs_for_target
 
         monkeypatch.chdir(tmp_path)
 

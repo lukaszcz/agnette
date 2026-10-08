@@ -17,9 +17,9 @@ from typing import Any
 
 import pytest
 
-from agm.agl.modules.ids import ModuleId
-from agm.agl.scope.program import resolve_program
-from agm.agl.semantics.types import RecordType
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.semantics.types import RecordType
 from tests._agl_helpers import agl_roots, prepare_inline_code, run_inline_code
 from tests.agl.ir_harness import make_graph_from_files as _make_graph_from_files
 
@@ -31,7 +31,7 @@ def _make_runtime(
     default_agent: Any | None = None,
 ) -> Any:
     """Build a PipelineDriver with optional default agent."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     return PipelineDriver(
         resolve_agent_spec=None,
@@ -50,7 +50,7 @@ def _run_program(
     agents: dict[str, Any] | None = None,
 ) -> Any:
     """Run a multi-file AgL program and return the RunResult."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     roots = agl_roots(*(d.resolve() for d in roots_dirs if d.exists()))
     prepared = (
@@ -59,7 +59,7 @@ def _run_program(
         else prepare_inline_code(entry_source, roots=roots)
     )
     if agents:
-        from agm.agent.spec import AgentCommand
+        from agnette.agent.spec import AgentCommand
 
         def dispatch(request: Any) -> str:
             spec = request.agent
@@ -77,7 +77,7 @@ def _run_program(
     entry_program = next(program for program in discovery.programs if program.module.is_entry)
     if not entry_program.parameters:
         return rt.run_prepared(prepared, compiled=discovery.compiled, select_default_program=True)
-    from agm.agl.runtime.arguments import ProgramArguments
+    from agnette.agl.runtime.arguments import ProgramArguments
 
     preflight = rt.preflight_arguments(
         prepared,
@@ -102,8 +102,8 @@ def test_constructor_field_default_omitted_across_module_boundary(tmp_path: Path
     # omit the defaulted field when constructing it, the same as within the
     # declaring module itself. Typecheck-only (via check_program), since
     # lowering an omitted default is exercised at the unit level, not here.
-    from agm.agl import PipelineDriver
-    from agm.agl.typecheck.program import check_program
+    from agnette.agl import PipelineDriver
+    from agnette.agl.typecheck.program import check_program
     from tests.agl.ir_harness import base_caps
 
     library_root = tmp_path / "library"
@@ -133,8 +133,8 @@ def test_selected_program_does_not_wire_unreachable_extern(
     (library_root / "b.agl").write_text("extern def broken() -> unit\n")
     (library_root / "b.py").write_text('raise RuntimeError("must not import")\n')
 
-    from agm.agl import PipelineDriver
-    from agm.agl.runtime.arguments import ProgramArguments
+    from agnette.agl import PipelineDriver
+    from agnette.agl.runtime.arguments import ProgramArguments
 
     prepared = PipelineDriver.prepare_program(
         "import a\nimport b\nprogram def main() -> unit = ()\n",

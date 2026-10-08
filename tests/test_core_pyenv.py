@@ -7,8 +7,8 @@ from importlib import metadata
 
 import pytest
 
-from agm.core import dry_run, process
-from agm.core.pyenv import (
+from agnette.core import dry_run, process
+from agnette.core.pyenv import (
     RequirementInstallError,
     RequirementState,
     RequirementStatus,
@@ -38,7 +38,7 @@ def satisfied(spec: str) -> bool:
 
 def _uv_on_path(monkeypatch: pytest.MonkeyPatch, found: bool) -> None:
     monkeypatch.setattr(
-        "agm.core.pyenv.shutil.which", lambda name: _UV if found and name == "uv" else None
+        "agnette.core.pyenv.shutil.which", lambda name: _UV if found and name == "uv" else None
     )
 
 

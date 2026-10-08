@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.diagnostics import AglTypeError
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import AglSyntaxError, parse_program
-from agm.agl.pipeline import RunResult
-from agm.agl.scope import AglScopeError
-from agm.agl.scope.symbols import AmbiguousQualificationError
-from agm.agl.syntax import (
+from agnette.agl import PipelineDriver
+from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import AglSyntaxError, parse_program
+from agnette.agl.pipeline import RunResult
+from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.symbols import AmbiguousQualificationError
+from agnette.agl.syntax import (
     BuiltinVarDecl,
     EnumDef,
     ExceptionDef,
@@ -555,7 +555,7 @@ def test_use_target_segment_spans_exclude_qualifier_delimiters_and_anchors(
 
 
 def test_ast_walk_visits_use_and_export_selection_paths() -> None:
-    from agm.agl.syntax.visitor import walk
+    from agnette.agl.syntax.visitor import walk
 
     program = parse_program("use Point::{Nested::member as m}\nexport library::{Point::distance}")
     visited: list[object] = []
@@ -568,7 +568,7 @@ def test_ast_walk_visits_use_and_export_selection_paths() -> None:
 
 
 def test_ast_walk_visits_a_scoped_funcs_scope_path_segments() -> None:
-    from agm.agl.syntax.visitor import walk
+    from agnette.agl.syntax.visitor import walk
 
     program = parse_program("scope A::B\n  def f() -> unit = ()\nend A::B")
     visited: list[object] = []

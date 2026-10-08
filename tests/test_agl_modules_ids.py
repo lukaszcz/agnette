@@ -1,4 +1,4 @@
-"""Tests for ModuleId in src/agm/agl/modules/ids.py."""
+"""Tests for ModuleId in src/agnette/agl/modules/ids.py."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from agm.agl.modules.ids import (
+from agnette.agl.modules.ids import (
     ENTRY_ID,
     RESERVED_ID,
     STD_CONFIG_ID,
@@ -65,7 +65,7 @@ class TestModuleIdConstruction:
             [
                 sys.executable,
                 "-c",
-                "import pickle, sys; from agm.agl.modules.ids import ModuleId; "
+                "import pickle, sys; from agnette.agl.modules.ids import ModuleId; "
                 "values = pickle.loads(sys.stdin.buffer.read()); "
                 "assert values[ModuleId.from_path('std/option')] == 'library'",
             ],
@@ -247,7 +247,7 @@ class TestSentinelIds:
 
     def test_entry_id_is_sentinel(self) -> None:
         """ENTRY_ID should be a stable singleton-like object."""
-        from agm.agl.modules.ids import ENTRY_ID as e2
+        from agnette.agl.modules.ids import ENTRY_ID as e2
 
         assert ENTRY_ID is e2
 

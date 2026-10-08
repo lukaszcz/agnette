@@ -12,10 +12,10 @@ import pytest
 import typer
 from typer._completion_classes import ZshComplete
 
-import agm.completion as completion
-import agm.vcs.git as git_helpers
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.record import write_record
+import agnette.agm.completion as completion
+import agnette.vcs.git as git_helpers
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.record import write_record
 from tests._package_helpers import install_directory
 
 _PARAM_SURFACE_PACKAGE = Path(__file__).parent / "agl" / "packages" / "param_surface"
@@ -32,7 +32,7 @@ def _root_ctx() -> click.Context:
     """Create a Context for the ``agm`` group, as shell completion resolves it."""
     from typer.main import get_command
 
-    import agm.cli as cli
+    import agnette.agm.cli as cli
 
     return click.Context(get_command(cli.app))
 
@@ -42,8 +42,8 @@ def test_complete_registered_commands_reads_active_index(
 ) -> None:
     import semver
 
-    from agm.config.context import ConfigContext
-    from agm.packages.activation import (
+    from agnette.config.context import ConfigContext
+    from agnette.packages.activation import (
         ActivationIndex,
         ActivePackage,
         CommandRegistration,
@@ -99,7 +99,7 @@ review-tools = { program = "tools/review::main" }
         completion, "current_config_context", lambda: ConfigContext(home, None, tmp_path)
     )
 
-    from agm.cli import app
+    from agnette.agm.cli import app
 
     cli_command = typer.main.get_command(app)
     shell_complete = ZshComplete(cli_command, {}, "agm", "_AGM_COMPLETE")
@@ -132,9 +132,9 @@ def test_one_completion_loads_the_command_index_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One TAB builds the registered-command index once, not once per completion surface."""
-    import agm.cli_dispatch as cli_dispatch
-    from agm.config.context import ConfigContext
-    from agm.packages.activation import ActivationIndex, CommandRegistration
+    import agnette.agm.cli_dispatch as cli_dispatch
+    from agnette.config.context import ConfigContext
+    from agnette.packages.activation import ActivationIndex, CommandRegistration
 
     index = ActivationIndex(
         packages={}, commands={"tools lint": CommandRegistration("tools", "tools/lint::main")}
@@ -151,7 +151,7 @@ def test_one_completion_loads_the_command_index_once(
         completion, "current_config_context", lambda: ConfigContext(tmp_path, None, tmp_path)
     )
 
-    from agm.cli import app
+    from agnette.agm.cli import app
 
     shell_complete = ZshComplete(typer.main.get_command(app), {}, "agm", "_AGM_COMPLETE")
     shell_complete.get_completions(["tools", "lint"], "--")
@@ -171,7 +171,7 @@ _PATH_PROGRAM = (
 
 
 def _completion_values(args: list[str], incomplete: str) -> list[str]:
-    from agm.cli import app
+    from agnette.agm.cli import app
 
     shell_complete = ZshComplete(typer.main.get_command(app), {}, "agm", "_AGM_COMPLETE")
     return [cast(str, item.value) for item in shell_complete.get_completions(args, incomplete)]
@@ -262,8 +262,8 @@ def test_registered_command_completes_path_parameter_values(
 ) -> None:
     import semver
 
-    from agm.config.context import ConfigContext
-    from agm.packages.activation import (
+    from agnette.config.context import ConfigContext
+    from agnette.packages.activation import (
         ActivationIndex,
         ActivePackage,
         CommandRegistration,
@@ -314,8 +314,8 @@ def test_installed_exec_reference_offers_program_value_argument_completion(
 ) -> None:
     import semver
 
-    from agm.config.context import ConfigContext
-    from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
+    from agnette.config.context import ConfigContext
+    from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 
     home = tmp_path / "home"
     package_root = home / ".agm" / "packages" / "tools" / "1.0.0"
@@ -336,11 +336,11 @@ def test_installed_exec_reference_offers_program_value_argument_completion(
         completion, "current_config_context", lambda: ConfigContext(home, None, tmp_path)
     )
     monkeypatch.setattr(
-        "agm.config.context.current_config_context",
+        "agnette.config.context.current_config_context",
         lambda: ConfigContext(home, None, tmp_path),
     )
 
-    from agm.cli import app
+    from agnette.agm.cli import app
 
     shell_complete = ZshComplete(typer.main.get_command(app), {}, "agm", "_AGM_COMPLETE")
     values = [
@@ -357,8 +357,8 @@ def test_installed_exec_reference_uses_its_selected_program_for_completion(
 ) -> None:
     import semver
 
-    from agm.config.context import ConfigContext
-    from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
+    from agnette.config.context import ConfigContext
+    from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 
     home = tmp_path / "home"
     package_root = home / ".agm" / "packages" / "tools" / "1.0.0"
@@ -380,11 +380,11 @@ def test_installed_exec_reference_uses_its_selected_program_for_completion(
         completion, "current_config_context", lambda: ConfigContext(home, None, tmp_path)
     )
     monkeypatch.setattr(
-        "agm.config.context.current_config_context",
+        "agnette.config.context.current_config_context",
         lambda: ConfigContext(home, None, tmp_path),
     )
 
-    from agm.cli import app
+    from agnette.agm.cli import app
 
     shell_complete = ZshComplete(typer.main.get_command(app), {}, "agm", "_AGM_COMPLETE")
     values = [
@@ -413,11 +413,11 @@ def test_completion_treats_an_unreadable_colon_named_file_as_a_file_not_a_refere
     unreadable.write_text("let level: int = 1\n", encoding="utf-8")
     unreadable.chmod(0)
     try:
-        from agm.cli_support.exec_target import is_installed_reference
+        from agnette.agm.cli_support.exec_target import is_installed_reference
 
         assert is_installed_reference(str(unreadable), code=None) is False
 
-        from agm.cli import app
+        from agnette.agm.cli import app
 
         shell_complete = ZshComplete(typer.main.get_command(app), {}, "agm", "_AGM_COMPLETE")
         values = [
@@ -436,9 +436,9 @@ def test_completion_treats_an_unreadable_colon_named_file_as_a_file_not_a_refere
 def test_registered_param_completion_degrades_on_unknown_or_unavailable_commands(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_dispatch as dispatch
-    from agm.config.context import ConfigContext
-    from agm.packages.activation import ActivationIndex
+    import agnette.agm.cli_dispatch as dispatch
+    from agnette.config.context import ConfigContext
+    from agnette.packages.activation import ActivationIndex
 
     context = ConfigContext(tmp_path / "home", None, tmp_path)
     monkeypatch.setattr(completion, "current_config_context", lambda: context)
@@ -467,8 +467,8 @@ def test_registered_command_param_completion_offers_program_value_argument_flags
     """
     import semver
 
-    from agm.config.context import ConfigContext
-    from agm.packages.activation import (
+    from agnette.config.context import ConfigContext
+    from agnette.packages.activation import (
         ActivationIndex,
         ActivePackage,
         CommandRegistration,
@@ -528,7 +528,7 @@ def test_registered_parameter_fixture_completion_offers_qualified_module_flags(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Registered completion exposes resolving spellings from every fixture module."""
-    from agm.config.context import ConfigContext
+    from agnette.config.context import ConfigContext
 
     home = tmp_path / "home"
     install_directory(_PARAM_SURFACE_PACKAGE, home=home, env={})
@@ -555,8 +555,8 @@ def test_registered_parameter_fixture_completion_offers_qualified_module_flags(
 def test_complete_registered_commands_silently_degrades_on_bad_index(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import agm.cli_dispatch as dispatch
-    from agm.config.context import ConfigContext
+    import agnette.agm.cli_dispatch as dispatch
+    from agnette.config.context import ConfigContext
 
     monkeypatch.setattr(
         completion,
@@ -809,7 +809,7 @@ def test_complete_run_command_includes_config_aliases(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "agm.config.context.discover_current_project_dir", lambda cwd=None, env=None: project
+        "agnette.config.context.discover_current_project_dir", lambda cwd=None, env=None: project
     )
 
     assert completion.complete_run_command(_make_ctx(), "ai") == ["ai-review"]
@@ -1448,7 +1448,8 @@ class TestCompleteRunCommand:
         monkeypatch.setenv("PATH", "")
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(
-            "agm.config.context.discover_current_project_dir", lambda cwd=None, env=None: tmp_path
+            "agnette.config.context.discover_current_project_dir",
+            lambda cwd=None, env=None: tmp_path,
         )
         monkeypatch.setattr(
             completion,
@@ -1846,7 +1847,7 @@ class TestExecCommandShellComplete:
     """
 
     def _get_cli(self) -> click.BaseCommand:
-        from agm.cli import app
+        from agnette.agm.cli import app
 
         return typer.main.get_command(app)
 
@@ -1947,7 +1948,7 @@ class TestProgramArgumentCompletionItems:
 
     def _values(self, source: str, requested: str | None, incomplete: str) -> list[str]:
         """Return the flags completion offers for *source*'s selected program."""
-        from agm.cli_support.program_discovery import select_entry_program
+        from agnette.agm.cli_support.program_discovery import select_entry_program
         from tests._agl_helpers import discover_program_declarations_from_source
 
         programs = discover_program_declarations_from_source(source)
@@ -2032,12 +2033,12 @@ class TestExecCommandShellCompleteEdgeCases:
     """Coverage for edge branches in ``ExecCommand.shell_complete``."""
 
     def _get_cli(self) -> click.BaseCommand:
-        from agm.cli import app
+        from agnette.agm.cli import app
 
         return typer.main.get_command(app)
 
     def _get_exec_cmd(self) -> completion.ExecCommand:
-        from agm.cli import app
+        from agnette.agm.cli import app
 
         cli = typer.main.get_command(app)
         # cli is a TyperGroup (click.Group); .commands is dict[str, click.Command]
@@ -2153,7 +2154,7 @@ def test_pkg_install_completion_includes_directories_and_archives(
     (work / "notes.txt").write_text("not a package", encoding="utf-8")
     monkeypatch.chdir(work)
 
-    from agm.cli import app
+    from agnette.agm.cli import app
 
     cli = typer.main.get_command(app)
     shell_complete = ZshComplete(cli, {}, "agm", "_AGM_COMPLETE")

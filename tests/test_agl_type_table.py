@@ -1,6 +1,6 @@
 """Tests for the shared nominal type-declaration table.
 
-Covers ``TypeDef``/``TypeTable`` in ``agm.agl.semantics.type_table`` — the
+Covers ``TypeDef``/``TypeTable`` in ``agnette.agl.semantics.type_table`` — the
 sole source of record/enum field and variant shapes, since ``RecordType``/
 ``EnumType`` handles carry none — and how it is populated: the type builder
 (``typecheck/builder.py``), the graph pre-pass (``typecheck/graph.py``), and
@@ -14,23 +14,23 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.constraints import ConstraintKind
-from agm.agl.ir.reserved_nominals import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.constraints import ConstraintKind
+from agnette.agl.ir.reserved_nominals import (
     NO_DECL_ID,
     RESERVED_NOMINAL_NAMES,
     reserved_nominal_id,
 )
-from agm.agl.modules.ids import ENTRY_ID, RESERVED_ID, STD_PRELUDE_ID, ModuleId
-from agm.agl.repl import ReplSession
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import UnknownQualifierError
-from agm.agl.semantics.analyses import (
+from agnette.agl.modules.ids import ENTRY_ID, RESERVED_ID, STD_PRELUDE_ID, ModuleId
+from agnette.agl.repl import ReplSession
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import UnknownQualifierError
+from agnette.agl.semantics.analyses import (
     compute_finite_closure,
     compute_uninhabited,
     nominal_references,
 )
-from agm.agl.semantics.type_table import (
+from agnette.agl.semantics.type_table import (
     BUILTIN_PRELUDE_TYPE_DEFS,
     BadDictKey,
     BadDictKeyField,
@@ -50,7 +50,7 @@ from agm.agl.semantics.type_table import (
     satisfies,
     source_enum_member_decl_id,
 )
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.types import (
     BUILTIN_PRELUDE_TYPES,
     COMPATIBILITY_PRELUDE_TYPE_NAMES,
     EXCEPTION_BASE,
@@ -72,7 +72,7 @@ from agm.agl.semantics.types import (
     TypeVarType,
     UnitType,
 )
-from agm.agl.syntax.nodes import (
+from agnette.agl.syntax.nodes import (
     EnumDef,
     ExceptionDef,
     LetDecl,
@@ -81,9 +81,9 @@ from agm.agl.syntax.nodes import (
     VariantDef,
     VariantRef,
 )
-from agm.agl.typecheck import AglTypeError, CheckedModule
-from agm.agl.typecheck.program import check_program
-from agm.agl.zones import ParamZone
+from agnette.agl.typecheck import AglTypeError, CheckedModule
+from agnette.agl.typecheck.program import check_program
+from agnette.agl.zones import ParamZone
 from tests._agl_helpers import enum_typedef, register_typedef, strip_decl_ids
 from tests.agl.ir_harness import evaluate_ir_output, make_graph_from_files
 from tests.agl.module_graph import resolve_and_check_inline_entry

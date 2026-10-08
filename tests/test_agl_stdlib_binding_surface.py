@@ -1,7 +1,7 @@
 """Guard test: the standard library's exported module-level binding surface.
 
 A module-level simple ``let``/``var`` of any std module is exported (see
-``agm.agl.syntax.nodes.exported_binding_name``), so adding one silently
+``agnette.agl.syntax.nodes.exported_binding_name``), so adding one silently
 changes what an importer can read or write. This asserts the exact reviewed
 set, and that none of it leaks into ``std/prelude``'s bare surface. A binding
 that is also ``@param`` is a strictly bigger promise than a plain export — it
@@ -16,11 +16,11 @@ from collections.abc import Iterator
 
 import pytest
 
-from agm.agl.parser import parse_program
-from agm.agl.scope.attributes import recognize_attributes
-from agm.agl.scope.symbols import AglScopeError
-from agm.agl.syntax.nodes import Item, LetDecl, ScopeRegion, VarDecl, exported_binding_name
-from agm.packages.layout import MODULE_TREE_DIRNAME
+from agnette.agl.parser import parse_program
+from agnette.agl.scope.attributes import recognize_attributes
+from agnette.agl.scope.symbols import AglScopeError
+from agnette.agl.syntax.nodes import Item, LetDecl, ScopeRegion, VarDecl, exported_binding_name
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._agl_helpers import REPO_STDLIB_ROOT
 from tests.agl.module_graph import _DEFAULT_CAPABILITIES, resolve_and_check_inline_entry
 

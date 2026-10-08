@@ -79,7 +79,7 @@ defined in terms of itself is a static error.
 A hole renders a `text`, `int`, `decimal`, or `bool` constant exactly as
 interpolation renders it at runtime. An array, dict, constructor, `unit`, or
 `null` constant has no compile-time text and cannot fill a hole, though it
-remains an ordinary constant elsewhere. The whole argument must be text: a
+is an ordinary constant elsewhere. The whole argument must be text: a
 number folds inside a hole, not as the argument itself.
 
 Folding happens first, so an attribute that narrows its text to a particular
@@ -231,7 +231,7 @@ parameter boundary.
 
 Its initializer supplies the value when the host leaves the parameter unset;
 when the host supplies a value, that value is bound instead and the initializer
-is not evaluated. A `var` remains mutable after that initial host value is
+is not evaluated. A `var` stays mutable after that initial host value is
 bound. When exported (see [Modules](modules.md#re-exports-and-visibility)), an
 importer may also write it.
 

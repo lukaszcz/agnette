@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-import agm.project.workspace_env as workspace_env
-from agm.core import dry_run
-from agm.project.workspace_env import load_current_workspace_env
-from agm.project.workspace_setup import run_setup
+import agnette.agm.project.workspace_env as workspace_env
+from agnette.agm.project.workspace_env import load_current_workspace_env
+from agnette.agm.project.workspace_setup import run_setup
+from agnette.core import dry_run
 from tests._git_helpers import add_linked_worktree, init_repo
 
 

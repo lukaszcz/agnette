@@ -146,12 +146,12 @@ def _recv_with_fds(conn: socket.socket) -> tuple[bytes, list[int]]:
 # AgL stack is the point of the exercise; the CLI modules come along because
 # they are what reaches it.
 _PRELOADED = (
-    "agm.cli",
-    "agm.cli_dispatch",
-    "agm.cli_support.program_options",
-    "agm.commands.exec_program",
-    "agm.agl.pipeline",
-    "agm.agl.runtime",
+    "agnette.agm.cli",
+    "agnette.agm.cli_dispatch",
+    "agnette.agm.cli_support.program_options",
+    "agnette.agm.commands.exec_program",
+    "agnette.agl.pipeline",
+    "agnette.agl.runtime",
 )
 
 
@@ -174,7 +174,7 @@ def _run_command(request: Invocation) -> object:
     # clear it so this child derives its temp directory from its own environ.
     tempfile.tempdir = None
     sys.argv = list(argv)
-    from agm.cli import main
+    from agnette.agm.cli import main
 
     return main()
 

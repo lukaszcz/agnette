@@ -1,4 +1,4 @@
-"""Tests for the plain, styling-free REPL front end (``agm.agl.repl.plain_console``).
+"""Tests for the plain, styling-free REPL front end (``agnette.agl.repl.plain_console``).
 
 Drives :func:`run_plain_console` with plain ``io.StringIO`` streams — no
 prompt_toolkit harness needed — and exercises the engagement predicate
@@ -14,8 +14,8 @@ from collections.abc import Callable
 
 import pytest
 
-from agm.agl.repl import ReplSession
-from agm.agl.repl.plain_console import PlainReader, plain_mode_engaged, run_plain_console
+from agnette.agl.repl import ReplSession
+from agnette.agl.repl.plain_console import PlainReader, plain_mode_engaged, run_plain_console
 
 # ---------------------------------------------------------------------------
 # prompt_toolkit containment
@@ -35,7 +35,8 @@ class TestPromptToolkitContainment:
             [
                 sys.executable,
                 "-c",
-                "import agm.agl.repl.plain_console, sys; print('prompt_toolkit' in sys.modules)",
+                "import agnette.agl.repl.plain_console, sys; "
+                "print('prompt_toolkit' in sys.modules)",
             ],
             capture_output=True,
             text=True,
@@ -48,7 +49,7 @@ class TestPromptToolkitContainment:
             [
                 sys.executable,
                 "-c",
-                "import agm.agl.repl.loop, sys; print('prompt_toolkit' in sys.modules)",
+                "import agnette.agl.repl.loop, sys; print('prompt_toolkit' in sys.modules)",
             ],
             capture_output=True,
             text=True,

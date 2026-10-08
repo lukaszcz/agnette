@@ -1,6 +1,6 @@
 """Minimal type stubs for ``requests.exceptions``.
 
-Only the classes ``agm.core.http`` classifies transport failures against are
+Only the classes ``agnette.core.http`` classifies transport failures against are
 typed, each with a plain ``__init__`` so isinstance checks and class
 references stay free of ``Any`` (the real classes take ``*args: Any,
 **kwargs: Any``, which taints both).

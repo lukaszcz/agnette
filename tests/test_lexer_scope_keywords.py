@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.lexer import spaced_qualifier_collector, tokenize, unclosed_scope_path
-from agm.agl.lexer.errors import LexError
+from agnette.agl.lexer import spaced_qualifier_collector, tokenize, unclosed_scope_path
+from agnette.agl.lexer.errors import LexError
 
 
 def _tokens(source: str) -> list[tuple[str, str]]:

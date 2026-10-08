@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules import loader
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.parsed_module_cache import clear_parsed_module_cache
+from agnette.agl.modules import loader
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
 
 __all__ = ["parse_counts"]
 

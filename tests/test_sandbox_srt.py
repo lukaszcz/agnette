@@ -13,9 +13,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from agm.config.general import CommandSetting, RunConfig
-from agm.sandbox.prepare import prepare
-from agm.sandbox.request import SandboxRequest, SandboxSpec
+from agnette.config.general import CommandSetting, RunConfig
+from agnette.sandbox.prepare import prepare
+from agnette.sandbox.request import SandboxRequest, SandboxSpec
 
 
 def _run_config() -> RunConfig:

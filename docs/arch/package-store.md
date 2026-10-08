@@ -16,15 +16,15 @@ Archives (`.agmpkg`) are deterministic ZIP files. Readers bound metadata, entry 
 
 ## The Managed `std` Package
 
-The standard library ships as a managed store package whose version must exactly match the running AgM. Installation accepts only the shipped `std` source at that version, and the managed package cannot be uninstalled. A wheel falls back to its bundled copy when the store has not been populated. A development `std` checkout whose module tree holds the anchored path outranks the store selection — so editing the library never resolves against an installed copy, and a version difference is not a mismatch; an unrelated package named `std` beside the anchor is inert. Whichever tree is selected is the one standard-library root — its `src/` tree mounts as `std` — and the owning package of an entry file inside it.
+The standard library ships as a managed store package whose version must exactly match the running AgM. Installation accepts only the shipped `std` source at that version, and the managed package cannot be uninstalled. The shared root locator `agnette.stdlib_locator` supplies the fallback from `agnette/stdlib/` in a wheel or `packages/stdlib/` in a checkout when the store has not been populated. A development `std` checkout whose module tree holds the anchored path outranks the store selection — so editing the library never resolves against an installed copy, and a version difference is not a mismatch; an unrelated package named `std` beside the anchor is inert. Whichever tree is selected is the one standard-library root — its `src/` tree mounts as `std` — and the owning package of an entry file inside it.
 
 ## Code Entry Points
 
-- `src/agm/packages/store.py`, `errors.py` — store layout and enumeration, with shared lifecycle errors; metadata reads do not import installation or compiler code. Installation loads validation and download dependencies only when needed.
-- `src/agm/packages/record.py`, `archive.py` — integrity records and portable archives.
-- `src/agm/packages/distribution.py` — the one distribution view of a source tree.
-- `src/agm/packages/activation.py`, `install.py`, `fetch.py` — active selections, lifecycle operations, downloads.
-- `src/agm/packages/python_deps.py` — the active selection's Python-requirement union and its sync through `src/agm/core/pyenv.py`.
-- `src/agm/packages/stdlib.py` — anchor-aware `std` root selection; `src/agm/stdlib_locator.py` — the shipped fallback tree.
-- `src/agm/commands/pkg/` — `install`, `switch`, `uninstall`, `list`, `info`, `create`, `check`, `sync`.
+- `src/agnette/packages/store.py`, `errors.py` — store layout and enumeration, with shared lifecycle errors; metadata reads do not import installation or compiler code. Installation loads validation and download dependencies only when needed.
+- `src/agnette/packages/record.py`, `archive.py` — integrity records and portable archives.
+- `src/agnette/packages/distribution.py` — the one distribution view of a source tree.
+- `src/agnette/packages/activation.py`, `install.py`, `fetch.py` — active selections, lifecycle operations, downloads.
+- `src/agnette/packages/python_deps.py` — the active selection's Python-requirement union and its sync through `src/agnette/core/pyenv.py`.
+- `src/agnette/packages/stdlib.py` — anchor-aware `std` root selection; `src/agnette/stdlib_locator.py` — the shipped fallback tree.
+- `src/agnette/agm/commands/pkg/` — `install`, `switch`, `uninstall`, `list`, `info`, `create`, `check`, `sync`.
 - `tests/test_packages_store.py`, `test_packages_install.py`, `test_packages_archive.py`, `test_packages_record.py`, `test_packages_distribution.py`, `test_packages_python_deps.py`.

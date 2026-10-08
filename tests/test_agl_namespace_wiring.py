@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import HiddenMemberError
-from agm.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.loader import ModuleGraph
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import HiddenMemberError
+from agnette.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.loader import ModuleGraph
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
@@ -20,8 +20,8 @@ from agm.agl.scope.symbols import (
     UnknownQualifierError,
     UseDeclarationOrigin,
 )
-from agm.agl.typecheck import AglTypeError
-from agm.agl.typecheck.program import check_program
+from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
     base_caps,
     make_graph_from_files,

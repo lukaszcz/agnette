@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 import semver
 
-from agm.config.home import agm_home_dir, agm_path_candidates
-from agm.config.module_roots import ModuleRootsConfig, resolve_lib_root, resolve_stdlib_root
-from agm.packages.activation import ActivationIndex, ActivePackage, write_activation_index
-from agm.packages.record import write_record
-from agm.version import AGM_VERSION
+from agnette.config.home import agm_home_dir, agm_path_candidates
+from agnette.config.module_roots import ModuleRootsConfig, resolve_lib_root, resolve_stdlib_root
+from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
+from agnette.packages.record import write_record
+from agnette.version import AGM_VERSION
 
 
 def _activate_stdlib(home: Path, version: str = AGM_VERSION) -> Path:
@@ -65,7 +65,7 @@ class TestAgmHomeDir:
         activation_index = prefix / ".agm" / "packages" / "index.toml"
         activation_index.parent.mkdir(parents=True)
         activation_index.write_text("")
-        monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: prefix)
+        monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: prefix)
 
         assert agm_home_dir(home=home, env={}) == prefix / ".agm"
 
@@ -74,7 +74,7 @@ class TestAgmHomeDir:
     ) -> None:
         home = tmp_path / "home"
         prefix = tmp_path / "prefix"
-        monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: prefix)
+        monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: prefix)
 
         assert agm_home_dir(home=home, env={}) == home / ".agm"
 
@@ -87,7 +87,7 @@ class TestAgmHomeDir:
         activation_index = prefix / ".agm" / "packages" / "index.toml"
         activation_index.parent.mkdir(parents=True)
         activation_index.write_text("")
-        monkeypatch.setattr("agm.config.home.agm_installation_prefix", lambda: prefix)
+        monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: prefix)
 
         assert agm_home_dir(home=home, env={"AGM_HOME": str(override)}) == override
 

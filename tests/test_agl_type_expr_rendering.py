@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.parser import parse_type_expr
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.syntax.types import DictT, IntT, TextT, render_type_expr
+from agnette.agl.parser import parse_type_expr
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.types import DictT, IntT, TextT, render_type_expr
 
 
 @pytest.mark.parametrize(

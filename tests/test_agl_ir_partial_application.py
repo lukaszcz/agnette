@@ -5,8 +5,8 @@ from __future__ import annotations
 import decimal
 from pathlib import Path
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.semantics.values import DecimalValue, IntValue, RecordValue, TextValue
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.semantics.values import DecimalValue, IntValue, RecordValue, TextValue
 from tests.agl.ir_harness import evaluate_ir, evaluate_ir_graph, lower_inline_ir
 
 

@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.pipeline import RunResult
-from agm.agl.scope.symbols import AglScopeError
+from agnette.agl import PipelineDriver
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.pipeline import RunResult
+from agnette.agl.scope.symbols import AglScopeError
 from tests._agl_helpers import run_inline_code
 from tests._http_helpers import FakeHttp, fake_session, install
 from tests.agl.module_graph import resolve_and_check_inline_entry
@@ -645,7 +645,7 @@ def test_session_is_created_once_per_run_and_closed_at_the_boundary(
         open_calls.append(None)
         return session
 
-    monkeypatch.setattr("agm.core.http.open_session", fake_open)
+    monkeypatch.setattr("agnette.core.http.open_session", fake_open)
     closed: list[None] = []
     original_close = session.close
 

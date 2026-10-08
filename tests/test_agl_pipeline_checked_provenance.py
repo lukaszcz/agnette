@@ -12,15 +12,15 @@ from unittest.mock import patch
 
 import pytest
 
-from agm.agl.lower import lower_program
-from agm.agl.pipeline import (
+from agnette.agl.lower import lower_program
+from agnette.agl.pipeline import (
     ArgumentPreflight,
     ArtifactProvenanceError,
     PipelineDriver,
     PreparedProgram,
 )
-from agm.agl.runtime.arguments import ProgramArguments
-from agm.agl.runtime.codec import TextCodec
+from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.runtime.codec import TextCodec
 from tests._agl_helpers import agl_roots, prepare_inline_code
 
 
@@ -122,7 +122,7 @@ def test_run_resumes_the_executable_from_its_preflight(
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     prepared = prepare_inline_code('print "fresh"')
 
-    with patch("agm.agl.lower.lower_program", wraps=lower_program) as lower:
+    with patch("agnette.agl.lower.lower_program", wraps=lower_program) as lower:
         preflight = _preflight(runtime, prepared)
         assert preflight.result.ok
         assert preflight.executable is not None
@@ -149,7 +149,7 @@ def test_run_relowers_a_preflight_executable_when_host_capabilities_change(
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     prepared = prepare_inline_code('print "fresh"')
 
-    with patch("agm.agl.lower.lower_program", wraps=lower_program) as lower:
+    with patch("agnette.agl.lower.lower_program", wraps=lower_program) as lower:
         preflight = _preflight(runtime, prepared)
         assert preflight.result.ok
         assert preflight.executable is not None

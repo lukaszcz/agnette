@@ -13,14 +13,14 @@ from typing import cast
 
 import pytest
 
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import parse_program
-from agm.agl.pipeline import PipelineDriver, RunResult
-from agm.agl.runtime.option import some_value
-from agm.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue, Value
-from agm.agl.syntax import BuiltinVarDecl, Call, Expr, VarRef, walk
-from agm.agl.syntax.constants import is_constant_expression
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import parse_program
+from agnette.agl.pipeline import PipelineDriver, RunResult
+from agnette.agl.runtime.option import some_value
+from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue, Value
+from agnette.agl.syntax import BuiltinVarDecl, Call, Expr, VarRef, walk
+from agnette.agl.syntax.constants import is_constant_expression
 from tests._agl_helpers import agent_value, agl_roots, run_inline_code
 
 

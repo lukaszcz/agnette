@@ -8,15 +8,15 @@ from pathlib import Path
 import pytest
 import semver
 
-from agm.agl import PipelineDriver
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import _wire_extern_registry
-from agm.agl.runtime.externs import ExternRegistry
-from agm.agl.scope.program import resolve_program
-from agm.agl.typecheck.program import check_program
-from agm.packages.manifest import PackageManifest
-from agm.packages.model import PackageInfo
+from agnette.agl import PipelineDriver
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import _wire_extern_registry
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.typecheck.program import check_program
+from agnette.packages.manifest import PackageManifest
+from agnette.packages.model import PackageInfo
 from tests._agl_helpers import agl_roots
 from tests.agl.module_graph import load_graph
 

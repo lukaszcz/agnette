@@ -525,7 +525,7 @@ let item = make-items()[0]
 ```
 
 Whitespace matters. `xs[0]` is indexing because the `[` is adjacent to `xs`.
-`f [0]` remains the single-argument call sugar `f([0])`.
+`f [0]` is the single-argument call sugar `f([0])`.
 
 Array and text indexes must be `int`. Negative indexes count from the end, as
 in Python: `xs[-1]` selects the last element. A text index returns one Unicode
@@ -946,7 +946,7 @@ let label: text = if | score > 90 => "A" | score > 75 => "B" | else => "C"
 
 The `else` branch is optional. It uses the canonical `branch_body` production
 ([Grammar](grammar.md#if)). With `else`, all branch result types must agree after
-`int → decimal` widening. Without `else`, the `if` remains an expression
+`int → decimal` widening. Without `else`, the `if` is an expression
 but has type `unit`, as described below.
 
 ## Expressions with type `unit`

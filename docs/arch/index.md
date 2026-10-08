@@ -1,6 +1,6 @@
 # Agnette Architecture Overview
 
-Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities and a complete agent workflow DSL. **AgM (Agnette Manager)** manages agent-oriented projects (workspaces, git worktrees, dependencies, sandboxes, tmux sessions). **AgL (Agnette Language)** is the statically typed workflow DSL for orchestrating agents and shell commands. The `agnette` Python distribution retains the `agm` executable and import package; `.agm`, `AGM_*`, and `.agl` remain the technical names.
+Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities and a complete agent workflow DSL. **AgM (Agnette Manager)** manages agent-oriented projects (workspaces, git worktrees, dependencies, sandboxes, tmux sessions). **AgL (Agnette Language)** is the statically typed workflow DSL for orchestrating agents and shell commands. The `agnette` Python distribution has one root package: `agnette.agm` owns the manager, `agnette.agl` owns the language, and both use shared services under `agnette`. The executable is `agm`; configuration uses `.agm` and `AGM_*`, and language source files use `.agl`.
 
 Start here for the system shape, then read only the subsystem documents relevant to the task.
 
@@ -16,12 +16,12 @@ Agnette is layered from a thin CLI down to reusable primitives, with AgL as a se
 
 ## Architecture and Design Decisions
 
-- **The command tree is the directory tree.** `src/agm/commands/` mirrors the CLI command hierarchy one-to-one, including nested groups. Finding a command's code is a path lookup.
-- **Commands orchestrate; primitives do.** Command modules wire config, project layout, git, and agents together. Reusable behavior lives in `util/`, `core/`, `project/`, `vcs/`, `config/`, and `agent/`, never copied into individual commands.
+- **The command tree is the directory tree.** `src/agnette/agm/commands/` mirrors the CLI command hierarchy one-to-one, including nested groups. Finding a command's code is a path lookup.
+- **Commands orchestrate; primitives do.** Command modules wire config, project layout, git, and agents together. Manager-specific behavior lives in `agnette.agm`'s project and tmux services; shared behavior lives in `agnette`'s core, utilities, VCS, configuration, agents, packages, and sandboxing, never copied into commands.
 - **Configuration is layered TOML.** Settings merge across install, home, project, and workspace scopes; per-command sections override base sections; AgL source writes and CLI flags override the file layers for the relevant commands.
 - **The filesystem is the project model.** A project is a directory layout (embedded or split) plus git worktrees and dependency checkouts. AgM detects state from disk rather than maintaining a separate database.
 - **Agent calls have a shared host boundary.** AgL resolves typed agent values and dispatches them through shared subprocess and session services with captured output or interactive terminal handoff.
-- **AgL is firewalled, not isolated.** Its static passes depend only on a stable AST, never on the parser, and its execution façade is lazily imported by its CLI and package-domain callers. It still reuses the shared layers below it rather than reimplementing them.
+- **AgL is firewalled, not isolated.** `agnette.agm` and `agnette.agl` use one shared layer without duplicated services. Import layering and the lazy `agnette.agl` façade preserve leaf imports; static passes depend on the AST, not the parser. The temporary Python companion API is `agl`, separate from the implementation namespace.
 
 ## What To Read Next
 
@@ -37,15 +37,16 @@ Agnette is layered from a thin CLI down to reusable primitives, with AgL as a se
 
 ## Code Entry Points
 
-- `src/agm/cli.py` defines the Typer app and every command group; `src/agm/cli_dispatch.py` is the fallback for package-registered commands; `src/agm/parser.py` holds help text; `src/agm/completion.py` provides shell completions. `src/agm/command_catalog.py` is a pure leaf for CLI help and command-path shape.
-- `src/agm/commands/` contains the command implementations, one subtree per command group.
-- `src/agm/cli_support/` holds the typed argument containers and the shared AgL CLI support (engine seeds, program parameters, execution roots and targets).
-- `src/agm/core/` holds the process, environment, filesystem, TOML, HTTP, logging, and dry-run primitives; `src/agm/util/` holds pure, `agm`-import-free helpers.
-- `src/agm/config/` loads and resolves general and sandbox configuration; `src/agm/stdlib_locator.py` finds the shipped standard library.
-- `src/agm/agent/` implements agent runner invocation and session backends.
-- `src/agm/project/`, `src/agm/vcs/`, `src/agm/tmux/` implement project layout, git integration, and tmux sessions.
-- `src/agm/packages/` implements package manifests, identity, the store, and discipline validation.
-- `src/agm/sandbox/` implements the sandbox preparation library, with SRT as its shipped backend.
-- `src/agm/agl/` is the AgL language implementation and host runtime; `packages/stdlib/src/` is the AgL standard library with its Python companions; `packages/sysone/` is the repository's `sysone/jev` package.
-- `src/agm/version.py` defines AgM's release version; package and project metadata keep it in lockstep.
+- `src/agnette/agm/cli.py` defines the Typer app and every command group; `src/agnette/agm/cli_dispatch.py` is the fallback for package-registered commands; `src/agnette/agm/parser.py` holds help text; `src/agnette/agm/completion.py` provides shell completions. `src/agnette/command_catalog.py` is a pure leaf for CLI help and command-path shape.
+- `src/agnette/agm/commands/` contains the command implementations, one subtree per command group.
+- `src/agnette/agm/cli_support/` holds the typed argument containers and the shared AgL CLI support (engine seeds, program parameters, execution roots and targets).
+- `src/agnette/core/` holds the process, environment, filesystem, TOML, HTTP, logging, and dry-run primitives; `src/agnette/util/` holds pure, stdlib-only helpers.
+- `src/agnette/config/` loads and resolves general and sandbox configuration; `src/agnette/stdlib_locator.py` finds the shipped standard library.
+- `src/agnette/agent/` implements agent runner invocation and session backends.
+- `src/agnette/vcs/` provides shared git integration, also used by core logging.
+- `src/agnette/agm/project/` and `src/agnette/agm/tmux/` implement manager-specific project layout and tmux sessions.
+- `src/agnette/packages/` implements package manifests, identity, the store, and discipline validation.
+- `src/agnette/sandbox/` implements the sandbox preparation library, with SRT as its shipped backend.
+- `src/agnette/agl/` is the AgL language implementation and host runtime; `packages/stdlib/src/` is the AgL standard library with its Python companions; `packages/sysone/` is the repository's `sysone/jev` package.
+- `src/agnette/__init__.py` initializes the process-wide integer digit limit; `src/agnette/version.py` defines Agnette's release version, kept in lockstep with package and project metadata.
 - `tests/` holds the test suite, `docs/` the documentation, `config/` the config templates and editor modes, `stubs/` local typing stubs, and `tools/` repository tooling.

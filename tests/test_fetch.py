@@ -6,7 +6,7 @@ import os
 import subprocess
 from pathlib import Path
 
-import agm.commands.sync.fetch as fetch_cmd
+import agnette.agm.commands.sync.fetch as fetch_cmd
 
 
 def _init_git_repo(path: Path) -> None:

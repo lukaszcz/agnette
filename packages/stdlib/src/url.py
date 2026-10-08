@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 from agl import array, nominals, option, option_none, option_some
 
-from agm.agl.runtime.boundary import raise_parse_error
+from agnette.agl.runtime.boundary import raise_parse_error
 
 Option = nominals.std.option.Option
 Pair = nominals.std.pair.Pair

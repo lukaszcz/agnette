@@ -60,8 +60,9 @@ missing callables, import failures, and unsatisfied
 package are load-time diagnostics. In a REPL session a companion is imported
 once until `:reset`.
 
-During the import, AgM temporarily supplies a module named `agl`. A companion
-imports the program's nominal classes, value constructors, and exception carrier from it:
+During the import, AgM temporarily supplies a module named `agl`, distinct from the
+`agnette.agl` implementation package. A companion imports the program's nominal classes,
+value constructors, and exception carrier from it:
 
 ```python
 from agl import AglException, Box, Shape, array, dict, json
@@ -212,7 +213,7 @@ container-valued `AglJson` is therefore usable as a Python dict key.
 
 Every AgL `text` value is a sequence of Unicode scalar values: a companion
 must return a `str` with no lone surrogate. A companion reading an OS name or
-decoding bytes checks it (for example with `agm.util.unicode`) or decodes
+decoding bytes checks it (for example with `agnette.util.unicode`) or decodes
 strictly; this is not checked at the boundary, so a companion that returns an
 invalid `str` produces text that fails wherever the program first encodes it.
 
@@ -242,7 +243,7 @@ Each program receives one synthesized class per nominal identity. Records and
 enum-member records without `var` fields, and exceptions, have immutable fields
 and `__match_args__`; records with `var` fields cross as live mutable views. An
 enum class is a namespace over its member classes. An inline member record is
-available below its enum scope, so `Shape.circle` remains its Python spelling. A
+available below its enum scope, so `Shape.circle` is its Python spelling. A
 nominal whose final name is unique and does not collide with a built-in `agl` API
 can be imported directly. Use the identity-preserving `nominals` namespace,
 rooted by module path — or by `entry` for a module with no path identity — and

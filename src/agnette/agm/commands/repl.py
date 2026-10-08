@@ -1,0 +1,244 @@
+"""Implementation of the ``agm repl`` command.
+
+Launches an interactive read-eval-print loop for the AgL workflow language.
+The REPL shares ``agm exec``'s ``[exec]`` configuration (default-agent,
+default-sandbox, and timeout), so an interactive session evaluates entries
+with the same agent dispatch backing a batch ``agm exec`` run would use.
+
+The command itself is thin: it resolves configuration the same way ``exec``
+does, builds a value-driven dispatcher, constructs a :class:`ReplSession`,
+then hands control to one of two front ends sharing the same UI-free loop
+core (:mod:`agnette.agl.repl.loop`):
+:func:`agnette.agl.repl.console.run_console` (prompt_toolkit) or
+:func:`agnette.agl.repl.plain_console.run_plain_console` (plain line I/O, for a
+pipe, comint buffer, or any other non-terminal consumer). The front end is
+chosen by :func:`~agnette.agl.repl.plain_console.plain_mode_engaged` (non-tty
+stdin/stdout, or ``TERM=dumb``) or by the explicit ``--plain`` flag; there is
+no flag to force prompt_toolkit onto a pipe. All the interactive logic lives
+in :mod:`agnette.agl.repl`.
+
+Each REPL entry and its loaded library modules receive ``std/prelude``
+glob imports by default. An explicit import whose expansion includes
+``std/prelude`` supplies that contribution instead, so plain ``import std/prelude``
+leaves prelude names qualified-only. ``--no-stdlib`` disables the automatic import
+throughout every loaded REPL program. Imports are qualified by default; tails
+and ``use`` declarations opt into bare names.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from collections.abc import Mapping, Sequence
+from functools import partial
+
+from agnette.agent.session import create_agl_session_host
+from agnette.agl.diagnostics import AglError, format_diagnostic
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.repl import ReplSession
+from agnette.agl.repl.plain_console import plain_mode_engaged
+from agnette.agl.runtime.agents import value_driven_agent_factory
+from agnette.agl.runtime.host_settings import HostSettingsPolicy
+from agnette.agl.runtime.types import ParamBindingInfo
+from agnette.agm.cli_support.args import ReplArgs
+from agnette.agm.cli_support.engine_seeds import (
+    build_host_engine_seeds,
+    execution_cli_values,
+    host_agent_spec_resolver,
+    resolve_strict_json,
+    resolve_timeout,
+)
+from agnette.agm.cli_support.param_config import resolve_module_param_values
+from agnette.config.context import current_config_context
+from agnette.config.general import (
+    GeneralConfig,
+    exec_config_from_merged,
+    load_general_config,
+    load_repl_config,
+    save_repl_setting,
+)
+from agnette.config.home import agm_home_dir
+from agnette.config.module_roots import (
+    StdlibResolutionError,
+    load_module_roots,
+    resolve_lib_root,
+    resolve_stdlib_root,
+)
+from agnette.config.qualified_keys import QualifiedConfigLookupError
+from agnette.core.cleanup import preserve_primary_error
+from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
+from agnette.core.process import terminating_signals_exit
+from agnette.core.toml import toml_dict
+from agnette.packages.activation import select_package_roots
+from agnette.packages.development import discover_development_packages
+from agnette.sandbox.prepare import lazy_sandbox_context
+
+
+def _resolve_param_seeds(
+    config: GeneralConfig, _module: ModuleId, params: Sequence[ParamBindingInfo]
+) -> Mapping[StaticBindingKey, object]:
+    """Resolve module-parameter seeds, reporting an ambiguous config key as an ``AglError``."""
+    try:
+        return resolve_module_param_values(config, params)
+    except QualifiedConfigLookupError as exc:
+        raise AglError(str(exc)) from exc
+
+
+def run(args: ReplArgs) -> None:
+    """Run the ``agm repl`` command."""
+    ctx = current_config_context()
+    try:
+        general_config = load_general_config(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
+        merged_config = general_config.merged
+        config = exec_config_from_merged(merged_config)
+    except ValueError as exc:
+        print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    resolve_agent_spec = host_agent_spec_resolver(merged_config)
+    repl_config = load_repl_config(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
+
+    # Resolve max call depth: CLI > [exec] config (config pragmas are not applied
+    # in the REPL).  ``None`` lets the session apply the canonical default.
+    call_depth_limit = (
+        args.max_call_depth if args.max_call_depth is not None else config.max_call_depth
+    )
+
+    # Seed only explicit CLI/config controls.  Trace-service fallbacks remain
+    # absent so a ``builtin var`` initializer can provide the setting default.
+    # The raw timeout preserves its configured spelling.
+    cli_values = execution_cli_values(args)
+    engine_tiers = build_host_engine_seeds(
+        config=config,
+        primary_table=toml_dict(merged_config.get("exec")),
+        cli_values=cli_values,
+    )
+    engine_seeds = engine_tiers.merged()
+    timeout = resolve_timeout(engine_seeds)
+    strict_json = resolve_strict_json(engine_seeds)
+    echo_agent_output = config.echo if args.echo is None else args.echo
+
+    # One resolution for both the readable ``trace`` seed and the trace file
+    # prepared below, exactly as ``agm exec`` does.
+    trace_decision = engine_tiers.trace_decision()
+
+    # Resolve and validate the trace log file up front so an unwritable
+    # ``--trace-file`` exits 1 BEFORE the loop starts rather than crashing
+    # mid-session.
+    trace_path = prepare_trace_log_from_decision(trace_decision, command_name="repl")
+
+    # Built once and shared by every sandboxing consumer this session
+    # dispatches through, so they all resolve sandbox configuration from the
+    # same `SandboxContext` and the `[run.*]` config loads at most once.
+    get_sandbox_context = lazy_sandbox_context(ctx)
+    runner_agent = value_driven_agent_factory(
+        idle_timeout=timeout, get_sandbox_context=get_sandbox_context
+    )
+    session_host = create_agl_session_host(
+        idle_timeout=timeout, get_sandbox_context=get_sandbox_context
+    )
+
+    host_settings_policy = HostSettingsPolicy(
+        resolve_trace_path=LiveTracePathResolver(command_name="repl", auto_path=trace_path),
+    )
+
+    mod_roots_cfg = load_module_roots(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
+    try:
+        stdlib_root = resolve_stdlib_root(home=ctx.home, anchor=ctx.cwd)
+    except StdlibResolutionError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    lib_root = resolve_lib_root(mod_roots_cfg, home=ctx.home)
+    try:
+        package_roots = select_package_roots(
+            home=ctx.home,
+            proj_dir=ctx.proj_dir,
+            cwd=ctx.cwd,
+            development_packages=discover_development_packages(ctx.cwd, home=ctx.home),
+        )
+    except ValueError as exc:
+        print(f"Error: invalid package roots: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    process_environment = dict(os.environ)
+    with (
+        terminating_signals_exit(),
+        preserve_primary_error(session_host.close_all, label="agent session cleanup"),
+    ):
+        session = ReplSession(
+            default_strict_json=strict_json,
+            default_call_depth_limit=call_depth_limit,
+            agent_dispatcher=runner_agent,
+            session_host=session_host,
+            get_sandbox_context=get_sandbox_context,
+            resolve_agent_spec=resolve_agent_spec,
+            shell_exec_timeout=timeout,
+            trace_path=trace_path,
+            echo_agent_output=echo_agent_output,
+            engine_base=engine_seeds,
+            process_environment=process_environment,
+            host_settings_policy=host_settings_policy,
+            cwd=ctx.cwd,
+            stdlib_root=stdlib_root,
+            lib_root=lib_root,
+            configured_roots=mod_roots_cfg.extra,
+            package_roots=package_roots,
+            default_stdlib=not args.no_stdlib,
+            param_seed_resolver=partial(_resolve_param_seeds, general_config),
+        )
+
+        with preserve_primary_error(session.close, label="companion state cleanup"):
+            # Load and check the session's initial library image now, so any
+            # startup failure loading the standard library exits before the
+            # console opens and prints its banner, rather than surfacing only
+            # once the first entry runs.
+            open_diagnostics = session.open()
+            if open_diagnostics:
+                for diagnostic in open_diagnostics:
+                    print(f"Error: {format_diagnostic(diagnostic)}", file=sys.stderr)
+                raise SystemExit(1)
+
+            history_path = agm_home_dir(home=ctx.home) / "repl_history"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+
+            def on_setting_save(key: str, value: str | bool) -> None:
+                save_repl_setting(key, value, home=ctx.home)
+
+            # ``--quiet`` disables echo for this session only and never persists,
+            # overriding a saved ``[repl] echo = true``; absent ``--quiet`` the
+            # persisted (or default) ``[repl] echo`` applies.
+            echo = repl_config.echo and not args.quiet
+
+            # The front end is chosen once, here: ``--plain`` forces the plain line
+            # front end; otherwise ``plain_mode_engaged`` auto-detects it from
+            # stdin/stdout (a pipe, redirected file, or a dumb terminal). There is no
+            # flag to force prompt_toolkit onto a non-terminal. The ``console`` import
+            # stays local so a plain session never pulls in prompt_toolkit; the
+            # ``plain_console`` import is local too for symmetry and late binding —
+            # ``plain_mode_engaged`` is already imported from it at module top, so
+            # this local import defers nothing on the plain branch, but the late
+            # binding is what test fixtures rely on when they monkeypatch it.
+            if args.plain or plain_mode_engaged(stdin=sys.stdin, stdout=sys.stdout, env=os.environ):
+                from agnette.agl.repl.plain_console import run_plain_console
+
+                run_plain_console(
+                    session,
+                    echo=echo,
+                    echo_unit=repl_config.echo_unit,
+                    theme=repl_config.theme,
+                    on_setting_save=on_setting_save,
+                    stdin=sys.stdin,
+                    stdout=sys.stdout,
+                )
+                return
+
+            from agnette.agl.repl.console import run_console
+
+            run_console(
+                session,
+                echo=echo,
+                echo_unit=repl_config.echo_unit,
+                history_path=history_path,
+                theme=repl_config.theme,
+                on_setting_save=on_setting_save,
+            )

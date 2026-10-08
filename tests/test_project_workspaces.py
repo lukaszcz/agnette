@@ -1,10 +1,10 @@
-"""Tests for AgM workspace discovery in agm.project.layout."""
+"""Tests for AgM workspace discovery in agnette.agm.project.layout."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from agm.project.layout import Workspace, project_workspaces
+from agnette.agm.project.layout import Workspace, project_workspaces
 from tests._git_helpers import add_linked_worktree, git_run, init_repo
 
 

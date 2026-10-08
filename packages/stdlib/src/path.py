@@ -7,7 +7,7 @@ from pathlib import Path, PurePath
 
 from agl import array, nominals, option_none, option_some
 
-from agm.agl.runtime.host_text import scalar_host_text
+from agnette.agl.runtime.host_text import scalar_host_text
 
 EncodingError = nominals.std.errors.EncodingError
 

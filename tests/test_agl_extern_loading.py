@@ -26,23 +26,23 @@ from types import CodeType
 
 import pytest
 
-from agm.agl import artifact_storage
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.diagnostics import Diagnostic
-from agm.agl.modules.errors import MissingExternCompanion
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import PipelineDriver, _wire_extern_registry
-from agm.agl.runtime import externs
-from agm.agl.runtime.externs import (
+from agnette.agl import artifact_storage
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.modules.errors import MissingExternCompanion
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import PipelineDriver, _wire_extern_registry
+from agnette.agl.runtime import externs
+from agnette.agl.runtime.externs import (
     ExternImportError,
     ExternRegistry,
     ExternResolutionError,
     _CompanionBytecodeLoader,
 )
-from agm.agl.scope.program import resolve_program
-from agm.agl.typecheck.program import CheckedProgram, check_program
-from agm.core import fs
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.typecheck.program import CheckedProgram, check_program
+from agnette.core import fs
 from tests._agl_helpers import file_program, prepare_inline_code
 from tests.agl.ir_harness import age_file, write_companion_file, write_module_file
 from tests.agl.module_graph import load_graph
@@ -374,6 +374,23 @@ class TestExternRegistryLoadAndResolve:
         registry.load_companion(mid, py_path)
         with pytest.raises(ExternResolutionError):
             registry.resolve(mid, "f")
+
+    def test_companion_api_and_language_package_can_be_imported_together(
+        self, tmp_path: Path
+    ) -> None:
+        py_path = tmp_path / "mod.py"
+        py_path.write_text(
+            "from agl import array\n"
+            "from agnette.agl.runtime.boundary import AglArrayView\n"
+            "def f():\n"
+            "    return isinstance(array([1, 2]), AglArrayView)\n"
+        )
+        mid = ModuleId.from_path("lib/mod")
+        registry = ExternRegistry()
+
+        registry.load_companion(mid, py_path)
+
+        assert registry.resolve(mid, "f")() is True
 
     def test_companion_top_level_exception_raises_import_error(self, tmp_path: Path) -> None:
         py_path = tmp_path / "mod.py"
@@ -1027,7 +1044,7 @@ class TestOrdering:
             f"open({str(marker)!r}, 'w').write('imported')\ndef f(x):\n    return x\n",
         )
         monkeypatch.setattr(
-            "agm.agl.pipeline._materialize_program_custom_contract_payloads",
+            "agnette.agl.pipeline._materialize_program_custom_contract_payloads",
             lambda checked, codecs: (
                 {},
                 [Diagnostic(message=_INJECTED_CONTRACT_DIAGNOSTIC, line=1)],

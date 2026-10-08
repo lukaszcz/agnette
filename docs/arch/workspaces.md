@@ -32,10 +32,10 @@ All git work goes through one VCS module wrapping git as subprocess calls; every
 
 ## Code Entry Points
 
-- `src/agm/project/layout.py` — layout detection, role-path resolution, workspace enumeration, current-workspace detection.
-- `src/agm/project/worktree.py` — worktree creation and branch/remote synchronization.
-- `src/agm/project/workspace_env.py`, `workspace_shell.py`, `workspace_setup.py` — environment assembly, shell wrapper, setup scripts.
-- `src/agm/project/dependency_env.py`, `dependency_checkout.py`, `config_git.py` — dependency env vars, checkout discovery, config-directory git operations.
-- `src/agm/vcs/git.py` — the git integration surface.
-- `src/agm/tmux/session.py`, `src/agm/tmux/layout.py` — tmux session creation and pane layout.
-- `src/agm/commands/init.py`, `workspace/`, `worktree/`, `dep/`, `sync/`, `tmux/` — the management commands.
+- `src/agnette/agm/project/layout.py` — layout detection, role-path resolution, workspace enumeration, current-workspace detection.
+- `src/agnette/agm/project/worktree.py` — worktree creation and branch/remote synchronization.
+- `src/agnette/agm/project/workspace_env.py`, `workspace_shell.py`, `workspace_setup.py` — environment assembly, shell wrapper, setup scripts.
+- `src/agnette/agm/project/dependency_env.py`, `dependency_checkout.py`, `config_git.py` — dependency env vars, checkout discovery, config-directory git operations.
+- `src/agnette/vcs/git.py` — the shared git integration surface.
+- `src/agnette/agm/tmux/session.py`, `src/agnette/agm/tmux/layout.py` — tmux session creation and pane layout.
+- `src/agnette/agm/commands/init.py`, `workspace/`, `worktree/`, `dep/`, `sync/`, `tmux/` — the management commands.

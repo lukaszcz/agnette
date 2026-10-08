@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi, AgentSpec
-from agm.agent.values import AgentShorthandError, agent_spec_shape, parse_agent_shorthand
-from agm.agl.runtime.value_decode import ValueDecodeError, host_text_to_json
-from agm.agl.semantics.type_table import create_seeded_type_table
-from agm.agl.semantics.types import BUILTIN_PRELUDE_TYPES
-from agm.agl.type_schema import build_param_decoder
+from agnette.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi, AgentSpec
+from agnette.agent.values import AgentShorthandError, agent_spec_shape, parse_agent_shorthand
+from agnette.agl.runtime.value_decode import ValueDecodeError, host_text_to_json
+from agnette.agl.semantics.type_table import create_seeded_type_table
+from agnette.agl.semantics.types import BUILTIN_PRELUDE_TYPES
+from agnette.agl.type_schema import build_param_decoder
 
 _AGENT_DECODER = build_param_decoder(BUILTIN_PRELUDE_TYPES["Agent"], create_seeded_type_table())
 

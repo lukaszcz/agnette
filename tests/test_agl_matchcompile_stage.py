@@ -11,10 +11,10 @@ from typing import cast
 
 import pytest
 
-import agm.agl.matchcompile as matchcompile
-import agm.agl.matchcompile.compiler as compiler_module
-import agm.agl.matchcompile.stage as stage_module
-from agm.agl.matchcompile import (
+import agnette.agl.matchcompile as matchcompile
+import agnette.agl.matchcompile.compiler as compiler_module
+import agnette.agl.matchcompile.stage as stage_module
+from agnette.agl.matchcompile import (
     CachedModuleSites,
     CaseSite,
     CompiledMatchSite,
@@ -26,10 +26,10 @@ from agm.agl.matchcompile import (
     compile_program_matches,
     diagnostics_from_match_issues,
 )
-from agm.agl.matchcompile.compiler import compile_match_site, validate_compiled_case
-from agm.agl.matchcompile.diagnostics import issue_sort_key
-from agm.agl.matchcompile.matrix import OccurrenceAllocator, PatternMatrix, Specialization
-from agm.agl.matchcompile.model import (
+from agnette.agl.matchcompile.compiler import compile_match_site, validate_compiled_case
+from agnette.agl.matchcompile.diagnostics import issue_sort_key
+from agnette.agl.matchcompile.matrix import OccurrenceAllocator, PatternMatrix, Specialization
+from agnette.agl.matchcompile.model import (
     Constructor,
     DecisionBranch,
     DecisionDecompose,
@@ -39,18 +39,18 @@ from agm.agl.matchcompile.model import (
     LiteralConstructor,
     NormalizedMatchSite,
 )
-from agm.agl.matchcompile.normalize import MatchCompileInvariantError, normalize_case
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import (
+from agnette.agl.matchcompile.normalize import MatchCompileInvariantError, normalize_case
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import (
     PipelineDriver,
     PreparedProgram,
 )
-from agm.agl.scope.program import resolve_program
-from agm.agl.syntax.nodes import Case
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck.env import CheckedModule
-from agm.agl.typecheck.program import CheckedProgram, check_program
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.syntax.nodes import Case
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import CheckedProgram, check_program
 from tests._agl_helpers import prepare_inline_code, run_inline_code
 from tests.agl.ir_harness import (
     MatchCompiledModule,
@@ -844,7 +844,7 @@ def test_single_discovery_and_cached_run_compile_matches_once(
         return compile_program_matches(checked, cached_sites)
 
     monkeypatch.setattr(
-        "agm.agl.matchcompile.compile_program_matches",
+        "agnette.agl.matchcompile.compile_program_matches",
         counted_compile,
     )
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
@@ -879,7 +879,7 @@ def test_program_discovery_and_cached_run_compile_matches_once(
         return compile_program_matches(checked, cached_sites)
 
     monkeypatch.setattr(
-        "agm.agl.matchcompile.compile_program_matches",
+        "agnette.agl.matchcompile.compile_program_matches",
         counted_compile,
     )
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
@@ -913,7 +913,7 @@ def test_discovery_and_execution_reuse_one_graph_match_compilation(
         return compile_program_matches(checked, cached_sites)
 
     monkeypatch.setattr(
-        "agm.agl.matchcompile.compile_program_matches",
+        "agnette.agl.matchcompile.compile_program_matches",
         counted_compile,
     )
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)

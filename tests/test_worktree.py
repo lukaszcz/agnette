@@ -1,4 +1,4 @@
-"""Behavior tests for agm.project.worktree over real git repositories.
+"""Behavior tests for agnette.agm.project.worktree over real git repositories.
 
 Every test builds real repositories in a temporary directory and asserts the
 resulting git state — worktrees, branches, upstreams, checked-out content and
@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-import agm.project.worktree as worktree_mod
-from agm.project.worktree import (
+import agnette.agm.project.worktree as worktree_mod
+from agnette.agm.project.worktree import (
     branch_exists,
     ensure_worktree,
     has_expected_worktree,

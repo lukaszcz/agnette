@@ -1,4 +1,4 @@
-"""Tests for the AgL value-syntax reader: `agm.agl.value_syntax.reader.read_value`."""
+"""Tests for the AgL value-syntax reader: `agnette.agl.value_syntax.reader.read_value`."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from decimal import Decimal
 
 import pytest
 
-from agm.agl.value_syntax.errors import ValueSyntaxError
-from agm.agl.value_syntax.nodes import (
+from agnette.agl.value_syntax.errors import ValueSyntaxError
+from agnette.agl.value_syntax.nodes import (
     ArrayNode,
     BoolNode,
     CtorNode,
@@ -19,7 +19,7 @@ from agm.agl.value_syntax.nodes import (
     TextNode,
     ValueArg,
 )
-from agm.agl.value_syntax.reader import read_ctor_head, read_value
+from agnette.agl.value_syntax.reader import read_ctor_head, read_value
 
 # ---------------------------------------------------------------------------
 # Shapes

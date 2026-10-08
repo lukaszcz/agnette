@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.runtime.agents import agent_member_name
-from agm.agl.semantics.values import RecordValue, TextValue
-from agm.cli_support.args import ExecArgs
-from agm.commands import exec as exec_command
-from agm.commands import exec_program as exec_engine
-from agm.config.context import ConfigContext
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.runtime.agents import agent_member_name
+from agnette.agl.semantics.values import RecordValue, TextValue
+from agnette.agm.cli_support.args import ExecArgs
+from agnette.agm.commands import exec as exec_command
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.config.context import ConfigContext
 from tests._agl_helpers import (
     agent_value,
     agl_roots,
@@ -31,7 +31,7 @@ from tests._agl_helpers import (
 
 
 def test_engine_key_uses_the_agent_nominal_type() -> None:
-    from agm.agl.semantics.engine_keys import get_engine_key_type
+    from agnette.agl.semantics.engine_keys import get_engine_key_type
 
     assert repr(get_engine_key_type("default-agent")) == "Agent"
 
@@ -41,10 +41,10 @@ def test_non_agl_command_does_not_import_agl(tmp_path: Path) -> None:
         "import sys\n"
         "from click.testing import CliRunner\n"
         "from typer.main import get_command\n"
-        "import agm.cli as cli\n"
+        "import agnette.agm.cli as cli\n"
         "result = CliRunner().invoke(get_command(cli.app), ['config', 'env'])\n"
         "assert result.exit_code == 0, result.output\n"
-        "assert not any(name == 'agm.agl' or name.startswith('agm.agl.') for name in sys.modules)\n"
+        "assert not any(name == 'agl' or name.startswith('agl.') for name in sys.modules)\n"
         "print(result.output)\n"
     )
     # The command runs in a project of the test's own, so the subprocess -- which the
@@ -97,7 +97,7 @@ def test_trace_setting_writes_reconfigure_trace(
     write: str, expected: tuple[bool, str | None]
 ) -> None:
     """Each trace-register write repoints the same live trace store."""
-    from agm.agl.runtime.host_settings import HostSettingsPolicy
+    from agnette.agl.runtime.host_settings import HostSettingsPolicy
 
     trace_settings: list[tuple[bool, str | None]] = []
 
@@ -115,7 +115,7 @@ def test_trace_setting_writes_reconfigure_trace(
 
 
 def test_default_agent_write_does_not_reconfigure_host_services() -> None:
-    from agm.agl.runtime.host_settings import HostSettingsPolicy
+    from agnette.agl.runtime.host_settings import HostSettingsPolicy
 
     trace_settings: list[tuple[bool, str | None]] = []
 

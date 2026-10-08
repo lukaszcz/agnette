@@ -9,7 +9,7 @@ in tests/agl/README.md.
 
 Public contract exercised here:
 
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     runtime = PipelineDriver(
         default_strict_json=False,  # lenient JSON recovery is the default
@@ -46,21 +46,21 @@ from typing import Any, NamedTuple, Protocol
 
 import pytest
 
-from agm.agent.session import (
+from agnette.agent.session import (
     SessionAgentError,
     SessionHostError,
     SessionOperation,
     SessionOperations,
     SessionService,
 )
-from agm.agent.spec import PermissionMode
-from agm.agl.ir.builtin_vars import builtin_var_key
-from agm.agl.modules.ids import STD_CONFIG_ID
-from agm.agl.pipeline import PreparedProgram, ProgramDiscovery
-from agm.agl.semantics.values import IntValue, Value
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.sandbox.prepare import SandboxContext
-from agm.sandbox.request import Default, SandboxLimits
+from agnette.agent.spec import PermissionMode
+from agnette.agl.ir.builtin_vars import builtin_var_key
+from agnette.agl.modules.ids import STD_CONFIG_ID
+from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery
+from agnette.agl.semantics.values import IntValue, Value
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.sandbox.prepare import SandboxContext
+from agnette.sandbox.request import Default, SandboxLimits
 from tests._agl_helpers import (
     REPO_STDLIB_ROOT,
     agl_roots,
@@ -105,7 +105,7 @@ def _fixture_roots(spec: dict[str, Any]) -> Any | None:
     """Build the module roots selected by one scenario or rejection fixture."""
     module_root_paths = [(AGL_DIR / str(root)).resolve() for root in spec.get("module_roots", [])]
     if "stdlib_root" in spec:
-        from agm.agl.modules.roots import RootSet
+        from agnette.agl.modules.roots import RootSet
 
         return RootSet(
             roots=frozenset(module_root_paths),
@@ -217,9 +217,9 @@ class ScriptedAgent:
         the sole seam that decodes an AgL ``Agent`` value, so no session-host
         layer below it ever sees the value or has to decode it.
         """
-        from agm.agent.runner import command_targets_session_id
-        from agm.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi
-        from agm.util.interp import InterpolationError
+        from agnette.agent.runner import command_targets_session_id
+        from agnette.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi
+        from agnette.util.interp import InterpolationError
 
         spec = request.agent
         transport = request.transport
@@ -687,8 +687,8 @@ class _ScenarioSessionHost:
         return handle
 
     def ask(self, handle: str, prompt: str) -> str:
-        from agm.agent.session import SessionAskRequest
-        from agm.agl.runtime.sessions import SessionAskError as AglSessionAskError
+        from agnette.agent.session import SessionAskRequest
+        from agnette.agl.runtime.sessions import SessionAskError as AglSessionAskError
 
         try:
             return (
@@ -710,7 +710,7 @@ class _ScenarioSessionHost:
             raise
 
     def ask_request(self, handle: str, request: Any) -> Any:
-        from agm.agl.runtime.request import AgentResponse
+        from agnette.agl.runtime.request import AgentResponse
 
         content = self.ask(handle, request.prompt)
         service = self._service_for_handle(handle, "ask")
@@ -750,8 +750,8 @@ class _ScenarioSessionHost:
             self._raise_host_error(error)
 
     def snapshot(self, handle: str) -> Any:
-        from agm.agl.runtime.sessions import SessionHostError as AglSessionHostError
-        from agm.agl.runtime.sessions import SessionSnapshot
+        from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
+        from agnette.agl.runtime.sessions import SessionSnapshot
 
         try:
             agent, transport, permission_mode, sandbox, env, continues = self._snapshots[handle]
@@ -799,7 +799,7 @@ class _ScenarioSessionHost:
             self._raise_host_error(error)
 
     def _service_for(self, agent: Any) -> _ScriptedSessionService:
-        from agm.agl.runtime.sessions import SessionHostError as AglSessionHostError
+        from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 
         try:
             return self._services[_scripted_agent_name(agent)]
@@ -810,14 +810,14 @@ class _ScenarioSessionHost:
         try:
             return self._handles[handle]
         except KeyError:
-            from agm.agl.runtime.sessions import SessionHostError as AglSessionHostError
+            from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 
             raise AglSessionHostError("unknown session", operation) from None
 
     @staticmethod
     def _raise_host_error(error: SessionHostError) -> None:
-        from agm.agl.runtime.sessions import SessionAgentError as AglSessionAgentError
-        from agm.agl.runtime.sessions import SessionHostError as AglSessionHostError
+        from agnette.agl.runtime.sessions import SessionAgentError as AglSessionAgentError
+        from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 
         if isinstance(error, SessionAgentError):
             raise AglSessionAgentError(error.message, error.operation) from error
@@ -867,8 +867,8 @@ class _ScriptedSessionBackend:
         ) in self._native_capabilities and self._agent._supports_operation(operation)
 
     def ask(self, request: Any) -> Any:
-        from agm.agent.session import SessionAskError, SessionAskResponse
-        from agm.agent.transport import AgentCallInfo
+        from agnette.agent.session import SessionAskError, SessionAskResponse
+        from agnette.agent.transport import AgentCallInfo
 
         self._session.prompts.append(request.prompt)
         self._agent.prompt_events.append(
@@ -912,7 +912,7 @@ class _ScriptedSessionBackend:
         self._apply_operation("set-name", name)
 
     def stats(self) -> Any:
-        from agm.agent.session import SessionStats
+        from agnette.agent.session import SessionStats
 
         outcome = self._apply_operation("stats", None)
         if not isinstance(outcome, dict):
@@ -932,7 +932,7 @@ class _ScriptedSessionBackend:
         outcome_name = _outcome_name(outcome)
         self._session.operations.append((operation, arg, outcome_name))
         if outcome_name == "unsupported":
-            from agm.agent.session import SessionHostError
+            from agnette.agent.session import SessionHostError
 
             raise SessionHostError(f"scripted session does not support {operation}", operation)
         return outcome
@@ -946,7 +946,7 @@ def _scripted_agent_name(agent: Any) -> str:
     """Map an agent specification onto one scenario's scripted service."""
     import shlex
 
-    from agm.agent.spec import AgentCommand, AgentPi
+    from agnette.agent.spec import AgentCommand, AgentPi
 
     if isinstance(agent, AgentCommand):
         try:
@@ -1033,7 +1033,7 @@ def _run_prepared_entry(
             "signature"
         )
 
-    from agm.agl.runtime.arguments import ProgramArguments
+    from agnette.agl.runtime.arguments import ProgramArguments
 
     argument_preflight = runtime.preflight_arguments(
         prepared,
@@ -1072,14 +1072,14 @@ def _run_source_entry(
     default_stdlib: bool = True,
 ) -> Any:
     """Prepare and invoke a sole explicit entry for focused file-style tests."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     prepared = PipelineDriver.prepare_program(source, roots=roots, default_stdlib=default_stdlib)
     return _run_prepared_entry(runtime, prepared, param_values={})
 
 
 def test_module_param_paths_must_exist_in_selected_program_closure() -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     prepared = PipelineDriver.prepare_program(
         "@param let enabled: bool = false\nprogram def main() -> unit = ()\n",
@@ -1094,7 +1094,7 @@ def test_module_param_paths_must_exist_in_selected_program_closure() -> None:
 
 
 def test_inline_entry_module_params_seed_root_binding(capsys: pytest.CaptureFixture[str]) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     result = run_inline_code(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
@@ -1111,7 +1111,7 @@ def test_inline_entry_with_its_own_program_def_follows_relaxed_binding_order(
 ) -> None:
     """An inline (``-c``) source declaring its own ``program def`` is static-root,
     like a file program: a def declared above a root var it reads still works."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     result = run_inline_code(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
@@ -1181,8 +1181,8 @@ def _run_program(
     get_sandbox_context: Callable[[], SandboxContext] | None,
     compilations: CompilationCache | None = None,
 ) -> tuple[Any, dict[str, ScriptedAgent], FakeShell, list[_Script]]:
-    from agm.agl import PipelineDriver
-    from agm.agl.runtime.externs import ExternRegistry
+    from agnette.agl import PipelineDriver
+    from agnette.agl.runtime.externs import ExternRegistry
 
     agents = {
         name: _agent_from_spec(name, spec) for name, spec in scenario.get("agents", {}).items()
@@ -1239,8 +1239,8 @@ def _run_program(
         prepare_inline_code if scenario.get("inline_entry") else PipelineDriver.prepare_program
     )
     with (
-        unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell),
-        unittest.mock.patch("agm.core.http.open_session", lambda: http_session),
+        unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell),
+        unittest.mock.patch("agnette.core.http.open_session", lambda: http_session),
     ):
         key = (default_stdlib, bool(scenario.get("inline_entry")))
         capabilities = runtime.host_environment().capabilities
@@ -1695,7 +1695,7 @@ def _assert_sessions(agents: dict[str, ScriptedAgent], expect: dict[str, Any]) -
 
 
 def test_scripted_sessions_observe_identity_operations_and_lifecycle() -> None:
-    from agm.agent.session import SessionAskRequest, SessionHostError
+    from agnette.agent.session import SessionAskRequest, SessionHostError
 
     agent = _agent_from_spec(
         "writer",
@@ -1798,7 +1798,7 @@ def test_scripted_sessions_observe_identity_operations_and_lifecycle() -> None:
 
 
 def test_scripted_sessions_record_capability_rejections_without_outcomes() -> None:
-    from agm.agent.session import SessionHostError
+    from agnette.agent.session import SessionHostError
 
     agent = _agent_from_spec(
         "writer",
@@ -1889,7 +1889,7 @@ def test_session_expectations_reject_unlisted_empty_sessions() -> None:
 
 
 def test_scenario_host_reports_unknown_handles_by_attempted_operation() -> None:
-    from agm.agl.runtime.sessions import SessionHostError as AglSessionHostError
+    from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 
     host = _ScenarioSessionHost({})
     operations: tuple[tuple[str, Callable[[], object]], ...] = (
@@ -1910,7 +1910,7 @@ def test_scenario_host_reports_unknown_handles_by_attempted_operation() -> None:
 
 
 def test_scripted_sessions_reject_extra_capability_rejection_operation() -> None:
-    from agm.agent.session import SessionHostError
+    from agnette.agent.session import SessionHostError
 
     agent = _agent_from_spec(
         "writer",
@@ -1952,7 +1952,7 @@ def test_scripted_sessions_reject_unsupported_reset_outcomes() -> None:
 
 
 def test_scripted_sessions_detect_an_extra_retry_prompt() -> None:
-    from agm.agent.session import SessionAskRequest
+    from agnette.agent.session import SessionAskRequest
 
     agent = _agent_from_spec("writer", {"responses": ["answer"], "repeat_last": True})
     service = agent.session_service()
@@ -1972,7 +1972,7 @@ def test_scripted_sessions_detect_an_extra_retry_prompt() -> None:
 
 
 def test_scripted_session_ask_closes_an_ephemeral_session() -> None:
-    from agm.agent.session import SessionAskRequest
+    from agnette.agent.session import SessionAskRequest
 
     agent = _agent_from_spec("writer", ["answer"])
     service = agent.session_service()
@@ -2097,7 +2097,7 @@ def _assert_program_scenario(
 
 @pytest.mark.parametrize("program", _rejection_params())
 def test_static_rejection(program: Path) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     spec = _load_json(program.with_name(program.stem + ".expect.json"))
     expect = spec["diagnostic"]
@@ -2128,7 +2128,7 @@ def test_static_rejection(program: Path) -> None:
 
 
 def test_pipeline_run_invokes_the_single_entry_program(capsys: pytest.CaptureFixture[str]) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     result = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None).run(
         'program def main() -> unit = print "hello"'
@@ -2139,7 +2139,7 @@ def test_pipeline_run_invokes_the_single_entry_program(capsys: pytest.CaptureFix
 
 
 def test_pipeline_check_only_rejects_ambiguous_default_program() -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     result = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None).run(
         "program def first() -> unit = ()\nprogram def second() -> unit = ()\n",
@@ -2156,7 +2156,7 @@ def test_direct_std_option_import_runs_without_the_automatic_prelude(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """An explicit ``std/option`` import remains sufficient under ``--no-stdlib``."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     roots = agl_roots()
     result = _run_source_entry(
@@ -2179,7 +2179,7 @@ def test_std_core_option_reexport_preserves_nominal_identity(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The re-export and direct module name one interoperable ``Option`` type."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     roots = agl_roots()
     result = _run_source_entry(
@@ -2203,7 +2203,7 @@ def test_qualified_std_prelude_print_still_works(capsys: pytest.CaptureFixture[s
     the bare form does — a built-in call is classified once its callee
     resolves to a ``builtin def``, and ``std/prelude::print`` reaches the same
     declaration a bare ``print`` does, just by a qualified route."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     result = _run_source_entry(runtime, 'program def main() -> unit = std/prelude::print("hi")\n')
@@ -2317,8 +2317,8 @@ def _scoped_stdlib_root(tmp_path: Path) -> Path:
 
 def test_legacy_exec_signature_rejects_extended_options_with_a_diagnostic(tmp_path: Path) -> None:
     """A custom old-style exec declaration must not trip an internal assertion."""
-    from agm.agl import PipelineDriver
-    from agm.agl.modules.roots import RootSet
+    from agnette.agl import PipelineDriver
+    from agnette.agl.modules.roots import RootSet
 
     scoped_stdlib_root = _scoped_stdlib_root(tmp_path)
     result = _run_source_entry(
@@ -2342,8 +2342,8 @@ def test_scoped_stdlib_arrangement_runs_end_to_end(
     plus a scoped ``Exception`` / ``RangeError`` hierarchy raised and left
     uncaught. The throwaway root avoids colliding with the repository stdlib.
     """
-    from agm.agl import PipelineDriver
-    from agm.agl.modules.roots import RootSet
+    from agnette.agl import PipelineDriver
+    from agnette.agl.modules.roots import RootSet
 
     scoped_stdlib_root = _scoped_stdlib_root(tmp_path)
 
@@ -2355,7 +2355,7 @@ def test_scoped_stdlib_arrangement_runs_end_to_end(
 
     shell = FakeShell([{"command": "echo hi", "stdout": "hi\n"}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(
             runtime,
             program,
@@ -2382,8 +2382,8 @@ def test_scoped_stdlib_arrangement_structured_exec_result_is_the_scoped_nominal(
     host-minted value carries that very same scoped nominal — an exact
     nominal projection rejects any other identity.
     """
-    from agm.agl import PipelineDriver
-    from agm.agl.modules.roots import RootSet
+    from agnette.agl import PipelineDriver
+    from agnette.agl.modules.roots import RootSet
 
     scoped_stdlib_root = _scoped_stdlib_root(tmp_path)
 
@@ -2394,7 +2394,7 @@ def test_scoped_stdlib_arrangement_structured_exec_result_is_the_scoped_nominal(
 
     shell = FakeShell([{"command": "echo hi", "stdout": "hi\n"}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(
             runtime,
             program,
@@ -2418,8 +2418,8 @@ def test_scoped_stdlib_arrangement_uncaught_host_raised_exec_error_reports_scope
     ``ExecError`` at the host boundary; left uncaught, it now reports
     ``Std::ExecError`` — the outside-the-region half of the catchability fix
     observable without a qualified ``catch`` (the grammar admits none)."""
-    from agm.agl import PipelineDriver
-    from agm.agl.modules.roots import RootSet
+    from agnette.agl import PipelineDriver
+    from agnette.agl.modules.roots import RootSet
 
     scoped_stdlib_root = _scoped_stdlib_root(tmp_path)
 
@@ -2429,7 +2429,7 @@ def test_scoped_stdlib_arrangement_uncaught_host_raised_exec_error_reports_scope
 
     shell = FakeShell([{"command": "false", "returncode": 1}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(
             runtime,
             program,
@@ -2453,8 +2453,8 @@ def test_scoped_stdlib_arrangement_bare_print_is_undefined_but_qualified_works(
     ``builtin def`` declaration, the same as any other reference. The named
     region takes the bare route away from ``print``, leaving its qualified
     path."""
-    from agm.agl import PipelineDriver
-    from agm.agl.modules.roots import RootSet
+    from agnette.agl import PipelineDriver
+    from agnette.agl.modules.roots import RootSet
 
     scoped_stdlib_root = _scoped_stdlib_root(tmp_path)
     roots = RootSet(roots=frozenset(), stdlib_roots=frozenset({scoped_stdlib_root}))
@@ -2497,7 +2497,7 @@ def test_scoped_builtin_hierarchy_declared_in_the_entry_module_catches_a_host_ra
     kept its declared path, so this bare ``catch`` could never match. Now
     both sides agree, and the program handles it.
     """
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     program = (
         "scope Host\n"
@@ -2533,7 +2533,7 @@ def test_scoped_builtin_hierarchy_declared_in_the_entry_module_catches_a_host_ra
 
     shell = FakeShell([{"command": "false", "returncode": 1}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(runtime, program, default_stdlib=False)
     shell.assert_complete()
 
@@ -2548,7 +2548,7 @@ def test_builtin_print_can_be_passed_as_a_function_value(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A builtin reference is an ordinary callable value, not only a direct-call marker."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     source = (
         "def apply(f: text -> unit, value: text) -> unit = f(value)\n"
@@ -2566,7 +2566,7 @@ def test_builtin_print_can_be_passed_as_a_function_value(
 def test_scoped_builtin_reference_can_be_called_through_a_value(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     source = (
         "scope Host\n"
@@ -2588,7 +2588,7 @@ def test_scoped_builtin_reference_can_be_called_through_a_value(
 def test_render_and_copy_builtins_can_be_called_through_values(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     source = (
         "program def main() -> unit =\n"
@@ -2609,7 +2609,7 @@ def test_render_and_copy_builtins_can_be_called_through_values(
 def test_ask_request_builtin_value_uses_its_default_text_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     source = (
         "program def main() -> unit =\n"
@@ -2628,7 +2628,7 @@ def test_ask_request_builtin_value_uses_its_default_text_contract(
 def test_builtin_exec_value_uses_ambient_defaults(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     source = (
         "program def main() -> unit =\n"
@@ -2637,7 +2637,7 @@ def test_builtin_exec_value_uses_ambient_defaults(
     )
     shell = FakeShell([{"command": "answer", "stdout": "42\n"}])
 
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(
             PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None), source
         )
@@ -2650,7 +2650,7 @@ def test_builtin_exec_value_uses_ambient_defaults(
 def test_effect_builtin_values_accept_explicit_output_specialization(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     source = (
         "program def main() -> unit =\n"
@@ -2660,7 +2660,7 @@ def test_effect_builtin_values_accept_explicit_output_specialization(
     )
     shell = FakeShell([{"command": "second", "stdout": "1\n"}])
 
-    with unittest.mock.patch("agm.core.process.run_capture_result", side_effect=shell):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(
             PipelineDriver(
                 resolve_agent_spec=None,
@@ -2678,7 +2678,7 @@ def test_effect_builtin_values_accept_explicit_output_specialization(
 def test_unconstrained_builtin_ask_value_defaults_to_text(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     source = 'program def main() -> unit =\n  let query = ask\n  print(query("Question"))\n'
 
@@ -2699,7 +2699,7 @@ def test_builtin_ask_can_be_passed_as_a_contextually_typed_function_value(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """An ask value retains the statically compiled output contract of its occurrence."""
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
 
     prompts: list[str] = []
 
@@ -2728,7 +2728,7 @@ def test_program_def_entries_execute_via_agm_exec(tmp_path: Path) -> None:
     from click.testing import CliRunner
     from typer.main import get_command
 
-    import agm.cli as cli
+    import agnette.agm.cli as cli
 
     sole = tmp_path / "sole.agl"
     sole.write_text('program def main() -> unit = print "sole"\n')

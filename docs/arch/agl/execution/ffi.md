@@ -16,7 +16,7 @@ The extern call window also scopes agent services (`runtime/host_agents.py`): no
 
 Conversion is value-directed: each `Value` kind encodes to a distinct Python representation and each concrete Python type decodes back. Arrays and dicts cross as live mutable views over their containers, so nothing is copied and cyclic values cross. Records with `var` fields likewise cross as live views that write through to declared `var` fields; immutable records and exceptions cross as snapshots that retain sharing within each conversion. A dict view is a `MutableMapping` over the `DictValue` API for either representation: Python keys decode like any value (`decode_dict_key`; non-key objects are `TypeError`) and match by AgL equality. `AglJson` equality and hashing reuse the AgL `json` relations. A `json` payload crosses uncopied and unchecked; the companion is trusted.
 
-One Python class is synthesized per nominal identity, once, carrying its own descriptor, so decoding needs no call-scoped state and a class a companion captured keeps working after a REPL redeclaration mints a fresh identity. Enum members are plain record classes; the enum class is a namespace over them. Classes and the reserved helpers (`array`, `dict`, `json`, `runtime`, `nominals`, `AglException`, `TypeContract`, `option_none`, `option_some`, `option`) are exposed through a temporary `agl` module during companion import; `option_none`/`option_some`/`option` exist only when `std/option` is loaded. A `nominals` address names a *loaded source declaration*, so a companion's module must import every nominal its companion addresses — the built-in exceptions it raises included.
+One Python class is synthesized per nominal identity, once, carrying its own descriptor, so decoding needs no call-scoped state and a class a companion captured keeps working after a REPL redeclaration mints a fresh identity. Enum members are plain record classes; the enum class is a namespace over them. Classes and the reserved helpers (`array`, `dict`, `json`, `runtime`, `nominals`, `AglException`, `TypeContract`, `option_none`, `option_some`, `option`) are exposed through a temporary `agl` module during companion import, separate from the `agnette.agl` implementation namespace; `option_none`/`option_some`/`option` exist only when `std/option` is loaded. A `nominals` address names a *loaded source declaration*, so a companion's module must import every nominal its companion addresses — the built-in exceptions it raises included.
 
 ## Target Contracts
 
@@ -30,8 +30,8 @@ An AgL function value (a closure or a constructor) crosses as a callable proxy t
 
 ## Code Entry Points
 
-- `src/agm/agl/runtime/externs.py` — registry, companion loading, dispatch, state activation.
-- `src/agm/agl/runtime/boundary.py` — encoding/decoding, class synthesis, views, proxies, the exception carrier.
-- `src/agm/agl/runtime/type_contracts.py` — `agl.TypeContract`, a type-directed extern's target as its companion sees it.
+- `src/agnette/agl/runtime/externs.py` — registry, companion loading, dispatch, state activation.
+- `src/agnette/agl/runtime/boundary.py` — encoding/decoding, class synthesis, views, proxies, the exception carrier.
+- `src/agnette/agl/runtime/type_contracts.py` — `agl.TypeContract`, a type-directed extern's target as its companion sees it.
 - `packages/stdlib/src/*.py` — the standard library's companions.
 - Tests: `tests/test_agl_extern_*.py`.

@@ -9,15 +9,15 @@ import click
 import pytest
 from typer.core import TyperGroup, TyperOption
 
-from agm.agl.attributes import ProgramOptionSpec
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.reserved_nominals import require_reserved_nominal_id
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.runtime.arguments import OptionSome, decode_param_value
-from agm.agl.runtime.option import none_value, some_value
-from agm.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
-from agm.agl.semantics.type_table import create_seeded_type_table
-from agm.agl.semantics.types import (
+from agnette.agl.attributes import ProgramOptionSpec
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.runtime.arguments import OptionSome, decode_param_value
+from agnette.agl.runtime.option import none_value, some_value
+from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
+from agnette.agl.semantics.type_table import create_seeded_type_table
+from agnette.agl.semantics.types import (
     BUILTIN_PRELUDE_TYPES,
     RESERVED_ID,
     ArrayType,
@@ -28,11 +28,11 @@ from agm.agl.semantics.types import (
     TextType,
     Type,
 )
-from agm.agl.semantics.values import ArrayValue, BoolValue, IntValue, TextValue, Value
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.type_schema import build_param_decoder
-from agm.agl.zones import ParamZone
-from agm.cli_support.program_options import (
+from agnette.agl.semantics.values import ArrayValue, BoolValue, IntValue, TextValue, Value
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.type_schema import build_param_decoder
+from agnette.agl.zones import ParamZone
+from agnette.agm.cli_support.program_options import (
     EXEC_RESERVED_FLAGS,
     HELP_FLAGS,
     REGISTERED_RESERVED_FLAGS,
@@ -128,9 +128,9 @@ def _registered_command_flags() -> set[str]:
     """Return every option spelling a registered command declares."""
     import typer.main
 
-    from agm import cli
-    from agm.cli_dispatch import RegisteredProgramCommand, registered_run_options
-    from agm.packages.activation import CommandRegistration
+    from agnette.agm import cli
+    from agnette.agm.cli_dispatch import RegisteredProgramCommand, registered_run_options
+    from agnette.packages.activation import CommandRegistration
 
     command = RegisteredProgramCommand(
         "tools run",
@@ -343,7 +343,7 @@ class TestEngineKeyFlags:
         """
         import typer.main
 
-        from agm import cli
+        from agnette.agm import cli
 
         group = typer.main.get_command(cli.app)
         assert isinstance(group, TyperGroup)
@@ -1292,8 +1292,8 @@ class TestRenderHelp:
     def test_exec_runtime_options_render_in_a_shared_section_at_the_end(self) -> None:
         from typer.main import get_command
 
-        from agm.cli import app
-        from agm.cli_dispatch import registered_run_options
+        from agnette.agm.cli import app
+        from agnette.agm.cli_dispatch import registered_run_options
 
         run_options = registered_run_options(click.Context(get_command(app)))
         text = _command(_param("tag", TextType())).render_help(
@@ -1313,14 +1313,14 @@ class TestRenderHelp:
 
 class TestRenderProgramHelp:
     def test_a_built_command_renders_its_own_help(self) -> None:
-        from agm.cli_support.program_options import render_program_help
+        from agnette.agm.cli_support.program_options import render_program_help
 
         text = render_program_help(_command(_param("tag", TextType())), program_name="main")
 
         assert "--tag" in text
 
     def test_without_a_command_the_surface_is_still_rendered(self) -> None:
-        from agm.cli_support.program_options import render_program_help
+        from agnette.agm.cli_support.program_options import render_program_help
 
         text = render_program_help(
             None,
@@ -2010,7 +2010,7 @@ class TestModuleParameterOptions:
 
 class TestProgramCommandFor:
     def test_returns_the_built_command_for_a_valid_signature(self) -> None:
-        from agm.cli_support.program_options import program_command_for
+        from agnette.agm.cli_support.program_options import program_command_for
 
         command = program_command_for(_program(_param("name", TextType())), EXEC_RESERVED_FLAGS)
 
@@ -2018,14 +2018,14 @@ class TestProgramCommandFor:
         assert "--name" in command.option_spellings()
 
     def test_degrades_to_none_on_a_reservation_collision(self) -> None:
-        from agm.cli_support.program_options import program_command_for
+        from agnette.agm.cli_support.program_options import program_command_for
 
         assert (
             program_command_for(_program(_param("help", TextType())), EXEC_RESERVED_FLAGS) is None
         )
 
     def test_no_program_is_none(self) -> None:
-        from agm.cli_support.program_options import program_command_for
+        from agnette.agm.cli_support.program_options import program_command_for
 
         assert program_command_for(None, EXEC_RESERVED_FLAGS) is None
 
@@ -2108,7 +2108,7 @@ class TestHostLookingProgramValues:
         assert replacements == {"agm-program-value-1": "--"}
 
     def test_preview_placeholder_does_not_collide_with_a_literal_token(self) -> None:
-        from agm.cli_support.program_options import protect_potential_program_values
+        from agnette.agm.cli_support.program_options import protect_potential_program_values
 
         assert protect_potential_program_values(
             ["--message", "--no-stdlib", "agm-program-preview-1"],
@@ -2175,7 +2175,7 @@ class TestSplitExecTail:
     """``agm exec``'s FILE argument, derived from the tail Click leaves."""
 
     def _split(self, *tail: str) -> ExecTail:
-        from agm.cli_support.program_options import split_exec_tail
+        from agnette.agm.cli_support.program_options import split_exec_tail
 
         return split_exec_tail(tail)
 
@@ -2297,22 +2297,22 @@ class TestRetainEndOfOptions:
     """The marker Click removes is doubled so the split can still see it."""
 
     def test_a_marker_is_doubled_in_place(self) -> None:
-        from agm.cli_support.program_options import retain_end_of_options
+        from agnette.agm.cli_support.program_options import retain_end_of_options
 
         assert retain_end_of_options(["-p", "main", "--", "x"]) == ["-p", "main", "--", "--", "x"]
 
     def test_only_the_first_marker_is_doubled(self) -> None:
-        from agm.cli_support.program_options import retain_end_of_options
+        from agnette.agm.cli_support.program_options import retain_end_of_options
 
         assert retain_end_of_options(["--", "--", "x"]) == ["--", "--", "--", "x"]
 
     def test_a_tail_without_a_marker_is_unchanged(self) -> None:
-        from agm.cli_support.program_options import retain_end_of_options
+        from agnette.agm.cli_support.program_options import retain_end_of_options
 
         assert retain_end_of_options(["prog.agl", "-h"]) == ["prog.agl", "-h"]
 
     def test_a_marker_owned_by_a_host_option_is_not_doubled(self) -> None:
-        from agm.cli_support.program_options import retain_end_of_options
+        from agnette.agm.cli_support.program_options import retain_end_of_options
 
         assert retain_end_of_options(
             ["--trace-file", "--", "--no-stdlib", "prog.agl"],
@@ -2320,7 +2320,7 @@ class TestRetainEndOfOptions:
         ) == ["--trace-file", "--", "--no-stdlib", "prog.agl"]
 
     def test_a_host_short_bundle_can_end_in_a_value_option(self) -> None:
-        from agm.cli_support.program_options import retain_end_of_options
+        from agnette.agm.cli_support.program_options import retain_end_of_options
 
         assert retain_end_of_options(["-hp", "value", "--"], {"-h": False, "-p": True}) == [
             "-hp",

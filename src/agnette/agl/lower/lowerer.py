@@ -1,0 +1,4101 @@
+"""Per-module lowerer for the AgL typeless execution IR.
+
+Lowers one checked module as a worker of whole-program linking. Every implicit
+coercion is inserted explicitly at compile time via
+``compile_coercion``; the evaluator switches only on pre-resolved ``Coercion``
+descriptors and never inspects value types at runtime.
+
+The lowerer trusts its checked input: side tables are indexed directly, and
+checker-guaranteed shapes are narrowed with ``cast`` rather than re-checked.
+
+Dispatch uses structural ``match`` with a final ``assert_never`` arm.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import assert_never, cast
+
+from agnette.agl.ir.builtin_nominals import (
+    NO_BUILTIN_DECLARATIONS,
+    BuiltinNominals,
+    DeclaredNominal,
+)
+from agnette.agl.ir.builtin_vars import builtin_var_key
+from agnette.agl.ir.contracts import (
+    ContractPayload,
+    ContractRequest,
+    ConversionFailureMode,
+    CustomContractRequest,
+    ExceptionFieldEncode,
+    JsonContractRequest,
+    TargetContractRequest,
+    TextContractRequest,
+    UnitContractRequest,
+)
+from agnette.agl.ir.ids import (
+    HOST_SOURCE_ID,
+    ContractId,
+    FunctionId,
+    Location,
+    NominalId,
+    SourceId,
+    SymbolId,
+)
+from agnette.agl.ir.nodes import (
+    IrAnd,
+    IrArith,
+    IrAsk,
+    IrAskRequest,
+    IrAssign,
+    IrBind,
+    IrBlock,
+    IrBreak,
+    IrBuiltinLoad,
+    IrBuiltinStore,
+    IrCapture,
+    IrCase,
+    IrCaseArm,
+    IrCaseKey,
+    IrCatchHandler,
+    IrCoerce,
+    IrCompare,
+    IrConstBool,
+    IrConstDecimal,
+    IrConstInt,
+    IrConstJsonNull,
+    IrConstText,
+    IrConstUnit,
+    IrContains,
+    IrContinue,
+    IrContract,
+    IrConvert,
+    IrCopyValue,
+    IrDirectCall,
+    IrExec,
+    IrExpr,
+    IrField,
+    IrFieldSet,
+    IrFunctionParam,
+    IrIf,
+    IrIfBranch,
+    IrIndex,
+    IrIndexSet,
+    IrIndirectCall,
+    IrIterHasNext,
+    IrIterInit,
+    IrIterNext,
+    IrLiteralCaseKey,
+    IrLiteralKind,
+    IrLoad,
+    IrLoop,
+    IrMakeArray,
+    IrMakeClosure,
+    IrMakeConstructor,
+    IrMakeDict,
+    IrMakeException,
+    IrMakeJsonArray,
+    IrMakeJsonObject,
+    IrMakeRecord,
+    IrNeg,
+    IrNominalCaseKey,
+    IrNominalCast,
+    IrNominalIs,
+    IrNot,
+    IrOr,
+    IrPrint,
+    IrRaise,
+    IrRenderTemplate,
+    IrRenderValue,
+    IrResource,
+    IrReturn,
+    IrSequence,
+    IrSessionAsk,
+    IrSessionDefault,
+    IrSessionOp,
+    IrSessionOpen,
+    IrSessionOpKind,
+    IrTemplateText,
+    IrTemplateValue,
+    IrTry,
+    IrUpdateRecord,
+    UseDefault,
+)
+from agnette.agl.ir.operations import (
+    AS_DECIMAL_OPERATION,
+    ArithKind,
+    ArithOp,
+    CmpOp,
+    CompareKind,
+    ContainsKind,
+    CopyKind,
+    IndexKind,
+    IterKind,
+    MutableIndexKind,
+    NumericKind,
+)
+from agnette.agl.ir.program import (
+    ExternFunctionBody,
+    FunctionDescriptor,
+    IrFunctionBody,
+    NominalDescriptor,
+    SourceFile,
+    SymbolDescriptor,
+)
+from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.lower.coercions import compile_coercion
+from agnette.agl.lower.conversions import RecipeCastKind, compile_recipe
+from agnette.agl.lower.nominal_descriptors import nominal_descriptor
+from agnette.agl.matchcompile import (
+    BoolConstructor,
+    CompiledMatchSite,
+    Constructor,
+    Decision,
+    DecisionDecompose,
+    DecisionLeaf,
+    DecisionSwitch,
+    FieldOccurrenceProvenance,
+    LiteralKind,
+    NominalConstructor,
+    Occurrence,
+    OccurrenceId,
+)
+from agnette.agl.modules.ids import (
+    STD_CONFIG_ID,
+    STD_ENV_ID,
+    ModuleId,
+    spell_scope_path,
+)
+from agnette.agl.scope.bindings import ModuleBindingReferences
+from agnette.agl.scope.symbols import (
+    BUILTIN_CALL_NAMES,
+    BinderKind,
+    BindingRef,
+    BuiltinKind,
+    BuiltinStaticKind,
+    ConstructorRef,
+    builtin_type_static_kind,
+)
+from agnette.agl.semantics.type_table import (
+    RESERVED_FIELD_DEFAULT_VALUES,
+    MethodDef,
+    ReservedFieldDefault,
+    TypeDef,
+    TypeTable,
+)
+from agnette.agl.semantics.types import (
+    BUILTIN_EXCEPTIONS,
+    BUILTIN_PRELUDE_TYPES,
+    ArrayType,
+    BoolType,
+    BottomType,
+    CastKind,
+    DecimalType,
+    DictType,
+    EnumType,
+    ExceptionType,
+    FunctionType,
+    IntType,
+    JsonType,
+    RecordType,
+    TextType,
+    Type,
+    UnitType,
+)
+from agnette.agl.semantics.values import BoolValue
+from agnette.agl.syntax.nodes import (
+    ArrayLit,
+    AssignStmt,
+    AssignTarget,
+    BinaryOp,
+    BinOp,
+    Block,
+    BoolLit,
+    Break,
+    BuiltinVarDecl,
+    Call,
+    Case,
+    CaseBranch,
+    Cast,
+    CatchClause,
+    CompleteCall,
+    Continue,
+    DecimalLit,
+    DictLit,
+    ElseSentinel,
+    EnumDef,
+    ExceptionDef,
+    ExportDecl,
+    Expr,
+    FieldAccess,
+    FieldTarget,
+    FuncDef,
+    If,
+    IfBranch,
+    ImportDecl,
+    IndexAccess,
+    IndexTarget,
+    InfixDecl,
+    InterpSegment,
+    IntLit,
+    IsTest,
+    Item,
+    Lambda,
+    LetDecl,
+    Loop,
+    NameTarget,
+    NullLit,
+    OperatorRef,
+    Param,
+    Pattern,
+    Placeholder,
+    Raise,
+    RecordDef,
+    RecordUpdate,
+    Return,
+    ScopeRegion,
+    StringLit,
+    Template,
+    TextSegment,
+    Try,
+    TypeAlias,
+    TypeApply,
+    UnaryNeg,
+    UnaryNot,
+    UnitLit,
+    UseDecl,
+    VarDecl,
+    VariantDef,
+    VarRef,
+    is_complete_call,
+    pattern_binder_candidates,
+    scoped_public_name,
+    static_binding_node_id,
+    static_items,
+)
+from agnette.agl.syntax.resources import ResourceError, resolve_resource, resource_path
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.type_schema import (
+    build_format_instructions,
+    derive_schema_and_decode,
+    derive_schema_and_tree,
+)
+from agnette.agl.typecheck.env import (
+    CheckedModule,
+    FunctionSignature,
+    OutputContractSpec,
+    PartialCallSpec,
+)
+from agnette.util.graph import toposort
+from agnette.util.text import normalize_newlines
+
+__all__ = ["InitializerOrigin", "_LinkState", "builtin_nominals_from_declarations"]
+
+
+def reserved_fallback_superseded(name: str, type_table: TypeTable) -> bool:
+    """Return whether a loaded standard declaration owns the built-in *name*.
+
+    A reserved shape stands in for the standard declaration of its name. Once
+    any standard-library module declares that name, the source declaration is
+    the identity the host mints and the fallback is unreachable.
+    """
+    return type_table.standard_builtin_declaration(name) is not None
+
+
+#: Location of host-constant IR, which has no source text and never raises.
+_HOST_CONSTANT_LOCATION = Location(
+    source_id=HOST_SOURCE_ID, start_offset=0, end_offset=0, start_line=1, start_col=0
+)
+
+
+def _host_constant_ir(value: ReservedFieldDefault) -> IrExpr:
+    """Lower one host-side reserved field default to the IR that rebuilds it."""
+    match value:
+        case NominalId() as member:
+            return IrMakeRecord(location=_HOST_CONSTANT_LOCATION, nominal=member, fields=())
+        case BoolValue(value=flag):
+            return IrConstBool(location=_HOST_CONSTANT_LOCATION, value=flag)
+        case text:
+            return IrConstText(location=_HOST_CONSTANT_LOCATION, value=text.value)
+
+
+def reserved_field_defaults(typedef: TypeDef) -> tuple[IrExpr | None, ...] | None:
+    """Lower a reserved record's host-side field defaults into its descriptor defaults.
+
+    A reserved fallback has no source default expression; its descriptor
+    instead gets the constants of
+    :data:`~agnette.agl.semantics.type_table.RESERVED_FIELD_DEFAULT_VALUES`, the
+    same values host engine-setting decode fills. ``None`` when *typedef*
+    has none.
+    """
+    defaults = RESERVED_FIELD_DEFAULT_VALUES.get(typedef.decl_node_id)
+    if defaults is None:
+        return None
+    return tuple(
+        None if (value := defaults.get(index)) is None else _host_constant_ir(value)
+        for index in range(len(typedef.fields))
+    )
+
+
+def _add_builtin_nominals(
+    nominals: dict[NominalId, NominalDescriptor],
+    type_table: TypeTable,
+    field_defaults: "Mapping[NominalId, tuple[IrExpr | None, ...]]",
+) -> None:
+    """Register the host's reserved prelude and exception nominal descriptors.
+
+    Record/enum field and variant names, and exception field names, are all
+    resolved through *type_table* (every built-in prelude and exception type
+    is seeded into every table by ``create_seeded_type_table``). *field_defaults*
+    is the same accumulated link-state table every other nominal descriptor
+    reads (see ``_LinkState.field_defaults``), holding a reserved identity's
+    host-constant defaults (:func:`reserved_field_defaults`) once
+    ``lower_program`` has registered them.
+
+    A reserved identity a standard-library declaration supersedes is left out:
+    the source declaration bears that name path, and nothing can reach the
+    fallback.
+    """
+    for name, typ in BUILTIN_PRELUDE_TYPES.items():
+        if reserved_fallback_superseded(name, type_table):
+            continue
+        nominal = NominalId(require_reserved_nominal_id(name))
+        if isinstance(typ, ExceptionType):
+            continue
+        nominals[nominal] = nominal_descriptor(
+            type_table.typedef_of(typ.decl_id),
+            typ,
+            type_table,
+            bears_name_path=True,
+            field_defaults=field_defaults,
+        )
+
+    for exc_name, exc_type in BUILTIN_EXCEPTIONS.items():
+        if reserved_fallback_superseded(exc_name, type_table):
+            continue
+        descriptor = nominal_descriptor(
+            type_table.exception_def(exc_type),
+            exc_type,
+            type_table,
+            bears_name_path=True,
+            field_defaults=field_defaults,
+        )
+        nominals[descriptor.nominal] = descriptor
+
+
+def builtin_nominals_from_declarations(type_table: TypeTable) -> BuiltinNominals:
+    """Return the built-in nominal table for every currently-resolved ``builtin`` declaration.
+
+    Maps each bare name with a live ``builtin`` declaration to a
+    ``DeclaredNominal`` pairing its own identity with its declared source
+    spelling, read from
+    :meth:`~agnette.agl.semantics.type_table.TypeTable.builtin_declarations`
+    -- the SAME resolution (same forward-scan, last-match-wins tie-break,
+    same orphan skip) the checker itself queries
+    (:meth:`~agnette.agl.semantics.type_table.TypeTable.builtin_declaration`) to
+    type a host call (e.g. ``exec``'s default result type) against a
+    program's selected declaration, rather than an independent walk of the
+    modules' ASTs. Enum members are derived from those same definitions, with
+    the loaded standard-library members retained separately for nested standard
+    host representations. A name no declaration claims is absent and uses a
+    reserved fallback (see
+    :meth:`~agnette.agl.ir.builtin_nominals.BuiltinNominals.resolve`).
+    """
+    declarations = type_table.builtin_declarations()
+    declared = {
+        name: DeclaredNominal(
+            nominal=NominalId(typedef.decl_node_id),
+            display_name=spell_scope_path((*typedef.scope_path, typedef.name)),
+        )
+        for name, typedef in declarations.items()
+    }
+
+    def member_nominals(
+        definitions: Mapping[str, TypeDef],
+    ) -> dict[tuple[str, str], DeclaredNominal]:
+        return {
+            (name, member.name): DeclaredNominal(
+                nominal=NominalId(member.decl_id),
+                display_name=spell_scope_path((*typedef.scope_path, typedef.name, member.name)),
+            )
+            for name, typedef in definitions.items()
+            if typedef.kind == "enum"
+            for member in typedef.members
+        }
+
+    return BuiltinNominals(
+        declared=declared,
+        members=member_nominals(declarations),
+        standard_members=member_nominals(type_table.standard_builtin_declarations()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Internal lowerer state (one instance per module lowered)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class InitializerOrigin:
+    """Source item behind an initializer and its recorded leading-group status.
+
+    ``is_function`` means the item contributed a function closure emitted in
+    the leading group regardless of source position; it is recorded here so
+    consumers do not re-derive that fact from the AST.
+    """
+
+    source_index: int
+    is_function: bool
+
+
+@dataclass
+class _ModuleAllocation:
+    next_sym: int
+    next_fn: int
+    next_contract: int
+
+
+@dataclass
+class _LinkState:
+    next_sym: int = 0
+    next_fn: int = 0
+    next_source: int = 0
+    next_contract: int = 0
+    decl_to_sym: dict[int, SymbolId] = field(default_factory=dict)
+    fn_node_to_sym: dict[int, SymbolId] = field(default_factory=dict)
+    fn_node_to_id: dict[int, FunctionId] = field(default_factory=dict)
+    symbols: dict[SymbolId, SymbolDescriptor] = field(default_factory=dict)
+    functions: dict[FunctionId, FunctionDescriptor] = field(default_factory=dict)
+    nominals: dict[NominalId, NominalDescriptor] = field(default_factory=dict)
+    # Lowered constructor field defaults, keyed by the declaring record/
+    # exception/enum-variant's own identity, one entry per field in
+    # declaration order (``None`` for a required field). Populated while a
+    # declaring module's own items are lowered (``_Lowerer._lower_field_defaults``)
+    # and read back once every module has been processed, building nominal
+    # descriptors (``_record_descriptor``/``exception_descriptor`` in
+    # ``lower/program.py``) — the constructor counterpart of
+    # ``IrFunctionParam.default``, persisted across REPL entries like
+    # ``functions``/``symbols`` so an already-linked module's descriptors keep
+    # their defaults without being lowered again.
+    field_defaults: dict[NominalId, tuple[IrExpr | None, ...]] = field(default_factory=dict)
+    builtin_nominals: BuiltinNominals = NO_BUILTIN_DECLARATIONS
+    sources: dict[SourceId, SourceFile] = field(default_factory=dict)
+    contracts: dict[ContractId, ContractRequest] = field(default_factory=dict)
+    target_contracts: dict[ContractId, TargetContractRequest] = field(default_factory=dict)
+    exception_field_encodes: dict[NominalId, tuple[ExceptionFieldEncode, ...]] = field(
+        default_factory=dict
+    )
+    # Lowering's published initializer-to-source-item mapping is the sole
+    # source of that correspondence. REPL promotion reads it rather than
+    # re-classifying source items; the entry mapping is overwritten before
+    # promotion consumes it on each REPL entry.
+    initializer_origins: dict[ModuleId, tuple[InitializerOrigin, ...]] = field(default_factory=dict)
+
+    def snapshot(self) -> "_LinkState":
+        """Return an independent shallow copy, for the REPL's rollback snapshot.
+
+        Every ``dict``-valued field is re-keyed into a fresh ``dict`` so later
+        mutation of the live state cannot reach the snapshot; every other
+        field is shared as-is (a counter, or the immutable
+        ``BuiltinNominals``). Reflective (``dataclasses.fields``/``getattr``)
+        copying is not an option under this repository's
+        ``disallow_any_expr`` mypy setting -- every dynamic-attribute
+        expression is typed ``Any``. Defined here, directly beside the field
+        list, so a newly added field is copied by the same edit that adds it
+        rather than in a distant caller that can silently forget it (the
+        ``field_defaults`` bug this method's addition fixed: a caller that
+        enumerated fields by hand, at a distance, missed one).
+        """
+        return _LinkState(
+            next_sym=self.next_sym,
+            next_fn=self.next_fn,
+            next_source=self.next_source,
+            next_contract=self.next_contract,
+            decl_to_sym=dict(self.decl_to_sym),
+            fn_node_to_sym=dict(self.fn_node_to_sym),
+            fn_node_to_id=dict(self.fn_node_to_id),
+            symbols=dict(self.symbols),
+            functions=dict(self.functions),
+            nominals=dict(self.nominals),
+            field_defaults=dict(self.field_defaults),
+            builtin_nominals=self.builtin_nominals,
+            sources=dict(self.sources),
+            contracts=dict(self.contracts),
+            target_contracts=dict(self.target_contracts),
+            exception_field_encodes=dict(self.exception_field_encodes),
+            initializer_origins=dict(self.initializer_origins),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _Operand:
+    """A lowered binary-operator operand with its checked type and location."""
+
+    ir: IrExpr
+    type: Type
+    location: Location
+
+
+#: The host operations a built-in call, built-in value, or bound built-in
+#: method can lower to. One closed space over the three classifications the
+#: checker records: a free built-in, a built-in type static, and a session
+#: lifecycle operation.
+_BuiltinOp = BuiltinKind | BuiltinStaticKind | IrSessionOpKind
+
+#: Every spelling a reserved ``builtin def`` may carry -- free function or
+#: method -- mapped to the operation it dispatches. The checker admits no
+#: other spelling. ``parse``/``try-parse`` are absent by design: their
+#: spellings are ordinary names that only the resolver's own classification
+#: identifies (see ``NON_RESERVED_BUILTIN_CALL_NAMES``).
+_BUILTIN_OPS: dict[str, _BuiltinOp] = {
+    **BUILTIN_CALL_NAMES,
+    **{op.value: op for op in IrSessionOpKind},
+}
+
+#: The argument name each session operation that takes one accepts. Every
+#: other session operation is receiver-only.
+_SESSION_OP_ARGUMENTS: dict[IrSessionOpKind, str] = {
+    IrSessionOpKind.COMPACT: "instructions",
+    IrSessionOpKind.SET_NAME: "name",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _BuiltinOperands:
+    """The lowered operands one built-in host operation reads.
+
+    ``value`` is the operation's leading operand: the printed, rendered,
+    copied or parsed value, an ``ask`` prompt, an ``exec`` command, an
+    ``open`` agent, or a session receiver. Every other slot is read by the
+    operations that declare it, and ``None`` selects the host default.
+    """
+
+    value: IrExpr | None = None
+    agent: IrExpr | None = None
+    session: IrExpr | None = None
+    argument: IrExpr | None = None
+    transport: IrExpr | None = None
+    name: IrExpr | None = None
+    pretty: IrExpr | None = None
+    quote_strings: IrExpr | None = None
+    env: IrExpr | None = None
+    cwd: IrExpr | None = None
+    timeout: IrExpr | None = None
+    sandbox: IrExpr | None = None
+    target_type: Type | None = None
+    path: str | None = None
+    parse_error_retries: IrExpr | None = None
+
+    @property
+    def subject(self) -> IrExpr:
+        """The leading operand, which every operation that reads one is given."""
+        return cast(IrExpr, self.value)
+
+    def with_receiver(
+        self, op: "_BuiltinOp", receiver: IrExpr, *, is_session: bool
+    ) -> "_BuiltinOperands":
+        """Place a built-in method's receiver in the slot *op* reads it from.
+
+        An ``ask`` dispatches on its receiver (an agent, or a session it is
+        asked on) while keeping the prompt as its leading operand; every other
+        receiver method operates on the receiver itself.
+        """
+        if op is BuiltinKind.ASK or op is BuiltinKind.ASK_REQUEST:
+            return replace(
+                self,
+                agent=None if is_session else receiver,
+                session=receiver if is_session else None,
+            )
+        return replace(self, value=receiver)
+
+
+_LITERAL_CASE_KINDS: dict[LiteralKind, IrLiteralKind] = {
+    LiteralKind.NUMERIC: IrLiteralKind.NUMERIC,
+    LiteralKind.TEXT: IrLiteralKind.TEXT,
+    LiteralKind.NULL: IrLiteralKind.NULL,
+}
+
+_ARITH_OP_MAP: dict[BinOp, ArithOp] = {
+    BinOp.ADD: ArithOp.ADD,
+    BinOp.SUB: ArithOp.SUB,
+    BinOp.MUL: ArithOp.MUL,
+}
+
+_CMP_OP_MAP: dict[BinOp, CmpOp] = {
+    BinOp.LT: CmpOp.LT,
+    BinOp.LE: CmpOp.LE,
+    BinOp.GT: CmpOp.GT,
+    BinOp.GE: CmpOp.GE,
+}
+
+
+def _int_against_decimal(operand: Type, expected: Type) -> bool:
+    """Whether an *operand* compared at *expected* is an int compared with decimals, exactly."""
+    return isinstance(expected, DecimalType) and isinstance(operand, IntType)
+
+
+class _Lowerer:
+    """Holds all mutable state for one lowering pass."""
+
+    def __init__(
+        self,
+        checked: CheckedModule,
+        link: _LinkState,
+        module_id: ModuleId,
+        source_id: SourceId,
+        source_text: str,
+        sites: Mapping[int, CompiledMatchSite],
+        resource_root: Path | None = None,
+        *,
+        has_std_env: bool = False,
+        stable_ids: bool = False,
+        contract_payloads: Mapping[int, ContractPayload] | None = None,
+    ) -> None:
+        self._checked = checked
+        self._link = link
+        seed = checked.resolved.program.node_id << 32
+        self._allocation = _ModuleAllocation(seed, seed, seed) if stable_ids else link
+        self.resources: list[tuple[Path | None, str | None, Path]] = []
+        # This module's own contribution to ``link.field_defaults``, kept
+        # alongside it so the module cache can capture exactly what this
+        # lowering pass added (mirrors how ``lowerer.resources`` feeds
+        # ``module_cache.capture``).
+        self.field_defaults: dict[NominalId, tuple[IrExpr | None, ...]] = {}
+        self._module_id = module_id
+        self._source_id = source_id
+        self._source_text = normalize_newlines(source_text)
+        self._compiled_sites = sites
+        self._resource_root = resource_root
+        self._has_std_env = has_std_env
+        # Shared TypeTable built during checking; resolves record/enum field
+        # and variant shapes for constructor lowering, nominal descriptors,
+        # and contract/param schema derivation.
+        self._type_table: TypeTable = checked.type_env.type_table
+        self._contract_payloads: Mapping[int, ContractPayload] = (
+            contract_payloads if contract_payloads is not None else {}
+        )
+        self._return_expected_stack: list[Type] = []
+        # The function whose body is being lowered, if any. A binding declared
+        # there is owned by that function: it lives in a per-invocation call
+        # frame, not in the module frame.
+        self._current_function: FunctionId | None = None
+        self._references: ModuleBindingReferences | None = None
+        self._substituting_constants = False
+
+    @contextmanager
+    def _return_context(self, expected: Type) -> Iterator[None]:
+        """Track the coercion target for ``return`` inside a function body."""
+        self._return_expected_stack.append(expected)
+        try:
+            yield
+        finally:
+            self._return_expected_stack.pop()
+
+    @contextmanager
+    def substituted_constants(self) -> Iterator[None]:
+        """Lower an expression a host evaluates before any initializer runs.
+
+        A ``builtin var`` default and a ``@config`` value are evaluated against
+        an empty frame, so a reference to one of this module's constants has no
+        slot to load; the referenced binding's own declared initializer is
+        lowered in its place instead.
+        """
+        previous = self._substituting_constants
+        self._substituting_constants = True
+        try:
+            yield
+        finally:
+            self._substituting_constants = previous
+
+    @contextmanager
+    def _function_body(self, fn_id: FunctionId) -> Iterator[None]:
+        """Attribute every binding lowered inside a function body to *fn_id*."""
+        previous = self._current_function
+        self._current_function = fn_id
+        try:
+            yield
+        finally:
+            self._current_function = previous
+
+    # ------------------------------------------------------------------
+    # SymbolId allocation
+    # ------------------------------------------------------------------
+
+    def _alloc_sym(
+        self,
+        decl_node_id: int,
+        *,
+        name: str,
+        mutable: bool,
+        public: bool = True,
+        owner: "ModuleId | FunctionId | None" = None,
+        synthetic: bool = False,
+    ) -> SymbolId:
+        """Allocate a fresh ``SymbolId`` for a declaration and register it.
+
+        When ``public`` is ``False`` the ``SymbolDescriptor.public_name`` is set
+        to ``None`` so the symbol is not exposed in ``_collect_results``; this is
+        used for catch-clause binders that live in the flat module frame but are
+        not top-level exported bindings. ``synthetic`` marks a host-generated AST
+        declaration while retaining its ``decl_node_id`` symbol mapping.
+
+        An omitted ``owner`` defaults to the function whose body is being
+        lowered, or to the module when lowering module-level items.
+        """
+        sym = SymbolId(self._allocation.next_sym)
+        self._allocation.next_sym += 1
+        self._link.decl_to_sym[decl_node_id] = sym
+        self._link.symbols[sym] = SymbolDescriptor(
+            symbol_id=sym,
+            mutable=mutable,
+            public_name=name if public else None,
+            owner=self._default_owner(owner),
+            synthetic=synthetic,
+        )
+        return sym
+
+    def _default_owner(self, owner: "ModuleId | FunctionId | None") -> "ModuleId | FunctionId":
+        """Resolve an omitted symbol owner from the lowering context."""
+        if owner is not None:
+            return owner
+        if self._current_function is not None:
+            return self._current_function
+        return self._module_id
+
+    def _symbol_for_or_alloc_decl(
+        self,
+        decl_node_id: int,
+        *,
+        name: str,
+        mutable: bool,
+        public: bool,
+        owner: "ModuleId | FunctionId | None" = None,
+    ) -> SymbolId:
+        """Return a pre-allocated declaration symbol or allocate a nested one."""
+        sym = self._link.decl_to_sym.get(decl_node_id)
+        if sym is not None:
+            return sym
+        return self._alloc_sym(
+            decl_node_id,
+            name=name,
+            mutable=mutable,
+            public=public,
+            owner=owner,
+        )
+
+    def _alloc_synthetic_sym(
+        self,
+        *,
+        mutable: bool,
+        owner: "ModuleId | FunctionId | None" = None,
+    ) -> SymbolId:
+        """Allocate a fresh ``SymbolId`` for a lowering-internal synthetic binding.
+
+        Unlike ``_alloc_sym``, this does NOT register an entry in ``decl_to_sym``
+        (there is no AST declaration node).  ``public_name`` is ``None`` so the
+        symbol is never exposed in ``_collect_results``.  Used for loop desugaring
+        counters (``__count``, ``__n``) that must not be user-visible.
+        """
+        sym = SymbolId(self._allocation.next_sym)
+        self._allocation.next_sym += 1
+        self._link.symbols[sym] = SymbolDescriptor(
+            symbol_id=sym,
+            mutable=mutable,
+            public_name=None,
+            owner=self._default_owner(owner),
+            synthetic=True,
+        )
+        return sym
+
+    def _sym_for_decl(self, decl_node_id: int) -> SymbolId:
+        """Return the pre-allocated ``SymbolId`` for a declaration node."""
+        return self._link.decl_to_sym[decl_node_id]
+
+    def _alloc_fn(self) -> FunctionId:
+        """Allocate a fresh ``FunctionId``."""
+        fn_id = FunctionId(self._allocation.next_fn)
+        self._allocation.next_fn += 1
+        return fn_id
+
+    def _next_contract_id(self) -> ContractId:
+        """Allocate a fresh ``ContractId``, shared by output and target contracts."""
+        cid = ContractId(self._allocation.next_contract)
+        self._allocation.next_contract += 1
+        return cid
+
+    def _alloc_contract(self, request: ContractRequest) -> ContractId:
+        """Allocate a fresh ContractId and register the ContractRequest."""
+        cid = self._next_contract_id()
+        self._link.contracts[cid] = request
+        return cid
+
+    def _contract_request_for_spec(self, node_id: int, *, structured_exec: bool) -> ContractRequest:
+        """Build the typeless contract request for node *node_id*'s checked output contract.
+
+        A custom codec's request carries the payload the host materialized for
+        the node before lowering. A unit target maps to ``UnitContractRequest``
+        whatever the spec's codec name says.
+        """
+        spec = self._checked.contract_specs[node_id]
+        target = spec.target_type
+        if isinstance(target, UnitType):
+            return UnitContractRequest()
+        if spec.codec_name == "json":
+            schema, decode_plan = derive_schema_and_decode(target, self._type_table)
+            return JsonContractRequest(
+                strict_json=spec.strict_json,
+                json_schema=json.dumps(schema),
+                decode=decode_plan.root,
+                target_type_label=repr(target),
+                structured_exec=structured_exec,
+                format_instructions=build_format_instructions(schema),
+                defs=decode_plan.defs,
+            )
+        if spec.codec_name == "text":
+            # "text" is a reserved codec name (see `BUILTIN_CODEC_NAMES`): a
+            # host codec can never register under it.
+            return TextContractRequest(
+                strict_json=spec.strict_json,
+                target_type_label=repr(target),
+                structured_exec=structured_exec,
+                format_instructions="",
+            )
+        payload = self._contract_payloads[node_id]
+        return CustomContractRequest(
+            codec_name=spec.codec_name,
+            strict_json=spec.strict_json,
+            json_schema=payload.json_schema,
+            decode=payload.decode,
+            target_type_label=repr(target),
+            structured_exec=structured_exec,
+            format_instructions=payload.format_instructions,
+            target_type=target,
+            defs=payload.defs,
+        )
+
+    def _alloc_target_contract(self, spec: OutputContractSpec) -> ContractId:
+        """Register a type-directed extern's target contract, carrying its type tree."""
+        schema, tree = derive_schema_and_tree(spec.target_type, self._type_table)
+        cid = self._next_contract_id()
+        self._link.target_contracts[cid] = TargetContractRequest(
+            target_type_label=repr(spec.target_type),
+            json_schema=json.dumps(schema),
+            type_tree=tree,
+        )
+        return cid
+
+    def _target_contracts(self, node_id: int, span: SourceSpan) -> tuple[IrContract, ...]:
+        """Register and lower an extern occurrence's target contracts; empty for any other."""
+        return tuple(
+            IrContract(
+                location=self._loc(span),
+                contract_id=self._alloc_target_contract(spec),
+            )
+            for spec in self._checked.target_contract_specs.get(node_id, ())
+        )
+
+    def _prealloc_funcdef(self, funcdef: "FuncDef") -> None:
+        """Pre-allocate SymbolId and FunctionId for a static ``FuncDef``.
+
+        A function declared inside a named scope is published under its
+        unqualified name only within its own module frame; it must never be
+        exposed as a root-level ``RunResult`` binding (``RunResult.bindings``
+        is root-only), so ``public`` additionally requires an empty
+        declaration scope path.
+        """
+        fn_id = self._alloc_fn()
+        sym = self._alloc_sym(
+            funcdef.node_id,
+            name=funcdef.name,
+            mutable=False,
+            public=not funcdef.scope_path and not funcdef.is_synthetic,
+            owner=self._module_id,
+            synthetic=funcdef.is_synthetic,
+        )
+        self._link.fn_node_to_sym[funcdef.node_id] = sym
+        self._link.fn_node_to_id[funcdef.node_id] = fn_id
+
+    # Binder kinds whose values live in evaluation frames and can therefore be
+    # captured by a closure.  function_binding is resolved through the function
+    # table (via the base frame, which always contains all module-level bindings);
+    # Constructor bindings are not frame values in the IR.
+    # (host prep / constructors are handled elsewhere) so they are not captures here.
+    _CAPTURABLE_KINDS = frozenset(
+        {
+            BinderKind.let_binding,
+            BinderKind.var_binding,
+            BinderKind.param_binding,
+            BinderKind.catch_binder,
+            BinderKind.pattern_binding,
+            BinderKind.loop_var_binding,
+        }
+    )
+
+    def _pattern_binding_ids(self, pattern: Pattern, out: set[int]) -> None:
+        """Collect declaration ids for checker-selected source pattern binders.
+
+        The pattern side table is total over selected binders, so every returned
+        id comes directly from its uniform binder identity.
+        """
+        classifications = self._checked.pattern_classifications
+        for candidate in pattern_binder_candidates(pattern):
+            if candidate.is_as_pattern or classifications.get(candidate.node_id) is None:
+                out.add(self._checked.pattern_binding_refs[candidate.node_id].decl_node_id)
+
+    def _record_capture(
+        self, node_id: int, local_ids: set[int], captured: dict[int, BindingRef]
+    ) -> None:
+        ref = self._checked.binding_for(node_id)
+        if (
+            ref is not None
+            and ref.decl_node_id not in local_ids
+            and ref.kind in self._CAPTURABLE_KINDS
+        ):
+            captured[ref.decl_node_id] = ref
+
+    def _scan_captures(
+        self, node: Item, local_ids: set[int], captured: dict[int, BindingRef]
+    ) -> None:
+        """Single boundary-aware pass collecting a function body's free-var captures.
+
+        Registers every in-body binder (let/var/pattern/catch) into ``local_ids``
+        BEFORE descending the scope it governs, and records in ``captured`` every
+        reference that resolves to a CAPTURABLE binding declared OUTSIDE the body.
+        Stops at nested FuncDef/Lambda boundaries (they analyze their own free vars).
+        A shared monotonically-growing ``local_ids`` set is safe: a reference can
+        only resolve to a binder already in scope (declared earlier), so out-of-scope
+        leakage into sibling branches can never produce a false local/false capture.
+        """
+        match node:
+            case VarRef():
+                self._record_capture(node.node_id, local_ids, captured)
+            # Boundaries + declarations introduce no value captures for THIS function:
+            case (
+                Lambda()
+                | FuncDef()
+                | RecordDef()
+                | EnumDef()
+                | ExceptionDef()
+                | TypeAlias()
+                | ScopeRegion()
+                | BuiltinVarDecl()
+                | ImportDecl()
+                | ExportDecl()
+                | UseDecl()
+                | InfixDecl()
+            ):
+                return
+            case LetDecl():
+                local_ids.add(node.node_id)
+                self._scan_captures(node.value, local_ids, captured)
+            case VarDecl():
+                local_ids.add(node.node_id)
+                self._scan_captures(node.value, local_ids, captured)
+            case AssignStmt():
+                if isinstance(node.target, NameTarget):
+                    # The assigned binding must be captured even when it is
+                    # never otherwise read (e.g. `x := 5`).
+                    self._record_capture(node.node_id, local_ids, captured)
+                else:
+                    # A non-name target has no binding of its own. Its receiver
+                    # expression supplies its captures; indexed targets also
+                    # have an ordinary index expression.
+                    self._scan_captures(node.target.obj, local_ids, captured)
+                    if isinstance(node.target, IndexTarget):
+                        self._scan_captures(node.target.index, local_ids, captured)
+                self._scan_captures(node.value, local_ids, captured)
+            case Block():
+                for item in node.items:
+                    self._scan_captures(item, local_ids, captured)
+            case If():
+                for br in node.branches:
+                    if not isinstance(br.cond, ElseSentinel):
+                        self._scan_captures(br.cond, local_ids, captured)
+                    self._scan_captures(br.body, local_ids, captured)
+            case Case():
+                self._scan_captures(node.subject, local_ids, captured)
+                for cbr in node.branches:
+                    self._pattern_binding_ids(cbr.pattern, local_ids)
+                    self._scan_captures(cbr.body, local_ids, captured)
+            case Try():
+                self._scan_captures(node.body, local_ids, captured)
+                for clause in node.handlers:
+                    if clause.binding is not None:
+                        local_ids.add(clause.node_id)
+                    self._scan_captures(clause.body, local_ids, captured)
+            case Loop():
+                if node.for_iter is not None:
+                    self._scan_captures(node.for_iter, local_ids, captured)
+                if node.for_range_to is not None:
+                    self._scan_captures(node.for_range_to, local_ids, captured)
+                if node.for_range_step is not None:
+                    self._scan_captures(node.for_range_step, local_ids, captured)
+                if node.bound is not None:
+                    self._scan_captures(node.bound, local_ids, captured)
+                if node.for_var is not None:
+                    local_ids.add(node.node_id)
+                if node.while_cond is not None:
+                    self._scan_captures(node.while_cond, local_ids, captured)
+                self._scan_captures(node.body, local_ids, captured)
+                if node.until_cond is not None:
+                    self._scan_captures(node.until_cond, local_ids, captured)
+            case BinaryOp():
+                self._scan_captures(node.left, local_ids, captured)
+                self._scan_captures(node.right, local_ids, captured)
+            case UnaryNot() | UnaryNeg():
+                self._scan_captures(node.operand, local_ids, captured)
+            case Cast() | IsTest():
+                self._scan_captures(node.expr, local_ids, captured)
+            case TypeApply():
+                self._scan_captures(node.expr, local_ids, captured)
+            case Call():
+                self._scan_captures(node.callee, local_ids, captured)
+                for arg in (*node.args, *(na.value for na in node.named_args)):
+                    if not isinstance(arg, Placeholder):
+                        self._scan_captures(arg, local_ids, captured)
+            case FieldAccess():
+                self._scan_captures(node.obj, local_ids, captured)
+            case RecordUpdate():
+                self._scan_captures(node.target, local_ids, captured)
+                for update in node.updates:
+                    self._scan_captures(update.value, local_ids, captured)
+            case IndexAccess():
+                self._scan_captures(node.obj, local_ids, captured)
+                self._scan_captures(node.index, local_ids, captured)
+            case ArrayLit():
+                for elem in node.elements:
+                    self._scan_captures(elem, local_ids, captured)
+            case DictLit():
+                for entry in node.entries:
+                    self._scan_captures(entry.key, local_ids, captured)
+                    self._scan_captures(entry.value, local_ids, captured)
+            case Template():
+                for seg in node.segments:
+                    if isinstance(seg, InterpSegment):
+                        self._scan_captures(seg.expr, local_ids, captured)
+            case Raise():
+                self._scan_captures(node.exc, local_ids, captured)
+            case Return():
+                if node.value is not None:
+                    self._scan_captures(node.value, local_ids, captured)
+            case Break() | Continue() | OperatorRef():
+                pass  # leaf — no captures
+            case UnitLit() | IntLit() | DecimalLit() | BoolLit() | NullLit() | StringLit():
+                pass
+            case _ as unreachable:  # pragma: no cover
+                assert_never(unreachable)
+
+    def _compute_captures_for(
+        self,
+        body: Expr,
+        params: "tuple[Param, ...]",
+        self_node_id: int,
+        param_decl_ids: set[int],
+    ) -> "tuple[IrCapture, ...]":
+        """Compute the captures for a function body (FuncDef or Lambda).
+
+        Scans *body* and each *params[i].default* for free-variable references
+        that resolve to capturable bindings outside *param_decl_ids*.
+        *self_node_id* is added to local_ids to prevent the function/lambda itself
+        from being treated as a capture of itself.
+        """
+        local_ids: set[int] = set(param_decl_ids)
+        local_ids.add(self_node_id)
+        captured: dict[int, BindingRef] = {}
+        self._scan_captures(body, local_ids, captured)
+        for param in params:
+            if param.default is not None:
+                self._scan_captures(param.default, local_ids, captured)
+        captures: list[IrCapture] = []
+        for decl_id, ref in captured.items():
+            sym = self._link.decl_to_sym[decl_id]
+            # A static module binding lives in frames[0] for the whole run and is
+            # resolved dynamically there. Capturing it would snapshot module lets
+            # and require module vars to exist before a top-level function closure
+            # can be hoisted. Every other binding — including one declared at the
+            # top of a function body, which is owned by that function — lives in a
+            # frame the closure may outlive, so it is captured.
+            symbol_desc = self._link.symbols[sym]
+            if isinstance(symbol_desc.owner, ModuleId) and symbol_desc.public_name is not None:
+                continue
+            captures.append(IrCapture(symbol=sym, by_cell=ref.mutable))
+        return tuple(captures)
+
+    def _compute_captures(
+        self, funcdef: "FuncDef", param_decl_ids: "set[int]"
+    ) -> "tuple[IrCapture, ...]":
+        """Compute the captures for a FuncDef body using the single boundary-aware pass."""
+        return self._compute_captures_for(
+            cast(Expr, funcdef.body), funcdef.params, funcdef.node_id, param_decl_ids
+        )
+
+    def _lower_declared_params(
+        self, funcdef: "FuncDef", fn_id: FunctionId
+    ) -> "tuple[tuple[IrFunctionParam, ...], FunctionSignature, set[int], tuple[str, ...], str]":
+        """Allocate parameter symbols and lower them for a top-level FuncDef.
+
+        Shared by ordinary and extern FuncDef lowering: allocates one SymbolId per
+        parameter (owned by *fn_id*), lowers each parameter's default expression
+        (coerced to the parameter's checked type), and fetches the checker's
+        FunctionSignature for *funcdef*.
+
+        Returns ``(ir_params, sig, param_decl_ids, param_labels, result_label)``,
+        where ``param_decl_ids`` is the set of parameter declaration node ids
+        (used by ordinary defs to bound capture scanning) and ``param_labels`` /
+        ``result_label`` are the descriptor's display-label fields derived from
+        *sig*.
+        """
+        param_decl_ids: set[int] = set()
+        param_syms: list[SymbolId] = []
+        for param in funcdef.params:
+            param_decl_ids.add(param.node_id)
+            psym = self._alloc_sym(
+                param.node_id,
+                name=param.name,
+                mutable=False,
+                public=False,
+                owner=fn_id,
+            )
+            param_syms.append(psym)
+
+        ir_params: list[IrFunctionParam] = []
+        for param, psym in zip(funcdef.params, param_syms):
+            if param.default is not None:
+                param_type_for_default = self._binding_type(param.node_id)
+                default_ir: IrExpr | None = self.lower_coerced(
+                    param.default, param_type_for_default
+                )
+            else:
+                default_ir = None
+            ir_params.append(IrFunctionParam(symbol=psym, default=default_ir))
+
+        sig = self._function_signature(funcdef.node_id)
+        param_labels = tuple(repr(p.type) for p in sig.params)
+        result_label = repr(sig.result)
+
+        return tuple(ir_params), sig, param_decl_ids, param_labels, result_label
+
+    def _lower_funcdef(self, funcdef: "FuncDef") -> IrExpr:
+        """Lower a FuncDef to IrBind(sym, IrMakeClosure(fn_id, captures)).
+
+        All root FuncDefs are pre-allocated before any body is lowered (phase 1),
+        so the symbol + function-id are always present; nested ``def`` is rejected by
+        the scope checker.
+        """
+        fn_id = self._link.fn_node_to_id[funcdef.node_id]
+        fn_sym = self._link.fn_node_to_sym[funcdef.node_id]
+
+        ir_params, sig, param_decl_ids, param_labels, result_label = self._lower_declared_params(
+            funcdef, fn_id
+        )
+        captures = self._compute_captures(funcdef, param_decl_ids)
+        body = cast(Expr, funcdef.body)
+        with (
+            self._return_context(sig.result),
+            self._function_body(fn_id),
+        ):
+            body_ir: IrExpr
+            if funcdef.is_synthetic:
+                block = cast(Block, body)
+                body_ir = self._lower_block(
+                    block.items,
+                    block.span,
+                    top_level=True,
+                    force_unit_result=True,
+                )
+            else:
+                body_ir = self.lower_coerced(body, sig.result)
+
+        desc = FunctionDescriptor(
+            function_id=fn_id,
+            function_symbol=fn_sym,
+            module_id=self._module_id,
+            params=ir_params,
+            impl=IrFunctionBody(body=body_ir),
+            param_labels=param_labels,
+            result_label=result_label,
+            is_synthetic_main=funcdef.is_synthetic,
+        )
+        self._link.functions[fn_id] = desc
+
+        loc = self._loc(funcdef.span)
+        closure_ir = IrMakeClosure(location=loc, function_id=fn_id, captures=captures)
+        return IrBind(location=loc, symbol=fn_sym, value=closure_ir)
+
+    def _lower_extern_funcdef(self, funcdef: "FuncDef") -> IrExpr:
+        """Lower an ``extern def`` to a descriptor + closure binding.
+
+        An extern has no body and no captures (there is nothing to capture: the
+        boundary crossing reads only its own arguments).  Its top-level binding
+        is initialized exactly like an ordinary function's — a closure value
+        referencing its ``function_id`` — so forward references, exports, and
+        first-class use are unchanged.
+        """
+        fn_id = self._link.fn_node_to_id[funcdef.node_id]
+        fn_sym = self._link.fn_node_to_sym[funcdef.node_id]
+
+        ir_params, signature, _param_decl_ids, param_labels, result_label = (
+            self._lower_declared_params(funcdef, fn_id)
+        )
+
+        desc = FunctionDescriptor(
+            function_id=fn_id,
+            function_symbol=fn_sym,
+            module_id=self._module_id,
+            params=ir_params,
+            impl=ExternFunctionBody(
+                name=funcdef.name,
+                companion_name=self._checked.resolved.attributes.extern_names[funcdef.node_id],
+                target_count=len(signature.target_params),
+            ),
+            param_labels=param_labels,
+            result_label=result_label,
+        )
+        self._link.functions[fn_id] = desc
+
+        loc = self._loc(funcdef.span)
+        closure_ir = IrMakeClosure(location=loc, function_id=fn_id, captures=())
+        return IrBind(location=loc, symbol=fn_sym, value=closure_ir)
+
+    def _lower_lambda(
+        self,
+        params: "tuple[Param, ...]",
+        body_expr: Expr,
+        span: "SourceSpan",
+        node_id: int,
+    ) -> IrMakeClosure:
+        """Lower a Lambda expression to IrMakeClosure with a fresh FunctionDescriptor.
+
+        Unlike a FuncDef, a lambda is an expression: the IrMakeClosure itself is the
+        value; it is NOT wrapped in IrBind.  A fresh private function_symbol is
+        allocated to satisfy the FunctionDescriptor + validator.
+
+        Captures are computed relative to the lambda's own params (which become local
+        to the lambda's frame) and body.  Capture-through (a lambda inside a def that
+        captures the def's params) works automatically because IrMakeClosure is
+        evaluated in the ENCLOSING frame (the def's call_frame at the time of the
+        IrMakeClosure eval).
+        """
+        fn_id = self._alloc_fn()
+
+        # Allocate a private symbol for the lambda's function_symbol entry.
+        # This symbol is never loaded by name; it exists only to satisfy the
+        # FunctionDescriptor.function_symbol field and the validator.
+        fn_sym_node_id = node_id  # use the lambda node_id as the key
+        fn_sym = self._alloc_sym(
+            fn_sym_node_id,
+            name=f"<lambda@{node_id}>",
+            mutable=False,
+            public=False,
+            owner=fn_id,
+        )
+
+        # Allocate param SymbolIds.
+        param_decl_ids: set[int] = set()
+        param_syms: list[SymbolId] = []
+        for param in params:
+            param_decl_ids.add(param.node_id)
+            psym = self._alloc_sym(
+                param.node_id,
+                name=param.name,
+                mutable=False,
+                public=False,
+                owner=fn_id,
+            )
+            param_syms.append(psym)
+
+        captures = self._compute_captures_for(body_expr, params, node_id, param_decl_ids)
+
+        # Get the full FunctionType (checker records it on the lambda's node_id).
+        fn_type = cast(FunctionType, self._node_type(node_id))
+
+        # Build IR params; lower param defaults.
+        #
+        # Unlike funcdef params, lambda param defaults are NOT type-checked
+        # by the checker (``_check_lambda`` skips defaults), so their
+        # ``node_type`` entries are absent.  Use ``lower_expr`` directly, as
+        # ``_node_type`` has no entry for them.  The default expression
+        # is still required to be type-compatible (guaranteed by the checker
+        # when the funcdef path is taken; for lambdas the type annotation on
+        # the param already pins the type).
+        ir_params: list[IrFunctionParam] = []
+        for param, psym in zip(params, param_syms):
+            if param.default is not None:
+                default_ir: IrExpr | None = self.lower_expr(param.default)
+            else:
+                default_ir = None
+            ir_params.append(IrFunctionParam(symbol=psym, default=default_ir))
+
+        # Lower the body coerced to the declared return type (bakes result coercion in).
+        with self._return_context(fn_type.result), self._function_body(fn_id):
+            body_ir = self.lower_coerced(body_expr, fn_type.result)
+
+        desc = FunctionDescriptor(
+            function_id=fn_id,
+            function_symbol=fn_sym,
+            module_id=self._module_id,
+            params=tuple(ir_params),
+            impl=IrFunctionBody(body=body_ir),
+            param_labels=tuple(repr(param_type) for param_type in fn_type.params),
+            result_label=repr(fn_type.result),
+        )
+        self._link.functions[fn_id] = desc
+
+        loc = self._loc(span)
+        return IrMakeClosure(location=loc, function_id=fn_id, captures=captures)
+
+    # ------------------------------------------------------------------
+    # Location helpers
+    # ------------------------------------------------------------------
+
+    def _loc(self, span: SourceSpan) -> Location:
+        """Build an IR ``Location`` from an AST ``SourceSpan``."""
+        return Location(
+            source_id=self._source_id,
+            start_offset=span.start_offset,
+            end_offset=span.end_offset,
+            start_line=span.start_line,
+            start_col=span.start_col,
+        )
+
+    def _source_slice(self, span: SourceSpan) -> str:
+        """Return the source-text covered by *span*.
+
+        Used to capture expression source text for runtime diagnostics, such as
+        the ``condition`` field of ``MaxIterationsExceeded`` built during loop
+        desugaring.
+        """
+        return self._source_text[span.start_offset : span.end_offset]
+
+    # ------------------------------------------------------------------
+    # Binding-type helpers
+    # ------------------------------------------------------------------
+
+    def _binding_type(self, decl_node_id: int) -> Type:
+        """Return the checker-recorded type for a declaration node."""
+        return self._checked.type_env.binding_type_of(decl_node_id)
+
+    def _function_signature(self, decl_node_id: int) -> FunctionSignature:
+        """Return the checker-recorded signature of a function declaration node."""
+        return self._checked.type_env.function_signature_of(decl_node_id)
+
+    def _lower_named_binding(
+        self,
+        *,
+        decl_node_id: int,
+        name: str,
+        rhs: Expr,
+        span: SourceSpan,
+        binding_type: Type,
+        mutable: bool,
+        public: bool,
+    ) -> IrBind:
+        """Lower one named binding with its checker-selected coercion target.
+
+        Static module bindings receive their symbols during the linker's
+        pre-allocation phase, so function captures can refer to them while
+        function bodies are lowered. Nested bindings still allocate on demand.
+        """
+        sym = self._symbol_for_or_alloc_decl(
+            decl_node_id,
+            name=name,
+            mutable=mutable,
+            public=public,
+        )
+        return IrBind(
+            location=self._loc(span),
+            symbol=sym,
+            value=self.lower_coerced(rhs, binding_type),
+        )
+
+    def _node_type(self, node_id: int) -> Type:
+        """Return the checker-recorded type for an expression node."""
+        return self._checked.node_types[node_id]
+
+    # ------------------------------------------------------------------
+    # Core lowering with optional coercion wrapping
+    # ------------------------------------------------------------------
+
+    def _coerce_ir(
+        self,
+        ir: IrExpr,
+        source: Type,
+        expected: Type,
+        location: Location,
+        *,
+        operation: str = AS_DECIMAL_OPERATION,
+    ) -> IrExpr:
+        """Wrap pre-lowered IR in ``IrCoerce`` when ``source`` needs ``expected``.
+
+        *operation* labels an int-to-decimal widening's out-of-range error;
+        see ``compile_coercion``.
+        """
+        op = compile_coercion(source, expected, operation=operation)
+        if op is None:
+            return ir
+        return IrCoerce(location=location, value=ir, operation=op)
+
+    def lower_coerced(self, node: Expr, expected: Type) -> IrExpr:
+        """Lower *node* as an expression, then wrap in ``IrCoerce`` if needed.
+
+        The node's own checked type is retrieved via ``node_types``; a coercion
+        from that type to *expected* is compiled and, if non-``None``, wraps the
+        result in ``IrCoerce``.
+        """
+        ir = self.lower_expr(node)
+        own_type = self._node_type(node.node_id)
+        return self._coerce_ir(ir, own_type, expected, self._loc(node.span))
+
+    def lower_expr(self, node: Expr) -> IrExpr:
+        """Lower an AST expression node to its own-typed IR (no outer coercion)."""
+        match node:
+            # ----------------------------------------------------------
+            # Literals
+            # ----------------------------------------------------------
+            case IntLit(value=v, span=span):
+                return IrConstInt(location=self._loc(span), value=v)
+
+            case DecimalLit(value=v, span=span):
+                return IrConstDecimal(location=self._loc(span), value=v)
+
+            case BoolLit(value=v, span=span):
+                return IrConstBool(location=self._loc(span), value=v)
+
+            case StringLit(value=v, span=span):
+                return IrConstText(location=self._loc(span), value=v)
+
+            case NullLit(span=span):
+                return IrConstJsonNull(location=self._loc(span))
+
+            case UnitLit(span=span):
+                return IrConstUnit(location=self._loc(span))
+
+            # ----------------------------------------------------------
+            # Container literals
+            # ----------------------------------------------------------
+            case ArrayLit() as array_node:
+                return self._lower_array_lit(array_node)
+
+            case DictLit() as dict_node:
+                return self._lower_dict_lit(dict_node)
+
+            # ----------------------------------------------------------
+            # Variable reference — constructor ref or IrLoad
+            # ----------------------------------------------------------
+            case VarRef(node_id=nid, span=span):
+                # A constructor reference is a record or exception constructor.
+                if self._checked.constructor_ref_for(nid) is not None:
+                    node_typ = self._node_type(nid)
+                    if isinstance(node_typ, FunctionType):
+                        # Constructor with fields used as a value → IrMakeConstructor.
+                        nominal = NominalId(self._constructor_result_type(nid).decl_id)
+                        return IrMakeConstructor(location=self._loc(span), nominal=nominal)
+                    # Fieldless constructor used as a value → construct immediately.
+                    return self._lower_nullary_constructor(nid, span)
+
+                ref = cast(BindingRef, self._checked.binding_for(nid))
+                if ref.kind is BinderKind.builtin_var_binding:
+                    # A ``builtin var`` read is keyed by its defining module
+                    # and name; the interpreter routes ``std/config`` keys to
+                    # engine registers and other keys to host-backed values.
+                    return IrBuiltinLoad(
+                        location=self._loc(span),
+                        key=builtin_var_key(ref.module_id, ref.scope_path, ref.name),
+                    )
+                if ref.kind is BinderKind.function_binding and ref.is_builtin:
+                    return self._lower_builtin_value(ref, nid, span)
+                if nid in self._checked.target_contract_specs:
+                    return self._lower_extern_target_value(ref, nid, span)
+                declaration = self._binding_references.declarations.get(ref.decl_node_id)
+                if self._substituting_constants and declaration is not None:
+                    return self.lower_expr(declaration.value)
+                sym = self._sym_for_decl(ref.decl_node_id)
+                return IrLoad(location=self._loc(span), symbol=sym)
+
+            # ----------------------------------------------------------
+            # Block → IrBlock
+            # ----------------------------------------------------------
+            case Block(items=items, span=span):
+                return self._lower_block(items, span)
+
+            # ----------------------------------------------------------
+            # Operator nodes
+            # ----------------------------------------------------------
+            case BinaryOp(op=op, left=left_expr, right=right_expr, span=span):
+                return self._lower_binary_op(op, left_expr, right_expr, span)
+
+            case OperatorRef():
+                return self._lower_operator_ref(node)
+
+            case UnaryNot(operand=operand_expr, span=span):
+                return IrNot(
+                    location=self._loc(span),
+                    value=self.lower_expr(operand_expr),
+                )
+
+            case UnaryNeg(operand=operand_expr, span=span):
+                op_type = self._node_type(operand_expr.node_id)
+                nkind = NumericKind.INT if isinstance(op_type, IntType) else NumericKind.DECIMAL
+                return IrNeg(
+                    location=self._loc(span),
+                    kind=nkind,
+                    value=self.lower_expr(operand_expr),
+                )
+
+            # ----------------------------------------------------------
+            # Field access → IrField or a bound-method partial closure
+            # ----------------------------------------------------------
+            case FieldAccess(obj=obj_expr, field=field_name, span=span):
+                selected_method = self._checked.method_selection_for(node.node_id)
+                if selected_method is not None:
+                    return self._lower_bound_method(node, selected_method)
+                obj_type = cast(
+                    "RecordType | EnumType | ExceptionType", self._node_type(obj_expr.node_id)
+                )
+                return IrField(
+                    location=self._loc(span),
+                    value=self.lower_expr(obj_expr),
+                    nominal=NominalId(obj_type.decl_id),
+                    field=field_name,
+                )
+
+            # ----------------------------------------------------------
+            # Record update → IrUpdateRecord
+            # ----------------------------------------------------------
+            case RecordUpdate(target=target_expr, updates=updates, span=span):
+                target_type = cast(
+                    "RecordType | ExceptionType", self._node_type(target_expr.node_id)
+                )
+                field_types = self._constructor_field_types(target_type)
+                ir_updates = tuple(
+                    (u.name, self.lower_coerced(u.value, field_types[u.name])) for u in updates
+                )
+                return IrUpdateRecord(
+                    location=self._loc(span),
+                    value=self.lower_expr(target_expr),
+                    updates=ir_updates,
+                )
+
+            # ----------------------------------------------------------
+            # Index access → IrIndex
+            # ----------------------------------------------------------
+            case IndexAccess(obj=obj_expr, index=index_expr, span=span):
+                container_type = self._node_type(obj_expr.node_id)
+                kind = self._kind_for_container(container_type)
+                return IrIndex(
+                    location=self._loc(span),
+                    kind=kind,
+                    value=self.lower_expr(obj_expr),
+                    index=self.lower_coerced(index_expr, self._index_expected_type(container_type)),
+                )
+
+            # ----------------------------------------------------------
+            # Template string → IrRenderTemplate
+            # ----------------------------------------------------------
+            case Template(segments=segments, span=span):
+                ir_segs: list[IrTemplateText | IrTemplateValue] = []
+                for seg in segments:
+                    if isinstance(seg, TextSegment):
+                        ir_segs.append(IrTemplateText(text=seg.text))
+                    elif isinstance(seg, InterpSegment):
+                        ir_segs.append(IrTemplateValue(value=self.lower_expr(seg.expr)))
+                    else:
+                        assert_never(seg)  # pragma: no cover
+                return IrRenderTemplate(location=self._loc(span), segments=tuple(ir_segs))
+
+            # ----------------------------------------------------------
+            # Call — constructor calls lowered here; all other calls deferred
+            # ----------------------------------------------------------
+            case Call(node_id=nid, span=span) as call_node:
+                return self._lower_call(call_node, nid, span)
+
+            case TypeApply(expr=applied_expr):
+                return self.lower_expr(applied_expr)
+
+            case Cast(expr=operand, test_only=test_only, span=span, node_id=nid):
+                spec = self._checked.cast_specs[nid]
+                source_type = self._node_type(operand.node_id)
+                inner = self.lower_expr(operand)
+                if spec.kind is CastKind.IDENTITY_UPCAST and not test_only:
+                    return inner
+                if spec.kind is CastKind.NOMINAL_DOWNCAST:
+                    return IrNominalCast(
+                        location=self._loc(span),
+                        nominals=self._downcast_accepted_nominals(source_type, spec.target_type),
+                        value=inner,
+                        test_only=test_only,
+                        source_label=repr(source_type),
+                        target_label=repr(spec.target_type),
+                    )
+                return self._lower_recipe_convert(
+                    inner,
+                    source_type,
+                    spec.target_type,
+                    spec.kind,
+                    span,
+                    failure_mode=(
+                        ConversionFailureMode.RETURN_OPTION
+                        if test_only
+                        else ConversionFailureMode.RAISE_CAST_ERROR
+                    ),
+                )
+
+            case IsTest(expr=operand, negated=negated, span=span, node_id=nid):
+                member = cast(ConstructorRef, self._checked.constructor_ref_for(nid))
+                return IrNominalIs(
+                    location=self._loc(span),
+                    nominal=NominalId(member.owner_decl_node_id),
+                    value=self.lower_expr(operand),
+                    negated=negated,
+                )
+
+            # ----------------------------------------------------------
+            # Control flow — if, raise, try
+            # ----------------------------------------------------------
+            case If(branches=branches, span=span, node_id=nid):
+                return self._lower_if(branches, span, self._node_type(nid))
+
+            case Raise(exc=exc_expr, span=span):
+                return IrRaise(
+                    location=self._loc(span),
+                    exc=self.lower_expr(exc_expr),
+                )
+
+            case Return(value=value_expr, span=span):
+                expected = self._return_expected_stack[-1]
+                return IrReturn(
+                    location=self._loc(span),
+                    value=IrConstUnit(location=self._loc(span))
+                    if value_expr is None
+                    else self.lower_coerced(value_expr, expected),
+                )
+
+            case Try(body=body_expr, handlers=handlers, span=span):
+                return self._lower_try(body_expr, handlers, span)
+
+            # ----------------------------------------------------------
+            # Case expression
+            # ----------------------------------------------------------
+            case Case(subject=subject_expr, branches=branches, span=span, node_id=nid):
+                return self._lower_case(nid, subject_expr, branches, span, self._node_type(nid))
+
+            # ----------------------------------------------------------
+            # loop expression → IrLoop (desugared by _lower_loop)
+            # ----------------------------------------------------------
+            case Loop(
+                for_var=for_var,
+                for_iter=for_iter_expr,
+                for_range_to=for_range_to_expr,
+                for_range_down=for_range_down,
+                for_range_step=for_range_step_expr,
+                while_cond=while_cond_expr,
+                bound=bound_expr,
+                body=body_expr,
+                until_cond=until_cond_expr,
+                span=span,
+                node_id=loop_nid,
+            ):
+                return self._lower_loop(
+                    for_var=for_var,
+                    for_iter_expr=for_iter_expr,
+                    for_range_to_expr=for_range_to_expr,
+                    for_range_down=for_range_down,
+                    for_range_step_expr=for_range_step_expr,
+                    while_cond_expr=while_cond_expr,
+                    bound_expr=bound_expr,
+                    body_expr=body_expr,
+                    until_cond_expr=until_cond_expr,
+                    span=span,
+                    loop_nid=loop_nid,
+                )
+
+            # ----------------------------------------------------------
+            # break / continue — wire to the existing IR signals
+            # ----------------------------------------------------------
+            case Break(span=span):
+                return IrBreak(location=self._loc(span))
+
+            case Continue(span=span):
+                return IrContinue(location=self._loc(span))
+
+            # ----------------------------------------------------------
+            # Lambda expression
+            # ----------------------------------------------------------
+            case Lambda(params=params, body=body_expr, span=span, node_id=nid):
+                return self._lower_lambda(params, body_expr, span, nid)
+
+            case _ as unreachable:  # pragma: no cover
+                assert_never(unreachable)
+
+    # ------------------------------------------------------------------
+    # Loop desugar
+    # ------------------------------------------------------------------
+
+    def _lower_loop(
+        self,
+        *,
+        for_var: "str | None",
+        for_iter_expr: "Expr | None",
+        for_range_to_expr: "Expr | None",
+        for_range_down: bool,
+        for_range_step_expr: "Expr | None",
+        while_cond_expr: "Expr | None",
+        bound_expr: "Expr | None",
+        body_expr: "Expr",
+        until_cond_expr: "Expr | None",
+        span: "SourceSpan",
+        loop_nid: int,
+    ) -> IrExpr:
+        """Desugar a ``Loop`` AST node to ``IrLoop(body)``.
+
+        **Collection for — pre-loop** (emitted as needed):
+        - ``IrBind(__it, IrIterInit(kind, lower(for_iter_expr)))``  — mutable; for ``for``
+        - ``IrBind(__n, lower_coerced(bound_expr, IntType()))``      — immutable; for bound
+        - ``IrBind(__count, IrConstInt(0))``                         — mutable; for bound
+
+        **Integer-range for — pre-loop** (when ``for_range_to_expr`` is not ``None``):
+        - ``IrBind(__cur, lower_coerced(for_iter_expr, IntType()))`` — mutable cursor (start ``a``)
+        - ``IrBind(__end, lower_coerced(for_range_to_expr, IntType()))`` — immutable (bound ``b``)
+        - ``IrBind(__step, lower_coerced(for_range_step_expr, IntType()))`` or ``IrConstInt(1)``
+        - ``IrIf(step <= 0 => IrRaise(RangeError))`` — step guard
+        - (followed by the optional ``[n]`` bound items as for collection)
+
+        **``IrLoop(body = IrBlock([…]))``** with:
+        For collection ``for``:
+        1. For exhaustion check  (``if not IrIterHasNext(__it) => break``)
+        2. For variable bind     (``let for_var = IrIterNext(__it)``)
+        For integer-range ``for``:
+        1. Range termination check  (``if __cur > __end`` or ``__cur < __end`` => break)
+        2a. Loop variable bind      (``let for_var = IrLoad(__cur)``)
+        2b. Cursor advance          (``__cur := __cur + __step`` or ``… - …``)
+        Shared items 3–7:
+        3. While guard           (only if ``while_cond_expr`` is not ``None``)
+        4. Bound check           (only if bounded)
+        5. Count increment       (only if bounded)
+        6. Body                  (always)
+        7. Until guard           (only if ``until_cond_expr`` is not ``None``)
+
+        Returns ``IrSequence(pre_items..., IrLoop)`` when pre-loop items exist;
+        the plain ``IrLoop`` when not.
+        """
+        loc = self._loc(span)
+        pre_items: list[IrExpr] = []
+        it_sym: SymbolId | None = None
+        # (cursor, end, step) symbols of an integer-range ``for``.
+        range_syms: tuple[SymbolId, SymbolId, SymbolId] | None = None
+        n_sym: SymbolId | None = None
+        count_sym: SymbolId | None = None
+
+        if for_range_to_expr is not None:
+            # ---- Integer-range for pre-loop ----
+            # __cur: mutable int cursor, initialised to start a (the parser
+            # stores a range's lower bound in for_iter)
+            cur_sym = self._alloc_synthetic_sym(mutable=True)
+            pre_items.append(
+                IrBind(
+                    location=loc,
+                    symbol=cur_sym,
+                    value=self.lower_coerced(cast(Expr, for_iter_expr), IntType()),
+                )
+            )
+            # __end: immutable int, the to/downto bound b
+            end_sym = self._alloc_synthetic_sym(mutable=False)
+            pre_items.append(
+                IrBind(
+                    location=loc,
+                    symbol=end_sym,
+                    value=self.lower_coerced(for_range_to_expr, IntType()),
+                )
+            )
+            # __step: immutable int; from by-expr or default 1
+            step_sym = self._alloc_synthetic_sym(mutable=False)
+            step_value: IrExpr
+            if for_range_step_expr is not None:
+                step_value = self.lower_coerced(for_range_step_expr, IntType())
+            else:
+                step_value = IrConstInt(location=loc, value=1)
+            pre_items.append(IrBind(location=loc, symbol=step_sym, value=step_value))
+            range_syms = (cur_sym, end_sym, step_sym)
+            # Step guard: if __step <= 0 => raise RangeError(...)
+            range_error = self._link.builtin_nominals.resolve("RangeError")
+            range_error_nominal = range_error.nominal
+            pre_items.append(
+                IrIf(
+                    location=loc,
+                    branches=(
+                        IrIfBranch(
+                            cond=IrCompare(
+                                location=loc,
+                                op=CmpOp.LE,
+                                kind=CompareKind.INT,
+                                lhs=IrLoad(location=loc, symbol=step_sym),
+                                rhs=IrConstInt(location=loc, value=0),
+                            ),
+                            body=IrRaise(
+                                location=loc,
+                                exc=IrMakeException(
+                                    location=loc,
+                                    nominal=range_error_nominal,
+                                    fields=(
+                                        (
+                                            "message",
+                                            IrConstText(
+                                                location=loc,
+                                                value="loop step must be positive",
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    has_else=False,
+                )
+            )
+        else:
+            # ---- Collection for pre-loop ----
+            if for_iter_expr is not None:
+                iter_type = self._node_type(for_iter_expr.node_id)
+                if isinstance(iter_type, ArrayType):
+                    iter_kind = IterKind.ARRAY
+                elif isinstance(iter_type, DictType):
+                    iter_kind = IterKind.DICT_KEYS
+                else:  # TextType
+                    iter_kind = IterKind.TEXT
+                it_sym = self._alloc_synthetic_sym(mutable=True)
+                pre_items.append(
+                    IrBind(
+                        location=loc,
+                        symbol=it_sym,
+                        value=IrIterInit(
+                            location=loc,
+                            kind=iter_kind,
+                            collection=self.lower_expr(for_iter_expr),
+                        ),
+                    )
+                )
+
+        # Allocate for_var symbol in the loop frame (immutable let-by-value)
+        for_var_sym: SymbolId | None = None
+        if for_var is not None:
+            for_var_sym = self._alloc_sym(loop_nid, name=for_var, mutable=False, public=False)
+
+        # Pre-loop: bound initialisation (shared by both paths)
+        if bound_expr is not None:
+            n_sym = self._alloc_synthetic_sym(mutable=False)
+            pre_items.append(
+                IrBind(
+                    location=loc,
+                    symbol=n_sym,
+                    value=self.lower_coerced(bound_expr, IntType()),
+                )
+            )
+            count_sym = self._alloc_synthetic_sym(mutable=True)
+            pre_items.append(
+                IrBind(
+                    location=loc,
+                    symbol=count_sym,
+                    value=IrConstInt(location=loc, value=0),
+                )
+            )
+
+        body_items: list[IrExpr] = []
+
+        if range_syms is not None:
+            # ---- Integer-range body items 1 and 2 ----
+            cur_sym, end_sym, step_sym = range_syms
+            # Item 1: range termination — if __cur > __end (to) or __cur < __end (downto) => break
+            term_op = CmpOp.LT if for_range_down else CmpOp.GT
+            body_items.append(
+                IrIf(
+                    location=loc,
+                    branches=(
+                        IrIfBranch(
+                            cond=IrCompare(
+                                location=loc,
+                                op=term_op,
+                                kind=CompareKind.INT,
+                                lhs=IrLoad(location=loc, symbol=cur_sym),
+                                rhs=IrLoad(location=loc, symbol=end_sym),
+                            ),
+                            body=IrBreak(location=loc),
+                        ),
+                    ),
+                    has_else=False,
+                )
+            )
+            # Item 2a: bind loop variable to current cursor value (read before advance).
+            # A range for always has a loop variable (guaranteed by the parser).
+            body_items.append(
+                IrBind(
+                    location=loc,
+                    symbol=cast(SymbolId, for_var_sym),
+                    value=IrLoad(location=loc, symbol=cur_sym),
+                )
+            )
+            # Item 2b: advance cursor — __cur := __cur + __step (to) or __cur - __step (downto)
+            advance_op = ArithOp.SUB if for_range_down else ArithOp.ADD
+            body_items.append(
+                IrAssign(
+                    location=loc,
+                    symbol=cur_sym,
+                    value=IrArith(
+                        location=loc,
+                        op=advance_op,
+                        kind=ArithKind.INT,
+                        lhs=IrLoad(location=loc, symbol=cur_sym),
+                        rhs=IrLoad(location=loc, symbol=step_sym),
+                    ),
+                )
+            )
+        else:
+            # ---- Collection for body items 1 and 2 ----
+            # Item 1: for exhaustion check — if not IrIterHasNext(__it) then break
+            if it_sym is not None:
+                body_items.append(
+                    IrIf(
+                        location=loc,
+                        branches=(
+                            IrIfBranch(
+                                cond=IrNot(
+                                    location=loc,
+                                    value=IrIterHasNext(
+                                        location=loc,
+                                        iterator=IrLoad(location=loc, symbol=it_sym),
+                                    ),
+                                ),
+                                body=IrBreak(location=loc),
+                            ),
+                        ),
+                        has_else=False,
+                    )
+                )
+
+            # Item 2: for variable bind — let for_var = IrIterNext(__it)
+            if it_sym is not None and for_var_sym is not None:
+                body_items.append(
+                    IrBind(
+                        location=loc,
+                        symbol=for_var_sym,
+                        value=IrIterNext(
+                            location=loc,
+                            iterator=IrLoad(location=loc, symbol=it_sym),
+                        ),
+                    )
+                )
+
+        # Item 3: while guard — if not while_cond then break
+        if while_cond_expr is not None:
+            body_items.append(
+                IrIf(
+                    location=loc,
+                    branches=(
+                        IrIfBranch(
+                            cond=IrNot(
+                                location=loc,
+                                value=self.lower_coerced(while_cond_expr, BoolType()),
+                            ),
+                            body=IrBreak(location=loc),
+                        ),
+                    ),
+                    has_else=False,
+                )
+            )
+
+        # Item 4: bound check — if __count >= __n => inner_if
+        if n_sym is not None and count_sym is not None:
+            until_source = (
+                self._source_slice(until_cond_expr.span) if until_cond_expr is not None else "false"
+            )
+            # Inner if: if __count == 0 => IrBreak else => IrRaise(MaxIterationsExceeded)
+            max_iterations_exceeded = self._link.builtin_nominals.resolve("MaxIterationsExceeded")
+            max_iterations_exceeded_nominal = max_iterations_exceeded.nominal
+            inner_if = IrIf(
+                location=loc,
+                branches=(
+                    IrIfBranch(
+                        cond=IrCompare(
+                            location=loc,
+                            op=CmpOp.EQ,
+                            kind=CompareKind.STRUCTURAL,
+                            lhs=IrLoad(location=loc, symbol=count_sym),
+                            rhs=IrConstInt(location=loc, value=0),
+                        ),
+                        body=IrBreak(location=loc),
+                    ),
+                    IrIfBranch(
+                        cond=None,
+                        body=IrRaise(
+                            location=loc,
+                            exc=IrMakeException(
+                                location=loc,
+                                nominal=max_iterations_exceeded_nominal,
+                                fields=(
+                                    (
+                                        "message",
+                                        IrRenderTemplate(
+                                            location=loc,
+                                            segments=(
+                                                IrTemplateText("Loop exhausted after "),
+                                                IrTemplateValue(IrLoad(location=loc, symbol=n_sym)),
+                                                IrTemplateText(" iterations"),
+                                            ),
+                                        ),
+                                    ),
+                                    ("limit", IrLoad(location=loc, symbol=n_sym)),
+                                    (
+                                        "condition",
+                                        IrConstText(location=loc, value=until_source),
+                                    ),
+                                    (
+                                        "last-condition-value",
+                                        IrConstBool(location=loc, value=False),
+                                    ),
+                                    ("metadata", IrConstJsonNull(location=loc)),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                has_else=True,
+            )
+            # Outer if: if __count >= __n => inner_if   (has_else=False → yields unit)
+            body_items.append(
+                IrIf(
+                    location=loc,
+                    branches=(
+                        IrIfBranch(
+                            cond=IrCompare(
+                                location=loc,
+                                op=CmpOp.GE,
+                                kind=CompareKind.INT,
+                                lhs=IrLoad(location=loc, symbol=count_sym),
+                                rhs=IrLoad(location=loc, symbol=n_sym),
+                            ),
+                            body=inner_if,
+                        ),
+                    ),
+                    has_else=False,
+                )
+            )
+
+            # Item 5: count increment — __count := __count + 1
+            body_items.append(
+                IrAssign(
+                    location=loc,
+                    symbol=count_sym,
+                    value=IrArith(
+                        location=loc,
+                        op=ArithOp.ADD,
+                        kind=ArithKind.INT,
+                        lhs=IrLoad(location=loc, symbol=count_sym),
+                        rhs=IrConstInt(location=loc, value=1),
+                    ),
+                )
+            )
+
+        # Item 6: body (value discarded)
+        body_items.append(self.lower_expr(body_expr))
+
+        # Item 7: until guard (only when until_cond is present)
+        if until_cond_expr is not None:
+            body_items.append(
+                IrIf(
+                    location=loc,
+                    branches=(
+                        IrIfBranch(
+                            cond=self.lower_coerced(until_cond_expr, BoolType()),
+                            body=IrBreak(location=loc),
+                        ),
+                    ),
+                    has_else=False,
+                )
+            )
+
+        loop = IrLoop(
+            location=loc,
+            body=IrBlock(location=loc, items=tuple(body_items)),
+        )
+
+        if pre_items:
+            return IrSequence(location=loc, items=(*pre_items, loop))
+        return loop
+
+    # ------------------------------------------------------------------
+    # Container literal helpers
+    # ------------------------------------------------------------------
+
+    def _lower_array_lit(self, node: ArrayLit) -> IrExpr:
+        """Lower an ``ArrayLit``, applying element-level coercions.
+
+        A literal typed directly as ``json`` (checker: a literal in an
+        expected-json position, so every element already checks against
+        ``json`` — see ``typecheck.checker._check_array_lit``) lowers each
+        element against ``json`` and builds an ``IrMakeJsonArray`` directly:
+        a ``JsonValue`` is constructed from the start, and no AgL ``array``
+        value is ever materialized or coerced.
+        """
+        own_type = self._node_type(node.node_id)
+        if isinstance(own_type, JsonType):
+            json_items = tuple(self.lower_coerced(e, JsonType()) for e in node.elements)
+            return IrMakeJsonArray(location=self._loc(node.span), items=json_items)
+        elem_type = cast(ArrayType, own_type).elem
+        items = tuple(self.lower_coerced(e, elem_type) for e in node.elements)
+        return IrMakeArray(location=self._loc(node.span), items=items)
+
+    def _lower_dict_lit(self, node: DictLit) -> IrExpr:
+        """Lower a ``DictLit``, applying key- and value-level coercions.
+
+        See ``_lower_array_lit`` for the ``json``-typed literal case: it
+        lowers to ``IrMakeJsonObject`` directly rather than building a
+        ``DictValue`` and coercing it. A ``json``-typed literal's keys are
+        checked ``text`` (``_check_dict_lit``/``_check_template_literal``), so
+        each key lowers directly with no coercion to apply.
+        """
+        own_type = self._node_type(node.node_id)
+        if isinstance(own_type, JsonType):
+            json_entries = tuple(
+                (self.lower_expr(e.key), self.lower_coerced(e.value, JsonType()))
+                for e in node.entries
+            )
+            return IrMakeJsonObject(location=self._loc(node.span), entries=json_entries)
+        dict_type = cast(DictType, own_type)
+        ir_entries = tuple(
+            (self.lower_coerced(e.key, dict_type.key), self.lower_coerced(e.value, dict_type.value))
+            for e in node.entries
+        )
+        return IrMakeDict(location=self._loc(node.span), entries=ir_entries)
+
+    # ------------------------------------------------------------------
+    # Operator helpers
+    # ------------------------------------------------------------------
+
+    def _lower_binary_op(self, op: BinOp, left: Expr, right: Expr, span: SourceSpan) -> IrExpr:
+        """Lower a BinaryOp to the appropriate IR node."""
+        loc = self._loc(span)
+
+        left_type = self._node_type(left.node_id)
+        if isinstance(left_type, BottomType):
+            return self.lower_expr(left)
+        lhs = _Operand(self.lower_expr(left), left_type, self._loc(left.span))
+        rhs = _Operand(
+            self.lower_expr(right), self._node_type(right.node_id), self._loc(right.span)
+        )
+        if isinstance(rhs.type, BottomType) and op is not BinOp.AND and op is not BinOp.OR:
+            return IrSequence(location=loc, items=(lhs.ir, rhs.ir))
+        return self._lower_binary_operands(op, lhs, rhs, loc)[0]
+
+    def _lower_operator_ref(self, node: OperatorRef) -> IrMakeClosure:
+        """Eta-expand ``(op)`` into a closure over its checked operand types."""
+        function_type = cast(FunctionType, self._node_type(node.node_id))
+        loc = self._loc(node.span)
+
+        def build_body(param_symbols: tuple[SymbolId, ...]) -> IrExpr:
+            lhs, rhs = (
+                _Operand(IrLoad(location=loc, symbol=symbol), typ, loc)
+                for symbol, typ in zip(param_symbols, function_type.params, strict=True)
+            )
+            body, body_type = self._lower_binary_operands(node.op, lhs, rhs, loc)
+            return self._coerce_ir(body, body_type, function_type.result, loc)
+
+        return self._make_partial_closure(function_type, node.span, (), build_body)
+
+    def _lower_binary_operands(
+        self, op: BinOp, lhs: _Operand, rhs: _Operand, loc: Location
+    ) -> tuple[IrExpr, Type]:
+        """Lower a checked binary operation over lowered operands; return it with its type."""
+        if op is BinOp.AND:
+            return IrAnd(location=loc, lhs=lhs.ir, rhs=rhs.ir), BoolType()
+        if op is BinOp.OR:
+            return IrOr(location=loc, lhs=lhs.ir, rhs=rhs.ir), BoolType()
+        if op is BinOp.IN:
+            return self._lower_in_op(lhs, rhs, loc), BoolType()
+        if op is BinOp.ADD or op is BinOp.SUB or op is BinOp.MUL:
+            return self._lower_arith(op, lhs, rhs, loc)
+        if op is BinOp.DIV:
+            return self._lower_div(lhs, rhs, loc), DecimalType()
+        if op is BinOp.EQ or op is BinOp.NEQ:
+            return self._lower_equality(op, lhs, rhs, loc), BoolType()
+        if op is BinOp.LT or op is BinOp.LE or op is BinOp.GT or op is BinOp.GE:
+            return self._lower_ordering(op, lhs, rhs, loc), BoolType()
+        assert_never(op)  # pragma: no cover
+
+    def _coerce_operand(self, operand: _Operand, expected: Type, *, operation: str) -> IrExpr:
+        """Wrap a lowered operand in the coercion its checked type needs for *expected*.
+
+        *operation* is the binary operator itself, so a mixed-numeric operand's
+        int-to-decimal overflow reads as the operator.
+        """
+        return self._coerce_ir(
+            operand.ir, operand.type, expected, operand.location, operation=operation
+        )
+
+    def _compared_operand(self, operand: _Operand, expected: Type) -> IrExpr:
+        """Coerce a compared operand to *expected*, leaving an int compared with decimals as is.
+
+        Equality, ordering, and membership compare an int with a decimal
+        exactly, so the int is never widened through the range-checked
+        int-to-decimal coercion; no other coercion a comparison needs can fail.
+        """
+        if _int_against_decimal(operand.type, expected):
+            return operand.ir
+        return self._coerce_ir(operand.ir, operand.type, expected, operand.location)
+
+    def _lower_arith(
+        self, op: BinOp, lhs: _Operand, rhs: _Operand, loc: Location
+    ) -> tuple[IrArith, Type]:
+        """Lower an arithmetic binary op (ADD/SUB/MUL); return it with its common type."""
+        if isinstance(lhs.type, DecimalType) or isinstance(rhs.type, DecimalType):
+            common: Type = DecimalType()
+            kind = ArithKind.DECIMAL
+        else:
+            common = IntType()
+            kind = ArithKind.INT
+        operation = _ARITH_OP_MAP[op].value
+        arith = IrArith(
+            location=loc,
+            op=_ARITH_OP_MAP[op],
+            kind=kind,
+            lhs=self._coerce_operand(lhs, common, operation=operation),
+            rhs=self._coerce_operand(rhs, common, operation=operation),
+        )
+        return arith, common
+
+    def _lower_div(self, lhs: _Operand, rhs: _Operand, loc: Location) -> IrArith:
+        """Lower a DIV op: always coerce both operands to decimal."""
+        common: Type = DecimalType()
+        return IrArith(
+            location=loc,
+            op=ArithOp.DIV,
+            kind=ArithKind.DECIMAL,
+            lhs=self._coerce_operand(lhs, common, operation=ArithOp.DIV.value),
+            rhs=self._coerce_operand(rhs, common, operation=ArithOp.DIV.value),
+        )
+
+    def _lower_equality(self, op: BinOp, lhs: _Operand, rhs: _Operand, loc: Location) -> IrCompare:
+        """Lower EQ/NEQ: use STRUCTURAL kind; mixed int/decimal operands compare exactly."""
+        if isinstance(lhs.type, DecimalType) or isinstance(rhs.type, DecimalType):
+            common: Type = DecimalType()
+        else:
+            common = lhs.type
+        return IrCompare(
+            location=loc,
+            op=CmpOp.EQ if op is BinOp.EQ else CmpOp.NEQ,
+            kind=CompareKind.STRUCTURAL,
+            lhs=self._compared_operand(lhs, common),
+            rhs=self._compared_operand(rhs, common),
+        )
+
+    def _lower_ordering(self, op: BinOp, lhs: _Operand, rhs: _Operand, loc: Location) -> IrCompare:
+        """Lower LT/LE/GT/GE with kind based on operand types."""
+        if isinstance(lhs.type, TextType) and isinstance(rhs.type, TextType):
+            common: Type = TextType()
+            kind = CompareKind.TEXT
+        elif isinstance(lhs.type, DecimalType) or isinstance(rhs.type, DecimalType):
+            common = DecimalType()
+            kind = CompareKind.DECIMAL
+        else:
+            common = IntType()
+            kind = CompareKind.INT
+        return IrCompare(
+            location=loc,
+            op=_CMP_OP_MAP[op],
+            kind=kind,
+            lhs=self._compared_operand(lhs, common),
+            rhs=self._compared_operand(rhs, common),
+        )
+
+    def _lower_in_op(self, item: _Operand, container: _Operand, loc: Location) -> IrContains:
+        """Lower the IN operator based on container type."""
+        container_type = container.type
+        if isinstance(container_type, ArrayType):
+            kind = ContainsKind.ARRAY
+            item_ir = self._compared_operand(item, container_type.elem)
+        elif isinstance(container_type, DictType):
+            kind = (
+                ContainsKind.DICT_INT_NEEDLE
+                if _int_against_decimal(item.type, container_type.key)
+                else ContainsKind.DICT
+            )
+            item_ir = self._compared_operand(item, container_type.key)
+        else:  # TextType
+            kind = ContainsKind.TEXT
+            item_ir = item.ir
+        return IrContains(location=loc, kind=kind, item=item_ir, container=container.ir)
+
+    # ------------------------------------------------------------------
+    # Constructor lowering helpers
+    # ------------------------------------------------------------------
+
+    def _constructor_result_type(self, ref_node_id: int) -> RecordType | ExceptionType:
+        """Return a constructor's declared result, before any contextual widening."""
+        result = self._node_type(ref_node_id)
+        if isinstance(result, FunctionType):
+            result = result.result
+        return self._constructed_nominal(result, ref_node_id)
+
+    def _constructed_nominal(self, result: Type, ref_node_id: int) -> RecordType | ExceptionType:
+        """Return the record or exception constructor *ref_node_id* builds for *result*.
+
+        An enum *result* resolves to the member the constructor reference selected.
+        """
+        if isinstance(result, EnumType):
+            constructor_ref = cast(ConstructorRef, self._checked.constructor_ref_for(ref_node_id))
+            return cast(
+                RecordType,
+                self._checked.type_env.type_table.enum_member_by_decl(
+                    result, constructor_ref.owner_decl_node_id
+                ),
+            )
+        return cast("RecordType | ExceptionType", result)
+
+    def _lower_nullary_constructor(self, ref_node_id: int, span: "SourceSpan") -> IrExpr:
+        """Lower a nullary constructor reference (value position) to an IrMake* node."""
+        return self._lower_constructor_from_type(
+            self._constructor_result_type(ref_node_id), {}, span
+        )
+
+    def _explicit_builtin_target_type(self, call_node: CompleteCall) -> Type | None:
+        """Look up ``print``/``render``'s optional explicit ``::[T]`` type argument.
+
+        Unlike ``copy``/``shallow_copy`` (whose checked result *is* ``T``, so the
+        lowerer reads it straight off ``node_types[call_node.node_id]``), a
+        ``print``/``render`` call's own checked type is always ``unit``/``text`` —
+        the checker's ``_check_arg_with_optional_explicit_target`` resolves ``T``
+        only to validate the argument's assignability and then discards it. So
+        ``T`` is looked up here in ``explicit_builtin_targets``, the checker's
+        side table recording every built-in call's resolved explicit target
+        (see ``CheckedModule.explicit_builtin_targets``); it is absent exactly
+        when ``call_node`` has no explicit type argument.
+        """
+        return self._checked.explicit_builtin_targets.get(call_node.node_id)
+
+    def _lower_builtin_value(
+        self, ref: BindingRef, node_id: int, span: SourceSpan
+    ) -> IrMakeClosure:
+        """Eta-expand one context-specialized builtin function reference."""
+        function_type = cast(FunctionType, self._node_type(node_id))
+        static_kind = builtin_type_static_kind(ref.module_id, ref.scope_path, ref.name)
+        is_session = ref.module_id.is_standard_library and ref.scope_path == ("Session",)
+        loc = self._loc(span)
+
+        def build_body(param_symbols: tuple[SymbolId, ...]) -> IrExpr:
+            # The eta closure's parameters are the built-in's required ones, in
+            # order, so its first operand is the receiver of a method and the
+            # leading argument of anything else.
+            loads = tuple(IrLoad(location=loc, symbol=symbol) for symbol in param_symbols)
+            op = static_kind if static_kind is not None else _BUILTIN_OPS[ref.name]
+            if ref.is_method:
+                operands = self._method_operands(op, loads[1:], function_type.result)
+                operands = operands.with_receiver(op, loads[0], is_session=is_session)
+            else:
+                operands = _BuiltinOperands(
+                    value=loads[0] if loads else None, target_type=function_type.result
+                )
+            return self._lower_builtin_operands(op, operands, node_id=node_id, span=span)
+
+        return self._make_partial_closure(function_type, span, (), build_body)
+
+    def _lower_extern_target_value(
+        self, ref: BindingRef, node_id: int, span: SourceSpan
+    ) -> IrMakeClosure:
+        """Eta-expand a type-directed extern reference around its occurrence's contracts."""
+        function_type = cast(FunctionType, self._node_type(node_id))
+        loc = self._loc(span)
+
+        def build_body(param_symbols: tuple[SymbolId, ...]) -> IrExpr:
+            return self._lower_direct_call_with_args(
+                function_id=self._link.fn_node_to_id[ref.decl_node_id],
+                span=span,
+                arguments=tuple(IrLoad(location=loc, symbol=symbol) for symbol in param_symbols),
+                occurrence=node_id,
+            )
+
+        return self._make_partial_closure(function_type, span, (), build_body)
+
+    def _lower_resolved_resource(self, path: str | None, span: SourceSpan) -> IrResource:
+        """Resolve, record, and lower a resource relative to this module."""
+        try:
+            resolved = resolve_resource(self._resource_root, path)
+        except ResourceError as exc:
+            raise ResourceError(str(exc), span=span) from exc
+        self.resources.append((self._resource_root, path, resolved))
+        return IrResource(location=self._loc(span), path=str(resolved))
+
+    @staticmethod
+    def _method_operands(
+        op: _BuiltinOp, rest: tuple[IrExpr, ...], result_type: Type
+    ) -> _BuiltinOperands:
+        """Place a built-in method's operands other than its receiver.
+
+        A session operation takes at most one argument; an ``ask`` takes its
+        prompt; the value-shaped built-ins take nothing beyond the receiver
+        their caller places with :meth:`_BuiltinOperands.with_receiver`.
+        """
+        if isinstance(op, IrSessionOpKind):
+            return _BuiltinOperands(argument=rest[0] if rest else None)
+        return _BuiltinOperands(
+            value=rest[0] if rest else None,
+            target_type=result_type,
+        )
+
+    def _call_subject(self, op: _BuiltinOp, call_node: CompleteCall) -> IrExpr:
+        """Lower a built-in call's leading argument under its explicit target.
+
+        ``copy``/``shallow-copy`` carry that target in the call's own checked
+        result type, and ``print``/``render`` read it from the checker's side
+        table (see :meth:`_explicit_builtin_target_type`), so an explicit
+        widening such as ``copy::[decimal](5)`` takes effect the way any other
+        call site coerces its arguments. Every other built-in's ``::[T]`` names
+        its output contract rather than its argument.
+        """
+        target: Type | None = None
+        if op is BuiltinKind.COPY or op is BuiltinKind.SHALLOW_COPY:
+            target = self._node_type(call_node.node_id)
+        elif op is BuiltinKind.PRINT or op is BuiltinKind.RENDER:
+            target = self._explicit_builtin_target_type(call_node)
+        argument = call_node.args[0]
+        return self.lower_expr(argument) if target is None else self.lower_coerced(argument, target)
+
+    def _call_operands(
+        self,
+        op: _BuiltinOp,
+        call_node: CompleteCall,
+        *,
+        receiver: IrExpr | None,
+        is_session: bool,
+    ) -> _BuiltinOperands:
+        """Collect one built-in call's arguments into its operation's operands.
+
+        Each family resolves its own positional and named spellings: a session
+        operation takes a single argument, ``Session::open`` three slots, a
+        resource a literal path, and every other built-in a leading argument
+        plus options addressed by name.
+        """
+        named = {argument.name: argument.value for argument in call_node.named_args}
+        if isinstance(op, IrSessionOpKind):
+            spelling = _SESSION_OP_ARGUMENTS.get(op)
+            argument = (
+                call_node.args[0]
+                if call_node.args
+                else None
+                if spelling is None
+                else named.get(spelling)
+            )
+            operands = _BuiltinOperands(
+                argument=None if argument is None else self.lower_expr(argument)
+            )
+        elif op is BuiltinStaticKind.SESSION_OPEN:
+            transport = call_node.args[1] if len(call_node.args) > 1 else named.get("transport")
+            session_name = call_node.args[2] if len(call_node.args) > 2 else named.get("name")
+            sandbox = call_node.args[3] if len(call_node.args) > 3 else named.get("sandbox")
+            env = call_node.args[4] if len(call_node.args) > 4 else named.get("env")
+            operands = _BuiltinOperands(
+                value=self.lower_expr(call_node.args[0] if call_node.args else named["agent"]),
+                transport=None if transport is None else self.lower_expr(transport),
+                name=None if session_name is None else self.lower_expr(session_name),
+                sandbox=self._lower_optional(sandbox),
+                env=self._lower_optional(env),
+            )
+        elif op is BuiltinKind.RESOURCE or op is BuiltinKind.RESOURCE_DIR:
+            operands = _BuiltinOperands(
+                path=resource_path(call_node, is_directory=op is BuiltinKind.RESOURCE_DIR)
+            )
+        else:
+            agent = named.get("agent")
+            operands = _BuiltinOperands(
+                value=self._call_subject(op, call_node) if call_node.args else None,
+                agent=None if agent is None else self.lower_expr(agent),
+                pretty=self._lower_optional(named.get("pretty")),
+                quote_strings=self._lower_optional(named.get("quote-strings")),
+                env=self._lower_optional(named.get("env")),
+                cwd=self._lower_optional(named.get("cwd")),
+                timeout=self._lower_optional(named.get("timeout")),
+                sandbox=self._lower_optional(named.get("sandbox")),
+                target_type=self._node_type(call_node.node_id),
+                parse_error_retries=self._lower_optional(named.get("parse-error-retries")),
+            )
+        if receiver is None:
+            return operands
+        return operands.with_receiver(op, receiver, is_session=is_session)
+
+    def _lower_optional(self, node: "Expr | None") -> IrExpr | None:
+        """Lower an optional argument expression, keeping an absent one absent."""
+        return None if node is None else self.lower_expr(node)
+
+    def _lower_builtin_call(
+        self,
+        op: _BuiltinOp,
+        call_node: CompleteCall,
+        span: "SourceSpan",
+        *,
+        receiver: IrExpr | None = None,
+        is_session: bool = False,
+    ) -> IrExpr:
+        """Lower a built-in call by collecting its arguments as host operands."""
+        return self._lower_builtin_operands(
+            op,
+            self._call_operands(op, call_node, receiver=receiver, is_session=is_session),
+            node_id=call_node.node_id,
+            span=span,
+        )
+
+    def _lower_builtin_operands(
+        self,
+        op: _BuiltinOp,
+        operands: _BuiltinOperands,
+        *,
+        node_id: int,
+        span: "SourceSpan",
+    ) -> IrExpr:
+        """Build one built-in host operation from already-lowered operands.
+
+        The single place a built-in becomes IR: a direct call, an eta-expanded
+        built-in value, and a bound built-in method all collect their own
+        arguments and meet here.
+        """
+        loc = self._loc(span)
+        match op:
+            case BuiltinKind.PRINT:
+                return IrPrint(location=loc, value=operands.subject)
+
+            case BuiltinKind.RENDER:
+                return IrRenderValue(
+                    location=loc,
+                    value=operands.subject,
+                    pretty=operands.pretty,
+                    quote_strings=operands.quote_strings,
+                )
+
+            case BuiltinKind.COPY | BuiltinKind.SHALLOW_COPY:
+                copy_kind = CopyKind.SHALLOW if op is BuiltinKind.SHALLOW_COPY else CopyKind.DEEP
+                return IrCopyValue(location=loc, kind=copy_kind, value=operands.subject)
+
+            case BuiltinKind.RESOURCE | BuiltinKind.RESOURCE_DIR:
+                return self._lower_resolved_resource(operands.path, span)
+
+            case BuiltinKind.PARSE:
+                return self._lower_parse_call(node_id, operands.subject, span)
+
+            case BuiltinKind.TRY_PARSE:
+                return self._lower_try_parse_call(node_id, operands.subject, span)
+
+            case BuiltinKind.ASK:
+                # A free ask names neither agent nor session and runs on the
+                # ambient default session.
+                session = operands.session
+                if session is None and operands.agent is None:
+                    session = IrSessionDefault(location=loc, env=self._default_environ_operand(loc))
+                return self._lower_ask_operands(
+                    node_id=node_id,
+                    span=span,
+                    prompt=operands.subject,
+                    target_type=cast(Type, operands.target_type),
+                    is_request=False,
+                    agent=operands.agent,
+                    session=session,
+                    sandbox=operands.sandbox,
+                    env=operands.env,
+                    parse_error_retries=operands.parse_error_retries,
+                )
+
+            case BuiltinKind.ASK_REQUEST:
+                return self._lower_ask_operands(
+                    node_id=node_id,
+                    span=span,
+                    prompt=operands.subject,
+                    # The request's own result is always AgentRequest; its
+                    # contract target is the explicit ``::[T]``, or text.
+                    target_type=self._checked.explicit_builtin_targets.get(node_id, TextType()),
+                    is_request=True,
+                    agent=operands.agent,
+                    session=None,
+                    sandbox=operands.sandbox,
+                    env=None,
+                    parse_error_retries=operands.parse_error_retries,
+                )
+
+            case BuiltinKind.EXEC:
+                # The host-backed defaults are ordinary IR operands, so each
+                # call reads the current module binding.
+                env, cwd, timeout, sandbox = self._default_exec_operands(loc)
+                return self._lower_exec_operands(
+                    node_id=node_id,
+                    span=span,
+                    command=operands.subject,
+                    env=env if operands.env is None else operands.env,
+                    cwd=cwd if operands.cwd is None else operands.cwd,
+                    timeout=timeout if operands.timeout is None else operands.timeout,
+                    sandbox=sandbox if operands.sandbox is None else operands.sandbox,
+                    parse_error_retries=(
+                        IrConstInt(location=loc, value=0)
+                        if operands.parse_error_retries is None
+                        else operands.parse_error_retries
+                    ),
+                )
+
+            case BuiltinStaticKind.SESSION_OPEN:
+                return IrSessionOpen(
+                    location=loc,
+                    agent=operands.subject,
+                    transport=operands.transport,
+                    name=(
+                        IrConstText(location=loc, value="")
+                        if operands.name is None
+                        else operands.name
+                    ),
+                    sandbox=operands.sandbox or self._default_sandbox_operand(loc),
+                    env=operands.env or self._default_environ_operand(loc),
+                )
+
+            case BuiltinStaticKind.SESSION_DEFAULT:
+                return IrSessionDefault(location=loc, env=self._default_environ_operand(loc))
+
+            case IrSessionOpKind():
+                return IrSessionOp(
+                    location=loc,
+                    session=operands.subject,
+                    op=op,
+                    arg=operands.argument,
+                )
+
+            case _ as unreachable:  # pragma: no cover
+                assert_never(unreachable)
+
+    def _downcast_accepted_nominals(
+        self, source_type: Type, target_type: Type
+    ) -> tuple[NominalId, ...]:
+        """Accepted nominals for a ``NOMINAL_DOWNCAST``: an enum member set, or one exception."""
+        if isinstance(target_type, (ExceptionType, RecordType)):
+            return (NominalId(target_type.decl_id),)
+        return tuple(
+            NominalId(member.decl_id)
+            for member in self._type_table.shared_enum_members(
+                cast(EnumType, source_type), cast(EnumType, target_type)
+            )
+        )
+
+    def _lower_recipe_convert(
+        self,
+        value_ir: IrExpr,
+        source_type: Type,
+        target_type: Type,
+        kind: CastKind,
+        span: "SourceSpan",
+        *,
+        failure_mode: ConversionFailureMode,
+    ) -> IrExpr:
+        """Compile *kind*'s recipe and wrap *value_ir* in an ``IrConvert``.
+
+        Shared by ``as``/``as?`` and ``std/value::parse``/``try-parse``: all
+        four run the same typeless conversion machinery and differ only in
+        what a fallible failure does at runtime (*failure_mode*). A nominal
+        downcast never reaches here, nor does a checker-rejected cast.
+        """
+        recipe = compile_recipe(
+            source_type, target_type, cast(RecipeCastKind, kind), self._type_table
+        )
+        return IrConvert(
+            location=self._loc(span), value=value_ir, recipe=recipe, failure_mode=failure_mode
+        )
+
+    def _lower_parse_call(self, node_id: int, value: IrExpr, span: "SourceSpan") -> IrExpr:
+        """Lower ``std/value::parse[T](value)`` from its recorded ``CastSpec``;
+        failure raises ``ValueParseError`` instead of ``CastError`` (see
+        ``eval.ir_interpreter._on_cast_failure``).
+        """
+        spec = self._checked.cast_specs[node_id]
+        if spec.kind is CastKind.TOTAL_NOOP:
+            return value
+        return self._lower_recipe_convert(
+            value,
+            TextType(),
+            spec.target_type,
+            spec.kind,
+            span,
+            failure_mode=ConversionFailureMode.RAISE_VALUE_PARSE_ERROR,
+        )
+
+    def _lower_try_parse_call(self, node_id: int, value: IrExpr, span: "SourceSpan") -> IrExpr:
+        """Lower ``std/value::try-parse[T](value)`` to a hand-built try/catch.
+
+        Composes existing IR nodes rather than a second decoder: the checked
+        result type is ``Result[T, ValueParseError]`` — its ``Ok``/``Err``
+        member record types (via ``TypeTable.enum_member_names``) give the
+        exact field types to build ``Result::Ok(value = <parse>)`` /
+        ``Result::Err(error = e)`` with, mirroring an ordinary
+        ``try <parse> catch ValueParseError as e => Result::Err(error = e)``.
+        """
+        loc = self._loc(span)
+        members = self._type_table.enum_member_names(cast(EnumType, self._node_type(node_id)))
+        ok_type, err_type = members["Ok"], members["Err"]
+
+        parsed = self._lower_parse_call(node_id, value, span)
+        try_body = self._lower_constructor_from_slots(ok_type, {"value": parsed}, span)
+
+        exc_sym = self._alloc_synthetic_sym(mutable=False)
+        err_value = self._lower_constructor_from_slots(
+            err_type, {"error": IrLoad(location=loc, symbol=exc_sym)}, span
+        )
+        # ValueParseError's nominal comes from the checked result type's own
+        # ``Err.error`` field type, never from a call-site name lookup: a
+        # ``scope`` region enclosing this call may declare its own type,
+        # record, or exception named ``ValueParseError``, and only the
+        # checked type is immune to that shadowing.
+        exc_type = cast(ExceptionType, self._type_table.record_fields(err_type)["error"])
+        handler = IrCatchHandler(
+            nominal=NominalId(exc_type.decl_id),
+            symbol=exc_sym,
+            body=err_value,
+        )
+        return IrTry(location=loc, body=try_body, handlers=(handler,))
+
+    def _is_session_builtin_method(self, method: MethodDef) -> bool:
+        """Report whether *method* belongs to the canonical ``Session`` receiver."""
+        receiver = method.signature.params[0]
+        session_type = BUILTIN_PRELUDE_TYPES["Session"]
+        if not method.is_builtin or not isinstance(receiver, RecordType):
+            return False
+        if isinstance(session_type, RecordType) and receiver.decl_id == session_type.decl_id:
+            return True
+        return method.module_id.is_standard_library and method.scope_path == ("Session",)
+
+    def _lower_call(self, call_node: "Call", nid: int, span: "SourceSpan") -> IrExpr:
+        """Lower a Call node.
+
+        Constructor calls (VarRef callee resolving to a constructor) are lowered
+        to IrMakeRecord/IrMakeException. Direct user function
+        calls are lowered to IrDirectCall.  Lambda calls are lowered to IrMakeClosure,
+        indirect calls to IrIndirectCall, and host builtins to
+        IrPrint/IrRenderValue/IrCopyValue/IrAsk/
+        IrAskRequest/IrExec.
+        """
+        callee = call_node.callee
+
+        if not is_complete_call(call_node):
+            return self._lower_partial_call(call_node, self._checked.partial_calls[nid], span)
+
+        # Check for builtin calls first
+        static_kind = self._checked.resolved.builtin_static_calls.get(nid)
+        if static_kind is not None:
+            return self._lower_builtin_call(static_kind, call_node, span)
+        if isinstance(callee, FieldAccess):
+            method = self._checked.method_selection_for(callee.node_id)
+            if method is not None and self._is_session_builtin_method(method):
+                return self._lower_builtin_call(
+                    _BUILTIN_OPS[method.name],
+                    call_node,
+                    span,
+                    receiver=self.lower_expr(callee.obj),
+                    is_session=True,
+                )
+
+        builtin_kind = self._checked.resolved.builtin_calls.get(nid)
+        if builtin_kind is not None:
+            if isinstance(callee, FieldAccess):
+                method = self._checked.method_selection_for(callee.node_id)
+                if method is not None and method.is_builtin:
+                    # A session method has already returned above.
+                    return self._lower_builtin_call(
+                        _BUILTIN_OPS[method.name],
+                        call_node,
+                        span,
+                        receiver=self.lower_expr(callee.obj),
+                    )
+            else:
+                return self._lower_builtin_call(builtin_kind, call_node, span)
+
+        # A call whose callee selected a method: call the method directly with a
+        # receiver-first argument list instead of allocating the bound closure
+        # the callee expression would otherwise lower to. A partial call has
+        # already returned above and keeps that closure.
+        if isinstance(callee, FieldAccess):
+            method = self._checked.method_selection_for(callee.node_id)
+            if method is not None:
+                return self._lower_direct_method_call(call_node, method, span)
+
+        # (a) VarRef callee resolving to a constructor.
+        if isinstance(callee, VarRef):
+            cref = self._checked.constructor_ref_for(callee.node_id)
+            if cref is not None:
+                return self._lower_named_constructor_call(nid, span)
+            # (b) Direct user function call
+            callee_ref = self._checked.binding_for(callee.node_id)
+            if callee_ref is not None and callee_ref.kind is BinderKind.function_binding:
+                if callee_ref.is_builtin and callee_ref.is_method:
+                    receiver_type = self._function_signature(callee_ref.decl_node_id).params[0].type
+                    session = self._checked.type_env.type_table.standard_builtin_declaration(
+                        "Session"
+                    )
+                    is_session = (
+                        session is not None
+                        and isinstance(receiver_type, RecordType)
+                        and receiver_type.decl_id == session.decl_node_id
+                    )
+                    kind = BUILTIN_CALL_NAMES.get(callee_ref.name)
+                    receiver_call = is_session or kind in {
+                        BuiltinKind.ASK,
+                        BuiltinKind.ASK_REQUEST,
+                    }
+                    if receiver_call and call_node.args:
+                        # A receiver method spelled as a plain call: its first
+                        # argument is the receiver, the rest its arguments.
+                        forwarded = replace(call_node, args=call_node.args[1:])
+                        return self._lower_builtin_call(
+                            _BUILTIN_OPS[callee_ref.name],
+                            forwarded,
+                            span,
+                            receiver=self.lower_expr(call_node.args[0]),
+                            is_session=is_session,
+                        )
+                    return self._lower_indirect_call(call_node, nid, span)
+                return self._lower_direct_call(call_node, callee_ref, nid, span)
+
+        # Indirect/value call: callee is an arbitrary expression (lambda, let-bound
+        # closure, function-value param, etc.).  Named args are rejected by the checker at
+        # value-call sites, so only positional args exist here.
+        return self._lower_indirect_call(call_node, nid, span)
+
+    def _lower_direct_call_with_args(
+        self,
+        *,
+        function_id: FunctionId,
+        span: SourceSpan,
+        arguments: tuple[IrExpr | UseDefault, ...],
+        occurrence: int,
+    ) -> IrDirectCall:
+        """Build a direct call led by the target contracts recorded at node *occurrence*."""
+        return IrDirectCall(
+            location=self._loc(span),
+            function_id=function_id,
+            arguments=(*self._target_contracts(occurrence, span), *arguments),
+        )
+
+    def _lower_direct_call(
+        self,
+        call_node: CompleteCall,
+        callee_ref: BindingRef,
+        result_node_id: int,
+        span: "SourceSpan",
+    ) -> IrDirectCall:
+        """Lower a direct call to a named user function."""
+        fn_id = self._link.fn_node_to_id[callee_ref.decl_node_id]
+
+        # The checker already bound the call; reuse its result (never re-bind).
+        binding = self._checked.argument_bindings.function_calls[result_node_id]
+        param_types = self._checked.argument_bindings.function_param_types[result_node_id]
+        ir_args: list[IrExpr | UseDefault] = []
+        for i, (param_type, bound_expr) in enumerate(zip(param_types, binding)):
+            if bound_expr is None:
+                ir_args.append(UseDefault(param_index=i))
+            else:
+                ir_args.append(self.lower_coerced(bound_expr, param_type))
+
+        return self._lower_direct_call_with_args(
+            function_id=fn_id,
+            span=span,
+            arguments=tuple(ir_args),
+            occurrence=result_node_id,
+        )
+
+    def _lower_direct_method_call(
+        self, call_node: CompleteCall, method: MethodDef, span: SourceSpan
+    ) -> IrDirectCall:
+        """Lower a checker-selected member call without allocating a bound closure.
+
+        The checker bound the arguments against the method's declared
+        (non-receiver) parameters, so this mirrors ``_lower_direct_call`` and
+        never re-binds. ``UseDefault.param_index`` indexes the callee
+        *declaration*'s parameters, where the receiver occupies index 0, while
+        the recorded binding covers only the non-receiver parameters — hence
+        the shift by one onto the right declaration slot.
+        """
+        receiver_arg = self.lower_expr(cast(FieldAccess, call_node.callee).obj)
+        binding = self._checked.argument_bindings.function_calls[call_node.node_id]
+        param_types = self._checked.argument_bindings.function_param_types[call_node.node_id]
+        ir_args: list[IrExpr | UseDefault] = [receiver_arg]
+        for index, (param_type, bound_expr) in enumerate(zip(param_types, binding)):
+            if bound_expr is None:
+                ir_args.append(UseDefault(param_index=index + 1))
+            else:
+                ir_args.append(self.lower_coerced(bound_expr, param_type))
+        return self._lower_direct_call_with_args(
+            function_id=self._link.fn_node_to_id[method.decl_node_id],
+            span=span,
+            arguments=tuple(ir_args),
+            occurrence=call_node.node_id,
+        )
+
+    def _lower_indirect_call_with_args(
+        self,
+        *,
+        callee: IrExpr,
+        span: SourceSpan,
+        arguments: tuple[IrExpr, ...],
+    ) -> IrIndirectCall:
+        return IrIndirectCall(
+            location=self._loc(span),
+            callee=callee,
+            arguments=arguments,
+        )
+
+    def _lower_indirect_call(
+        self,
+        call_node: CompleteCall,
+        result_node_id: int,
+        span: "SourceSpan",
+    ) -> IrIndirectCall:
+        """Lower an indirect (value) call to IrIndirectCall.
+
+        The callee is an arbitrary expression.  Arguments are positional-only (the
+        checker rejects named args at value-call sites).
+
+        Arguments are lowered with ``lower_coerced`` using the callee's FunctionType
+        param types.  This preserves the IR invariant that every runtime value matches
+        its statically-declared type — without which the static coercion-elision on the
+        function body (``lower_coerced(body, return_type)``) is unsound. Call-site
+        coercions let the evaluator invoke the closure without additional runtime
+        argument or result coercion.
+        """
+        callee_ir = self.lower_expr(call_node.callee)
+        # The callee's FunctionType drives per-arg coercions.
+        callee_fn_type = cast(FunctionType, self._node_type(call_node.callee.node_id))
+        arg_irs: list[IrExpr] = [
+            self.lower_coerced(arg, callee_fn_type.params[i])
+            for i, arg in enumerate(call_node.args)
+        ]
+        return self._lower_indirect_call_with_args(
+            callee=callee_ir,
+            span=span,
+            arguments=tuple(arg_irs),
+        )
+
+    def _lower_named_constructor_call(
+        self,
+        result_node_id: int,
+        span: "SourceSpan",
+    ) -> IrExpr:
+        """Lower a constructor call to an IrMake* node.
+
+        Reuses the field→expr binding the checker already computed (never re-binds),
+        then builds the Ir node via ``_lower_constructor_from_type``.
+        """
+        typ = cast("RecordType | ExceptionType", self._node_type(result_node_id))
+        arg_exprs = self._checked.argument_bindings.constructor_calls[result_node_id]
+        return self._lower_constructor_from_type(typ, arg_exprs, span)
+
+    def _lower_constructor_from_type(
+        self,
+        typ: RecordType | ExceptionType,
+        arg_exprs: "dict[str, Expr]",
+        span: "SourceSpan",
+    ) -> IrExpr:
+        """Build the IrMake* node for a constructor given its resolved checker type."""
+        arg_slots = {
+            fname: self.lower_coerced(arg_exprs[fname], field_type)
+            for fname, field_type in self._constructor_field_types(typ).items()
+            if fname in arg_exprs
+        }
+        return self._lower_constructor_from_slots(typ, arg_slots, span)
+
+    def _constructor_field_types(self, typ: RecordType | ExceptionType) -> dict[str, Type]:
+        if isinstance(typ, RecordType):
+            return dict(self._type_table.record_fields(typ))
+        return dict(self._type_table.exception_fields(typ))
+
+    def _lower_constructor_from_slots(
+        self,
+        typ: RecordType | ExceptionType,
+        arg_slots: "dict[str, IrExpr]",
+        span: "SourceSpan",
+    ) -> IrExpr:
+        """Build the IrMake* node for a constructor from already-lowered slots.
+
+        An omitted field (absent from *arg_slots* because the checker allowed
+        the call to skip a defaulted field) lowers to ``UseDefault(index)`` —
+        the same sentinel an omitted call argument uses — so the evaluator
+        fills it from the constructed nominal's own ``NominalDescriptor
+        .field_defaults`` the way ``IrDirectCall`` fills an omitted argument
+        from its callee's ``FunctionDescriptor.params``.
+        """
+        loc = self._loc(span)
+
+        if isinstance(typ, RecordType):
+            nominal = NominalId(typ.decl_id)
+            # Build fields in declaration order via the shared TypeTable (its
+            # TypeDef stores fields as a declaration-ordered tuple).
+            ir_fields = tuple(
+                (fname, arg_slots.get(fname, UseDefault(index)))
+                for index, fname in enumerate(self._type_table.record_fields(typ))
+            )
+            return IrMakeRecord(location=loc, nominal=nominal, fields=ir_fields)
+
+        exc_fields = tuple(
+            (fname, arg_slots.get(fname, UseDefault(index)))
+            for index, fname in enumerate(self._type_table.exception_fields(typ))
+        )
+        return IrMakeException(location=loc, nominal=NominalId(typ.decl_id), fields=exc_fields)
+
+    # ------------------------------------------------------------------
+    # Partial call lowering
+    # ------------------------------------------------------------------
+
+    def _partial_written_non_holes(self, call_node: Call) -> tuple[Expr, ...]:
+        return tuple(
+            arg
+            for arg in (*call_node.args, *(named_arg.value for named_arg in call_node.named_args))
+            if not isinstance(arg, Placeholder)
+        )
+
+    def _partial_slot_loads(
+        self,
+        *,
+        arguments: tuple[Expr | int | None, ...],
+        target_types: Sequence[Type],
+        capture_symbols: dict[int, SymbolId],
+        param_symbols: tuple[SymbolId, ...],
+        span: SourceSpan,
+    ) -> tuple[IrExpr | UseDefault, ...]:
+        loc = self._loc(span)
+        slots: list[IrExpr | UseDefault] = []
+        for index, (argument, target_type) in enumerate(zip(arguments, target_types)):
+            match argument:
+                case None:
+                    slots.append(UseDefault(param_index=index))
+                case int() as hole_index:
+                    slots.append(IrLoad(location=loc, symbol=param_symbols[hole_index]))
+                case _:
+                    load = IrLoad(location=loc, symbol=capture_symbols[argument.node_id])
+                    slots.append(
+                        self._coerce_ir(load, self._node_type(argument.node_id), target_type, loc)
+                    )
+        return tuple(slots)
+
+    def _partial_declared_body(
+        self,
+        call_node: Call,
+        span: SourceSpan,
+        spec: PartialCallSpec,
+        capture_symbols: dict[int, SymbolId],
+        param_symbols: tuple[SymbolId, ...],
+    ) -> IrExpr:
+        callee_ref = cast(BindingRef, self._checked.binding_for(call_node.callee.node_id))
+        fn_id = self._link.fn_node_to_id[callee_ref.decl_node_id]
+        target_types = self._checked.argument_bindings.function_param_types[call_node.node_id]
+        arguments = self._partial_slot_loads(
+            arguments=spec.arguments,
+            target_types=target_types,
+            capture_symbols=capture_symbols,
+            param_symbols=param_symbols,
+            span=span,
+        )
+        return self._lower_direct_call_with_args(
+            function_id=fn_id,
+            span=span,
+            arguments=arguments,
+            occurrence=call_node.node_id,
+        )
+
+    def _partial_value_body(
+        self,
+        call_node: Call,
+        span: SourceSpan,
+        spec: PartialCallSpec,
+        callee_symbol: SymbolId,
+        capture_symbols: dict[int, SymbolId],
+        param_symbols: tuple[SymbolId, ...],
+    ) -> IrExpr:
+        callee_type = cast(FunctionType, self._node_type(call_node.callee.node_id))
+        value_slots = self._partial_slot_loads(
+            arguments=spec.arguments,
+            target_types=callee_type.params,
+            capture_symbols=capture_symbols,
+            param_symbols=param_symbols,
+            span=span,
+        )
+        arguments = tuple(cast(IrExpr, slot) for slot in value_slots)
+        return self._lower_indirect_call_with_args(
+            callee=IrLoad(location=self._loc(span), symbol=callee_symbol),
+            span=span,
+            arguments=arguments,
+        )
+
+    def _partial_constructor_body(
+        self,
+        call_node: Call,
+        span: SourceSpan,
+        spec: PartialCallSpec,
+        capture_symbols: dict[int, SymbolId],
+        param_symbols: tuple[SymbolId, ...],
+    ) -> IrExpr:
+        partial_type = cast(FunctionType, self._node_type(call_node.node_id))
+        result_type = self._constructed_nominal(partial_type.result, call_node.callee.node_id)
+        field_types = self._constructor_field_types(result_type)
+        slots = self._partial_slot_loads(
+            arguments=spec.arguments,
+            target_types=tuple(field_types.values()),
+            capture_symbols=capture_symbols,
+            param_symbols=param_symbols,
+            span=span,
+        )
+        arg_slots = {
+            field_name: cast(IrExpr, slot)
+            for field_name, slot in zip(field_types, slots, strict=True)
+        }
+        return self._lower_constructor_from_slots(result_type, arg_slots, span)
+
+    def _make_partial_closure(
+        self,
+        partial_type: FunctionType,
+        span: SourceSpan,
+        captures: tuple[IrCapture, ...],
+        build_body: Callable[[tuple[SymbolId, ...]], IrExpr],
+    ) -> IrMakeClosure:
+        """Create a synthetic closure for partial applications and operator values."""
+        fn_id = self._alloc_fn()
+        fn_sym = self._alloc_synthetic_sym(mutable=False, owner=fn_id)
+        params = tuple(
+            IrFunctionParam(
+                symbol=self._alloc_synthetic_sym(mutable=False, owner=fn_id),
+                default=None,
+            )
+            for _param_type in partial_type.params
+        )
+        body = build_body(tuple(param.symbol for param in params))
+        self._link.functions[fn_id] = FunctionDescriptor(
+            function_id=fn_id,
+            function_symbol=fn_sym,
+            module_id=self._module_id,
+            params=params,
+            impl=IrFunctionBody(body=body),
+            param_labels=tuple(repr(param_type) for param_type in partial_type.params),
+            result_label=repr(partial_type.result),
+        )
+        return IrMakeClosure(location=self._loc(span), function_id=fn_id, captures=captures)
+
+    def _lower_bound_method(self, node: FieldAccess, method: MethodDef) -> IrExpr:
+        """Lower a selected method member as a receiver-capturing partial closure."""
+        bound_type = cast(FunctionType, self._node_type(node.node_id))
+        loc = self._loc(node.span)
+        receiver_symbol = self._alloc_synthetic_sym(mutable=False)
+        receiver_capture = IrCapture(symbol=receiver_symbol, by_cell=False)
+
+        def build_body(param_symbols: tuple[SymbolId, ...]) -> IrExpr:
+            receiver = IrLoad(location=loc, symbol=receiver_symbol)
+            operands = tuple(IrLoad(location=loc, symbol=symbol) for symbol in param_symbols)
+            if method.is_builtin:
+                op = _BUILTIN_OPS[method.name]
+                return self._lower_builtin_operands(
+                    op,
+                    self._method_operands(op, operands, bound_type.result).with_receiver(
+                        op, receiver, is_session=self._is_session_builtin_method(method)
+                    ),
+                    node_id=node.node_id,
+                    span=node.span,
+                )
+            return self._lower_direct_call_with_args(
+                function_id=self._link.fn_node_to_id[method.decl_node_id],
+                span=node.span,
+                arguments=(receiver, *operands),
+                occurrence=node.node_id,
+            )
+
+        closure = self._make_partial_closure(bound_type, node.span, (receiver_capture,), build_body)
+        return IrBlock(
+            location=loc,
+            items=(
+                IrBind(location=loc, symbol=receiver_symbol, value=self.lower_expr(node.obj)),
+                closure,
+            ),
+        )
+
+    def _lower_partial_call(
+        self,
+        call_node: Call,
+        spec: PartialCallSpec,
+        span: SourceSpan,
+    ) -> IrExpr:
+        partial_type = cast(FunctionType, self._node_type(call_node.node_id))
+        loc = self._loc(span)
+        items: list[IrExpr] = []
+        captures: list[IrCapture] = []
+        capture_symbols: dict[int, SymbolId] = {}
+        callee_symbol: SymbolId | None = None
+
+        if spec.callee_kind == "value":
+            callee_symbol = self._alloc_synthetic_sym(mutable=False)
+            items.append(
+                IrBind(
+                    location=loc,
+                    symbol=callee_symbol,
+                    value=self.lower_expr(call_node.callee),
+                )
+            )
+            captures.append(IrCapture(symbol=callee_symbol, by_cell=False))
+
+        for arg in self._partial_written_non_holes(call_node):
+            sym = self._alloc_synthetic_sym(mutable=False)
+            capture_symbols[arg.node_id] = sym
+            items.append(IrBind(location=loc, symbol=sym, value=self.lower_expr(arg)))
+            captures.append(IrCapture(symbol=sym, by_cell=False))
+
+        def build_body(param_symbols: tuple[SymbolId, ...]) -> IrExpr:
+            if spec.callee_kind == "declared":
+                return self._partial_declared_body(
+                    call_node, span, spec, capture_symbols, param_symbols
+                )
+            if spec.callee_kind == "value":
+                return self._partial_value_body(
+                    call_node,
+                    span,
+                    spec,
+                    cast(SymbolId, callee_symbol),
+                    capture_symbols,
+                    param_symbols,
+                )
+            return self._partial_constructor_body(
+                call_node, span, spec, capture_symbols, param_symbols
+            )
+
+        items.append(self._make_partial_closure(partial_type, span, tuple(captures), build_body))
+        return IrBlock(location=loc, items=tuple(items))
+
+    # ------------------------------------------------------------------
+    # Block helper
+    # ------------------------------------------------------------------
+
+    def _item_is_bottom(self, item: Item) -> bool:
+        """Return whether a checked block item unconditionally exits."""
+        if isinstance(item, (LetDecl, VarDecl, AssignStmt)):
+            return isinstance(self._node_type(item.value.node_id), BottomType)
+        return isinstance(self._node_type(item.node_id), BottomType)
+
+    def _lower_block(
+        self,
+        items: tuple[Item, ...],
+        span: SourceSpan,
+        *,
+        top_level: bool = False,
+        force_unit_result: bool = False,
+    ) -> IrBlock:
+        """Lower a ``Block``'s items to an ``IrBlock``.
+
+        Items are normally lowered as **nested** (``top_level=False``), so their
+        ``let``/``var`` binders are private. The synthesized inline ``main`` is
+        the one exception: its direct body items use ``top_level=True`` so the
+        evaluator can report its final locals. ``force_unit_result`` discards
+        that generated entry's final expression value after preserving its
+        effects. Scope rejects static declarations in ordinary blocks, so every
+        reachable item must lower to a runtime expression.
+        """
+        real: list[IrExpr] = []
+        for item in items:
+            real.append(cast(IrExpr, self.lower_item(item, top_level=top_level)))
+            if self._item_is_bottom(item):
+                break
+        if not real:
+            real.append(IrConstUnit(location=self._loc(span)))
+        else:
+            last = items[-1]
+            if (
+                force_unit_result or isinstance(last, (LetDecl, VarDecl))
+            ) and not self._item_is_bottom(last):
+                real.append(IrConstUnit(location=self._loc(last.span)))
+        return IrBlock(location=self._loc(span), items=tuple(real))
+
+    # ------------------------------------------------------------------
+    # Control-flow helpers
+    # ------------------------------------------------------------------
+
+    def _lower_if(
+        self,
+        branches: "tuple[IfBranch, ...]",
+        span: "SourceSpan",
+        result_type: Type,
+    ) -> IrIf:
+        """Lower an ``If`` AST node to ``IrIf``."""
+        has_else = any(isinstance(br.cond, ElseSentinel) for br in branches)
+        ir_branches: list[IrIfBranch] = []
+        for branch in branches:
+            if isinstance(branch.cond, ElseSentinel):
+                ir_branches.append(
+                    IrIfBranch(cond=None, body=self.lower_coerced(branch.body, result_type))
+                )
+            else:
+                ir_branches.append(
+                    IrIfBranch(
+                        cond=self.lower_expr(branch.cond),
+                        body=self.lower_coerced(branch.body, result_type),
+                    )
+                )
+        return IrIf(
+            location=self._loc(span),
+            branches=tuple(ir_branches),
+            has_else=has_else,
+        )
+
+    def _lower_try(
+        self,
+        body_expr: "Expr",
+        handlers: "tuple[CatchClause, ...]",
+        span: "SourceSpan",
+    ) -> IrTry:
+        """Lower a ``Try`` AST node to ``IrTry``."""
+        return IrTry(
+            location=self._loc(span),
+            body=self.lower_expr(body_expr),
+            handlers=tuple(self._lower_catch_clause(c) for c in handlers),
+        )
+
+    def _lower_catch_clause(self, clause: "CatchClause") -> IrCatchHandler:
+        """Lower a ``CatchClause`` to an ``IrCatchHandler``."""
+        # Determine nominal.  It carries the resolved exception's own
+        # declaration identity (``decl_id`` — the reserved identity for a
+        # built-in, or the declaring AST node for an entry or library
+        # exception); the interpreter matches it and its descendants by
+        # conformance at runtime. ``None`` is the catch-all: `_`/absent, or a
+        # clause resolving to the built-in ``Exception`` root, reserved or
+        # loaded (an identity check, never a spelling test).
+        exc_type = clause.exc_type
+        if exc_type is None or exc_type == "_":
+            nominal: NominalId | None = None
+        else:
+            resolved = cast(
+                ExceptionType,
+                self._checked.type_env.resolve_selected_type_name(
+                    clause.node_id, exc_type, span=clause.span
+                ),
+            )
+            nominal = (
+                None
+                if self._type_table.is_builtin_exception_root(resolved.decl_id)
+                else NominalId(resolved.decl_id)
+            )
+
+        # Allocate a SymbolId for the binding variable when present.
+        # public=False: catch-clause binders are not top-level exported names.
+        sym: SymbolId | None = None
+        if clause.binding is not None:
+            sym = self._alloc_sym(
+                clause.node_id,
+                name=clause.binding,
+                mutable=False,
+                public=False,
+            )
+
+        return IrCatchHandler(nominal=nominal, symbol=sym, body=self.lower_expr(clause.body))
+
+    # ------------------------------------------------------------------
+    # Compiled match-site decision helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _decision_binder_names(compiled: CompiledMatchSite) -> dict[int, str]:
+        """Collect each DAG leaf binder once, keyed by its pattern node id."""
+        names: dict[int, str] = {}
+        visited: set[int] = set()
+
+        def visit(decision: Decision) -> None:
+            if id(decision) in visited:
+                return
+            visited.add(id(decision))
+            if isinstance(decision, DecisionLeaf):
+                for assignment in decision.binder_assignments:
+                    names.setdefault(assignment.binder.node_id, assignment.binder.name)
+            elif isinstance(decision, DecisionDecompose):
+                visit(decision.child)
+            else:
+                # An exhaustive checked case never reaches a ``DecisionFail``.
+                switch = cast(DecisionSwitch, decision)
+                for branch in switch.keyed_children:
+                    visit(branch.decision)
+                if switch.default is not None:
+                    visit(switch.default)
+
+        visit(compiled.root)
+        return names
+
+    def _lower_case(
+        self,
+        case_node_id: int,
+        subject_expr: "Expr",
+        branches: "tuple[CaseBranch, ...]",
+        span: "SourceSpan",
+        result_type: Type,
+    ) -> IrSequence:
+        """Lower a case's actions through the shared decision traversal."""
+        compiled = self._compiled_sites[case_node_id]
+        binder_symbols = {
+            node_id: self._alloc_sym(node_id, name=name, mutable=False, public=False)
+            for node_id, name in self._decision_binder_names(compiled).items()
+        }
+        action_bodies: dict[int, IrExpr] = {}
+        for action in compiled.source.actions:
+            branch = branches[action.source_index]
+            action_bodies[action.action_id] = self.lower_coerced(branch.body, result_type)
+
+        location = self._loc(span)
+        sequence, _ = self._lower_compiled_decision(
+            compiled,
+            self.lower_expr(subject_expr),
+            location,
+            binder_symbols,
+            lambda decision: action_bodies[decision.action_id],
+        )
+        return sequence
+
+    def _lower_compiled_decision(
+        self,
+        compiled: CompiledMatchSite,
+        root_value: IrExpr,
+        location: Location,
+        binder_symbols: "Mapping[int, SymbolId]",
+        leaf_tail: "Callable[[DecisionLeaf], IrExpr]",
+    ) -> tuple[IrSequence, SymbolId]:
+        """Lower a case decision through its occurrence DAG.
+
+        Returns the lowered sequence together with the synthetic symbol holding
+        the site's root value.
+        """
+        root_symbol = self._alloc_synthetic_sym(mutable=False)
+        occurrence_symbols: dict[OccurrenceId, SymbolId] = {
+            compiled.normalized.root.id: root_symbol
+        }
+        # Group each field occurrence under its (parent occurrence, constructor)
+        # once. Both switches and irrefutable decompositions use this ledger to
+        # materialize exactly their child's demanded fields.
+        field_children_by_group: dict[tuple[OccurrenceId, Constructor], list[Occurrence]] = {}
+        for occurrence in compiled.occurrences:
+            provenance = occurrence.provenance
+            if isinstance(provenance, FieldOccurrenceProvenance):
+                field_children_by_group.setdefault(
+                    (provenance.parent, provenance.constructor), []
+                ).append(occurrence)
+        decision_memo: dict[int, IrExpr] = {}
+
+        def symbol_for_occurrence(identifier: OccurrenceId) -> SymbolId:
+            symbol = occurrence_symbols.get(identifier)
+            if symbol is None:
+                symbol = self._alloc_synthetic_sym(mutable=False)
+                occurrence_symbols[identifier] = symbol
+            return symbol
+
+        def case_key(constructor: Constructor) -> IrCaseKey:
+            if isinstance(constructor, NominalConstructor):
+                return IrNominalCaseKey(NominalId(constructor.record_type.decl_id))
+            if isinstance(constructor, BoolConstructor):
+                return IrLiteralCaseKey(IrLiteralKind.BOOL, constructor.value)
+            return IrLiteralCaseKey(_LITERAL_CASE_KINDS[constructor.kind], constructor.value)
+
+        def field_provenance(occurrence: Occurrence) -> FieldOccurrenceProvenance:
+            """Return a field-group occurrence's provenance; only fields are grouped."""
+            return cast(FieldOccurrenceProvenance, occurrence.provenance)
+
+        def field_index(occurrence: Occurrence) -> int:
+            """Return one ledger field's declaration index."""
+            return field_provenance(occurrence).field_index
+
+        def demanded_children(
+            parent: OccurrenceId,
+            constructor: NominalConstructor,
+            demanded: tuple[OccurrenceId, ...],
+        ) -> tuple[Occurrence, ...]:
+            """Return demanded child occurrences in stable declaration order."""
+            children = field_children_by_group.get((parent, constructor), ())
+            return tuple(
+                child for child in sorted(children, key=field_index) if child.id in demanded
+            )
+
+        def projection_bindings(
+            parent: OccurrenceId,
+            constructor: NominalConstructor,
+            demanded: tuple[OccurrenceId, ...],
+        ) -> tuple[IrBind, ...]:
+            """Project demanded nominal fields into their occurrence symbols."""
+            nominal = NominalId(constructor.record_type.decl_id)
+            return tuple(
+                IrBind(
+                    location,
+                    symbol_for_occurrence(occurrence.id),
+                    IrField(
+                        location,
+                        IrLoad(location, symbol_for_occurrence(parent)),
+                        nominal,
+                        field_provenance(occurrence).field_name,
+                    ),
+                )
+                for occurrence in demanded_children(parent, constructor, demanded)
+            )
+
+        def lower_decision(decision: Decision) -> IrExpr:
+            cached = decision_memo.get(id(decision))
+            if cached is not None:
+                return cached
+            if isinstance(decision, DecisionLeaf):
+                bindings = tuple(
+                    IrBind(
+                        location,
+                        binder_symbols[assignment.binder.node_id],
+                        IrLoad(location, symbol_for_occurrence(assignment.occurrence)),
+                    )
+                    for assignment in decision.binder_assignments
+                )
+                tail = leaf_tail(decision)
+                lowered_leaf = IrSequence(location, (*bindings, tail)) if bindings else tail
+                decision_memo[id(decision)] = lowered_leaf
+                return lowered_leaf
+
+            if isinstance(decision, DecisionDecompose):
+                bindings = projection_bindings(
+                    decision.occurrence.id,
+                    decision.constructor,
+                    decision.demanded_occurrences,
+                )
+                decomposition_child = lower_decision(decision.child)
+                lowered_decomposition: IrExpr = (
+                    IrSequence(location, (*bindings, decomposition_child))
+                    if bindings
+                    else decomposition_child
+                )
+                decision_memo[id(decision)] = lowered_decomposition
+                return lowered_decomposition
+
+            # An exhaustive checked case never reaches a ``DecisionFail``.
+            switch = cast(DecisionSwitch, decision)
+            arms: list[IrCaseArm] = []
+            for decision_branch in switch.keyed_children:
+                constructor = decision_branch.constructor
+                branch_child = decision_branch.decision
+                if isinstance(constructor, NominalConstructor):
+                    field_bindings = tuple(
+                        (
+                            field_provenance(occurrence).field_name,
+                            symbol_for_occurrence(occurrence.id),
+                        )
+                        for occurrence in demanded_children(
+                            switch.occurrence.id,
+                            constructor,
+                            branch_child.free_occurrences,
+                        )
+                    )
+                else:
+                    field_bindings = ()
+                arms.append(
+                    IrCaseArm(
+                        case_key(constructor),
+                        field_bindings,
+                        lower_decision(branch_child),
+                    )
+                )
+            default = lower_decision(switch.default) if switch.default is not None else None
+            lowered_switch = IrCase(
+                location,
+                IrLoad(location, symbol_for_occurrence(switch.occurrence.id)),
+                tuple(arms),
+                default,
+            )
+            decision_memo[id(decision)] = lowered_switch
+            return lowered_switch
+
+        decision = lower_decision(compiled.root)
+        return IrSequence(
+            location,
+            (
+                IrBind(location, root_symbol, root_value),
+                decision,
+            ),
+        ), root_symbol
+
+    # ------------------------------------------------------------------
+    # Ask/ask-request lowering
+    # ------------------------------------------------------------------
+
+    def _default_sandbox_operand(self, loc: Location) -> IrExpr:
+        """Read the current default agent sandbox mode."""
+        return IrBuiltinLoad(
+            location=loc,
+            key=builtin_var_key(STD_CONFIG_ID, (), "default-sandbox"),
+        )
+
+    def _default_parse_error_retries_operand(self, loc: Location) -> IrExpr:
+        """Read ``std/config::parse-error-retries`` per call."""
+        return IrBuiltinLoad(
+            location=loc, key=builtin_var_key(STD_CONFIG_ID, (), "parse-error-retries")
+        )
+
+    def _default_environ_operand(self, loc: Location) -> IrExpr:
+        """Read the ambient environment, or empty when ``std/env`` isn't loaded."""
+        return (
+            IrBuiltinLoad(location=loc, key=builtin_var_key(STD_ENV_ID, (), "environ"))
+            if self._has_std_env
+            else IrMakeDict(location=loc, entries=())
+        )
+
+    def _lower_ask_operands(
+        self,
+        *,
+        node_id: int,
+        span: SourceSpan,
+        prompt: IrExpr,
+        target_type: Type,
+        is_request: bool,
+        agent: IrExpr | None,
+        session: IrExpr | None,
+        sandbox: IrExpr | None,
+        env: IrExpr | None,
+        parse_error_retries: IrExpr | None,
+    ) -> IrExpr:
+        """Build an ask operation from already-lowered direct or closure operands."""
+        loc = self._loc(span)
+        contract_req: ContractRequest = (
+            UnitContractRequest()
+            if isinstance(target_type, UnitType)
+            else self._contract_request_for_spec(node_id, structured_exec=False)
+        )
+        contract_id = self._alloc_contract(contract_req)
+
+        def selected_sandbox() -> IrExpr:
+            return sandbox or self._default_sandbox_operand(loc)
+
+        def selected_env() -> IrExpr:
+            return env or self._default_environ_operand(loc)
+
+        retries = parse_error_retries or self._default_parse_error_retries_operand(loc)
+
+        if is_request:
+            selected_agent = agent or IrBuiltinLoad(
+                location=loc,
+                key=builtin_var_key(STD_CONFIG_ID, (), "default-agent"),
+            )
+            return IrAskRequest(
+                location=loc,
+                agent=selected_agent,
+                prompt=prompt,
+                contract_id=contract_id,
+                parse_error_retries=retries,
+                sandbox=selected_sandbox(),
+            )
+        if session is not None:
+            # Session asks carry no per-call sandbox operand: the session's
+            # mode is fixed at open, not chosen per ask.
+            return IrSessionAsk(
+                location=loc,
+                session=session,
+                prompt=prompt,
+                contract_id=contract_id,
+                parse_error_retries=retries,
+            )
+        return IrAsk(
+            location=loc,
+            agent=cast(IrExpr, agent),
+            prompt=prompt,
+            contract_id=contract_id,
+            parse_error_retries=retries,
+            sandbox=selected_sandbox(),
+            env=selected_env(),
+        )
+
+    # ------------------------------------------------------------------
+    # Exec lowering
+    # ------------------------------------------------------------------
+
+    def _default_exec_operands(self, loc: Location) -> tuple[IrExpr, IrExpr, IrExpr, IrExpr]:
+        """Build exec's ambient environment, cwd, timeout, and sandbox defaults."""
+        env = self._default_environ_operand(loc)
+        option_none = self._link.builtin_nominals.resolve_standard_member("Option", "None")
+        cwd = IrMakeRecord(location=loc, nominal=option_none.nominal, fields=())
+        timeout = IrBuiltinLoad(
+            location=loc,
+            key=builtin_var_key(STD_CONFIG_ID, (), "timeout"),
+        )
+        sandbox = IrMakeRecord(location=loc, nominal=option_none.nominal, fields=())
+        return env, cwd, timeout, sandbox
+
+    def _lower_exec_operands(
+        self,
+        *,
+        node_id: int,
+        span: SourceSpan,
+        command: IrExpr,
+        env: IrExpr,
+        cwd: IrExpr,
+        timeout: IrExpr,
+        sandbox: IrExpr,
+        parse_error_retries: IrExpr,
+    ) -> IrExec:
+        """Build an exec operation from already-lowered direct or closure operands."""
+        contract_req = self._contract_request_for_spec(
+            node_id, structured_exec=self._checked.contract_specs[node_id].structured_exec
+        )
+        return IrExec(
+            location=self._loc(span),
+            command=command,
+            env=env,
+            cwd=cwd,
+            timeout=timeout,
+            contract_id=self._alloc_contract(contract_req),
+            parse_error_retries=parse_error_retries,
+            sandbox=sandbox,
+        )
+
+    # ------------------------------------------------------------------
+    # Constructor field defaults
+    # ------------------------------------------------------------------
+
+    def _lower_field_defaults(self, decl_node_id: int, fields: "tuple[Param, ...]") -> None:
+        """Lower and publish one record/exception/variant's field defaults.
+
+        Mirrors ``_lower_declared_params``'s per-parameter default lowering:
+        each default is coerced to its own field's declared type (read off
+        the shared ``TypeTable``, so a generic declaration's template field
+        type carries its own type variables unresolved, exactly as the
+        checker rigidified them for its assignability check). A default may
+        reference this module's own constants, so it lowers under
+        ``substituted_constants`` too — not for ``builtin var``'s reason
+        (evaluated before any initializer has run), since a field default
+        instead runs at construction time, after the module is fully
+        initialized. It substitutes so each omitted-field construction gets a
+        fresh evaluation of a referenced constant's own initializer rather
+        than a frame load of its one already-computed value: a default
+        naming a constant that holds a mutable container would otherwise
+        share that single container's identity across every construction
+        that omits the field. Skipped when no field of *fields* declares a
+        default.
+        """
+        if not any(fd.default is not None for fd in fields):
+            return
+        typedef = self._type_table.get_by_id(decl_node_id)
+        assert typedef is not None, f"compiler bug: no TypeDef for declaration {decl_node_id!r}"
+        field_types = dict(typedef.fields)
+        with self.substituted_constants():
+            defaults = tuple(
+                self.lower_coerced(fd.default, field_types[fd.name])
+                if fd.default is not None
+                else None
+                for fd in fields
+            )
+        nominal = NominalId(decl_node_id)
+        self._link.field_defaults[nominal] = defaults
+        self.field_defaults[nominal] = defaults
+
+    # ------------------------------------------------------------------
+    # Item lowering
+    # ------------------------------------------------------------------
+
+    def lower_item(self, item: Item, *, top_level: bool = False) -> IrExpr | None:
+        """Lower a block item.
+
+        Returns an ``IrExpr`` for nodes with runtime action, or ``None`` for
+        purely compile-time declarations (type definitions, function defs, etc.)
+        that have no IR representation.
+
+        Module-initializer construction filters out the ``None`` values;
+        ordinary blocks reject static declarations before lowering.
+
+        Parameters
+        ----------
+        top_level:
+            When ``True``, ``let``/``var`` binders are allocated with
+            ``public=True`` so they appear in ``_collect_results``.  When
+            ``False`` (the default), binders are allocated with ``public=False``
+            — they live in the flat per-invocation frame but are not exported.
+            The module-initializer driver passes ``top_level=True``; all block
+            bodies (``_lower_block``, if/try/case/do branch bodies) use the
+            default ``False`` so future control-flow nodes inherit safe behaviour
+            automatically.
+        """
+        match item:
+            # ----------------------------------------------------------
+            # Binders
+            # ----------------------------------------------------------
+            case VarDecl(name="_", value=rhs):
+                return self.lower_expr(rhs)
+
+            case LetDecl(name="_", value=rhs, span=span):
+                # Nothing is bound, so avoid allocating a symbol while still
+                # evaluating the initializer for its effects.
+                location = self._loc(span)
+                return IrSequence(
+                    location=location,
+                    items=(self.lower_expr(rhs), IrConstUnit(location)),
+                )
+
+            case LetDecl(
+                name=name,
+                value=rhs,
+                span=span,
+                node_id=nid,
+                scope_path=scope_path,
+            ):
+                return self._lower_named_binding(
+                    decl_node_id=nid,
+                    name=scoped_public_name(scope_path, name),
+                    rhs=rhs,
+                    span=span,
+                    binding_type=self._binding_type(nid),
+                    mutable=False,
+                    public=top_level,
+                )
+
+            case VarDecl(name=name, value=rhs, span=span, node_id=nid, scope_path=scope_path):
+                return self._lower_named_binding(
+                    decl_node_id=nid,
+                    name=scoped_public_name(scope_path, name),
+                    rhs=rhs,
+                    span=span,
+                    binding_type=self._binding_type(nid),
+                    mutable=True,
+                    public=top_level,
+                )
+
+            case AssignStmt(target=target, value=rhs, span=span, node_id=nid):
+                return self._lower_assign(target, rhs, span, nid)
+
+            # ----------------------------------------------------------
+            # Declarations with no runtime action
+            # ----------------------------------------------------------
+            case FuncDef() as funcdef:
+                if funcdef.is_builtin:
+                    return None
+                if funcdef.is_extern:
+                    return self._lower_extern_funcdef(funcdef)
+                return self._lower_funcdef(funcdef)
+
+            case RecordDef(fields=fields, node_id=nid):
+                self._lower_field_defaults(nid, fields)
+                return None
+
+            case ExceptionDef(fields=fields, node_id=nid):
+                self._lower_field_defaults(nid, fields)
+                return None
+
+            case EnumDef(members=members):
+                for member in members:
+                    if isinstance(member, VariantDef):
+                        self._lower_field_defaults(member.node_id, member.fields)
+                return None
+
+            case (
+                TypeAlias()
+                | ImportDecl()
+                | ExportDecl()
+                | UseDecl()
+                | InfixDecl()
+                | BuiltinVarDecl()
+                | ScopeRegion()
+            ):
+                # ``builtin var`` is declaration-only: it introduces no
+                # initializer (reads/writes go through IrBuiltinLoad/Store).
+                return None
+
+            # ----------------------------------------------------------
+            # Expression items — lower as expr
+            # ----------------------------------------------------------
+            case _:
+                # Anything else must be an expression.
+                return self.lower_expr(item)
+
+    def _lower_assign(
+        self,
+        target: AssignTarget,
+        rhs: Expr,
+        span: SourceSpan,
+        assign_node_id: int,
+    ) -> "IrAssign | IrFieldSet | IrIndexSet | IrBuiltinStore":
+        """Lower an assignment statement to a binding, index, field, or builtin-var store."""
+        if isinstance(target, FieldTarget):
+            receiver_type = cast(RecordType, self._node_type(target.obj.node_id))
+            return IrFieldSet(
+                location=self._loc(span),
+                value=self.lower_expr(target.obj),
+                nominal=NominalId(receiver_type.decl_id),
+                field=target.field,
+                new=self.lower_coerced(rhs, self._node_type(target.node_id)),
+            )
+
+        if isinstance(target, IndexTarget):
+            # An IndexTarget has no binding of its own -- under reference
+            # semantics an indexed assignment needs no root symbol or Cell,
+            # only a container reference. Lower the target's object
+            # expression generically (an IrLoad for a bare root, an IrIndex
+            # for a nested one), so `m["a"]["b"] := v` falls out for free
+            # because IrIndex returns the inner container by reference.
+            container_type = self._node_type(target.obj.node_id)
+            kind = self._mutable_kind_for_container(container_type)
+            slot_type = self._node_type(target.node_id)
+            ir_val = self.lower_coerced(rhs, slot_type)
+            return IrIndexSet(
+                location=self._loc(span),
+                container=self.lower_expr(target.obj),
+                kind=kind,
+                index=self.lower_coerced(target.index, self._index_expected_type(container_type)),
+                value=ir_val,
+            )
+
+        ref = cast(BindingRef, self._checked.binding_for(assign_node_id))
+
+        if ref.kind is BinderKind.builtin_var_binding:
+            # A ``builtin var`` assignment stores by defining module, scope path,
+            # and name; it has no symbol. Root ``std/config`` stores additionally
+            # apply their engine effects.
+            slot_type = self._binding_type(ref.decl_node_id)
+            return IrBuiltinStore(
+                location=self._loc(span),
+                key=builtin_var_key(ref.module_id, ref.scope_path, ref.name),
+                value=self.lower_coerced(rhs, slot_type),
+            )
+
+        sym = self._sym_for_decl(ref.decl_node_id)
+        slot_type = self._binding_type(ref.decl_node_id)
+        ir_val = self.lower_coerced(rhs, slot_type)
+        return IrAssign(
+            location=self._loc(span),
+            symbol=sym,
+            value=ir_val,
+        )
+
+    def _index_expected_type(self, container_type: Type) -> Type:
+        """Return the type an index expression must coerce to for *container_type*.
+
+        A dict index coerces to the dict's key type (e.g. an ``int`` index
+        into ``dict[decimal, V]``); an array or text index is always ``int``.
+        """
+        return container_type.key if isinstance(container_type, DictType) else IntType()
+
+    def _kind_for_container(self, t: Type) -> IndexKind:
+        """Return IndexKind for an indexable array, dict, or text value."""
+        if isinstance(t, ArrayType):
+            return IndexKind.ARRAY
+        if isinstance(t, DictType):
+            return IndexKind.DICT
+        return IndexKind.TEXT
+
+    def _mutable_kind_for_container(self, t: Type) -> MutableIndexKind:
+        """Return MutableIndexKind for an ``IrIndexSet`` target's container type.
+
+        Text is immutable, so a checked program's index-assignment target is
+        always an array or a dict.
+        """
+        return IndexKind.ARRAY if isinstance(t, ArrayType) else IndexKind.DICT
+
+    # ------------------------------------------------------------------
+    # Top-level entry point
+    # ------------------------------------------------------------------
+
+    def prealloc_static_symbols(self, body: Block) -> None:
+        """Pre-allocate runtime symbols for every static module declaration.
+
+        Function bodies lower before ordinary module initializers. Allocating
+        static ``let``/``var`` symbols in the same phase lets their references
+        lower as module-frame loads, while initialization remains in source
+        order after function closures. Parameters allocate their descriptors
+        while the remaining static declarations are lowered.
+        """
+        for item in static_items(body.items):
+            if isinstance(item, FuncDef) and not item.is_builtin:
+                self._prealloc_funcdef(item)
+            elif isinstance(item, VarDecl) and item.name != "_":
+                self._alloc_sym(
+                    item.node_id,
+                    name=scoped_public_name(item.scope_path, item.name),
+                    mutable=True,
+                )
+            elif isinstance(item, LetDecl) and item.name != "_":
+                self._alloc_sym(
+                    item.node_id,
+                    name=scoped_public_name(item.scope_path, item.name),
+                    mutable=False,
+                )
+
+    def lower_initializers(
+        self,
+        body: Block,
+        *,
+        top_level: bool,
+    ) -> tuple[IrExpr, ...]:
+        """Lower one module body and publish its initializer origins.
+
+        This is the single walk that decides which items become initializers
+        and in what order, shared by every module of a program; it publishes
+        the source item behind every emitted initializer for REPL promotion.
+        A scope region is transparent here exactly as it is to
+        ``static_items``: each of its members gets its own source index, the
+        same as a root item, so a region is not one promotable declaration
+        group — a binder inside a region completes and promotes independently
+        of its siblings. Static ``let``/``var`` initializers and parameter
+        declarations are handled in every module.
+        """
+        function_initializers: list[IrExpr] = []
+        function_origins: list[InitializerOrigin] = []
+        other_initializers: list[IrExpr] = []
+        other_origins: list[InitializerOrigin] = []
+        other_items: list[Item] = []
+        for source_index, member in enumerate(static_items(body.items)):
+            is_function = isinstance(member, FuncDef) and not member.is_builtin
+            ir = self.lower_item(member, top_level=top_level)
+            if ir is None:
+                continue
+            origin = InitializerOrigin(source_index=source_index, is_function=is_function)
+            if is_function:
+                function_initializers.append(ir)
+                function_origins.append(origin)
+            else:
+                other_initializers.append(ir)
+                other_origins.append(origin)
+                other_items.append(member)
+
+        order = self._initializer_order(other_items)
+        initializers = tuple(
+            (*function_initializers, *(other_initializers[index] for index in order))
+        )
+        self._link.initializer_origins[self._module_id] = tuple(
+            (*function_origins, *(other_origins[index] for index in order))
+        )
+        return initializers
+
+    def _initializer_order(self, items: Sequence[Item]) -> list[int]:
+        """Order non-function initializers so a binding precedes every reader of it.
+
+        A module constant may name another constant of its own module in either
+        source direction, so a binding initializer runs once the bindings it
+        reads have. Constant initializers have no effects to reorder; anything
+        else (an engine-setting write, a statement) keeps its position relative
+        to its own kind through an edge onto the previous such item. Ties break
+        on source position, so an independent item never moves.
+
+        The graph is acyclic: a module whose root bindings may name each other
+        has already had a cycle among them rejected as non-constant, and
+        elsewhere a name must be declared before it is read.
+        """
+        positions = {
+            static_binding_node_id(item): index
+            for index, item in enumerate(items)
+            if isinstance(item, (LetDecl, VarDecl))
+        }
+        deps: dict[int, set[int]] = {}
+        previous_statement: int | None = None
+        for index, item in enumerate(items):
+            depends: set[int] = set()
+            if isinstance(item, (LetDecl, VarDecl)):
+                depends = {
+                    positions[decl_node_id]
+                    for decl_node_id in self._binding_references.dependencies(item.value)
+                    if decl_node_id in positions
+                }
+            else:
+                if previous_statement is not None:
+                    depends.add(previous_statement)
+                previous_statement = index
+            deps[index] = depends
+        return toposort(range(len(items)), deps, key=lambda index: index)
+
+    @property
+    def _binding_references(self) -> ModuleBindingReferences:
+        """This module's static bindings, resolved lazily for initializer ordering."""
+        if self._references is None:
+            self._references = ModuleBindingReferences(self._checked.resolved, self._module_id)
+        return self._references

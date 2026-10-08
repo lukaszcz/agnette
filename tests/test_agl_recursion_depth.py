@@ -21,12 +21,12 @@ from collections.abc import Callable
 
 import pytest
 
-from agm.agl.diagnostics import AglError, Diagnostic
-from agm.agl.eval import ir_interpreter
-from agm.agl.pipeline import PipelineDriver, RunResult
-from agm.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
-from agm.agl.repl.session import ReplSession
-from agm.agl.semantics.values import IntValue
+from agnette.agl.diagnostics import AglError, Diagnostic
+from agnette.agl.eval import ir_interpreter
+from agnette.agl.pipeline import PipelineDriver, RunResult
+from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
+from agnette.agl.repl.session import ReplSession
+from agnette.agl.semantics.values import IntValue
 from tests._agl_helpers import run_inline_code
 
 # A non-tail recursive helper plus a variant guarded by a ``try``/``catch``.
@@ -206,11 +206,11 @@ class TestEveryGuardedPassReportsStackExhaustion:
     @pytest.mark.parametrize(
         ("module", "name"),
         [
-            ("agm.agl.modules.loader", "parse_entry_module"),
-            ("agm.agl.modules.loader", "build_repl_graph"),
-            ("agm.agl.scope.program", "resolve_program"),
-            ("agm.agl.typecheck.program", "check_program"),
-            ("agm.agl.lower", "lower_program"),
+            ("agnette.agl.modules.loader", "parse_entry_module"),
+            ("agnette.agl.modules.loader", "build_repl_graph"),
+            ("agnette.agl.scope.program", "resolve_program"),
+            ("agnette.agl.typecheck.program", "check_program"),
+            ("agnette.agl.lower", "lower_program"),
         ],
         ids=["parse", "module-load", "scope", "typecheck", "lower"],
     )
@@ -228,7 +228,7 @@ class TestEveryGuardedPassReportsStackExhaustion:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         session = ReplSession()
-        monkeypatch.setattr("agm.agl.lower.lower_repl_program", _raise_recursion_error)
+        monkeypatch.setattr("agnette.agl.lower.lower_repl_program", _raise_recursion_error)
         assert session.eval_entry("let deep: int = 1 + 1").diagnostics
         # The failed entry rolled back cleanly: the session still evaluates.
         monkeypatch.undo()

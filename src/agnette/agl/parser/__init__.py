@@ -1,0 +1,41 @@
+"""AgL parser package.
+
+Public API
+----------
+- :func:`parse_program` — parse AgL source text into a ``syntax.Program`` AST.
+- :func:`wrap_inline_program` — synthesize an inline-source ``program def main`` AST.
+- :class:`AglSyntaxError` — span-aware parse error raised on lex/parse failure.
+
+This package is the **only** place in the codebase that imports both ``lark``
+and ``agnette.agl.syntax``.  Everything downstream of the ``AglSyntaxError`` +
+``syntax.Program`` boundary depends only on the AST dataclasses, never on
+Lark.  (See ``src/agnette/agl/CLAUDE.md`` for the firewall rule.)
+"""
+
+from __future__ import annotations
+
+from agnette.agl.parser.errors import AglSyntaxError
+from agnette.agl.parser.parser import (
+    has_open_verbatim_block,
+    has_unterminated_triple_quoted_string,
+    is_incomplete_source,
+    parse_program,
+    parse_program_seeded,
+    parse_repl_transcript,
+    parse_type_expr,
+    parse_type_expr_seeded,
+)
+from agnette.agl.parser.wrap import wrap_inline_program
+
+__all__ = [
+    "AglSyntaxError",
+    "has_open_verbatim_block",
+    "has_unterminated_triple_quoted_string",
+    "is_incomplete_source",
+    "parse_program",
+    "parse_program_seeded",
+    "parse_repl_transcript",
+    "parse_type_expr",
+    "parse_type_expr_seeded",
+    "wrap_inline_program",
+]

@@ -2,8 +2,8 @@
 
 from agl import array, nominals, option_none, option_some
 
-from agm.agl.runtime.boundary import raise_index_error
-from agm.util.interp import interp
+from agnette.agl.runtime.boundary import raise_index_error
+from agnette.util.interp import interp
 
 IndexError = nominals.std.errors.IndexError
 

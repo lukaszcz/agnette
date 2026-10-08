@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from agm.util.unicode import (
+from agnette.util.unicode import (
     LoneSurrogateError,
     holds_surrogate,
     loads_json,

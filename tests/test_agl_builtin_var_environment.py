@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agm.agl.modules.ids import ModuleId
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.repl import ReplSession
-from agm.agl.semantics.values import BoolValue, DictValue, IntValue, RecordValue, TextValue
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.repl import ReplSession
+from agnette.agl.semantics.values import BoolValue, DictValue, IntValue, RecordValue, TextValue
 from tests._agl_helpers import agl_roots, run_inline_code
 
 _STDLIB = Path(__file__).resolve().parent.parent / "packages" / "stdlib"

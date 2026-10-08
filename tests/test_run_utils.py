@@ -1,9 +1,9 @@
-"""Tests for pure functions in agm.commands.run and the sandbox preparation library."""
+"""Tests for pure functions in agnette.agm.commands.run and the sandbox preparation library."""
 
 from __future__ import annotations
 
-from agm.commands.run import normalize_run_command
-from agm.sandbox.prepare import (
+from agnette.agm.commands.run import normalize_run_command
+from agnette.sandbox.prepare import (
     _normalize_systemd_limit,
     _systemd_run_prefix,
     _systemd_scope_name,

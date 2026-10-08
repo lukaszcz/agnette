@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.attributes import ProgramOptionSpec
-from agm.agl.pipeline import ArgumentPreflightFailure, PipelineDriver, PreparedProgram
-from agm.agl.runtime.arguments import ProgramArguments
-from agm.agl.semantics.types import BoolType, IntType, TextType
-from agm.agl.zones import ParamZone
+from agnette.agl.attributes import ProgramOptionSpec
+from agnette.agl.pipeline import ArgumentPreflightFailure, PipelineDriver, PreparedProgram
+from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.semantics.types import BoolType, IntType, TextType
+from agnette.agl.zones import ParamZone
 
 
 def _prepared(source: str) -> PreparedProgram:

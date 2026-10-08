@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.modules.ids import ModuleId
-from agm.agl.scope.imports import (
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.scope.imports import (
     ImportEnv,
     ModuleContribution,
     NameAtom,
@@ -17,8 +17,8 @@ from agm.agl.scope.imports import (
     qualifier_members,
     validate_import_items,
 )
-from agm.agl.scope.symbols import AglScopeError
-from agm.agl.syntax.nodes import ImportDecl, ImportItem
+from agnette.agl.scope.symbols import AglScopeError
+from agnette.agl.syntax.nodes import ImportDecl, ImportItem
 from tests._agl_helpers import dummy_span
 
 _next_node_id = 0

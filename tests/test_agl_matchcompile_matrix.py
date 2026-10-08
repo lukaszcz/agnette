@@ -9,16 +9,16 @@ from typing import cast
 
 import pytest
 
-import agm.agl.matchcompile.matrix as matrix_module
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.ids import NominalId
-from agm.agl.matchcompile.compiler import compile_match_site
-from agm.agl.matchcompile.diagnostics import (
+import agnette.agl.matchcompile.matrix as matrix_module
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.matchcompile.compiler import compile_match_site
+from agnette.agl.matchcompile.diagnostics import (
     ConstructorWitness,
     NonExhaustiveIssue,
     render_witness,
 )
-from agm.agl.matchcompile.matrix import (
+from agnette.agl.matchcompile.matrix import (
     OccurrenceAllocator,
     PatternMatrix,
     QbaScore,
@@ -28,7 +28,7 @@ from agm.agl.matchcompile.matrix import (
     select_qba_column,
     specialize,
 )
-from agm.agl.matchcompile.model import (
+from agnette.agl.matchcompile.model import (
     BinderAssignment,
     BoolConstructor,
     ConstructorCell,
@@ -44,17 +44,17 @@ from agm.agl.matchcompile.model import (
     PathDecomposition,
     WildcardCell,
 )
-from agm.agl.matchcompile.normalize import (
+from agnette.agl.matchcompile.normalize import (
     MatchCompileInvariantError,
     normalize_case,
 )
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.scope.program import resolve_program
-from agm.agl.semantics.types import BoolType, EnumType, IntType, RecordType, TextType
-from agm.agl.semantics.values import BoolValue, RecordValue
-from agm.agl.syntax.nodes import Case
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck import CheckedModule, check_program
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.semantics.types import BoolType, EnumType, IntType, RecordType, TextType
+from agnette.agl.semantics.values import BoolValue, RecordValue
+from agnette.agl.syntax.nodes import Case
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck import CheckedModule, check_program
 from tests._agl_helpers import strip_decl_ids
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.match_reference import matrix_action, reference_action

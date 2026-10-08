@@ -184,7 +184,7 @@ as a field, parameter, or function name; see
 [Constraint blocks](generics.md#constraint-blocks).
 
 Soft keywords are **not reserved**: each is promoted to its own token only
-inside a promotion window, and remains a valid identifier everywhere else.
+inside a promotion window, and is a valid identifier everywhere else.
 
 **Module and scope soft keywords** — `import`, `use`, `export`, `hiding`,
 `scope`, and `end` remain valid identifiers in all positions except:
@@ -199,7 +199,7 @@ inside a promotion window, and remains a valid identifier everywhere else.
 | `end` | `END` | At a region's layout level, while that region is open, before a complete closer path ending the item |
 
 A scope closer must repeat exactly the path of the region it closes. At other
-layout levels, `end` remains a name;
+layout levels, `end` is a name;
 for example it can be a record field or the first expression in a declaration
 suite.
 
@@ -455,11 +455,11 @@ templates — wherever a template may stand (e.g. `receiver.ask $ prompt`).
 ### Payload
 
 After `$`, leading horizontal whitespace (spaces and tabs) is discarded.
-What remains on the line decides the form:
+The rest of the line decides the form:
 
-- **Inline.** If anything other than a newline remains, the payload is the
-  rest of that line, with trailing horizontal whitespace discarded.
-- **Block.** If nothing but whitespace remains before the newline (or end of
+- **Inline.** If the rest contains anything other than a newline, the payload is
+  the rest of that line, with trailing horizontal whitespace discarded.
+- **Block.** If the rest contains only whitespace before the newline (or end of
   input) — nothing else follows `$` on its line — the payload is a following
   indented block. Scanning stops, ending the block, at the first non-blank
   line indented at or below the line holding `$` (or at end of input).

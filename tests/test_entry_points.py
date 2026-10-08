@@ -10,17 +10,17 @@ from pathlib import Path
 
 import pytest
 
-import agm.commands.config.copy as config_copy_cmd
-import agm.commands.config.env as config_env_cmd
-import agm.commands.dep.new as dep_new_cmd
-import agm.commands.tmux.close as tmux_close_cmd
-import agm.commands.tmux.layout as tmux_layout_cmd
-import agm.commands.tmux.open as tmux_open_cmd
-import agm.commands.workspace.setup as setup_cmd
-import agm.commands.worktree.new as worktree_new_cmd
-import agm.commands.worktree.remove as worktree_remove_cmd
-import agm.tmux.layout as tmux_layout
-from agm.cli_support.args import (
+import agnette.agm.commands.config.copy as config_copy_cmd
+import agnette.agm.commands.config.env as config_env_cmd
+import agnette.agm.commands.dep.new as dep_new_cmd
+import agnette.agm.commands.tmux.close as tmux_close_cmd
+import agnette.agm.commands.tmux.layout as tmux_layout_cmd
+import agnette.agm.commands.tmux.open as tmux_open_cmd
+import agnette.agm.commands.workspace.setup as setup_cmd
+import agnette.agm.commands.worktree.new as worktree_new_cmd
+import agnette.agm.commands.worktree.remove as worktree_remove_cmd
+import agnette.agm.tmux.layout as tmux_layout
+from agnette.agm.cli_support.args import (
     ConfigCopyArgs,
     ConfigEnvArgs,
     DepNewArgs,
@@ -30,11 +30,11 @@ from agm.cli_support.args import (
     WorktreeNewArgs,
     WorktreeRemoveArgs,
 )
-from agm.core import dry_run as dry_run_module
+from agnette.core import dry_run as dry_run_module
 from tests._git_helpers import init_repo
 
 # ---------------------------------------------------------------------------
-# agm.commands.tmux.close
+# agnette.agm.commands.tmux.close
 # ---------------------------------------------------------------------------
 
 
@@ -50,7 +50,7 @@ class TestTmuxCloseRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.tmux.open
+# agnette.agm.commands.tmux.open
 # ---------------------------------------------------------------------------
 
 
@@ -71,7 +71,7 @@ class TestTmuxOpenRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.tmux.layout
+# agnette.agm.commands.tmux.layout
 # ---------------------------------------------------------------------------
 
 
@@ -99,7 +99,7 @@ class TestTmuxLayoutRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.worktree.new
+# agnette.agm.commands.worktree.new
 # ---------------------------------------------------------------------------
 
 
@@ -171,7 +171,7 @@ class TestWorktreeNewRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.worktree.remove
+# agnette.agm.commands.worktree.remove
 # ---------------------------------------------------------------------------
 
 
@@ -205,7 +205,7 @@ class TestWorktreeRemoveRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.workspace.setup
+# agnette.agm.commands.workspace.setup
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +231,7 @@ class TestSetupRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.config.copy
+# agnette.agm.commands.config.copy
 # ---------------------------------------------------------------------------
 
 
@@ -255,7 +255,7 @@ class TestConfigCopyRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.config.env
+# agnette.agm.commands.config.env
 # ---------------------------------------------------------------------------
 
 
@@ -292,7 +292,7 @@ class TestConfigEnvRun:
 
 
 # ---------------------------------------------------------------------------
-# agm.commands.dep.new — dry_run branch (cleanup skipped)
+# agnette.agm.commands.dep.new — dry_run branch (cleanup skipped)
 # ---------------------------------------------------------------------------
 
 

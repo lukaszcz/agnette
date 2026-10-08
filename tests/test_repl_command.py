@@ -32,17 +32,17 @@ import pytest
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.repl as repl_command
-from agm.agent.spec import AgentPi, AgentSpec, PermissionMode
-from agm.agl.ir.static_keys import StaticBindingKey
-from agm.agl.repl import ReplSession
-from agm.agl.runtime.sessions import SessionSnapshot
-from agm.agl.runtime.types import ParamBindingInfo
-from agm.cli_support.args import ReplArgs
-from agm.config.general import GeneralConfig
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.sandbox.request import SandboxLimits
+import agnette.agm.cli as cli
+import agnette.agm.commands.repl as repl_command
+from agnette.agent.spec import AgentPi, AgentSpec, PermissionMode
+from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.repl import ReplSession
+from agnette.agl.runtime.sessions import SessionSnapshot
+from agnette.agl.runtime.types import ParamBindingInfo
+from agnette.agm.cli_support.args import ReplArgs
+from agnette.config.general import GeneralConfig
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.sandbox.request import SandboxLimits
 
 
 class RecordedArgs(Protocol):
@@ -225,7 +225,7 @@ def fake_plain_console(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object
         )
 
     # The command imports ``run_plain_console`` lazily from the plain_console module.
-    import agm.agl.repl.plain_console as plain_console_mod
+    import agnette.agl.repl.plain_console as plain_console_mod
 
     monkeypatch.setattr(plain_console_mod, "run_plain_console", fake_run_plain_console)
     return calls
@@ -267,7 +267,7 @@ def fake_console(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
         )
 
     # The command imports ``run_console`` lazily from the console module.
-    import agm.agl.repl.console as console_mod
+    import agnette.agl.repl.console as console_mod
 
     monkeypatch.setattr(console_mod, "run_console", fake_run_console)
     monkeypatch.setattr(repl_command, "plain_mode_engaged", lambda **_kwargs: False)
@@ -442,7 +442,7 @@ class TestReplRun:
             )
             assert result.ok
 
-        import agm.agl.repl.console as console_mod
+        import agnette.agl.repl.console as console_mod
 
         monkeypatch.setattr(console_mod, "run_console", run_console)
         monkeypatch.setattr(repl_command, "create_agl_session_host", create_host)
@@ -475,7 +475,7 @@ class TestReplRun:
         def interrupt(*_args: object, **_kwargs: object) -> None:
             raise KeyboardInterrupt
 
-        import agm.agl.repl.console as console_mod
+        import agnette.agl.repl.console as console_mod
 
         monkeypatch.setattr(console_mod, "run_console", interrupt)
         with pytest.raises(KeyboardInterrupt) as interrupted:
@@ -656,7 +656,7 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         _isolated_home(monkeypatch, tmp_path / "home")
         bravo = tmp_path / "bravo"
@@ -690,8 +690,8 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import RecordValue, TextValue
 
         _isolated_home(monkeypatch, tmp_path)
         repl_command.run(_args(default_agent='AgentCommand("configured")'))
@@ -717,8 +717,8 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import RecordValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import RecordValue
 
         _isolated_home(monkeypatch, tmp_path)
         repl_command.run(_args(default_sandbox='Sandbox(memory = Some("8G"))'))
@@ -742,7 +742,7 @@ class TestReplRun:
         ``get_sandbox_context`` into the session's runtime, exactly like
         ``exec_command.run`` does. A host that forgot to wire one would make a
         sandboxed ``exec`` raise ``ExecError`` instead of running it."""
-        from agm.sandbox.prepare import SandboxContext
+        from agnette.sandbox.prepare import SandboxContext
 
         _isolated_home(monkeypatch, tmp_path)
         repl_command.run(_args())
@@ -759,8 +759,8 @@ class TestReplRun:
         fake_plain_console: list[dict[str, object]],
     ) -> None:
         """``:reset`` clears the session's cached stdlib, but the override reapplies."""
-        from agm.agl.runtime.render import render_value
-        from agm.agl.semantics.values import RecordValue, TextValue
+        from agnette.agl.runtime.render import render_value
+        from agnette.agl.semantics.values import RecordValue, TextValue
 
         _isolated_home(monkeypatch, tmp_path)
         repl_command.run(_args(default_agent='AgentCommand("configured")'))
@@ -782,7 +782,7 @@ class TestReplRun:
         fake_plain_console: list[dict[str, object]],
     ) -> None:
         """``:reset`` clears the cached stdlib, but the config-seeded timeout reapplies."""
-        from agm.agl.semantics.values import RecordValue, TextValue
+        from agnette.agl.semantics.values import RecordValue, TextValue
 
         home = _isolated_home(monkeypatch, tmp_path)
         agm_dir = home / ".agm"
@@ -818,7 +818,7 @@ class TestReplRun:
         expected_seconds: float | None,
     ) -> None:
         """``--timeout``/``--no-timeout`` set the readable setting and every consumer's timeout."""
-        from agm.agl.semantics.values import RecordValue, TextValue
+        from agnette.agl.semantics.values import RecordValue, TextValue
 
         home = _isolated_home(monkeypatch, tmp_path)
         (home / ".agm").mkdir()
@@ -881,7 +881,7 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.agl.semantics.values import BoolValue
+        from agnette.agl.semantics.values import BoolValue
 
         home = _isolated_home(monkeypatch, tmp_path)
         agm_dir = home / ".agm"
@@ -925,8 +925,8 @@ class TestReplRun:
         expected_trace: bool,
         expected_file: str | None,
     ) -> None:
-        from agm.agl.semantics.values import BoolValue, RecordValue, TextValue
-        from agm.config.engine_keys import HOST_CONSUMED_ENGINE_KEYS
+        from agnette.agl.semantics.values import BoolValue, RecordValue, TextValue
+        from agnette.config.engine_keys import HOST_CONSUMED_ENGINE_KEYS
 
         _isolated_home(monkeypatch, tmp_path)
         monkeypatch.setattr(
@@ -953,7 +953,7 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.core import dry_run
+        from agnette.core import dry_run
 
         _isolated_home(monkeypatch, tmp_path)
         monkeypatch.setattr(dry_run, "enabled", lambda: True)
@@ -976,7 +976,7 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.agl.semantics.values import IntValue
+        from agnette.agl.semantics.values import IntValue
 
         _isolated_home(monkeypatch, tmp_path)
         repl_command.run(_args(parse_error_retries=5))
@@ -1094,7 +1094,7 @@ class TestReplRun:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A stdlib version mismatch from root resolution causes exit 1."""
-        from agm.config.module_roots import StdlibVersionMismatchError
+        from agnette.config.module_roots import StdlibVersionMismatchError
 
         _isolated_home(monkeypatch, tmp_path)
 
@@ -1221,7 +1221,7 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.agl.semantics.values import RecordValue, TextValue
+        from agnette.agl.semantics.values import RecordValue, TextValue
 
         home = _isolated_home(monkeypatch, tmp_path)
         agm_dir = home / ".agm"
@@ -1566,7 +1566,7 @@ class TestReplTrace:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        from agm.core import dry_run
+        from agnette.core import dry_run
 
         _isolated_home(monkeypatch, tmp_path)
         monkeypatch.setattr(dry_run, "enabled", lambda: True)

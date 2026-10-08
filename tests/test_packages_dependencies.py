@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 import semver
 
-import agm.packages.model as package_model
-from agm.packages.dependencies import DependencyError, validate_dependencies
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import DependencySpec, distribution_manifest, load_manifest
-from agm.packages.model import PackageInfo
-from agm.version import AGM_VERSION
+import agnette.packages.model as package_model
+from agnette.packages.dependencies import DependencyError, validate_dependencies
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import DependencySpec, distribution_manifest, load_manifest
+from agnette.packages.model import PackageInfo
+from agnette.version import AGM_VERSION
 from tests._package_helpers import install_directory
 
 

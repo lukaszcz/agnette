@@ -8,7 +8,7 @@ import pytest
 from click.testing import CliRunner
 from typer.main import get_command
 
-from agm.cli import app
+from agnette.agm.cli import app
 from tests._git_helpers import (
     add_linked_worktree,
     clone_local_remote,

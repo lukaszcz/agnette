@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
-from agm.config.home import agm_home_dir
-from agm.core.fs import backup_file
-from agm.packages.install import refresh_managed_stdlib
+from agnette.config.home import agm_home_dir
+from agnette.core.fs import backup_file
+from agnette.packages.install import refresh_managed_stdlib
 
 
 class _InstallArgs(Protocol):

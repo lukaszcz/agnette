@@ -8,7 +8,7 @@ and decode passes without re-deriving the precedence rule.
 
 from __future__ import annotations
 
-from agm.agl.semantics.external_names import NO_EXTERNAL_NAME, ExternalName
+from agnette.agl.semantics.external_names import NO_EXTERNAL_NAME, ExternalName
 
 
 class TestJson:

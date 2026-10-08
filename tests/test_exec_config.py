@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from agm.cli_support.args import ExecArgs
-from agm.commands import exec_program as exec_engine
-from agm.config.context import ConfigContext
-from agm.config.general import (
+from agnette.agm.cli_support.args import ExecArgs
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.config.context import ConfigContext
+from agnette.config.general import (
     ExecConfig,
     exec_config_from_merged,
     load_merged_config,

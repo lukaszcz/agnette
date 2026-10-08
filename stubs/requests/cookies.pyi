@@ -1,6 +1,6 @@
 """Minimal type stub for ``requests.cookies``.
 
-Only ``RequestsCookieJar`` (the pieces ``agm.core.http`` reads and writes)
+Only ``RequestsCookieJar`` (the pieces ``agnette.core.http`` reads and writes)
 and ``create_cookie`` are typed.
 """
 

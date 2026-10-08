@@ -44,7 +44,7 @@ clean-coverage:
 test:
     trap 'just clean-coverage' EXIT; \
     COVERAGE_CORE={{coverage_core}} AGM_TEST_MAX_CPU_SECONDS={{check_cpu_budget}} \
-    uv run python -m pytest tests/ -q -n auto --dist worksteal --cov=agm --cov=packages/stdlib/src --cov-branch --cov-fail-under={{check_coverage}} --cov-report=term:skip-covered
+    uv run python -m pytest tests/ -q -n auto --dist worksteal --cov=agnette --cov=packages/stdlib/src --cov-branch --cov-fail-under={{check_coverage}} --cov-report=term:skip-covered
 
 test_cpu_budget := ""
 test_report_top := "25"
@@ -58,7 +58,7 @@ test_report_top := "25"
 test-budget:
     trap 'just clean-coverage' EXIT; \
     COVERAGE_CORE={{coverage_core}} AGM_TEST_REPORT_TOP={{test_report_top}} AGM_TEST_MAX_CPU_SECONDS={{test_cpu_budget}} \
-    uv run python -m pytest tests/ -q -n auto --dist worksteal --cov=agm --cov=packages/stdlib/src --cov-branch --cov-fail-under=0 --cov-report=
+    uv run python -m pytest tests/ -q -n auto --dist worksteal --cov=agnette --cov=packages/stdlib/src --cov-branch --cov-fail-under=0 --cov-report=
 
 # Re-run the suite with neutrally named temp directories, so any assertion that
 # passes only because pytest names tmp_path after the test itself fails
@@ -111,7 +111,7 @@ test-micro:
 
 # Type-check with mypy
 typecheck:
-    uv run mypy src/agm/ tools/
+    uv run mypy src/agnette/ tools/
 
 # Run type-checking, linting, dead-code checks, tests
 #

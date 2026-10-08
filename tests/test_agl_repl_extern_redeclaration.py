@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     ExceptionValue,

@@ -12,28 +12,28 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import (
+from agnette.agl.diagnostics import (
     AglError,
     HiddenMemberError,
     ReferencedMemberError,
     type_name_not_a_value,
 )
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.loader import ModuleGraph
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.loader import ModuleGraph
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousQualificationError,
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.semantics.types import (
+from agnette.agl.semantics.types import (
     InferenceVarType,
     contains_inference_var,
 )
-from agm.agl.semantics.values import BoolValue, IntValue, TextValue
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.typecheck import (
+from agnette.agl.semantics.values import BoolValue, IntValue, TextValue
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.typecheck import (
     AglTypeError,
     ArrayType,
     BoolType,
@@ -93,7 +93,7 @@ def _with_reversed_module_discovery_order(graph: ModuleGraph) -> ModuleGraph:
 
 def _binding_value_type(cg: CheckedProgram, module_id: ModuleId, name: str) -> Type:
     """Inferred type of a source ``let``/``var <name> = ...`` in *module_id*."""
-    from agm.agl.syntax.nodes import LetDecl, VarDecl
+    from agnette.agl.syntax.nodes import LetDecl, VarDecl
 
     module = cg.modules[module_id]
     for item in checked_module_items(module):
@@ -110,8 +110,8 @@ def _binding_value_type(cg: CheckedProgram, module_id: ModuleId, name: str) -> T
 
 
 def test_check_program_importable() -> None:
-    """check_program and CheckedProgram are importable from agm.agl.typecheck.program."""
-    from agm.agl.typecheck.program import (
+    """check_program and CheckedProgram are importable from agnette.agl.typecheck.program."""
+    from agnette.agl.typecheck.program import (
         CheckedModule,
         CheckedProgram,
         check_program,
@@ -582,10 +582,10 @@ def test_candidate_seeding_defers_invalid_same_named_field_receiver() -> None:
 
 def test_program_signature_prepass_preserves_builtin_header_metadata(tmp_path: Path) -> None:
     """Builtin declarations receive the same program-header record as ordinary defs."""
-    from agm.agl.semantics.type_table import create_seeded_type_table
-    from agm.agl.syntax.nodes import FuncDef
-    from agm.agl.typecheck.function_inference import FunctionReturnSource
-    from agm.agl.typecheck.program import (
+    from agnette.agl.semantics.type_table import create_seeded_type_table
+    from agnette.agl.syntax.nodes import FuncDef
+    from agnette.agl.typecheck.function_inference import FunctionReturnSource
+    from agnette.agl.typecheck.program import (
         _build_program_func_sig_table,
         _build_program_type_table,
         _module_type_seeds,
@@ -2764,7 +2764,7 @@ def test_structural_type_cycle_across_modules_is_uninhabitable(tmp_path: Path) -
     This tests that the whole-program inhabitation pre-pass still surfaces a
     genuinely uninhabited declaration as an error (not silently ignores it).
     """
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "entry": ("import lib\n()"),
@@ -2802,7 +2802,7 @@ def test_record_exception_field_cycle_across_check_is_uninhabitable(tmp_path: Pa
     base case; both the whole-program inhabitation pre-pass and the per-module
     builder re-check treat ``E`` and ``R`` symmetrically and reject the cycle.
     """
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "entry": ("import lib\n()"),
@@ -2839,7 +2839,7 @@ def test_cross_module_mismatch_message_qualifies_type(tmp_path: Path) -> None:
         "foo": ("enum Color\n  | Red\n  | Blue\ndef makeColor() -> Color = Red"),
         "bar": ("enum Color\n  | Red\n  | Blue\ndef makeColor() -> Color = Red"),
     }
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     with pytest.raises(_AglTypeError) as exc_info:
         check_agl_program(tmp_path, modules)
@@ -2982,7 +2982,7 @@ def test_cross_module_structural_cycle_is_uninhabitable(tmp_path: Path) -> None:
     Neither side has an array/dict guard or independent evidence, so both stay
     uninhabited and the checker must raise AglTypeError.
     """
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "entry": ("import modA\nimport modB\n()"),
@@ -3001,7 +3001,7 @@ def test_cross_module_structural_cycle_is_uninhabitable(tmp_path: Path) -> None:
 
 def test_record_type_repr_qualified_with_module(tmp_path: Path) -> None:
     """RecordType from a non-entry module renders as 'module::Name' in error messages."""
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "entry": (
@@ -3103,7 +3103,7 @@ def test_builtin_shadowing_type_raises_type_error(tmp_path: Path) -> None:
     This confirms the check fires in the header-collection pre-pass, before
     any per-module body validation.
     """
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "entry": ("import mylib\n()"),
@@ -3147,7 +3147,7 @@ def test_field_type_with_unknown_qualified_name_is_type_error(tmp_path: Path) ->
 
 def test_field_type_with_qualified_function_name_is_type_error(tmp_path: Path) -> None:
     """A record field typed 'payload::getValue' where getValue is a function → AglTypeError."""
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "entry": ("import mylib\n()"),
@@ -3165,7 +3165,7 @@ def test_field_type_with_qualified_function_name_is_type_error(tmp_path: Path) -
 
 def test_field_type_with_open_imported_function_name_is_type_error(tmp_path: Path) -> None:
     """A record field typed with an import-tail-exposed function name → AglTypeError."""
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "entry": ("import mylib\n()"),
@@ -3286,8 +3286,8 @@ def test_unannotated_binding_pre_pass_type_matches_the_authoritative_check(
     independently of ``published_binding_types``, which is read off the
     authoritative check and so would trivially agree with itself.
     """
-    from agm.agl.syntax.nodes import LetDecl, VarDecl, static_binding_node_id
-    from agm.agl.typecheck.program import _prepare_program
+    from agnette.agl.syntax.nodes import LetDecl, VarDecl, static_binding_node_id
+    from agnette.agl.typecheck.program import _prepare_program
 
     modules = {
         "entry": "import lib\nprint(lib::count)",
@@ -3466,7 +3466,7 @@ def test_graph_func_def_with_defaulted_param(tmp_path: Path) -> None:
 
 def test_graph_func_def_required_after_default_error(tmp_path: Path) -> None:
     """A required parameter may not follow a defaulted one in a library function."""
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "lib": "def bad(a: int = 0, b: int) -> int = a + b",
@@ -3482,7 +3482,7 @@ def test_graph_func_def_builtin_type_name_error(tmp_path: Path) -> None:
     Built-in *function* names are rejected earlier, by the scope resolver; only
     built-in *type* names reach this typecheck gate.
     """
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "lib": "def bool(x: int) -> int = x",
@@ -3530,7 +3530,7 @@ def test_cross_module_same_name_qualified_call_false_accept(tmp_path: Path) -> N
     After the fix: the node-id-keyed table returns lib's helper (text param),
     and the type checker correctly rejects the int argument.
     """
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     modules = {
         "lib": "def helper(s: text) -> text = s",
@@ -3553,7 +3553,7 @@ def test_two_library_functions_same_name_different_signatures(tmp_path: Path) ->
 
     Both calls must typecheck; swapping arg types must be rejected.
     """
-    from agm.agl.typecheck.env import AglTypeError as _AglTypeError
+    from agnette.agl.typecheck.env import AglTypeError as _AglTypeError
 
     # Correct types → should typecheck
     modules_ok = {
@@ -3656,7 +3656,7 @@ def test_open_nullary_candidate_defers_duplicate_binder_until_selection(
 
     entry = checked.modules[ENTRY_ID]
     case = checked_module_items(entry)[-1]
-    from agm.agl.syntax.nodes import Case, ConstructorPattern
+    from agnette.agl.syntax.nodes import Case, ConstructorPattern
 
     assert isinstance(case, Case)
     pattern = case.branches[0].pattern
@@ -4151,7 +4151,7 @@ def test_cross_module_generic_record_template_has_module_id(tmp_path: Path) -> N
     Tested via the internal _build_program_type_table function to access the
     program_generic_table, which is not exposed on the public CheckedProgram API.
     """
-    from agm.agl.typecheck.program import _build_program_type_table
+    from agnette.agl.typecheck.program import _build_program_type_table
 
     modules = {
         "lib": "record Box[T]\n  value: T",
@@ -4181,7 +4181,7 @@ def test_cross_module_generic_enum_template_has_module_id(tmp_path: Path) -> Non
     Tested via the internal _build_program_type_table function to access the
     program_generic_table, which is not exposed on the public CheckedProgram API.
     """
-    from agm.agl.typecheck.program import _build_program_type_table
+    from agnette.agl.typecheck.program import _build_program_type_table
 
     modules = {
         "lib": "enum Opt[T]\n  | None\n  | Some(value: T)",
@@ -4356,8 +4356,8 @@ def test_generic_def_as_value_single_module(tmp_path: Path) -> None:
     # env level: verify that get_function_signature_by_node_id takes priority.
     # This is the path the fixed checker takes; before the fix it only
     # consulted the name-keyed table, which returns wrong/None cross-module.
-    from agm.agl.typecheck.env import FunctionSignature as FS
-    from agm.agl.typecheck.env import TypeEnvironment
+    from agnette.agl.typecheck.env import FunctionSignature as FS
+    from agnette.agl.typecheck.env import TypeEnvironment
 
     env = TypeEnvironment()
     T = TypeVarType("T")
@@ -4894,7 +4894,7 @@ def test_unannotated_method_with_no_concrete_return_evidence_is_still_rejected()
 
 def test_named_only_param_in_graph_function(tmp_path: Path) -> None:
     """check_program handles a function with a named-only param (@arg-named z) correctly."""
-    from agm.agl.typecheck.program import CheckedProgram
+    from agnette.agl.typecheck.program import CheckedProgram
 
     modules = {
         "lib": "def add-named(x: int, @arg-named z: int) -> int = x + z",
@@ -4942,7 +4942,7 @@ def test_qualified_is_test_resolves_root_exception_via_module_route(tmp_path: Pa
     for name in ("descendant", "excludes", "ancestor"):
         assert _binding_value_type(cg, ENTRY_ID, name) == BoolType()
 
-    from agm.agl.syntax.nodes import LetDecl
+    from agnette.agl.syntax.nodes import LetDecl
 
     module = cg.modules[ENTRY_ID]
     descendant_decl = next(

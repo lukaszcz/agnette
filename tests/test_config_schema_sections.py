@@ -9,16 +9,16 @@ import semver
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-from agm.config.general import GeneralConfig
-from agm.config.qualified_keys import QualifiedConfigKey, resolve_qualified_values
-from agm.core.toml import toml_dict
-from agm.packages.discipline import DisciplineError, validate_package
-from agm.packages.errors import PackageInstallError
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import CommandSpec, PackageManifest
-from agm.packages.model import PackageInfo
-from agm.packages.record import write_record
+import agnette.agm.cli as cli
+from agnette.config.general import GeneralConfig
+from agnette.config.qualified_keys import QualifiedConfigKey, resolve_qualified_values
+from agnette.core.toml import toml_dict
+from agnette.packages.discipline import DisciplineError, validate_package
+from agnette.packages.errors import PackageInstallError
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import CommandSpec, PackageManifest
+from agnette.packages.model import PackageInfo
+from agnette.packages.record import write_record
 from tests._package_helpers import install_directory
 
 _SCHEMA_SECTIONS = ("agent", "deps", "modules", "packages", "params")

@@ -8,7 +8,7 @@ from typing import NoReturn
 from agl import array, nominals, option_none, option_some
 from agl import dict as agl_dict
 
-from agm.agl.runtime.boundary import raise_key_error
+from agnette.agl.runtime.boundary import raise_key_error
 
 DuplicateKeyError = nominals.std.errors.DuplicateKeyError
 DuplicateKeys = nominals.std.dict.DuplicateKeys

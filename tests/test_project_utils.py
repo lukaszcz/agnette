@@ -8,17 +8,17 @@ from typing import Never
 
 import pytest
 
-import agm.project.layout as project_helpers
-import agm.vcs.git as git_helpers
-from agm.project.dependency_env import current_config_branch
-from agm.project.layout import (
+import agnette.agm.project.layout as project_helpers
+import agnette.vcs.git as git_helpers
+from agnette.agm.project.dependency_env import current_config_branch
+from agnette.agm.project.layout import (
     branch_session_name,
     branch_worktree_path,
     current_workspace,
     discover_current_project_dir,
     is_main_workspace_branch,
 )
-from agm.project.workspace_env import load_current_workspace_env, load_workspace_env
+from agnette.agm.project.workspace_env import load_current_workspace_env, load_workspace_env
 
 
 def test_current_project_dir_from_project_root(tmp_path: Path, env: dict[str, str]) -> None:

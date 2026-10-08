@@ -19,9 +19,9 @@ import decimal
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.values import DecimalValue, IntValue, TextValue
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.values import DecimalValue, IntValue, TextValue
 from tests.agl.ir_harness import evaluate_ir, evaluate_ir_raises, lower_inline_ir, nominal_id_for
 
 
@@ -252,7 +252,7 @@ def test_value_call_int_arg_to_json_param() -> None:
     to yield IntValue(5) while ir yielded the json-wrapped integer.
     Evaluation must yield the expected value.
     """
-    from agm.agl.semantics.values import JsonValue
+    from agnette.agl.semantics.values import JsonValue
 
     source = "let f = fn(x: json) => x\nlet r = f(5)\n()"
     ir = evaluate_ir(source)

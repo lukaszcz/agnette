@@ -7,14 +7,14 @@ from typing import Protocol, cast
 
 import pytest
 
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.ids import FunctionId, NominalId
-from agm.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.runtime.boundary import AglException
-from agm.agl.runtime.externs import AglCallableProxy, ExternCallWindow, ExternRegistry
-from agm.agl.semantics.exceptions import AglRaise
-from agm.agl.semantics.values import ExceptionValue, IrClosureValue, TextValue, Value
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.ids import FunctionId, NominalId
+from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.runtime.boundary import AglException
+from agnette.agl.runtime.externs import AglCallableProxy, ExternCallWindow, ExternRegistry
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.agl.semantics.values import ExceptionValue, IrClosureValue, TextValue, Value
 
 _NO_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field_encodes={})
 

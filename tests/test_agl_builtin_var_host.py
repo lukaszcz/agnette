@@ -18,11 +18,11 @@ from unittest.mock import patch
 
 import pytest
 
-from agm.agl.runtime.host_settings import HostSettingsPolicy
-from agm.cli_support.args import ExecArgs
-from agm.commands import exec as exec_command
-from agm.commands import exec_program as exec_engine
-from agm.config.context import ConfigContext
+from agnette.agl.runtime.host_settings import HostSettingsPolicy
+from agnette.agm.cli_support.args import ExecArgs
+from agnette.agm.commands import exec as exec_command
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.config.context import ConfigContext
 from tests._agl_helpers import write_file_program
 from tests.conftest import FakeAgentTransport
 
@@ -110,7 +110,7 @@ class TestCommandEngineSeeding:
         config_dir.mkdir()
         (config_dir / "config.toml").write_text("[exec]\ntimeout = 0\n")
         monkeypatch.setattr(
-            "agm.cli_support.exec_roots.resolve_stdlib_root",
+            "agnette.agm.cli_support.exec_roots.resolve_stdlib_root",
             lambda *, home, anchor=None: stdlib_root,
         )
         monkeypatch.setattr(
@@ -133,7 +133,7 @@ class TestCommandEngineSeeding:
         agl_file = tmp_path / "prog.agl"
         write_file_program(agl_file, "import std/config\n()\n", encoding="utf-8")
         monkeypatch.setattr(
-            "agm.cli_support.exec_roots.resolve_stdlib_root",
+            "agnette.agm.cli_support.exec_roots.resolve_stdlib_root",
             lambda *, home, anchor=None: stdlib_root,
         )
         monkeypatch.setattr(
@@ -231,7 +231,7 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Setting ``trace := false`` after logging was on stops later trace writes."""
-        monkeypatch.setattr("agm.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
 
         agl_file = tmp_path / "prog.agl"
         write_file_program(
@@ -262,7 +262,7 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``--trace`` seeds the ``trace`` register so a read before any write sees True."""
-        monkeypatch.setattr("agm.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
         agl_file = tmp_path / "prog.agl"
         write_file_program(agl_file, "import std/config::*\nlet l = std/config::trace\nprint l\n")
 
@@ -292,14 +292,14 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``--trace`` plus a mid-run ``trace := true`` keeps the run in ONE file."""
-        monkeypatch.setattr("agm.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
             'import std/config::*\nprint "before"\nstd/config::trace := true\nprint "after"\n',
         )
 
-        with patch("agm.core.log.datetime", _StepClock()):
+        with patch("agnette.core.log.datetime", _StepClock()):
             exec_command.run(_exec_args(agl_file, no_trace=False, trace=True))
 
         logs = list(tmp_path.glob("exec-*.jsonl"))
@@ -313,7 +313,7 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A program that turns logging on, off, then on again writes ONE file."""
-        monkeypatch.setattr("agm.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
@@ -326,7 +326,7 @@ class TestTraceReconfiguration:
             'print "third"\n',
         )
 
-        with patch("agm.core.log.datetime", _StepClock()):
+        with patch("agnette.core.log.datetime", _StepClock()):
             exec_command.run(_exec_args(agl_file))
 
         logs = list(tmp_path.glob("exec-*.jsonl"))
@@ -340,7 +340,7 @@ class TestTraceReconfiguration:
         """``--trace-file`` keeps the whole run in the named file, minting nothing."""
         auto_dir = tmp_path / "agent-files"
         auto_dir.mkdir()
-        monkeypatch.setattr("agm.core.log.default_agent_files_dir", lambda: auto_dir)
+        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: auto_dir)
         trace_path = tmp_path / "explicit.jsonl"
         agl_file = tmp_path / "prog.agl"
         write_file_program(
@@ -348,7 +348,7 @@ class TestTraceReconfiguration:
             'import std/config::*\nprint "before"\nstd/config::trace := true\nprint "after"\n',
         )
 
-        with patch("agm.core.log.datetime", _StepClock()):
+        with patch("agnette.core.log.datetime", _StepClock()):
             exec_command.run(_exec_args(agl_file, no_trace=False, trace_file=str(trace_path)))
 
         assert list(auto_dir.glob("exec-*.jsonl")) == []
@@ -360,8 +360,8 @@ class TestTraceReconfiguration:
 
 def test_trace_reconfiguration_disables_logging_after_a_path_failure(tmp_path: Path) -> None:
     """A trace path failure is best-effort and leaves the trace disabled."""
-    from agm.agl.runtime.host_settings import HostSettingsReconfigurer
-    from agm.agl.runtime.trace import TraceStore
+    from agnette.agl.runtime.host_settings import HostSettingsReconfigurer
+    from agnette.agl.runtime.trace import TraceStore
 
     trace = TraceStore(path=tmp_path / "trace.jsonl")
     policy = HostSettingsPolicy(

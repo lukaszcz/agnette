@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from agm.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi, AgentSpec
-from agm.agent.spec_defaults import (
+from agnette.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi, AgentSpec
+from agnette.agent.spec_defaults import (
     AgentConfig,
     AgentConfigError,
     configured_defaults_resolver,
     with_configured_defaults,
 )
-from agm.agent.values import parse_agent_shorthand
-from agm.config.general import load_merged_config
-from agm.core.toml import TomlDict
+from agnette.agent.values import parse_agent_shorthand
+from agnette.config.general import load_merged_config
+from agnette.core.toml import TomlDict
 
 _AGENT_TABLE: TomlDict = {
     "claude": {"effort": "medium", "opus": {"effort": "high"}},

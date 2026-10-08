@@ -7,25 +7,25 @@ from typing import TypeVar
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.loader import LoadedModule, ModuleGraph
-from agm.agl.parser import parse_program
-from agm.agl.scope import AglScopeError, ModuleResolution
-from agm.agl.scope.imports import (
+from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.loader import LoadedModule, ModuleGraph
+from agnette.agl.parser import parse_program
+from agnette.agl.scope import AglScopeError, ModuleResolution
+from agnette.agl.scope.imports import (
     SingleTarget,
     build_import_env,
     qualifier_member_ways,
 )
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     AmbiguousQualificationError,
     MissRepair,
     TypeArgumentsError,
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agm.agl.syntax import (
+from agnette.agl.syntax import (
     AssignStmt,
     Block,
     Call,
@@ -39,10 +39,10 @@ from agm.agl.syntax import (
     ScopeRegion,
     VarRef,
 )
-from agm.agl.syntax.nodes import ConstructorPattern, ImportDecl, static_items
-from agm.agl.syntax.qualifiers import enclosing_scope_bases
-from agm.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
-from agm.agl.syntax.visitor import walk
+from agnette.agl.syntax.nodes import ConstructorPattern, ImportDecl, static_items
+from agnette.agl.syntax.qualifiers import enclosing_scope_bases
+from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
+from agnette.agl.syntax.visitor import walk
 from tests.agl.qualifier_support import span_text
 
 

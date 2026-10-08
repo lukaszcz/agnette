@@ -12,7 +12,7 @@ from pathlib import Path
 
 def test_command_subpackages_match_cli_command_groups() -> None:
     """commands/ sub-packages must mirror CLI command groups (repository guideline)."""
-    commands_dir = Path(__file__).resolve().parents[1] / "src" / "agm" / "commands"
+    commands_dir = Path(__file__).resolve().parents[1] / "src" / "agnette" / "agm" / "commands"
     subpackages = {
         path.name
         for path in commands_dir.iterdir()

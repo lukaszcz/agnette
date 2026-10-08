@@ -11,10 +11,10 @@ from pathlib import Path
 
 from agl import array, nominals, runtime
 
-from agm.agl.runtime.host_fs import raise_fs_error, run_fs_action
-from agm.core import fs
-from agm.core.cleanup import run_cleanup_steps
-from agm.util.unicode import LoneSurrogateError, require_scalar_text, visible_text
+from agnette.agl.runtime.host_fs import raise_fs_error, run_fs_action
+from agnette.core import fs
+from agnette.core.cleanup import run_cleanup_steps
+from agnette.util.unicode import LoneSurrogateError, require_scalar_text, visible_text
 
 FsError = nominals.std.fs.FsError
 

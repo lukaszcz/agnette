@@ -1,4 +1,4 @@
-"""Tests for the structural constraint-kind vocabulary in `agm.agl.constraints`."""
+"""Tests for the structural constraint-kind vocabulary in `agnette.agl.constraints`."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from agm.agl.constraints import (
+from agnette.agl.constraints import (
     CONSTRAINT_SPELLINGS,
     ConstraintKind,
     close_constraints,
@@ -43,7 +43,7 @@ program def main() -> unit =
 
 _DIAGNOSTICS_SCRIPT = """\
 import sys
-from agm.agl import PipelineDriver
+from agnette.agl import PipelineDriver
 
 result = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None).run(sys.argv[1])
 print(" | ".join(d.message for d in result.diagnostics))

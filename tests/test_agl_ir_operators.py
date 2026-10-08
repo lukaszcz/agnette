@@ -13,7 +13,7 @@ import decimal
 
 import pytest
 
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     BoolValue,
     DecimalValue,
     IntValue,
@@ -395,8 +395,8 @@ def test_unary_neg_decimal_is_exact_for_a_31_digit_literal() -> None:
 def test_arith_div_by_zero_raises_sentinel() -> None:
     """div() raises decimal.DivisionByZero on a zero divisor (caught and
     classified by the interpreter, not by arith.py itself)."""
-    from agm.agl.eval.arith import div
-    from agm.util.decimal import AGL_DECIMAL_CONTEXT
+    from agnette.agl.eval.arith import div
+    from agnette.util.decimal import AGL_DECIMAL_CONTEXT
 
     with decimal.localcontext(AGL_DECIMAL_CONTEXT):
         with pytest.raises(decimal.DivisionByZero):
@@ -405,8 +405,8 @@ def test_arith_div_by_zero_raises_sentinel() -> None:
 
 def test_arith_zero_by_zero_is_a_division_by_zero() -> None:
     """``0 / 0`` is classified as a division by zero, not an invalid operation."""
-    from agm.agl.eval.arith import div
-    from agm.util.decimal import AGL_DECIMAL_CONTEXT
+    from agnette.agl.eval.arith import div
+    from agnette.util.decimal import AGL_DECIMAL_CONTEXT
 
     with decimal.localcontext(AGL_DECIMAL_CONTEXT):
         with pytest.raises(decimal.DivisionByZero):
@@ -434,12 +434,12 @@ def test_mixed_arith_out_of_range_int_operand_labels_the_operator() -> None:
 
 def test_validate_arith_div_non_decimal_raises() -> None:
     """Validate raises InvalidIrError when DIV has non-DECIMAL kind."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.nodes import IrArith, IrConstInt
-    from agm.agl.ir.operations import ArithKind, ArithOp
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.nodes import IrArith, IrConstInt
+    from agnette.agl.ir.operations import ArithKind, ArithOp
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     loc = Location(source_id=SourceId(0), start_offset=0, end_offset=1, start_line=1, start_col=0)
     node = IrArith(
@@ -462,12 +462,12 @@ def test_validate_arith_div_non_decimal_raises() -> None:
 
 def test_validate_compare_structural_with_ordering_raises() -> None:
     """Validate raises InvalidIrError when STRUCTURAL kind used with LT."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.nodes import IrCompare, IrConstInt
-    from agm.agl.ir.operations import CmpOp, CompareKind
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
-    from agm.agl.modules.ids import ENTRY_ID
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.nodes import IrCompare, IrConstInt
+    from agnette.agl.ir.operations import CmpOp, CompareKind
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.modules.ids import ENTRY_ID
 
     loc = Location(source_id=SourceId(0), start_offset=0, end_offset=1, start_line=1, start_col=0)
     node = IrCompare(

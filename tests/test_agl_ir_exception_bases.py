@@ -6,8 +6,8 @@ from collections.abc import Mapping
 
 import pytest
 
-from agm.agl.ir.ids import NominalId, SourceId
-from agm.agl.ir.program import (
+from agnette.agl.ir.ids import NominalId, SourceId
+from agnette.agl.ir.program import (
     ExecutableModule,
     ExecutableProgram,
     NominalDescriptor,
@@ -15,9 +15,9 @@ from agm.agl.ir.program import (
     SourceFile,
     nominal_conforms,
 )
-from agm.agl.ir.reserved_nominals import require_reserved_nominal_id
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.modules.ids import ENTRY_ID
+from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.modules.ids import ENTRY_ID
 from tests._agl_helpers import plan_less_exception_field_encodes
 from tests.agl.ir_harness import lower_inline_ir
 

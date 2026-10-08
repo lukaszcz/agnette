@@ -8,17 +8,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agm.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
-from agm.agl.repl.session import ReplSession
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import AmbiguousConstructorError
-from agm.agl.typecheck.program import check_program
+from agnette.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
+from agnette.agl.repl.session import ReplSession
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import AmbiguousConstructorError
+from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import AGL_TEST_CAPS
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.qualifier_support import graph_verdict
 
 if TYPE_CHECKING:
-    from agm.agl.modules.loader import ModuleGraph
+    from agnette.agl.modules.loader import ModuleGraph
 
 _LIB = "enum Color\n  | Red\n  | Blue\nrecord Flag\n  on: bool\n"
 

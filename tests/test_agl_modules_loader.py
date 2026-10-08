@@ -1,4 +1,4 @@
-"""Tests for ModuleGraph loading in src/agm/agl/modules/loader.py."""
+"""Tests for ModuleGraph loading in src/agnette/agl/modules/loader.py."""
 
 from __future__ import annotations
 
@@ -10,23 +10,23 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from agm.agl.syntax.nodes import Program
+    from agnette.agl.syntax.nodes import Program
 
-from agm.agl.modules.errors import (
+from agnette.agl.modules.errors import (
     AmbiguousModule,
     ImportEntryError,
     MissingExternCompanion,
     ModuleNotFound,
     PackageImportVisibilityError,
 )
-from agm.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID, ModuleId
-from agm.agl.modules.loader import LoadedModule, ModuleGraph, build_repl_graph
-from agm.agl.modules.roots import RootSet, assemble_roots
-from agm.agl.syntax.nodes import ImportDecl
-from agm.agl.syntax.spans import SourceId
-from agm.core import fs
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.model import PackageInfo
+from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID, ModuleId
+from agnette.agl.modules.loader import LoadedModule, ModuleGraph, build_repl_graph
+from agnette.agl.modules.roots import RootSet, assemble_roots
+from agnette.agl.syntax.nodes import ImportDecl
+from agnette.agl.syntax.spans import SourceId
+from agnette.core import fs
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.model import PackageInfo
 from tests._agl_helpers import agl_roots, agl_std_package_roots
 from tests._package_helpers import package_info
 from tests.agl.module_graph import load_graph
@@ -522,7 +522,7 @@ class TestSourceDependencyClosures:
 class TestNodeIdDisjointness:
     def _collect_all_node_ids(self, graph: ModuleGraph) -> dict[ModuleId, set[int]]:
         """Return ALL node-id sets per module via a full recursive AST walk."""
-        from agm.agl.syntax.visitor import walk
+        from agnette.agl.syntax.visitor import walk
 
         result: dict[ModuleId, set[int]] = {}
         for mid, mod in graph.modules.items():
@@ -540,7 +540,7 @@ class TestNodeIdDisjointness:
     def test_all_node_ids_disjoint_across_modules(self, tmp_path: Path) -> None:
         """Every node_id in the loaded graph must be unique across ALL modules.
 
-        Uses agm.agl.syntax.visitor.walk to recursively collect every node_id
+        Uses agnette.agl.syntax.visitor.walk to recursively collect every node_id
         in each module's AST, then asserts pairwise disjointness.
         """
         root = tmp_path / "r"
@@ -1020,7 +1020,7 @@ class TestWildcardImportInLoader:
     def test_wildcard_prefix_not_found_raises(self, tmp_path: Path) -> None:
         root = tmp_path / "r"
         root.mkdir()
-        from agm.agl.modules.errors import ModulePrefixNotFound
+        from agnette.agl.modules.errors import ModulePrefixNotFound
 
         with pytest.raises(ModulePrefixNotFound):
             load_graph("import noprefix/*", entry_path=None, roots=_roots(root))
@@ -1224,8 +1224,8 @@ class TestErrorsCarrySpan:
         # library module that fails to parse must be rejected there, and the
         # diagnostic must name the module's own file rather than the entry the
         # user invoked.
-        from agm.agl.modules.loader import EntryParseSyntaxError
-        from agm.agl.parser import AglSyntaxError
+        from agnette.agl.modules.loader import EntryParseSyntaxError
+        from agnette.agl.parser import AglSyntaxError
 
         root = tmp_path / "r"
         root.mkdir()
@@ -1264,13 +1264,13 @@ class TestErrorsCarrySpan:
 
 
 def _parse_for_repl(source: str) -> "Program":
-    from agm.agl.parser.parser import parse_program
+    from agnette.agl.parser.parser import parse_program
 
     return parse_program(source)
 
 
 class TestBuildReplGraph:
-    """Tests for :func:`~agm.agl.modules.loader.build_repl_graph`."""
+    """Tests for :func:`~agnette.agl.modules.loader.build_repl_graph`."""
 
     def test_simple_program_no_imports(self, tmp_path: Path) -> None:
         """Graph for a program with no explicit imports still loads std/prelude."""
@@ -1466,7 +1466,7 @@ class TestBuildReplGraph:
 
 class TestUseDeclarationLoading:
     def test_standalone_use_does_not_create_a_module_graph_edge(self, tmp_path: Path) -> None:
-        from agm.agl.scope import AglScopeError, resolve_program
+        from agnette.agl.scope import AglScopeError, resolve_program
 
         graph = load_graph(
             "use missing::*",
@@ -1485,7 +1485,7 @@ class TestPreludeSupersession:
     def test_explicit_core_wildcard_import_suppresses_the_default_prelude(
         self, tmp_path: Path
     ) -> None:
-        from agm.agl.scope import AglScopeError, resolve_program
+        from agnette.agl.scope import AglScopeError, resolve_program
 
         graph = load_graph(
             "import std/prelude::* hiding ask",
@@ -1538,7 +1538,7 @@ class TestPreludeSupersession:
         assert core_imports[0].scope_path[0].name == "Local"
 
     def test_bare_core_import_is_qualified_only(self, tmp_path: Path) -> None:
-        from agm.agl.scope import resolve_program
+        from agnette.agl.scope import resolve_program
 
         graph = load_graph(
             "import std/prelude",
@@ -1553,7 +1553,7 @@ class TestPreludeSupersession:
     def test_wildcard_import_including_core_suppresses_the_default_prelude(
         self, tmp_path: Path
     ) -> None:
-        from agm.agl.scope import resolve_program
+        from agnette.agl.scope import resolve_program
 
         graph = load_graph(
             "import std/*",
@@ -1604,7 +1604,7 @@ class TestWildcardTailDistribution:
         assert ModuleId.from_path("package/two") in graph.modules
 
     def test_wildcard_tail_is_checked_against_each_matched_module(self, tmp_path: Path) -> None:
-        from agm.agl.scope import AglScopeError, resolve_program
+        from agnette.agl.scope import AglScopeError, resolve_program
 
         root = tmp_path / "modules"
         root.mkdir()

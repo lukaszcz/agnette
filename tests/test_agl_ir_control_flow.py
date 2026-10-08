@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.ir.ids import Location, NominalId, SourceId, SymbolId
-from agm.agl.ir.nodes import (
+from agnette.agl.ir.ids import Location, NominalId, SourceId, SymbolId
+from agnette.agl.ir.nodes import (
     IrBind,
     IrBlock,
     IrCatchHandler,
@@ -36,7 +36,7 @@ from agm.agl.ir.nodes import (
     IrReturn,
     IrTry,
 )
-from agm.agl.ir.program import (
+from agnette.agl.ir.program import (
     ExecutableModule,
     ExecutableProgram,
     IrFunctionBody,
@@ -45,15 +45,15 @@ from agm.agl.ir.program import (
     SourceFile,
     SymbolDescriptor,
 )
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
-from agm.agl.semantics.values import (
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
+from agnette.agl.semantics.values import (
     ExceptionValue,
     IntValue,
     TextValue,
     UnitValue,
 )
-from agm.agl.typecheck import AglTypeError
+from agnette.agl.typecheck import AglTypeError
 from tests._agl_helpers import let_root_capture
 from tests.agl.ir_harness import (
     evaluate_ir,
@@ -596,7 +596,7 @@ catch CastError =>
 
 def _lower(source: str) -> object:
     """Parse → check → lower; return ExecutableProgram."""
-    from agm.agl.capabilities import HostCapabilities
+    from agnette.agl.capabilities import HostCapabilities
 
     caps = HostCapabilities(
         supports_shell_exec=False,
@@ -612,7 +612,7 @@ def _lower(source: str) -> object:
 
 def test_lower_if_no_else_shape() -> None:
     """Golden lowering: if without else has has_else=False."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "if true => ()\n"
     prog = _lower(source)
@@ -631,7 +631,7 @@ def test_lower_if_no_else_shape() -> None:
 
 def test_lower_if_with_else_shape() -> None:
     """Golden lowering: if with else has has_else=True and else branch has cond=None."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = if true => 1 | else => 2\nr\n"
     prog = _lower(source)
@@ -649,7 +649,7 @@ def test_lower_if_with_else_shape() -> None:
 
 def test_lower_raise_shape() -> None:
     """Golden lowering: raise produces IrRaise with an IrMakeException for the exc."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = 'raise Abort(message = "boom")\n'
     prog = _lower(source)
@@ -665,7 +665,7 @@ def test_lower_raise_shape() -> None:
 
 def test_lower_return_shape() -> None:
     """Golden lowering: return produces IrReturn with a value expression."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "def f() -> int =\n  return 1\n  0\nf()\n"
     prog = _lower(source)
@@ -684,7 +684,7 @@ def test_lower_return_shape() -> None:
 
 def test_lower_try_no_binding_shape() -> None:
     """Golden lowering: specific catch (no binding) → IrCatchHandler with symbol=None."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Abort =>\n  2\nr\n"
     prog = _lower(source)
@@ -703,7 +703,7 @@ def test_lower_try_no_binding_shape() -> None:
 
 def test_lower_try_with_binding_shape() -> None:
     """Golden lowering: catch with binding allocates a SymbolId in program.symbols."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Abort as e =>\n  2\nr\n"
     prog = _lower(source)
@@ -722,7 +722,7 @@ def test_lower_try_with_binding_shape() -> None:
 
 def test_lower_try_catchall_shape() -> None:
     """Golden lowering: catch-all (_, Exception) → nominal=None."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch _ =>\n  2\nr\n"
     prog = _lower(source)
@@ -740,7 +740,7 @@ def test_lower_try_catchall_shape() -> None:
 
 def test_lower_try_catch_of_the_hierarchy_root_lowers_to_catchall() -> None:
     """Golden lowering: a clause resolving to the exception hierarchy root is catch-all."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Exception =>\n  2\nr\n"
     prog = _lower(source)
@@ -756,7 +756,7 @@ def test_lower_try_catch_of_the_hierarchy_root_lowers_to_catchall() -> None:
 
 def test_lower_try_catch_of_a_non_root_type_keeps_its_own_nominal() -> None:
     """Golden lowering: a non-root clause lowers to its own resolved nominal, not None."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Abort =>\n  2\nr\n"
     prog = _lower(source)
@@ -773,7 +773,7 @@ def test_lower_try_catch_of_a_non_root_type_keeps_its_own_nominal() -> None:
 def test_lower_try_catch_of_exception_declared_without_extends_keeps_its_own_nominal() -> None:
     """Golden lowering: an exception declared without `extends` is not the
     catch-all, so a clause naming it lowers to its own nominal, not None."""
-    from agm.agl.ir.program import ExecutableProgram
+    from agnette.agl.ir.program import ExecutableProgram
 
     source = "exception Plain\n  note: text\nlet r = try\n  1\ncatch Plain =>\n  2\nr\n"
     prog = _lower(source)
@@ -789,7 +789,7 @@ def test_lower_try_catch_of_exception_declared_without_extends_keeps_its_own_nom
 
 def test_ir_try_handler_binding_stored_in_frame() -> None:
     """Hand-built IrTry: handler with binding writes ExceptionValue to frame and body runs."""
-    from agm.agl.eval.ir_interpreter import IrInterpreter
+    from agnette.agl.eval.ir_interpreter import IrInterpreter
 
     loc = _DUMMY_LOC
     exc_sym = SymbolId(0)

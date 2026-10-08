@@ -2,7 +2,7 @@
 
 ``PipelineDriver.preflight_arguments`` evaluates a selected program's own
 ``@config`` entries into ``ArgumentPreflight.program_config`` (see
-``agm.agl.pipeline``); ``agm exec`` (``agm.commands.exec_program.run``) is the
+``agnette.agl.pipeline``); ``agm exec`` (``agnette.agm.commands.exec_program.run``) is the
 host that folds those values into its existing precedence chains:
 
 * module parameter: CLI flag > ``@opt-env`` > program route > ``@config`` >
@@ -22,12 +22,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-import agm.commands.exec as exec_command
-from agm.cli_support.args import CheckArgs, ExecArgs
-from agm.commands import check as check_command
-from agm.commands import exec_program as exec_engine
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.sandbox.prepare import SandboxContext
+import agnette.agm.commands.exec as exec_command
+from agnette.agm.cli_support.args import CheckArgs, ExecArgs
+from agnette.agm.commands import check as check_command
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.sandbox.prepare import SandboxContext
 from tests._agl_helpers import write_file_program
 from tests._package_helpers import install_directory
 from tests.test_cli_registered_commands import invoke

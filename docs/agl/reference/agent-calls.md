@@ -75,7 +75,7 @@ program def main() -> unit =
 ```
 
 Use an explicit lambda around a direct call to capture a non-default agent or
-parse options. `ask` remains legal as a record/enum **field name**.
+parse options. `ask` is legal as a record/enum **field name**.
 
 ### `Session::ask`
 

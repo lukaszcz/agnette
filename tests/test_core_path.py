@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agm.core.path import is_portable_relative_path
+from agnette.core.path import is_portable_relative_path
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,4 @@
-"""Unit tests for the pure, context-free decimal helpers in ``agm.util.decimal``.
+"""Unit tests for the pure, context-free decimal helpers in ``agnette.util.decimal``.
 
 These are private-module tests by exception: each function here is a pure,
 stable contract (range predicates over the pinned decimal context) that is
@@ -13,7 +13,7 @@ import random
 
 import pytest
 
-from agm.util.decimal import (
+from agnette.util.decimal import (
     AGL_DECIMAL_CONTEXT,
     compare_numbers,
     decimal_in_range,
@@ -140,7 +140,7 @@ class TestIntInRange:
 def test_bit_length_threshold_is_exact(int_range_threshold: int) -> None:
     """The cached bit-length threshold this module derives arithmetically
     matches the exact bit length of ``10**(Emax+1)``, computed directly."""
-    from agm.util.decimal import _INT_RANGE_THRESHOLD_BITS
+    from agnette.util.decimal import _INT_RANGE_THRESHOLD_BITS
 
     exact = int_range_threshold.bit_length()
     assert _INT_RANGE_THRESHOLD_BITS == exact

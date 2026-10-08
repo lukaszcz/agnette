@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import parse_program
-from agm.agl.pipeline import PreparedProgram
-from agm.agl.semantics.types import ArrayType, DictType, IntType, TextType, TypeVarType
-from agm.agl.syntax import FuncDef
-from agm.agl.typecheck.env import FunctionSignature
-from agm.agl.typecheck.program import CheckedProgram
+from agnette.agl import PipelineDriver
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import parse_program
+from agnette.agl.pipeline import PreparedProgram
+from agnette.agl.semantics.types import ArrayType, DictType, IntType, TextType, TypeVarType
+from agnette.agl.syntax import FuncDef
+from agnette.agl.typecheck.env import FunctionSignature
+from agnette.agl.typecheck.program import CheckedProgram
 
 
 def _prepare_stdlib_module(tmp_path: Path, module: str, source: str) -> PreparedProgram:

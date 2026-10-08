@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import AglSyntaxError
-from agm.agl.pipeline import ParsedEntry, PipelineDriver
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import AglSyntaxError
+from agnette.agl.pipeline import ParsedEntry, PipelineDriver
 from tests._agl_helpers import agl_roots, prepare_inline_code
 from tests.agl.module_graph import load_graph
 

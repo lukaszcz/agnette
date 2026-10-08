@@ -187,7 +187,7 @@ one, reached bare inside its region or after `use`, and by its exact path
 outside. A `builtin def` with first parameter `self` in a type scope is a
 builtin method: `Agent::ask`, `Agent::ask-request`, and the receiver-based
 `Session` operations use ordinary method selection, with the receiver supplying
-the target agent or session. `builtin var` remains restricted to standard-library
+the target agent or session. `builtin var` is restricted to standard-library
 modules regardless of scoping; `std/config` owns engine settings — see
 [Program structure](program-structure.md#declarations).
 
@@ -278,7 +278,7 @@ constructor. Referenced members remain at their own declaration paths rather
 than appearing in the referencing enum's scope. A `def` whose first parameter
 is `self` is a method when its enclosing scope resolves to a record, enum, enum
 member, or exception. It is called through a receiver value with `.`; a `def`
-in the same scope with an ordinary first parameter remains a scoped function and
+in the same scope with an ordinary first parameter is a scoped function and
 is called by its qualified path.
 
 A declaration-path method and a method written in a `scope Type` region declare

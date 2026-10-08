@@ -9,9 +9,9 @@ import pytest
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.cli as cli
-from agm.commands import exec_program as exec_engine
-from agm.config.context import ConfigContext
+import agnette.agm.cli as cli
+from agnette.agm.commands import exec_program as exec_engine
+from agnette.config.context import ConfigContext
 from tests._agl_helpers import write_file_program
 from tests.conftest import FakeAgentTransport
 

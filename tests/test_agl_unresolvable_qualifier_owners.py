@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError
-from agm.agl.scope.symbols import UnknownMemberError, UnknownQualifierError
+from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.scope.symbols import UnknownMemberError, UnknownQualifierError
 from tests.agl.qualifier_support import (
     Scenario,
     accepted,

@@ -42,7 +42,7 @@ builtin_modifier ::= "builtin" NEWLINE?
 ```
 
 A block's value is its last item. A final `let_decl` or `var_decl` has type
-`unit` (or bottom when its initializer exits); its binding remains visible to
+`unit` (or bottom when its initializer exits); its binding is visible to
 any enclosing construct that evaluates a continuation after the block, such as
 a loop's `until` condition.
 

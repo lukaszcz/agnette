@@ -1,4 +1,4 @@
-"""Tests for the surviving helpers in agm.agl.runtime.convert.
+"""Tests for the surviving helpers in agnette.agl.runtime.convert.
 
 Covers:
 1. parse_json_strict: valid scalars/objects/arrays with Decimal floats.
@@ -23,7 +23,7 @@ from decimal import Decimal
 import pytest
 from jsonschema import ValidationError as JsonschemaValidationError
 
-from agm.agl.ir.contracts import (
+from agnette.agl.ir.contracts import (
     ArrayDecode,
     DictDecode,
     DictKeyForm,
@@ -35,8 +35,8 @@ from agm.agl.ir.contracts import (
     ScalarKind,
     VariantDecode,
 )
-from agm.agl.ir.ids import NominalId
-from agm.agl.runtime.convert import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.runtime.convert import (
     StrictJsonParseError,
     _clean_validation_message,
     _decode_scalar,
@@ -44,7 +44,7 @@ from agm.agl.runtime.convert import (
     parse_json_strict,
     validator_for_schema,
 )
-from agm.agl.semantics.values import (
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     DecimalValue,
@@ -54,7 +54,7 @@ from agm.agl.semantics.values import (
     RecordValue,
     TextValue,
 )
-from agm.agl.zones import ParamZone
+from agnette.agl.zones import ParamZone
 
 # ---------------------------------------------------------------------------
 # 1. parse_json_strict — valid inputs
@@ -278,8 +278,8 @@ class TestAglValidator:
         """
         script = (
             "import sys\n"
-            "import agm.agl.runtime.codec\n"
-            "import agm.agl.runtime.convert as convert\n"
+            "import agnette.agl.runtime.codec\n"
+            "import agnette.agl.runtime.convert as convert\n"
             "assert 'jsonschema' not in sys.modules, sorted(sys.modules)\n"
             'assert list(convert.validator_for_schema(\'{"type": "integer"}\')'
             ".iter_errors(1)) == []\n"

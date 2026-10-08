@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 import semver
 
-from agm.packages.discipline import DisciplineError, validate_package
-from agm.packages.layout import MODULE_TREE_DIRNAME
-from agm.packages.manifest import CommandSpec, PackageManifest, expanded_commands
-from agm.packages.model import PackageInfo
-from agm.packages.source_commands import package_with_source_commands
+from agnette.packages.discipline import DisciplineError, validate_package
+from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.manifest import CommandSpec, PackageManifest, expanded_commands
+from agnette.packages.model import PackageInfo
+from agnette.packages.source_commands import package_with_source_commands
 from tests._parse_counts import parse_counts
 
 _skip_if_root = pytest.mark.skipif(

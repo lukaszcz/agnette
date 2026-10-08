@@ -10,7 +10,7 @@ identity)``:
     classified by which real pipeline call raised -- never by the raised
     exception's class alone, since more than one phase can raise the same
     class. A REPL entry has no phase-by-phase call of its own --
-    :class:`~agm.agl.repl.entry.EntryResult` carries one ``check_only``
+    :class:`~agnette.agl.repl.entry.EntryResult` carries one ``check_only``
     outcome -- so its own phase is only ``"accepted"``/``"rejected"``, or
     ``"type-entry"`` when an entry that is no value is accepted as a type
     spelling alone; a REPL verdict's *class* and *span* are asserted to match
@@ -33,7 +33,7 @@ group the header into REPL entries (:func:`all_groupings` over
 ``len(header) + 1`` items, the ``+ 1`` standing for whichever probe follows),
 each rejecting with the inline entry's message too.
 Per grouping, one session evaluates ``sizes[:-1]`` setup entries through
-:meth:`~agm.agl.repl.session.ReplSession.eval_entry`; whether they all succeed
+:meth:`~agnette.agl.repl.session.ReplSession.eval_entry`; whether they all succeed
 *is* the grouping's legality, asserted against the expected legal set. Only a
 legal grouping goes on to answer every probe as its own
 ``eval_entry(check_only=True)`` final entry against the header's unconsumed
@@ -76,30 +76,30 @@ from typing import TYPE_CHECKING, Literal, TypeVar
 
 import pytest
 
-from agm.agl.artifact_cache import (
+from agnette.agl.artifact_cache import (
     retain_match_sites,
     retained_match_sites,
     retained_module_sources,
 )
-from agm.agl.diagnostics import AglError, AglTypeError
-from agm.agl.matchcompile import cached_module_sites, compile_program_matches, match_issue_error
-from agm.agl.modules.ids import ENTRY_ID, Reader, spell_declaration
-from agm.agl.modules.loader import parse_entry_module
-from agm.agl.repl import EntryResult, ReplSession
-from agm.agl.repl.type_display import format_type_for_repl
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import AmbiguousQualificationError, to_bare_path
-from agm.agl.syntax.nodes import Block, FuncDef, Item, LetDecl, VarDecl
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck.program import check_program
+from agnette.agl.diagnostics import AglError, AglTypeError
+from agnette.agl.matchcompile import cached_module_sites, compile_program_matches, match_issue_error
+from agnette.agl.modules.ids import ENTRY_ID, Reader, spell_declaration
+from agnette.agl.modules.loader import parse_entry_module
+from agnette.agl.repl import EntryResult, ReplSession
+from agnette.agl.repl.type_display import format_type_for_repl
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import AmbiguousQualificationError, to_bare_path
+from agnette.agl.syntax.nodes import Block, FuncDef, Item, LetDecl, VarDecl
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import base_caps, make_file_graph_from_files, make_inline_graph_from_files
 
 if TYPE_CHECKING:
-    from agm.agl.modules.loader import ModuleGraph
-    from agm.agl.semantics.type_table import TypeTable
-    from agm.agl.semantics.types import Type
-    from agm.agl.typecheck.env import CheckedModule
+    from agnette.agl.modules.loader import ModuleGraph
+    from agnette.agl.semantics.type_table import TypeTable
+    from agnette.agl.semantics.types import Type
+    from agnette.agl.typecheck.env import CheckedModule
 
 Phase = Literal["scope", "typecheck", "matchcompile", "accepted"]
 ReplPhase = Literal["accepted", "type-entry", "rejected"]
@@ -255,7 +255,7 @@ def origin_kinds(error: AglError | None) -> Origins:
     """*error*'s ambiguity origins as ``(origin class, declaration spelling)`` pairs.
 
     A declaration is spelled with its module's label unless it lives in the
-    entry module (see :func:`~agm.agl.modules.ids.spell_declaration`), so a
+    entry module (see :func:`~agnette.agl.modules.ids.spell_declaration`), so a
     file-mode and a REPL origin of the same candidate compare equal.
     """
     if not isinstance(error, AmbiguousQualificationError):

@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.semantics.exceptions import AglRaise
-from agm.core.process import CapturedOutput, ProcessCaptureResult
+from agnette.agl.semantics.exceptions import AglRaise
+from agnette.core.process import CapturedOutput, ProcessCaptureResult
 from tests._agl_helpers import (
     agl_roots,
     let_root_capture,
@@ -107,7 +107,7 @@ def test_text_exec_strips_trailing_newline(source: str) -> None:
     """exec() with text output strips a trailing newline, in call and verbatim-literal form."""
     commands = {"echo hello": _ok("hello\n")}
     ir = evaluate_ir_with_shell(source, commands)
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("hello")
 
@@ -122,7 +122,7 @@ def test_t2_typed_exec_json() -> None:
     source = 'let n: int = exec("echo 42")\nn'
     commands = {"echo 42": _ok("42\n")}
     ir = evaluate_ir_with_shell(source, commands)
-    from agm.agl.semantics.values import IntValue
+    from agnette.agl.semantics.values import IntValue
 
     assert ir["n"] == IntValue(42)
 
@@ -137,7 +137,7 @@ def test_t3_structured_exec() -> None:
     source = 'let r: ExecResult = exec("exit 1")\nr'
     commands = {"exit 1": _fail(1, stdout="", stderr="error msg")}
     ir = evaluate_ir_with_shell(source, commands)
-    from agm.agl.semantics.values import IntValue, RecordValue
+    from agnette.agl.semantics.values import IntValue, RecordValue
 
     assert isinstance(ir["r"], RecordValue)
     assert ir["r"].fields["exit-code"] == IntValue(1)
@@ -238,7 +238,7 @@ def test_t7_retry_success() -> None:
     call_count[0] = 0
     ir_snap = completed_bindings(run_inline_ir_with_shell(source, fake_shell))
 
-    from agm.agl.semantics.values import IntValue
+    from agnette.agl.semantics.values import IntValue
 
     assert ir_snap["n"] == IntValue(99)
 
@@ -271,7 +271,7 @@ def test_t7_retry_forwards_spawn_settings_on_every_attempt() -> None:
     )
     snapshot = completed_bindings(run_inline_ir_with_shell(source, fake_shell))
 
-    from agm.agl.semantics.values import IntValue
+    from agnette.agl.semantics.values import IntValue
 
     assert snapshot["n"] == IntValue(9)
     assert calls == [
@@ -332,7 +332,7 @@ def test_t9_exec_inside_function() -> None:
     source = 'def get-output() -> text = exec("echo from_fn")\nlet result: text = get-output()\n()'
     commands = {"echo from_fn": _ok("from_fn\n")}
     ir = evaluate_ir_with_shell(source, commands)
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("from_fn")
 
@@ -344,7 +344,7 @@ def test_t9_exec_inside_function() -> None:
 
 def test_t10_golden_lowering() -> None:
     """Lowering exec() produces an IrExec node."""
-    from agm.agl.ir.nodes import IrBind, IrExec, IrSequence
+    from agnette.agl.ir.nodes import IrBind, IrExec, IrSequence
 
     source = 'let result = exec("echo hi")\nresult'
     executable = lower_inline_ir(source, caps=shell_caps())
@@ -368,22 +368,22 @@ def test_t11_exec_empty_parse_failure_raises_agent_parse_error() -> None:
     """IrInterpreter defensive fallback produces ExecError for empty parse failures."""
     import unittest.mock
 
-    from agm.agl.eval.ir_interpreter import IrInterpreter
-    from agm.agl.ir.contracts import JsonContractRequest
-    from agm.agl.ir.ids import ContractId, NominalId, SourceId
-    from agm.agl.ir.nodes import IrConstText, IrExec, IrMakeDict, IrMakeRecord
-    from agm.agl.ir.program import (
+    from agnette.agl.eval.ir_interpreter import IrInterpreter
+    from agnette.agl.ir.contracts import JsonContractRequest
+    from agnette.agl.ir.ids import ContractId, NominalId, SourceId
+    from agnette.agl.ir.nodes import IrConstText, IrExec, IrMakeDict, IrMakeRecord
+    from agnette.agl.ir.program import (
         ExecutableModule,
         ExecutableProgram,
         SourceFile,
     )
-    from agm.agl.ir.reserved_nominals import require_reserved_enum_member_id
-    from agm.agl.modules.ids import ENTRY_ID
-    from agm.core.process import ProcessCaptureResult
+    from agnette.agl.ir.reserved_nominals import require_reserved_enum_member_id
+    from agnette.agl.modules.ids import ENTRY_ID
+    from agnette.core.process import ProcessCaptureResult
 
     source_id = SourceId(0)
 
-    from agm.agl.ir.ids import Location
+    from agnette.agl.ir.ids import Location
 
     loc = Location(
         source_id=source_id,
@@ -446,13 +446,13 @@ def test_t11_exec_empty_parse_failure_raises_agent_parse_error() -> None:
         timed_out=False,
         spawn_error=None,
     )
-    from agm.agl.runtime.codec import ParseResult
+    from agnette.agl.runtime.codec import ParseResult
 
     empty_failure = ParseResult(ok=False, value=None, error_msg="", errors=())
 
-    with unittest.mock.patch("agm.core.process.run_capture_result", return_value=ok_result):
+    with unittest.mock.patch("agnette.core.process.run_capture_result", return_value=ok_result):
         with unittest.mock.patch(
-            "agm.agl.eval.ir_interpreter._parse_contract_output", return_value=empty_failure
+            "agnette.agl.eval.ir_interpreter._parse_contract_output", return_value=empty_failure
         ):
             with pytest.raises(AglRaise) as exc_info:
                 IrInterpreter(prog).run()
@@ -489,10 +489,10 @@ def test_exec_with_an_extended_environment_reaches_the_process_boundary() -> Non
     )
     from unittest.mock import patch
 
-    from agm.agl import PipelineDriver
+    from agnette.agl import PipelineDriver
     from tests._agl_helpers import run_inline_code
 
-    with patch("agm.core.process.run_capture_result", side_effect=fake_shell):
+    with patch("agnette.core.process.run_capture_result", side_effect=fake_shell):
         result = run_inline_code(
             PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
             source,
@@ -733,7 +733,7 @@ def test_exec_in_a_generic_argument_slot_defaults_to_exec_result() -> None:
     source = 'def id[A](x: A) -> A = x\nlet result = id(exec "echo hi")\nresult'
     commands = {"echo hi": _ok("hi\n")}
     ir = evaluate_ir_with_shell(source, commands)
-    from agm.agl.semantics.values import IntValue, RecordValue
+    from agnette.agl.semantics.values import IntValue, RecordValue
 
     assert isinstance(ir["result"], RecordValue)
     assert ir["result"].fields["exit-code"] == IntValue(0)
@@ -743,7 +743,7 @@ def test_ask_in_a_generic_argument_slot_defaults_to_text() -> None:
     """``id(ask "…")`` infers ``text`` and executes it."""
     source = 'def id[A](x: A) -> A = x\nlet result = id(ask "hi")\nresult'
     ir = evaluate_ir_with_agents(source, {}, default_responses=["hello"])
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("hello")
 
@@ -773,7 +773,7 @@ def test_sandboxed_exec_wraps_argv_and_selects_profile_from_first_shell_word(
         argv_log=argv_log,
         get_sandbox_context=session_sandbox_context(home),
     )
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("hi")
     assert len(argv_log) == 1
@@ -807,7 +807,7 @@ def test_sandboxed_exec_honours_run_config_memory_for_the_selected_profile(
         argv_log=argv_log,
         get_sandbox_context=session_sandbox_context(home),
     )
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("ok")
     argv = argv_log[0]
@@ -822,7 +822,7 @@ def test_unsandboxed_exec_never_requests_a_sandbox_context() -> None:
     source = 'let result: text = exec("echo hi")\nresult'
     commands = {"echo hi": _ok("hi\n")}
     ir = evaluate_ir_with_shell(source, commands, get_sandbox_context=unavailable_sandbox_context)
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("hi")
 
@@ -901,7 +901,7 @@ def test_sandboxed_exec_retry_reprepares_the_sandbox_on_every_attempt(
             source, fake_shell, get_sandbox_context=session_sandbox_context(home)
         )
     )
-    from agm.agl.semantics.values import IntValue
+    from agnette.agl.semantics.values import IntValue
 
     assert ir["n"] == IntValue(99)
     assert len(argv_log) == 2
@@ -934,7 +934,7 @@ def test_sandboxed_exec_structured_form_also_honours_sandbox(
         argv_log=argv_log,
         get_sandbox_context=session_sandbox_context(home),
     )
-    from agm.agl.semantics.values import IntValue, RecordValue
+    from agnette.agl.semantics.values import IntValue, RecordValue
 
     assert isinstance(ir["r"], RecordValue)
     assert ir["r"].fields["exit-code"] == IntValue(0)
@@ -974,7 +974,7 @@ def test_sandboxed_exec_forwards_prepared_env_cwd_and_interrupt_cleanup_cmd(
         call_log=call_log,
         get_sandbox_context=session_sandbox_context(home),
     )
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("hi")
     assert len(call_log) == 1
@@ -1020,7 +1020,7 @@ def test_sandboxed_exec_cwd_never_selects_sandbox_settings(
         call_log=call_log,
         get_sandbox_context=session_sandbox_context(home),
     )
-    from agm.agl.semantics.values import TextValue
+    from agnette.agl.semantics.values import TextValue
 
     assert ir["result"] == TextValue("hi")
     argv = argv_log[0]
@@ -1034,7 +1034,7 @@ def test_sandboxed_exec_cwd_never_selects_sandbox_settings(
 
 def _spy_prepared_close(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     """Record every ``PreparedSandboxCommand.close()`` call across this test."""
-    from agm.sandbox.request import PreparedSandboxCommand
+    from agnette.sandbox.request import PreparedSandboxCommand
 
     calls: list[bool] = []
     original_close = PreparedSandboxCommand.close

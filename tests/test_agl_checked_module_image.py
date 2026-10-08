@@ -17,15 +17,15 @@ import os
 
 import pytest
 
-from agm.agl import artifact_serialization
-from agm.agl.artifact_cache import clear_retained_artifacts
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.lower.program import lower_program
-from agm.agl.matchcompile import compile_program_matches
-from agm.agl.modules.ids import ModuleId
-from agm.agl.scope.program import ResolvedProgram, resolve_program
-from agm.agl.semantics.types import Type
-from agm.agl.syntax.nodes import (
+from agnette.agl import artifact_serialization
+from agnette.agl.artifact_cache import clear_retained_artifacts
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.lower.program import lower_program
+from agnette.agl.matchcompile import compile_program_matches
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.scope.program import ResolvedProgram, resolve_program
+from agnette.agl.semantics.types import Type
+from agnette.agl.syntax.nodes import (
     LetDecl,
     VarDecl,
     static_binding_node_id,
@@ -33,8 +33,8 @@ from agm.agl.syntax.nodes import (
     static_items,
     static_type_items,
 )
-from agm.agl.typecheck import env as env_module
-from agm.agl.typecheck.env import (
+from agnette.agl.typecheck import env as env_module
+from agnette.agl.typecheck.env import (
     ArgumentBindings,
     CheckedModule,
     CheckedModuleImage,
@@ -43,8 +43,8 @@ from agm.agl.typecheck.env import (
     PublishedModuleSurface,
     TypeEnvironment,
 )
-from agm.agl.typecheck.function_inference import FunctionSignatureRecord
-from agm.agl.typecheck.program import CheckedProgram, _prepare_program, check_program
+from agnette.agl.typecheck.function_inference import FunctionSignatureRecord
+from agnette.agl.typecheck.program import CheckedProgram, _prepare_program, check_program
 from tests.agl.ir_harness import (
     base_caps,
     extern_caps,

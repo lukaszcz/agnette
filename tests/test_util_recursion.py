@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from agm.util.recursion import raised_recursion_limit
+from agnette.util.recursion import raised_recursion_limit
 
 
 @pytest.fixture

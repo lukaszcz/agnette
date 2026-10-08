@@ -48,9 +48,9 @@ The standard library is the first of:
    whatever version it declares;
 3. the active immutable `<AgM-home>/packages/std/<AGM_VERSION>/` package matching the running
    binary; a selected active package of another version is an error;
-4. AgM's bundled copy (`agm/stdlib` in a wheel, `packages/stdlib/` in a source checkout) when no active
-   package is selected or its store tree is absent, so a wheel runs AgL even when the home has
-   no active `std`.
+4. Agnette's bundled copy (`agnette/stdlib/` in a wheel, `packages/stdlib/` in a source checkout)
+   when no active package is selected or its store tree is absent, so a wheel runs AgL even
+   when the home has no active `std`.
 
 `[modules] lib_root` and `roots` expand `%{VAR}` leniently, like other
 [path-valued settings](config.md#path-valued-settings).
@@ -761,7 +761,7 @@ In both front ends:
   open until a blank line or end of input, since an indented block parses after every line yet
   can always take one more.
 - Ctrl-C cancels the current entry without exiting. During a live agent call it interrupts the
-  call and stops the entry; effects completed before cancellation remain, unreached operations
+  call and stops the entry. Effects completed before cancellation persist; unreached operations
   do not run.
 
 ### Console-only editing features

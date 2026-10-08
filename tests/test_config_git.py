@@ -1,4 +1,4 @@
-"""Tests for agm.project.config_git."""
+"""Tests for agnette.agm.project.config_git."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-import agm.core.dry_run as dry_run
-import agm.project.config_git as config_git
-import agm.vcs.git as git_helpers
-from agm.project.config_git import _add_paths, commit_config_dir_changes
+import agnette.agm.project.config_git as config_git
+import agnette.core.dry_run as dry_run
+import agnette.vcs.git as git_helpers
+from agnette.agm.project.config_git import _add_paths, commit_config_dir_changes
 
 needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
 

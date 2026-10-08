@@ -7,10 +7,10 @@ import pytest
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.cli_dispatch as dispatch
-from agm.cli import app
-from agm.packages.activation import ActivationIndex
-from agm.packages.manifest import ManifestError, load_manifest_text
+import agnette.agm.cli_dispatch as dispatch
+from agnette.agm.cli import app
+from agnette.packages.activation import ActivationIndex
+from agnette.packages.manifest import ManifestError, load_manifest_text
 from tests._package_helpers import install_directory, write_installed_package
 
 MANIFEST = """[package]
@@ -199,7 +199,7 @@ def test_alias_config_conflicts_and_layer_precedence(command_package: Path) -> N
 
 
 def test_alias_metadata_survives_distribution(command_package: Path) -> None:
-    from agm.packages.distribution import normalized_manifest
+    from agnette.packages.distribution import normalized_manifest
 
     manifest = load_manifest_text(MANIFEST)
     assert load_manifest_text(normalized_manifest(manifest).decode()) == manifest
@@ -226,7 +226,7 @@ def test_group_help_remains_available_when_source_is_missing(command_package: Pa
 
 @pytest.mark.parametrize("prefix, expected", [("--h", ["--help"]), ("--x", [])])
 def test_group_option_completion(command_package: Path, prefix: str, expected: list[str]) -> None:
-    from agm.completion import registered_command_param_completion
+    from agnette.agm.completion import registered_command_param_completion
 
     root = click.Context(get_command(app))
     completions = registered_command_param_completion(["dev"], prefix, root)
@@ -239,7 +239,7 @@ def test_unknown_command_help_is_rejected(command_package: Path) -> None:
 
 
 def test_alias_can_target_an_implicit_group() -> None:
-    from agm.packages.manifest import command_paths_for_program, expanded_commands
+    from agnette.packages.manifest import command_paths_for_program, expanded_commands
 
     manifest = load_manifest_text(
         '[package]\nname = "tools"\nversion = "1.0.0"\n'

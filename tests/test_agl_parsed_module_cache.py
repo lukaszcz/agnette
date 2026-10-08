@@ -9,20 +9,20 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules import loader as loader_module
-from agm.agl.modules.errors import MissingExternCompanion
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.modules.loader import LoadedModule
-from agm.agl.modules.parsed_module_cache import (
+from agnette.agl.modules import loader as loader_module
+from agnette.agl.modules.errors import MissingExternCompanion
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.loader import LoadedModule
+from agnette.agl.modules.parsed_module_cache import (
     RESERVED_NODE_ID_BASE,
     ParsedModuleCache,
     clear_parsed_module_cache,
 )
-from agm.agl.modules.roots import RootSet
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.scope import program as scope_program
-from agm.agl.scope.imports import NameAtom, PathAtom, QName, ScopeOrigins
-from agm.agl.syntax.nodes import ExportDecl, Program
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.scope import program as scope_program
+from agnette.agl.scope.imports import NameAtom, PathAtom, QName, ScopeOrigins
+from agnette.agl.syntax.nodes import ExportDecl, Program
 from tests._agl_helpers import agl_roots, all_node_ids, prepare_inline_code, run_inline_code
 from tests.agl.module_graph import load_graph
 

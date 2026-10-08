@@ -30,9 +30,9 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from agm.agl import PipelineDriver
-from agm.agl.parser import AglSyntaxError, parse_program
-from agm.agl.syntax import FuncDef, VarRef
+from agnette.agl import PipelineDriver
+from agnette.agl.parser import AglSyntaxError, parse_program
+from agnette.agl.syntax import FuncDef, VarRef
 from tests._agl_helpers import run_inline_code
 
 

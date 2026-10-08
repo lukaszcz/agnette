@@ -6,10 +6,10 @@ from dataclasses import replace
 
 import pytest
 
-from agm.agl.modules.roots import RootSet
-from agm.agl.parser import parse_program_seeded, wrap_inline_program
-from agm.agl.pipeline import PipelineDriver
-from agm.agl.syntax import (
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.parser import parse_program_seeded, wrap_inline_program
+from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.syntax import (
     AssignStmt,
     Block,
     BuiltinVarDecl,

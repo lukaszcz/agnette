@@ -40,8 +40,8 @@ An inline-source host (`agm exec -c`, the REPL) parses statement-oriented source
 
 ## Code Entry Points
 
-- `src/agm/agl/keywords.py`, `src/agm/agl/lexer/` — keyword inventories and indentation-aware lexing; `lexer/operators.py` is the shared operator-position inventory, `lexer/layout.py` the INDENT/DEDENT and continuation filter.
-- `src/agm/agl/grammar/agl.lark`, `src/agm/agl/parser/` — grammar, parsing, AST construction, inline-source wrapping.
-- `src/agm/agl/syntax/` — AST nodes, spans, advisories, the generic walk (`visitor.py`, dispatched through a node-class table that `tests/test_agl_ast.py` checks covers every node class), the constant-expression predicate, the constant folder's search order, module-constant folding, and resource-call classification.
-- `src/agm/agl/attributes.py` — the built-in attribute catalog: targets, argument shapes, repetition, and conflicts.
+- `src/agnette/agl/keywords.py`, `src/agnette/agl/lexer/` — keyword inventories and indentation-aware lexing; `lexer/operators.py` is the shared operator-position inventory, `lexer/layout.py` the INDENT/DEDENT and continuation filter.
+- `src/agnette/agl/grammar/agl.lark`, `src/agnette/agl/parser/` — grammar, parsing, AST construction, inline-source wrapping.
+- `src/agnette/agl/syntax/` — AST nodes, spans, advisories, the generic walk (`visitor.py`, dispatched through a node-class table that `tests/test_agl_ast.py` checks covers every node class), the constant-expression predicate, the constant folder's search order, module-constant folding, and resource-call classification.
+- `src/agnette/agl/attributes.py` — the built-in attribute catalog: targets, argument shapes, repetition, and conflicts.
 - Tests: `tests/test_agl_lexer.py`, `test_agl_parser.py`, `test_agl_ast.py`, `test_agl_wrap.py`, `test_agl_module_constants.py`.

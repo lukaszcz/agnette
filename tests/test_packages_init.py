@@ -18,10 +18,10 @@ import pytest
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.pkg.init as init_command
-from agm.cli_support.args import PkgInitArgs
-from agm.packages.layout import MODULE_TREE_DIRNAME
+import agnette.agm.cli as cli
+import agnette.agm.commands.pkg.init as init_command
+from agnette.agm.cli_support.args import PkgInitArgs
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 
 _AGM_COMMAND = get_command(cli.app)
 

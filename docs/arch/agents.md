@@ -30,7 +30,7 @@ Pi RPC accepts JSONL records without a size cap because events can carry images 
 
 ## Code Entry Points
 
-- `src/agm/agent/spec.py` — host agent specs and the spec catalog; `values.py` — host Agent shorthand; `spec_defaults.py` — configured default provider, model, and effort.
-- `src/agm/agent/runner.py` — rendered prompt delivery, sandboxed subprocess execution, and structured run results.
-- `src/agm/agent/session/` — the session protocol, service, CLI adapters, and the Pi RPC backend.
-- `src/agm/agl/runtime/agents.py`, `host_agents.py`, and `sessions.py` — the AgL host services that resolve agents and dispatch calls.
+- `src/agnette/agent/spec.py` — host agent specs and the spec catalog; `values.py` — host Agent shorthand; `spec_defaults.py` — configured default provider, model, and effort.
+- `src/agnette/agent/runner.py` — rendered prompt delivery, sandboxed subprocess execution, and structured run results.
+- `src/agnette/agent/session/` — the session protocol, service, CLI adapters, and the Pi RPC backend.
+- `src/agnette/agl/runtime/agents.py`, `host_agents.py`, and `sessions.py` — the AgL host services that resolve agents and dispatch calls.

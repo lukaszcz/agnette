@@ -1,4 +1,4 @@
-"""Tests for agm.commands.dep.list."""
+"""Tests for agnette.agm.commands.dep.list."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ import pytest
 from click.testing import CliRunner, Result
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.dep.list as dep_list_cmd
-import agm.commands.dep.list as dep_list_command
-from agm.project.dependency_env import read_deps_table
+import agnette.agm.cli as cli
+import agnette.agm.commands.dep.list as dep_list_cmd
+import agnette.agm.commands.dep.list as dep_list_command
+from agnette.agm.project.dependency_env import read_deps_table
 
 
 def _invoke(runner: CliRunner, argv: list[str]) -> Result:

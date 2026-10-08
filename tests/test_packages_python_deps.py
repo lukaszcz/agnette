@@ -10,18 +10,18 @@ from pathlib import Path
 import pytest
 import semver
 
-from agm.core import dry_run, process
-from agm.packages.activation import load_activation_index, resolve_indexed_packages
-from agm.packages.archive import write_archive
-from agm.packages.errors import PackageInstallError
-from agm.packages.install import (
+from agnette.core import dry_run, process
+from agnette.packages.activation import load_activation_index, resolve_indexed_packages
+from agnette.packages.archive import write_archive
+from agnette.packages.errors import PackageInstallError
+from agnette.packages.install import (
     install_archive_with_plan,
     install_directory_with_plan,
     sync_active_python_dependencies,
     uninstall_package,
 )
-from agm.packages.python_deps import python_dependencies, sync_python_dependencies
-from agm.packages.store import installed_packages, package_store_path
+from agnette.packages.python_deps import python_dependencies, sync_python_dependencies
+from agnette.packages.store import installed_packages, package_store_path
 from tests._package_helpers import (
     InstalledPackageSnapshot,
     PythonInstaller,

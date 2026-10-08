@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.reserved_nominals import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     require_reserved_nominal_id,
 )
-from agm.agl.runtime.engine_config import (
+from agnette.agl.runtime.engine_config import (
     build_engine_config_seeds,
     engine_default_settings,
     raw_option_str,
 )
-from agm.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue
-from agm.cli_support.engine_seeds import build_host_engine_seeds
-from agm.config.engine_keys import (
+from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue
+from agnette.agm.cli_support.engine_seeds import build_host_engine_seeds
+from agnette.config.engine_keys import (
     ENGINE_KEY_NAMES,
     ENGINE_KEYS,
     ENGINE_REGISTERS,
@@ -25,7 +25,7 @@ from agm.config.engine_keys import (
     EngineKeySpec,
     trace_write_implies_enabled,
 )
-from agm.config.general import ExecConfig, exec_config_from_merged
+from agnette.config.general import ExecConfig, exec_config_from_merged
 from tests._agl_helpers import agent_value
 
 _CONFIG_RAW_VALUES: dict[str, object] = {
@@ -220,7 +220,7 @@ def test_bare_default_sandbox_cli_value_fills_every_omitted_field() -> None:
     """A bare ``Sandbox`` fills all four defaulted fields from the host-side constant table.
 
     No program exists yet at this pre-execution boundary, so the omitted
-    fields are filled by :func:`~agm.agl.semantics.type_table.reserved_field_default`
+    fields are filled by :func:`~agnette.agl.semantics.type_table.reserved_field_default`
     rather than any evaluator.
     """
     config = _config_for("default-sandbox", configured=False)
@@ -401,7 +401,7 @@ def test_a_some_write_implies_enabled_exactly_for_the_declared_keys() -> None:
 
 def test_path_valued_engine_keys_carry_a_text_option() -> None:
     """A path-valued key is an ``Option[text]``, so a cleared path stays expressible."""
-    from agm.config.engine_keys import EngineKeyKind
+    from agnette.config.engine_keys import EngineKeyKind
 
     paths = [spec for spec in ENGINE_KEYS if spec.is_path]
     assert paths

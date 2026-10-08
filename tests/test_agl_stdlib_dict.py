@@ -8,14 +8,14 @@ from typing import Protocol, cast
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
-from agm.agl.modules.ids import ModuleId
-from agm.agl.runtime.boundary import AglDictView, decode_boundary_value
-from agm.agl.runtime.externs import ExternRegistry
-from agm.agl.scope import AglScopeError
-from agm.agl.semantics.values import DictValue, IntValue, RecordValue
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
+from agnette.agl.modules.ids import ModuleId
+from agnette.agl.runtime.boundary import AglDictView, decode_boundary_value
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.scope import AglScopeError
+from agnette.agl.semantics.values import DictValue, IntValue, RecordValue
 from tests._agl_helpers import (
     fieldless_enum_descriptors,
     key_exception_descriptor,

@@ -21,14 +21,14 @@ import pytest
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.exec as exec_command
-import agm.commands.repl as repl_command
-from agm.agl.semantics.values import BoolValue
-from agm.cli_support.args import ExecArgs
-from agm.cli_support.engine_seeds import EngineSeedTiers, build_host_engine_seeds
-from agm.config.general import exec_config_from_merged
-from agm.core.log import LiveTracePathResolver, TraceDecision
+import agnette.agm.cli as cli
+import agnette.agm.commands.exec as exec_command
+import agnette.agm.commands.repl as repl_command
+from agnette.agl.semantics.values import BoolValue
+from agnette.agm.cli_support.args import ExecArgs
+from agnette.agm.cli_support.engine_seeds import EngineSeedTiers, build_host_engine_seeds
+from agnette.config.general import exec_config_from_merged
+from agnette.core.log import LiveTracePathResolver, TraceDecision
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -193,7 +193,7 @@ class TestTraceLogPreparation:
     def test_trace_preparation_preserves_an_explicit_file_extension(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agm.core.log import prepare_trace_log
+        from agnette.core.log import prepare_trace_log
 
         monkeypatch.chdir(tmp_path)
         path = prepare_trace_log(command_name="exec", enabled=True, trace_file="trace.log")
@@ -224,7 +224,7 @@ class TestLiveTracePathResolver:
     def test_seeded_auto_path_is_reused_for_auto_repoints(self, tmp_path: Path) -> None:
         seeded = tmp_path / "run" / "seed.log"
         resolver = LiveTracePathResolver(command_name="exec", auto_path=seeded)
-        with patch("agm.core.log.datetime", _StepClock()):
+        with patch("agnette.core.log.datetime", _StepClock()):
             assert resolver(True, None) == seeded
             assert resolver(True, None) == seeded
         assert seeded.parent.is_dir()
@@ -232,9 +232,9 @@ class TestLiveTracePathResolver:
     def test_auto_path_is_minted_once_and_reused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("agm.core.log.default_agent_files_dir", lambda: tmp_path / "af")
+        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path / "af")
         resolver = LiveTracePathResolver(command_name="exec", auto_path=None)
-        with patch("agm.core.log.datetime", _StepClock()):
+        with patch("agnette.core.log.datetime", _StepClock()):
             first = resolver(True, None)
             # A repoint through the off state must not mint a second file.
             assert resolver(False, None) is None
@@ -398,7 +398,7 @@ class TestIntegrationDefaultNoTrace:
     ) -> None:
         _isolated_home(monkeypatch, tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("agm.core.log.git_helpers.containing_root", lambda _: None)
+        monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"'))
         agent_files = tmp_path / ".agent-files"
         assert not agent_files.exists(), "No .agent-files dir should be created by default"
@@ -412,7 +412,7 @@ class TestIntegrationLogFlagWritesTrace:
     ) -> None:
         _isolated_home(monkeypatch, tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("agm.core.log.git_helpers.containing_root", lambda _: None)
+        monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"', trace=True))
         agent_files = tmp_path / ".agent-files"
         assert agent_files.exists()
@@ -425,7 +425,7 @@ class TestIntegrationLogFlagWritesTrace:
     ) -> None:
         _isolated_home(monkeypatch, tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("agm.core.log.git_helpers.containing_root", lambda _: None)
+        monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"', no_trace=no_trace, debug=True))
         assert len(list(tmp_path.glob(".agent-files/exec-*.jsonl"))) == written
 
@@ -451,7 +451,7 @@ class TestIntegrationConfigLogTrue:
         monkeypatch.setenv("HOME", str(home))
         monkeypatch.delenv("AGM_PROJECT_DIR", raising=False)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("agm.core.log.git_helpers.containing_root", lambda _: None)
+        monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"'))
         agent_files = tmp_path / ".agent-files"
         assert agent_files.exists()
@@ -485,7 +485,7 @@ class TestIntegrationNoLogOverridesConfig:
         monkeypatch.setenv("HOME", str(home))
         monkeypatch.delenv("AGM_PROJECT_DIR", raising=False)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("agm.core.log.git_helpers.containing_root", lambda _: None)
+        monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"', no_trace=True))
         agent_files = tmp_path / ".agent-files"
         assert not agent_files.exists(), "--no-trace must override config trace=true"

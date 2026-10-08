@@ -6,18 +6,18 @@ from collections.abc import Mapping
 
 import pytest
 
-from agm.agl.attributes import ProgramOptionSpec
-from agm.agl.modules.ids import ENTRY_ID, ModuleId
-from agm.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
-from agm.agl.semantics.types import BoolType, IntType, TextType, Type
-from agm.agl.syntax.spans import SourceSpan
-from agm.agl.zones import ParamZone
-from agm.cli_support.param_config import ParamValueTiers, resolve_param_values
-from agm.cli_support.param_surface import ParamSurface, build_param_surface
-from agm.cli_support.program_options import EXEC_RESERVED_FLAGS
-from agm.config.general import GeneralConfig
-from agm.config.qualified_keys import QualifiedConfigLookupError
-from agm.core.toml import toml_dict
+from agnette.agl.attributes import ProgramOptionSpec
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
+from agnette.agl.semantics.types import BoolType, IntType, TextType, Type
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.zones import ParamZone
+from agnette.agm.cli_support.param_config import ParamValueTiers, resolve_param_values
+from agnette.agm.cli_support.param_surface import ParamSurface, build_param_surface
+from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
+from agnette.config.general import GeneralConfig
+from agnette.config.qualified_keys import QualifiedConfigLookupError
+from agnette.core.toml import toml_dict
 
 _SPAN = SourceSpan(1, 1, 1, 2, 0, 1)
 

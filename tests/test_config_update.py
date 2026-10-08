@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agm.cli import app
+from agnette.agm.cli import app
 from tests._git_helpers import add_linked_worktree, git_output, git_run, init_repo
 
 

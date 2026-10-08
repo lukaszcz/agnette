@@ -10,7 +10,7 @@ invoked, as a subprocess, by at least one e2e test.
 Both halves of that comparison are derived, never written down:
 
 * The command set comes from walking the live Typer registry of
-  :data:`agm.cli.app` — its ``registered_commands`` and ``registered_groups``,
+  :data:`agnette.agm.cli.app` — its ``registered_commands`` and ``registered_groups``,
   recursively.  Adding a subcommand anywhere in the tree therefore adds a gate
   obligation with no test-side bookkeeping.  Walking the Typer objects rather
   than the Click tree also keeps package-registered commands (resolved
@@ -23,7 +23,7 @@ Both halves of that comparison are derived, never written down:
   test.
 
 Group spellings that are pure aliases (``wsp`` for ``workspace``, ``wt`` for
-``worktree`` — see ``agm.command_catalog.COMMAND_ALIASES``) are folded onto
+``worktree`` — see ``agnette.command_catalog.COMMAND_ALIASES``) are folded onto
 their canonical group before comparison.  Distinctly registered leaves such as
 ``config cp`` and ``config copy`` are *not* folded: they are separate callbacks
 and each needs its own end-to-end proof.
@@ -48,8 +48,8 @@ import pytest
 import typer
 from typer.main import get_command_name
 
-from agm.cli import app
-from agm.command_catalog import COMMAND_ALIASES
+from agnette.agm.cli import app
+from agnette.command_catalog import COMMAND_ALIASES
 
 # Forces the gate on ("1") or off ("0"), overriding full-suite detection.
 GATE_ENV = "AGM_TEST_COMMAND_COVERAGE"
@@ -82,7 +82,7 @@ def group_alias_map(root: typer.Typer = app) -> dict[str, str]:
     An alias registers the *same* sub-application under a second name, so the
     canonical spelling is found by identity: the non-alias name that carries the
     same ``Typer`` instance.  Which names are aliases is AgM's own declaration
-    (``agm.command_catalog.COMMAND_ALIASES``), not a guess.
+    (``agnette.command_catalog.COMMAND_ALIASES``), not a guess.
     """
     canonical: dict[int, str] = {
         id(group.typer_instance): group.name or ""

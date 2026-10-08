@@ -23,8 +23,8 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.diagnostics import AglTypeError, HiddenMemberError
-from agm.agl.scope.symbols import (
+from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,

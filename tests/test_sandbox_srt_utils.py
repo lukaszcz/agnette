@@ -1,4 +1,4 @@
-"""Comprehensive tests for agm.config.sandbox.srt and the srt backend's private helpers."""
+"""Comprehensive tests for agnette.config.sandbox.srt and the srt backend's private helpers."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Generator
 
 import pytest
 
-import agm.core.dry_run as dry_run
-from agm.config.sandbox.srt import (
+import agnette.core.dry_run as dry_run
+from agnette.config.sandbox.srt import (
     JsonDict,
     _first_missing_component,
     _normalize_path,
@@ -22,8 +22,8 @@ from agm.config.sandbox.srt import (
     sandbox_settings_path,
     track_bwrap_artifacts,
 )
-from agm.sandbox.request import cleanup_artifacts
-from agm.sandbox.srt import _write_json_temp
+from agnette.sandbox.request import cleanup_artifacts
+from agnette.sandbox.srt import _write_json_temp
 
 # ---------------------------------------------------------------------------
 # Fixture: always reset dry-run state after each test
@@ -38,7 +38,7 @@ def reset_dry_run() -> Generator[None, None, None]:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — json_dict
+# agnette.config.sandbox.srt — json_dict
 # ===========================================================================
 
 
@@ -69,7 +69,7 @@ class TestJsonDict:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — load_settings
+# agnette.config.sandbox.srt — load_settings
 # ===========================================================================
 
 
@@ -104,7 +104,7 @@ class TestLoadSettings:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — merge_settings
+# agnette.config.sandbox.srt — merge_settings
 # ===========================================================================
 
 
@@ -232,7 +232,7 @@ class TestMergeSettings:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — merge_settings_chain
+# agnette.config.sandbox.srt — merge_settings_chain
 # ===========================================================================
 
 
@@ -269,7 +269,7 @@ class TestMergeSettingsChain:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — patch_for_proj_dir
+# agnette.config.sandbox.srt — patch_for_proj_dir
 # ===========================================================================
 
 
@@ -346,7 +346,7 @@ class TestPatchForProjDir:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — sandbox_settings_path
+# agnette.config.sandbox.srt — sandbox_settings_path
 # ===========================================================================
 
 
@@ -391,7 +391,7 @@ class TestSandboxSettingsPath:
 
     def test_takes_command_name_verbatim_without_normalizing_it(self, tmp_path: Path) -> None:
         """`sandbox_settings_path` requires an already-normalized name (the caller applies
-        `agm.sandbox.profile.profile_name`); it never derives one from a path itself."""
+        `agnette.sandbox.profile.profile_name`); it never derives one from a path itself."""
 
         settings_dir = tmp_path / "sandbox"
         settings_dir.mkdir()
@@ -403,7 +403,7 @@ class TestSandboxSettingsPath:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — sandbox_settings_candidates
+# agnette.config.sandbox.srt — sandbox_settings_candidates
 # ===========================================================================
 
 
@@ -493,7 +493,7 @@ class TestSandboxSettingsCandidates:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — _normalize_path
+# agnette.config.sandbox.srt — _normalize_path
 # ===========================================================================
 
 
@@ -529,7 +529,7 @@ class TestNormalizePath:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — _first_missing_component
+# agnette.config.sandbox.srt — _first_missing_component
 # ===========================================================================
 
 
@@ -569,7 +569,7 @@ class TestFirstMissingComponent:
 
 
 # ===========================================================================
-# agm.config.sandbox.srt — track_bwrap_artifacts
+# agnette.config.sandbox.srt — track_bwrap_artifacts
 # ===========================================================================
 
 
@@ -624,7 +624,7 @@ class TestTrackBwrapArtifacts:
 
 
 # ===========================================================================
-# agm.sandbox.srt — _write_json_temp
+# agnette.sandbox.srt — _write_json_temp
 # ===========================================================================
 
 
@@ -666,7 +666,7 @@ class TestWriteJsonTemp:
 
 
 # ===========================================================================
-# agm.sandbox.request — cleanup_artifacts
+# agnette.sandbox.request — cleanup_artifacts
 # ===========================================================================
 
 

@@ -1,10 +1,10 @@
-"""Comprehensive tests for agm.tmux.layout."""
+"""Comprehensive tests for agnette.agm.tmux.layout."""
 
 from __future__ import annotations
 
 import pytest
 
-from agm.tmux.layout import (
+from agnette.agm.tmux.layout import (
     apply_layout,
     build_row_layout,
     build_window_layout,
@@ -276,7 +276,7 @@ def test_tmux_display_calls_require_capture_without_target(
         captured_cmd.append(cmd)
         return "  @1\n"
 
-    monkeypatch.setattr("agm.tmux.layout.require_capture", fake_require_capture)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_capture", fake_require_capture)
 
     result = tmux_display("#{window_id}")
 
@@ -293,7 +293,7 @@ def test_tmux_display_calls_require_capture_with_target(
         captured_cmd.append(cmd)
         return "160\n"
 
-    monkeypatch.setattr("agm.tmux.layout.require_capture", fake_require_capture)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_capture", fake_require_capture)
 
     result = tmux_display("#{window_width}", target="@1")
 
@@ -302,7 +302,7 @@ def test_tmux_display_calls_require_capture_with_target(
 
 
 def test_tmux_display_strips_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agm.tmux.layout.require_capture", lambda cmd: "  hello  \n")
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_capture", lambda cmd: "  hello  \n")
     assert tmux_display("#{pane_title}") == "hello"
 
 
@@ -326,7 +326,7 @@ def test_resolve_window_layout_target_without_window_id(
             return "50\n"
         return ""
 
-    monkeypatch.setattr("agm.tmux.layout.require_capture", fake_require_capture)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_capture", fake_require_capture)
 
     window_id, width, height = resolve_window_layout_target()
 
@@ -351,7 +351,7 @@ def test_resolve_window_layout_target_with_window_id(
             return "40\n"
         return ""
 
-    monkeypatch.setattr("agm.tmux.layout.require_capture", fake_require_capture)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_capture", fake_require_capture)
 
     window_id, width, height = resolve_window_layout_target(window_id="@5")
 
@@ -381,7 +381,7 @@ def test_resolve_window_layout_target_uses_resolved_id_as_target(
             return "24\n"
         return ""
 
-    monkeypatch.setattr("agm.tmux.layout.require_capture", fake_require_capture)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_capture", fake_require_capture)
 
     resolve_window_layout_target()
 
@@ -402,7 +402,7 @@ def test_apply_layout_calls_select_layout_with_correct_args(
     def fake_require_success(cmd: list[str], **_kwargs: object) -> None:
         captured.append(cmd)
 
-    monkeypatch.setattr("agm.tmux.layout.require_success", fake_require_success)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_success", fake_require_success)
 
     apply_layout(pane_count=4, window_id="@1", width=100, height=50)
 
@@ -419,7 +419,7 @@ def test_apply_layout_uses_layout_for_window(monkeypatch: pytest.MonkeyPatch) ->
     def fake_require_success(cmd: list[str], **_kwargs: object) -> None:
         issued_layout.append(cmd[-1])
 
-    monkeypatch.setattr("agm.tmux.layout.require_success", fake_require_success)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_success", fake_require_success)
 
     apply_layout(pane_count=9, window_id="@7", width=120, height=60)
 
@@ -432,7 +432,7 @@ def test_apply_layout_different_pane_counts(monkeypatch: pytest.MonkeyPatch) -> 
     def fake_require_success(cmd: list[str], **_kwargs: object) -> None:
         results[len(results)] = cmd[-1]
 
-    monkeypatch.setattr("agm.tmux.layout.require_success", fake_require_success)
+    monkeypatch.setattr("agnette.agm.tmux.layout.require_success", fake_require_success)
 
     for count in [1, 2, 3, 6]:
         apply_layout(pane_count=count, window_id="@0", width=80, height=24)

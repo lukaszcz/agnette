@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.scope import AglScopeError
-from agm.agl.scope.program import resolve_program
-from agm.agl.typecheck.env import AglTypeError
-from agm.agl.typecheck.program import check_program
+from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.typecheck.env import AglTypeError
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import base_caps, make_file_graph_from_files
 from tests.agl.module_graph import resolve_and_check_entry
 

@@ -4,22 +4,22 @@ from __future__ import annotations
 
 import pytest
 
-import agm.agl.matchcompile.compiler as compiler_module
-import agm.agl.matchcompile.matrix as matrix_module
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.matchcompile.compiler import compile_match_site, validate_decision_dag
-from agm.agl.matchcompile.matrix import (
+import agnette.agl.matchcompile.compiler as compiler_module
+import agnette.agl.matchcompile.matrix as matrix_module
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.matchcompile.compiler import compile_match_site, validate_decision_dag
+from agnette.agl.matchcompile.matrix import (
     OccurrenceAllocator,
     head_constructors,
     matrix_from_normalized,
     specialize,
 )
-from agm.agl.matchcompile.model import DecisionDecompose, DecisionSwitch
-from agm.agl.matchcompile.normalize import normalize_case
-from agm.agl.semantics.types import BoolType, EnumType
-from agm.agl.syntax.nodes import Case
-from agm.agl.syntax.visitor import walk
-from agm.agl.typecheck import CheckedModule
+from agnette.agl.matchcompile.model import DecisionDecompose, DecisionSwitch
+from agnette.agl.matchcompile.normalize import normalize_case
+from agnette.agl.semantics.types import BoolType, EnumType
+from agnette.agl.syntax.nodes import Case
+from agnette.agl.syntax.visitor import walk
+from agnette.agl.typecheck import CheckedModule
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
 _CAPS = HostCapabilities(

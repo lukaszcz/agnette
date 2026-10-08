@@ -4,25 +4,25 @@ from __future__ import annotations
 
 import pytest
 
-from agm.agl.ir.ids import Location, NominalId, SourceId
-from agm.agl.ir.nodes import IrBind, IrConstInt, IrNominalCast, IrNominalIs, IrSequence
-from agm.agl.ir.program import (
+from agnette.agl.ir.ids import Location, NominalId, SourceId
+from agnette.agl.ir.nodes import IrBind, IrConstInt, IrNominalCast, IrNominalIs, IrSequence
+from agnette.agl.ir.program import (
     ExecutableModule,
     ExecutableProgram,
     NominalDescriptor,
     NominalKind,
     SourceFile,
 )
-from agm.agl.ir.validate import InvalidIrError, validate_ir
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.semantics.values import BoolValue
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.semantics.values import BoolValue
 from tests._agl_helpers import let_root_capture, plan_less_exception_field_encodes
 from tests.agl.ir_harness import evaluate_ir, inline_main_items, lower_inline_ir
 
 
 def _lower(source: str) -> ExecutableProgram:
     """Parse → check → lower the source; return ExecutableProgram."""
-    from agm.agl.capabilities import HostCapabilities
+    from agnette.agl.capabilities import HostCapabilities
 
     caps = HostCapabilities(
         supports_shell_exec=False,

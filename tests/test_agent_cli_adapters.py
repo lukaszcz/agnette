@@ -6,18 +6,18 @@ from pathlib import Path
 
 import pytest
 
-from agm.agent.runner import command_targets_session_id
-from agm.agent.session import (
+from agnette.agent.runner import command_targets_session_id
+from agnette.agent.session import (
     SessionAskError,
     SessionAskRequest,
     SessionHostError,
     SessionService,
 )
-from agm.agent.session.cli_adapters import AgentCommandSessionBackend, open_cli_session
-from agm.agent.session.protocol import BackendSettings
-from agm.agent.spec import AgentCommand, SessionTransport
-from agm.core.process import CapturedOutput, ProcessCaptureResult
-from agm.util.interp import InterpolationError
+from agnette.agent.session.cli_adapters import AgentCommandSessionBackend, open_cli_session
+from agnette.agent.session.protocol import BackendSettings
+from agnette.agent.spec import AgentCommand, SessionTransport
+from agnette.core.process import CapturedOutput, ProcessCaptureResult
+from agnette.util.interp import InterpolationError
 from tests._agl_helpers import unavailable_sandbox_context
 
 
@@ -75,7 +75,7 @@ def test_single_prompt_command_session_does_not_require_a_session_id_placeholder
         captured.append(argv)
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     service = _command_service()
 
     response = service.with_ephemeral(
@@ -99,7 +99,7 @@ def test_ephemeral_command_session_without_placeholder_serves_independent_prompt
         captured.append(argv)
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     service = _command_service()
 
     def action(handle: str) -> bool:
@@ -182,7 +182,7 @@ def test_asks_reuse_one_underlying_id_with_a_symmetric_command_shape(
         captured.append(argv)
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = _open("runner --session %{SESSION_ID}")
 
     first = backend.ask(SessionAskRequest(prompt="first"))
@@ -205,7 +205,7 @@ def test_ask_runs_the_process_under_the_environment_fixed_at_open(
         captured_envs.append(kwargs.get("env"))
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = AgentCommandSessionBackend.open(
         AgentCommand("runner --session %{SESSION_ID}"),
         BackendSettings(get_sandbox_context=unavailable_sandbox_context, env={"ONLY": "this"}),
@@ -226,7 +226,7 @@ def test_ask_runs_the_process_under_an_explicitly_empty_environment(
         captured_envs.append(kwargs.get("env"))
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = _open("runner --session %{SESSION_ID}")
 
     backend.ask(SessionAskRequest(prompt="question"))
@@ -243,7 +243,7 @@ def test_ask_interpolates_mixed_prompt_session_and_escaped_placeholders(
         captured.append(argv)
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = _open(
         r"runner --session=%{SESSION_ID} --literal='\%{SESSION_ID}' "
         "--input=%{PROMPT_FILE}",
@@ -284,7 +284,7 @@ def test_ask_preserves_failed_process_diagnostics(
             spawn_error=spawn_error,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(SessionAskError) as raised:
@@ -317,8 +317,8 @@ def test_ask_preserves_failed_process_diagnostics_when_cleanup_fails(
     def failing_cleanup(temp_files: list[Path]) -> None:
         raise OSError("cleanup failed")
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
-    monkeypatch.setattr("agm.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(SessionAskError) as raised:
@@ -344,7 +344,7 @@ def test_ask_reports_protocol_failure_for_undecodable_stdout_on_an_otherwise_suc
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(SessionAskError) as raised:
@@ -366,7 +366,7 @@ def test_ask_undecodable_stderr_tail_gives_empty_text(monkeypatch: pytest.Monkey
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(SessionAskError) as raised:
@@ -386,7 +386,7 @@ def test_ask_preserves_an_interpolation_failure_when_cleanup_fails(
         raise OSError("cleanup failed")
 
     monkeypatch.delenv("AGM_SESSION_TEST_MISSING", raising=False)
-    monkeypatch.setattr("agm.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
     backend = _open("runner --session=%{SESSION_ID} --option=%{AGM_SESSION_TEST_MISSING}")
 
     with pytest.raises(SessionAskError) as raised:
@@ -408,8 +408,8 @@ def test_ask_cleans_up_after_an_interrupt_without_masking_it(
         cleanup_calls.append(temp_files)
         raise OSError("cleanup failed")
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", interrupted_run_capture_result)
-    monkeypatch.setattr("agm.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", interrupted_run_capture_result)
+    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(KeyboardInterrupt):
@@ -427,8 +427,8 @@ def test_ask_surfaces_cleanup_failure_after_a_successful_process(
     def fake_run_capture_result(argv: list[str], **kwargs: object) -> ProcessCaptureResult:
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
-    monkeypatch.setattr("agm.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(OSError, match="cleanup failed"):
@@ -444,7 +444,7 @@ def test_reset_mints_a_new_underlying_id(
         captured.append(argv)
         return _capture_result()
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     backend = _open("runner --session %{SESSION_ID}")
 
     backend.ask(SessionAskRequest(prompt="first"))

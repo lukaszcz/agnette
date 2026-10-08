@@ -8,10 +8,10 @@ from importlib.metadata import version
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.cli as cli
-from agm.packages.manifest import load_manifest
-from agm.stdlib_locator import shipped_stdlib_root
-from agm.version import AGM_VERSION
+import agnette.agm.cli as cli
+from agnette.packages.manifest import load_manifest
+from agnette.stdlib_locator import shipped_stdlib_root
+from agnette.version import AGM_VERSION
 
 
 def test_agm_version_has_plain_semver_shape() -> None:

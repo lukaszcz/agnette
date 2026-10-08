@@ -1,4 +1,4 @@
-"""Comprehensive tests for agm.vcs.git."""
+"""Comprehensive tests for agnette.vcs.git."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agm.vcs.git import (
+from agnette.vcs.git import (
     WorktreeInfo,
     _branch_upstream,
     _git_args,
@@ -145,7 +145,7 @@ class TestGenericGitProbeHelpers:
     def test_has_staged_changes_exits_on_unexpected_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("agm.vcs.git.run_capture", lambda *_a, **_kw: (128, "", "fatal"))
+        monkeypatch.setattr("agnette.vcs.git.run_capture", lambda *_a, **_kw: (128, "", "fatal"))
 
         with pytest.raises(SystemExit):
             has_staged_changes(tmp_path, [Path("config.toml")])
@@ -660,7 +660,7 @@ class TestWorktreeList:
     ) -> None:
         porcelain = "worktree /repo\nbranch refs/heads/main\n\n"
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -676,7 +676,7 @@ class TestWorktreeList:
             "worktree /repo-wt/feature\nbranch refs/heads/feature\n\n"
         )
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -689,7 +689,7 @@ class TestWorktreeList:
     ) -> None:
         porcelain = "worktree /repo\nHEAD abc123\ndetached\n\n"
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -703,7 +703,7 @@ class TestWorktreeList:
         # No trailing blank line after last entry
         porcelain = "worktree /repo\nbranch refs/heads/main\n"
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -715,7 +715,7 @@ class TestWorktreeList:
     ) -> None:
         porcelain = "worktree /repo\nbranch refs/heads/my-feature\n\n"
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -725,7 +725,7 @@ class TestWorktreeList:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: "",
         )
         result = worktree_list(tmp_path)
@@ -739,7 +739,7 @@ class TestWorktreeList:
         # Leading blank line followed by a real worktree block
         porcelain = "\nworktree /repo\nbranch refs/heads/main\n\n"
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -758,7 +758,7 @@ class TestWorktreeList:
             "worktree /repo-wt/feature\nbranch refs/heads/feature\n\n"
         )
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -778,7 +778,7 @@ class TestWorktreeList:
             "prunable gitdir file points to non-existent location\n"
         )
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: porcelain,
         )
         result = worktree_list(tmp_path)
@@ -855,7 +855,7 @@ class TestBranchUpstream:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(
-            "agm.vcs.git.run_capture",
+            "agnette.vcs.git.run_capture",
             lambda cmd, **kwargs: (0, "\n", ""),
         )
         result = _branch_upstream(tmp_path, "feature")
@@ -965,7 +965,7 @@ class TestDefaultRemoteBranchRef:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: "   \n",
         )
         with pytest.raises(SystemExit) as exc_info:
@@ -1001,7 +1001,7 @@ class TestRemoteUnmergedBranches:
     # lines, so the filtering guard can only be exercised on synthetic output.
     def test_filters_empty_lines(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setattr(
-            "agm.vcs.git.require_capture",
+            "agnette.vcs.git.require_capture",
             lambda cmd, **kwargs: "\norigin/branch\n\n",
         )
         result = remote_unmerged_branches(tmp_path, base_ref="origin/main")

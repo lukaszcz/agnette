@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import agm.config.context as context_module
-from agm.config.context import current_config_context
+import agnette.config.context as context_module
+from agnette.config.context import current_config_context
 
 
 def test_current_config_context_uses_explicit_proj_dir(tmp_path: Path, env: dict[str, str]) -> None:

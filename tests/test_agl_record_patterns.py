@@ -6,18 +6,18 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.capabilities import HostCapabilities
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
     NoVisibleConstructorError,
     UnknownMemberError,
 )
-from agm.agl.semantics.types import EnumType
-from agm.agl.syntax.nodes import Case, ConstructorPattern, FuncDef, LetDecl
-from agm.agl.typecheck import AglTypeError, CheckedProgram, check_program
+from agnette.agl.semantics.types import EnumType
+from agnette.agl.syntax.nodes import Case, ConstructorPattern, FuncDef, LetDecl
+from agnette.agl.typecheck import AglTypeError, CheckedProgram, check_program
 from tests._agl_helpers import strip_decl_ids
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.module_graph import resolve_and_check_inline_entry

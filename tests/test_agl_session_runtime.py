@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from agm.agent.spec import (
+from agnette.agent.spec import (
     AgentClaude,
     AgentCodex,
     AgentCommand,
@@ -16,16 +16,16 @@ from agm.agent.spec import (
     PermissionMode,
     SessionTransport,
 )
-from agm.agl import PipelineDriver
-from agm.agl.pipeline import RunResult
-from agm.agl.runtime.request import (
+from agnette.agl import PipelineDriver
+from agnette.agl.pipeline import RunResult
+from agnette.agl.runtime.request import (
     AgentCallHostError,
     AgentCallInfo,
     AgentCancelled,
     AgentRequest,
     AgentResponse,
 )
-from agm.agl.runtime.sessions import (
+from agnette.agl.runtime.sessions import (
     AgentDispatcherSessionHost,
     SessionAgentError,
     SessionAskError,
@@ -35,7 +35,7 @@ from agm.agl.runtime.sessions import (
     default_session_transport,
     with_ephemeral_session,
 )
-from agm.sandbox.request import SandboxLimits
+from agnette.sandbox.request import SandboxLimits
 from tests._agl_helpers import hermetic_get_sandbox_context
 
 
@@ -1103,8 +1103,8 @@ def test_production_session_host_carries_the_stream_decode_offset(
 ) -> None:
     """The shipped wiring -- a session host, not a bare dispatcher -- keeps the note
     locating the first invalid byte, which the failure cause alone cannot say."""
-    from agm.agent.session.service import create_agl_session_host
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.agent.session.service import create_agl_session_host
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     def fake_run_capture_result(cmd: list[str], **kwargs: object) -> ProcessCaptureResult:
         return ProcessCaptureResult(
@@ -1116,7 +1116,7 @@ def test_production_session_host_carries_the_stream_decode_offset(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     host = create_agl_session_host(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
     )

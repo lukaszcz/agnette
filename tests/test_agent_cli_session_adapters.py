@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from agm.agent.session import (
+from agnette.agent.session import (
     SessionAskError,
     SessionAskRequest,
     SessionBackend,
@@ -18,15 +18,15 @@ from agm.agent.session import (
     SessionOperation,
     SessionService,
 )
-from agm.agent.session.cli_adapters import (
+from agnette.agent.session.cli_adapters import (
     AgentCommandSessionBackend,
     ClaudeCliSessionBackend,
     CodexCliSessionBackend,
     PiCliSessionBackend,
     open_cli_session,
 )
-from agm.agent.session.protocol import BackendSettings
-from agm.agent.spec import (
+from agnette.agent.session.protocol import BackendSettings
+from agnette.agent.spec import (
     AGENT_SPECS,
     AgentClaude,
     AgentCodex,
@@ -37,9 +37,9 @@ from agm.agent.spec import (
     SessionTransport,
     payload_fields,
 )
-from agm.agl.semantics.type_table import BUILTIN_PRELUDE_TYPE_DEFS, create_seeded_type_table
-from agm.core.process import CapturedOutput, ProcessCaptureResult
-from agm.sandbox.request import PreparedSandboxCommand, SandboxLimits
+from agnette.agl.semantics.type_table import BUILTIN_PRELUDE_TYPE_DEFS, create_seeded_type_table
+from agnette.core.process import CapturedOutput, ProcessCaptureResult
+from agnette.sandbox.request import PreparedSandboxCommand, SandboxLimits
 from tests._agl_helpers import (
     session_sandbox_context,
     unavailable_sandbox_context,
@@ -88,7 +88,7 @@ class CaptureTransport:
                 spawn_error=outcome.spawn_error,
             )
 
-        monkeypatch.setattr("agm.agent.runner.run_capture_result", run)
+        monkeypatch.setattr("agnette.agent.runner.run_capture_result", run)
 
 
 def _open(

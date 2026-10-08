@@ -1,8 +1,8 @@
-"""Tests for shared diagnostic helpers in ``agm.agl.diagnostics``."""
+"""Tests for shared diagnostic helpers in ``agnette.agl.diagnostics``."""
 
 from __future__ import annotations
 
-from agm.agl.diagnostics import dollar_spacing_hint
+from agnette.agl.diagnostics import dollar_spacing_hint
 
 
 class TestDollarSpacingHint:

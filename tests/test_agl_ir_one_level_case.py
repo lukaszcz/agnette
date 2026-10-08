@@ -6,8 +6,8 @@ import decimal
 
 import pytest
 
-from agm.agl.eval.ir_interpreter import IrInterpreter
-from agm.agl.ir import (
+from agnette.agl.eval.ir_interpreter import IrInterpreter
+from agnette.agl.ir import (
     ExecutableModule,
     ExecutableProgram,
     InvalidIrError,
@@ -33,8 +33,8 @@ from agm.agl.ir import (
     VariantDescriptor,
     validate_ir,
 )
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.semantics.values import IntValue
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.semantics.values import IntValue
 
 _SOURCE = "case"
 _LOC = Location(SourceId(0), 0, 1, 1, 0)

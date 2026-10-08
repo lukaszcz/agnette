@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities and a complete agent workflow DSL. AgM (Agnette Manager) is the CLI agent project manager; AgL (Agnette Language) is the workflow DSL. The executable remains `agm`.
+Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities and a complete agent workflow DSL. AgM (Agnette Manager) is the CLI agent project manager; AgL (Agnette Language) is the workflow DSL. The executable is `agm`.
 
 ## Tech stack
 
@@ -47,7 +47,7 @@ Run the CLI locally with `uv run agm ...` when iterating on a command.
 - **IMPORTANT**: Follow Test Driven Development (TDD). Write failing tests first, implement changes later to make the tests pass.
 - **IMPORTANT**: For every bug found, add a regression test that fails because of the bug, then fix the bug and ensure the test passes.
 - Avoid brittle tests. Test user workflows, not implementation details.
-- Test only main app Python code under `src/agm/`, NOT build/install scripts, `justfile` commands or config file content. Do NOT test exact help, warning or error messages.
+- Test only main app Python code under `src/agnette/`, NOT build/install scripts, `justfile` commands or config file content. Do NOT test exact help, warning or error messages.
 - Do NOT add heavy ungated validation or defensive assertions (defense-in-depth) to the code. Write appropriate tests instead. Defense-in-depth assertions are allowed ONLY if they are trivial preconditions or gated behind a test-only flag.
 - Make sure tests are not flaky.
 - Keep individual tests cheap.

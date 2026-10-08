@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from agm.agl.modules.ids import ModuleId, Reader
-from agm.agl.repl import ReplSession
-from agm.agl.scope.program import resolve_program
-from agm.agl.scope.symbols import (
+from agnette.agl.modules.ids import ModuleId, Reader
+from agnette.agl.repl import ReplSession
+from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import (
     Ambiguity,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
@@ -25,7 +25,7 @@ from agm.agl.scope.symbols import (
     UseDeclarationOrigin,
     to_bare_atom,
 )
-from agm.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.spans import SourceSpan
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.qualifier_support import (
     Part,

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, get_type_hints
 
 import pytest
 
-from agm.agent.spec import (
+from agnette.agent.spec import (
     AGENT_SPECS,
     AgentClaude,
     AgentCodex,
@@ -17,13 +17,13 @@ from agm.agent.spec import (
     AgentPi,
     payload_fields,
 )
-from agm.agl import PipelineDriver
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.runtime.agents import agent_value as encode_agent_value
-from agm.agl.runtime.agents import decode_agent_value, value_driven_agent_factory
-from agm.agl.semantics.type_table import BUILTIN_PRELUDE_TYPE_DEFS, create_seeded_type_table
-from agm.agl.semantics.types import TextType
-from agm.config.context import ConfigContext
+from agnette.agl import PipelineDriver
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.runtime.agents import agent_value as encode_agent_value
+from agnette.agl.runtime.agents import decode_agent_value, value_driven_agent_factory
+from agnette.agl.semantics.type_table import BUILTIN_PRELUDE_TYPE_DEFS, create_seeded_type_table
+from agnette.agl.semantics.types import TextType
+from agnette.config.context import ConfigContext
 from tests._agl_helpers import (
     agent_value,
     hermetic_get_sandbox_context,
@@ -34,7 +34,7 @@ from tests._agl_helpers import (
 from tests.conftest import FakeAgentTransport
 
 if TYPE_CHECKING:
-    from agm.core.process import ProcessCaptureResult
+    from agnette.core.process import ProcessCaptureResult
 
 
 def _agent_member_fields() -> dict[str, dict[str, object]]:
@@ -216,7 +216,7 @@ def test_disabled_and_native_sandbox_modes_never_wrap_the_argv(
     reaching the process primitive is observed directly: it starts with the
     agent binary itself, never ``systemd-run``/``srt``.
     """
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     captured: dict[str, object] = {}
 
@@ -231,7 +231,7 @@ def test_disabled_and_native_sandbox_modes_never_wrap_the_argv(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     runtime = PipelineDriver(
         resolve_agent_spec=None,
@@ -346,7 +346,7 @@ def test_undecodable_agent_stdout_becomes_a_protocol_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An otherwise-successful run whose stdout is not valid UTF-8 is a protocol failure."""
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     def fake_run_capture_result(cmd: list[str], **kwargs: object) -> ProcessCaptureResult:
         return ProcessCaptureResult(
@@ -358,7 +358,7 @@ def test_undecodable_agent_stdout_becomes_a_protocol_failure(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     runtime = PipelineDriver(
         resolve_agent_spec=None,
         agent_dispatcher=value_driven_agent_factory(
@@ -474,7 +474,7 @@ def test_composed_prompt_is_unchanged_when_no_output_contract(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
     """No contract, no retry: the prompt sent is exactly the request's prompt."""
-    from agm.agl.runtime.request import AgentRequest
+    from agnette.agl.runtime.request import AgentRequest
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
@@ -489,9 +489,9 @@ def test_composed_prompt_is_unchanged_when_no_output_contract(
 def test_composed_prompt_appends_format_instructions_after_the_prompt(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
-    from agm.agl.runtime.codec import JsonCodec
-    from agm.agl.runtime.contract import OutputContract
-    from agm.agl.runtime.request import AgentRequest, compose_agent_prompt
+    from agnette.agl.runtime.codec import JsonCodec
+    from agnette.agl.runtime.contract import OutputContract
+    from agnette.agl.runtime.request import AgentRequest, compose_agent_prompt
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
@@ -519,9 +519,9 @@ def test_composed_prompt_omits_format_instructions_when_the_contract_has_none(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
     """An empty ``format_instructions`` (e.g. the text codec) adds nothing."""
-    from agm.agl.runtime.codec import TextCodec
-    from agm.agl.runtime.contract import OutputContract
-    from agm.agl.runtime.request import AgentRequest
+    from agnette.agl.runtime.codec import TextCodec
+    from agnette.agl.runtime.contract import OutputContract
+    from agnette.agl.runtime.request import AgentRequest
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
@@ -544,7 +544,7 @@ def test_composed_prompt_includes_retry_feedback_on_a_retry_attempt(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
     """A retry (attempt >= 1) appends the previous output and validation errors."""
-    from agm.agl.runtime.request import AgentRequest, ValidationError, compose_agent_prompt
+    from agnette.agl.runtime.request import AgentRequest, ValidationError, compose_agent_prompt
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
@@ -576,7 +576,7 @@ def test_composed_prompt_includes_retry_feedback_on_a_retry_attempt(
 def test_composed_prompt_has_no_retry_feedback_on_the_first_attempt(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
-    from agm.agl.runtime.request import AgentRequest
+    from agnette.agl.runtime.request import AgentRequest
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
@@ -593,9 +593,9 @@ def test_composed_prompt_orders_format_instructions_before_retry_feedback(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
     """Ordering: prompt, then format_instructions, then the retry-feedback block."""
-    from agm.agl.runtime.codec import JsonCodec
-    from agm.agl.runtime.contract import OutputContract
-    from agm.agl.runtime.request import AgentRequest, compose_agent_prompt
+    from agnette.agl.runtime.codec import JsonCodec
+    from agnette.agl.runtime.contract import OutputContract
+    from agnette.agl.runtime.request import AgentRequest, compose_agent_prompt
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
@@ -629,8 +629,8 @@ def test_composed_prompt_orders_format_instructions_before_retry_feedback(
 
 def test_codex_agent_dispatch_delivers_prompt_via_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     """The full value-driven dispatch path sends codex's prompt as stdin, not ``@<path>``."""
-    from agm.agl.runtime.request import AgentRequest
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.agl.runtime.request import AgentRequest
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     captured: dict[str, object] = {}
 
@@ -646,7 +646,7 @@ def test_codex_agent_dispatch_delivers_prompt_via_stdin(monkeypatch: pytest.Monk
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     agent = AgentCodex(model="o3", thinking="high")
     dispatch = value_driven_agent_factory(
@@ -666,8 +666,8 @@ def test_codex_agent_dispatch_delivers_prompt_via_stdin(monkeypatch: pytest.Monk
 def test_claude_agent_dispatch_echoes_progress_and_decodes_the_final_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agm.agl.runtime.request import AgentRequest
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.agl.runtime.request import AgentRequest
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     stream = "\n".join(
         (
@@ -699,7 +699,7 @@ def test_claude_agent_dispatch_echoes_progress_and_decodes_the_final_response(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     output: list[tuple[str, str]] = []
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
@@ -729,9 +729,9 @@ def test_claude_agent_dispatch_echoes_progress_and_decodes_the_final_response(
 def test_claude_agent_dispatch_reports_malformed_echo_stream_as_protocol_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agm.agl.runtime.agents import AgentCallHostError
-    from agm.agl.runtime.request import AgentRequest
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.agl.runtime.agents import AgentCallHostError
+    from agnette.agl.runtime.request import AgentRequest
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     def fake_run_capture_result(cmd: list[str], **kwargs: object) -> ProcessCaptureResult:
         del cmd, kwargs
@@ -744,7 +744,7 @@ def test_claude_agent_dispatch_reports_malformed_echo_stream_as_protocol_failure
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
     )
@@ -766,7 +766,7 @@ def test_agent_runner_gets_a_fresh_copy_of_the_host_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Runner mutations neither reach ``environ`` nor leak into a later agent call."""
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     variable = "AGL_AGENT_HOST_ENV"
     seed = {variable: "original"}
@@ -788,7 +788,7 @@ def test_agent_runner_gets_a_fresh_copy_of_the_host_environment(
             spawn_error=None,
         )
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fake_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
 
     result = run_inline_code(
         PipelineDriver(
@@ -813,8 +813,8 @@ def test_agent_runner_gets_a_fresh_copy_of_the_host_environment(
 
 def test_unresolvable_command_hole_becomes_a_typed_error() -> None:
     """A host interpolation hole the environment cannot fill fails as a spawn failure."""
-    from agm.agl.runtime.agents import AgentCallHostError
-    from agm.agl.runtime.request import AgentRequest
+    from agnette.agl.runtime.agents import AgentCallHostError
+    from agnette.agl.runtime.request import AgentRequest
 
     agent = AgentCommand(command="runner --flag=%{AGM_NO_SUCH_VARIABLE}")
     dispatch = value_driven_agent_factory(
@@ -869,7 +869,7 @@ def test_invalid_agent_value_becomes_typed_error() -> None:
 
 
 def test_default_agent_value_is_read_at_each_call_and_errors_stay_typed() -> None:
-    from agm.agl.runtime.request import AgentRequest
+    from agnette.agl.runtime.request import AgentRequest
 
     requests: list[AgentCommand | AgentClaude | AgentCodex | AgentPi] = []
 
@@ -909,7 +909,7 @@ def _capturing_run_capture_result(
     captured: dict[str, object], *, returncode: int = 0
 ) -> Callable[..., "ProcessCaptureResult"]:
     """A fake ``run_capture_result`` that records the argv it received and returns *returncode*."""
-    from agm.core.process import CapturedOutput, ProcessCaptureResult
+    from agnette.core.process import CapturedOutput, ProcessCaptureResult
 
     def fake(cmd: list[str], **kwargs: object) -> ProcessCaptureResult:
         captured["cmd"] = cmd
@@ -963,7 +963,7 @@ def test_default_sandbox_mode_wraps_the_argv_and_honours_run_config_memory(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "agm.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
+        "agnette.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
     )
 
     runtime = PipelineDriver(
@@ -1004,7 +1004,7 @@ def test_sandbox_preparation_receives_the_asks_evaluated_environment(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "agm.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
+        "agnette.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
     )
 
     runtime = PipelineDriver(
@@ -1046,7 +1046,7 @@ def test_interpolated_agent_command_sandboxes_under_the_real_executable(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "agm.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
+        "agnette.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
     )
 
     runtime = PipelineDriver(
@@ -1079,9 +1079,9 @@ def test_agent_call_info_argv_is_the_wrapped_argv(
 ) -> None:
     """``AgentCallInfo.argv`` records what actually ran -- the sandboxed argv,
     not the spec's own pre-wrap argv."""
-    from agm.agent.transport import AgentCallInfo
-    from agm.agl.runtime.request import AgentRequest
-    from agm.sandbox.request import SandboxLimits
+    from agnette.agent.transport import AgentCallInfo
+    from agnette.agl.runtime.request import AgentRequest
+    from agnette.sandbox.request import SandboxLimits
 
     home = tmp_path / "home"
     write_sandbox_home(home)
@@ -1089,7 +1089,7 @@ def test_agent_call_info_argv_is_the_wrapped_argv(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "agm.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
+        "agnette.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
     )
 
     dispatch = value_driven_agent_factory(
@@ -1121,13 +1121,15 @@ def test_sandbox_context_is_built_at_most_once_per_get_sandbox_context(
     including across every factory built from the same callable, the sharing
     `agm exec`/`agm repl` rely on -- and never runs at all when nothing
     dispatches through it."""
-    from agm.config import general as config_general
-    from agm.sandbox.prepare import lazy_sandbox_context
+    from agnette.config import general as config_general
+    from agnette.sandbox.prepare import lazy_sandbox_context
 
     home = tmp_path / "home"
     write_sandbox_home(home)
     monkeypatch.setattr("shutil.which", lambda *args, **kwargs: "/usr/bin/tool")
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", _capturing_run_capture_result({}))
+    monkeypatch.setattr(
+        "agnette.agent.runner.run_capture_result", _capturing_run_capture_result({})
+    )
 
     load_calls: list[int] = []
     real_load_run_config = config_general.load_run_config
@@ -1174,7 +1176,7 @@ def test_explicit_settings_file_selects_that_file_over_the_profile_candidate(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "agm.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
+        "agnette.agent.runner.run_capture_result", _capturing_run_capture_result(captured)
     )
 
     runtime = PipelineDriver(
@@ -1212,7 +1214,7 @@ def test_missing_srt_becomes_an_agent_call_error_carrying_the_library_message(
     def fail_run_capture_result(*args: object, **kwargs: object) -> None:
         raise AssertionError("must not spawn a process when sandbox preparation failed")
 
-    monkeypatch.setattr("agm.agent.runner.run_capture_result", fail_run_capture_result)
+    monkeypatch.setattr("agnette.agent.runner.run_capture_result", fail_run_capture_result)
 
     runtime = PipelineDriver(
         resolve_agent_spec=None,
@@ -1255,7 +1257,7 @@ def test_temp_settings_cleanup_runs_after_success_and_failure(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "agm.agent.runner.run_capture_result",
+        "agnette.agent.runner.run_capture_result",
         _capturing_run_capture_result(captured, returncode=0 if outcome == "success" else 1),
     )
 

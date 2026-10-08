@@ -1,4 +1,4 @@
-"""Tests for agm.commands.workspace.list."""
+"""Tests for agnette.agm.commands.workspace.list."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import pytest
 from click.testing import CliRunner
 from typer.main import get_command
 
-import agm.cli as cli
-import agm.commands.workspace.list as list_cmd
+import agnette.agm.cli as cli
+import agnette.agm.commands.workspace.list as list_cmd
 from tests._git_helpers import add_linked_worktree, git_run, init_repo
 
 

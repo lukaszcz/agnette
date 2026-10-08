@@ -6,8 +6,8 @@ from pathlib import Path
 
 import semver
 
-from agm.packages.distribution import distribution_files, materialize_distribution
-from agm.packages.manifest import PackageManifest
+from agnette.packages.distribution import distribution_files, materialize_distribution
+from agnette.packages.manifest import PackageManifest
 
 
 def _write_tree(root: Path, files: dict[str, str]) -> None:

@@ -1,0 +1,402 @@
+"""``program def`` declaration discovery and entry-program selection.
+
+:func:`select_entry_program` matches a requested ``-p``/``--program`` name
+against the entry module's own ``program def`` declarations, shared by
+``commands.exec_program.run`` (which turns an unresolved selection into a host
+diagnostic) and ``cli._exec_print_help`` (which degrades an unresolved
+selection to the host command's own help), so the two surfaces can never
+disagree about which program a given name selects. :func:`select_declared_program`
+holds the selection rule itself, for the one caller that must apply it before
+declarations exist.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, TypeVar, assert_never
+
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.runtime.request import AgentResponse
+
+if TYPE_CHECKING:
+    from agnette.agl.pipeline import ParsedEntry, PreparedProgram, ProgramDiscovery
+    from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
+    from agnette.agm.cli_support.exec_target import ExecTarget
+    from agnette.agm.cli_support.program_options import ProgramCommand
+    from agnette.config.context import ConfigContext
+
+_ProgramT = TypeVar("_ProgramT")
+
+__all__ = [
+    "ExecProgramDiscovery",
+    "ProgramDiscoveryArtifacts",
+    "ProgramSelection",
+    "select_declared_program",
+    "discover_programs_for_target",
+    "program_candidates",
+    "registered_command_for",
+    "registered_program_command",
+    "select_entry_program",
+    "unmatched_program_message",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramDiscoveryArtifacts:
+    """One advisory discovery's reusable static-pipeline products."""
+
+    source: str
+    entry_path: Path | None
+    roots: RootSet
+    default_stdlib: bool
+    parsed: "ParsedEntry"
+    prepared: "PreparedProgram"
+    discovery: "ProgramDiscovery"
+    referenced_program: str | None = None
+
+
+def discover_programs_for_target(
+    *,
+    file: str | None,
+    code: str | None,
+    module_paths: "list[str] | None",
+    no_stdlib: bool,
+) -> "tuple[tuple[ProgramDeclInfo, ...], str | None]":
+    """Resolve an ``agm exec`` source selector and discover its ``program def`` declarations.
+
+    The single advisory discovery path behind both ``agm exec``'s help
+    rendering and its shell completion: it
+    resolves the same target the execution path would
+    (``exec_target.resolve_exec_target``), assembles the same module roots
+    (``exec_roots.effective_exec_roots``), and runs
+    ``PipelineDriver.discover_programs`` for it. A single implementation is
+    what keeps help and completion from disagreeing about which programs a
+    given selector offers.
+
+    Returns the discovered programs and, for an installed
+    ``PACKAGE/MODULE::PROGRAM`` reference, the declaration path that reference
+    already names — the implicit ``-p``/``--program`` selection a caller
+    applies when none was given explicitly. These are advisory surfaces, so
+    an unreadable entry, an unresolvable target or module-root configuration,
+    or a source that no longer parses degrades to ``((), None)`` rather than
+    failing the command.
+    """
+    artifacts = discover_program_artifacts_for_target(
+        file=file,
+        code=code,
+        module_paths=module_paths,
+        no_stdlib=no_stdlib,
+    )
+    if artifacts is None:
+        return (), None
+    return artifacts.discovery.programs, artifacts.referenced_program
+
+
+def discover_program_artifacts_for_target(
+    *,
+    file: str | None,
+    code: str | None,
+    module_paths: "list[str] | None",
+    no_stdlib: bool,
+    context: "ConfigContext | None" = None,
+    resolved_target: "ExecTarget | None" = None,
+) -> ProgramDiscoveryArtifacts | None:
+    """Discover an ``agm exec`` target and retain every reusable static artifact.
+
+    *resolved_target* is the same selector already classified by the caller.
+    Resolving an installed reference selects the active packages, so a caller
+    holding the result passes it here rather than paying for that selection a
+    second time.
+    """
+    from agnette.agl import PipelineDriver
+    from agnette.agm.cli_support.exec_roots import effective_exec_roots
+    from agnette.agm.cli_support.exec_target import (
+        ExecTargetError,
+        FileEntry,
+        InlineSource,
+        PackageProgramReference,
+        resolve_exec_target,
+    )
+    from agnette.config.context import current_config_context
+    from agnette.core.fs import read_text
+    from agnette.packages.stdlib import StdlibResolutionError
+
+    try:
+        if context is None:
+            context = current_config_context()
+        target = (
+            resolve_exec_target(
+                file=file,
+                code=code,
+                home=context.home,
+                proj_dir=context.proj_dir,
+                cwd=context.cwd,
+            )
+            if resolved_target is None
+            else resolved_target
+        )
+        entry_path: Path | None = None
+        referenced_program: str | None = None
+        inline_source = False
+        match target:
+            case ExecTargetError():
+                return None
+            case PackageProgramReference():
+                source = target.entry_path.read_text(encoding="utf-8")
+                entry_path = target.entry_path
+                referenced_program = target.declaration_path
+            case FileEntry():
+                source = read_text(target.path)
+                entry_path = target.path
+            case InlineSource():
+                source = target.source
+                inline_source = True
+            case _ as unreachable:  # pragma: no cover
+                assert_never(unreachable)
+        exec_roots = effective_exec_roots(
+            entry_path=entry_path,
+            module_paths=[] if module_paths is None else module_paths,
+            cwd=context.cwd,
+            home=context.home,
+            proj_dir=context.proj_dir,
+        )
+        runtime = PipelineDriver(
+            agent_dispatcher=lambda request: AgentResponse(content=""),
+            get_sandbox_context=None,
+            resolve_agent_spec=None,
+        )
+        parsed = runtime.parse_entry(source, entry_path=entry_path, inline_code=inline_source)
+        prepared = runtime.prepare_parsed_entry(
+            parsed, roots=exec_roots.roots, default_stdlib=not no_stdlib
+        )
+        discovery = runtime.discover_programs(prepared)
+        return ProgramDiscoveryArtifacts(
+            source=source,
+            entry_path=entry_path,
+            roots=exec_roots.roots,
+            default_stdlib=not no_stdlib,
+            parsed=parsed,
+            prepared=prepared,
+            discovery=discovery,
+            referenced_program=referenced_program,
+        )
+    except (OSError, ValueError, StdlibResolutionError):
+        return None
+
+
+class ExecProgramDiscovery:
+    """One ``agm exec`` invocation's advisory discovery, memoized per source selector.
+
+    The advisory surfaces of a single invocation ask about the same source
+    repeatedly: the tail split probes candidate FILE tokens
+    (:meth:`command_for_file`), and the help and completion surfaces that
+    follow then ask about the token it settled on (:meth:`programs`). Each
+    answer costs a full static pipeline pass, so they are memoized for the
+    life of the invocation — nothing the pass reads changes within it.
+
+    Held for one invocation rather than in a process-wide cache, so a host
+    that runs several invocations in one process (the test suite, a shell
+    completion server) never serves one invocation's answer to another's
+    configuration context.
+    """
+
+    def __init__(
+        self,
+        *,
+        code: str | None,
+        requested_program: str | None,
+        module_paths: "list[str] | None",
+        no_stdlib: bool,
+    ) -> None:
+        self._code = code
+        self._requested_program = requested_program
+        self._module_paths = module_paths
+        self._no_stdlib = no_stdlib
+        self._artifacts: dict[str | None, ProgramDiscoveryArtifacts | None] = {}
+
+    def artifacts(self, file: str | None) -> ProgramDiscoveryArtifacts | None:
+        """Return one target's discovery artifacts, computing them at most once."""
+        if file not in self._artifacts:
+            self._artifacts[file] = discover_program_artifacts_for_target(
+                file=file,
+                code=self._code,
+                module_paths=self._module_paths,
+                no_stdlib=self._no_stdlib,
+            )
+        return self._artifacts[file]
+
+    def cached_artifacts(self, file: str | None) -> ProgramDiscoveryArtifacts | None:
+        """Return already-computed artifacts without starting discovery."""
+        return self._artifacts.get(file)
+
+    def programs(self, file: str | None) -> "tuple[tuple[ProgramDeclInfo, ...], str | None]":
+        """Return :func:`discover_programs_for_target`'s answer for *file*, once."""
+        artifacts = self.artifacts(file)
+        if artifacts is None:
+            return (), None
+        return artifacts.discovery.programs, artifacts.referenced_program
+
+    def selection(self, file: str | None) -> "ProgramSelection":
+        """Return the entry-program selection *file* offers under this invocation's ``-p``."""
+        programs, referenced_program = self.programs(file)
+        requested = (
+            self._requested_program if self._requested_program is not None else referenced_program
+        )
+        return select_entry_program(programs, requested=requested)
+
+    def params_for(
+        self, file: str | None, program: "ProgramDeclInfo | None"
+    ) -> "tuple[ParamBindingInfo, ...]":
+        """Return *program*'s module parameters from *file*'s already-discovered artifacts."""
+        artifacts = self.cached_artifacts(file)
+        if artifacts is None or program is None:
+            return ()
+        return artifacts.discovery.params_for(program)
+
+    def command_for_file(self, file: str | None) -> "ProgramCommand | None":
+        """Return the command *file*'s selected program projects onto the ``agm exec`` tail.
+
+        The single way every advisory exec surface — the tail split, the help
+        printer, and shell completion — turns a FILE token into a program
+        command, so they all describe the same invocation. ``None`` means the
+        token does not name one usable, selected program; the tail parser
+        relies on that, asking about several candidate tokens when pre-FILE
+        program options make a spelling-only FILE scan ambiguous.
+        """
+        from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS, program_command_for
+
+        program = self.selection(file).selected
+        return program_command_for(program, EXEC_RESERVED_FLAGS, self.params_for(file, program))
+
+
+def registered_command_for(
+    program: "ProgramDeclInfo | None", artifacts: ProgramDiscoveryArtifacts | None
+) -> "ProgramCommand | None":
+    """Project an already-discovered *program* onto a registered command's option surface.
+
+    :meth:`ExecProgramDiscovery.command_for_file`'s counterpart for the
+    registered-command side: the one place that pairs a declaration with the
+    module parameters of the discovery that produced it, so a registered
+    command's parsing, help and completion surfaces never project different
+    flags. ``None`` when there is no declaration or its flags collide.
+    """
+    from agnette.agm.cli_support.program_options import (
+        REGISTERED_RESERVED_FLAGS,
+        program_command_for,
+    )
+
+    params = () if program is None or artifacts is None else artifacts.discovery.params_for(program)
+    return program_command_for(program, REGISTERED_RESERVED_FLAGS, params)
+
+
+def registered_program_command(
+    program: str,
+    package_name: str,
+    *,
+    context: "ConfigContext | None" = None,
+) -> "tuple[ProgramDeclInfo | None, ProgramCommand | None]":
+    """Discover a registered command's program declaration and project its command.
+
+    For the surfaces that only describe a registered command; the dispatching
+    command keeps its own discovery, whose artifacts it reuses to execute.
+    """
+    from agnette.agm.commands.exec_program import registered_program_declaration
+
+    artifacts: list[ProgramDiscoveryArtifacts] = []
+    declaration = registered_program_declaration(
+        program, package_name, context=context, artifact_sink=artifacts
+    )
+    return declaration, registered_command_for(declaration, artifacts[0] if artifacts else None)
+
+
+def unmatched_program_message(
+    requested: str | None, entry_programs: "tuple[ProgramDeclInfo, ...]"
+) -> str:
+    """Return the diagnostic for a program name that selects no entry program.
+
+    Shared by execution (``commands.exec_program.run``) and the help surface
+    (``cli._exec_print_help``), so a name matching nothing is reported the
+    same way — and fails the same way — whether the invocation asked to run
+    the program or to describe it.
+    """
+    candidates = program_candidates(entry_programs)
+    suffix = f" Candidates: {candidates}" if candidates else ""
+    return f"Error: no program matches '{requested}'.{suffix}"
+
+
+def program_candidates(entry_programs: "tuple[ProgramDeclInfo, ...]") -> str:
+    """Return *entry_programs*' declaration paths as one comma-separated list.
+
+    How every inline host diagnostic names the programs a reader may select
+    with ``-p``, so the "no program matches" and "multiple programs declared"
+    messages spell the same candidates the same way.
+    """
+    return ", ".join(program.declaration_path for program in entry_programs)
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramSelection:
+    """The entry-module programs a host may run, and which one *requested* names.
+
+    ``entry_programs`` is the discovered programs filtered to the entry
+    module's own declarations (``ProgramDeclInfo.is_entry``) — an
+    imported module's own ``program def`` is discoverable but never runnable
+    directly. ``selected`` is the sole entry program when there is exactly
+    one and *requested* names none of them, *requested*'s own match when it
+    names one, or ``None`` when several are declared and *requested* is
+    absent or matches none of them. ``requested_unmatched`` tells those two
+    ``None`` causes apart: ``True`` only when *requested* was given and
+    matched nothing. ``requested`` is the name the selection was made with —
+    an explicit ``-p`` or the declaration path an installed reference names —
+    so a caller reporting an unmatched request names what was actually asked
+    for rather than re-deriving it.
+    """
+
+    entry_programs: "tuple[ProgramDeclInfo, ...]"
+    selected: "ProgramDeclInfo | None"
+    requested_unmatched: bool
+    requested: str | None = None
+
+
+def select_declared_program(
+    candidates: "Sequence[_ProgramT]",
+    *,
+    requested: str | None,
+    declaration_path: "Callable[[_ProgramT], str]",
+) -> "_ProgramT | None":
+    """Apply the entry-program selection rule to *candidates*.
+
+    A *requested* name selects only the candidate whose declaration path it
+    spells, never a differently named one; with no request, a sole candidate
+    is selected implicitly and several are left unselected. Held here so the
+    AST pre-pass in ``commands.exec_program.run`` — which must resolve the
+    selected program's qualified engine-config table before the pipeline that
+    produces :class:`ProgramDeclInfo` values can be built — applies exactly
+    the rule :func:`select_entry_program` applies later.
+    """
+    if requested is not None:
+        return next(
+            (candidate for candidate in candidates if declaration_path(candidate) == requested),
+            None,
+        )
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def select_entry_program(
+    programs: "tuple[ProgramDeclInfo, ...]", *, requested: str | None
+) -> ProgramSelection:
+    """Filter *programs* to the entry module's own declarations and apply *requested*."""
+    entry_programs = tuple(program for program in programs if program.is_entry)
+    selected = select_declared_program(
+        entry_programs,
+        requested=requested,
+        declaration_path=lambda program: program.declaration_path,
+    )
+    return ProgramSelection(
+        entry_programs=entry_programs,
+        selected=selected,
+        requested_unmatched=requested is not None and selected is None,
+        requested=requested,
+    )

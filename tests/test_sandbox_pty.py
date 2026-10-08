@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from agm.sandbox import pty as sandbox_pty
+from agnette.sandbox import pty as sandbox_pty
 
 
 def test_relay_gives_child_a_controlling_terminal() -> None:
@@ -19,7 +19,7 @@ def test_relay_gives_child_a_controlling_terminal() -> None:
         [
             sys.executable,
             "-m",
-            "agm.sandbox.pty",
+            "agnette.sandbox.pty",
             "--",
             sys.executable,
             "-c",
@@ -39,7 +39,7 @@ def test_relay_returns_child_exit_status() -> None:
         [
             sys.executable,
             "-m",
-            "agm.sandbox.pty",
+            "agnette.sandbox.pty",
             "--",
             sys.executable,
             "-c",
@@ -271,4 +271,4 @@ def test_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.warns(RuntimeWarning, match="found in sys.modules"):
         with pytest.raises(SystemExit, match="command is required"):
-            runpy.run_module("agm.sandbox.pty", run_name="__main__")
+            runpy.run_module("agnette.sandbox.pty", run_name="__main__")

@@ -12,10 +12,10 @@ from decimal import Decimal
 
 import pytest
 
-from agm.agl.eval.conversions import AglCastConversion, run_recipe
-from agm.agl.eval.conversions import decode_value as _decode
-from agm.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agm.agl.ir.contracts import (
+from agnette.agl.eval.conversions import AglCastConversion, run_recipe
+from agnette.agl.eval.conversions import decode_value as _decode
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.contracts import (
     ArrayDecode,
     ArrayEncode,
     ConversionFailureMode,
@@ -46,13 +46,18 @@ from agm.agl.ir.contracts import (
     VariantDecode,
     VariantEncode,
 )
-from agm.agl.ir.ids import NominalId
-from agm.agl.ir.nodes import IrBind, IrConvert, IrLoad, IrNominalCast, IrSequence
-from agm.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors, VariantDescriptor
-from agm.agl.ir.validate import validate_ir
-from agm.agl.modules.ids import ENTRY_ID
-from agm.agl.runtime.option import none_value, some_value
-from agm.agl.semantics.values import (
+from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.nodes import IrBind, IrConvert, IrLoad, IrNominalCast, IrSequence
+from agnette.agl.ir.program import (
+    NominalDescriptor,
+    NominalKind,
+    ValueDescriptors,
+    VariantDescriptor,
+)
+from agnette.agl.ir.validate import validate_ir
+from agnette.agl.modules.ids import ENTRY_ID
+from agnette.agl.runtime.option import none_value, some_value
+from agnette.agl.semantics.values import (
     ArrayValue,
     BoolValue,
     DecimalValue,
@@ -64,7 +69,7 @@ from agm.agl.semantics.values import (
     TextValue,
     Value,
 )
-from agm.agl.zones import ParamZone
+from agnette.agl.zones import ParamZone
 from tests.agl.ir_harness import (
     evaluate_ir,
     evaluate_ir_raises,
@@ -932,9 +937,9 @@ def test_run_recipe_return_bool_on_failure() -> None:
 
 
 def _convert_program(recipe: ConversionRecipe):
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.nodes import IrConstText
-    from agm.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.nodes import IrConstText
+    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
 
     sid = SourceId(0)
     loc = Location(source_id=sid, start_offset=0, end_offset=1, start_line=1, start_col=0)
@@ -955,7 +960,7 @@ def _convert_program(recipe: ConversionRecipe):
 
 def test_validate_walks_a_dict_encode_plans_key_and_value() -> None:
     """A ``DictEncode`` validates its key schema too, not only its value."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     recipe = ToJsonRecipe(
         source_label="dict[int, text]",
@@ -967,7 +972,7 @@ def test_validate_walks_a_dict_encode_plans_key_and_value() -> None:
 
 
 def test_validate_rejects_to_json_with_malformed_encode_plan() -> None:
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     bad_recipes = (
         ToJsonRecipe(
@@ -1030,7 +1035,7 @@ def test_validate_rejects_to_json_with_malformed_encode_plan() -> None:
 
 
 def test_validate_rejects_to_json_encode_with_unregistered_nominal() -> None:
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     recipe = ToJsonRecipe(
         source_label="Ghost",
@@ -1042,7 +1047,7 @@ def test_validate_rejects_to_json_encode_with_unregistered_nominal() -> None:
 
 
 def test_validate_rejects_malformed_encode_nominal_shapes() -> None:
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     record = NominalId(4)
     exception = NominalId(5)
@@ -1115,7 +1120,7 @@ def test_validate_rejects_encode_variant_whose_json_name_disagrees_with_enum_nom
     ``json_name`` clause from the other three equality checks in the same
     ``or``.
     """
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -1145,7 +1150,7 @@ def test_validate_rejects_encode_variant_whose_json_name_disagrees_with_enum_nom
 
 def test_validate_rejects_record_encode_for_non_record_nominal() -> None:
     """A ``RecordEncode`` must name a nominal whose descriptor is a RECORD."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     nominal = NominalId(10)
     recipe = ToJsonRecipe(source_label="Bad", target_label="json", encode=RecordEncode(nominal, ()))
@@ -1162,7 +1167,7 @@ def test_validate_rejects_record_encode_for_non_record_nominal() -> None:
 
 def test_validate_rejects_exception_encode_for_non_exception_nominal() -> None:
     """An ``ExceptionEncode`` must name a nominal whose descriptor is an EXCEPTION."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     nominal = NominalId(10)
     recipe = ToJsonRecipe(source_label="Bad", target_label="json", encode=ExceptionEncode(nominal))
@@ -1182,7 +1187,7 @@ def test_validate_rejects_exception_encode_for_non_exception_nominal() -> None:
 
 def test_validate_rejects_enum_encode_for_non_enum_nominal() -> None:
     """An ``EnumEncode`` must name a nominal whose descriptor is an ENUM."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     nominal = NominalId(10)
     recipe = ToJsonRecipe(source_label="Bad", target_label="json", encode=EnumEncode(nominal, ()))
@@ -1202,7 +1207,7 @@ def test_validate_rejects_enum_encode_for_non_enum_nominal() -> None:
 
 def test_validate_rejects_enum_encode_variant_count_disagreeing_with_enum_nominal() -> None:
     """An ``EnumEncode``'s variant count must match its enum nominal's own variant count."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -1221,7 +1226,7 @@ def test_validate_rejects_enum_encode_variant_count_disagreeing_with_enum_nomina
 
 def test_validate_rejects_record_descriptor_field_json_names_length_mismatch() -> None:
     """A RECORD descriptor needs exactly one JSON name per declared field."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     nominal = NominalId(10)
     program = _convert_program(
@@ -1247,7 +1252,7 @@ def test_validate_rejects_exception_descriptor_field_json_names_length_mismatch(
     ``field_json_names`` length invariant from the separate "every exception
     nominal has field encodes" check.
     """
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     nominal = NominalId(10)
     program = _convert_program(
@@ -1272,7 +1277,7 @@ def test_validate_rejects_exception_descriptor_field_json_names_length_mismatch(
 
 def test_validate_rejects_enum_descriptor_with_nonempty_field_json_names() -> None:
     """An ENUM descriptor stores fields per-variant, never its own ``field_json_names``."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     program = _convert_program(
@@ -1293,7 +1298,7 @@ def test_validate_rejects_enum_variant_field_json_names_disagreeing_with_member_
     ``fields`` agrees between the variant and the member here, isolating the
     ``field_json_names`` half of the table-consistency check.
     """
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -1327,7 +1332,7 @@ def test_validate_rejects_enum_variant_field_json_names_disagreeing_with_member_
 
 def test_validate_rejects_record_encode_field_whose_json_name_disagrees_with_descriptor() -> None:
     """A ``RecordEncode`` field must match its descriptor's JSON name, not only its name."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     record = NominalId(10)
     recipe = ToJsonRecipe(
@@ -1351,7 +1356,7 @@ def test_validate_rejects_record_encode_field_whose_json_name_disagrees_with_des
 
 def test_validate_rejects_record_decode_field_whose_json_name_disagrees_with_descriptor() -> None:
     """A ``RecordDecode`` field must match its descriptor's JSON name, not only its name."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     record = NominalId(10)
     recipe = DecodeConversionRecipe(
@@ -1391,7 +1396,7 @@ def test_validate_rejects_record_decode_field_whose_json_name_disagrees_with_des
 
 def test_validate_rejects_enum_encode_variant_field_whose_json_name_disagrees_with_member() -> None:
     """An ``EnumEncode`` variant field's JSON name is checked against the member's descriptor."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -1438,7 +1443,7 @@ def test_validate_rejects_enum_encode_variant_field_whose_json_name_disagrees_wi
 
 def test_validate_rejects_enum_decode_variant_field_whose_json_name_disagrees_with_member() -> None:
     """An ``EnumDecode`` variant field's JSON name is checked against the member's descriptor."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -1491,7 +1496,7 @@ def test_validate_rejects_exception_field_encode_whose_json_name_disagrees_with_
     None
 ):
     """An ``ExceptionFieldEncode``'s JSON name must match the exception descriptor's own."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     exception = NominalId(5)
     program = _convert_program(
@@ -1514,7 +1519,7 @@ def test_validate_rejects_exception_field_encode_whose_json_name_disagrees_with_
 
 
 def test_validate_accepts_exception_encode_with_field_encodes() -> None:
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     exception = NominalId(5)
     program = _convert_program(
@@ -1542,7 +1547,7 @@ def test_validate_rejects_exception_nominal_without_field_encodes() -> None:
     ``field_json_names`` agrees with ``fields`` so this isolates the "lacks
     field encodes" check from the separate length invariant.
     """
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     exception = NominalId(5)
     program = _convert_program(
@@ -1563,7 +1568,7 @@ def test_validate_rejects_exception_nominal_without_field_encodes() -> None:
 
 
 def test_validate_accepts_recursive_to_json_encode_plan() -> None:
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     tree = NominalId(4)
     recipe = ToJsonRecipe(
@@ -1622,7 +1627,7 @@ def test_validate_accepts_recursive_to_json_encode_plan() -> None:
 
 def test_validate_accepts_a_parameterized_to_json_encode_plan() -> None:
     """A generic-template definition validates under its own arity, transitively."""
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     box = NominalId(4)
     inner = NominalId(5)
@@ -1673,7 +1678,7 @@ def test_validate_accepts_a_parameterized_to_json_encode_plan() -> None:
 
 
 def test_validate_accepts_well_formed_convert() -> None:
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     recipe = SimpleConversionRecipe(
         strategy=ConversionStrategy.RENDER_TO_TEXT, source_label="int", target_label="text"
@@ -1683,9 +1688,9 @@ def test_validate_accepts_well_formed_convert() -> None:
 
 def test_run_error_encodes_attached_nominal_plan() -> None:
     """Host-error fields use their attached static plan to encode a nested payload."""
-    from agm.agl.ir.contracts import EncodePlan, ExceptionFieldEncode
-    from agm.agl.pipeline import exception_value_to_run_error
-    from agm.agl.semantics.values import ExceptionValue
+    from agnette.agl.ir.contracts import EncodePlan, ExceptionFieldEncode
+    from agnette.agl.pipeline import exception_value_to_run_error
+    from agnette.agl.semantics.values import ExceptionValue
 
     agent = NominalId(4)
     command = NominalId(5)
@@ -1741,8 +1746,8 @@ def test_run_error_untyped_walk_names_enum_dict_keys() -> None:
     typed encoding of the same enum would select, or ``Red``/``Blue`` both
     degrade to ``{}`` and their entries become indistinguishable.
     """
-    from agm.agl.ir.contracts import ExceptionFieldEncode
-    from agm.agl.pipeline import exception_value_to_run_error
+    from agnette.agl.ir.contracts import ExceptionFieldEncode
+    from agnette.agl.pipeline import exception_value_to_run_error
 
     exc_nominal = NominalId(10)
     color_nominal = NominalId(11)
@@ -1809,7 +1814,7 @@ def test_validate_rejects_exception_field_encodes_for_non_exception_nominal(
     descriptor: NominalDescriptor | None,
 ) -> None:
     """Exception encoding provenance must name a linked exception nominal."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     program = _convert_program(
         SimpleConversionRecipe(ConversionStrategy.NOOP, source_label="int", target_label="int")
@@ -1833,8 +1838,8 @@ def test_validate_rejects_invalid_exception_field_encode_metadata() -> None:
     case is not itself testing JSON-name agreement, so every case is isolated to
     the one clause it names.
     """
-    from agm.agl.ir.contracts import EncodePlan, ExceptionFieldEncode
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.contracts import EncodePlan, ExceptionFieldEncode
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     nominal = NominalId(1)
     fields = ("message", "choice")
@@ -1886,7 +1891,7 @@ def test_validate_rejects_invalid_exception_field_encode_metadata() -> None:
 
 def test_validate_rejects_decode_with_unregistered_nominal() -> None:
     """Deep validate rejects a decode schema referencing a nominal not in program.nominals."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     recipe = DecodeConversionRecipe(
         strategy=ConversionStrategy.DECODE_JSON,
@@ -1996,7 +2001,7 @@ def test_validate_rejects_record_decode_that_disagrees_with_linked_record(
     decode: RecordDecode, descriptor: NominalDescriptor, error: str
 ) -> None:
     """A record decode must exactly describe its linked record nominal."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     recipe = DecodeConversionRecipe(
         strategy=ConversionStrategy.DECODE_JSON,
@@ -2040,7 +2045,7 @@ def test_validate_rejects_decode_variant_that_disagrees_with_linked_member(
     variant: VariantDecode,
 ) -> None:
     """A decode variant must exactly describe its linked enum member record."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -2078,7 +2083,7 @@ def test_validate_rejects_decode_variant_whose_name_disagrees_with_member_declar
     still matches the ``VariantDecode``'s own (unrelated) ``display_name``
     field, isolating the terminal-name check from the other two.
     """
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -2116,7 +2121,7 @@ def test_validate_rejects_decode_variant_whose_json_name_disagrees_with_enum_nom
     ``json_name`` clause from the other three equality checks in the same
     ``or``.
     """
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -2148,8 +2153,8 @@ def test_validate_rejects_decode_variant_whose_json_name_disagrees_with_enum_nom
 
 
 def _default_expr():
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.nodes import IrConstInt
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.nodes import IrConstInt
 
     loc = Location(source_id=SourceId(0), start_offset=0, end_offset=1, start_line=1, start_col=0)
     return IrConstInt(loc, 0)
@@ -2157,7 +2162,7 @@ def _default_expr():
 
 def test_validate_accepts_record_decode_field_default_index_matching_declared_default() -> None:
     """A FieldDecode.default_index matching the nominal's own defaulted position passes."""
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     recipe = DecodeConversionRecipe(
         strategy=ConversionStrategy.DECODE_JSON,
@@ -2197,7 +2202,7 @@ def test_validate_accepts_record_decode_field_default_index_matching_declared_de
 
 def test_validate_rejects_record_decode_field_default_index_out_of_position() -> None:
     """A FieldDecode.default_index that disagrees with the field's own position is rejected."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     recipe = DecodeConversionRecipe(
         strategy=ConversionStrategy.DECODE_JSON,
@@ -2238,7 +2243,7 @@ def test_validate_rejects_record_decode_field_default_index_out_of_position() ->
 
 def test_validate_rejects_record_decode_default_index_for_field_with_no_declared_default() -> None:
     """A FieldDecode.default_index set where the nominal declares no default is rejected."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     recipe = DecodeConversionRecipe(
         strategy=ConversionStrategy.DECODE_JSON,
@@ -2279,7 +2284,7 @@ def test_validate_rejects_record_decode_default_index_for_field_with_no_declared
 
 def test_validate_rejects_enum_variant_decode_default_index_for_field_with_no_default() -> None:
     """The same ``default_index`` invariant holds for an enum-variant field."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -2387,7 +2392,7 @@ def test_validate_rejects_decode_with_invalid_linked_enum_metadata(
     targets ``EnumDecode.name`` disagreeing with the enum's own
     ``declared_name`` while ``display_name`` still matches.
     """
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     enum = NominalId(10)
     member = NominalId(11)
@@ -2451,9 +2456,9 @@ def _tree_decode_defs() -> tuple[tuple[str, EnumDecode], ...]:
 
 def test_validate_accepts_recursive_recipe_with_matching_defs() -> None:
     """A recursive ConversionRecipe (RefDecode root + defs) validates when the nominal exists."""
-    from agm.agl.ir.ids import Location, SourceId
-    from agm.agl.ir.nodes import IrConstText
-    from agm.agl.ir.program import (
+    from agnette.agl.ir.ids import Location, SourceId
+    from agnette.agl.ir.nodes import IrConstText
+    from agnette.agl.ir.program import (
         ExecutableModule,
         ExecutableProgram,
         NominalDescriptor,
@@ -2461,7 +2466,7 @@ def test_validate_accepts_recursive_recipe_with_matching_defs() -> None:
         SourceFile,
         VariantDescriptor,
     )
-    from agm.agl.ir.validate import validate_ir
+    from agnette.agl.ir.validate import validate_ir
 
     tree_nominal = _TREE
     recipe = DecodeConversionRecipe(
@@ -2522,7 +2527,7 @@ def test_validate_accepts_recursive_recipe_with_matching_defs() -> None:
 
 def test_validate_rejects_refdecode_with_unknown_defs_key() -> None:
     """A RefDecode whose key has no matching defs entry → InvalidIrError."""
-    from agm.agl.ir.validate import InvalidIrError, validate_ir
+    from agnette.agl.ir.validate import InvalidIrError, validate_ir
 
     recipe = DecodeConversionRecipe(
         strategy=ConversionStrategy.DECODE_JSON,
