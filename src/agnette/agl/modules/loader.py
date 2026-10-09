@@ -373,7 +373,6 @@ def _with_default_stdlib_import(
 
 
 def _mid_sort_key(mid: ModuleId) -> tuple[str, ...]:
-    """Key function for sorting :class:`ModuleId` values by segments."""
     return mid.segments
 
 
@@ -384,7 +383,6 @@ _ResolvedDependency = tuple[ModuleId, _ModuleDependencyDecl, Path]
 
 
 def _pair_sort_key(pair: _ResolvedDependency) -> tuple[str, ...]:
-    """Key function for sorting resolved dependency triples by module id."""
     return pair[0].segments
 
 

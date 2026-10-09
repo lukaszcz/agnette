@@ -13,7 +13,7 @@ cells across entries. Runtime failure is non-transactional: every initializer
 completed before the failure remains visible, while unreached initializers do not.
 
 This module is intentionally UI-free — it returns plain ``EntryResult`` data;
-rendering, meta-commands, and the prompt_toolkit console are future work.
+rendering, meta-commands, and the prompt_toolkit console live in sibling modules.
 """
 
 from __future__ import annotations
@@ -313,7 +313,8 @@ class ReplSession:
         )
         self._builtin_var_seed: dict[BuiltinVarKey, Value] = {}
         self._builtin_var_values: dict[BuiltinVarKey, Value] = {}
-        # The host reports a configuration failure from it as an ``AglError``.
+        # Called with the first new module declaring parameters and all new parameters;
+        # the host reports a configuration failure as an ``AglError``.
         self._param_seed_resolver = param_seed_resolver
         # Decoded parameter values survive in the session alongside host-backed
         # builtin values. They are passed to each fresh interpreter, which only
@@ -614,8 +615,9 @@ class ReplSession:
         A bootstrap cache is safe only before an entry can contribute session
         state, and when both module roots and static host capabilities agree
         — typed engine seeds never touch the compiled module graph, so they
-        do not disqualify reuse. The cached type environment is sealed; later
-        entry checks seed from it without mutating it.
+        do not disqualify reuse. A param-seed resolver does (so ``agm repl``,
+        which always passes one, never uses the cached image). The cached type environment is
+        sealed; later entry checks seed from it without mutating it.
         """
         from agnette.agl.capabilities import HostCapabilities
 
@@ -1617,10 +1619,7 @@ class ReplSession:
         return self._link_image.descriptors()
 
     def bindings(self) -> list[tuple[str, "Type", "Value"]]:
-        """Return promoted user bindings as (name, declared type, current value).
-
-        Includes every promoted ``let``/``var`` binding.
-        """
+        """Return promoted user bindings as (name, declared type, current value)."""
         from agnette.agl.semantics.values import Cell
 
         result: list[tuple[str, Type, Value]] = []

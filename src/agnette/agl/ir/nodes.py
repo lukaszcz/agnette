@@ -453,8 +453,9 @@ class IrFieldSet:
     """IR mutable record-field assignment: ``value.field := new``.
 
     ``nominal`` identifies the precise record declaration that owns ``field``.
-    Evaluation verifies that identity before storing, so a value from a
-    superseded declaration cannot be updated through a newer same-named type.
+    The checker guarantees the receiver is a value of exactly that declaration, so a
+    value from a superseded declaration is never updated through a newer same-named
+    type; evaluation stores without re-checking.
     """
 
     location: Location

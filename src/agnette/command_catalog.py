@@ -32,14 +32,12 @@ COMMAND_OVERVIEW: tuple[tuple[str, str], ...] = (
     ("help", "Show help"),
 )
 
-# All top-level command names, in catalog order.
 COMMAND_NAMES: tuple[str, ...] = tuple(name for name, _ in COMMAND_OVERVIEW)
 
 # Built-in command aliases.  These are not command-overview entries, but they
 # reserve the same package-command and config-routing namespace as commands.
 COMMAND_ALIASES: tuple[str, ...] = ("wsp", "wt")
 
-# Every name reserved by AgM's built-in command surface.
 RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(COMMAND_NAMES) | frozenset(COMMAND_ALIASES)
 
 # Top-level config sections that describe AgM's configuration schema rather than
@@ -78,10 +76,8 @@ def invalid_command_path(
 
 
 def is_subcommand_path(path: str, group_path: str) -> bool:
-    """Whether command *path* lies below group *group_path*."""
     return path.startswith(group_path + " ")
 
 
 def has_subcommands(group_path: str, paths: Iterable[str]) -> bool:
-    """Whether any of *paths* lies below group *group_path*."""
     return any(is_subcommand_path(path, group_path) for path in paths)

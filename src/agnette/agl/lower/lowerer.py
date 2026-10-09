@@ -504,11 +504,9 @@ class _LinkState:
         ``BuiltinNominals``). Reflective (``dataclasses.fields``/``getattr``)
         copying is not an option under this repository's
         ``disallow_any_expr`` mypy setting -- every dynamic-attribute
-        expression is typed ``Any``. Defined here, directly beside the field
-        list, so a newly added field is copied by the same edit that adds it
-        rather than in a distant caller that can silently forget it (the
-        ``field_defaults`` bug this method's addition fixed: a caller that
-        enumerated fields by hand, at a distance, missed one).
+        expression is typed ``Any``. Defined beside the field list so a newly added
+        field is copied by the same edit that adds it, not by a distant caller that
+        can silently forget it.
         """
         return _LinkState(
             next_sym=self.next_sym,
@@ -812,11 +810,9 @@ class _Lowerer:
         return sym
 
     def _sym_for_decl(self, decl_node_id: int) -> SymbolId:
-        """Return the pre-allocated ``SymbolId`` for a declaration node."""
         return self._link.decl_to_sym[decl_node_id]
 
     def _alloc_fn(self) -> FunctionId:
-        """Allocate a fresh ``FunctionId``."""
         fn_id = FunctionId(self._allocation.next_fn)
         self._allocation.next_fn += 1
         return fn_id
@@ -901,11 +897,8 @@ class _Lowerer:
     def _prealloc_funcdef(self, funcdef: "FuncDef") -> None:
         """Pre-allocate SymbolId and FunctionId for a static ``FuncDef``.
 
-        A function declared inside a named scope is published under its
-        unqualified name only within its own module frame; it must never be
-        exposed as a root-level ``RunResult`` binding (``RunResult.bindings``
-        is root-only), so ``public`` additionally requires an empty
-        declaration scope path.
+        A scoped function's symbol has no public name, since its unqualified name is not
+        its spelling (scoped ``let``/``var`` use ``scoped_public_name``).
         """
         fn_id = self._alloc_fn()
         sym = self._alloc_sym(
@@ -1232,8 +1225,9 @@ class _Lowerer:
         An extern has no body and no captures (there is nothing to capture: the
         boundary crossing reads only its own arguments).  Its top-level binding
         is initialized exactly like an ordinary function's — a closure value
-        referencing its ``function_id`` — so forward references, exports, and
-        first-class use are unchanged.
+        referencing its ``function_id`` — so forward references and exports are
+        unchanged. A value occurrence of a type-directed extern is instead
+        eta-expanded around its occurrence's contracts (``_lower_extern_target_value``).
         """
         fn_id = self._link.fn_node_to_id[funcdef.node_id]
         fn_sym = self._link.fn_node_to_sym[funcdef.node_id]
@@ -1294,7 +1288,6 @@ class _Lowerer:
             owner=fn_id,
         )
 
-        # Allocate param SymbolIds.
         param_decl_ids: set[int] = set()
         param_syms: list[SymbolId] = []
         for param in params:
@@ -1310,7 +1303,6 @@ class _Lowerer:
 
         captures = self._compute_captures_for(body_expr, params, node_id, param_decl_ids)
 
-        # Get the full FunctionType (checker records it on the lambda's node_id).
         fn_type = cast(FunctionType, self._node_type(node_id))
 
         # Build IR params; lower param defaults.
@@ -1330,7 +1322,7 @@ class _Lowerer:
                 default_ir = None
             ir_params.append(IrFunctionParam(symbol=psym, default=default_ir))
 
-        # Lower the body coerced to the declared return type (bakes result coercion in).
+        # Result coercion is baked into the lowered body; the evaluator applies none.
         with self._return_context(fn_type.result), self._function_body(fn_id):
             body_ir = self.lower_coerced(body_expr, fn_type.result)
 
@@ -1376,11 +1368,9 @@ class _Lowerer:
     # ------------------------------------------------------------------
 
     def _binding_type(self, decl_node_id: int) -> Type:
-        """Return the checker-recorded type for a declaration node."""
         return self._checked.type_env.binding_type_of(decl_node_id)
 
     def _function_signature(self, decl_node_id: int) -> FunctionSignature:
-        """Return the checker-recorded signature of a function declaration node."""
         return self._checked.type_env.function_signature_of(decl_node_id)
 
     def _lower_named_binding(
@@ -1413,7 +1403,6 @@ class _Lowerer:
         )
 
     def _node_type(self, node_id: int) -> Type:
-        """Return the checker-recorded type for an expression node."""
         return self._checked.node_types[node_id]
 
     # ------------------------------------------------------------------
@@ -1487,14 +1476,13 @@ class _Lowerer:
             # Variable reference — constructor ref or IrLoad
             # ----------------------------------------------------------
             case VarRef(node_id=nid, span=span):
-                # A constructor reference is a record or exception constructor.
                 if self._checked.constructor_ref_for(nid) is not None:
                     node_typ = self._node_type(nid)
                     if isinstance(node_typ, FunctionType):
                         # Constructor with fields used as a value → IrMakeConstructor.
                         nominal = NominalId(self._constructor_result_type(nid).decl_id)
                         return IrMakeConstructor(location=self._loc(span), nominal=nominal)
-                    # Fieldless constructor used as a value → construct immediately.
+                    # Fieldless or all-defaulted constructor as a value → construct now.
                     return self._lower_nullary_constructor(nid, span)
 
                 ref = cast(BindingRef, self._checked.binding_for(nid))
@@ -1879,7 +1867,6 @@ class _Lowerer:
                     )
                 )
 
-        # Allocate for_var symbol in the loop frame (immutable let-by-value)
         for_var_sym: SymbolId | None = None
         if for_var is not None:
             for_var_sym = self._alloc_sym(loop_nid, name=for_var, mutable=False, public=False)
@@ -2524,7 +2511,6 @@ class _Lowerer:
         return operands.with_receiver(op, receiver, is_session=is_session)
 
     def _lower_optional(self, node: "Expr | None") -> IrExpr | None:
-        """Lower an optional argument expression, keeping an absent one absent."""
         return None if node is None else self.lower_expr(node)
 
     def _lower_builtin_call(
@@ -2768,18 +2754,16 @@ class _Lowerer:
         """Lower a Call node.
 
         Constructor calls (VarRef callee resolving to a constructor) are lowered
-        to IrMakeRecord/IrMakeException. Direct user function
-        calls are lowered to IrDirectCall.  Lambda calls are lowered to IrMakeClosure,
-        indirect calls to IrIndirectCall, and host builtins to
-        IrPrint/IrRenderValue/IrCopyValue/IrAsk/
-        IrAskRequest/IrExec.
+        to IrMakeRecord/IrMakeException. Direct user function and method calls are
+        lowered to IrDirectCall; lambda, closure-valued, and other value
+        calls to IrIndirectCall; partial calls to the partial-call lowering; and host
+        builtins to their dedicated nodes (IrPrint, IrAsk, IrExec, ...).
         """
         callee = call_node.callee
 
         if not is_complete_call(call_node):
             return self._lower_partial_call(call_node, self._checked.partial_calls[nid], span)
 
-        # Check for builtin calls first
         static_kind = self._checked.resolved.builtin_static_calls.get(nid)
         if static_kind is not None:
             return self._lower_builtin_call(static_kind, call_node, span)
@@ -2818,12 +2802,10 @@ class _Lowerer:
             if method is not None:
                 return self._lower_direct_method_call(call_node, method, span)
 
-        # (a) VarRef callee resolving to a constructor.
         if isinstance(callee, VarRef):
             cref = self._checked.constructor_ref_for(callee.node_id)
             if cref is not None:
                 return self._lower_named_constructor_call(nid, span)
-            # (b) Direct user function call
             callee_ref = self._checked.binding_for(callee.node_id)
             if callee_ref is not None and callee_ref.kind is BinderKind.function_binding:
                 if callee_ref.is_builtin and callee_ref.is_method:
@@ -2962,7 +2944,6 @@ class _Lowerer:
         argument or result coercion.
         """
         callee_ir = self.lower_expr(call_node.callee)
-        # The callee's FunctionType drives per-arg coercions.
         callee_fn_type = cast(FunctionType, self._node_type(call_node.callee.node_id))
         arg_irs: list[IrExpr] = [
             self.lower_coerced(arg, callee_fn_type.params[i])
@@ -3344,7 +3325,6 @@ class _Lowerer:
         handlers: "tuple[CatchClause, ...]",
         span: "SourceSpan",
     ) -> IrTry:
-        """Lower a ``Try`` AST node to ``IrTry``."""
         return IrTry(
             location=self._loc(span),
             body=self.lower_expr(body_expr),
@@ -3352,7 +3332,6 @@ class _Lowerer:
         )
 
     def _lower_catch_clause(self, clause: "CatchClause") -> IrCatchHandler:
-        """Lower a ``CatchClause`` to an ``IrCatchHandler``."""
         # Determine nominal.  It carries the resolved exception's own
         # declaration identity (``decl_id`` — the reserved identity for a
         # built-in, or the declaring AST node for an entry or library
@@ -3896,7 +3875,6 @@ class _Lowerer:
             # Expression items — lower as expr
             # ----------------------------------------------------------
             case _:
-                # Anything else must be an expression.
                 return self.lower_expr(item)
 
     def _lower_assign(
@@ -3967,7 +3945,6 @@ class _Lowerer:
         return container_type.key if isinstance(container_type, DictType) else IntType()
 
     def _kind_for_container(self, t: Type) -> IndexKind:
-        """Return IndexKind for an indexable array, dict, or text value."""
         if isinstance(t, ArrayType):
             return IndexKind.ARRAY
         if isinstance(t, DictType):
@@ -3991,8 +3968,8 @@ class _Lowerer:
 
         Function bodies lower before ordinary module initializers. Allocating
         static ``let``/``var`` symbols in the same phase lets their references
-        lower as module-frame loads, while initialization remains in source
-        order after function closures. Parameters allocate their descriptors
+        lower as module-frame loads, while initialization follows the function
+        closures in dependency order (``_initializer_order``). Parameters allocate their descriptors
         while the remaining static declarations are lowered.
         """
         for item in static_items(body.items):

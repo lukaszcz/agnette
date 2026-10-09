@@ -115,8 +115,6 @@ class ActivationIndex:
 
 
 def activation_index_path(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
-    """Return the selected AgM home's package activation-index path."""
-
     return _resolved_activation_index_path(agm_home_dir(home=home, env=env))
 
 
@@ -970,8 +968,6 @@ def _resolved_index_packages(
     env: Mapping[str, str] | None,
     transient_packages: Mapping[str, PackageInfo] | None,
 ) -> tuple[PackageInfo, ...]:
-    """Return *packages* unchanged if given, otherwise resolve and verify *index*."""
-
     if packages is not None:
         return packages
     return resolve_indexed_packages(

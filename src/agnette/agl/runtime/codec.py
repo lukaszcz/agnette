@@ -545,7 +545,6 @@ def _find_enum_decode_at_path(
 
 
 def _plain_enum_tags(decode: DecodeSchema, defs: Mapping[str, DecodeSchema]) -> tuple[str, ...]:
-    """Return *decode*'s member tags when it is a plain enum, else none."""
     resolved = resolve_decode(decode, defs)
     if isinstance(resolved, EnumDecode) and is_plain_enum(resolved):
         return tuple(variant.json_name for variant in resolved.variants)
@@ -836,8 +835,7 @@ class JsonCodec:
     Either way a non-finite number, or one no decimal can hold, is a
     parse failure.
 
-    Schema validation is always strict in both modes (rules 3–6 of
-    never relaxed).
+    Schema validation is strict in both modes.
 
     ``make_contract`` derives the JSON Schema and typeless decode walk once
     from a real checker ``Type`` (compile time / REPL contract preview).

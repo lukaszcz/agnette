@@ -66,6 +66,7 @@ def _run_request(
             prepared,
             idle_timeout=idle_timeout,
             stdout_callback=stdout_callback,
+            # Codex writes stdout nonblocking and fails on a full pipe; capture via a temp file.
             stdout_to_file=isinstance(request.agent, AgentCodex),
             stderr_callback=(
                 None if output_callback is None else lambda text: output_callback("stderr", text)

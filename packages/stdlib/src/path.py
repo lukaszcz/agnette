@@ -18,12 +18,10 @@ def join(parts: list[str]) -> str:
 
 
 def dirname(path: str) -> str:
-    """Return the directory component of *path*."""
     return os.path.dirname(path)
 
 
 def basename(path: str) -> str:
-    """Return the final component of *path*."""
     return os.path.basename(path)
 
 
@@ -64,7 +62,6 @@ def relative(path: str, base: str) -> str:
 
 
 def is_absolute(path: str) -> bool:
-    """Check if *path* is absolute on the host platform."""
     return os.path.isabs(path)
 
 

@@ -2500,11 +2500,9 @@ class AstBuilder(Transformer):
     # ------------------------------------------------------------------
 
     def import_alias(self, meta: Meta, args: _Args) -> str:
-        """Return a module alias name."""
         return str(next(a for a in args if _is_name_token(a)))
 
     def use_alias(self, meta: Meta, args: _Args) -> str:
-        """Return an additive route alias name."""
         return str(next(a for a in args if _is_name_token(a)))
 
     def selection_atom(self, meta: Meta, args: _Args) -> _SelectedAtom:
@@ -2514,7 +2512,6 @@ class AstBuilder(Transformer):
         return _SelectedAtom(path=path, rename=rename, span=self._span_from_meta(meta))
 
     def brace_atom(self, meta: Meta, args: _Args) -> _SelectedAtom:
-        """Pass through a brace atom."""
         return next(a for a in args if isinstance(a, _SelectedAtom))
 
     def brace_glob(self, meta: Meta, args: _Args) -> Token:
@@ -2537,23 +2534,18 @@ class AstBuilder(Transformer):
         return _Braces(entries=cast(tuple[_SelectedAtom | _Braces | Token, ...], entries))
 
     def selection_glob(self, meta: Meta, args: _Args) -> _Selection:
-        """Build a glob selection."""
         return _Selection()
 
     def selection_braces(self, meta: Meta, args: _Args) -> _Selection:
-        """Build a brace selection."""
         return _Selection(braces=next(a for a in args if isinstance(a, _Braces)))
 
     def selection_single(self, meta: Meta, args: _Args) -> _Selection:
-        """Build a single-atom selection."""
         return _Selection(atom=next(a for a in args if isinstance(a, _SelectedAtom)))
 
     def import_tail_clause(self, meta: Meta, args: _Args) -> _Selection:
-        """Pass through an import tail selection."""
         return next(a for a in args if isinstance(a, _Selection))
 
     def export_braces_tail(self, meta: Meta, args: _Args) -> _Braces:
-        """Pass through export braces."""
         return next(a for a in args if isinstance(a, _Braces))
 
     def export_glob_tail(self, meta: Meta, args: _Args) -> Token:
@@ -2561,7 +2553,6 @@ class AstBuilder(Transformer):
         return _required_token(args, "STAR")
 
     def hiding_clause(self, meta: Meta, args: _Args) -> tuple[_ScopePath, ...]:
-        """Collect the paths hidden by one declaration."""
         return tuple(a for a in args if isinstance(a, _ScopePath))
 
     def _trim_token_span(self, token: Token, *, start: int = 0, end: int = 0) -> SourceSpan:
@@ -2612,7 +2603,6 @@ class AstBuilder(Transformer):
         )
 
     def _path_span(self, path: _ScopePath) -> SourceSpan:
-        """Return the span from the first through last segment of a path."""
         return span_covering(path.segments[0][1], path.segments[-1][1])
 
     def _selection_item(
@@ -3091,7 +3081,6 @@ class AstBuilder(Transformer):
 
 
 def _find_type_expr(args: _Args) -> TypeExpr:
-    """Return the first element that is a TypeExpr instance."""
     return next(a for a in args if isinstance(a, _ALL_TYPE_EXPRS))
 
 
@@ -3119,17 +3108,14 @@ def _is_name_token(value: object) -> TypeGuard[Token]:
 
 
 def _is_typed_token(value: object, token_type: str) -> TypeGuard[Token]:
-    """True iff *value* is a lexer token of *token_type*."""
     return isinstance(value, Token) and value.type == token_type
 
 
 def _typed_tokens(args: _Args, token_type: str) -> tuple[Token, ...]:
-    """Return every *token_type* token among a rule's children, in order."""
     return tuple(a for a in args if _is_typed_token(a, token_type))
 
 
 def _typed_token(args: _Args, token_type: str) -> Token | None:
-    """Return the first *token_type* token among a rule's children, if any."""
     tokens = _typed_tokens(args, token_type)
     return tokens[0] if tokens else None
 
@@ -3140,7 +3126,6 @@ def _required_token(args: _Args, token_type: str) -> Token:
 
 
 def _module_path(args: _Args) -> tuple[str, ...]:
-    """Return the segments of the merged module path a header carries."""
     return tuple(str(_required_token(args, "MODPATH")).split(_ROUTE_SEPARATOR))
 
 
@@ -3287,7 +3272,6 @@ def _reject_positional_after_keyed(pos_arg_span: SourceSpan, *, seen_keyed: bool
 
 
 def _find_non_token(args: _Args) -> object:
-    """Return the first non-None, non-Token element in args."""
     return next(a for a in args if a is not None and not isinstance(a, Token))
 
 
@@ -3327,5 +3311,4 @@ def _extract_ann_and_value(
 
 
 def syntax_error_from_meta(meta: Meta, message: str) -> AglSyntaxError:
-    """Create an AglSyntaxError from a Meta object."""
     return AglSyntaxError(message, span=_span_from_meta(meta))

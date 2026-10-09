@@ -101,8 +101,6 @@ def run(command: Sequence[str]) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Run the relay CLI."""
-
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments[:1] == ["--"]:
         arguments = arguments[1:]

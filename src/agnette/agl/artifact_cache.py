@@ -103,7 +103,6 @@ class _ArtifactStore[V]:
                 self._entries.popitem(last=False)
 
     def clear(self) -> None:
-        """Drop every retained artifact."""
         with self._lock:
             self._entries.clear()
 
@@ -190,7 +189,6 @@ def retain_module_exports(
 
 
 def retained_resolved_modules(retainable: RetainedSources) -> dict[ModuleId, ResolvedModule]:
-    """Return the resolved modules retained for these sources."""
     from agnette.agl.scope.program import ResolvedModule
 
     return _served(_RESOLVED, retainable, (), ResolvedModule)
@@ -199,7 +197,6 @@ def retained_resolved_modules(retainable: RetainedSources) -> dict[ModuleId, Res
 def retain_resolved_modules(
     retainable: RetainedSources, modules: Mapping[ModuleId, ResolvedModule]
 ) -> None:
-    """Retain a compilation's resolved modules for the next one."""
     _retain(_RESOLVED, retainable, (), modules)
 
 
@@ -279,14 +276,12 @@ def retain_module_headers(
     capabilities: HostCapabilities,
     headers: Mapping[ModuleId, EnvironmentFacts],
 ) -> None:
-    """Retain a compilation's prepared module headers for the next one."""
     _retain(_HEADERS, retainable, (capability_signature(capabilities),), headers)
 
 
 def retained_match_sites(
     retainable: RetainedSources, capabilities: HostCapabilities
 ) -> dict[ModuleId, CachedModuleSites]:
-    """Return the compiled match sites retained for these sources."""
     from agnette.agl.matchcompile import CachedModuleSites
     from agnette.agl.typecheck.env import CheckedModule
 
@@ -307,7 +302,6 @@ def retain_match_sites(
     capabilities: HostCapabilities,
     sites: Mapping[ModuleId, CachedModuleSites],
 ) -> None:
-    """Retain a compilation's compiled match sites for the next one."""
     _retain(_SITES, retainable, (capability_signature(capabilities),), sites)
 
 

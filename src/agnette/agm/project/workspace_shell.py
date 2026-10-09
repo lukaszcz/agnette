@@ -77,8 +77,6 @@ def _sanitize_session_key(session_name: str) -> str:
 
 
 def workspace_shell_dir(session_name: str) -> Path:
-    """Return the per-session shell directory for *session_name*."""
-
     return workspace_shell_root() / _sanitize_session_key(session_name)
 
 

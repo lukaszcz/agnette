@@ -53,11 +53,9 @@ class LinkImage:
     _linked_modules: set[ModuleId] = field(default_factory=set)
 
     def symbol_for_decl(self, decl_node_id: int) -> SymbolId | None:
-        """Return the persistent symbol allocated for an AST declaration, if any."""
         return self._state.decl_to_sym.get(decl_node_id)
 
     def symbol_of(self, decl_node_id: int) -> SymbolId:
-        """Return the persistent symbol of a promoted declaration."""
         return self._state.decl_to_sym[decl_node_id]
 
     def descriptors(self) -> ValueDescriptors:
@@ -95,7 +93,6 @@ class LinkImage:
         return self._state.snapshot()
 
     def restore_state(self, snapshot: _LinkState) -> None:
-        """Restore a previously snapshotted incremental linker state."""
         self._state = snapshot
 
 

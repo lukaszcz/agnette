@@ -16,12 +16,12 @@ from agnette.core import dry_run
 from agnette.core.env import clone_env, is_safe_shell_env_assignment_name
 from agnette.core.process import run_capture, run_foreground
 
+# Terminal, SSH, D-Bus and XDG session variables are not pinned per session with `-e`; the new
+# session takes them from the tmux server's environment.
 SKIP_PREFIXES: tuple[str, ...] = ("TMUX_", "TERM_", "SSH_", "DBUS_", "XDG_")
 
 
 def validate_pane_count(command_path: list[str], pane_count: str | None) -> int:
-    """Validate an optional pane count and return the effective total."""
-
     if pane_count is None:
         return 4
     if not pane_count.isdigit() or int(pane_count) < 1:
@@ -30,8 +30,6 @@ def validate_pane_count(command_path: list[str], pane_count: str | None) -> int:
 
 
 def _exit_tmux_not_installed() -> NoReturn:
-    """Report an unavailable tmux binary and stop."""
-
     print("Error: tmux is not installed or not in PATH.", file=sys.stderr)
     raise SystemExit(1)
 
@@ -42,8 +40,6 @@ def _tmux_capture(
     cwd: Path,
     env: dict[str, str] | None,
 ) -> tuple[int, str, str]:
-    """Run a tmux command and capture its output."""
-
     try:
         return run_capture(args, cwd=cwd, env=env)
     except FileNotFoundError:
@@ -56,8 +52,6 @@ def _tmux_foreground(
     cwd: Path,
     env: dict[str, str] | None,
 ) -> int:
-    """Run a tmux command with inherited stdio."""
-
     try:
         return run_foreground(args, cwd=cwd, env=env)
     except FileNotFoundError:
@@ -128,7 +122,13 @@ def create_tmux_session(
     env: dict[str, str] | None = None,
     shell_command: str | None = None,
 ) -> str | None:
-    """Create a tmux session matching tmux.sh semantics."""
+    """Create a tmux session with `pane_count` panes (default 4).
+
+    Inside tmux, a non-detached request creates detached and switches the client.
+    Only an explicit `env` is forwarded via `-e`. Returns the session name on the detached path
+    (and the planned name under dry-run); otherwise the attached and switch paths end the
+    process with `SystemExit`, except that the attached path returns `None` under dry-run.
+    """
 
     current = Path.cwd() if cwd is None else cwd.resolve()
     if env is None:
@@ -240,6 +240,8 @@ def create_tmux_session(
                 raise SystemExit(rc)
             return out.strip()
 
+        # Object IDs (and `^`/`{top-left}` elsewhere) keep targeting independent of the
+        # user's base-index and pane-base-index.
         target_window = _display("#{window_id}")
         target_pane = _display("#{pane_id}", target=target_window)
         for _ in range(1, pane_total):
@@ -323,6 +325,7 @@ def queue_shell_command_in_session(
 
     current = Path.cwd() if cwd is None else cwd.resolve()
     resolved_env = clone_env(env)
+    # `^` and `{top-left}` avoid depending on base-index/pane-base-index.
     target = f"{session_name}:^.{{top-left}}"
     if dry_run.enabled():
         dry_run.print_command(
@@ -373,6 +376,7 @@ def session_exists(
     """Return whether a tmux session named *session_name* is running."""
 
     current = Path.cwd() if cwd is None else cwd.resolve()
+    # `=` forbids tmux's prefix/pattern fallback when no session has exactly this name.
     returncode, _stdout, _stderr = _tmux_capture(
         ["tmux", "has-session", "-t", f"={session_name}"],
         cwd=current,
@@ -413,8 +417,6 @@ def focus_tmux_session(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> int:
-    """Attach or switch to an existing tmux session."""
-
     current = Path.cwd() if cwd is None else cwd.resolve()
     resolved_env = clone_env(env)
     command = _focus_command(session_name, resolved_env)
@@ -434,6 +436,7 @@ def kill_tmux_session(
 
     current = Path.cwd() if cwd is None else cwd.resolve()
     resolved_env = clone_env(env)
+    # `=` forces an exact session-name match.
     if dry_run.enabled():
         dry_run.print_command(["tmux", "kill-session", "-t", f"={session_name}"], cwd=current)
         return 0

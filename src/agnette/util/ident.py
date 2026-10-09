@@ -15,7 +15,6 @@ IDENT_STOP: Final[frozenset[str]] = frozenset(
 
 
 def is_identifier_start(character: str) -> bool:
-    """Return whether *character* may start an AgL identifier."""
     return character.isalpha() or character == "_"
 
 

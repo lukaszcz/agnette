@@ -14,7 +14,7 @@ it provides:
   the parser's structured incompleteness signal), shared so a pasted or
   editor-sent multi-line block accumulates identically on both front ends;
 - :func:`run_repl_loop` — the loop itself, parameterized by a reader/writer
-  seam and an ``on_theme_change`` hook.
+  seam and an ``on_setting_change`` hook.
 """
 
 from __future__ import annotations

@@ -153,24 +153,20 @@ ENGINE_KEY_NAMES: frozenset[str] = frozenset(spec.name for spec in ENGINE_KEYS)
 
 
 def engine_keys_for(consumer: EngineKeyConsumer) -> frozenset[str]:
-    """Return the names of every engine key consumed by *consumer*."""
     return frozenset(spec.name for spec in ENGINE_KEYS if spec.consumer is consumer)
 
 
 # Keys whose write applies a live effect inside the AgL evaluator.
 RUNTIME_LIVE_ENGINE_KEYS: frozenset[str] = engine_keys_for(EngineKeyConsumer.RUNTIME_LIVE)
 
-# Keys backed by a host-owned register.
 HOST_CONSUMED_ENGINE_KEYS: frozenset[str] = engine_keys_for(EngineKeyConsumer.HOST_CONSUMED)
 
-#: Every declared register name.
 ENGINE_REGISTERS: tuple[str, ...] = tuple(
     sorted({spec.register for spec in ENGINE_KEYS if spec.register is not None})
 )
 
 
 def engine_keys_for_register(register: str) -> frozenset[str]:
-    """Return the names of every engine key sharing *register*."""
     return frozenset(spec.name for spec in ENGINE_KEYS if spec.register == register)
 
 
@@ -182,12 +178,10 @@ _TRACE_ENABLING_KEYS: frozenset[str] = frozenset(
     spec.name for spec in ENGINE_KEYS if spec.register == TRACE_REGISTER and spec.enables_register
 )
 
-#: Names of the engine keys whose value must not be negative.
 NON_NEGATIVE_ENGINE_KEYS: frozenset[str] = frozenset(
     spec.name for spec in ENGINE_KEYS if spec.non_negative
 )
 
-#: Ordered names of the engine keys whose value is a filesystem path.
 PATH_ENGINE_KEYS: tuple[str, ...] = tuple(spec.name for spec in ENGINE_KEYS if spec.is_path)
 
 

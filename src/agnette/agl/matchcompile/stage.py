@@ -85,7 +85,6 @@ class MatchCompilationResult:
 
 
 def _source_sites(program: Program) -> dict[int, SourceMatchSite]:
-    """Collect case-expression match sites."""
     sites: dict[int, SourceMatchSite] = {}
 
     def collect(node: object) -> None:

@@ -1,8 +1,7 @@
 """What one module's path lookups read: its own declarations, imports and uses, by full path.
 
 :class:`ModuleSources` implements :class:`~agnette.agl.scope.lookup.PathSources`
-for the module ``_Resolver`` resolves, and records the full path each own
-scope path declares. It reads the declaration and constructor tables the
+for the module ``_Resolver`` resolves. It reads the declaration and constructor tables the
 resolver collects and the lexical layers its walk binds: :class:`SourcesHost`
 declares what it reads of them.
 """
@@ -431,7 +430,6 @@ class ModuleSources(SourcesHost):
         return index
 
     def _owner_at(self, path: ScopePath) -> TypeOwner | None:
-        """This module's current type owner at *path*."""
         return self._type_owners.owner((self._module_id, _bare_atom(path)))
 
     def _spellings_of(self, enum: QName) -> tuple[str, ...]:
@@ -1496,12 +1494,10 @@ class ModuleSources(SourcesHost):
         return self.identity(key) if denoted is None else denoted
 
     def aliases(self, key: DeclarationKey) -> bool:
-        """Whether *key* declares a type alias."""
         owner = self._type_owners.owner(_key_qname(key))
         return owner is not None and owner.alias is not None
 
     def declares(self, key: DeclarationKey) -> bool:
-        """Whether this module declares *key*."""
         return key[0] == self._module_id
 
     def contributed_origins(self, step: ScopePath, path: ScopePath) -> frozenset[Origin]:
@@ -1901,9 +1897,6 @@ class ModuleSources(SourcesHost):
         path = _bare_path(src_name)
         return BindingRef(
             name=path[-1],
-            # Only ``var``/``builtin var`` bindings are mutable across a module
-            # boundary; every other exported binding (functions, constructors,
-            # exported ``let``s, …) is immutable at the reference site.
             mutable=info.kind in (BinderKind.builtin_var_binding, BinderKind.var_binding),
             decl_span=info.decl_span,
             decl_node_id=info.decl_node_id,

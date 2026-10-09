@@ -48,7 +48,6 @@ class NominalConstructor:
 
     @property
     def terminal_name(self) -> str:
-        """Return the record declaration's terminal name for source rendering."""
         return self.record_type.name
 
 

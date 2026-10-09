@@ -42,11 +42,12 @@ def help_width() -> int:
 
 
 def clone_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Return a fresh mutable copy of *env* (process environment when None)."""
     return dict(os.environ if env is None else env)
 
 
 _SHELL_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+# Shell-managed (some bash-readonly), login-identity and terminal/display variables: assigning
+# them would fail or clobber the target shell's own values.
 _SHELL_ENV_ASSIGNMENT_SKIP_NAMES = frozenset(
     {
         "_",
@@ -70,8 +71,6 @@ _SHELL_ENV_ASSIGNMENT_SKIP_NAMES = frozenset(
 
 
 def is_shell_identifier(name: str) -> bool:
-    """Return whether *name* has shell variable identifier syntax."""
-
     return _SHELL_IDENTIFIER_RE.fullmatch(name) is not None
 
 
@@ -209,6 +208,4 @@ def source_env_file(
     *,
     cwd: Path | None = None,
 ) -> dict[str, str]:
-    """Source one env file if it exists."""
-
     return source_env_files([path], env, cwd=cwd)

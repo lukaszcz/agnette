@@ -479,9 +479,9 @@ class CheckedModule(_Record):
         Maps ``node_id`` → resolved ``Type`` for every expression node that
         was type-checked.  Statement nodes are not entered here.
     ``contract_specs``
-        Maps ``AgentCall.node_id`` → ``OutputContractSpec`` for call sites that
-        parse output. ``unit`` agent calls are omitted because they have no
-        output contract.
+        Maps the call-site node id → ``OutputContractSpec`` for ``ask``/``ask-request``/
+        ``exec`` calls. A unit ``exec`` records codec ``"none"``; a unit ``ask`` records
+        nothing.
     ``target_contract_specs``
         Maps the node id of each type-directed extern occurrence (call,
         reference, method projection, partial application) → one strict JSON
@@ -1163,7 +1163,6 @@ class TypeEnvironment:
 
     @property
     def type_table(self) -> TypeTable:
-        """The shared ``TypeTable`` populated alongside ``_types`` (dual-write)."""
         return self._type_table
 
     # --- Shared type-table registration ---
@@ -1414,7 +1413,6 @@ class TypeEnvironment:
         self._record_fact(GenericTypeFact(name=name, gdef=gdef))
 
     def get_generic_type(self, name: str) -> GenericTypeDef | None:
-        """Return the ``GenericTypeDef`` for *name*, or ``None`` if unknown."""
         return self._generic_types.get(name)
 
     def generic_type_of(self, name: str) -> GenericTypeDef:
@@ -1707,7 +1705,6 @@ class TypeEnvironment:
         self._record_fact(ExternNodeIdFact(node_id=node_id))
 
     def is_extern_node_id(self, node_id: int) -> bool:
-        """Return ``True`` if *node_id* names a declared ``extern def``."""
         return node_id in self._extern_node_ids
 
     # --- Binding type table ---
@@ -2163,10 +2160,7 @@ class TypeEnvironment:
         """Return the full declared type-name set for type-namespace enumeration.
 
         Combines registered nominal types (records, enums, exceptions, and
-        built-ins) with registered alias names and generic templates. Retained
-        for generic type resolution in future work, where the complete
-        type-namespace must be enumerable to validate applied-type names (e.g.
-        ``Pair[int, text]``), and for REPL rollback of a type-owned subtree.
+        built-ins) with registered alias names and generic templates.
         """
         return (
             frozenset(self._types) | frozenset(self._alias_targets) | frozenset(self._generic_types)
@@ -2228,7 +2222,6 @@ class TypeEnvironment:
         return self._program_generic_table.get((module_id, scope_path, name))
 
     def all_generic_types(self) -> dict[str, GenericTypeDef]:
-        """Return the own-module generic type map (name → GenericTypeDef)."""
         return self._generic_types
 
     # --- Seeding support ---

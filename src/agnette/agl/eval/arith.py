@@ -172,5 +172,4 @@ def negate(kind: NumericKind, value: Value) -> Value:
 
 
 def logical_not(value: BoolValue) -> BoolValue:
-    """Logical NOT: BoolValue → BoolValue."""
     return BoolValue(not value.value)

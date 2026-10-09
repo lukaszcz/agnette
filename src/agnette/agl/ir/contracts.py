@@ -651,8 +651,8 @@ class ContractPayload:
     """Typeless materialized-codec payload embedded in a contract request.
 
     Hosts may materialize custom codecs while checker types are still available
-    and pass only these immutable runtime fields into lowering.  The linked IR
-    never stores the checker ``Type`` or ``TypeTable`` used to derive them.
+    and pass only these immutable runtime fields into lowering.  The payload itself holds
+    no checker ``Type`` or ``TypeTable``.
     """
 
     json_schema: str | None

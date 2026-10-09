@@ -14,7 +14,6 @@ BuiltinVarKey: TypeAlias = StaticBindingKey
 
 
 def builtin_var_key(module_id: ModuleId, scope_path: Iterable[str], name: str) -> BuiltinVarKey:
-    """Build a structured host-backed binding identity."""
     return static_binding_key(module_id, scope_path, name)
 
 

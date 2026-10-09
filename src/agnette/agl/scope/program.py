@@ -257,8 +257,6 @@ class ResolvedProgram:
 
     @property
     def entry_id(self) -> ModuleId:
-        """Return the entry module's identity, as the loaded graph keys it."""
-
         return self.graph.entry_id
 
     @property
@@ -646,7 +644,6 @@ def _resolve_reexports(
 
 
 def _export_count(graph: ModuleGraph, component: tuple[ModuleId, ...]) -> int:
-    """How many export declarations *component*'s modules make."""
     return sum(len(graph.modules[mid].export_decls) for mid in component)
 
 

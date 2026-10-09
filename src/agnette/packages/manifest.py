@@ -383,7 +383,10 @@ def _commands(raw: TomlDict, unknown: list[UnknownField]) -> dict[str, CommandSp
 def _collect_commands(
     raw: TomlDict, *, prefix: str, commands: dict[str, CommandSpec], unknown: list[UnknownField]
 ) -> None:
-    """Flatten nested TOML command tables into space-separated CLI paths."""
+    """Flatten nested TOML command tables into space-separated CLI paths.
+
+    ``[commands."a b"]`` denotes the same path as ``[commands.a.b]``; defining both is an error.
+    """
 
     for name, value in raw.items():
         path = f"{prefix} {name}" if prefix else name

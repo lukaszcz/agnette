@@ -28,26 +28,18 @@ def fs_error_message(operation: str, path: str) -> str:
 
 
 def exists(path: Path) -> bool:
-    """Return whether *path* exists."""
-
     return path.exists()
 
 
 def is_file(path: Path) -> bool:
-    """Return whether *path* is a file."""
-
     return path.is_file()
 
 
 def is_dir(path: Path) -> bool:
-    """Return whether *path* is a directory."""
-
     return path.is_dir()
 
 
 def read_text(path: Path, *, encoding: str = "utf-8") -> str:
-    """Read text from *path*."""
-
     return path.read_text(encoding=encoding)
 
 
@@ -89,8 +81,6 @@ def read_text_arg(path: Path, *, encoding: str = "utf-8") -> str:
 
 
 def stat(path: Path) -> os.stat_result:
-    """Return stat information for *path*."""
-
     return path.stat()
 
 
@@ -122,26 +112,18 @@ def identity_stamp_is_settled(stamp: IdentityStamp, observed_ns: int) -> bool:
 
 
 def iterdir(path: Path) -> list[Path]:
-    """Return the immediate children of *path*."""
-
     return list(path.iterdir())
 
 
 def rglob(path: Path, pattern: str) -> list[Path]:
-    """Return recursive glob matches under *path*."""
-
     return list(path.rglob(pattern))
 
 
 def is_empty_dir(path: Path) -> bool:
-    """Return whether *path* is an empty directory."""
-
     return not any(iterdir(path))
 
 
 def access(path: Path, mode: int) -> bool:
-    """Return whether *path* is accessible with *mode*."""
-
     return os.access(path, mode)
 
 
@@ -225,8 +207,6 @@ def append_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
 
 
 def copy_file(source: Path, destination: Path) -> None:
-    """Copy one file with its metadata."""
-
     shutil.copy2(source, destination)
 
 
@@ -250,8 +230,6 @@ def backup_file(path: Path) -> None:
 
 
 def move(source: Path, destination: Path) -> None:
-    """Move a file or directory."""
-
     shutil.move(source, destination)
 
 

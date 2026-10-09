@@ -362,15 +362,10 @@ def bind_program_arguments_for(
 ) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
     """Fuse *program*'s declaration info with *executable*'s signature, then bind *arguments*.
 
-    The shared tail of ``PipelineDriver.preflight_arguments`` and
-    ``commands.exec_program.run``: both hold an already-lowered
-    ``ExecutableProgram`` and the ``ProgramDeclInfo`` for the same selected
-    program, and both need a :class:`ProgramSignature` fused from them before
-    calling :func:`bind_program_arguments` — this is the one place that
-    fusing happens, so the two hosts can never pair the two descriptions
-    differently. *default_resolver*, when given, fills a defaulted field an
-    argument's value omits (built by the caller over *executable*'s own real
-    nominal table — this package never constructs an evaluator itself).
+    *program* and *executable* must describe the same selected program.
+    *default_resolver*, when given, fills a defaulted field an argument's value omits
+    (built by the caller over *executable*'s own real nominal table — this package never
+    constructs an evaluator itself).
     """
     program_symbol = executable.program_symbols[program.node_id]
     signature = ProgramSignature.fuse(

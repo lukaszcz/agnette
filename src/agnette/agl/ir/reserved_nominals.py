@@ -157,7 +157,6 @@ RESERVED_ENUM_MEMBER_IDS: Mapping[tuple[str, str], int] = types.MappingProxyType
 
 
 def reserved_nominal_id(name: str) -> int | None:
-    """Return *name*'s reserved identity, or ``None`` if *name* is not reserved."""
     return RESERVED_NOMINAL_IDS.get(name)
 
 

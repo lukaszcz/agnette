@@ -264,8 +264,7 @@ class PreparedProgram:
     """Result of the load + scope phase of an AgL multi-module program.
 
     Produced by :meth:`PipelineDriver.prepare_program` and consumed by
-    :meth:`PipelineDriver.run_prepared`.  Properties mirror
-    :class:`PreparedProgram` but read from the entry module of the program.
+    :meth:`PipelineDriver.run_prepared`.
 
     ``resolved``
         The fully loaded and scope-resolved module graph, or ``None`` when
@@ -1446,7 +1445,7 @@ class PipelineDriver:
         nothing is executed and no module initializer runs. Empty when
         *program* declares no ``@config``, so an unconfigured program never
         pays this construction cost; *get_interp* is shared with the field-
-        default resolver built alongside it in :meth:`prepare_arguments`, so
+        default resolver built alongside it in :meth:`preflight_arguments`, so
         at most one throwaway interpreter is ever built per preflight.
         """
         program_symbol = executable.program_symbols[program.node_id]
@@ -1619,7 +1618,6 @@ class PipelineDriver:
 
     @property
     def default_call_depth_limit(self) -> int:
-        """Maximum call depth for recursive functions."""
         return self._default_call_depth_limit
 
     def reset_extern_registry(self) -> None:
@@ -2156,6 +2154,8 @@ def _wire_extern_registry(
     diagnostics: list[Diagnostic] = []
     loaded_modules: set["ModuleId"] = set()
     failed_modules: set["ModuleId"] = set()
+    # Verdicts live for this wiring only and are never cached in the artifact cache:
+    # installed distributions can change between runs.
     requirement_verdicts: dict[Path, bool] = {}
     check_requirements = any(package.manifest.python_dependencies for package in packages)
     for mid, name in declarations:

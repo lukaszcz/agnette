@@ -54,10 +54,9 @@ def discover_development_packages(
     the host's source directory. Its mounted dependencies are the manifests at
     explicitly declared relative ``[dependencies]`` ``path`` sources. This
     deliberately does not scan loose module roots. Each path source must match
-    its dependency key and minimum version; store activation can supply
-    additional roots through the same ``package_roots`` seam later. When the
-    host provides its home, an immutable store entry is left to active package
-    selection rather than being reclassified as development source.
+    its dependency key and minimum version. When the host provides its home, an
+    immutable store entry is left to active package selection rather than being
+    reclassified as development source.
     """
 
     seed = containing_development_package(anchor, home=home)

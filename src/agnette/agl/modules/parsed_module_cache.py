@@ -165,7 +165,6 @@ class ParsedModuleCache:
             return module
 
     def clear(self) -> None:
-        """Drop every cached module."""
         with self._lock:
             self._entries.clear()
 

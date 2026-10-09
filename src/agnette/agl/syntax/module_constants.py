@@ -429,5 +429,4 @@ class ModuleConstants:
 
 
 def _spelling(expr: VarRef) -> str:
-    """Return a reference as it was written, for a diagnostic."""
     return render_qualified_name(expr.qualifier, expr.name)

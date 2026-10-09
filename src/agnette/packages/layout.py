@@ -27,12 +27,8 @@ while the rest of the id is a path beneath this directory.
 
 
 def store_root_path(agm_home: Path) -> Path:
-    """Return the package-store root beneath an already-resolved AgM home."""
-
     return agm_home / STORE_DIRNAME
 
 
 def activation_index_path(agm_home: Path) -> Path:
-    """Return the activation-index path beneath an already-resolved AgM home."""
-
     return store_root_path(agm_home) / ACTIVATION_INDEX_FILENAME

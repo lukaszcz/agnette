@@ -171,7 +171,6 @@ class MethodDef:
 
     @property
     def declaration_key(self) -> DeclKey:
-        """Return the method's structured declaration identity."""
         return self.module_id, self.scope_path, self.name
 
 
@@ -842,11 +841,9 @@ class TypeTable:
         self._method_sites[key] = candidates
 
     def _put_method(self, decl_id: DeclId, method: MethodDef) -> None:
-        """Register *method* under its declaration key on *decl_id*."""
         self._file_method(self._methods.setdefault(decl_id, {}).setdefault(method.name, {}), method)
 
     def register_method(self, owner: NominalOwner, method: MethodDef) -> None:
-        """Register *method* under its nominal *owner*."""
         self._put_method(owner.decl_id, method)
 
     def register_builtin_method(self, constructor: str, method: MethodDef) -> None:
@@ -1020,7 +1017,6 @@ class TypeTable:
         return index
 
     def exception_children(self, decl_id: DeclId) -> tuple[DeclId, ...]:
-        """Return the ids of the exceptions directly extending *decl_id*."""
         return self._exception_children_index().get(decl_id, ())
 
     def exception_descendants(self, decl_id: DeclId) -> tuple[TypeDef, ...]:
@@ -1329,7 +1325,6 @@ class TypeTable:
         return tuple(member for member in self.enum_members(source) if member in target_members)
 
     def enum_is_subset(self, source: EnumType, target: EnumType) -> bool:
-        """Return whether every constructor of *source* is a constructor of *target*."""
         return frozenset(self.enum_members(source)) <= frozenset(self.enum_members(target))
 
     def exception_fields(self, handle: ExceptionType) -> Mapping[str, Type]:

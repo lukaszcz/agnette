@@ -75,8 +75,6 @@ def _is_usage_error(error: Exception) -> bool:
 
 
 def _path_length(item: tuple[str, CommandRegistration]) -> int:
-    """Return the number of words in an indexed command path."""
-
     return len(item[0].split())
 
 

@@ -98,7 +98,6 @@ def resolve_timeout(engine_seeds: "Mapping[str, Value]") -> float | None:
 
 
 def resolve_strict_json(engine_seeds: "Mapping[str, Value]") -> bool:
-    """Return the merged ``strict-json`` seed; ``False`` when unset."""
     seed = engine_seeds.get("strict-json")
     return isinstance(seed, BoolValue) and seed.value
 

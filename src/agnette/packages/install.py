@@ -200,7 +200,7 @@ def install_directory_with_plan(
 ) -> PackageInstallPlan:
     """Install a package directory, or activate it as an editable package.
 
-    Dependencies use MVS: an installed satisfying version is selected first;
+    Dependencies: the highest installed satisfying version is selected first;
     otherwise a declared local path is installed recursively or a URL archive
     is fetched, hash-verified, and installed. Returns the activation plan.
     """
@@ -1116,6 +1116,11 @@ def _fetch_archive_install(
 def _verify_existing_install(
     root: Path, manifest: PackageManifest, package_hash: str | None = None
 ) -> None:
+    """Check an existing install matches *manifest*.
+
+    RECORD is unsigned and lives inside the tree it describes, so verifying it only proves
+    self-consistency; trust comes from comparing the content hash to *package_hash*.
+    """
     try:
         installed = load_manifest(root / "package.toml")
         if canonical_package_identity(

@@ -241,17 +241,14 @@ def _positional_argument() -> click.Argument:
 
 
 def _positive_dest(index: int) -> str:
-    """Return the command-parameter name holding option *index*'s positive value."""
     return f"_opt{index}"
 
 
 def _negative_dest(index: int) -> str:
-    """Return the command-parameter name holding option *index*'s ``--no-`` flag."""
     return f"_neg{index}"
 
 
 def _spelling_tuple(spelling: str | None) -> tuple[str, ...]:
-    """Return *spelling* as a tuple, empty when there is none."""
     return () if spelling is None else (spelling,)
 
 
@@ -299,7 +296,6 @@ class ProjectedOption:
 
     @property
     def takes_value(self) -> bool:
-        """Return whether this option consumes a following ``VALUE`` token."""
         return self.value_form is not ValueForm.BOOL
 
 
@@ -459,12 +455,10 @@ class ParsedTail:
 
     @property
     def positional(self) -> tuple[object, ...]:
-        """Return the parsed program positional values."""
         return self.arguments.positional
 
     @property
     def named(self) -> Mapping[str, object]:
-        """Return the parsed program named values."""
         return self.arguments.named
 
 
@@ -869,7 +863,6 @@ def _from_commandline(ctx: click.Context, dest: str) -> bool:
 
 
 def _from_environment(ctx: click.Context, dest: str) -> bool:
-    """Return whether *dest* was filled by its environment fallback."""
     return ctx.get_parameter_source(dest) is ParameterSource.ENVIRONMENT
 
 

@@ -51,7 +51,6 @@ class SpacedQualifier:
 
     @property
     def dcolon_offset(self) -> int:
-        """Source offset of the ``::`` that whitespace kept out of the run."""
         return self.dcolon_span.start_offset
 
     def covers(self, offset: int) -> bool:

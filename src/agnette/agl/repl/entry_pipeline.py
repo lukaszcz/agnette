@@ -58,7 +58,10 @@ class LoadedCheckedProgram:
 
 
 def _hashability_downgrade(previous: TypeTable, current: TypeTable) -> TypeDef | None:
-    """Find a retained concrete Hashable proof invalidated by a new subtype."""
+    """Find a retained concrete Hashable proof invalidated by a new subtype.
+
+    Retained code was compiled against that proof, so it must stay valid.
+    """
     from agnette.agl.constraints import ConstraintKind
     from agnette.agl.semantics.type_table import satisfies
 

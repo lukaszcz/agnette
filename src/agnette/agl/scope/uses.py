@@ -133,6 +133,9 @@ class UseReader:
     """The uses one module writes, and those a REPL session retained, as the module reads them.
 
     *scope_entity_kinds* is the kind of each of the module's own declarations.
+
+    A retained REPL ``use`` is never re-validated: once its target vanishes it
+    silently contributes nothing (validation covers only uses the entry writes).
     """
 
     def __init__(

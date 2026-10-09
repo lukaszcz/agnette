@@ -41,7 +41,7 @@ def validate_dependencies(
     """Ensure every requirement has a usable store, path, or URL source.
 
     Stored and previously selected versions take precedence, matching
-    installation's MVS resolution. When no selected version satisfies a
+    installation's highest-satisfying-version resolution. When no selected version satisfies a
     requirement, a local path source is recursively checked. A URL with its
     required digest is a satisfiable
     deferred source; validation never fetches it.

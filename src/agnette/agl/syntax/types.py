@@ -276,7 +276,6 @@ def render_qualifier_path(qualifier: QualifierChain) -> str:
 
 
 def render_qualified_name(qualifier: QualifierChain | None, name: str) -> str:
-    """Render *name* behind its optional *qualifier* as written."""
     if qualifier is None:
         return name
     path = render_qualifier_path(qualifier)

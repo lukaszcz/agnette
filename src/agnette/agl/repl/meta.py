@@ -105,7 +105,6 @@ def _handle_help(arg: str, ctx: MetaContext) -> MetaOutcome:
 
 
 def _handle_quit(arg: str, ctx: MetaContext) -> MetaOutcome:
-    """``:quit`` / ``:exit`` — leave the REPL."""
     del arg
     ctx.quit = True
     return MetaOutcome(text=None, quit=True)

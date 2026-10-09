@@ -493,7 +493,6 @@ class _SchemaPlan:
 
 
 def _plan_schema(typ: Type, type_table: TypeTable) -> _SchemaPlan:
-    """Build the recursion plan for *typ*: its instantiation graph, SCCs, and $defs keys."""
     return _plan_types((typ,), type_table)
 
 
@@ -813,7 +812,6 @@ _SCALAR_KINDS: dict[type[Type], ScalarKind] = {
 
 
 def _scalar_kind(typ: Type) -> ScalarKind:
-    """Map one of the five scalar/``json`` leaf types to its ``ScalarKind``."""
     return _SCALAR_KINDS[type(typ)]
 
 

@@ -30,10 +30,12 @@ _ACTIVE_SERVICES: contextvars.ContextVar[HostAgentServices] = contextvars.Contex
 
 
 def active_agent_services(services: HostAgentServices) -> ScopedVar[HostAgentServices]:
-    """Publish the host's services for an extern call's extent."""
     return ScopedVar(_ACTIVE_SERVICES, services)
 
 
 def current_agent_services() -> HostAgentServices:
-    """Return the agent services of the current extern call."""
+    """Return the services published by :func:`active_agent_services`.
+
+    Valid only inside an extern call under that scope; raises ``LookupError`` outside.
+    """
     return _ACTIVE_SERVICES.get()

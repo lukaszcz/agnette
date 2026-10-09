@@ -253,7 +253,6 @@ _COMPANION_RUNTIME = _CompanionRuntime()
 
 
 def active_call_span() -> "Location | None":
-    """The span of the extern call active in this context, or ``None``."""
     return _COMPANION_RUNTIME.active_span()
 
 
@@ -720,8 +719,6 @@ class ExternRegistry:
 
     @staticmethod
     def _import_error(module_id: ModuleId, canonical: Path, cause: Exception) -> ExternImportError:
-        """Report *cause* as *module_id*'s companion failing to import."""
-
         return ExternImportError(module_id, f"companion {canonical} failed to import: {cause}")
 
     def _bind_module(self, module_id: ModuleId, module: ModuleType) -> None:
@@ -734,7 +731,6 @@ class ExternRegistry:
         self._by_module[module_id] = module
 
     def loaded_companion(self, module_id: ModuleId) -> ModuleType | None:
-        """The companion module bound to *module_id*, or ``None`` when none is loaded."""
         return self._by_module.get(module_id)
 
     def resolve(self, module_id: ModuleId, name: str) -> ExternCallable:

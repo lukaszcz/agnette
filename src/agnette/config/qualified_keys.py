@@ -37,8 +37,6 @@ class QualifiedConfigKey:
     leaf_aliases: tuple[str, ...] = ()
 
     def leaf_spellings(self) -> tuple[str, ...]:
-        """Return every leaf spelling that addresses this declaration."""
-
         return (self.leaf, *self.leaf_aliases)
 
     def display_name(self) -> str:

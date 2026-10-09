@@ -309,13 +309,9 @@ class PathSources(DeclarationNames, Protocol):
         """Full *path* when it is one of the module's own scope paths or types."""
         ...
 
-    def aliases(self, key: DeclarationKey) -> bool:
-        """Whether *key* declares a type alias."""
-        ...
+    def aliases(self, key: DeclarationKey) -> bool: ...
 
-    def declares(self, key: DeclarationKey) -> bool:
-        """Whether the module declares *key*."""
-        ...
+    def declares(self, key: DeclarationKey) -> bool: ...
 
     def contributed_origins(self, step: ScopePath, path: ScopePath) -> frozenset[Origin]:
         """The scopes and types contributions anchored at or above *step* reach as *path*.
@@ -1051,11 +1047,9 @@ class _Walk:
 
     @property
     def names(self) -> tuple[str, ...]:
-        """The names of the walk's full path."""
         return self._names
 
     def hidden(self, chain: QualifierChain) -> HiddenMemberError:
-        """The refusal of the walk's spelling, *chain*, as hidden."""
         return hidden_member(chain, self._names[-1])
 
     def _applied(

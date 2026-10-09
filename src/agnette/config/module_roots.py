@@ -14,7 +14,7 @@ Config schema (in any of the layered ``config.toml`` files):
     ]
 
 Layering follows the same order as all other AgM config:
-    AgM home config.toml  →  project config/config.toml  →  cwd/.agm/config.toml
+    install-prefix and AgM home config.toml  →  project config/config.toml  →  cwd/.agm/config.toml
 
 For ``lib_root``, later layers override earlier ones (last-write-wins).
 For ``roots``, entries from *all* layers are accumulated (union).
@@ -68,7 +68,7 @@ def load_module_roots(
 ) -> ModuleRootsConfig:
     """Read module-root configuration from all AgM config layers.
 
-    Visits each config file in layering order (home → project → cwd).  For
+    Visits each config file in layering order (install prefix → home → project → cwd).  For
     ``[modules] lib_root``, later files override earlier ones.  For
     ``[modules] roots``, entries from all files are accumulated.
 
@@ -88,12 +88,10 @@ def load_module_roots(
             continue
         table = toml_dict(modules_section)
 
-        # lib_root: last layer that sets it wins
         lib_root_raw = table.get("lib_root")
         if isinstance(lib_root_raw, str) and lib_root_raw.strip():
             lib_root = (interp_preserving(lib_root_raw, os.environ)[0], origin_dir)
 
-        # roots: accumulated across layers
         roots_raw = table.get("roots")
         if isinstance(roots_raw, list):
             for item in roots_raw:

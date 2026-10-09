@@ -94,8 +94,6 @@ def _report_undeclared_config_keys(
 
     Each route carries its own declaration set because one config table can
     address a module binding while another addresses the selected program.
-    Keeping the existing warning wording preserves the ``agm exec`` contract
-    while allowing module routes to use the same reporting primitive.
     """
     for route in routes:
         leaf_tables = configured_leaf_tables(

@@ -1,8 +1,9 @@
 """Mutual exclusion among the run-time options AgL-running commands share.
 
 The exclusive groups are derived from the engine-key catalog through the same
-CLI projection that generates the flags, so a key added there brings its own
-rule with it instead of needing a row here.
+CLI projection that generates the flags; :func:`execution_option_conflict` maps
+each supplied argument to its flag by hand, so a new key with separate positive/negative
+options, or one joining a register, needs a row there.
 """
 
 from __future__ import annotations

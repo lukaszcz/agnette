@@ -242,7 +242,6 @@ def _write_archive_in_open_parent(
 
 
 def _close_parent(parent_fd: int | None) -> None:
-    """Release the bound parent directory, tolerating one never opened."""
     if parent_fd is not None:
         os.close(parent_fd)
 
@@ -434,7 +433,11 @@ def _verify_open_archive(archive: zipfile.ZipFile) -> ArchiveMetadata:
 
 
 def _read_archive(archive_path: Path, operation: Callable[[zipfile.ZipFile], T]) -> T:
-    """Run an archive read operation while presenting ZIP failures as domain errors."""
+    """Run an archive read operation while presenting ZIP failures as domain errors.
+
+    Limit checks, ZIP parsing and *operation* share one opened file, so the path
+    cannot be swapped for a different file between them.
+    """
 
     try:
         with archive_path.open("rb") as archive_file:

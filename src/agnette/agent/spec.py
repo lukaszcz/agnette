@@ -52,7 +52,7 @@ class PermissionMode(StrEnum):
     selects its most permissive mode, meant for use inside a sandbox;
     ``NONE`` appends no flag, leaving the agent's default prompting behavior
     in place. Every spec's ``argv``/``session_argv``/``rpc_argv`` takes this
-    keyword-only, defaulting to ``NONE`` so unmigrated callers are unaffected.
+    keyword-only, defaulting to ``NONE``.
     """
 
     NATIVE = "native"
@@ -374,7 +374,6 @@ def model_fields(spec_cls: type[NativeAgentSpec]) -> tuple[str, ...]:
 
 
 def payload_items(spec: AgentSpec) -> dict[str, str]:
-    """*spec*'s field values, keyed by field name."""
     return {name: cast("str", getattr(spec, name)) for name in payload_fields(type(spec))}
 
 
@@ -401,5 +400,4 @@ def _pi_options(provider: str, model: str, thinking: str) -> list[str]:
 
 
 def _flag(flag: str, value: str) -> tuple[str, ...]:
-    """Return the flag/value pair, or nothing when the setting is unset."""
     return (flag, value) if value else ()

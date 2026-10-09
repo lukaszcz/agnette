@@ -56,12 +56,10 @@ def cwd() -> str:
 
 
 def pid() -> int:
-    """Return this process identifier."""
     return os.getpid()
 
 
 def hostname() -> str:
-    """Return this host's name."""
     return scalar_host_text(socket.gethostname(), EncodingError)
 
 

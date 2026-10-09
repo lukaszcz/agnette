@@ -272,7 +272,6 @@ def lower_program(
     # automatically dropping one an entry never promoted.
     link.builtin_nominals = builtin_nominals_from_declarations(type_table)
 
-    # Step 1: Register a SourceFile for every module.
     module_source_ids: dict[ModuleId, SourceId] = {}
     for mid, cm in checked.modules.items():
         if mid in _already_linked:
@@ -312,7 +311,7 @@ def lower_program(
         typedef.decl_node_id for typedef in type_table.entries() if typedef.is_inline_enum_member
     }
 
-    # Step 2: Phase 1 — pre-allocate every static runtime symbol before any
+    # Phase 1 — pre-allocate every static runtime symbol before any
     # body is lowered. Function ids enable calls across root and named-scope
     # declaration paths; binding symbols make library lets/vars available to
     # their functions while their initializers retain dependency order below.
@@ -338,7 +337,7 @@ def lower_program(
         module_lowerers[mid] = lowerer
         lowerer.prealloc_static_symbols(cm.resolved.program.body)
 
-    # Step 3: Phase 2 — lower bodies in the loader's dependency/SCC order.
+    # Phase 2 — lower bodies in the loader's dependency/SCC order.
     # Type checking intentionally preserves its own presentation order, so it
     # retains the loader's reverse-topological components separately for this
     # execution-sensitive pass. Within an import cycle, the loader's stable
@@ -363,6 +362,8 @@ def lower_program(
         fingerprint = checked.module_fingerprints.get(mid) if _link is None else None
         key = None
         if fingerprint is not None:
+            # Inputs the source fingerprint cannot see: a module with unchanged sources
+            # still relowers when any of them differ.
             context = (
                 checked.resource_roots[mid],
                 STD_ENV_ID in checked.modules,
@@ -420,7 +421,7 @@ def lower_program(
                 ),
             )
 
-    # Step 4: Build nominals from the authoritative TypeTable declarations.
+    # Build nominals from the authoritative TypeTable declarations.
     # Aliases do not have a TypeDef, so this also excludes their transparent
     # source spellings without comparing concatenated scope names. ``entries()``
     # yields every declaration the table retains -- including a superseded one

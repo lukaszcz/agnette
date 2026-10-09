@@ -79,6 +79,7 @@ def _project_dir_from_workspace(
     workspace_dir: Path, *, env: Mapping[str, str] | None = None
 ) -> Path | None:
     candidate_agm_dir = workspace_dir / ".agm"
+    # The AgM home (default `~/.agm`) is not an embedded project.
     if candidate_agm_dir.is_dir() and candidate_agm_dir != agm_home_dir(
         home=resolve_home(env), env=env
     ):
@@ -160,20 +161,14 @@ def discover_current_project_dir(
 
 
 def is_split_project(project_dir: Path) -> bool:
-    """Return whether *project_dir* uses the split layout."""
-
     return (project_dir / "repo").is_dir()
 
 
 def is_embedded_project(project_dir: Path) -> bool:
-    """Return whether *project_dir* uses the embedded layout."""
-
     return project_dir.name == ".agm" and git_helpers.is_git_repo(project_dir.parent)
 
 
 def is_project_dir(project_dir: Path) -> bool:
-    """Return whether *project_dir* is a valid AgM project directory."""
-
     return is_embedded_project(project_dir) or git_helpers.is_git_repo(project_dir / "repo")
 
 
@@ -319,8 +314,6 @@ def project_repo_dir(project_dir: Path) -> Path:
 
 
 def default_worktrees_dir(project_dir: Path) -> Path:
-    """Return the default worktrees directory for *project_dir*."""
-
     return project_dir / "worktrees"
 
 
@@ -349,20 +342,14 @@ def project_workspaces(project_dir: Path, *, env: dict[str, str] | None = None) 
 
 
 def project_config_dir(project_dir: Path) -> Path:
-    """Return the shared project config directory."""
-
     return project_dir / "config"
 
 
 def project_deps_dir(project_dir: Path) -> Path:
-    """Return the dependency checkout directory."""
-
     return project_dir / "deps"
 
 
 def project_notes_dir(project_dir: Path) -> Path:
-    """Return the project notes directory."""
-
     return project_dir / "notes"
 
 

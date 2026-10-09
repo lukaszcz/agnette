@@ -11,17 +11,8 @@ and never invokes an agent. Every file is checked even when an earlier one
 failed; exit code is 1 iff any file produced an error-severity diagnostic,
 was unreadable/missing, or had an invalid module-root configuration.
 
-Static path and reuse: this reuses exactly the same building blocks
-``agm exec`` uses for module resolution and file reading
-(``agnette.agm.cli_support.exec_roots.effective_exec_roots_or_none``, ``agnette.core.fs.
-read_text_arg_or_none``) and diagnostic rendering (``agnette.agl.diagnostics.
-format_diagnostic``) — never duplicated. Unlike ``exec``, ``check`` never
-selects or runs a ``program def``, so it has no use for ``exec``'s
-program-discovery/selection/preflight machinery
-(``PipelineDriver.discover_programs``/``preflight_arguments``): the smallest
-path that still reaches lowering without binding or validating any host
-argument is ``PipelineDriver.parse_entry`` → ``PipelineDriver.
-prepare_parsed_entry`` → ``PipelineDriver.check_prepared(...)`` directly.
+Module resolution, file reading (via ``core.fs``) and diagnostic rendering are shared with
+``agm exec``; ``check`` skips ``exec``'s program discovery/selection/preflight.
 Lowering (rather than stopping at match compilation, as the REPL's internal
 check-only entry path does) is required here because some static errors — an invalid
 ``resource``/``resource-dir`` path, an unmaterializable output contract —

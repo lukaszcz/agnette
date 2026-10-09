@@ -14,8 +14,6 @@ from agnette.core.env import resolve_env, resolve_home
 
 @dataclass(frozen=True)
 class ConfigContext:
-    """Resolved context used to load AgM configuration."""
-
     home: Path
     proj_dir: Path | None
     cwd: Path

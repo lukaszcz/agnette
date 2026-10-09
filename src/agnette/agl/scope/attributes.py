@@ -95,7 +95,6 @@ class _Recognized:
     texts: dict[str, str]
 
     def text_of(self, name: str) -> str | None:
-        """Return the text argument attribute *name* carries, if it is present."""
         return self.texts.get(name)
 
 
@@ -147,7 +146,6 @@ _TARGET_LABEL: Mapping[AttributeTarget, str] = {
 
 
 def _function_target(node: FuncDef) -> AttributeTarget:
-    """Return the target kind of one ``def`` flavor."""
     if node.is_program:
         return AttributeTarget.PROGRAM
     if node.is_extern:
@@ -418,7 +416,6 @@ class _Recognizer:
     # ------------------------------------------------------------------
 
     def _command_registration(self, node: FuncDef, recognized: _Recognized) -> None:
-        """Record the package command path one ``program def`` registers itself as."""
         path = _program_command_path(recognized)
         if path is not None:
             self.command_registrations[node.node_id] = path
@@ -505,9 +502,10 @@ class _Recognizer:
         attribute it is addressed by its declared name and carries nothing
         else. A positional-only parameter is addressed by position alone, so
         the attributes that only mean something for a named one are rejected
-        rather than silently ignored, and the two argument shapes a host has
-        to spell — a one-letter short option and a flag word it can also
-        negate — are checked here, where the attribute is still in view.
+        rather than silently ignored.
+
+        (The ``@opt-short``/``@opt-name`` spellings are checked by the attribute
+        catalog's patterns in ``_validate_attribute_prefix``.)
         """
         if zone is ParamZone.POSITIONAL_ONLY:
             for name in NAME_ADDRESSED_OPTION_ATTRIBUTES:
@@ -578,7 +576,6 @@ def _validate_attribute_prefix(
 def _option_spec(
     name: str, recognized: _Recognized, *, cli_positional: bool = False
 ) -> ProgramOptionSpec:
-    """Build one host-facing parameter's presentation spec."""
     external = recognized.text_of(OPTION_NAME_ATTRIBUTE)
     return ProgramOptionSpec(
         name=name if external is None else external,

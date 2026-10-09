@@ -130,7 +130,6 @@ BareRoute: TypingTypeAlias = tuple[ModuleId, ScopePath]
 
 
 def to_bare_path(atom: BareAtom) -> ScopePath:
-    """Normalize a bare atom to its structured path."""
     return (atom,) if isinstance(atom, str) else atom
 
 
@@ -464,12 +463,10 @@ class ConstructorRef:
 
     @property
     def key(self) -> DeclarationKey:
-        """This reference's declaration identity."""
         return self.owner_module_id, self.owner_path, self.owner_name
 
     @property
     def qname(self) -> QName:
-        """This reference's declaration path, as a :data:`QName`."""
         return declaration_qname(self.key)
 
 
@@ -783,7 +780,6 @@ Layers: TypingTypeAlias = frozenset[ContributionLayer]
 
 
 def add_layers[K](table: dict[K, Layers], key: K, layers: Iterable[ContributionLayer]) -> None:
-    """Record that *layers* also contribute *key* to *table*."""
     table[key] = table.get(key, frozenset()).union(layers)
 
 
@@ -866,7 +862,6 @@ class ScopeNode:
         add_layers(self.bare_contributions.setdefault(name, {}), ref, (layer,))
 
     def define(self, name: str, ref: BindingRef) -> None:
-        """Add *name* → *ref* to this scope's binding table."""
         self.bindings[name] = ref
 
     def register_member(self, name: str, ref: BindingRef) -> None:
@@ -894,12 +889,10 @@ def anchored_layers(
 
 
 def binding_qname(ref: BindingRef) -> QName:
-    """Return the declaring module and atom that *ref* names."""
     return ref.module_id, to_bare_atom((*ref.scope_path, ref.name))
 
 
 def declaration_qname(key: DeclarationKey) -> QName:
-    """Return the full path declaration *key* names."""
     module_id, scope_path, name = key
     return module_id, to_bare_atom((*scope_path, name))
 
@@ -961,8 +954,7 @@ class AttributeFacts:
     ``command_registrations``
         The command path every ``program def`` registers itself as through
         ``@command``, keyed by ``FuncDef.node_id``. Only a program carrying
-        ``@command`` has an entry; the package domain merges these into a
-        manifest's command table, pairing each with the program's ``@doc``.
+        ``@command`` has an entry.
     ``docs``
         The ``@doc`` text of every declaration carrying one, parameters and
         fields included, keyed by that declaration's node id.
@@ -1080,7 +1072,7 @@ class ModuleResolution:
         Scope-created field-directed pattern-slot metadata keyed by slot id.
         Branch-body references resolve directly to the shared slot binding.
     ``match_site_pattern_slots``
-        Maps each owning case-branch or ``let`` declaration node id to the
+        Maps each owning case-branch node id to the
         slot ids its pattern created, in creation (outer-to-inner) order. The
         checker selects exactly these after that match site is classified.
     ``method_declarations``

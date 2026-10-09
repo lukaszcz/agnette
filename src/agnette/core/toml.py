@@ -101,23 +101,17 @@ def toml_dict(value: object) -> TomlDict:
 
 
 def load_toml_file(path: Path) -> TomlDict:
-    """Parse a TOML file and return its contents as a ``TomlDict``."""
-
     with path.open("r", encoding="utf-8") as handle:
         doc = parse_toml_doc(handle.read())
     return toml_dict(toml_data(doc))
 
 
 def load_toml_doc(path: Path) -> TOMLDocument:
-    """Parse a TOML file and return a round-trippable ``TOMLDocument``."""
-
     with path.open("r", encoding="utf-8") as handle:
         return parse_toml_doc(handle.read())
 
 
 def _get_or_create_table(doc: TOMLDocument, table_name: str) -> Table:
-    """Return the ``[table_name]`` table from *doc*, creating it if absent."""
-
     if table_name in doc:
         existing: Item = doc[table_name]
         if isinstance(existing, Table):
@@ -128,19 +122,13 @@ def _get_or_create_table(doc: TOMLDocument, table_name: str) -> Table:
 
 
 def set_toml_table_value(doc: TOMLDocument, table_name: str, key: str, value: str | bool) -> None:
-    """Set *key* = *value* inside ``[*table_name*]``, creating the table if absent."""
-
     table = _get_or_create_table(doc, table_name)
     table[key] = value
 
 
 def empty_toml_doc() -> TOMLDocument:
-    """Create and return an empty ``TOMLDocument``."""
-
     return tomlkit.document()
 
 
 def dumps_toml(doc: TOMLDocument) -> str:
-    """Serialize a ``TOMLDocument`` back to a TOML string."""
-
     return tomlkit.dumps(doc)

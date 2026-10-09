@@ -85,8 +85,6 @@ class PackageInfo:
 
     @property
     def module_root(self) -> Path:
-        """Return the package's module-tree directory."""
-
         return (self.root / MODULE_TREE_DIRNAME).resolve()
 
     def module_path(self, segments: Sequence[str]) -> Path:
@@ -138,7 +136,7 @@ def select_satisfying(
 
     Versions that compare equal can still differ in build metadata, so an
     exact match for the current selection wins over an equivalent sibling.
-    This is the shared MVS choice made by installation, dependency
+    This is the shared highest-satisfying-version choice made by installation, dependency
     validation, and activation-index rebuilding.
     """
 

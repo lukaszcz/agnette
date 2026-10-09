@@ -260,7 +260,6 @@ class PiRpcSessionBackend(SandboxFixture):
         return PiRpcSessionBackend(source, self._settings)
 
     def set_name(self, name: str) -> None:
-        """Set Pi's display name for the active session."""
         self._send("set_session_name", {"name": name})
 
     def stats(self) -> SessionStats:

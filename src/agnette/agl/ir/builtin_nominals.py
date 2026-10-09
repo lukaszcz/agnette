@@ -85,7 +85,6 @@ class BuiltinNominals:
         )
 
     def nominal(self, name: str) -> NominalId:
-        """Return the ``NominalId`` a host mints for the built-in type *name*."""
         return self.resolve(name).nominal
 
     def resolve_member(self, enum_name: str, member_name: str) -> DeclaredNominal:

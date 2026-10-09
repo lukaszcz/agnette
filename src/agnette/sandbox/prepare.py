@@ -125,7 +125,7 @@ class SandboxRun:
     Replaces two independently-optional parameters (limits and a context)
     with one value, so a caller cannot supply one without the other.
     ``limits`` carries no profile name yet -- it is bound later, from the
-    final (post-interpolation) argv, in ``agnette.agent.runner._prepare_sandboxed_argv``.
+    final (post-interpolation) argv, by the agent runner and the Pi RPC session.
     """
 
     limits: SandboxLimits
@@ -368,6 +368,9 @@ def prepare(
         if "--no-daemon" not in options:
             # A shared host daemon executes outside this command's sandbox.
             command.insert(1, "--no-daemon")
+    # Innermost (inside the resource-limit prefix and backend wrapper): the relay allocates a
+    # fresh pseudo-terminal inside the sandbox and makes it the wrapped command's controlling
+    # terminal.
     pty_wrapper = [sys.executable, "-m", "agnette.sandbox.pty", "--"] if request.pty else []
     command = [*pty_wrapper, *command]
     if request.sandboxed:
@@ -414,6 +417,4 @@ def dry_run_argv(
 
 
 def print_dry_run(prepared: PreparedSandboxCommand, *, label: str = "sandbox") -> None:
-    """Print *prepared* through the shared dry-run command printer."""
-
     dry_run.print_labeled_command(label, dry_run_argv(prepared), cwd=prepared.cwd)

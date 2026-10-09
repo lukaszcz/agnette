@@ -14,5 +14,4 @@ StaticBindingKey: TypeAlias = tuple[ModuleId, tuple[str, ...], str]
 def static_binding_key(
     module_id: ModuleId, scope_path: Iterable[str], name: str
 ) -> StaticBindingKey:
-    """Build a structured static binding identity."""
     return module_id, tuple(scope_path), name

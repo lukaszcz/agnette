@@ -571,8 +571,8 @@ def run(
     cli_values = execution_cli_values(args)
 
     # strict-json/timeout/trace are resolved only after preflight, below, once a
-    # selected program's own ``@config`` entries (ranked between the config
-    # tables and the CLI, see ``EngineSeedTiers.merged``) are known. Building
+    # selected program's own ``@config`` entries (ranked below the program route and
+    # above the other config tables, see ``EngineSeedTiers.merged``) are known. Building
     # these three tiers (never merging them) is possible now: neither
     # ``build_host_engine_seeds`` nor discovery/preflight reads
     # strict-json/timeout/trace's resolved host values.
@@ -597,8 +597,6 @@ def run(
         )
     )
 
-    # ``prepare_parsed_entry`` was already called above; the same ``PreparedProgram``
-    # is reused for discovery and the run, so the source is loaded and scoped only once.
     # strict-json/agent-dispatch/session/timeout are wired in below, once the
     # selected program's own ``@config`` entries are known (see
     # ``configure_execution_services``); discovery and preflight never read them.
@@ -672,8 +670,8 @@ def run(
     arguments_bound: "tuple[Value | UseDefault, ...] | None" = None
     param_seeds: "Mapping[StaticBindingKey, Value] | None" = None
     # The selected program's own ``@config`` entries (evaluated by preflight)
-    # rank between the config tables and the CLI for both a module parameter
-    # (folded into ``param_seeds`` by preflight already, filtered by
+    # rank below the program route and above the other config tables for both a module
+    # parameter (folded into ``param_seeds`` by preflight already, filtered by
     # ``key in executable.param_bindings``) and an engine setting (folded in
     # here, filtered by ``is_engine_builtin_var_key`` — the checker admits only
     # these two target kinds, so every entry lands in exactly one filter).
@@ -681,9 +679,9 @@ def run(
     # what lets ``@config`` reach them without a second lowering pass or a
     # duplicated precedence rule. A ``@config`` value is decoded against
     # *executable*'s own nominal identity (see ``preflight_arguments``); an
-    # enum-backed value (``timeout``, ``trace-file``, ``default-agent``) is
-    # restamped onto the standard identity every other engine tier already
-    # uses, so it reads back through the same plain accessors.
+    # enum-backed value (``timeout``, ``trace-file``, ``default-agent``,
+    # ``default-sandbox``) is restamped onto the standard identity every other
+    # engine tier already uses, so it reads back through the same plain accessors.
     config_engine_values: dict[str, Value] = {}
     if selected_program is not None:
         argument_preflight = runtime.preflight_arguments(
@@ -773,13 +771,10 @@ def run(
         for diag in discovery.warnings
     }
 
-    # Reuse the ``PreparedProgram`` from above — no second parse/scope of the source.
-    # Pass the already-computed compiled from discovery and the program the
-    # preflight already lowered, so the graph is type-checked, match-compiled and
-    # lowered exactly once. Keep result-to-exit handling inside the cleanup
-    # boundary: a failed result is a primary program failure, just like an
-    # exception, and must not be replaced by a secondary close failure. A
-    # termination signal exits through the same boundary, so cleanup still runs.
+    # Keep result-to-exit handling inside the cleanup boundary: a failed result is a
+    # primary program failure, just like an exception, and must not be replaced by a
+    # secondary close failure. A termination signal exits through the same boundary,
+    # so cleanup still runs.
     with (
         terminating_signals_exit(),
         preserve_primary_error(session_host.close_all, label="agent session cleanup"),
@@ -793,6 +788,7 @@ def run(
                 None if selected_program is None else selected_program.declaration_path
             ),
             program_span=None if selected_program is None else selected_program.span,
+            # Reused from discovery and preflight: nothing is re-checked or re-lowered.
             compiled=discovery.compiled,
             executable=executable,
             host_settings_policy=policy,

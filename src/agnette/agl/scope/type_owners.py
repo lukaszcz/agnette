@@ -218,7 +218,6 @@ class TypeOwnerIndex:
         )
 
     def _retained_owner(self, qname: QName) -> TypeOwner | None:
-        """Return the owner an earlier REPL entry resolved for *qname*, if it declared it."""
         return self._retained.get(_path(qname[1])) if qname[0] == self._retained_module else None
 
     def _member_constructor(self, qname: QName) -> ConstructorRef | None:

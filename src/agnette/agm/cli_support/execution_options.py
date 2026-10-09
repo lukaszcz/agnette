@@ -65,12 +65,10 @@ _HELP_GROUPS: tuple[_HelpGroup, ...] = (
 
 
 def execution_option_spec(name: str) -> ExecutionOptionSpec:
-    """Return the shared declaration metadata for one execution option."""
     return _SPEC_BY_NAME[name]
 
 
 def execution_option_flags() -> frozenset[str]:
-    """Return every CLI spelling declared by the shared execution options."""
     return frozenset(
         flag
         for spec in EXECUTION_OPTION_SPECS

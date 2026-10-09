@@ -259,7 +259,6 @@ def _canonical_literal(pattern: LiteralPattern) -> Constructor:
 
 
 def _add_as_binder(cell: PatternCell, binder: BinderProvenance) -> PatternCell:
-    """Attach an as-pattern binder to the occurrence represented by *cell*."""
     return replace(cell, binders=(*cell.binders, binder))
 
 

@@ -274,7 +274,6 @@ def _decode_written_value(value: object) -> Value:
 def _nominal_value(
     descriptor: NominalDescriptor, fields: dict[str, Value]
 ) -> RecordValue | ExceptionValue:
-    """Build the AgL value one synthesized nominal instance stands for."""
     if descriptor.kind is NominalKind.RECORD:
         return RecordValue(descriptor.nominal, fields)
     # A descriptor reaches here only from :func:`_create_nominal`, which builds

@@ -82,8 +82,6 @@ def layout_for_window(pane_count: int, width: int, height: int) -> str:
 
 
 def tmux_display(format_string: str, *, target: str | None = None) -> str:
-    """Return one tmux format value."""
-
     cmd = ["tmux", "display-message", "-p"]
     if target is not None:
         cmd.extend(["-t", target])

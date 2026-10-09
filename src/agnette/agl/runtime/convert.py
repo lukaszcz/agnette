@@ -367,7 +367,6 @@ def _decode_dict(
 def _stringified_scalar_kind(
     key_schema: DecodeSchema, defs: Mapping[str, DecodeSchema]
 ) -> ScalarKind | None:
-    """Return the scalar kind of a stringified key slot, ``None`` for an enum key."""
     resolved = resolve_decode(key_schema, defs)
     return resolved.kind if isinstance(resolved, ScalarDecode) else None
 

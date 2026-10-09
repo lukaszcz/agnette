@@ -190,7 +190,6 @@ class _NamedAttribute(Protocol):
 
 
 def is_param_declaration(attributes: Iterable[_NamedAttribute]) -> bool:
-    """Whether an attribute prefix carries ``@param``."""
     return any(attribute.name == PARAM_ATTRIBUTE for attribute in attributes)
 
 

@@ -128,14 +128,10 @@ def git_common_dir(cwd: Path | None = None) -> Path:
 
 
 def fetch(repo_dir: Path, *, env: dict[str, str] | None = None) -> None:
-    """Run git fetch."""
-
     require_success([*_git_args(repo_dir), "fetch"], env=env)
 
 
 def fetch_prune_all(repo_dir: Path, *, env: dict[str, str] | None = None) -> None:
-    """Run git fetch --all --prune."""
-
     require_success([*_git_args(repo_dir), "fetch", "--all", "--prune"], env=env)
 
 
@@ -146,8 +142,6 @@ def merge(repo_dir: Path, *, env: dict[str, str] | None = None) -> None:
 
 
 def current_branch(repo_dir: Path, *, env: dict[str, str] | None = None) -> str:
-    """Return the current branch name."""
-
     return require_capture(
         [*_git_args(repo_dir), "rev-parse", "--abbrev-ref", "HEAD"],
         env=env,
@@ -261,8 +255,6 @@ def branch_delete(
     force: bool = False,
     env: dict[str, str] | None = None,
 ) -> None:
-    """Delete a local branch."""
-
     flag = "-D" if force else "-d"
     require_success([*_git_args(repo_dir), "branch", flag, branch], env=env)
 
@@ -318,8 +310,6 @@ def branch_can_delete(
 
 
 def local_branch_exists(repo_dir: Path, branch: str, *, env: dict[str, str] | None = None) -> bool:
-    """Return whether a local branch exists."""
-
     return (
         run_foreground(
             [*_git_args(repo_dir), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
@@ -425,8 +415,6 @@ def create_tracking_branch(
     *,
     env: dict[str, str] | None = None,
 ) -> None:
-    """Create a local tracking branch."""
-
     require_success(
         [*_git_args(repo_dir), "branch", "--track", branch, remote_branch],
         env=env,
@@ -434,16 +422,12 @@ def create_tracking_branch(
 
 
 def symbolic_ref(repo_dir: Path, ref: str, *, env: dict[str, str] | None = None) -> str:
-    """Resolve a symbolic ref."""
-
     return require_capture(
         [*_git_args(repo_dir), "symbolic-ref", "--quiet", "--short", ref], env=env
     ).strip()
 
 
 def ls_remote_head(repo_url: str, *, env: dict[str, str] | None = None) -> str:
-    """Return git ls-remote --symref output for HEAD."""
-
     return require_capture(["git", "ls-remote", "--symref", repo_url, "HEAD"], env=env)
 
 
@@ -504,6 +488,7 @@ def first_git_repo(
 
     resolved_parent = parent_dir.resolve(strict=False)
     if include_parent:
+        # A linked worktree's `.git` is a file; a main checkout's is a directory.
         git_marker = parent_dir / ".git"
         repo_root = exact_repo_root(parent_dir)
         if repo_root is not None and (not main_only or git_marker.is_dir()):

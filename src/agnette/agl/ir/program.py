@@ -224,9 +224,7 @@ def nominal_conforms(
 ) -> bool:
     """Return whether *nominal* is in *accepted*, or reaches one through ``base`` links.
 
-    Tries exact membership first, then walks the linked descriptor's base
-    chain on a miss. Record and enum descriptors have no base, so this is
-    exact membership for them.
+    Record and enum descriptors have no base, so this is exact membership for them.
     """
     current: NominalId | None = nominal
     while current is not None:

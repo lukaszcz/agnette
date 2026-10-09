@@ -253,7 +253,6 @@ class QualifierChain:
 
     @property
     def anchored(self) -> bool:
-        """Whether the chain uses an absolute module anchor."""
         return self.anchor is QualifierAnchor.MODULE
 
     @property
@@ -1117,7 +1116,6 @@ def pattern_binder_candidates(pattern: Pattern) -> tuple[PatternBinderCandidate,
 
 
 def pattern_binding_node_ids(pattern: Pattern) -> tuple[int, ...]:
-    """Return source node ids for every named pattern binding candidate."""
     return tuple(candidate.node_id for candidate in pattern_binder_candidates(pattern))
 
 
@@ -1156,12 +1154,10 @@ class VarDecl:
 
 
 def static_binding_name(item: LetDecl | VarDecl) -> str:
-    """Return a static ``let``/``var`` binding's name."""
     return item.name
 
 
 def static_binding_node_id(item: LetDecl | VarDecl) -> int:
-    """Return a static ``let``/``var`` binding's declaration node id."""
     return item.node_id
 
 

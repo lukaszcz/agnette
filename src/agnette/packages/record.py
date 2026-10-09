@@ -65,15 +65,11 @@ def record_entries(root: Path) -> tuple[RecordEntry, ...]:
 
 
 def read_record(root: Path) -> tuple[RecordEntry, ...]:
-    """Read and validate the package ``RECORD`` below *root*."""
-
     _package_tree(root)
     return _read_record_entries(root / RECORD_NAME)
 
 
 def _read_record_entries(record_path: Path) -> tuple[RecordEntry, ...]:
-    """Read and parse ``RECORD`` content at *record_path*."""
-
     try:
         content = fs.read_text(record_path)
     except (OSError, UnicodeDecodeError) as exc:

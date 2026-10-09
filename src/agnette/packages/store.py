@@ -28,8 +28,6 @@ class StoreIdentityError(ValueError):
 
 
 def store_root(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
-    """Return the package-store root under the selected AgM home."""
-
     return store_root_path(agm_home_dir(home=home, env=env))
 
 
@@ -158,10 +156,10 @@ def satisfying_from_store(
     *,
     extra_candidates: Iterable[PackageInfo] = (),
 ) -> PackageInfo | None:
-    """Select the MVS-satisfying candidate for one dependency from store packages.
+    """Select the highest satisfying candidate for one dependency from store packages.
 
     Candidates are filtered from *store_packages* by name and minimum
-    version, then MVS-selected against *active* (see
+    version, then chosen against *active* (see
     :func:`agnette.packages.model.select_satisfying`). *extra_candidates* adds
     packages that are not in the store yet, such as a dry-run install's
     planned trees.

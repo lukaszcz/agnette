@@ -19,21 +19,10 @@ forever. This is the one deep, structure-rebuilding walk in the language that
 traverses a cyclic value to completion, terminating with an isomorphic
 independent cycle instead of raising ``CyclicValueError``.
 
-Both copies share one container walk, :func:`_copy_container`, which switches
-once on the container kind, builds an empty shell, hands it to a *register*
-callback, and only then fills each child. Filling takes an optional
-*transform*: ``None`` means "copy the children as-is", filled in bulk via
-``list.extend``/``dict.update`` at C speed; a callback means a per-child
-copy, applied one element/field at a time. A dict fills through
-``DictValue.fill_from``, which owns its storage. ``shallow_copy_value`` passes
-``transform=None`` — a shallow copy never recurses, so its children are
-copied as-is and it pays no per-element Python call. ``deep_copy_value``
-passes a *transform* that recurses and memoizes. Invoking *register* between
-construction and filling — rather than after — structurally guarantees the
-before-children registration order described above: ``shallow_copy_value``
-also passes a no-op *register* (it never recurses, so there is nothing to
-memoize), while ``deep_copy_value`` passes a *register* that writes the
-shell into the memo.
+Both copies share :func:`_copy_container`, which registers the empty shell
+(via a *register* callback) before filling children; that ordering is what
+lets the deep copy resolve cycles. A ``None`` *transform* bulk-copies children
+at C speed (the shallow case).
 
 A ``json`` leaf is duplicated via ``copy.deepcopy`` (its payload is a plain,
 already-acyclic Python tree — see ``semantics/values.py``'s ``JsonValue``) and

@@ -21,8 +21,8 @@ through an ``array``/``dict`` field is always fine (the empty collection is a
 value regardless of the element type); recursion through a record/exception
 field or every variant of an enum is fine only if some path bottoms out
 without needing another value of the same (or a mutually recursive)
-declaration. Every enum member is a record declaration checked on its own,
-and a generic reference counts only which of its arguments are inhabited.
+declaration. A generic reference counts only which of its arguments are
+inhabited.
 :func:`compute_uninhabited` returns the declarations that never reach that
 bottom, solving one declaration-reference SCC at a time, lowest first.
 
@@ -378,9 +378,8 @@ class DeclarationFlags:
     nested in ``array``/``dict``/function-parameter/result position), or is
     passed to another reference's parameter that is ITSELF relevant for that
     reference's declaration — transitively. Unused ("phantom") parameters are
-    therefore never relevant, matching the substitute-then-walk semantics
-    this replaces: instantiating a phantom parameter with bad evidence cannot
-    flag a declaration because the field template never actually mentions it.
+    therefore never relevant: instantiating a phantom parameter with bad
+    evidence cannot flag a declaration because no field mentions it.
     ``key_params`` — for every declaration, the subset of its own type
     parameters that REACH a ``dict``-key POSITION: a direct ``dict`` key, or
     the argument at ANOTHER declaration's own key parameter (transitively) —

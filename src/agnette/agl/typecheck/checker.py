@@ -1804,7 +1804,6 @@ class _Checker:
         return declared_type
 
     def _check_binding(self, stmt: LetDecl | VarDecl) -> Type:
-        """Check one immutable or mutable name binding."""
         return self._check_named_binding(stmt)
 
     def _validate_parameter_binding(self, stmt: LetDecl | VarDecl) -> None:
@@ -1853,9 +1852,7 @@ class _Checker:
     def _reject_narrow_static_var(self, stmt: VarDecl, value_type: Type) -> None:
         """Reject a static-root module-level ``var`` inferring a single enum case.
 
-        Called only from :meth:`infer_static_initializer_type`, the sole
-        place an unannotated static-root ``var``'s type is established: a
-        later assignment could then never hold any other case.
+        A later assignment could then never hold any other case.
         """
         if _mentions_narrow_enum_member_type(value_type, self._env.type_table):
             raise AglTypeError(
@@ -3038,7 +3035,6 @@ class _Checker:
             del targets[start:]
 
     def _record_contract_spec(self, node_id: int, spec: OutputContractSpec) -> None:
-        """Store a region-owned output contract specification."""
         self._record_side_table_addition("contract_specs", self._contract_specs, node_id)
         self._contract_specs[node_id] = spec
 
@@ -3055,19 +3051,16 @@ class _Checker:
         self._target_contract_specs[node_id] = specs
 
     def _record_cast_spec(self, node_id: int, spec: CastSpec) -> None:
-        """Store a region-owned cast specification."""
         self._record_side_table_addition("cast_specs", self._cast_specs, node_id)
         self._cast_specs[node_id] = spec
 
     def _record_explicit_builtin_target(self, node_id: int, target_type: Type) -> None:
-        """Store a region-owned explicit built-in call target type."""
         self._record_side_table_addition(
             "explicit_builtin_targets", self._explicit_builtin_targets, node_id
         )
         self._explicit_builtin_targets[node_id] = target_type
 
     def _record_function_call_binding(self, node_id: int, binding: tuple[Expr | None, ...]) -> None:
-        """Store a region-owned declared-call argument binding."""
         self._record_side_table_addition(
             "function_call_bindings", self._function_call_bindings, node_id
         )
@@ -3125,14 +3118,12 @@ class _Checker:
         self._pattern_constructor_owners[node_id] = NominalId(owner_type.decl_id)
 
     def _record_constructor_call_binding(self, node_id: int, binding: dict[str, Expr]) -> None:
-        """Store a region-owned constructor-call argument binding."""
         self._record_side_table_addition(
             "constructor_call_bindings", self._constructor_call_bindings, node_id
         )
         self._constructor_call_bindings[node_id] = binding
 
     def _append_warning(self, warning: Diagnostic) -> None:
-        """Append a warning produced while finalizing the active region."""
         self._warnings.append(warning)
 
     def _record_method_selection(self, node_id: int, method: MethodDef) -> None:

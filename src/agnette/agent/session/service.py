@@ -226,7 +226,6 @@ class AglSessionHost:
         return handle
 
     def ask(self, handle: str, prompt: str) -> str:
-        """Send a plain session prompt for hosts without request envelopes."""
         return self._ask(handle, prompt).content
 
     def ask_request(self, handle: str, request: "AgentRequest") -> "AgentResponse":
@@ -488,7 +487,6 @@ class SessionService:
         return self._default_handle
 
     def ask(self, handle: str, request: SessionAskRequest) -> SessionAskResponse:
-        """Send *request* through a live session."""
         return self._entry_for(handle, SessionOperation.ASK).backend.ask(request)
 
     def compact(self, handle: str, instructions: str = "") -> None:
@@ -521,14 +519,12 @@ class SessionService:
         return forked_handle
 
     def set_name(self, handle: str, name: str) -> None:
-        """Set a live session's backend-visible name."""
         _entry, set_name = self._native(
             handle, SessionOperation.SET_NAME, lambda operations: operations.set_name
         )
         self._run_lifecycle(SessionOperation.SET_NAME, lambda: set_name(name))
 
     def stats(self, handle: str) -> SessionStats:
-        """Return usage statistics for a live session."""
         _entry, stats = self._native(
             handle, SessionOperation.STATS, lambda operations: operations.stats
         )
@@ -552,7 +548,6 @@ class SessionService:
         return self._entry_for(handle, "continues_conversation").backend.continues_conversation
 
     def is_known(self, handle: str) -> bool:
-        """Whether *handle* is still retained by this service."""
         return handle in self._entries
 
     def reset_all(self) -> None:

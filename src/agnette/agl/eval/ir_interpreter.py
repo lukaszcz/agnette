@@ -382,9 +382,7 @@ class _BreakSignal(Exception):
 class _ContinueSignal(Exception):
     """Raised by ``IrContinue`` evaluation; caught only by the enclosing ``IrLoop``.
 
-    Propagates through ``IrTry`` bodies unchanged.  The ``IrLoop`` evaluator
-    catches this and executes ``continue`` on its Python ``while True`` loop to
-    start the next iteration.
+    Propagates through ``IrTry`` bodies unchanged.
     """
 
 
@@ -432,12 +430,13 @@ def _apply_coercion(value: Value, coercion: Coercion) -> Value:
 class IrInterpreter:
     """Evaluates an ``ExecutableProgram`` using the frame/cell model.
 
-    The entry module starts with a root frame; function calls, closures, and loop
-    iterations allocate additional frames as needed.
+    Every module's initializers run in one shared root frame (``frames[0]``, the REPL
+    base frame when given); function calls and closures push call frames, loop
+    iterations none.
 
-    ``run()`` executes the entry module's initializers in order and returns
-    its public non-function bindings. When explicitly invoked, a synthetic
-    inline ``main`` also contributes its direct public bindings.
+    ``run()`` executes every module's initializers in link order and returns
+    the entry module's public non-function bindings. When explicitly invoked, a
+    synthetic inline ``main`` also contributes its direct public bindings.
     """
 
     DEFAULT_MAX_CALL_DEPTH: int = 256
@@ -661,7 +660,6 @@ class IrInterpreter:
 
     @property
     def _frame(self) -> Frame:
-        """Return the current (top-of-stack) frame."""
         return self._frames[-1]
 
     # ------------------------------------------------------------------
@@ -899,10 +897,11 @@ class IrInterpreter:
         *,
         retain_frame: bool = False,
     ) -> Value:
-        """Build a call frame, push it, evaluate the function body, pop the frame, return result.
+        """Invoke *body* in a frame of *closure_val*'s captures plus bound parameters.
 
-        Shared by every call path that has already resolved its arguments and
-        entered *desc*'s call context via :meth:`_enter_call`.
+        Callers have already resolved arguments and entered *desc*'s call context
+        (:meth:`_enter_call`). *retain_frame* keeps the frame as the synthetic ``main``
+        frame.
 
         Function parameters are immutable in AgL (they can never be the target of an
         assignment), so they are bound by value — never boxed in a Cell.
@@ -1311,7 +1310,6 @@ class IrInterpreter:
         return descriptor, cast(IrFunctionBody, descriptor.impl)
 
     def _program_entry_location(self, symbol: SymbolId) -> Location:
-        """Return the selected ``program def`` body's source location."""
         return self._program_entry(symbol)[1].body.location
 
     def _invoke_program(
@@ -1484,11 +1482,7 @@ class IrInterpreter:
     def _eval(self, node: IrExpr) -> Value:
         """Evaluate *node* in the current frame and return its value.
 
-        Dispatches over the closed ``IrExpr`` union with a structural
-        ``match`` whose final arm is ``assert_never`` so mypy exhaustiveness
-        makes a missing case a compile-time error.
-
-        Also the sole span-attribution point: an ``AglRaise`` that reaches
+        The sole span-attribution point: an ``AglRaise`` that reaches
         here without a span already (a raise site with no closer location of
         its own, e.g. index/key/duplicate-key/cast/arithmetic failures) is
         stamped with *node*'s own location as it unwinds through this frame.
@@ -1800,14 +1794,12 @@ class IrInterpreter:
                 case IrIf(branches=branches, has_else=has_else):
                     for branch in branches:
                         if branch.cond is None:
-                            # Else branch — always taken.
                             branch_val = self._eval(branch.body)
                             return branch_val if has_else else UNIT_VALUE
                         cond_val = cast(BoolValue, self._eval(branch.cond))
                         if cond_val.value:
                             branch_val = self._eval(branch.body)
                             return branch_val if has_else else UNIT_VALUE
-                    # No branch matched and no else: return unit.
                     return UNIT_VALUE
 
                 case IrRaise(exc=exc_expr):

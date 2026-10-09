@@ -275,9 +275,8 @@ _RootDeclItem = TypeVar(
 # ---------------------------------------------------------------------------
 
 
-# Built-in call names, sourced from ``symbols.BUILTIN_CALL_NAMES`` (the single
-# source of truth). Runtime operations are first-class; ``resource`` remains a
-# link-time form whose argument must be visible in its direct call syntax.
+# Runtime operations are first-class; ``resource`` remains a link-time form
+# whose argument must be visible in its direct call syntax.
 _BUILTIN_CALL_NAMES = BUILTIN_CALL_NAMES
 
 # The set of names that may NOT be used as any kind of binding.
@@ -299,7 +298,6 @@ _ROOT_DECLARATION_ITEMS = (
 
 
 def _start_offset(item: Item) -> int:
-    """Where *item* starts in its source text."""
     return item.span.start_offset
 
 
@@ -1524,7 +1522,6 @@ class _Resolver(ModuleSources):
     def _root_declaration_items(
         self, declaration_type: type[_RootDeclItem]
     ) -> Iterator[_RootDeclItem]:
-        """Yield collected declarations of *declaration_type* at the root path."""
         for (module_id, path, _name), item in self._declaration_items.items():
             if module_id == self._module_id and not path and isinstance(item, declaration_type):
                 yield item
@@ -1593,7 +1590,6 @@ class _Resolver(ModuleSources):
                 )
 
     def _declares_receiver(self, node: FuncDef) -> bool:
-        """Return whether *node* was classified as a method of a nominal owner."""
         return (
             self._module_id,
             _written_scope(node),
@@ -1820,7 +1816,6 @@ class _Resolver(ModuleSources):
         return [*existing, cref]
 
     def _collect_constructor_candidates(self, owners: Mapping[ScopePath, TypeOwner]) -> None:
-        """Build constructor candidates from the module's current type *owners*."""
         self._seed_builtin_constructor_candidates()
         for item, path in self._type_declarations:
             if isinstance(item, RecordDef) and item.is_builtin and not path:
@@ -1897,7 +1892,6 @@ class _Resolver(ModuleSources):
             scope.define(name, constructor_binding(name, rep))
 
     def _define_function_bindings(self) -> None:
-        """Define each collected function as a value binding in the current scope."""
         for name, decl in self._declared_functions.items():
             ref = BindingRef(
                 name=name,
@@ -2478,7 +2472,6 @@ class _Resolver(ModuleSources):
         )
 
     def _define_binder(self, node: LetDecl | VarDecl, *, decl_node_id: int, name: str) -> None:
-        """Define a resolved simple-name binder using its declaration identity."""
         if name == "_":
             return
         self._define(name, self._binder_ref(node, decl_node_id=decl_node_id, name=name))
@@ -2742,7 +2735,6 @@ class _Resolver(ModuleSources):
         return None if builtin is None else QualifiedTarget(None, builtin, None)
 
     def _is_ordinary_function(self, ref: BindingRef | None) -> bool:
-        """Whether *ref* is a ``def`` other than a ``builtin def``."""
         return (
             ref is not None
             and ref.kind is BinderKind.function_binding
@@ -2829,7 +2821,8 @@ class _Resolver(ModuleSources):
         return kind
 
     def _is_unrecognized_builtin_static(self, node: VarRef) -> bool:
-        """Return whether a qualified prelude owner rejected an unknown static."""
+        """Reached only after static recognition failed (a qualified prelude owner rejected
+        an unknown static)."""
         constructor = self._constructor_refs.get(node.node_id)
         if constructor is None:
             return False
@@ -2837,7 +2830,6 @@ class _Resolver(ModuleSources):
         return is_builtin_type_static_owner(constructor.owner_module_id, owner_path)
 
     def _raise_unrecognized_builtin_static(self, node: VarRef, qualifier: QualifierChain) -> None:
-        """Raise when a resolved prelude owner does not declare the requested static."""
         if self._is_unrecognized_builtin_static(node):
             raise self._unknown_static_error(node, qualifier)
 
@@ -3086,7 +3078,6 @@ class _Resolver(ModuleSources):
         )
 
     def _is_constructible_type_ref(self, qname: QName) -> bool:
-        """Whether *qname* names a type path that qualifies constructors."""
         return self._constructible_owner(qname) is not None
 
     def _constructible_owner(self, qname: QName) -> TypeOwner | None:
@@ -3149,7 +3140,6 @@ class _Resolver(ModuleSources):
         return None
 
     def _is_builtin_function_ref(self, ref: BindingRef | None) -> bool:
-        """Return whether *ref* names an actual ``builtin def`` declaration."""
         return ref is not None and ref.kind is BinderKind.function_binding and ref.is_builtin
 
     def _bare_builtin_ref(self, name: str) -> BindingRef | None:

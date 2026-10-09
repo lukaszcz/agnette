@@ -1,10 +1,8 @@
 """Per-module type-table builder for the AgL type-checking pass.
 
 ``_TypeBuilder`` collects ``record``/``enum``/``exception``/alias declarations
-and registers them into a ``TypeEnvironment``.  It was extracted from
-``typecheck/checker.py`` (where it lived as the first pass of the
-bidirectional type checker) so that ``typecheck/program.py`` can import it
-without pulling in the full ``_Checker``.
+and registers them into a ``TypeEnvironment``.  It is separate from the checker
+so that ``typecheck/program.py`` can import it without pulling in ``_Checker``.
 
 Nominal types (``RecordType``/``EnumType``/``ExceptionType``) are lightweight
 handles with no embedded field/variant data, so declaration order does not
@@ -505,7 +503,6 @@ class _TypeBuilder:
             self._env.register_type(item.name, handle)
 
     def validate_alias(self, stmt: TypeAlias) -> None:
-        """Public proxy for :meth:`_validate_alias`."""
         self._validate_alias(stmt)
 
     def build_record(self, name: str) -> None:

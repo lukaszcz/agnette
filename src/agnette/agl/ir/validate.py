@@ -1112,7 +1112,7 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
 
         case IrArith(op=op, kind=kind, lhs=lhs, rhs=rhs):
             _validate_location(node.location, ctx)
-            # DIV op requires DECIMAL kind (DIV always returns decimal)
+            # DIV always returns decimal.
             if op is ArithOp.DIV and kind is not ArithKind.DECIMAL:
                 raise InvalidIrError(f"IrArith: DIV op requires DECIMAL kind, got kind={kind!r}")
             _validate_expr(lhs, ctx)
@@ -1120,12 +1120,10 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
 
         case IrCompare(op=op, kind=kind, lhs=lhs, rhs=rhs):
             _validate_location(node.location, ctx)
-            # EQ/NEQ requires STRUCTURAL kind
             if op in (CmpOp.EQ, CmpOp.NEQ) and kind is not CompareKind.STRUCTURAL:
                 raise InvalidIrError(
                     f"IrCompare: EQ/NEQ requires STRUCTURAL kind, got kind={kind!r}"
                 )
-            # Ordering ops (LT/LE/GT/GE) require a non-STRUCTURAL kind
             if op in (CmpOp.LT, CmpOp.LE, CmpOp.GT, CmpOp.GE) and kind is CompareKind.STRUCTURAL:
                 raise InvalidIrError(
                     f"IrCompare: ordering op {op!r} requires INT/DECIMAL/TEXT kind, got STRUCTURAL"

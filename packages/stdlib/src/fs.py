@@ -78,17 +78,14 @@ def append(path: str, content: str) -> None:
 
 
 def exists(path: str) -> bool:
-    """Check if *path* exists."""
     return run_fs_action(FsError, path, "exists", lambda: fs.exists(Path(path)))
 
 
 def is_file(path: str) -> bool:
-    """Check if *path* is a regular file."""
     return run_fs_action(FsError, path, "is-file", lambda: fs.is_file(Path(path)))
 
 
 def is_dir(path: str) -> bool:
-    """Check if *path* is a directory."""
     return run_fs_action(FsError, path, "is-dir", lambda: fs.is_dir(Path(path)))
 
 

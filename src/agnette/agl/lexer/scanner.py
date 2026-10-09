@@ -260,12 +260,10 @@ class _Scanner:
 
     @property
     def tab_warnings(self) -> list[Diagnostic]:
-        """TAB advisories collected so far during the scan."""
         return self._tab_warnings
 
     @property
     def comment_spans(self) -> list[tuple[int, int]]:
-        """Comment offsets collected so far during the scan."""
         return self._comment_spans
 
     def _skip_comment(self) -> None:
@@ -348,7 +346,6 @@ class _Scanner:
         )
 
     def _track_code_token(self, token: Token) -> None:
-        """Track bracket depth from a code-mode token."""
         if token.type in (LPAR, LSQB, LBRACE):
             self._bracket_depth += 1
         elif token.type in (RPAR, RSQB, RBRACE):
@@ -655,8 +652,8 @@ class _Scanner:
            interpolation holes as opaque segments.
         2. Measure indentation with holes as nonblank, then dedent the combined
            literal text and map its segment boundaries to the output.
-        3. Emit tokens: STRING_FRAGMENT for each literal segment, with
-           INTERP_START/inner-tokens/INTERP_END around each hole.
+        3. Emit tokens: STRING_FRAGMENT for each literal segment, with each hole's
+           tokens (INTERP_START/inner/INTERP_END, or a single ENV_HOLE) between them.
 
         Interpolation holes occupy their position in the text and are never
         dedented; only surrounding literal whitespace is stripped.
@@ -734,7 +731,7 @@ class _Scanner:
         min_indent = _compute_min_indent(_template_lines(segments))
         dedented, mapped = _apply_triple_dedent(combined, min_indent, boundaries)
 
-        # Emit STRING_FRAGMENT (+ INTERP_START / inner tokens / INTERP_END) per part.
+        # Emit STRING_FRAGMENT plus each hole's tokens per part.
         for part_idx, lit_seg in enumerate(lit_segs):
             lit_text = dedented[mapped[part_idx] : mapped[part_idx + 1]]
             yield Token(
