@@ -3,10 +3,11 @@
 AgL (Agnette Language) is the statically checked agent workflow DSL of Agnette
 (Agentic Notation & Execution Toolkit), run by AgM (Agnette Manager) through `agm exec`
 and `agm repl`. AgL programs call AI agents with typed output contracts, chain their
-results, run review/fix loops, and branch on structured agent outcomes.
+results, and branch on structured agent outcomes.
 
 AgL is a typed, expression-oriented orchestration language, not a general-purpose one.
-Its core ideas:
+
+Core ideas of AgL:
 
 - **Agent calls are first-class expressions.** `reviewer.ask("Review %{artifact}")`
   calls a host-provided agent with a rendered prompt template; the result is
@@ -40,26 +41,39 @@ enum Review
   | Pass
   | Fail(issues: array[text])
 
-let reviewer = AgentCommand("reviewer")
-let impl = AgentCommand("impl")
+let reviewer = AgentClaude("opus")
+let impl = AgentClaude("sonnet")
 
 def review-and-fix(artifact: text) -> text =
   let r: Review = reviewer.ask(
-    "Review the artifact for correctness:\n%{artifact}",
-    parse-error-retries = 2
+    "Review the artifact for correctness:\n%{artifact}."
   )
   case r of
     | Pass => artifact
-    | Fail(issues) => impl.ask(
-        "Fix these issues:\n%{issues}\n\nCurrent:\n%{artifact}"
-      )
+    | Fail(issues) => impl.ask """
+        Fix these issues:
+
+        %{issues}
+
+        Current artifact:
+
+        %{artifact}
+
+        ## Response
+
+        Respond with a description of the updated artifact, listing all modified files.
+      """
 
 program def main(spec: text) -> unit =
-  var artifact: text = impl.ask("Implement %{spec}")
+  var artifact: text = impl.ask """
+    Implement %{spec}.
+
+    Respond with a description of the implemented artifact, listing all modified files.
+  """
 
   do[5]
     artifact := review-and-fix(artifact)
-    let final: Review = reviewer.ask("Final review:\n%{artifact}")
+    let final: Review = reviewer.ask("Final review for:\n%{artifact}")
   until final is Pass
 ```
 
