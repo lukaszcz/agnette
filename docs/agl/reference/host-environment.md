@@ -4,9 +4,11 @@
 
 An AgL program does not run in a vacuum: a **host** embeds the language,
 supplies the agents, provides external values for a selected program's
-signature and module parameters, executes shell commands, and records the trace. This chapter
-specifies the contract between a program and its host — what a program may
-assume, and which knobs are host-configurable.
+signature and module parameters, executes shell commands, and records the
+trace. This chapter specifies the contract between a program and its host —
+what a program may assume, and which knobs are host-configurable. The `agm`
+command line and configuration files that realize this contract are described
+in the [command reference](../../commands/agl.md).
 
 ## The execution pipeline
 
@@ -14,9 +16,9 @@ A conforming host processes a program in this order:
 
 1. **Parse** — syntax errors abort here.
 2. **Name resolution** — scope errors abort here.
-3. **Static validation** against the host's *capability catalog*. Any type
-   error, non-exhaustive case, or redundant case arm aborts here. Independent
-   advisory diagnostics are collected separately.
+3. **Static validation** — any type error, non-exhaustive case, or redundant
+   case arm aborts here. Independent advisory diagnostics are collected
+   separately.
 4. **Host-input validation** — externally provided values are checked against
    the selected `program def`'s own value parameters and every module
    parameter in its import closure.
@@ -31,121 +33,88 @@ prevent execution.
 
 ## Agents
 
-Each `ask` evaluates an `Agent` member `RecordValue` that selects the backend command; an `Agent`-typed value is that member record, not an enum wrapper. The record may be passed explicitly or supplied by the `std/config::default-agent` setting. `AgentCommand` carries a command string; the provider member records carry their provider-specific fields. The host dispatches the selected member record and does not contribute agent names or reconcile a registry.
+Each agent call dispatches an `Agent` value — the call's `agent` option, or
+the `std/config::default-agent` setting — whose member selects the backend:
+`AgentCommand` runs a command string, and each provider member carries its
+provider-specific fields. The host contributes no agents of its own.
 
 Per dispatch, an agent receives the rendered prompt, the output contract
 (format instructions plus derived JSON Schema, so schema-capable backends
 can use native structured output), the attempt number, and — on corrective
-retries — the previous invalid output with its validation errors
-([Agent calls](agent-calls.md)). The agent process is spawned under the
-call's `env` argument, exactly as `exec` spawns its command
-([Shell execution](shell-execution.md#spawn-parameters)). The agent returns
-raw text. Hosts must pass the rendered prompt through verbatim, with no
-second template or environment-variable expansion.
+retries — a validation summary, plus the failed response when the session
+cannot continue the conversation ([Parse retries](agent-calls.md#parse-retries)).
+The agent process is spawned under the call's `env` argument, exactly as
+`exec` spawns its command ([Shell
+execution](shell-execution.md#spawn-parameters)). The agent returns raw text.
+Hosts must pass the rendered prompt through verbatim, with no second template
+or environment-variable expansion.
 
 Transport failures (spawn failure, nonzero exit, timeout) surface as the
 catchable `AgentCallError` with an enumerated `cause`; exit 0 with empty
-output is a valid empty response ([Exceptions](exceptions.md)).
-
-## Codecs
-
-The built-in codecs are `text` and `json`. Hosts may register additional
-codecs (selectable per call with `format`). Built-in names are reserved;
-duplicate registrations are host configuration errors.
-
-Each registration declares which type kinds it supports, and every
-`format` option is validated against this **capability catalog** before
-execution — an unsupported codec/type combination is a static error, not a
-runtime surprise.
+output is a valid empty response ([Exceptions](exceptions.md#agentcallerror)).
 
 ## Program arguments
 
 A `program def`'s own value parameters ([Functions](functions.md#parameters))
 are its external inputs. The host supplies them as named external values at
-run start, resolved for the **selected** program only — a program reached
-only through an import keeps its parameters as ordinary function arguments,
-supplied by its caller, not by the host. Binding is ordinary call semantics:
-the host binds only the parameters it has an external value for, and every
-other parameter uses its own default, evaluated exactly as an omitted call
-argument is — at call time, after every module's static bindings have
-initialized, so a default may read module-level state. An exception raised by
-a default therefore surfaces as an ordinary uncaught program exception, not a
-host invocation error.
+run start, for the **selected** program only — a program reached through an
+import keeps its parameters as ordinary function arguments, supplied by its
+caller. Binding is ordinary call semantics: the host binds only the parameters
+it has an external value for, and every other parameter uses its own default,
+evaluated exactly as an omitted call argument is — at the entry call, after
+every module's static bindings have initialized, so a default may read
+module-level state and an exception it raises is an ordinary uncaught program
+exception.
 
-A positional-only or standard parameter accepts a positional CLI token; a
-standard or named-only parameter accepts `--name value`, `--name=value`, or,
-for `bool`, `Option[T]`, and `Optional[T]`, the negated form `--no-name`. An
-`Optional[T]` parameter additionally reads the exact value `default` as `Default`;
-other positive values become `Some`. A positional token is read as the same
-parameter's `--name` value is, so it too supplies `Some` or `Default`; a `bool`
-slot takes `true` or `false`. A parameter given a
-one-letter spelling by `@opt-short` also accepts `-n value` and `-nvalue`, and
-groups with other one-letter flags — `-abc` — where only the last letter of a
-group may take a value. A `program def`'s
-parameter list defaults to the **named-only** AgL zone. On the CLI, an unzoned
-required parameter such as `name: text` is positional-only unless it carries
-`@opt-name` or `@opt-short`, which keep it flag-addressed, or its type is
-`bool`, `Option[T]`, or `Optional[T]`, whose negated form a positional slot
-cannot spell; an unzoned defaulted
-parameter such as `name: text = "value"` is named-only. An explicit
-`@arg-pos`, `@arg-std`, or `@arg-named` sets both the AgL and CLI zones.
-A bare `--` ends option parsing, so a later `--`-prefixed token is collected
-positionally instead of being read as a flag.
-Supplying the same parameter twice (by any combination of position and name)
-is a usage error, as is a flag naming no declared parameter.
+**Command-line projection.** A `program def`'s parameter list defaults to the
+named-only AgL zone. On the command line, an unzoned required parameter such
+as `name: text` is a positional slot, unless it carries `@opt-name` or
+`@opt-short` or its type is `bool`, `Option[T]`, or `Optional[T]` (whose
+negated form a positional slot cannot spell); an unzoned defaulted parameter
+is named-only. An explicit `@arg-pos`, `@arg-std`, or `@arg-named` sets both
+the AgL and the CLI zone. A positional-capable parameter takes a positional
+token; a name-addressable one takes `--name value` or `--name=value`, and a
+`bool`, `Option[T]`, or `Optional[T]` one also the negated `--no-name`. For
+`Optional[T]`, the exact value `default` reads as `Default` and any other value
+as `Some`. A positional token is read as the same parameter's `--name` value
+is; a `bool` slot takes `true` or `false`. `@opt-short` adds a one-letter
+spelling. Supplying a parameter twice, or naming no declared parameter, is a
+usage error. Only an explicit `@arg-pos` parameter may be named after an
+[engine setting](#engine-settings); any other, an unzoned required one
+included, shares the settings' flag and config namespace and is a static
+error. Token details (short-flag groups, `--`): [`agm
+exec`](../../commands/agl.md#program-arguments).
 
-Validation happens after type checking and **before any statement executes**;
-it checks only the externally supplied values themselves, not a parameter's
-default — a default's own evaluation is distinct and happens later, at the
-entry call, as described above. Each parameter's effective value resolves as:
+**Validation.** Supplied values are validated after type checking and
+**before any statement executes**; a default is not validated, only evaluated
+later as above. A required parameter with no external value is a **host
+invocation error** — reported as CLI usage, not catchable in-language. Each
+parameter's value resolves through the chain in [Precedence](#precedence). An
+explicitly positional-only parameter has no config key, and a config entry
+naming it is ignored with a warning; an unzoned required parameter keeps its
+config key even though its CLI slot is positional.
 
-```
-CLI token (--name / positional)  >  @opt-env variable  >  qualified config table  >  declared default
-```
+**Reading values.** A `text` parameter takes its external value verbatim. Any
+other type reads its external text as one **strict JSON value or AgL [value
+syntax](#value-syntax) literal** (external values are not chatty agent
+output, so no lenient recovery applies), validated against the declared type:
+text that parses as strict JSON and decodes into the type is read as JSON, and
+any other text as one value-syntax literal (so `{}` for a dict whose JSON form
+is an entries array, see [Dict wire forms](types.md#dict-wire-forms), is an
+empty dict literal). Text that is neither reports both reasons; text that
+parses as JSON but neither decodes nor reads as a literal of the type reports
+its JSON decode failure. A value for a plain enum — one whose every member is
+fieldless — may also be a member's bare JSON name, which takes precedence over
+another member's declared name of the same spelling. An `Agent`-typed value
+reads a JSON object, then an `Agent` member constructor call, then compact
+shorthand (`claude/opus:high`), and otherwise a verbatim command
+([host Agent syntax](../../commands/agl.md#host-agent-syntax)). A config file
+may give any structured host value — a program argument, module parameter,
+or engine setting — natively, as a table or array in the value's [JSON
+shape](agent-calls.md#the-json-wire-format)
+([Configuration](../../commands/agl.md#configuration)).
 
-An explicitly **positional-only** parameter has no qualified config key; a
-config-table entry naming it is ignored with a positional-only warning. An
-unzoned required parameter retains its qualified config key even though its
-CLI slot is positional-only. A required parameter (no default) for which no
-external value is provided is a **host invocation error** — shown as CLI
-usage, not catchable in-language, before any statement executes.
-
-`text` parameters take their external value verbatim. A parameter of any
-other type reads its external text as one **strict JSON value or AgL value
-syntax literal** (externally supplied values are not chatty agent output, so
-no lenient recovery applies), validated against the declared type: a token
-that parses as strict JSON and decodes into the declared type is read as JSON;
-any other token is read as one [value syntax](#value-syntax) literal instead
-(so `{}` for a dict whose JSON form is an array of `{"key": …, "value": …}`
-entries, see [Dict wire forms](types.md#dict-wire-forms), is an empty dict
-literal). A token that is neither JSON nor a well-formed literal reports both
-reasons; a token that parses as JSON but neither decodes into the type nor
-reads as a value-syntax literal of it reports its JSON decode failure. An
-`Agent`-typed value
-([Agents](#agents) above) instead reads a JSON object, then an `Agent`
-member constructor call, then compact shorthand (`claude/opus:high`), and
-otherwise falls back to a verbatim command — see [host Agent syntax](../../commands/agl.md#host-agent-syntax).
-A value for a plain enum — one whose every member is fieldless — may also be
-a member's bare JSON name, which takes precedence over another member's
-declared name of the same spelling.
-
-A config table may instead give a structured value natively, as an array or
-table in the value's [JSON shape](agent-calls.md#the-json-wire-format). A
-string nested inside it is read exactly as a top-level config string of that
-position's type is, so a string means the same at every depth; a string in a
-`json` position stays a JSON string.
-
-A native table given for a dict reads each table key as a string of the key
-type would be read at that position, and each value as above, whatever the
-dict's JSON form: `{ "2.0" = "a" }` for an `int` key, `{ Blue = 1 }` or
-`{ bleu = 1 }` for an enum key (declared name or JSON tag, as for a top-level
-string), `{ "Point(x = 1, y = 2)" = "a" }` for a record key, and `{}` for any
-dict. Keys that read to equal keys fail the decode. A dict whose JSON form is
-an entries array also accepts an array of `{ key = …, value = … }` tables,
-giving the entries directly.
-
-For example, dict parameters with `int`, plain-enum and record keys (in
-`prog.agl`, so the config table below is `[prog.main]`):
+For example, dict parameters with `int`, plain-enum, and record keys:
 
 ```agl
 enum Level
@@ -174,6 +143,8 @@ program def main(
 --by-point '[{"key": {"x": 1, "y": 2}, "value": "a"}]'   # JSON entries
 ```
 
+With the program in `prog.agl`, its config table is `[prog.main]`:
+
 ```toml
 [prog.main]
 by-int = { "1" = "one" }
@@ -181,56 +152,60 @@ by-level = { Debug = 1 }
 by-point = { "Point(x = 1, y = 2)" = "a" }
 ```
 
-A CLI token, an `@opt-env` variable's value, and a qualified config-table
-string ([Config-file schema](#config-file-schema) below) must all be valid
-Unicode. A value holding a surrogate code point is a **host invocation
-error** naming the parameter, before any statement executes.
+**Parameter types.** The declared type must be JSON-wire-serializable, even
+for a parameter whose default is always used: `unit`, function types, and a
+type reaching a dict whose key is not `Hashable` or not decodable (an
+exception key) are rejected. A [recursive](types.md#recursive-types) record or
+enum decodes normally, subject to the
+[finite-schema boundary](generics.md#the-finite-schema-boundary). A parameter
+annotated [`path`](types.md#type-aliases) — directly, as `Option[path]` or
+`Optional[path]`, or through an alias — takes its value as the corresponding
+`text` parameter does; a host presents it as a filesystem location (value
+placeholder `PATH`, filesystem completion).
 
-The process environment a host exposes through `std/env::environ` is
-likewise required to be valid Unicode in both variable names and values: a
-host that finds one it cannot decode fails before the program runs, naming
-the variable, rather than letting the failure surface later at a print or
-`exec` call. Unset or fix the offending variable, or exclude it with
-`env -u NAME agm exec …`.
+**Unicode.** A CLI token, an `@opt-env` variable's value, and a config string
+must be valid Unicode; a value holding a surrogate code point is a host
+invocation error naming the parameter. The process environment the host
+exposes through `std/env::environ` must be valid Unicode in names and values:
+a host finding a variable it cannot decode fails before the program runs,
+naming the variable.
 
 ### Value syntax
-
-A `text`-to-structured-type cast (`as`/`as?`, [Types](types.md#strict-parsing-in-text-and-json-casts))
-accepts the same value-syntax literal alongside strict JSON, with no lenient
-recovery either way; a cast to `Agent` accepts a JSON object, a member
-constructor call, or shorthand, but never falls back to a verbatim command the way a
-host `Agent` parameter does.
 
 A value-syntax literal is a data-only subset of AgL's own expression syntax:
 an integer, decimal, `true`/`false`, a quoted text literal, an `[item, ...]`
 array, a `{key: value, ...}` dict whose keys are value-syntax literals read
-against the declared key type, or a constructor reference/call — `Name`,
-`Name()`, or `Name(arg, ..., field = value, ...)`. A constructor's arguments
-bind against its declared fields by the same
-[zone rules](functions.md#parameters) an ordinary call uses, except that a
-named-only field always takes an explicit `field = value`: value syntax has
-no variables, so the bare-name shorthand an ordinary call allows for a
-named-only argument does not apply. A bare or called name matches a record's
-or enum member's declared name or its own
-[`@name`](attributes.md#name-and-json-name) alias. An optional qualifier is
-the single name immediately enclosing the record's declaration: its innermost
-scope (`Geo::Point(...)`) or, for an inline enum member, its enum
-(`Shape::Square(...)`). A top-level record takes no qualifier. Where an enum
-type is expected, the enum's own name also qualifies any of its members. A
-bare name is always a constructor, so a text key is quoted (`{"cpu": 2}`); a
-dict inside a `json` value takes text keys only. A key that is equal to an
-earlier one, after reading against the key type, is a duplicate and an error.
-Nesting is unrestricted — a constructor argument, array item, or dict value may itself
-be any value-syntax literal, including another constructor call. `null` and
-a heterogeneous (mixed-type) array or dict are legal only in a `json`-typed
-slot, read as plain data with no constructor calls, since a `json` value has
-no declared type to resolve one against.
+against the declared key type, or a constructor reference or call — `Name`,
+`Name()`, or `Name(arg, ..., field = value, ...)`. Nesting is unrestricted.
+It is read by host inputs and by a `text`-to-structured-type cast or `parse`
+([Parsing values](types.md#parsing-values)), each alongside strict JSON and
+with no lenient recovery. A cast to `Agent` accepts a JSON object, a
+member constructor call, or shorthand, but never falls back to a verbatim
+command the way a host `Agent` input does.
 
-A constructor argument for a field with a declared
-[default](types.md#record-types) may be omitted; the field then fills from
-that default, exactly as an omitted argument does in AgL source. A
-constructor whose every field has a default may be spelled bare (`Name`) or
-with an empty call (`Name()`), constructing it with every default. For
+- **Constructors.** Arguments bind against the declared fields by the same
+  [zone rules](functions.md#parameters) as an ordinary call, except that a
+  named-only field always takes an explicit `field = value` (value syntax has
+  no variables, so there is no bare-name shorthand). A name matches a record's
+  or enum member's declared name or its
+  [`@name`](attributes.md#name-and-json-name). An optional qualifier is the
+  single name immediately enclosing the declaration: its innermost scope
+  (`Geo::Point(...)`) or, for an inline enum member, its enum
+  (`Shape::Square(...)`); a top-level record takes none. Where an enum type is
+  expected, the enum's own name also qualifies any of its members.
+- **Defaults.** An argument for a field with a declared
+  [default](types.md#record-types) may be omitted; a constructor whose every
+  field has a default may be spelled bare (`Name`) or as `Name()`. Strict JSON
+  likewise may omit a defaulted field's key, and the derived JSON Schema
+  ([Agent calls](agent-calls.md#derived-json-schema)) excludes it from
+  `"required"`.
+- **Dicts.** A bare name is always a constructor, so a text key is quoted
+  (`{"cpu": 2}`). A key equal to an earlier one, after reading against the key
+  type, is an error.
+- **`json` slots.** `null` and a heterogeneous array or dict are legal only in
+  a `json`-typed slot, read as plain data with text dict keys and no
+  constructor calls, since a `json` value has no declared type to resolve one
+  against.
 
 ```agl
 record Retry
@@ -242,49 +217,31 @@ record Config
 ```
 
 `Retry`, `Retry()`, `Config(verbose = true)`, and the bare `Config` all
-construct a value with `retry` filled from its default. The same rule governs
-strict JSON: an object may omit a key for a defaulted field, and the derived
-JSON Schema ([Agent calls](agent-calls.md#derived-json-schema)) excludes such
-a field from `"required"`.
+construct a value with `retry` filled from its default.
 
-A parameter annotated [`path`](types.md#type-aliases) — directly, as
-`Option[path]` or `Optional[path]`, or through an alias — takes its value exactly as the
-corresponding `text` parameter does. A host presents that value as a
-filesystem location: its value placeholder defaults to `PATH`, and a host
-offering completion completes it from the filesystem.
-
-The declared type must be JSON-wire-serializable, including for a parameter
-whose default is always used. Runtime-only values such as `unit` and
-functions are not valid program-argument types, whether or not the host ever
-supplies a value for the parameter; nor is a type that reaches a
-dict whose key is not `Hashable` or not decodable (an exception key), which
-does not [decode](types.md#dict-wire-forms).
-A [recursive](types.md#recursive-types) record or enum parameter decodes
-normally, subject to the same finite-schema restriction as an agent output
-type or cast target — see [Generics](generics.md#the-finite-schema-boundary).
-
-A rendered record or enum value (see
-[Uniform rendering rules](strings-and-interpolation.md#uniform-rendering-rules))
+A rendered record or enum value
+([Uniform rendering rules](strings-and-interpolation.md#uniform-rendering-rules))
 parses back through `parse`/`as` to an equal value when every field,
 transitively, holds value-syntax data (no function values) and each nested
-record's or enum member's declaration sits at top level or directly inside
-one scope or enum — so its rendered qualifier is the single name value syntax
+record's or enum member's declaration sits at top level or directly inside one
+scope or enum — so its rendered qualifier is the single name value syntax
 accepts.
 
 ### Presentation attributes
 
 `@opt-name`, `@opt-short`, `@opt-env`, `@opt-metavar`, `@opt-hidden`, and
-`@doc` shape how a value parameter is addressed and described on the command
-line; see [Attributes](attributes.md#host-parameter-attributes).
+`@doc` shape how a value parameter or module parameter is addressed and
+described; see [Attributes](attributes.md#host-parameter-attributes).
 
 ### Help
 
 A host is expected to describe the selected program on request. What it shows
-is drawn entirely from the program's own declaration: the `program def`'s
-`@doc` prose describes it, each positional slot is named after its parameter,
-and each name-addressed parameter is listed with its long flag, its
-`@opt-short` spelling if it has one, its value placeholder, and its own `@doc`
-prose.
+is drawn entirely from declarations: the `program def`'s `@doc` describes the
+program, each positional slot is named after its parameter, and each
+name-addressable parameter is listed with its long flag, its `@opt-short`
+spelling if any, its value placeholder, and its own `@doc`. Module parameters
+follow, one section per closure module with a visible parameter, titled by its
+module path, each parameter under its shortest resolving spelling.
 
 Help rewraps each prose paragraph to the terminal width, after removing the
 prose's common indentation. A paragraph holding an indented line — an example,
@@ -294,66 +251,45 @@ a list, a table — keeps its line breaks and indentation.
 
 ### Module parameters
 
-A static `let` or `var` marked `@param` is a **module parameter**. Its host
-surface belongs to every selected program whose transitive import closure
-contains its declaring module. The selected program's own module comes first;
-the imported modules follow. The initializer is the fallback: a supplied
-value is bound during static initialization instead of evaluating that
-initializer. See [Attributes](attributes.md#module-parameters) for the
-declaration form and its restrictions.
+A static `let` or `var` marked [`@param`](attributes.md#module-parameters) is
+a **module parameter**. Its host surface belongs to every selected program
+whose transitive import closure contains its declaring module, the selected
+program's own module first. A supplied value is bound during static
+initialization instead of evaluating the initializer.
 
-The parameter's **external name** is its `@opt-name`, or its declared name
-when it has none. That name is used in flags, config leaves, help, and
-completion. A root parameter in `A/logging`, such as `verbose`, has a bare
-`--verbose` spelling when it resolves, plus dotted qualified spellings such as
-`--logging.verbose` and `--A.logging.verbose`. A parameter in `scope debug`
-adds the scope path: `--logging.debug.trace` and
-`--A.logging.debug.trace`. Qualified spellings are dotted; source declaration
-paths use `::` instead. `@opt-short("v")` adds `-v` on the command line.
+The parameter's **external name** is its `@opt-name`, or its declared name;
+it is used in flags, config leaves, help, and completion. A root parameter
+`verbose` in `A/logging` has a bare `--verbose` spelling when it resolves,
+plus dotted qualified spellings `--logging.verbose` and `--A.logging.verbose`;
+one in `scope debug` adds the scope path: `--logging.debug.trace`,
+`--A.logging.debug.trace`. Module and scope paths are dotted in flags and TOML,
+never `::`. `bool`, `Option[T]`, and `Optional[T]` parameters also take
+`--no-...`; other types take a value read as for [program
+arguments](#program-arguments).
 
-`bool`, `Option[T]`, and `Optional[T]` parameters also accept their normal `--no-...` form;
-other parameter types take a value under the same type-directed rules as
-[program arguments](#program-arguments). A bare name is resolved in this
-order: host flags and engine-setting leaves, the selected program's own value
-parameters, parameters in its own module, then parameters in imported
-modules. A later level retains qualified spellings. Several parameters at the
-same level make a spelling ambiguous only when it is used; the diagnostic
-names the candidate declaration paths. The same resolution applies to a
-short spelling.
+A bare spelling (long or short) is claimed, in order, by host flags and
+engine-setting names, the selected program's own value parameters, parameters
+of its own module, then parameters of imported modules; a later level keeps
+its qualified spellings. Several parameters at one level make a spelling
+ambiguous only when it is used; the diagnostic names their declaration paths.
 
-For an unset module parameter, the value is chosen in this order:
+Two config routes reach a module parameter:
 
-```
-CLI flag  >  @opt-env variable  >  program route  >  @config  >  manifest [config]  >  module route  >  initializer
-```
+- The **module route** is its declaring module's table, by any unambiguous
+  module suffix: `[A.logging]` for root bindings, `[A.logging.debug]` for
+  `scope debug`, or the exact quoted `["A/logging".debug]`.
+- The **program route** is the selected program's own table (see
+  [Config-file schema](#config-file-schema)). It addresses a parameter through
+  any resolving spelling, the dotted ones as quoted keys, so a parameter whose
+  bare name a nearer declaration claims is still configurable per program.
 
-The **program route** is the selected program's table. It addresses a parameter
-through any spelling that resolves for it: the bare external name, or one of
-the dotted qualified spellings, written as a quoted key. A parameter whose bare
-name a nearer declaration claims — an engine setting, the signature, a nearer
-module — is therefore still configurable for one program through a qualified
-leaf. Setting two spellings of one parameter in a single layer is an error, and
-a spelling several parameters claim is rejected naming them, exactly as the
-matching flag would be. The program route wins over the selected program's own
-[`@config`](attributes.md#config) entries. When the selected program is owned
-by a package, its manifest [`[config]`](../../commands/pkg.md#config) table
-ranks next — its own command table, then an inherited group table, then the
-manifest root — and wins over the **module route**, even when the latter
-appears in a more-specific TOML layer. A module route addresses the binding's
-declaring module and scope, so it is available too.
+An entry module no package owns (a loose file or `-c` source) has no module
+route; a loose file's own parameters are configured through its program
+route.
 
-For example, this program imports the `A/logging` module:
-
-<!-- agl-check: fragment -->
-```agl
-import A/logging
-
-program def main() -> unit =
-  print A/logging::verbose
-```
-
-Its configuration can use the module tables below. The selected program's
-table overrides a resolving module-table leaf.
+Setting two spellings of one parameter in one layer is an error, as is a
+spelling several parameters claim. For a program `main` in `tool.agl` that
+imports `A/logging`:
 
 ```toml
 [A.logging]
@@ -363,109 +299,116 @@ verbose = true
 trace = true
 
 [tool.main]
-verbose = false
-"A.logging.debug.trace" = false
+verbose = false                   # wins over [A.logging]
+"A.logging.debug.trace" = false   # wins over [A.logging.debug]
 ```
 
-`["A/logging".debug]` is the exact quoted-module spelling of the scoped
-module table; use it instead of `[A.logging.debug]` when an exact module route
-is needed. Module and scope paths are dotted in TOML and flags, never `::`.
-Each route accepts every unambiguous module suffix, shortest first. A config
-leaf uses the external name, not the declared binding name.
-
-Help lists the selected program's own options first and then one section for
-each closure module with a visible parameter, titled by its module path. Each
-visible module parameter is shown under its shortest resolving spelling.
-`@opt-hidden` omits the parameter from help and completion without making it
-unavailable to config, environment, or an explicit resolving flag.
-
-`agm check` validates module parameter declarations but supplies no host
-values and evaluates nothing. The REPL has no program route or parameter
-flags: when it first loads a module, its parameters read that module's route
-only. An inline `agm exec -c` entry has no module route for its own parameters,
-so they resolve as CLI flag > `@opt-env` variable > initializer; its
-file-backed imports keep their module routes.
+`agm check` validates module parameter declarations but supplies no values.
+The REPL has no program route or parameter flags: a module's parameters read
+only its module route when the REPL first loads it.
 
 ### Engine settings
 
-The standard-library module `std/config` exposes the following fixed engine
-settings as mutable bindings ([Bindings and scope](bindings-and-scope.md)). Each
-`builtin var` declaration may supply its portable default with a constant
-initializer; the host uses that declared value only when it has no seed for the
-key:
+The standard-library module `std/config` declares the engine settings as
+`builtin var` bindings, read and written through a qualified target
+(`std/config::strict-json`) after `import std/config`. Each declaration's
+constant initializer is its portable default, used when the host supplies no
+value.
 
-| Setting | AgL type | Portable default |
-| --- | -------- | ---------------- |
-| `trace` | `bool` | `false` |
-| `strict-json` | `bool` | `false` (lenient recovery) |
-| `default-agent` | `Agent` | `AgentPi()` (provider, model, and effort from `[agent]`, else the CLI's own) |
-| `default-sandbox` | `AgentSandbox` | `Sandbox` (every field defaulted) |
-| `trace-file` | `Option[path]` | `None` |
-| `timeout` | `Option[text]` | `None` |
-| `debug` | `bool` | `false` |
-| `parse-error-retries` | `int` | `4` |
+| Setting | AgL type | Portable default | Governs |
+| --- | -------- | ---------------- | ------- |
+| `trace` | `bool` | `false` | [tracing](#tracing) |
+| `trace-file` | `Option[path]` | `None` | the trace destination |
+| `strict-json` | `bool` | `false` (lenient recovery) | JSON-codec calls without a `strict-json` option |
+| `default-agent` | `Agent` | `AgentPi()` | `ask` without an `agent` option |
+| `default-sandbox` | `AgentSandbox` | `Sandbox` (every field defaulted) | agent calls without a `sandbox` option |
+| `timeout` | `Option[text]` | `None` | `exec` without a `timeout` option; its initial value also sets the agent idle timeout |
+| `parse-error-retries` | `int` | `4` | `ask` without a `parse-error-retries` option (`exec` defaults to `0`) |
+| `debug` | `bool` | `false` | whether `std/fs` temporary paths are kept |
 
-Import `std/config` and read or write a setting through a qualified target
-(`std/config::strict-json`).
-`default-agent` is a typed `Agent` value — its selected member `RecordValue` at runtime — used by `ask` when its `agent` option is omitted. Host CLI and TOML values read the same [host Agent syntax](../../commands/agl.md#host-agent-syntax) as an `Agent`-typed parameter: a JSON object, then an `Agent` member constructor call, then compact shorthand, and otherwise a verbatim command. A native agent's empty provider, model, or `thinking` field takes its default from the [`[agent]` config section](../../commands/agl.md#agent-defaults) when used. The optional settings (`trace-file`, `timeout`) take a `Some("…")` or `None` value.
-`default-sandbox` is a typed `AgentSandbox` value ([Types](types.md#agentsandbox)). Unlike
-`default-agent`, it is not an `Agent`, so its host CLI/TOML text decodes as
-strict JSON or one [value-syntax](#value-syntax) literal, exactly as any
-other non-`Agent`, non-`Option` engine setting or program argument does: a
-bare member name (`Native`, `Disabled`, `Sandbox`) or a member constructor
-call. An omitted field of a defaulted-field constructor — such as `Sandbox`'s
-`memory`, `swap`, `settings`, and `patch` — fills from that field's own
-declared default, so `Sandbox`, `Sandbox()`, and `Sandbox(memory =
-Some("8G"))` all decode. A config-table entry may also spell such a value as
-a native TOML table instead of a quoted string, shaped exactly as its [JSON
-form](agent-calls.md#the-json-wire-format): a `"$case"` key names the
-constructor, and each nested value takes its own JSON shape.
+A call option always overrides its setting, in both directions:
+`strict-json = false` forces lenient parsing under a strict setting. With no
+`timeout`, the agent idle timeout is host-defined.
+
+Host text for `default-agent` uses the host `Agent` syntax of [Reading
+values](#program-arguments); a native agent's empty provider, model, or
+`thinking` field takes its default from host configuration when the agent is
+used ([Agent defaults](../../commands/agl.md#agent-defaults)). Host text for
+`default-sandbox` is strict JSON or one value-syntax literal — a member name
+(`Native`, `Disabled`, `Sandbox`) or constructor call
+(`Sandbox(memory = Some("8G"))`), with omitted fields filled from their
+declared defaults ([host AgentSandbox
+syntax](../../commands/agl.md#host-agentsandbox-syntax)).
+
+**Positional effect.** The host applies each initial value before execution;
+a host `trace-file` value turns `trace` on unless the CLI sets `trace` (a
+configured `trace-file` does so even beside a configured `trace = false`),
+and a `debug` initial value of `true` turns `trace` on when no host value
+sets `trace` or `trace-file`. Thereafter a write to `std/config::X` governs
+the statements that follow it in program order, and stays effective if a later
+expression fails. Writing `trace` or `trace-file` updates the trace
+destination for subsequent calls: `trace-file := Some(path)` enables tracing,
+and a later `trace := false` disables it while retaining the path. Trace
+output is best-effort: a filesystem failure disables tracing for the rest of
+the run without rolling back the assigned values. A `timeout` write changes
+only the `exec` timeout; the agent idle timeout cannot change mid-program.
+Reading `timeout` returns the exact text assigned or supplied. `debug` is read
+once, when the host session (the run, or the REPL session) ends.
+
+A write the engine cannot accept raises a catchable exception and leaves the
+setting unchanged: [`RangeError`](exceptions.md#rangeerror) for a negative
+`parse-error-retries`, [`TypeError`](exceptions.md#typeerror) for a `timeout`
+whose text is not a duration or a blank `trace-file`. The same invalid values
+supplied by the host are pre-execution errors.
 
 ### Precedence
 
-`agm exec` resolves initial values as:
+Each external input takes the first value supplied, left to right:
 
 ```
-setting X:    source (std/config::X := e)  >  CLI --X  >  qualified program table  >  @config  >  manifest [config].X  >  [exec].X  >  declared default
-argument Y:   CLI token (--Y / positional) >  qualified program table             >  declared default > required error
+program argument:  CLI token  >  @opt-env  >  program route  >  declared default  (else required error)
+module parameter:  CLI flag   >  @opt-env  >  program route  >  @config  >  manifest [config]  >  module route  >  initializer
+engine setting:    CLI flag   >  program route  >  @config  >  manifest [config]  >  [exec]  >  declared default
 ```
 
-The CLI flag and config-file layers, the selected program's own
-[`@config`](attributes.md#config) entries, and — when the selected program is
-owned by a package — its manifest [`[config]`](../../commands/pkg.md#config)
-table supply a setting's **initial** value; a source write to `std/config::X`
-overrides them from its program point onward. A program that never writes a
-setting keeps the value chosen by those layers.
+- **Program route** — the selected program's own tables (its qualified
+  table and, for a registered command, its command-path table), then inherited
+  group tables; see [Config-file schema](#config-file-schema).
+- **`@config`** — the selected program's own [`@config`](attributes.md#config)
+  entries.
+- **Manifest `[config]`** — for a package-owned program only, its package
+  manifest's [`[config]`](../../commands/pkg.md#config) table: command table,
+  then inherited group table, then manifest root. It never sets program
+  arguments.
+- **Module route** — the declaring module's table; **`[exec]`** — global
+  engine defaults.
 
-For example, `--default-sandbox Native` overrides both a `[prog.main]
-default-sandbox = "Sandbox"` table entry and `[exec] default-sandbox =
-"Sandbox"`; a later `std/config::default-sandbox := AgentSandbox::Disabled`
-write overrides the flag from that point on.
+These tiers choose an engine setting's **initial** value; a source write to
+`std/config::X` overrides it from its program point onward
+([positional effect](#engine-settings)). For example, `--default-sandbox
+Native` overrides both `[prog.main] default-sandbox = "Sandbox"` and
+`[exec] default-sandbox = "Sandbox"`; a later
+`std/config::default-sandbox := AgentSandbox::Disabled` overrides the flag
+from that point on.
 
-`agm repl` resolves engine settings as source writes > CLI > `[exec]` > declared
-default. It has no entry program: a `program def` declared at the prompt is an
-ordinary function, called with its own arguments like any other declaration
-there. Its named-only default zone still applies, so a plain parameter is
-supplied as `main(x = 5)`; the positional form `main(5)` is rejected as a
-positional argument in a named-only position.
+Hosts without some tiers skip them. Inline `-c` source has no config route or
+manifest: its own value parameters resolve as CLI token > `@opt-env` >
+declared default, and its own module parameters as CLI flag > `@opt-env` >
+`@config` > initializer, while its file-backed imports keep their module
+routes. The REPL has no selected
+program: engine settings resolve as CLI > `[exec]` > declared default, and a
+`program def` declared there is an ordinary function, so its named-only
+parameters are supplied as `main(x = 5)`.
 
 ### Config-file schema
 
-`[exec]` holds global engine defaults with kebab field names (`strict-json`,
-`trace-file`). A qualified table uses a module suffix (the entry
-file's stem, or a package's declared route) and the selected program's own
-declaration name — `[prog.main]` for a program named `main` in a file whose
-stem or route is `prog`. The same table supplies both that program's engine-key
-overrides and its own value parameters. A longer suffix, including an exact
-quoted module route, disambiguates same-leaf modules. Inline `-c` value
-parameters are CLI-only. The selected program's own
-[`@config`](attributes.md#config) entries rank between this qualified table
-and `[exec]` for an engine setting, and between this table and a module route
-for a module parameter; `@config` is a source declaration, so it never
-appears in a config file. When the selected program is owned by a package,
-its manifest [`[config]`](../../commands/pkg.md#config) table ranks below
-`@config` and above `[exec]`/the module route, in the same command-table >
-group-table > root tiers command-path addressing uses. For example:
+`[exec]` holds global engine defaults under the settings' names
+(`strict-json`, `trace-file`). A program's qualified table is its module
+suffix (the entry file's stem, or a package-qualified route) followed by its
+declaration path: `[prog.main]` for `main` in `prog.agl`. One table supplies
+both the program's engine-setting overrides and its value parameters. A longer
+suffix, or an exact quoted module route such as
+`["review-tools/review".review.main]`, disambiguates same-leaf modules.
 
 ```toml
 [exec]
@@ -475,82 +418,22 @@ default-sandbox = "Native"
 default-sandbox = 'Sandbox(memory = Some("8G"))'
 ```
 
-A program a package registers as a CLI command is addressed by that command
-path too: `agm dev review`, registered for `review-tools/review::main`, reads
-`[dev.review]`, whose segments are the whole table path. It is one more
-spelling of the same address, so it applies however the program is run — as
-the command, by installed reference, or by file path — and setting one leaf
-through two spellings in the same config layer is an error, exactly as two
-module suffixes are. Every proper prefix of a command path is also an
-inherited group table (`[dev]` for `dev review`), a lower-specificity tier
-below the exact route: a deeper prefix wins over a shallower one and the
-program's own exact table always wins over any of them, regardless of config
-layer; a leaf an inherited table sets still joins cross-route ambiguity
-checks, but is exempt from undeclared-key warnings, since a descendant
-command may be the one that consumes it.
+A program a package registers as a command is also addressed by that command
+path and by every [alias](../../commands/pkg.md#aliases) path naming the
+command: `agm dev review`, registered for `review-tools/review::main`, reads
+`[dev.review]` however the program is run — as the command, by installed
+reference, or by file path. Setting one leaf through two spellings of the
+same program in one config layer is an error. Every proper prefix of a command
+path is an inherited group table (`[dev]` for `dev review`): a deeper prefix
+wins over a shallower one, and the program's exact tables win over any of
+them regardless of config layer. A leaf an inherited table sets joins
+ambiguity checks but is exempt from undeclared-key warnings, since a
+descendant command may consume it.
 
 AgM's own schema sections — `[agent]`, `[deps]`, `[modules]`, `[packages]`,
-and `[params]` — name user-chosen entries in their nested tables, so no route
-passes through one at any depth. A loose file or module whose stem is `agent`
-therefore has no `[agent]` or `[agent.<program>]` config route: such tables
-are validated as [`[agent]` defaults config](../../commands/agl.md#agent-defaults)
-instead, and the other schema sections likewise keep their own meaning. A
-package command whose first word is a schema-section name is rejected by
-validation and has no command-path config table, exact or inherited.
-
-A config-table string value must be valid Unicode, the same requirement a
-CLI token or `@opt-env` variable is held to above; a value holding a
-surrogate code point is a host invocation error.
-
-### Positional effect
-
-The host applies each effective initial setting before execution. Thus a declared `trace` or `trace-file` default configures the trace service when
-no CLI/config seed is supplied. A `debug` seed of `true` also seeds `trace` as `true` when
-no CLI/config seed sets `trace` or `trace-file`. Every setting takes effect
-**positionally** thereafter: a write to `std/config::X` governs the statements
-that follow it, in program order, and does not affect statements before it. A
-completed write stays effective if a later expression fails. Writing `trace`
-or `trace-file` updates the trace destination used by subsequent calls.
-Assigning `Some(path)` to `trace-file`
-enables tracing; a later `trace := false` disables it while retaining the path.
-Writing `strict-json` or `timeout` changes subsequent agent-output parsing or
-`exec` calls, respectively. `debug` is read once, when the host session ends
-(the run, or the REPL session): if it is `true` then, the temporary files and
-directories `std/fs` created are kept rather than removed. `parse-error-retries` is the
-default `parse-error-retries` of each subsequent `ask`
-([Agent calls](agent-calls.md#parse-error-retries)). A write the engine cannot
-accept raises a catchable exception and leaves the setting unchanged: `RangeError`
-([Exceptions](exceptions.md#rangeerror)) for a negative `parse-error-retries`, `TypeError`
-([Exceptions](exceptions.md#typeerror)) for a `timeout` whose text is not a duration or a
-blank `trace-file`.
-Trace output is best-effort: a filesystem failure disables tracing for the rest
-of the run without rolling back the assigned `trace` or `trace-file` value.
-
-### Error surface for `timeout`
-
-- A bad `--timeout`, qualified program-table timeout, or `[exec].timeout` value is caught
-  before execution (exit 1 pre-execution error).
-- A bad duration in `std/config::timeout := Some("…")` is evaluated at runtime;
-  a bad value raises the catchable `TypeError`
-  ([Exceptions](exceptions.md#typeerror)), terminating the run (exit 2) when
-  uncaught.
-- A CLI, qualified program table, or `[exec]` timeout initially seeds both shell execution
-  and agent idle timeout. A source write to the `timeout` setting changes only
-  the **shell-exec** timeout; agent idle timeout cannot be changed mid-program.
-- Reading `timeout` returns the exact `Option[text]` value assigned or supplied
-  initially; duration parsing does not normalize its text.
-
-### Other host-configurable defaults
-
-| Setting | Portable default | Used when |
-| ------- | ---------------- | --------- |
-| Corrective parse retries | `parse-error-retries` setting (`ask` forms), `0` (`exec`) | call without `parse-error-retries` |
-| Default JSON parsing mode | lenient recovery | JSON-codec call without `strict-json` |
-| Agent idle timeout | host-defined | every agent dispatch |
-
-Source-level call options always override host defaults — in both
-directions: `strict-json = false` forces lenient parsing even under a strict
-host default.
+and `[params]` — keep their own meaning at every depth, so no route passes
+through one: a module whose stem is `agent` has no `[agent.<program>]` route,
+and a package command whose first word is a section name is rejected.
 
 ## Tracing
 
@@ -587,9 +470,7 @@ Tracing records only observable boundaries:
 - an exception only when it escapes the program uncaught;
 - records a companion emits through `runtime.trace` ([FFI](ffi.md#trace-hook)).
 
-Ordinary expression evaluation is not traced. Trace records and exception
-values have no host-generated `trace-id`; a user-declared exception may still
-have a field with that name.
+Ordinary expression evaluation is not traced.
 
 ## Results and termination
 

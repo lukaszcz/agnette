@@ -10,7 +10,7 @@ uncaught, terminate the program. There are no sentinel return values.
 
 Every exception is a value of a concrete built-in or user-declared exception
 type. Every exception type extends the abstract base type `Exception`, which
-declares one field present on every exception:
+declares one named-only field present on every exception:
 
 ```text
 message: text     # human-readable description
@@ -18,40 +18,34 @@ message: text     # human-readable description
 
 `Exception` itself is **not constructible** — `raise Exception(…)` is a
 static error. It exists for typing: a wildcard catch binds its variable as
-`Exception`, so only `message` and whole-value interpolation (`%{e}`) are
-available there. Accessing a subtype field such as `e.raw` requires catching
-the concrete type.
+`Exception`, so only `message`, methods declared on `Exception` (it declares
+none), and whole-value operations such as `%{e}` are available there. A field
+declared on a subtype, such as `CastError`'s `raw`, requires catching or
+narrowing to that subtype.
 
-Programs may declare concrete exception types:
-
-```agl
-exception DeployError extends Exception
-  service: text
-  exit-code: int
-```
-
-An exception extends exactly one base exception type; omitting `extends` means
-`extends Exception`. Constructor fields include the inherited fields first,
-followed by fields declared on the subtype. A field with `= <constant expr>`
-is optional, inherited defaults included: a `raise`/construction that omits
-it uses the default. Unlike a record or enum member, an exception is never
-constructible from a bare reference, even when every field has a default
-(see [Fieldless and all-defaulted constructor
-references](expressions.md#fieldless-and-all-defaulted-constructor-references)):
-exception construction always needs an explicit call, `raise Abort(...)`.
-An exception with no own fields omits the body:
+Programs declare concrete exception types:
 
 ```agl
 exception DeployError extends Exception
   service: text
+  exit-code: int = 1
 
 exception RollbackError extends DeployError
 ```
 
-`trace-id` is not reserved: a user-declared exception may use it as one of its
-own fields. Exception fields do not accept `var` and cannot be reassigned.
-`builtin exception` is the standard-library form for host-recognized exception
-types; the name, base, and fields must match the recognized shape exactly.
+An exception extends exactly one base exception type; omitting `extends` means
+`extends Exception`. Constructor fields are the inherited fields first,
+followed by the subtype's own. A field with `= <constant expr>` is optional,
+inherited defaults included. An exception with no own fields omits the body.
+Unlike a record or enum member, an exception is never constructible from a
+bare reference, even when every field has a default (see [Fieldless and
+all-defaulted constructor
+references](expressions.md#fieldless-and-all-defaulted-constructor-references)):
+construction always needs an explicit call, `raise Abort(...)`.
+
+Exception fields do not accept `var` and cannot be reassigned. `builtin
+exception` is the standard-library form declaring a host-recognized exception
+type; its name, base, and fields must match the recognized shape exactly.
 
 ### Casts and `is`
 
@@ -79,8 +73,18 @@ def describe(e: Problem) -> text =
 
 ### Methods
 
-An exception type may declare methods. A method declared on an exception is
-available on every subtype in its `extends` chain:
+An exception type may declare methods; they are available on every
+descendant. An exception's method candidates form one level: its own methods
+plus every ancestor's. Exactly one visible candidate with the wanted name
+wins; two or more are a static ambiguity. A base method and a descendant
+method of the same name in one module are therefore rejected at the later
+declaration; across modules the clash surfaces where both are visible on a
+descendant-typed receiver, and a qualified call naming either owner, a
+rename, or `hiding` one route repairs it. A base-typed receiver never sees a
+descendant's methods, so changing a receiver's static type (by an annotation
+or an upcast) can turn a call into an error or back, but never changes which
+function it selects. Visibility follows the general method rules
+([Methods](functions.md#methods)).
 
 ```agl
 exception Problem extends Exception
@@ -98,33 +102,14 @@ program def main() -> unit =
   print(problem.detail-label())
 ```
 
-An exception's method candidates are one level: its own methods plus every
-ancestor's in its `extends` chain. Exactly one visible method with the wanted
-name wins; two or more are a static ambiguity. A base method and a descendant
-method sharing a name are therefore ambiguous wherever both are visible on
-the descendant-typed receiver, and declaring both in the same module is
-rejected at whichever declaration comes later; a qualified call naming
-either owner explicitly, a rename, or `hiding` one route repairs it. A
-base-typed receiver's level stops at its own chain, so it never sees a
-descendant's method: changing the receiver's static type by an annotation
-or an identity upcast may turn a call into an error or back, but never
-changes which function the call selects. Like other methods,
-an exception method is selectable where the source module declares it or
-reaches its declaration by a qualified import route; `hiding` can remove that
-route.
-
-The built-in `Exception` declaration contains no methods. A wildcard `catch _
-as e =>` binds `e` as `Exception`, so it can select only visible methods on
-`Exception`, not methods on a concrete subtype.
-
 ### Recursive exceptions
 
-An exception's fields may reference its own type, and may participate in
-mutual recursion with records, enums, and other exceptions, under the same
-inhabitation rule as records and enums (see
-[Recursive types](types.md#recursive-types)). Because an exception is a
-product type — every declared field is required — a field cannot directly
-self-reference without a base case:
+An exception's fields may reference its own type and take part in mutual
+recursion with records, enums, and other exceptions, under the inhabitation
+rule of [Recursive types](types.md#recursive-types): recursion through a
+required field must be guarded by a type with a finite base value, such as
+`array`/`dict` or an enum with a base-case member. An `extends` cycle is
+rejected as uninhabitable for the same reason.
 
 ```agl
 exception ValidationError extends Exception
@@ -138,73 +123,50 @@ exception Broken extends Exception
   child: Broken   # rejected: uninhabitable, no array/dict guard
 ```
 
-For a required exception field, recursion must be guarded by a field type
-that itself has a finite base value, such as `array`/`dict` (empty collection)
-or an enum/option-style type with a base-case member. The same inhabitation
-rule also covers the `extends` chain itself: an `extends` cycle (two exceptions
-each extending the other) is rejected as uninhabitable for the same reason a
-field cycle is.
+### Values and rendering
 
-Exception values support field access (`e.raw`), equality, and rendering.
-In interpolation and `print` an exception renders in **AgL record form**,
-positional fields first across the whole `extends` chain (base fields first),
-then the rest as `name = value` (see
-[Uniform rendering rules](strings-and-interpolation.md#uniform-rendering-rules))
-— for example:
+Exception values support field access, equality, and rendering. In
+interpolation and `print` an exception renders in **AgL record form**, fields
+ordered across the whole `extends` chain, base fields first (see [Uniform
+rendering rules](strings-and-interpolation.md#uniform-rendering-rules)):
 
-```
-CastError(message = "cannot parse \"x\" as int", source-type = "text", target-type = "int", raw = "x")
+```text
+KeyError(message = "Dict key \"b\" is missing", key = "\"b\"")
 ```
 
-See [Strings and interpolation](strings-and-interpolation.md) for the uniform
-rendering rules. Use `e as json` to obtain the JSON object of the fields of
-*e*'s runtime exception type (see [Nominal types
-`as json`](types.md#nominal-types-as-json-structural-encoding)); use `e as
-text` to obtain the same AgL-form string. A field value with no JSON
-representation (such as a function or a cyclic value) makes the cast raise
-`CastError` (`as?` yields `None`); only the report of an uncaught exception
-replaces such a field with a marker.
+`e as text` yields the same string; `e as json` yields the JSON object of the
+fields of *e*'s runtime type (see [Nominal types
+`as json`](types.md#nominal-types-as-json-structural-encoding)). A field value
+with no JSON representation (such as a function or a cyclic value) makes the
+cast raise `CastError` (`as?` yields `None`); only the report of an uncaught
+exception replaces such a field with a marker.
 
 ## `try` / `catch`
 
 `try … catch …` is an **expression** — its type is the unified type of the
-body and all catch handler bodies (with `int → decimal` widening). A
-`try`/`catch` in a value position binds a typed result:
+body and all handler bodies (with `int → decimal` widening). Each handler is
+`catch Pattern => body`, where the body is the same form an `if` or `case`
+branch takes. Because `catch` marks where a `try` body ends, an inline `try`
+body is a full `;` sequence, binders and `:=` assignments included; if its
+final item is a `let` or `var`, the body has type `unit` (bottom if the
+initializer exits). The body may end in `if`, `case`, or a loop; only a
+nested `try` or a lambda is barred in final position. See [Grammar: `try` /
+`catch`](grammar.md#try-catch) and [Inline bodies](grammar.md#inline-bodies).
 
-```ebnf
-try_expr          ::= "try" try_body catch_clause+
-try_body          ::= suite | (marked_item ";")* try_tail
-try_tail          ::= or_expr | inline_assign | try_letvar_decl | raise_expr
-                    | return_expr | if_expr | case_expr | loop
-try_letvar_decl   ::= "let" decl_head type_ann? "=" try_value
-                    | "var" decl_head type_ann? "=" try_value
-try_value         ::= or_expr | raise_expr | return_expr | if_expr | case_expr | loop
-catch_clause      ::= "catch" catch_pattern "=>" branch_body
-catch_pattern ::= name ("as" name)?
-                | "_" ("as" name)?
-branch_body   ::= suite | closed_item
-```
-
-`branch_body` is the same body form an `if` or `case` branch takes — a suite
-or a single item. Because `catch` marks where a `try` body ends, an inline
-`try` body is a full `;` sequence, binders and `assign_target := or_expr` assignments included. Its final
-item may be a `let` or `var`; then the try body has type `unit` unless the
-initializer exits, in which case it has bottom type. See
-[Inline bodies](grammar.md#inline-bodies).
-
-<!-- agl-check: fragment -->
 ```agl
-try
-  let review: Review = reviewer.ask(
-    "Review %{artifact}",
-    parse-error-retries = 2
-  )
-  print "reviewed: %{review}"
-catch AgentParseError as e =>
-  let report = critic.ask("Explain invalid output:\n%{e.raw}")
-  raise e
-catch _ as e =>
-  print "unexpected: %{e.message}"
+record Review
+  verdict: text
+  summary: text
+
+program def main(artifact: text) -> unit =
+  try
+    let review: Review = ask("Review %{artifact}", parse-error-retries = 2)
+    print "verdict: %{review.verdict}"
+  catch AgentParseError as e =>
+    print "invalid review after %{e.attempts} attempts:\n%{e.raw}"
+    raise e
+  catch _ as e =>
+    print "unexpected: %{e.message}"
 ```
 
 Semantics:
@@ -212,73 +174,72 @@ Semantics:
 1. The `try` body executes.
 2. If it completes without an exception, every `catch` is skipped; the
    body's value is the result.
-3. If an exception is raised, catch clauses are tested **in order**; the
-   first clause whose pattern matches handles it.
-4. The catch body runs in a fresh scope; `as name` binds the exception as
+3. If an exception is raised, handlers are tested **in order**; the first
+   whose pattern matches handles it.
+4. The handler body runs in a fresh scope; `as name` binds the exception as
    an immutable, handler-local value typed by the caught type.
-5. If no clause matches, the exception propagates outward.
-6. An exception raised inside a catch body propagates normally.
+5. If no handler matches, the exception propagates outward.
+6. An exception raised inside a handler body propagates normally.
 
-A `return` inside a `try` body or a catch body is not an exception and is never
-caught by `catch`; it unwinds to the nearest enclosing function.
+A `return` inside a `try` body or a handler is not an exception and is never
+caught; it unwinds to the nearest enclosing function. There is no `finally`.
 
 Catch patterns:
 
 - `catch SomeError` / `catch SomeError as e` — matches a raised value whose
-  runtime type is `SomeError` or any descendant of it in its `extends`
-  chain, whether built-in or user-declared; `e` is typed `SomeError`.
-  `SomeError` names whichever declaration of that name is in scope where the
-  `catch` clause is written; in the REPL, a name that is later redeclared
-  keeps naming its original declaration in a `catch` clause written before
-  the redeclaration — and that clause also matches descendants of the old
-  declaration declared in later entries — while a `catch` clause written
-  afterward names the new declaration.
+  runtime type is `SomeError` or any descendant of it, built-in or
+  user-declared; `e` is typed `SomeError`. `SomeError` names the declaration
+  in scope where the clause is written. In the REPL, a clause written before
+  a redeclaration of `SomeError` keeps naming (and matching descendants of)
+  the original declaration; a clause written afterward names the new one.
 - `catch _` / `catch _ as e` — matches anything; `e` has type `Exception`.
 - `catch Exception as e` — equivalent to `catch _ as e`.
 
-Handlers are tried in the order written; the first whose type matches the
-raised value's runtime type wins. A handler that can never fire is a
-**static error**: one written for the same type as an earlier handler, for a
-type an earlier handler already covers (an ancestor of it), or after a
-catch-all (`_` or `Exception`).
+A handler that can never fire is a **static error**: one for the same type as
+an earlier handler, for a type an earlier handler already covers (a
+descendant of it), or after a catch-all (`_` or `Exception`). Order handlers
+from most to least specific:
 
-<!-- agl-check: fragment -->
 ```agl
-try
-  raise Detailed(message = "m", code = 1, detail = "x")
-catch Detailed as d =>        # most specific first
-  print(d.detail)
-catch Problem as p =>         # Problem and any other descendant
-  print(p.code)
-catch _ as e =>
-  print(e.message)
-```
+exception Problem extends Exception
+  code: int
 
-There is no `finally`.
+exception Detailed extends Problem
+  detail: text
+
+def check(code: int) -> unit =
+  if code > 0 => raise Detailed(code, "disk full", message = "check failed")
+
+program def main(code: int) -> unit =
+  try
+    check(code)
+  catch Detailed as d =>
+    print(d.detail)
+  catch Problem as p =>       # Problem and any other descendant
+    print(p.code)
+  catch _ as e =>
+    print(e.message)
+```
 
 ## `raise`
 
-```ebnf
-raise_expr ::= "raise" or_expr
-```
+`raise e` takes an `or_expr` operand, so an open form such as `if`, `case`,
+`try`, a loop, another `raise`, or a lambda must be parenthesized. The operand
+must be an exception value (statically checked). `raise` **diverges**: its
+type is the bottom type, assignable to any expected type.
 
-The operand must be an exception value (statically checked). It is an
-`or_expr`, so an open form such as `if`, `case`, `try`, a loop, another
-`raise`, or a lambda must be parenthesized. `raise` **diverges** — it never
-yields a value. Its type is the bottom type, assignable to any expected type:
-
-<!-- agl-check: fragment -->
 ```agl
-let x: int = if condition => 1 else => raise Abort(message = "!")
-raise Abort(message = "Cannot continue without repository access.")
+program def main(ready: bool) -> unit =
+  let attempts: int = if ready => 1 else => raise Abort(message = "not ready")
+  print(attempts)
 ```
 
-An exception's own fields are **standard by default** and may be supplied
-positionally or by name. The `@arg-pos`, `@arg-std`, and `@arg-named`
-[attributes](attributes.md#zone-attributes) constrain them: in front of a field the
-attribute zones that field, and in front of the declaration it zones every
-field carrying none of its own. The inherited `message` field is named-only, so
-it is supplied by name when constructing an exception with fields:
+An exception's own fields are **standard by default** — supplied positionally
+or by name — and the `@arg-pos`, `@arg-std`, and `@arg-named`
+[zone attributes](attributes.md#zone-attributes) constrain them as for record
+fields ([Record types](types.md#record-types)). The inherited `message` is
+named-only. Built-in exception types are constructed the same way; `Abort` is
+the conventional type for user-initiated failures.
 
 ```agl
 exception DeployError extends Exception
@@ -289,75 +250,35 @@ program def main() -> unit =
   raise DeployError("api", 1, message = "deployment failed")
 ```
 
-Any concrete built-in exception type is constructible the same way: its own
-fields are standard, so they may be supplied positionally or by name, while the
-inherited `message` is named-only. `Abort` is the conventional type for
-user-initiated failures.
+Exception values support [record update](expressions.md#record-update).
+Field names are checked against the static exception type, but the copy keeps
+the value's **runtime** type, so updating through a `catch Exception as e`
+binding and re-raising keeps the original type catchable:
 
-Exception values support the
-[record update](expressions.md#record-update) operator. Field names are
-checked against the binding's static exception type, but the copy preserves
-the value's **concrete** exception type — updating through a
-`catch Exception as e` binding and re-raising keeps the original exception
-type catchable:
-
-<!-- agl-check: fragment -->
 ```agl
-catch Exception as e =>
-  raise (e with message = "while deploying: %{e.message}")
-```
+exception DeployError extends Exception
+  service: text
 
-## Standard library exceptions
+def deploy(service: text) -> unit =
+  raise DeployError(service, message = "health check failed")
 
-### `UnwrapError`
-
-`std/option` raises `UnwrapError` when `Option[T].unwrap()` is called on
-`None`; `std/result` raises the same exception when `Result[T, E].unwrap()` is
-called on `Err`. It carries only the inherited `message` field.
-
-### `FsError`
-
-`std/fs` raises `FsError` for a failed filesystem operation. In addition to
-`message`, it carries `path: text` and `operation: text`. `std/os::chdir` also
-raises it, with `path` the directory that could not be entered.
-
-`fs::list` and `fs::glob` also raise it when a directory entry or match is not
-valid Unicode, and `fs::temp-file` and `fs::temp-dir` when the host's
-temporary directory is; `path` is then the directory or pattern that was
-asked for, and the message names the offending entry with its undecodable
-bytes escaped. The whole call fails rather than the entry being skipped.
-
-### `EncodingError`
-
-`std/path` (`absolute`, `relative`, `expand-user`, `home`) and `std/os`
-(`cwd`, `hostname`, `temp-dir`, `chdir`, `user`) raise `EncodingError` when the
-host returns text that is not valid Unicode.
-
-```text
-raw: text   # the host text, with its undecodable bytes escaped
-```
-
-### `LaunchError`
-
-`std/os::edit` and `std/os::open` raise `LaunchError` when nothing could be
-launched (`exit-code = None`) or the launched process exited non-zero
-(`exit-code = Some(code)`). `command` is the editor (the `VISUAL`/`EDITOR`
-value, or the last fallback, `vi`, when none is found — also when a shell
-reports it as not found), `sh` if the shell itself is missing, or the opener.
-
-```text
-command: text
-exit-code: Option[int]
+program def main() -> unit =
+  try
+    deploy("api")
+  catch Exception as e =>
+    raise (e with message = "while deploying: %{e.message}")
 ```
 
 ## Built-in exception catalog
 
-Field lists below are in addition to the base `message`.
+All built-in exceptions are reachable through the
+[prelude](modules.md#prelude). Library functions also raise them where their
+own documentation says so. Field lists below are in addition to `message`.
 
 ### `AgentCallError`
 
-An agent **transport** failure: the agent could not run. Not eligible for
-`parse-error-retries` retries ([Agent calls](agent-calls.md)).
+An agent **transport** failure: the agent could not run. Never retried by
+`parse-error-retries` ([Agent calls](agent-calls.md)).
 
 ```text
 agent: Agent      # the selected backend
@@ -387,62 +308,56 @@ metadata: json
 
 ### `ExecError`
 
-A shell command failed to run, exited nonzero, timed out, or produced output
-that is not valid UTF-8, in the **parsed or unit form** of `exec` ([Shell
-execution](shell-execution.md)). The structured form raises it on spawn
-failure, timeout, or undecodable output, but represents a nonzero exit as
-`ExecResult` data. A `sandbox`-prepared command that fails to prepare (for
-example, unresolvable sandbox settings) raises it in every form, exactly like
-a spawn failure — no shell process is ever started.
+A shell command failed to spawn, timed out, or produced output that is not
+valid UTF-8 — in every form of `exec` — or exited nonzero in the **parsed or
+unit form** ([Shell execution](shell-execution.md)); the structured form
+represents a nonzero exit as `ExecResult` data. A `sandbox`-prepared command
+that fails to prepare raises it in every form, like a spawn failure; no shell
+process is started.
 
 ```text
 command: text     # the rendered command
 exit-code: int    # -1 for spawn failure, sandbox preparation failure, or a
                   # timeout without an exit status
-stdout: text      # "" if stdout was captured but is not valid UTF-8
-stderr: text      # "" if stderr was captured but is not valid UTF-8
+stdout: text      # "" if captured but not valid UTF-8
+stderr: text      # "" if captured but not valid UTF-8
 timed-out: bool
 ```
 
-An undecodable stream's field is always `""`; the message names the stream
-and the byte offset of the first invalid byte. A decode failure in the
-parsed form is never retried by `parse-error-retries`.
+For an undecodable stream the message names the stream and the byte offset
+of the first invalid byte. A decode failure in the parsed form is never
+retried by `parse-error-retries`.
 
 ### `SessionError`
 
-A catchable session lifecycle or capability failure. It covers opening or
-obtaining the default session, use of a closed or unknown session, an
-unsupported transport or lifecycle operation, and a host failure while running
-`compact`, `reset`, `fork`, `stats`, `set-name`, or `close`. The backend
-capabilities for each agent/transport combination are listed in
-[Sessions](agent-calls.md#sessions).
+A session lifecycle or capability failure: opening or obtaining the default
+session, use of a closed or unknown session, an unsupported transport or
+operation, or a host failure while running a session operation. Backend
+capabilities are listed in [Session runners](../../commands/agl.md#session-runners). A prompt
+transport failure from `Session::ask` is `AgentCallError` instead, and
+output failing its contract is `AgentParseError`.
 
 ```text
-operation: text   # the host operation that failed, e.g. "open", "default",
+operation: text   # the failed host operation, e.g. "open", "default",
                   # "ask", "compact", "reset", "fork", "stats",
                   # "set-name", or "close"
 ```
 
-A prompt transport failure from `Session::ask` is instead `AgentCallError`;
-output received from a prompt that fails its requested contract is
-`AgentParseError`.
-
 ### `ExternError`
 
-An `extern def` call failed: the companion Python callable raised, or returned
-a Python value that has no AgL boundary representation
-([Python FFI](ffi.md)).
+An `extern def` call failed: the companion Python callable raised, or
+returned a value with no AgL boundary representation ([Python FFI](ffi.md)).
 
 ```text
 function: text       # the extern's declared name
 python-type: text    # the raising Python exception's class name; empty for
-                      # a return-value contract violation
+                     # a return-value contract violation
 ```
 
 ### `MaxIterationsExceeded`
 
-A **bounded** loop (`[n]`, with `n ≥ 1`) exhausted its bound before an exit
-condition triggered ([Control flow](control-flow.md)).
+A loop with a positive `[n]` bound exhausted it before an exit condition
+triggered ([Loops](control-flow.md)).
 
 ```text
 limit: int                  # the bound in effect
@@ -453,23 +368,18 @@ metadata: json
 
 ### `RecursionError`
 
-A user-defined function call exceeded the runtime call-depth limit
-([Functions](functions.md)).
+A chain of user-function activations exceeded the host's call-depth limit
+(default 256; [Recursion and the call-depth
+limit](functions.md#recursion-and-the-call-depth-limit)).
 
 ```text
 limit: int    # the depth limit that was exceeded
 ```
 
-`RecursionError` is catchable. It is raised when the call-depth counter
-exceeds the configured limit (default 256) while evaluating a chain of
-user-function activations.
-
 ### `MatchError`
 
-An explicitly raised match-related failure. Source `case` expressions are
-required to be exhaustive and never raise `MatchError` implicitly
-([Pattern matching](pattern-matching.md)). Like any concrete exception,
-`MatchError` may be constructed, raised, and caught by user code.
+Raised only explicitly: `case` expressions are exhaustive and never raise it
+implicitly ([Pattern matching](pattern-matching.md)).
 
 ```text
 scrutinee-type: text   # type name of the rejected value
@@ -478,31 +388,25 @@ scrutinee: json        # structural JSON encoding of the rejected value
 
 ### `ArithmeticError`
 
-Raised by decimal arithmetic or int-to-decimal conversion that overflows the
-fixed decimal context's range, divides by zero, or is otherwise invalid
-([Numbers: int and decimal](types.md#numbers-int-and-decimal)), and by a
-`std/math` decimal function whose own result does the same — `round`, for
-instance, when its result would need more than 28 digits.
+Division by zero (`int` or `decimal`), or decimal arithmetic or an
+`int`-to-`decimal` conversion whose result leaves the fixed decimal range or
+is otherwise invalid ([Numbers: int and decimal](types.md#numbers-int-and-decimal)).
 
 ```text
-operation: text    # the operator, conversion, or std/math function name,
-                    # e.g. "/", "as decimal", or "pow"
+operation: text    # the operator or conversion, e.g. "/" or "as decimal"
 ```
 
 ### `TypeError`
 
-Raised by an engine-setting write the host cannot accept — a `timeout` whose
-text is not a duration, or a blank `trace-file`
-([Host environment](host-environment.md#engine-settings)).
-
-```text
-(base fields only)
-```
+An engine-setting write the host rejects — a `timeout` whose text is not a
+duration, or a blank `trace-file` ([Engine
+settings](host-environment.md#engine-settings)). Other type errors are static.
+Carries only `message`.
 
 ### `IndexError`
 
-Raised by out-of-range array or text indexing, indexed array assignment, or
-`array::index-of`/`text::index-of` when the searched value is absent.
+Out-of-range array or text indexing, or out-of-range indexed array
+assignment.
 
 ```text
 index: int
@@ -511,62 +415,51 @@ length: int
 
 ### `KeyError`
 
-Raised by missing dictionary keys during indexing or indexed dictionary
-assignment, and by standard-library lookups of a missing dictionary or JSON
-object key. `key` is always `text`: the missing key rendered in AgL value
-syntax, exactly as it renders inside a dict
-([Rendering](strings-and-interpolation.md#uniform-rendering-rules)); as AgL
-string literals, a missing `"a"` gives `"\"a\""`, `42` gives `"42"`,
-`Color::Red` gives `"Color::Red"`, and `Point(x = 1, y = 2)` gives
-`"Point(x = 1, y = 2)"`. The rendering parses back to an equal key:
-`parse::[K](e.key)` for any non-`text` key type `K` that `parse` accepts, and
-as a quoted text literal wherever value syntax reads one (a top-level
-`parse::[text]` takes its input verbatim). Exception keys, and keys containing
-exceptions, render but do not parse.
+A missing key in dictionary indexing or indexed dictionary assignment.
 
 ```text
 key: text
 ```
+
+`key` is the missing key rendered in AgL value syntax, exactly as it renders
+inside a dict ([Rendering](strings-and-interpolation.md#uniform-rendering-rules)):
+a missing `"a"` gives `"\"a\""`, `42` gives `"42"`, `Color::Red` gives
+`"Color::Red"`, and `Point(x = 1, y = 2)` gives `"Point(x = 1, y = 2)"`. The
+rendering parses back to an equal key with `parse::[K](e.key)` (see
+[`ValueParseError`](#valueparseerror)) for any key type `K` other than `text`
+that `parse` accepts; a `text` key parses back wherever value syntax reads a
+quoted literal, since a top-level `parse::[text]` takes its input verbatim.
+Keys that are or contain exceptions render but do not parse.
 
 ### `DuplicateKeyError`
 
-Raised by a dict literal whose key expressions compute an equal key twice at
-run time (two constant keys that are equal are a static error instead), and by
-`std/dict::from-entries` meeting an equal key under its default `Raise` policy.
-`key`
-is always `text`, rendered as for [`KeyError`](#keyerror).
+A dict literal whose key expressions compute an equal key twice at run time
+(two equal constant keys are a static error instead). `key` is rendered as for
+[`KeyError`](#keyerror).
 
 ```text
 key: text
 ```
 
-### `UndefinedVariableError`
+### `UndefinedVariableError` and `ImmutableBindingError`
 
 ```text
-name: text
+name: text                  # both
+operation: text             # ImmutableBindingError only
 ```
 
-### `ImmutableBindingError`
-
-```text
-name: text
-operation: text
-```
-
-`UndefinedVariableError` and `ImmutableBindingError` are prevented statically
-in normal programs — reads of undefined names and `:=` on immutable bindings
-are both static errors — but the types exist, are catchable, and may be
-constructed and raised explicitly. So is a type error, which is why
-`TypeError` reaches a running program only from an engine-setting write whose
-value the host rejects.
+Reading an undefined name and `:=` on an immutable binding are static errors,
+so a well-typed program raises these only explicitly.
 
 ### `CastError`
 
-A fallible `as` cast failed at runtime: the source value did not conform to
-the target type. This includes an enum-to-member identity downcast, an
-overlapping-enum cast when the value's constructor is absent from the
-target, or an exception downcast when the value's runtime type is not the
-target or one of the target's descendants.
+A fallible `as` cast found a value not conforming to the target type
+([Casts and convertibility](types.md#casts-and-convertibility)), including a
+failed enum-to-member downcast, an overlapping-enum cast whose member is
+absent from the target, and an exception downcast whose value's runtime type
+is not the target or a descendant of it. `as?` never raises: it yields `None`
+where `as` would raise. A cast from `text` reads JSON, so a lone surrogate
+escape in the source text fails the cast.
 
 ```text
 source-type: text   # name of the source type, e.g. "json"
@@ -574,15 +467,15 @@ target-type: text   # name of the target type, e.g. "int"
 raw: text           # text representation of the value that failed to convert
 ```
 
-`CastError` is raised by `as` casts that are fallible (see
-[Types](types.md#casts-and-convertibility)). The `as?` form never raises —
-it yields `Option[T]`, with `None` where `as` would raise. A cast from text
-reads JSON, so a lone surrogate escape in the source text fails the cast.
-
 ### `ValueParseError`
 
-`std/value::parse` received text that is neither strict JSON nor an AgL
-value-syntax literal, or that does not conform to the target type.
+The prelude function `parse` (`std/value::parse`; see [Parsing
+values](types.md#parsing-values)) received text that is neither strict JSON
+nor an AgL [value-syntax](host-environment.md#value-syntax) literal, or that
+does not conform to the target type. A lone surrogate
+escape, in either syntax, is malformed; an adjacent high and low escape pair
+denotes one character. `ValueParseError` is distinct from `CastError`: `catch
+CastError` does not catch it.
 
 ```text
 source-type: text   # always "text"
@@ -590,132 +483,66 @@ target-type: text   # name of the target type, e.g. "int"
 raw: text           # the input text that failed to parse
 ```
 
-A lone surrogate escape, in either JSON or value syntax, is one such
-malformed input; an adjacent high and low escape pair denotes one character
-and parses.
-
-`std/value::try-parse` never raises: it returns `Result::Err` with a
-`ValueParseError` instead. `ValueParseError` is a distinct exception from
-`CastError` — a `catch CastError` clause does not catch it.
-
 ### `JsonParseError`
 
 A `std/json` parsing function received text that is not a well-formed JSON
-document, including a document with a duplicate object member name or one
-holding a lone `\uD800`-`\uDFFF` escape. An adjacent high and low escape pair
-is not lone: it denotes one character and parses. A number a `json` value
-cannot hold (`NaN`, an infinity, or one no `decimal` can hold) is rejected the
-same way ([Numbers](types.md#numbers-int-and-decimal)).
+document: malformed syntax, a duplicate object member name, a lone
+`\uD800`–`\uDFFF` escape, or a number a `json` value cannot hold (`NaN`, an
+infinity, or one no `decimal` can hold; see
+[Numbers](types.md#numbers-int-and-decimal)).
 
 ```text
 raw: text   # the input text that failed to parse
-```
-
-### `TomlParseError`
-
-A `std/toml` parsing function received text that is not a well-formed TOML
-document, or one holding a number a `json` value cannot hold (`inf`, `nan`,
-or one no `decimal` can hold).
-
-```text
-raw: text   # the input text that failed to parse
-```
-
-### `TomlRenderError`
-
-`std/toml::render` received a JSON value that TOML cannot represent: a
-non-object root, a value containing `null`, or an integer outside TOML's
-signed 64-bit range. It carries only the base fields.
-
-```text
-(base fields only)
-```
-
-### `RegexError`
-
-A `std/regex` operation received a pattern that Python `re` cannot compile.
-
-```text
-pattern: text   # the pattern that failed to compile
 ```
 
 ### `RangeError`
 
-Raised when `int.pow` receives a negative exponent, `decimal.sqrt` receives a
-negative receiver, `decimal.pow` receives a negative exponent on a zero base,
-a range `for` step (`by k`) evaluates to a non-positive `int` (`k ≤ 0`) at
-loop entry, a negative `parse-error-retries` is written
-([Host environment](host-environment.md#engine-settings)), or a call's
-`parse-error-retries` option is negative (raised before any dispatch;
-[Agent calls](agent-calls.md#parse-error-retries)). Carries only the base
-fields. It is catchable.
-
-```text
-(base fields only)
-```
+A range `for` whose `step` evaluates to a non-positive `int` at loop entry
+([Loops](control-flow.md)), a negative `parse-error-retries` write
+([Engine settings](host-environment.md#engine-settings)), or a negative
+`parse-error-retries` call option, raised before dispatch
+([Agent calls](agent-calls.md#parse-error-retries)). Carries only `message`.
 
 ### `Abort`
 
-The general-purpose user abort; carries only the base fields.
-
-```text
-(base fields only)
-```
+The general-purpose user abort. Carries only `message`.
 
 ### `CyclicValueError`
 
-Raised when rendering (`print`, `render`, string interpolation, REPL echo),
-`as text`, or `as json` encounters a genuine reference cycle, including one
-closed through a record or enum-member `var` field. A cyclic array, dictionary,
-or mutable record can be passed to an `extern def`; this error arises if its
-companion calls Python `repr()` on the corresponding view. Carries only the
-base fields. See [Cycles](types.md#cycles) for how a cycle arises, which
-operations raise this and which tolerate a cycle instead (`as?`, `copy`), and
-how equality and tracing treat one.
-
-```text
-(base fields only)
-```
+Rendering (`print`, `render`, interpolation, REPL echo), `as text`, or
+`as json` met a reference cycle, including one closed through a `var` field;
+also raised when an extern companion calls Python `repr()` on a view of a
+cyclic value. Carries only `message`. See [Cycles](types.md#cycles) for which
+operations tolerate a cycle instead.
 
 ## Where exceptions come from
 
 | Source | Exception |
 | ------ | --------- |
-| Out-of-range array/text index access, array indexed assignment, or an absent `array::index-of`/`text::index-of` search | `IndexError` |
+| Out-of-range array/text index access or array indexed assignment | `IndexError` |
 | Missing dictionary key access or assignment | `KeyError` |
-| A dict literal computes an equal key twice at run time, or `std/dict::from-entries` meets an equal key under `Raise` | `DuplicateKeyError` |
-| Agent transport failure, including agent output that is not valid UTF-8 | `AgentCallError` |
-| Invalid structured output after all attempts | `AgentParseError` |
-| Failing shell command (parsed or unit form), or shell output that is not valid UTF-8 (any form) | `ExecError` |
-| Timed-out shell command (any exec form) | `ExecError` |
-| Spawn failure (either exec form) | `ExecError` |
-| Session open/default failure; unsupported transport or lifecycle capability; closed or unknown session; or failed `compact`, `reset`, `fork`, `stats`, `set-name`, or `close` | `SessionError` (`operation` identifies the failed host operation) |
+| A dict literal computes an equal key twice at run time | `DuplicateKeyError` |
+| Agent transport failure, including output that is not valid UTF-8 | `AgentCallError` |
+| Invalid structured agent output after all attempts | `AgentParseError` |
+| Shell spawn failure, timeout, or undecodable output (any `exec` form); nonzero exit (parsed or unit form) | `ExecError` |
+| Session lifecycle or capability failure | `SessionError` |
 | Session prompt transport failure | `AgentCallError` |
-| Extern (Python FFI) companion raised, or its return value violated the contract | `ExternError` |
-| Loop bound exhausted | `MaxIterationsExceeded` |
-| Negative `int.pow` exponent, negative `decimal.sqrt` receiver, negative `decimal.pow` exponent on a zero base, non-positive range `for` step (`by k` with `k ≤ 0`), or negative `parse-error-retries` write or call option | `RangeError` |
+| Extern companion raised, or its return value violated the contract | `ExternError` |
+| `[n]` loop bound exhausted | `MaxIterationsExceeded` |
+| Non-positive range `step`; negative `parse-error-retries` write or call option | `RangeError` |
 | Call-depth limit exceeded | `RecursionError` |
-| Explicit `raise MatchError(...)` | `MatchError` |
-| Division by zero, a decimal result outside the fixed context's range, or an `int`-to-`decimal` conversion outside that range | `ArithmeticError` |
+| Division by zero; decimal result or `int`-to-`decimal` conversion outside the decimal range | `ArithmeticError` |
 | Engine-setting write the host rejects (unparseable `timeout`, blank `trace-file`) | `TypeError` |
-| Fallible `as` cast — source does not conform to target type | `CastError` |
-| `std/value::parse` — input is neither strict JSON nor an AgL value-syntax literal, or does not conform to the target type | `ValueParseError` |
-| `std/json` parsing — input is not well-formed JSON, including a lone surrogate escape, or holds a number a `json` value cannot hold | `JsonParseError` |
-| `std/fs` directory entry, match, or temporary directory that is not valid Unicode | `FsError` |
-| `std/path` or `std/os` host text that is not valid Unicode | `EncodingError` |
-| `std/os::edit`/`std/os::open` — nothing to launch, or the launched process exited non-zero | `LaunchError` |
-| `std/http` response whose declared charset is outside the supported text encodings, or whose body does not decode under it | `HttpDecodeError` |
-| `std/toml` parsing — input is not well-formed TOML, or holds a number a `json` value cannot hold | `TomlParseError` |
-| `std/toml` rendering — root is not an object, a value is `null`, or an integer is outside signed 64-bit range | `TomlRenderError` |
-| `std/regex` pattern compilation — Python `re` rejects the pattern | `RegexError` |
-| Rendering, `as text`, or `as json` encounters a reference cycle, including a record-closed cycle; or an extern companion `repr()`s the corresponding cyclic view | `CyclicValueError` |
-| `raise` of a constructed or re-raised value | any concrete type |
+| Fallible `as` cast — source does not conform to the target type | `CastError` |
+| `parse` — input is not JSON or AgL value syntax, or does not conform to the target type | `ValueParseError` |
+| `std/json` parsing — input is not well-formed JSON | `JsonParseError` |
+| Rendering, `as text`, or `as json` meets a reference cycle | `CyclicValueError` |
+| `raise` of a constructed or re-raised value, including `MatchError` | any concrete type |
 
-A `catch` of a base exception type handles every exception whose type
-descends from it, not only the types listed above. For example, `std/http`
-declares its transport and decode failures as subtypes of `HttpError`;
-`catch HttpError as e` handles all of them.
+Library modules declare further exception types, often as a family under one
+base type; a `catch` of a base type handles every descendant.
 
 An exception that reaches the top of the program uncaught terminates the
 run; the host reports the exception's type, fields, and source location, and
-records it in the trace ([Host environment](host-environment.md)).
+records it in the trace ([Results and
+termination](host-environment.md#results-and-termination)).

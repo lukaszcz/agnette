@@ -72,7 +72,7 @@ import judge/verdict              # declared in [dependencies]
 import std/fs                     # always visible
 ```
 
-Ambiguity rules are unchanged: a package module path must resolve to exactly
+Ambiguity rules are those of every module: a package module path must resolve to exactly
 one file across the mounted roots, and a loose module whose path collides with
 a package module is an ordinary ambiguity error.
 
@@ -82,79 +82,42 @@ A package module may declare [`program def`](program-structure.md) entry
 points like any other module. A program is addressed by its package-qualified
 module route and declaration path, `review-tools/review::main`, which is how
 the host selects it for execution and how a manifest `[commands]` entry names
-it. A command-backed program may declare value parameters and takes no type
-parameters; its result is unit like that of any `program def`, whether written
-or left to inference. It is an ordinary callable function inside the
-package.
+it. Inside the package it is an ordinary function.
 
 A program registers itself as a command by carrying
 [`@command`](attributes.md#command), whose argument is the command path a
 reader invokes; the program's `@doc` is that command's prose. A package's
 commands are therefore declared where its programs are, and the manifest need
-name only the commands no program claims.
+name only the commands no program claims. Declaring one command path in both
+places — a manifest `[commands]` entry and a program's `@command` — is an
+error whenever the two name different programs.
 
 ```agl
 @command("dev review")
-@doc("Review changes")
-program def main() -> unit =
-  print("review loop")
+@doc("Review the working tree.")
+program def main(strict: bool = false) -> unit =
+  print "review (strict = %{strict})"
 ```
 
-Declaring one command path in both places — a manifest `[commands]` entry and a
-program's `@command` — is an error whenever the two name different programs;
-each path has one declaration.
-
-A registered command runs its program exactly as a directly executed program
-does: the selected `program def`'s own value parameters and every `@param`
-binding in its transitive import closure share its host surface. Module
-parameters use their external names for resolving bare and dotted flags,
-configuration leaves, and completion, just as under `agm exec`. The same
-[presentation attributes](attributes.md#host-parameter-attributes) apply to
-both parameter kinds, so their flags, one-letter spellings, environment
-fallbacks, and `@doc` prose appear on the registered command. Its help shows
-the signature's options first, then a `Parameters of MODULE` section for each
-closure module with visible module parameters. Its prose is the program's
-`@doc`, however the command was registered. Command groups and aliases are defined in the
+A registered command runs its program exactly as a directly executed selected
+program runs: its own value parameters and every `@param` binding in its
+transitive import closure form its host surface, with the same
+[presentation attributes](attributes.md#host-parameter-attributes),
+[flags](host-environment.md#program-arguments), and
+[help](host-environment.md#help). Command
+groups and aliases are defined in the
 [package manifest](../../commands/pkg.md#commands), and either may name a
 command a program registers.
 
-## Program and module parameters and configuration routes
+## Configuration routes
 
-A package program may declare its own value parameters like any other
-[`program def`](program-structure.md). The CLI projects those parameters onto
-the program's own flags and positional slots. Because a package-owned entry
-keeps its package-qualified module route, its configuration table does too: a
-`review::main` program in `review-tools/review` reads its value parameters from
-`[review-tools.review.review.main]` (or an unambiguous suffix), while an exact
-quoted route such as `["review-tools/review".review.main]` disambiguates. The
-suffix rules are those of the
-[host environment](host-environment.md#config-file-schema).
-
-A program the manifest registers as a command gains that command path as an
-equivalent address: with `"dev review"` registered for
-`review-tools/review::main`, `[dev.review]` configures the same program as
-`[review-tools.review.review.main]` does, whether it is run as `agm dev
-review`, by reference, or by file path. Every proper prefix of a command path
-is also an inherited group table: `[dev]` supplies defaults for `dev review`
-and any other command beneath it, ranking below the command's own exact
-table. See [`[aliases]`](../../commands/pkg.md#aliases) for how it layers and
-its undeclared-key warning exemption.
-
-The command's closure module parameters retain their declaring-module
-**module routes**. For example, a root parameter in `review-tools/logging`
-uses `[review-tools.logging]`; one in `scope debug` uses
-`[review-tools.logging.debug]` or `["review-tools/logging".debug]`. The
-registered command path and the selected program's own table are equivalent
-**program routes**: either can override a module parameter through any spelling
-that resolves for it — its bare external name, or a dotted qualified spelling
-(as a quoted key) when a nearer declaration claims the bare one. A program-route
-value wins over the program's own [`@config`](attributes.md#config) entries,
-which in turn win over the package's own manifest
-[`[config]`](../../commands/pkg.md#config) table — its command table, then an
-inherited group table, then the manifest root — which wins over a module-route
-value; CLI and `@opt-env` values win over all of these. See
-[Module parameters](host-environment.md#module-parameters) for all spelling,
-ambiguity, and precedence rules.
+A package-owned program reads its package-qualified program table, the table
+of each command or [alias](../../commands/pkg.md#aliases) path naming it (with
+inherited group tables for the path's prefixes), and its manifest
+[`[config]`](../../commands/pkg.md#config) table ([Config-file
+schema](host-environment.md#config-file-schema),
+[Precedence](host-environment.md#precedence)); with `dev review` registered
+for the program above, this configures it however it is run:
 
 ```toml
 [dev.review]
@@ -192,16 +155,11 @@ are declared as PEP 508 requirements in the manifest:
 dependencies = ["typesafe-sdk>=0.7,<1"]
 ```
 
-Companions run in AgM's own interpreter, so the requirements are checked
-against its environment (see [`agm pkg`](../../commands/pkg.md#python)).
-[`agm pkg install`](../../commands/pkg.md#commands) and
-[`agm pkg sync`](../../commands/pkg.md#commands) install unsatisfied
-requirements, and
-[`agm pkg check`](../../commands/pkg.md#commands) reports them. `agm pkg sync`
-covers only active packages. A run that would import a companion of a package
-with an unsatisfied requirement fails before evaluation with an error naming
-the package and the requirement. It suggests `agm pkg sync` when that package
-is the active one, otherwise installing it with `agm pkg install`.
+Companions run in AgM's own interpreter, whose environment must satisfy the
+requirements; installing and checking them is described in
+[`agm pkg`](../../commands/pkg.md#python). A run that would import a companion
+of a package with an unsatisfied requirement fails before evaluation, naming
+the package and the requirement.
 
 ## Diagnostics
 

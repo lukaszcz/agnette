@@ -11,7 +11,8 @@ Source locations (lines and columns) are 1-based.
 
 ## Comments
 
-A `#` begins a comment that runs to the end of the line. There are no block
+A `#` that does not continue an identifier begins a comment that runs to the
+end of the line (`a#b` is one [identifier](#identifiers)). There are no block
 comments.
 
 ```agl
@@ -23,7 +24,8 @@ let x = 1   # so is this
 
 AgL uses significant indentation (Python-style). Newlines separate items in
 a block; an increase in indentation opens a nested block and a decrease
-closes it.
+closes it. A semicolon `;` also separates items; see
+[Program structure](program-structure.md).
 
 The layout rules:
 
@@ -31,11 +33,11 @@ The layout rules:
    to the next multiple of 4 columns. A dedent must return to an active prior
    indentation level — a misaligned dedent is a lexical error.
 2. **Blank lines and comment-only lines** are ignored for layout purposes.
-3. **Implicit continuation inside brackets.** While any `(`, `[`, `{`, or
-   `%{` interpolation is open, newlines do not terminate the item; the
-   logical line continues until the bracket closes. Array literals, dictionary
-   literals, constructor argument lists, and function call argument lists may
-   therefore span multiple lines.
+3. **Implicit continuation inside brackets.** While any `(`, `[`, or `{` is
+   open, newlines do not terminate the item; the logical line continues until
+   the bracket closes, so argument lists and container literals may span
+   lines. An interpolation hole is not a bracket: a newline anywhere inside
+   `%{…}`, even within brackets there, is a lexical error.
 4. **Continuation markers.** None of `|`, `else`, `catch`, `until`, `done`,
    `->`, `=>`, and `=` can begin a construct, so a line whose first token is
    one of them always continues the line before it rather than starting a new
@@ -46,17 +48,28 @@ The layout rules:
    enum members, and the `until`/`done` terminator of a loop align with the
    construct that owns them:
 
-   <!-- agl-check: fragment -->
    ```agl
-   if
-     | status is Complete => ()
-     | status is Blocked => (let report = critic.ask("Explain %{status}"); print report)
-     | else => ()
+   enum Status
+     | Complete
+     | Blocked
+     | Running
 
-   var r: Review = Pass
-   do[5]
-     r := reviewer.ask("Review %{artifact}")
-   until r is Pass
+   enum Review
+     | Pass
+     | Fail(issues: array[text])
+
+   def report(status: Status, critic: Agent) -> unit =
+     if
+       | status is Complete => ()
+       | status is Blocked => (let reason: text = critic.ask("Explain %{status}"); print reason)
+       | else => ()
+
+   def review(artifact: text, reviewer: Agent) -> Review =
+     var r: Review = Pass
+     do[5]
+       r := reviewer.ask("Review %{artifact}")
+     until r is Pass
+     r
    ```
 
    The same rule lets a long signature or binding wrap before its return type,
@@ -131,13 +144,9 @@ The layout rules:
    more indented than a trailing `:=` opens the assignment's block rather than
    continuing its line.
 
-A semicolon `;` also separates items in a block; see
-[Program structure](program-structure.md).
-
 ## Keywords
 
-The following words are **always reserved** and can never be used as
-variable or function names:
+The following words are **always reserved** and can never be used as names:
 
 ```text
 record enum type program def fn let var for while do until done
@@ -146,72 +155,63 @@ true false null
 infixl infixr prio
 ```
 
-**`as?`** is a single reserved keyword/token — the `?` is part of the
-lexeme. There is no whitespace permitted between `as` and `?`; with
-whitespace, `as` is the cast keyword and `?` starts a separate placeholder
-spelling. `as?` is always reserved and cannot be used as an identifier.
+`as?` is a single token: no whitespace may separate `as` and `?`. Written
+with whitespace, `as` is the cast keyword and `?` a separate placeholder
+token.
 
-`agent` is an ordinary identifier, including in binding, pattern, and field
-positions.
+Every other word is a name, though some have a special role in
+particular positions:
 
-`by` carries no syntactic role: the range stride is spelled `step`.
+- **Built-in call names.** `print`, `render`, `ask`, `ask-request`, `exec`,
+  `copy`, `shallow-copy`, `resource`, and `resource-dir` name the built-in
+  functions. None may be declared as a `let`/`var` binding, a function or
+  lambda parameter, a `for` variable, a pattern binder, or a `catch` binder.
+  In a module without a path identity
+  ([Modules](modules.md#slash-path-identity)), none may name a function
+  outside a named scope either. Each stays legal as a field or method name.
+- **`self`** is special only as the first parameter of a `def` whose
+  enclosing path resolves to a record, enum, exception, or built-in receiver
+  type, including a foreign receiver name made bare-visible by an import or
+  `use` ([Methods](functions.md#methods)). Elsewhere it is an ordinary name,
+  including as a field name or an annotated function parameter.
+- **Built-in type names** — `text`, `json`, `bool`, `int`, `decimal`,
+  `array`, `dict`, and `unit` — denote the built-in types in type positions.
+- **`Eq` and `Hashable`** are the constraint names inside a constraint block
+  (`{Eq T}`, `{Hashable K}`); see
+  [Constraint blocks](generics.md#constraint-blocks).
+- **`at`** introduces the priority of an infix declaration.
+- **`_`** is the wildcard in pattern and `catch` positions
+  ([Pattern matching](pattern-matching.md)).
 
-`self` is a **contextual identifier**, not a keyword. It is special only as the
-first parameter of a `def` whose enclosing path resolves to a record, enum,
-exception, or built-in receiver type; that includes foreign receiver names
-made bare-visible by an import or `use`. Everywhere else it is an ordinary
-identifier, including as a field name or an annotated function parameter.
+### Soft keywords
 
-**Contextual keywords** — `print`, `ask`, and `exec` are NOT reserved; they
-lex as plain `NAME` tokens and are given their built-in meaning during scope
-resolution. They may not be declared with `let` or `var`, may not be
-declared as functions or function parameters, and may not appear as pattern or catch
-binders — but they remain legal as field and method names, which live in a
-type's own member namespace.
+Soft keywords are promoted to keywords only inside a promotion window, and
+are valid names everywhere else.
 
-**Type-annotation keywords** — `text`, `json`, `bool`, `int`, `decimal`,
-`array`, `dict`, and `unit` are **not** reserved; they are recognized
-contextually in type positions. `fn` is reserved (it introduces a lambda).
-`def` is reserved (it introduces a function declaration). `builtin` is
-reserved for standard-library declarations that are implemented by the host.
-`extern` is reserved for declarations implemented by a companion Python file
-(see [Python FFI](ffi.md)).
+**Module and scope soft keywords:**
 
-**`Eq` and `Hashable`** are likewise not reserved; they are recognized
-contextually as the constraint names inside a constraint block (`{Eq T}`,
-`{Hashable K}`), and remain ordinary identifiers everywhere else, including
-as a field, parameter, or function name; see
-[Constraint blocks](generics.md#constraint-blocks).
-
-Soft keywords are **not reserved**: each is promoted to its own token only
-inside a promotion window, and is a valid identifier everywhere else.
-
-**Module and scope soft keywords** — `import`, `use`, `export`, `hiding`,
-`scope`, and `end` remain valid identifiers in all positions except:
-
-| Keyword | Promoted to | Window |
-|---------|-------------|--------|
-| `import` | `IMPORT` | At item-start |
-| `use` | `USE` | At item-start when followed by a use declaration form |
-| `export` | `EXPORT` | At item-start |
-| `hiding` | `HIDING` | Within an import, use, or export declaration |
-| `scope` | `SCOPE` | At item-start, before a complete `NAME (:: NAME)*` scope path |
-| `end` | `END` | At a region's layout level, while that region is open, before a complete closer path ending the item |
+| Keyword | Window |
+|---------|--------|
+| `import` | At item-start |
+| `use` | At item-start when followed by a use declaration form |
+| `export` | At item-start |
+| `hiding` | Within an import, use, or export declaration |
+| `scope` | At item-start, before a complete `NAME (:: NAME)*` scope path |
+| `end` | At a region's layout level, while that region is open, before a complete closer path ending the item |
 
 A scope closer must repeat exactly the path of the region it closes. At other
-layout levels, `end` is a name;
-for example it can be a record field or the first expression in a declaration
-suite.
+layout levels `end` is a name; for example it can be a record field or the
+first expression in a declaration suite.
 
 **Operator soft keywords** — `and`, `or`, `not`, `is`, `in`, `to`, `downto`,
 `step`, and `with` spell the built-in operators. An operator's spelling only
 has to be unambiguous where an operand could stand instead, so each is promoted
 in operator position alone:
 
-| Keywords | Promoted to | Window |
-|----------|-------------|--------|
-| `and` `or` `is` `in` `to` `downto` `step` `with` | `AND` `OR` `IS` `IN` `TO` `DOWNTO` `STEP` `WITH` | Directly after a token that closes an operand |
-| `not` | `NOT` | Directly before a token that can start an operand |
+| Keywords | Window |
+|----------|--------|
+| `and` `or` `is` `in` `to` `downto` `step` `with` | Directly after a token that closes an operand |
+| `not` | Directly before a token that can start an operand |
 
 A following `=` or `:` marks a name either way — no operand starts with
 either — and after `.`, `::` or a declaration keyword only a name can stand.
@@ -221,12 +221,10 @@ members the way any other spelling does, while `a or b`, `not ready` and
 reach is an enum variant name, where a case branch may legitimately begin with
 `not`.
 
-Examples where they remain plain identifiers:
-
 ```agl
-let import = 1          # 'import' not at item-start → VAR_NAME
-let export = "hello"    # 'export' not at item-start → VAR_NAME
-let use = "hello"       # 'use' without a declaration form → VAR_NAME
+let import = 1          # 'import' not at item-start: a name
+let export = "hello"    # 'export' not at item-start: a name
+let use = "hello"       # 'use' without a declaration form: a name
 record R
   end: int              # 'end' is a field name, not a closer
 ```
@@ -248,27 +246,10 @@ foo/bar::Geometry::Point    # module route, then scope members
 
 A slash-separated path before the first `::` is a module route. A leading `/`
 anchors that route to the complete module path; otherwise it may be a suffix
-route or an alias. Subsequent `::` segments name scopes or types.
-
-A chain is looked up as its **whole path**: a scope path is part of a
-declaration's name, so `Geometry::Point` names the declaration whose full path
-is `Geometry::Point`, wherever it comes from. Every source is read at once —
-the module's own declarations, its imports, and its `use` declarations — and
-the module's own declaration at that path wins; otherwise the one declaration
-the imports and uses provide there is selected, and two distinct ones are
-ambiguous. A leading segment naming both an own scope or type and a module
-route therefore needs no repair when the module declares the path: an own
-`scope mylib` declaring `x` makes `mylib::x` the own member, while
-`/mylib::x` reaches the module. `/route::x` and a multi-segment route read only
-that module, and `::x` reads only the current module's own declarations. Inside
-a scope region, an unanchored chain is tried at each enclosing scope path in
-turn ([Names and visibility](scopes.md#names-and-visibility)).
-
-Only a scope path, a type, a type alias, or a module route qualifies. A chain
-whose prefix names a function, a binding, or an injected enum member reports
-an unknown qualifier. A path beneath a type alias reads as the same path
-beneath the alias's target, written and read where the alias is declared
-([Type aliases](types.md#type-aliases)). Scope segments never suffix-match.
+route or an alias. A leading `::` anchors the chain at the current module's
+own root. Subsequent `::` segments name scopes or types. How a chain is looked
+up: [Suffix and anchored references](modules.md#suffix-and-anchored-references)
+and [Names and visibility](scopes.md#names-and-visibility).
 
 Every route and chain segment is byte-adjacent through `::`: `foo/bar::thing`
 is a qualifier, while `foo / bar::thing` is division followed by a separate
@@ -289,132 +270,93 @@ let t = a /b         # error: same
 A chain segment may carry type arguments, as in `Option[int]::Some`, only when
 its full path selects a generic type of matching arity and the next segment
 selects one of that type's inline members (a record's own name counts:
-`Box[int]::Box`). Type arguments on any other segment — a plain scope, a
-non-generic type, or a type followed by another declaration beneath it — are a
-static error. The type-argument form `callee::[T]` and typed-call form
-`callee::[T](args)` (e.g. `ask::[Review](…)`) instead apply to the
-complete callee and are not qualifier segments.
+`Box[int]::Box`). The `[` is byte-adjacent to the segment name. Type arguments
+on any other segment — a plain scope, a non-generic type, or a type followed by
+another declaration beneath it — are a static error. The type-argument form
+`callee::[T]` and typed-call form `callee::[T](args)` (e.g. `ask::[Review](…)`)
+instead apply to the complete callee and are not qualifier segments.
+
 ## Identifiers
 
 An identifier starts with a letter (any Unicode letter, not just ASCII) or
 `_`, and then continues for as long as the next character is **not** whitespace
-and **not** a structural operator/punctuator delimiter.  The delimiter
-characters that terminate an identifier are:
+and **not** one of the delimiter characters:
 
 ```
 (  )  [  ]  {  }  :  ,  .  |  ;  /  @  =
 ```
 
-The string quotes `"` and `'`, and the arithmetic operators `+` and `*`, are
-**not** delimiters: they may appear inside an identifier (e.g. `foo"bar`,
-`a+b`, `n*x`).  A leading `"` or `'` (or one preceded by whitespace) still
-starts a string template because an identifier must begin with a letter or
-`_`.
-
-Every other character is an identifier-continuation character.  In particular
-the operator characters `-`, `?`, `!`, `$`, `<`, `>` may appear *inside*
-an identifier, so names like `ask-prompt`, `ask?`, `exec$`, and `do-it-now!`
-scan as a single token.  Note that `=` and `@` **are** delimiters, so `a=b`
-scans as three tokens and `@arg-pos` as two — the attribute name that follows
+Every other character continues an identifier. In particular the quotes `"`
+and `'`, `#`, and the operator characters `+`, `*`, `-`, `?`, `!`, `$`, `<`,
+`>` may appear *inside* an identifier, so `ask-prompt`, `valid?`, `exec$`,
+`do-it-now!`, `a+b`, `a#b`, and `foo"bar` each scan as a single name. A leading `"`
+or `'` (or one preceded by whitespace) still starts a string template, since an
+identifier must begin with a letter or `_`. `=` and `@` **are** delimiters, so
+`a=b` scans as three tokens and `@arg-pos` as two — the attribute name after
 `@` is one identifier, hyphens included.
 
-Operator names are a second lexical class of identifier: the grammar terminal
-`OP_NAME`. They start with an operator character and continue while the next
-character is also an operator-name character. Operator-name characters are
-Unicode punctuation or symbol characters, except AgL structural delimiters:
-parentheses, brackets, braces, `:`, `,`, `.`, `;`, quotes, `@`, `#`, and `_`.
-Exact reserved operator and punctuation tokens such as `=`, `==`, `!=`, `<`,
-`<=`, `>`, `>=`, `->`, `=>`, `:=`, `::`, `+`, `-`, `*`, `/`, `|`, `.`, `:`,
-and `@` keep their syntactic meaning.
+**Operator names** (`OP_NAME`) are the second lexical class of identifier.
+They start with an operator-name character and continue while the next
+character is also one. Operator-name characters are Unicode punctuation or
+symbol characters, except the structural delimiters: parentheses, brackets,
+braces, `:`, `,`, `.`, `;`, quotes, `@`, `#`, and `_`. A run that spells a
+reserved operator or punctuation token (`=`, `==`, `!=`, `<`, `<=`, `>`, `>=`,
+`->`, `=>`, `:=`, `::`, `+`, `-`, `*`, `/`, `|`, `?`) is that token instead.
+Other runs, such as `==>`, `>>`, `|>`, `<|`, `>=>`, `%$`, `~`, and `⊕`, are
+operator names.
 
-A `$` at the start of a token opens a `$` literal
-([Verbatim literals](#verbatim-literals)) rather than starting an operator
-name, so an operator-name run can never *start* with `$`. Once a run is
-already underway — started by some other operator character — `$` is an
-ordinary operator-name character like any other, so it may appear inside or
-at the end of one: `<$>` and `<|$` are each a single `OP_NAME` token. Inside
-a word-starting identifier `$` is likewise an ordinary continuation
-character (see above), so `a$b` and `ask$` are each a single `NAME` token.
+A `$` at the start of a token opens a [verbatim literal](#verbatim-literals),
+so an operator name never *starts* with `$`; inside or at the end of a run
+`$` is an ordinary operator-name character (`<$>`, `<|$`).
 
-The placeholder spellings `?` and `?<digits>` (for example `?1` and `?12`)
-are also reserved tokens. They are used only as whole call arguments for
-partial application ([Functions](functions.md#partial-application)). The
-numbered form requires the digits to be immediately adjacent: `?1` is one
-numbered placeholder token, while `? 1` is a bare `?` placeholder followed by
-an integer literal. A standalone `?` is therefore not available as a user
-operator name. Longer operator-name runs that merely contain `?`, such as
-`??`, `?=`, `%?`, and `>=>`, are still ordinary `OP_NAME` tokens, and
-word-starting identifiers containing `?` after the first character, such as
-`valid?` and `ask?`, are unaffected.
+The placeholder spellings `?` and `?<digits>` (`?1`, `?12`) are reserved
+tokens used only as whole call arguments for partial application
+([Functions](functions.md#partial-application)). The digits must be adjacent:
+`? 1` is a bare `?` followed by an integer literal. A standalone `?` is
+therefore not available as an operator name, while longer runs that contain
+`?` (`??`, `?=`, `%?`) are ordinary operator names.
 
-Non-reserved standalone runs such as `==>`, `>>`, `|>`, `<|`, `>=>`, `%$`,
-`%?`, `~`, and `⊕` are operator names.
-
-AgL has two lexical classes of identifier: `NAME` and `OP_NAME`. Both are
-ordinary names in declaration and reference positions, so they can name
-variables, functions, and constructors.
+Both classes are ordinary names in declaration and reference positions:
 
 | Token | Start | Used for |
 | ----- | ----- | -------- |
-| `NAME` | a letter (any Unicode letter, not just ASCII) or `_` | Every kind of name: types, constructors, variables, fields, functions, parameters, type parameters |
-| `OP_NAME` | an operator-name character | Variables, functions, constructors, and other grammar positions that accept a name |
+| `NAME` | a letter or `_` | Every kind of name: types, constructors, variables, fields, functions, parameters, type parameters |
+| `OP_NAME` | an operator-name character | Variables, functions, constructors, and other positions that accept a name |
 
-**Capitalization carries no syntactic or semantic meaning.** The case of an
-identifier's first letter never classifies it: `option` and `Option`, `some`
-and `Some`, `box` and `Box` are all equally valid as type names, value names,
-constructors, or functions. Whether a name denotes a type or a value is
-determined entirely by how it is declared and the position it appears in, not
-by its spelling. Names are still matched exactly: `Some` and `some` are two
-distinct names, not two spellings of one.
-
-Type names and value names live in **separate namespaces**, so a `record` or
-`enum` declaration may introduce a type name and a same-spelled value
-constructor without collision (see
-[Bindings and scope](bindings-and-scope.md)).
-
-The single underscore `_` is lexically an ordinary `NAME`; in pattern
-and `catch` positions it is interpreted as the wildcard
-([Pattern matching](pattern-matching.md)).
+**Capitalization carries no syntactic or semantic meaning.** `option` and
+`Option`, `some` and `Some` are equally valid as type names, value names,
+constructors, or functions; what a name denotes depends only on its
+declaration and position. Names are still matched exactly: `Some` and `some`
+are two distinct names. Type names and value names live in separate
+namespaces ([Bindings and scope](bindings-and-scope.md)).
 
 ### Operator disambiguation
 
-Because many operator characters are also identifier-continuation characters,
-whether such a run is part of a word-starting `NAME`, a standalone `OP_NAME`,
-or a sequence of operator tokens depends on maximal munch plus reserved-token
-disambiguation.
+Scanning is maximal munch: a run continues as far as its class allows, then
+reserved spellings are recognized. Use spaces around operators when you want
+them read as operators.
 
-| Source | Tokens | |
+| Source | Scans as | |
 | ----- | ----- | - |
-| `ask-prompt` | `NAME "ask-prompt"` | one identifier |
-| `a - b` | `NAME "a"`, `MINUS "-"`, `NAME "b"` | spaces break the identifier, `-` is an operator |
-| `a.b` | `NAME "a"`, `DOT "."`, `NAME "b"` | `.` is a delimiter, always an operator |
-| `a -> b` | `NAME "a"`, `THIN_ARROW "->"`, `NAME "b"` | arrow operator, whitespace-delimited |
-| `a->b` | `NAME "a->b"` | one identifier (no spaces) |
-| `x == 3` | `NAME "x"`, `EQ_EQ "=="`, `INT "3"` | equality operator, whitespace-delimited |
-| `x != 3` | `NAME "x"`, `NEQ "!="`, `INT "3"` | not-equal operator, whitespace-delimited |
-| `>>` | `OP_NAME ">>"` | standalone operator name |
-| `|>` | `OP_NAME "|>"` | standalone operator name |
-| `%$` | `OP_NAME "%$"` | standalone operator name |
-| `a+b` | `NAME "a+b"` | one identifier (`+` is not a delimiter) |
-| `a + b` | `NAME "a"`, `PLUS "+"`, `NAME "b"` | spaces break the identifier, `+` is an operator |
-| `n*x` | `NAME "n*x"` | one identifier (`*` is not a delimiter) |
-| `foo"bar` | `NAME "foo\"bar"` | one identifier (`"` is not a delimiter) |
-| `valid?` | `NAME "valid?"` | one identifier (`?` is allowed after the first character) |
-| `?` | `PLACEHOLDER "?"` | reserved placeholder spelling, not an operator name |
-| `?1` | `PLACEHOLDER_NUM "?1"` | numbered placeholder; no whitespace before the digits |
-| `? 1` | `PLACEHOLDER "?"`, `INT "1"` | not a numbered placeholder |
-| `??` | `OP_NAME "??"` | longer `?`-containing operator names are unaffected |
-| `ask $ x` | `NAME "ask"`, then a `$` literal | space before `$` opens a `$` literal, applied to `ask` |
-| `ask$` | `NAME "ask$"` | one identifier (`$` is a continuation character, not a delimiter) |
-| `a$b` | `NAME "a$b"` | one identifier |
-| `<$>` | `OP_NAME "<$>"` | standalone operator name; `$` mid-run is ordinary |
-| `<|$` | `OP_NAME "<|$"` | standalone operator name; `$` may end a run |
-| `x+$ y` | `NAME "x+$"`, `NAME "y"` | one identifier (`+` and `$` both continuation characters) |
-| `$-rf` | a `$` literal, payload `-rf` | token-start `$` opens a `$` literal, not an identifier |
-
-This mirrors a Lisp-like maximal-munch identifier rule: scan for as long as
-possible until a disallowed character.  Use spaces around operators when you
-want them parsed as operators.
+| `ask-prompt` | `ask-prompt` | one identifier |
+| `a - b` | `a`, `-`, `b` | spaces break the identifier |
+| `a.b` | `a`, `.`, `b` | `.` is a delimiter |
+| `a -> b` | `a`, `->`, `b` | arrow |
+| `a->b` | `a->b` | one identifier |
+| `x == 3` | `x`, `==`, `3` | equality |
+| `a+b`, `n*x` | `a+b`, `n*x` | one identifier each |
+| `foo"bar` | `foo"bar` | one identifier |
+| `valid?` | `valid?` | one identifier |
+| `>>`, `\|>`, `%$` | `>>`, `\|>`, `%$` | operator names |
+| `?` | `?` | placeholder, not an operator name |
+| `?1` | `?1` | numbered placeholder |
+| `? 1` | `?`, `1` | placeholder, then an integer |
+| `??` | `??` | operator name |
+| `ask$`, `a$b` | `ask$`, `a$b` | one identifier each |
+| `<$>`, `<\|$` | `<$>`, `<\|$` | operator names |
+| `x+$ y` | `x+$`, `y` | one identifier, then another |
+| `ask $ x` | `ask`, then a `$` literal | space before `$` opens a `$` literal |
+| `$-rf` | a `$` literal, payload `-rf` | token-start `$` |
 
 ## Numbers
 
@@ -432,19 +374,34 @@ operator: `-3` is `-` applied to the literal `3`.
 ## Strings and templates
 
 Every string literal is a **template**: text fragments plus interpolation
-holes. A quoted template supports two kinds of hole, `%{expr}` and `${NAME}`
-(write `\${` for a literal `${`); a `$` verbatim text literal is a third
-template spelling with only the `%{expr}` hole (see
-[Verbatim literals](#verbatim-literals) below). Both `"` and `'` are valid
-quote delimiters, giving four quoted forms:
+holes. A quoted template supports two kinds of hole, `%{expr}` and `${NAME}`;
+a [`$` verbatim literal](#verbatim-literals) is a third template spelling with
+only the `%{expr}` hole. Both `"` and `'` are quote delimiters, giving four
+quoted forms:
 
 - `"…"` / `'…'` — single-line.
-- `"""…"""` / `'''…'''` — triple-quoted, multi-line, subject to the dedent rule.
+- `"""…"""` / `'''…'''` — triple-quoted, multi-line.
 
-Escape sequences, triple-quoted dedent normalization, and interpolation
-semantics are covered in [Strings and interpolation](strings-and-interpolation.md).
-A `\uXXXX` escape that denotes a surrogate on its own, without an adjacent
-partner escape completing a pair, is a lexical error.
+Escapes and the meaning of holes are specified in
+[Strings and interpolation](strings-and-interpolation.md).
+
+A triple-quoted template is **dedented**. After its escapes are decoded:
+
+1. one newline directly after the opening quotes is dropped;
+2. the margin is the least indentation (spaces and tabs) over its non-blank
+   lines, where an interpolation hole counts as non-blank content;
+3. every line loses its first *margin* whitespace characters, and holes are
+   never altered;
+4. one newline directly before the closing quotes is dropped.
+
+```agl
+program def main() -> unit =
+  let body = """
+    Fix these issues:
+      - missing tests
+  """
+  print body    # "Fix these issues:\n  - missing tests"
+```
 
 ## Verbatim literals
 
@@ -459,10 +416,9 @@ The rest of the line decides the form:
 
 - **Inline.** If the rest contains anything other than a newline, the payload is
   the rest of that line, with trailing horizontal whitespace discarded.
-- **Block.** If the rest contains only whitespace before the newline (or end of
-  input) — nothing else follows `$` on its line — the payload is a following
-  indented block. Scanning stops, ending the block, at the first non-blank
-  line indented at or below the line holding `$` (or at end of input).
+- **Block.** If nothing else follows `$` on its line, the payload is a
+  following indented block. The block ends at the first non-blank line
+  indented at or below the line holding `$` (or at end of input).
 
   The dedent margin is the indentation of the block's *first non-blank
   line*. A later non-blank block line indented more than the line holding
@@ -496,69 +452,56 @@ recognized inside the payload:
 - `\%{` — the one escape sequence, for a literal `%{`. Every other backslash
   is literal payload text.
 
-[Shell execution](shell-execution.md) and [Agent calls](agent-calls.md) show
-the `$` literal supplying `exec`'s and `ask`'s single argument.
-
 ## Operators and punctuation
 
 ```text
-=>   ->   =   ==   !=   <   <=   >   >=
-::   +   -   *   /   @
+=>   ->   =   ==   !=   <   <=   >   >=   :=
+::   +   -   *   /   @   ?   ?N
 (   )   [   ]   {   }
 :   ,   .   |   ;
 ```
 
-`->` is the **return/function-type arrow** (distinct from `=>`). It appears
-in function type annotations (`int -> text`), `def` return type annotations
-(`def f(x: int) -> text = …`), and `fn` lambda return types
-(`fn(x: int) -> text => …`). `=>` is the **branch/lambda-body arrow** — it
-separates a branch condition or pattern from its body.
-
-`::` serves two distinct roles: as the **qualifier-chain separator** (see
-[Qualifier chains](#qualifier-chains) above) and as the **type-argument
-introducer** `callee::[Type]` / `callee::[Type](args)`. It is a maximal-munch
-token distinct from two `:` delimiters. The uses are disambiguated by context:
-a `::` after a tightly written route or chain segment is a qualifier separator;
-a `::` following a complete callee and immediately followed by `[` introduces
-type arguments.
-
-`==` is the **equality operator** (with `!=` for inequality). A single `=` is
-never a comparison: it separates a binder or named argument from its value
-(`let x = …`, `f(name = …)`, `R(field = …)`), and `:=` is destructive
-assignment.
-
 Multi-character operators are matched greedily.
 
-A `[` that immediately follows `do` — with or without intervening whitespace
-(`do[n]` and `do [n]` are equivalent) — opens the loop bound `[expr]`. This
-is what distinguishes the bound from an array literal that could otherwise begin
-the loop body. As a consequence, a `do` body cannot itself *begin* with a bare
-array literal; parenthesize it (`do ([item1, item2]) until …`) if needed.
+`->` is the **function-type and return-type arrow**: `int -> text`,
+`def f(x: int) -> text = …`, `fn(x: int) -> text => …`. `=>` is the
+**branch and lambda-body arrow**: it separates a condition, pattern, or lambda
+head from its body.
 
-An adjacent `[` after an expression-ending token starts indexing. Whitespace
-keeps the bracket as an array literal, so `xs[0]` indexes while `f [0]` is the
-single-argument call sugar `f([0])`.
+`::` is both the [qualifier-chain](#qualifier-chains) separator and the
+type-argument introducer `callee::[Type]` / `callee::[Type](args)`. It is one
+token, distinct from two `:`. A `::` after a tightly written route or chain
+segment separates qualifier segments; a `::` after a complete callee and
+directly followed by `[` introduces type arguments.
+
+`==` is equality and `!=` inequality. A single `=` is never a comparison: it
+separates a binder, named argument, or field from its value (`let x = …`,
+`f(name = …)`, `R(field = …)`). `:=` is destructive assignment.
+
+A `[` that follows `do` — with or without intervening whitespace (`do[n]` and
+`do [n]` are equivalent) — opens the loop bound `[expr]`, never an array
+literal. A `do` body therefore cannot itself *begin* with a bare array literal;
+parenthesize it (`do ([item1, item2]) until …`).
+
+Elsewhere, a `[` adjacent to an expression-ending token starts indexing.
+Whitespace keeps the bracket an array literal, so `xs[0]` indexes while
+`f [0]` is the single-argument call sugar `f([0])`.
 
 ## Attributes
 
 `@` introduces an **attribute** on a declaration — `@name`, or `@name(args)`
-with an ordinary call argument list. `@` is a delimiter, so the name after it
-is a separate identifier token and the attribute name may be hyphenated. The
-same spelling is an ordinary identifier everywhere else.
+with an ordinary call argument list. `@` is a delimiter, so the attribute name
+is a separate identifier token and may be hyphenated (`@arg-pos`).
 
-An attribute prefixes what it belongs to, and several attributes may be written
-in a row. A declaration, a field, and a parameter each take their attributes on
-the line above or in front of them on the same line. An enum member takes its
-attributes after the member's `|`; the constructor and further attributes may
-continue on indented lines below the prefix, with fields indented further below
-the constructor.
+Several attributes may be written in a row. A declaration, a field, and a
+parameter take their attributes on the line above or in front of them on the
+same line. An enum member takes its attributes after its `|`; its name and
+further attributes may continue on indented lines below, with its fields
+indented further:
 
 ```agl
-@arg-pos
-def f(x: int, y: int) -> int = x + y
-
 @doc("Formats one entry.")
-def g(a: int, @arg-named key: text) -> text = "%{a}: %{key}"
+def label(@arg-pos count: int, @arg-named key: text) -> text = "%{key}: %{count}"
 
 record Entry
   @arg-named
@@ -566,111 +509,117 @@ record Entry
   @arg-named count: int
 
 enum Shape
-  | @doc("a rectangle") @arg-pos Rect(width: int, height: int)
+  | @doc("A rectangle.")
+    @arg-pos
+    Rect
+      width: int
+      height: int
   | Empty
 ```
 
-Catalog and semantics: [Attributes](attributes.md).
+Placement, catalog, and arguments: [Attributes](attributes.md).
 
 ## Operator precedence
 
-From loosest to tightest binding (the bottom binds tightest):
+From loosest to tightest binding. Infix operators carry an integer
+**priority** (larger binds tighter); the levels without one bind tighter than
+every infix operator:
 
-| Level | Operators | Associativity |
-| ----- | --------- | ------------- |
-| 1 | `or` | left |
-| 2 | `and` | left |
-| 3 | `not` (prefix) | — |
-| 4 | `==` `!=` `<` `<=` `>` `>=` `in` `is` `is not` | **non-associative** |
-| 5 | `+` `-` | left |
-| 6 | `*` `/` | left |
-| 7 | `as` `as?` (cast / optional cast) | left |
-| 8 | `-` (unary prefix) | — |
-| 9 | function application (single-arg sugar) | **non-chaining** |
-| 10 | `.field` access, `[index]`, `( args )` call | left |
-| 11 | atoms: literals, names, `( expr )`, `(op)` operator values, `()` unit, templates, `break`, `continue` | — |
+| Priority | Operators | Associativity |
+| -------- | --------- | ------------- |
+| 10 | `or` | left |
+| 20 | `and` | left |
+| 25 | `not` (prefix) | — |
+| 30 | `==` `!=` `<` `<=` `>` `>=` `in` | **non-associative** |
+| 40 | `+` `-` | left |
+| 50 | `*` `/` | left |
+| | `is`, `is not` | non-chaining |
+| | `as`, `as?` (casts) | left |
+| | `-` (unary prefix) | — |
+| | function application `f x` | **non-chaining** |
+| | `.name`, `[index]`, `(args)`, `::[T]` (postfix) | left |
+| | atoms: literals, names, `( expr )`, `(op)` operator values, `()`, templates, `break`, `continue` | — |
+
+[User-defined operators](#user-defined-operators) take any integer priority
+and interleave with the numbered rows. The prelude's operators: `++` is infixr
+at `+`'s priority, so `"a" ++ b == c` is `("a" ++ b) == c` and `++` does not
+mix with `+`/`-` unparenthesized; `|>` (infixl 5) and `<|` (infixr 4) bind
+looser than `or`; `>>` (infixl) and `<<` (infixr) sit at 60. `to`, `downto`, and `step` appear only
+in a `for` clause ([Control flow](control-flow.md)).
+
+- **`not`** takes as its operand everything that binds at priority 25 or
+  tighter: `not a == b` is `not (a == b)`, while `not a and b` is
+  `(not a) and b`.
+- **Comparisons** do not chain: `x == y == z`, `1 < 2 < 3`, and `a <= b != c`
+  are static errors, while a parenthesized comparison is an ordinary operand
+  (`(a == b) == c`).
+- Operators at one priority cannot mix left and right associativity in a
+  chain; parenthesize one side.
+- **`is`** binds tighter than every infix operator and looser than a cast:
+  `a == e is X` is `a == (e is X)`, and `x as T is P` is `(x as T) is P`. Its
+  right side is a constructor name, so it does not chain.
+- **Casts** are left-associative (`x as json as text` is
+  `(x as json) as text`) and bind looser than unary minus (`-x as json` is
+  `(-x) as json`); see [Casts](expressions.md#casts-as-and-as).
+- **Application** is the single-argument call sugar (`print x`, `ask "…"`,
+  `f val`). It binds tighter than every binary operator: `print x + 1` is
+  `(print x) + 1`. It does not chain — `f g x` is a parse error — but a postfix
+  call can be the argument, so `f g(x)` is `f(g(x))`. A `-` or `(` after the
+  callee is not an argument: `f -1` is subtraction and `f (x)` a parenthesized
+  call.
+- An operator name after an expression is read as an infix operator, so an
+  operator-name value used as an argument is parenthesized: `print(>>)`, not
+  `print >>`. A built-in symbolic operator is a value only in parentheses of
+  its own, such as `(+)`; see
+  [Operators as function values](expressions.md#operators-as-function-values).
 
 The record-update operator `with` binds looser than every level in the table,
-on both sides; see
-[Record update](expressions.md#record-update).
+on both sides; see [Record update](expressions.md#record-update). `case` and
+`if` expressions are looser still. In positions where a following `|` would be
+ambiguous (branch bodies, `if`/`until` conditions)
+they must be parenthesized. A loop body is not such a position — the loop
+terminator closes it — so they may appear there directly
+([Inline bodies](grammar.md#inline-bodies)).
 
-### Prelude combinators
+### User-defined operators
 
-The standard library provides four functional combinators through the prelude:
-`|>` is left-associative at priority 5 and passes a value to a function; `<|`
-is right-associative at priority 4 and applies a function to a value; `>>` is
-left-associative at priority 60 and composes functions left-to-right; `<<` is
-right-associative at priority 60 and composes them right-to-left. Thus
-`increment <| 2 |> double` is `increment(double(2))`. A chain cannot mix `>>`
-and `<<` without parentheses because they have opposite associativity at the
-same priority.
-
-The prelude also provides `++`, which concatenates two `text` values. It is
-right-associative at the `+`/`-` priority, so it binds tighter than comparisons
-and `|>`: `"a" ++ b == c` is `("a" ++ b) == c`. A chain cannot mix `++` with
-`+` or `-` without parentheses.
-
-User-defined symbolic infix operators are declared with `infixl` or `infixr`
-beside the function that implements them:
+The prelude's text concatenation `++` (`+` is numeric only) and the standard
+library's other operators are ordinary user-declarable infix operators. An
+`infixl` or `infixr` declaration gives an operator name its associativity and
+priority, beside the function that implements it:
 
 ```agl
 infixl <+> at 45
-infixr <<< at prio > + 1
+infixr <<< at prio <+> + 1
 
 def <+>(a: int, b: int) -> int = a * 10 + b
 
 def <<<(a: int, b: int) -> int = a - b
+
+program def main() -> unit =
+  print (1 <+> 2 <+> 3)    # (1 <+> 2) <+> 3 = 123
+  print (9 <<< 5 <<< 2)    # 9 <<< (5 <<< 2) = 6
+  print (1 <+> 9 <<< 5)    # 1 <+> (9 <<< 5) = 14
 ```
 
-Priorities are integers where lower numbers bind looser and higher numbers bind
-tighter. A priority can be a literal integer or relative to another operator
-(`prio Y + n`); omitted priority uses the `+`/`-` level. `Y` is looked up at
-the module root like any operator name, the module's own infix declarations
-first, in any order; it may be a builtin operator. Relative priorities may not
-form a cycle.
-
-An operator in a chain is a name: it is looked up at its site exactly like a
-function of that name — lexical bindings first, then the scope steps, own
-declarations before imports, two distinct imported declarations ambiguous —
-and reached through the same imports, `use` declarations, re-exports, renames,
-and aliases. User infix use lowers to a two-argument call of the selected
-declaration. Its fixity is the one the selected declaration's module declares
-for that name: an `infixl`/`infixr` declaration applies to the module's own
-declarations of the name, at any scope path, and to its `let`/`var` binders of
-the name; it is never exported on its own. A fixity declaration for a name the
-module does not declare is an error, as is an operator use that selects a
-declaration whose module declares no fixity for it. In the REPL the session is
-one module: an operator's definition comes in the same entry as its fixity
-declaration or an earlier one. Operators at one priority cannot mix left and
-right associativity in a chain, and comparisons do not chain; a parenthesized
-comparison is an ordinary operand (`(a == b) == c`).
-
-**Cast operators (level 7)** — `as` and `as?` — sit between unary `-` and
-`* /`. They are left-associative: `x as json as text` = `(x as json) as text`.
-See [Types](types.md#casts-and-convertibility) and
-[Expressions](expressions.md#casts-as-and-as) for semantics and examples.
-
-**Application (level 9)** is the single-argument call sugar (`print x`,
-`ask "…"`, `f val`). It binds tighter than all binary operators:
-`print x + 1` parses as `(print x) + 1`. Application is **non-chaining**:
-`f g x` is a parse error — only one juxtaposition per expression. A nested
-postfix call can be the single sugar argument, so `f g(x)` parses as
-`f(g(x))`.
-
-Because `OP_NAME` after an expression is parsed as an infix operator position,
-an operator-name value used as an argument should be parenthesized:
-`print(>>)`, not `print >>`. A built-in symbolic operator is a value only in
-parentheses of its own, such as `(+)`; see
-[Operators as function values](expressions.md#operators-as-function-values).
-
-**Calls with parentheses (level 10)** are left-associative postfix and
-support multiple arguments: `f(a, b)`.
-
-`case` and `if` expressions sit **below all of this**: they are the loosest
-expression forms. In positions where a following `|` would be ambiguous
-(branch bodies, `if`/`until` conditions) they must be parenthesized. A loop
-body is not such a position — the loop terminator closes it — so they may
-appear there directly.
-
-All comparison operators are non-associative: `x == y == z`, `1 < 2 < 3`, and
-`a <= b != c` are parse errors with a targeted diagnostic.
+- A priority is a literal integer (`at 45`) or relative to another operator
+  (`at prio Y + n`, `at prio Y - n`); an omitted priority is 40. `Y` is looked
+  up at the module root like any operator name, the module's own infix
+  declarations first, in any order; it may be a built-in operator. Relative
+  priorities may not form a cycle.
+- Infix declarations stand at the module root only. A built-in operator's
+  fixity cannot be redeclared.
+- An operator in a chain is a name: it is looked up at its site exactly like a
+  function of that name — lexical bindings first, then the scope steps, own
+  declarations before imports, two distinct imported declarations ambiguous —
+  and reached through the same imports, `use` declarations, re-exports,
+  renames, and aliases. A use is a call of the selected declaration with the
+  two operands.
+- Its fixity is the one the selected declaration's module declares for that
+  name. An `infixl`/`infixr` declaration applies to the module's own
+  declarations of the name, at any scope path, and to its `let`/`var` binders
+  of the name; it is never exported on its own. A fixity declaration for a
+  name the module does not declare is an error, as is an operator use that
+  selects a declaration whose module declares no fixity for it.
+- In the REPL the session is one module: an operator's definition comes in
+  the same entry as its fixity declaration or an earlier one.

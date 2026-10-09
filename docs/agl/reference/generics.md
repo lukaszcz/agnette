@@ -6,17 +6,9 @@ AgL supports **prenex (rank-1) parametric polymorphism**: declarations may
 abstract over types using type parameters, and those parameters are
 instantiated at concrete types where the declaration is used. Type parameters
 appear only at the top of a declaration — there are no nested or
-higher-ranked type quantifiers.
-
-This page collects the whole generics story: declaring type parameters, type
-application, inference and the explicit `::[…]` override, generic constructors
-and constructor values, what may be done with a value of a type parameter,
-constraint blocks (`Eq`/`Hashable` bounds), invariance, and the rules around
-names. Identifier capitalization classifies nothing — `Box` and `box` are
-equally valid names for a type or a value, though
-they remain two distinct names; see [Lexical structure](lexical-structure.md).
-Examples here follow the standard library's convention of capitalized type and
-constructor names.
+higher-ranked type quantifiers. Identifier case classifies nothing; examples
+follow the standard library's convention of capitalized type and constructor
+names.
 
 ## Declaring type parameters
 
@@ -39,20 +31,24 @@ type Transform[A, B] = A -> B
 ```
 
 A declaration may have several parameters (`def apply[A, B](…)`,
-`enum Outcome[T, E]`), and each must be a distinct name. `_` is not accepted
-here; it is reserved for a method's receiver type-parameter prefix (see
-[Generic methods](#generic-methods)). A `var` field is mutable at every
-instantiation; type arguments substitute its field type but do not change its
-mutability. Inside the body, a type parameter may be
-used anywhere a type is expected — including as a field type, a function
-parameter or result type, the element type of `array[T]`, or in a `let`
-annotation:
+`enum Outcome[T, E]`), and each must be a distinct name. `_` is accepted only
+in a method's receiver slots (see [Generic methods](#generic-methods)). Inside
+the body, a type parameter may be used anywhere a type is expected — a field
+type, a parameter or result type, a nested `let` annotation, or a lambda's
+signature:
 
 ```agl
 def singleton[T](x: T) -> array[T] =
   let single: array[T] = [x]
   single
+
+def via-lambda[A](x: A) -> A =
+  let g: A -> A = fn(y: A) -> A => y
+  g(x)
 ```
+
+A `var` field is mutable at every instantiation; type arguments substitute its
+field type but not its mutability.
 
 ## Generic methods
 
@@ -62,8 +58,9 @@ names need not match the type declaration's names. A method must provide every
 receiver slot; `_` may occupy an unused slot and may repeat. Each `_` slot is a
 private rigid binding: it participates in receiver matching but is not readable
 in the method body. Type parameters after those slots belong to the method
-itself. The same positional rule applies to `array[E]` and `dict[K, V]`
-builtin receiver declarations.
+itself. A builtin receiver instead binds its parameters in the receiver
+segment (`array[E]::name`, `dict[K, V]::name`); the method's own list holds
+only its own parameters ([Methods](functions.md#methods)).
 
 ```agl
 record Box[T]
@@ -72,6 +69,7 @@ record Box[T]
 enum Outcome[A, B]
   | Ok(value: A)
   | Err(error: B)
+
 def Box::get[E](self) -> E = self.value
 def Box::map[E, U](self, f: E -> U) -> Box[U] = Box(value = f(self.value))
 def Box::size[_](self) -> int = 1
@@ -87,17 +85,12 @@ program def main() -> unit =
   print(outcome.is-ok())
 ```
 
-The receiver fixes the leading method type parameters. In the example,
-`box.map` has its `E` fixed as `int`; inference and the `::[…]` suffix apply
-only to `U`, so `box.map::[text](...)` pins `U` to `text`. A bound generic
-method follows the same rule. A method on a generic receiver reached through a
-bare import uses these same positional receiver slots; only the receiver's
-resolution and the method declaration's visibility differ.
+The receiver fixes the leading method type parameters: `box.map` has `E`
+fixed as `int`, so inference and the `::[…]` suffix apply only to `U`. A bound
+method value follows the same rule.
 
-A method's own `{…}` constraint block follows all of its type parameters —
-receiver-bound and its own alike — and may bound either kind. `has` and
-`same` below bound a receiver-bound parameter; `holds` bounds `U`, a
-parameter the method declares for itself:
+A method's own `{…}` [constraint block](#constraint-blocks) follows all of its
+type parameters and may bound receiver-bound and own parameters alike:
 
 ```agl
 record Box[T]
@@ -105,7 +98,7 @@ record Box[T]
 
 def array[E]::has{Eq E}(self, value: E) -> bool = value in self
 def Box::same[E]{Eq E}(self, other: Box[E]) -> bool = self.value == other.value
-def Box::holds[E, U]{Eq U}(self, xs: array[U], x: U) -> bool = xs.contains(x)
+def Box::holds[E, U]{Eq U}(self, xs: array[U], x: U) -> bool = x in xs
 
 program def main() -> unit =
   let box = Box(value = 3)
@@ -114,9 +107,8 @@ program def main() -> unit =
   print(box.holds([1, 2, 3], 2))
 ```
 
-A `def` in a type scope without a `self` receiver is not a method and declares
-its type parameters in the ordinary way; it does not inherit or capture the
-type's parameters:
+A `def` in a type scope without a `self` receiver is not a method: it declares
+its own type parameters and does not capture the type's:
 
 ```agl
 record Box[T]
@@ -131,10 +123,11 @@ program def main() -> unit =
 
 ## Type application
 
-A generic declaration is **used** by applying it to type arguments. The
-applied-type syntax is `Name[arg, …]`; imported declarations may use a bare
-name contributed by an import tail or `use`, or a module-qualified name such as
-`lib::Box[int]`:
+A generic type is **used** by applying it to type arguments, `Name[arg, …]`,
+producing a distinct concrete type for each instantiation. An imported
+declaration may be applied through a bare name an import tail or `use`
+provides, or through a qualified name such as `lib::Box[int]`. The built-in
+`array[T]` and `dict[K, V]` use the same form.
 
 ```agl
 record Box[T]
@@ -146,272 +139,163 @@ enum Outcome[T, E]
 
 program def main() -> unit =
   let bi: Box[int] = Box(value = 1)
-  let bt: Box[text] = Box(value = "hi")
+  let outcome: Outcome[int, text] = Err(error = "missing")
   let nested: Box[Box[int]] = Box(value = Box(value = 7))
   print nested.value.value
 ```
-
-`Box[int]`, `Option[text]`, `Outcome[int, text]`, and the nested
-`Box[Box[int]]` are all applied types. The built-in `array[T]` and
-`dict[K, V]` use exactly the same form.
 
 <!-- agl-check: fragment -->
 ```agl
 import containers::*
 
 def unwrap(box: Box[int]) -> int = box.value
-let open-box: Box[int] = Box(value = 1)
 let qualified-box: containers::Box[int] = containers::Box(value = 2)
 ```
 
-## Inference and the explicit `::[…]` override
+## Inference and explicit type arguments
 
 Type arguments are normally **inferred** from the argument types and the
-expected (contextual) type, so generic code reads like ordinary code. Each
-occurrence of a generic value or call is instantiated independently; only the
-surrounding expression's argument and result equalities connect occurrences:
+expected (contextual) type. Each occurrence of a generic function or
+constructor is instantiated independently; only the surrounding expression's
+argument and result equalities connect occurrences.
+
+- **Arguments first.** Argument evidence fixes an instantiation before an
+  expected result type is used, so `let d: decimal = id(1)` instantiates `id`
+  at `int` and then widens the `int` result to `decimal`.
+- **Divergence is no evidence.** A divergent argument such as `raise …`
+  constrains nothing, so `id(raise Abort(message = "x"))` needs result context
+  or explicit type arguments.
+- **Explicit arguments.** The `::[…]` suffix supplies type arguments, one per
+  declared type parameter, in declaration order. On a callee it forms a typed
+  call (`id::[int](9)`); without a call it instantiates a function value
+  (`id::[int]`).
 
 ```agl
 def id[T](x: T) -> T = x
-record Box[T]
-  value: T
-
-def apply[T](f: T -> T, value: T) -> T = f(value)
+def apply[A, B](x: A, f: A -> B) -> B = f(x)
 
 program def main() -> unit =
   print(id(5))
   print(id("hi"))
-  let bi: Box[int] = Box(value = 5)
-  print(apply(id, 5))
+  let d: decimal = id(1)
+  print(id::[int](9))
+  let next = apply::[int, int](10, fn(n: int) -> int => n + 1)
+  let int-id = id::[int]
+  print(int-id(next) + d)
 ```
 
-Arguments provide exact type evidence before an expected result type is used.
-For example, `let d: decimal = id(1)` instantiates `id` at `int`, then widens
-the resulting `int` to `decimal`; the annotation does not instead instantiate
-`id` at `decimal`. A divergent expression such as `raise` provides no type
-argument evidence, so `id(raise Abort(...))` needs result context or explicit
-type arguments.
+### Generic functions as values
 
-When inference cannot determine the arguments, or to pin them explicitly, pass
-type arguments at the call site with the `::[…]` typed-call form, listing one
-argument per type parameter:
-
-<!-- agl-check: fragment -->
-```agl
-def apply[A, B](x: A, f: A -> B) -> B = f(x)
-record Box[T]
-  value: T
-enum Option[T]
-  | None
-  | Some(value: T)
-
-print(id::[int](9))
-let be = Box::[int](value = 99)
-let s = Some::[int](value = 8)
-let qs = Option[int]::Some(value = 13)
-let _r = apply::[int, int](10, fn(n: int) -> int => n + 1)
-print be.value
-```
-
-The same `::[…]` suffix can instantiate a generic function as a value without
-calling it:
-
-<!-- agl-check: fragment -->
-```agl
-let int-id = id::[int]
-print(int-id(9))
-```
-
-Once its bare name has resolved unambiguously in scope, a fieldless member can
-infer its type arguments from the expected enum type:
-
-```agl
-enum Option[T]
-  | None
-  | Some(value: T)
-let e: Option[int] = None          # T inferred from the annotation
-```
-
-Partial application placeholders participate in the same inference. Non-hole
-arguments constrain type parameters first; sibling arguments and an expected
-function type can constrain the placeholder positions and the call result. If
-any type parameter is still unknown, use `::[…]` to pin the instantiation
-explicitly:
+A generic `def` or field-bearing constructor used as a first-class value needs
+expression-local evidence that fixes its instantiation: an expected function
+type, explicit type arguments, or the other arguments and result of an
+enclosing higher-order call — including a later sibling argument:
 
 ```agl
 def id[T](x: T) -> T = x
-def singleton[T](x: T) -> array[T] = [x]
-def map-one[A, B](f: (A) -> B, xs: array[A]) -> array[B] = [f(xs[0])]
-
-program def main() -> unit =
-  let keep-ints: (array[int]) -> array[int] = map-one(id, ?)
-  print(keep-ints([5])[0])
-  let make-single: (int) -> array[int] = singleton(?)
-  print(make-single(7)[0])
-  let make-text = singleton::[text](?)
-  print(make-text("hi")[0])
-```
-
-## Constructor references and generic constructor values
-
-Field-bearing record constructors and enum-member constructors are **ordinary
-function values** (see [Bindings and scope](bindings-and-scope.md)). Direct construction
-uses positional-greedy binding — positional arguments fill positional-capable
-slots left to right, then named arguments follow. A field-bearing constructor
-reached through a variable is a normal function value, called **positionally**
-in declaration field order:
-
-```agl
-record Box[T]
-  value: T
-
-program def main() -> unit =
-  let direct: Box[int] = Box(value = 1)
-  let mk: int -> Box[int] = Box
-  let one = mk(1)
-  print one.value
-```
-
-A **generic field-bearing** constructor or generic `def` used as a
-first-class function value needs constraints that pin its instantiation. An
-expected function type does this for a standalone value:
-
-```agl
-def id[T](x: T) -> T = x
-record Box[T]
-  value: T
-
-program def main() -> unit =
-  let f: int -> int = id
-  let mk: int -> Box[int] = Box
-  print(f(7))
-  let made = mk(2)
-  print made.value
-```
-
-A generic function occurrence can also be constrained by the other arguments
-of the enclosing higher-order call, without a separate annotation:
-
-```agl
 def apply[T](f: T -> T, value: T) -> T = f(value)
-def map[A, B](value: A, f: A -> B) -> B = f(value)
-def id[T](value: T) -> T = value
+
 record Box[T]
   value: T
 
-program def main() -> unit =
-  let n = apply(id, 42)
-  let mk: int -> Box[int] = Box
-  let made = map(42, mk)
-  print made.value
-```
-
-The same expression-local inference applies to every generic constructor form,
-including field-bearing members, fieldless constructors, and partial constructors.
-Evidence may come from a later sibling argument or the enclosing result:
-
-```agl
-enum Option[T]
-  | None
-  | Some(value: T)
-def build[T](factory: (T) -> Option[T], value: T) -> Option[T] = factory(value)
-def or-default[T](candidate: Option[T], fallback: T) -> T =
-  case candidate of
-    | None => fallback
-    | Some(value) => value
+def build[T](factory: (T) -> Box[T], value: T) -> Box[T] = factory(value)
 
 program def main() -> unit =
-  let present = build(Some, 7)
-  let chosen = or-default(None, 7)
+  let f: text -> text = id         # expected function type
+  let n = apply(id, 42)            # fixed by the sibling argument
+  let made = build(Box, 7)         # generic constructor as a value
+  print(f("via value"))
+  print(n + made.value)
 ```
 
-A binding is an inference boundary: `let f = id` is an error even if a later
-expression calls `f`, because that later use cannot specialize an already-bound
-value.
+A binding is an inference boundary: `let f = id` is a static error even if a
+later expression calls `f`, because that use cannot specialize an
+already-bound value. [Partial application](functions.md#partial-application)
+infers from its fixed arguments, placeholder positions, and an expected
+function type in the same way.
 
-### Pinning a generic constructor value with `::[…]`
+## Constructor type arguments
 
-Instead of relying on an expected-type annotation, you can instantiate a
-bare generic member constructor explicitly with the same `::[…]` suffix used
-for generic functions. A field-bearing member becomes a function value:
+The constructors of a generic record or enum are generic too, and are inferred
+like functions: from constructor arguments, the expected type, or the
+surrounding expression. A fieldless member infers its enum's type arguments
+from the expected type:
 
 ```agl
 enum Option[T]
   | None
   | Some(value: T)
 
+enum Outcome[T, E]
+  | Ok(value: T)
+  | Err(error: E)
+
 program def main() -> unit =
-  let mk = Some::[int]
-  let v = mk(7)
-  let z = Option[int]::None
+  let empty: Option[int] = None              # T from the annotation
+  let some = Some::[int](value = 8)          # T explicit
+  let owned = Option[int]::Some(value = 13)  # owner-applied
+  let none = Option[int]::None
+  let ok: Outcome[int, text] = Ok::[int, text](value = 1)
+  let make = Some::[text]                    # a function value
+  print(make("ready"))
 ```
 
-A direct inline member application accepts either the type parameters that
-member captures or the owning enum's full parameter list. The full form
-substitutes its arguments through the member's captured parameters, so
-`None::[int]` constructs `Option::None` and `Ok::[int, text]` constructs the
-`Ok[int]` member of `Outcome[int, text]` when `Ok` captures only `T`.
-`Option[int]::Some` and `Option[int]::None` provide the same owner-applied
-qualification. A standalone record constructor accepts only its own type
-parameters, and a referenced enum member is applied through its record
-constructor rather than through an enum owner. In this explicit
-applied-type-qualified constructor form, the applied type name must be
-immediately followed by `[` (`NAME[`):
-`Option[int]::Some` is valid, but `Option [int]::Some` is invalid. This rule
-applies only to this constructor form; ordinary applied type expressions may
-have whitespace, so both `Option[int]` and `Option [int]` are valid type
-expressions. Both `Option` and the constructor (`Some`/`None`) must be `NAME`,
-not `OP_NAME`. The result is an ordinary function value for a member with a
-required field, or a constructed member-record value for a fieldless or
-all-defaulted member. The latter can be passed as a value but is not
-callable; see
-[Fieldless and all-defaulted constructor references](expressions.md#fieldless-and-all-defaulted-constructor-references).
+Explicit constructor type arguments take one of three forms:
+
+- `Member::[…]` on an inline enum member accepts either the type parameters
+  that member captures or the owning enum's full parameter list, substituted
+  through the member's captured parameters: in `Outcome[T, E]`, `Ok` captures
+  only `T`, so both `Ok::[int]` and `Ok::[int, text]` construct `Ok[int]`.
+- `Enum[…]::Member` applies the owning enum first, under the [segment
+  type-argument rule](lexical-structure.md#qualifier-chains)
+  (`Option[int]::Some`).
+- `Record::[…]` on a standalone record accepts only the record's own type
+  parameters; a scoped one takes them after its full path (`Geo::Pair::[int]`).
+  A referenced enum member is applied through its own record, never through an
+  enum owner.
+
+A field-bearing member with a required field yields a function value; a
+fieldless or all-defaulted one yields the constructed value, which is not
+callable ([Fieldless and all-defaulted constructor
+references](expressions.md#fieldless-and-all-defaulted-constructor-references)).
 
 ## Strict parametricity
 
 A value whose static type is a **bare type parameter** `T` is **opaque**: the
-generic body knows nothing about it beyond that it exists. You may only
-**pass it, return it, and store it**. Every operation that would inspect its
-contents is a static error. You cannot:
+generic body may only **pass it, return it, and store it**. Every operation
+that would inspect it is a static error:
 
-- compare it with `==`, `!=`, `<`, `<=`, `>`, `>=` (`x == x` on a `T` is
-  rejected) — an `Eq` bound lifts equality and a `Hashable` bound also
-  hashing, but ordering never lifts; see [Constraint
-  blocks](#constraint-blocks),
-- do arithmetic on it,
-- access a field (`x.foo`) or index (`x[0]`) of it,
-- test it with `is` / `is not`.
+- `==`, `!=`, and `in` — unless a [constraint block](#constraint-blocks)
+  bounds `T` `Eq` or `Hashable`; ordering (`<`, `<=`, `>`, `>=`) never lifts,
+- arithmetic,
+- field access (`x.foo`) or indexing (`x[0]`),
+- `is` / `is not`.
 
 <!-- agl-check: error -->
 ```agl
-def bad[T](x: T) -> bool = x == x     # static error: '==' not permitted on 'T'
+def bad[T](x: T) -> bool = x == x     # static error: '==' needs 'Eq' for 'T'
 ```
 
-This guarantees a generic definition behaves uniformly at every instantiation:
-the body cannot branch on the actual type. (Once a type parameter is *applied*
-inside a known constructor — e.g. a `Box[T]` value — the surrounding structure
-is usable for every operation except one that needs `Eq`/`Hashable` on the
-nested `T`, such as `==`/`!=`/`in` over `array[T]` (see
-[Constraint blocks](#constraint-blocks)); only the bare `T` payload itself is
-opaque.)
+A generic definition therefore behaves uniformly at every instantiation. A
+structure built around `T` — a `Box[T]` or `array[T]` — supports every
+operation except those needing `Eq`/`Hashable` on the nested `T`, such as `==`
+or `in` over `array[T]`.
 
-This language-internal guarantee does not extend to a Python companion behind
-`extern def`. The FFI passes the ordinary runtime representation at a generic
-position and trusts the companion to preserve parametricity; see [Python
-FFI](ffi.md#generics-and-trust). An extern type parameter that no parameter
-mentions is not opaque to its companion: each call site's concrete
-instantiation reaches it as a contract, so that instantiation may not be a
-type variable; see [Target type parameters](ffi.md#target-type-parameters).
+This guarantee does not extend to a Python companion behind `extern def`,
+which receives the ordinary runtime representation and is trusted to preserve
+parametricity ([Python FFI](ffi.md#generics-and-trust)). An extern type
+parameter that no parameter mentions reaches its companion as a contract, so
+its instantiation may not be a type variable ([Target type
+parameters](ffi.md#target-type-parameters)).
 
 ### Constraint blocks
 
 A generic function declaration — `def`, `extern def`, `builtin def`, or a
 method, including a builtin-receiver method — may follow its type parameters
 with a `{…}` constraint block naming one or more of them `Eq` or `Hashable`.
-Only a declaration of this kind carries one: a type declaration (`record`,
-`enum`, `exception`, `type`) carries no bounds, and `program def` cannot
-declare type parameters at all. A bound belongs to the operation that needs
-it, never to the type that carries the parameter.
+Type declarations (`record`, `enum`, `exception`, `type`) carry no bounds, and
+`program def` cannot declare type parameters. A bound belongs to the operation
+that needs it, never to the type that carries the parameter.
 
 ```agl
 def same[T]{Eq T}(a: T, b: T) -> bool = a == b
@@ -419,59 +303,60 @@ def member[T]{Hashable T}(x: T, xs: array[T]) -> bool = x in xs
 ```
 
 `Hashable` implies `Eq`. A bound lifts the strict-parametricity restriction
-on `==`/`!=` and `in` for that parameter — and for any type that mentions
-it, such as `array[T]` or `Option[T]` — wherever it appears in the
-declaration's body, including its receiver's parameters for a method. A
-`Hashable` bound on `T` additionally lifts the dict [hashing
-operations](types.md#arrayt-and-dictk-v) on a `dict[T, V]`. Without a bound,
-those operations remain rejected on the parameter at any depth. A constraint
-names only a type parameter already in scope from the declaration or its
-receiver; naming the same parameter twice, or pairing it with both `Eq` and
-`Hashable`, is a static error. A block is rejected on a declaration with no
-type parameters.
+on `==`/`!=` and `in` for that parameter — and for any type that mentions it,
+such as `array[T]` or `Option[T]` — throughout the declaration's body,
+including a method's receiver parameters. A `Hashable` bound additionally
+lifts the dict [hashing operations](types.md#arrayt-and-dictk-v) on a
+`dict[T, V]`. A constraint names only a type parameter in scope from the
+declaration or its receiver; naming one twice, or both `Eq` and `Hashable`,
+is a static error, as is a block on a declaration with no type parameters.
 
 `Eq` is exactly the equality [Values and
-equality](types.md#values-and-equality) defines for concrete data. An opaque
-host type such as `Session` satisfies neither kind, the same way it has no
-equality; an exception ancestor is disqualified whenever a descendant adds a
-non-qualifying field, since a value statically typed as the ancestor may hold
-that descendant at runtime. `Hashable` is narrower — deeply immutable data:
-as `Eq`, but no field may be declared `var` at any depth, and an `array` or
-`dict` never qualifies, regardless of content. A generic nominal type
-satisfies either kind only where its own type arguments do, at the parameter
-positions its fields actually use.
+equality](types.md#values-and-equality) defines for concrete data; an opaque
+`Session` satisfies neither kind. An exception ancestor is disqualified when a
+descendant adds a non-qualifying field, since an ancestor-typed value may hold
+that descendant. `Hashable` is narrower — deeply immutable data: as `Eq`, but
+no field may be declared `var` at any depth, and an `array` or `dict` never
+qualifies. A generic nominal type satisfies either kind only where its type
+arguments do, at the parameter positions its fields use.
 
-A bound is checked wherever the parameter it names is **instantiated** —
-an inferred call, an explicit `::[…]` type argument, a method's receiver
-type argument, a first-class function value fixed by its expected type, a
-partial application, or a bound method value — against the concrete type
-supplied there, or, when the caller's own argument is itself a bounded type
-parameter, against the caller's bound:
+A bound is checked wherever its parameter is **instantiated** — an inferred
+call, an explicit `::[…]`, a method's receiver type argument, a function value
+fixed by its expected type, a partial application, or a bound method value —
+against the concrete type supplied there or, when that is the caller's own
+type parameter, against the caller's bound:
 
 ```agl
 def same[T]{Eq T}(a: T, b: T) -> bool = a == b
-def relay[T]{Eq T}(a: T, b: T) -> bool = same(a, b)   # T's own 'Eq' bound covers the call
+def relay[T]{Eq T}(a: T, b: T) -> bool = same(a, b)   # relay's 'Eq T' covers the call
 ```
 
-A caller's unbounded type parameter never satisfies a callee's bound. A
-caller's `Hashable` bound does satisfy a callee's `Eq` requirement, since
-`Hashable` implies `Eq`; the reverse does not.
+An unbounded caller parameter never satisfies a bound. A caller's `Hashable`
+satisfies a callee's `Eq`; the reverse does not.
 
 ## Invariance
 
 Type arguments are **invariant**: an applied type matches another only when
-its type arguments match **exactly**. There is no variance or subtyping
-through a type argument, and the `int → decimal` widening does not propagate
-inside one:
+its type arguments match **exactly**. No variance or subtyping applies through
+a type argument, and neither does the `int` → `decimal` widening. Arrays and
+dicts are shared mutable references, so accepting an `array[int]` as an
+`array[decimal]` would let the callee store a fraction into the caller's
+integer array:
 
+<!-- agl-check: error -->
 ```agl
+def halve-first(xs: array[decimal]) -> unit =
+  xs[0] := xs[0] / 2
+
 program def main() -> unit =
-  let xs: array[int] = [1, 2]
-  print xs[0]
+  let counts: array[int] = [3, 4]
+  halve-first(counts)   # static error: expected 'array[decimal]', got 'array[int]'
 ```
 
-`array[int]` is not assignable to `array[decimal]` or `array[json]`, and
-`Box[int]` is a different type from `Box[text]`.
+Annotating the value at the type it is used as works, because each `int`
+element widens as the literal is built: `let amounts: array[decimal] = [3, 4]`.
+Likewise `Box[int]` and `Box[decimal]` are unrelated types, and `array[int]` is
+not assignable to `array[json]` (use `as json`).
 
 ## Recursive generic functions
 
@@ -484,19 +369,18 @@ def last-of[T](values: array[T], index: int) =
   if index + 1 < values.size() => last-of(values, index + 1) else => values[index]
 ```
 
-A recursive call at a different instantiation is polymorphic recursion and
-requires an explicit result annotation. This includes growing an argument such
-as `T` to `array[T]`, replacing it with a fixed type, or permuting multiple type
-parameters. Annotated generic functions may use those recursive patterns.
+A recursive call at a different instantiation — growing `T` to `array[T]`,
+replacing it with a fixed type, or permuting several parameters — is
+polymorphic recursion and requires an explicit result annotation.
 
 ## Recursive generic types
 
-A generic record or enum may reference itself, or another declaration that
-in turn reaches back to it, in its own fields or enum-member fields — the
-same recursion rule as [Recursive types](types.md#recursive-types), extended
-to generics. The self-reference's type argument is not required to be the
-declaration's own type parameter unchanged; it may be a different type built
-from that parameter (polymorphic recursion):
+A generic record or enum may reference itself, directly or through other
+declarations, under the [recursive types](types.md#recursive-types) rules. The
+self-reference's type argument may be a different type built from the
+parameter (polymorphic recursion), combining any parameters, containers, and
+other generic declarations; each reference in a mutually recursive group may
+recurse at a different argument:
 
 ```agl
 record Pair[A, B]
@@ -506,177 +390,84 @@ record Pair[A, B]
 enum Perfect[T]
   | Single(value: T)
   | Succ(next: Perfect[Pair[T, T]])
-```
 
-`Perfect[T]`'s `Succ` member carries a `Perfect[Pair[T, T]]`, not a
-`Perfect[T]` — each `Succ` layer doubles the "roundness" of the payload type
-one level further. This is unrestricted: a recursive reference's argument may
-combine any number of type parameters, containers, and other generic
-declarations, and different references (in a mutually recursive group of
-declarations) may each recurse at a different argument.
-
-The [inhabitation](types.md#inhabitation) rule applies exactly as for a
-non-generic recursive type: `Single` is the base-case member that makes
-`Perfect[T]` constructible for every `T`. Constructing, matching, comparing,
-and folding a value works exactly like any other recursive type. The values
-shown here are finite trees, regardless of how many argument levels their
-declaration can grow through; a recursive type with a `var` field may instead
-be updated later to close a reference cycle:
-
-<!-- agl-check: fragment -->
-```agl
-let level0: Perfect[int] = Single(value = 1)
-let level1: Perfect[int] = Succ(next = Single(value = Pair(first = 1, second = 2)))
-
-def shape[T](p: Perfect[T]) -> text =
+def depth[T](p: Perfect[T]) -> int =
   case p of
-    | Single(value) => "leaf"
-    | Succ(next) => "deeper"
+    | Single() => 0
+    | Succ(next) => 1 + depth(next)   # recurses at Perfect[Pair[T, T]]
 
-print shape(level0)   # "leaf"
-print shape(level1)   # "deeper"
+program def main() -> unit =
+  let level0: Perfect[int] = Single(value = 1)
+  let level1: Perfect[int] = Succ(next = Single(value = Pair(first = 1, second = 2)))
+  print(depth(level0) + depth(level1))   # 1
 ```
 
-A generic function may recurse alongside such a type's own growth, calling
-itself at a new instantiation to process the nested payload — the same
-generic function definition serves every level, exactly like any other
-generic function called at different type arguments; see
-[Functions](functions.md) for generic function calls in general.
+Each `Succ` layer doubles the payload type. [Inhabitation](types.md#inhabitation)
+applies as for any recursive type: `Single` is the base case that makes
+`Perfect[T]` constructible for every `T`. Values are constructed, matched,
+compared, and folded like those of any other recursive type; `depth`, with its
+annotated result, recurses at each new instantiation.
 
 ## The finite-schema boundary
 
-Every use in-language works uniformly across recursive generic types, whether
-uniform (`Tree[T]` referencing `Tree[T]`), a permutation (`Swap[B, A]`
-referencing `Swap[A, B]`), argument-constant (`R[int]` referencing `R[T]`), or
-growing (`Perfect[T]` referencing `Perfect[Pair[T, T]]`, as above). Four
-positions require schema-relevant instantiations to close finitely: a
+Four positions require the instantiations a type reaches to close finitely: a
 JSON-decoded `ask`/`exec` response type ([Agent calls](agent-calls.md)), the
 target of a fallible `as` or `as?` cast
 ([Expressions](expressions.md#casts-as-and-as)), a non-`text` `program def`
-value parameter ([Host environment](host-environment.md#program-arguments)), and an `extern
-def` parameter or result ([Python FFI](ffi.md)). The first three derive a
-**finite JSON Schema**; the FFI requires the same finite closure without
-deriving any schema, since values cross the boundary by their runtime
-representation rather than a derived artifact. The one FFI exception is a
-[target type parameter](ffi.md#target-type-parameters), whose instantiation
-derives a finite JSON Schema like an `ask` target's.
+value parameter ([Host environment](host-environment.md#program-arguments)),
+and an `extern def` parameter or result ([Python FFI](ffi.md)). The first three
+derive a **finite JSON Schema**; the FFI requires the same closure without
+deriving one, except for a [target type
+parameter](ffi.md#target-type-parameters), which derives one like an `ask`
+target.
 
-Derivation expands the schema-relevant concrete instantiations reachable from
-the type. Uniform, permutation, and argument-constant recursion do not by
-themselves prevent closure; when all reachable declarations use only those
-forms, there are finitely many such shapes. A growing self-reference like
-`Perfect[T]`'s can instead produce infinitely many (`Perfect[int]`,
-`Perfect[Pair[int, int]]`, `Perfect[Pair[Pair[int, int], Pair[int, int]]]`,
-…) and has no finite schema.
-
-A concrete instantiation whose reachable declarations all have finite closures
-may cross a schema boundary; one that reaches a non-closing declaration is
-rejected with a static error at that specific use site:
+Uniform recursion (`Tree[T]` referencing `Tree[T]`), permutation (`Swap[B, A]`
+referencing `Swap[A, B]`), and argument-constant recursion (`R[int]`
+referencing `R[T]`) reach finitely many concrete shapes. A growing reference
+like `Perfect[T]`'s reaches infinitely many (`Perfect[int]`,
+`Perfect[Pair[int, int]]`, …), so a type reaching it has no finite schema and
+is rejected at that use site:
 
 <!-- agl-check: error -->
 ```agl
-let bad: Perfect[int] = source.ask("Give me a value.")
-# static error: type 'Perfect[int]' cannot be used as an agent output type:
-# its recursive instantiations never close, so it has no finite JSON schema.
+record Pair[A, B]
+  first: A
+  second: B
 
-let also-bad = some-json as Perfect[int]
-# the same error, naming "a cast target" instead
-```
-
-Nothing else about `Perfect[int]` is restricted: it can still be
-constructed, matched, compared, passed to and returned from ordinary
-functions, rendered, and explicitly converted **to** `json`. JSON conversion
-uses the expression's static type, so enum-typed positions retain their member
-tags. Only the schema-needing boundaries reject it. A non-generic recursive type,
-or a generic recursive type whose reachable instantiations close, crosses
-these boundaries normally. The [derived JSON
-Schema](agent-calls.md#derived-json-schema) for a recursive type uses
-`$defs`/`$ref`, with one entry per schema-relevant instantiation it hoists
-(`Tree[int]` and `Tree[text]` are distinct concrete shapes).
-
-## Unqualified member ambiguity
-
-If multiple distinct constructor candidates share an unqualified member name
-at the [lookup step](scopes.md#names-and-visibility) that decides it — two of
-the module's own, or two contributed ones when the module declares none — a
-reference in ordinary value position is a **static scope ambiguity error**.
-This is resolved before type checking, so an expected enum type cannot choose
-one candidate; it can only infer type arguments after scope has selected an
-unambiguous constructor. Disambiguate an inline member by qualifying it with
-its owning enum. A referenced member is not in that enum's scope, so qualify
-it through the referenced record's own declaration path instead (for example,
-`Source::Member::[int](...)`, not `Result[int]::Member(...)`):
-
-```agl
-enum Option[T]
-  | None
-  | Some(value: T)
-def describe-option(o: Option[int]) -> text =
-  case o of
-    | Option::None => "missing"
-    | Option::Some(value) => "found %{value}"
+enum Perfect[T]
+  | Single(value: T)
+  | Succ(next: Perfect[Pair[T, T]])
 
 program def main() -> unit =
-  let d: Option[int] = Option::Some(value = 11)
-  let line = describe-option(d)
-  print line
+  let bad: Perfect[int] = AgentPi().ask("Give me a value.")
+  # static error: 'Perfect[int]' cannot be used as an agent output type:
+  # its recursive instantiations never close, so it has no finite JSON schema.
 ```
 
-Qualification is accepted in expression, pattern, and `is`-test positions
-(`Option::Some(value = 1)`, `case … | Option::None => …`,
-`probe is Option::Some`). In an enum-member pattern or `is` test, the
-scrutinee's static enum type selects the member even when enums share a
-terminal name, so qualification is optional; when present, it must agree with
-that type. This is scrutinee-directed selection, not ordinary value-position
-scope resolution. A nearer ordinary binding
-(a `let`, `var`, or function parameter) **shadows** a constructor or overload
-set in expression/value position, exactly like any other shadowing (see
-[Bindings and scope](bindings-and-scope.md)). In pattern position, lookup stays
-constructor-directed regardless of local values.
-
-## Bare names in patterns
-
-A bare name at the top level of a `case` pattern is a nullary constructor and
-never captures a value. Use an `as` pattern for a catch-all binder:
-
-<!-- agl-check: fragment -->
-```agl
-case value of
-  | _ as captured => captured
-```
-
-Inside a constructor pattern, a bare name is field-directed: it binds only
-when it has the matched field's name. A different bare name must be a nullary
-constructor of that field's type. When a field and a constructor share a name,
-write `name()` for the constructor or `_ as name` for the field value.
-`field as name` adds `name` as an alias while still binding `field`; use
-`_ as name` when only the alternate name is wanted.
+A cast `source as Perfect[int]` reports the same error for a cast target.
+Nothing else about `Perfect[int]` is restricted: it can be constructed,
+matched, compared, passed, returned, rendered, and converted **to** `json` (a
+finite runtime value always converts).
 
 ## No generic agent targets
 
-An `ask` call's response type becomes a wire-serialized output contract, and a
-bare type parameter has no wire representation. Therefore a generic type
-parameter (or a type containing one in an unresolved position) may not be used
-as an `ask` response type. Instantiate the generic at a concrete type before
-the value crosses the agent boundary. See [Agent calls](agent-calls.md) for
-how response types drive output contracts, and [The finite-schema
-boundary](#the-finite-schema-boundary) above for the separate restriction that
-applies even to some already-concrete instantiations.
+An `ask` response type becomes a wire-serialized output contract, and a bare
+type parameter has no wire representation, so a type parameter (or a type
+containing one) may not be an `ask` response type. Instantiate the generic at
+a concrete type before the value crosses the agent boundary.
 
-## No runtime cost (erasure)
+## Erasure
 
-Generics add **no run-time type information**. Type parameters are a
-compile-time-only abstraction: one generic body, and one generic constructor,
-serves every instantiation. `Box[int]` and `Box[text]` are produced by the
-same constructor at run time, and a generic `def` runs the identical code
-whatever its type arguments. This is a property of the language, observable as
-the absence of any per-instantiation runtime behavior — there is no
-reflection over a value's type arguments at run time.
+Generics add **no run-time type information**: one generic body, and one
+generic constructor, serves every instantiation, and there is no reflection
+over a value's type arguments at run time.
 
 ## See also
 
-- [Types](types.md) — applied types, invariance, the `type_expr` grammar.
-- [Bindings and scope](bindings-and-scope.md) — constructors as value
-  bindings, overload sets, shadowing, namespaces.
-- [Functions](functions.md) — function values and higher-order functions.
-- [Pattern matching](pattern-matching.md) — qualified member patterns.
+- [Types](types.md) — applied types, type aliases, recursive types.
+- [Functions](functions.md) — generic function declarations, partial
+  application.
+- [Bindings and scope](bindings-and-scope.md#overload-sets-shadowing-and-ambiguity)
+  — unqualified member ambiguity, shadowing of constructors.
+- [Pattern matching](pattern-matching.md#patterns-on-generic-nominal-types) —
+  bare names in patterns, patterns on generic types.

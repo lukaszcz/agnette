@@ -23,161 +23,96 @@ A -> B
 (A, B, …) -> C
 ```
 
-Type expressions:
-
-```ebnf
-type_expr ::= "unit"
-            | "text" | "json" | "bool" | "int" | "decimal"
-            | name
-            | name "[" type_expr ("," type_expr)* "]"   (* applied type *)
-            | qualifier_chain name "[" type_expr ("," type_expr)* "]"
-                                                               (* qualified applied type *)
-            | qualifier_chain name                            (* qualified type *)
-            | "array" "[" type_expr "]"
-            | "dict" "[" type_expr "," type_expr "]"
-            | func_type
-
-func_type ::= type_atom "->" type_expr
-            | "(" type_list? ")" "->" type_expr
-type_atom ::= "unit" | "text" | "json" | "bool" | "int" | "decimal"
-            | name
-            | name "[" type_expr ("," type_expr)* "]"
-            | qualifier_chain name "[" type_expr ("," type_expr)* "]"
-            | qualifier_chain name
-            | "array" "[" type_expr "]"
-            | "dict" "[" type_expr "," type_expr "]"
-type_list       ::= type_expr ("," type_expr)* ","?
-qualifier_chain ::= "::" qualifier_segment* | qualifier_segment+
-qualifier_segment ::= ["/"] NAME ("/" NAME)* "::"
-                    | NAME "[" type_expr ("," type_expr)* "]" "::"
-```
-
-A bare `name` in type position names a built-in type, a user type, an alias,
-or — inside a generic declaration — one of that declaration's type parameters.
-`name "[" … "]"` is an **applied type**: it instantiates a generic declaration
-at concrete type arguments, e.g. `Box[int]`, `Option[text]`,
-`Outcome[int, text]`, or nested `Box[Box[int]]`. A `qualifier_chain` may precede
-the complete type name before its brackets, as in `mylib::Box[int]` or
-`Geometry::Box[int]`; without brackets it forms a qualified type such as
-`mylib::Point` or `Geometry::Point`. The built-in `array[T]` and `dict[K, V]`
-are the same applied-type form. See [Named scopes](scopes.md) for scope-path
-resolution.
-
-An inline enum member may also be selected from an applied enum owner:
-`Source[text]::Member` specializes every owner parameter captured by
-`Member`. That selection is already concrete, so it cannot take another type
-application; use `Source::Member[T]` when applying the member directly.
-
-An alias of an enum is a transparent owner. With `type Texts = Source[text]`,
-`Texts::Member` is `Source[text]::Member` in types, constructors, patterns,
-and `is` tests. A parameterized alias names a member type only once applied,
-as in `Rows[text]::Member` for `type Rows[A] = Source[array[A]]`. In a
-constructor, pattern, or `is` test, an unapplied `Rows::Member` is
-`Rows[A]::Member` for an inferred `A`: `Rows::Member(value = ["a"])`
-constructs a `Source[array[text]]::Member`, while `Rows::Member(value = 1)`
-and a `Rows::Member(…)` pattern or `is` test on a `Source[int]` value are
-static errors.
+A type expression is a built-in type, a function type, or a `name` — a user
+type, an alias, or, inside a generic declaration, one of its type parameters —
+optionally preceded by a [qualifier chain](lexical-structure.md#qualifier-chains)
+(`mylib::Point`, `Geometry::Point`) and optionally applied to type arguments.
+An **applied type** such as `Box[int]`, `Outcome[int, text]`, `Box[Box[int]]`,
+or `mylib::Box[int]` instantiates a generic declaration; `array[T]` and
+`dict[K, V]` are the same form. Type arguments are invariant. See
+[Generics](generics.md) for type parameters, inference, and invariance, and
+[Grammar](grammar.md#type-expressions) for the complete syntax.
 
 There are no union types, no string-literal types, and no optional/nullable
 types; model alternatives and optionality with enums.
 
-User declarations may themselves be **generic** — `record`, `enum`, `type`
-aliases, and `def` functions can declare type parameters. See
-[Generics](generics.md).
-
 ### `unit`
 
-`unit` is the type of expressions that exist only for their side effect and
-produce no meaningful value. Its only value is written `()` — the empty
-argument list. Side-effecting expressions such as `print(…)`, `:=`, an `if`
-without an `else` branch, and loops all have type `unit` and evaluate to
-`()`.
+`unit` is the type of expressions that exist only for their side effect. Its
+only value is `()`, which is also the empty argument list of a zero-argument
+call — the two are syntactically unified. `print(…)`, `:=`, an `if` without
+`else`, and loops have type `unit`.
 
 ```agl
 program def main() -> unit =
   let _: unit = print "hello"
 ```
 
-`unit` cannot be JSON-encoded or stored in a `json` slot; it renders and
-interpolates as `()`. The literal `()` is both the unit value and the empty
-argument list of a zero-argument call — the two are syntactically unified.
-In the REPL, an expression or binding entry whose type is `unit` echoes
-nothing by default
+`unit` has no JSON encoding and cannot be stored in a `json` slot; it renders
+as `()`. In the REPL, an entry of type `unit` echoes nothing by default
 ([`agm repl` evaluation notes](../../commands/agl.md#evaluation-notes)).
 
 ### `text`
 
 An immutable sequence of Unicode scalar values: a surrogate code point
-(U+D800-U+DFFF) never appears in a `text` value. Every source of `text` from
+(U+D800–U+DFFF) never appears in a `text` value. Every source of `text` from
 outside the program — literals, parsed values, decoded bytes, host input —
-rejects input that is not valid Unicode rather than admitting one silently.
-Text indexing (`s[i]`) returns the Unicode scalar value at an integer index;
-negative indexes count from the end, and an out-of-range index raises
-`IndexError`. Text cannot be changed through indexed assignment. Untyped `ask`
-results default to `text` ([Agent calls](agent-calls.md)). The standard
-library supplies the standard text methods; user modules may also declare
-text methods.
+rejects input that is not valid Unicode. Indexing (`s[i]`) returns the scalar
+value at an integer index as `text`; negative indexes count from the end, and
+an out-of-range index raises `IndexError`. Text cannot be changed through
+indexed assignment. Untyped `ask` results default to `text` ([Agent
+calls](agent-calls.md)). Text methods come from the standard library and may
+also be declared by user modules ([Builtin-type
+methods](#builtin-type-methods)).
 
 ### Numbers: `int` and `decimal`
 
 There is **no binary floating-point type**.
 
-- `int` — an arbitrary-precision integer.
+- `int` — an arbitrary-precision integer. An integer of any length, written or
+  decoded, is an exact `int`.
 - `decimal` — an exact decimal number. Literals with a fractional part, such
   as `1.5`, are `decimal`.
 
-Arithmetic is performed under a fixed decimal context: 28 significant digits,
-banker's rounding (round-half-even), with the adjusted exponent of the most
-significant digit bounded by ±999999 and subnormal values reaching down to the
-smallest representable exponent below it. This context is part of the language
-semantics and does not vary by host. A `decimal` value, however created, is
-always finite and within this exponent range — range is checked, not
-precision, so a value with more than 28 significant digits is created and kept
-exactly. A decimal literal outside this range is a compile-time error.
-Decoding a number into a `decimal` — from JSON, an agent or `std/http`
-response, a host-supplied program argument, or an extern return value —
-rejects one outside this range, or non-finite, with that boundary's own error,
-so a `decimal` value can never arise out of range. A `json`-typed value is
-exempt from the range and may hold a number of any magnitude, but always a
-finite one: JSON or TOML parsing, an agent or `std/http` response, and a
-host-supplied program argument reject `NaN` or an infinity with that
-boundary's own error, and an extern never passes one ([FFI](ffi.md)). JSON
-parsing also rejects a duplicate object member name. Each of those boundaries
-also rejects a number no `decimal` can hold at all (such as
-`1e99999999999999999999`). An integer of any length, written or decoded, is an
-exact `int`.
+`decimal` arithmetic uses a fixed context that is part of the language and
+does not vary by host: 28 significant digits, round-half-even, and an adjusted
+exponent bounded by ±999999, with subnormal values reaching below it. A
+`decimal` value is always finite and within this range. Range is checked, not
+precision: a value with more than 28 significant digits is created and kept
+exactly. An out-of-range decimal literal is a compile-time error.
+
+Every decoding boundary — JSON or TOML text, an agent or HTTP response, a
+host-supplied program argument, an extern return value — rejects a non-finite
+number with that boundary's own error, and rejects an out-of-range one for a
+`decimal` target, so a `decimal` can never arise out of range. A `json` value
+may hold a number of any finite magnitude, but not one no `decimal` can hold at
+all (such as `1e99999999999999999999`).
 
 A `decimal` operator (`+ - *` or `/`) rounds its result to 28 significant
 digits; unary `-` is exact, including in a constant expression. A result that
-underflows below the range loses precision and may become zero instead of
-raising; one that overflows above it, or is otherwise invalid (such as
-division by zero), raises the catchable `ArithmeticError`
-([Exceptions](exceptions.md#arithmeticerror)), labelled with the operator.
-Converting an `int` to `decimal` — an explicit `as decimal` cast, or the
-implicit widening a mixed-operand arithmetic operator, a `dict` index key, a
-call argument, or another `decimal`-typed context applies — raises the same
-way when the `int` falls outside the range, labelled with the triggering
-operator or `as decimal` for a non-operator context. `as?` tolerates this the
-same way it tolerates a reference cycle: `as? decimal` yields `None` instead
-of raising.
+underflows may lose precision or become zero; one that overflows, or is
+otherwise invalid (such as division by zero), raises the catchable
+`ArithmeticError` ([Exceptions](exceptions.md#arithmeticerror)), labelled with
+the operator. Converting an out-of-range `int` to `decimal` — `as decimal`, or
+the implicit widening of a mixed-operand operator, a `dict` key, a call
+argument, or another `decimal`-typed context — raises the same way, labelled
+with the operator or `as decimal`; `as? decimal` yields `None` instead.
 
-Comparing an `int` with a `decimal` never widens: the comparison operators
-`== != < <= > >=` and the membership operator `in` compare the two exact
-values, whatever the `int`'s magnitude, so they never raise and neither the
-range nor the precision affects the result
-(`10.pow(30) + 1 == 1000000000000000000000000000001.0` is true). An `int`
-outside the range is never `in` a `dict` with `decimal` keys.
+Comparing an `int` with a `decimal` never widens: `== != < <= > >=` and `in`
+compare the two exact values whatever the `int`'s magnitude, so they never
+raise (`10.pow(30) + 1 == 1000000000000000000000000000001.0` is true). An
+`int` outside the range is never `in` a `dict` with `decimal` keys.
 
 On the JSON wire both kinds are plain JSON numbers, parsed and emitted
-exactly. A wire number written without a fraction or exponent reads as an
-`int`; any other reads as a `decimal`. Where the target expects the other
-kind, the number converts as the cast would: an `int` widens to `decimal`, and
-a `decimal` narrows to `int` only when integral
-([`decimal as int` integrality](#decimal-as-int-integrality)), so `2.0` fills
-an `int` target and `2.5` does not. A `decimal` or `json` target keeps the
-number's exact value, trailing zeros included. Its JSON encoding shows them,
-except for a number whose coefficient digits plus exponent magnitude exceed
-10,000: that one is encoded in scientific notation without trailing zeros.
+exactly. A number written without a fraction or exponent reads as an `int`;
+any other reads as a `decimal`. Where the target expects the other kind, the
+number converts as the cast would: an `int` widens, and a `decimal` narrows to
+`int` only when integral ([`decimal as int`
+integrality](#decimal-as-int-integrality)), so `2.0` fills an `int` target and
+`2.5` does not. A `decimal` or `json` target keeps the exact value, trailing
+zeros included, and its JSON encoding shows them — except for a number whose
+coefficient digits plus exponent magnitude exceed 10,000, which is encoded in
+scientific notation without trailing zeros.
 
 ### `bool`
 
@@ -187,7 +122,6 @@ except for a number whose coefficient digits plus exponent magnitude exceed
 
 `json` holds any *JSON-shaped* value: `null`, booleans, numbers, text, and
 arrays/dictionaries of JSON-shaped values. The literal `null` has type `json`.
-
 Records, enums, exceptions, and functions are **not** JSON-shaped.
 
 `null` is not assignable to `text`, `int`, `decimal`, `bool`, records, or
@@ -204,74 +138,47 @@ enum MaybeText
 
 Homogeneous containers, and **mutable reference values**: binding, assignment,
 passing as an argument, and storing in a field never copy an array or dict —
-every alias shares the same underlying object. Elements and values are read
-with indexing (`xs[0]`, `metadata["key"]`). An array or dict can be updated
-in place through an index with `:=` — see [Bindings and scope](bindings-and-scope.md#destructive-assignment)
-for the assignment-root rules and evaluation order. There is no `len`
+every alias shares the same underlying object. Elements are read with indexing
+(`xs[0]`, `metadata["key"]`) and updated in place with indexed `:=` ([Bindings
+and scope](bindings-and-scope.md#destructive-assignment)). There is no `len`
 operator.
 
-`dict[K, V]` admits any key type `K`. Only a *hashing operation* — a
-non-empty dict literal `{k: v, …}`, indexing (`d[k]`), indexed assignment
-(`d[k] := v`), and `k in d` — requires `K` to be `Hashable`
-([Constraint blocks](generics.md#constraint-blocks)). The other operations —
-the type itself, empty `{}`, `for`, rendering, `copy`/`shallow-copy`, and
-`==` — do not, so `K` may be non-hashable, such as `array[int]`; `==` still
-needs `Eq` on the whole dict type. A dict with a `Hashable` key encodes to
-JSON in its key's form, and decodes back from that form when the key is also
-decodable (an exception key is not); see [Dict wire forms](#dict-wire-forms).
+`dict[K, V]` admits any key type `K`. Only a *hashing operation* — a non-empty
+dict literal `{k: v, …}`, indexing (`d[k]`), indexed assignment (`d[k] := v`),
+and `k in d` — requires `K` to be `Hashable`
+([Constraint blocks](generics.md#constraint-blocks)). The type itself, empty
+`{}`, `for`, rendering, and `copy`/`shallow-copy` do not, so `K` may be
+non-hashable, such as `array[int]`; `==` needs `Eq` on the whole dict type. A
+dict with a `Hashable` key encodes to JSON in its key's form, and decodes back
+when the key is also decodable ([Dict wire forms](#dict-wire-forms)).
+Standard-library dict methods follow the same split.
 
-The `std/dict` methods follow the same split. `get`, `get?`, `set`, `remove`,
-`remove?`, `contains`, `merge`, `merge!`, and `from-entries` hash a key and
-require `Hashable K`; `size`, `is-empty`, `clear`, `keys`, `values`, `entries`,
-`map-values`, `select`, `select!`, and `each` do not. `dict::from-entries`
-takes an `on-duplicate` policy, `dict::DuplicateKeys`: `Raise` (default)
-raises `DuplicateKeyError`; `KeepFirst` keeps the first value and `KeepLast`
-the last; either way the first-seen key is kept.
+Arrays, dicts, and records with a `var` field cross the [FFI](ffi.md) as live
+views; other values cross as independent values. Use `copy`, `shallow-copy`,
+or `as json` for a boundary snapshot.
 
-A record or enum-member record may mark an individual field with `var`.
-That field is a mutable reference slot: `receiver.field := value` updates the
-shared record in place, so every alias observes the new field value. Unmarked
-fields and every exception field cannot be reassigned. `with`
-([Expressions](expressions.md)) always builds a new shallow record or
-exception value rather than mutating its target.
-
-See [Bindings and Scope](bindings-and-scope.md) for `:=` rules, and [Foreign
-Function Interface](ffi.md) for boundary behavior. Arrays, dictionaries, and
-records with a `var` field cross the FFI as live views; records without one,
-exceptions, and other immutable values cross as independent values. Use `copy`
-or `shallow-copy` before the call, or an explicit `as json` cast, when a
-boundary snapshot is needed. (`as json` builds an independent container
-snapshot — see [Casts and convertibility](#casts-and-convertibility) below —
-and `with` ([Expressions](expressions.md)) builds a shallow copy of a record.
-See [Copying values](#copying-values) below for `copy`/`shallow-copy`.)
-
-#### Builtin-type methods
+### Builtin-type methods
 
 `array[T]`, `dict[K, V]`, `text`, `json`, `int`, `decimal`, and `bool` can
-have methods declared by any module. `std/prelude` re-exports the standard
-library receiver scopes, making their exported methods visible by default;
-`hiding` can remove an individual method route. With `--no-stdlib`, import a
-route to the declaration. Free functions remain subject to normal import
-visibility. See [Functions](functions.md#methods) for method declarations,
-bound values, and calls.
+have methods declared by any module ([Methods](functions.md#methods)); the
+prelude makes the standard library's visible ([Prelude](modules.md#prelude)).
 
-#### Cycles
+### Cycles
 
-Because an array or dict is a mutable reference value, an indexed assignment
-can make one hold a reference back to a container that (transitively)
-contains it — a genuine reference cycle:
+Because arrays, dicts, and `var` record fields are mutable references, a value
+can come to contain itself — a genuine reference cycle:
 
 ```agl
 record Node
   children: array[Node]
 
 program def main() -> unit =
-  var xs: array[Node] = [Node(children = [])]
+  let xs: array[Node] = [Node(children = [])]
   let n = Node(children = xs)
   xs[0] := n
 ```
 
-A `var` field can also close a cycle directly, without a container:
+A `var` field can close a cycle directly:
 
 ```agl
 enum Link
@@ -279,134 +186,74 @@ enum Link
   | Cell(var next: Link)
 ```
 
-The `End` member makes this recursive declaration inhabited. A `Cell` may
-first point at `End` and later receive itself with `cell.next := cell`. Cycles
-can also pass through arrays, dictionaries, records, enums, or exceptions.
+`End` makes this recursive declaration inhabited; a `Cell` may first point at
+`End` and later receive itself with `cell.next := cell`.
 
-Rendering (`print`, `render`, string interpolation, REPL echo), `as text`,
-and `as json` walk a value and raise the catchable `CyclicValueError`
+Rendering (`print`, `render`, interpolation, REPL echo), `as text`, and
+`as json` raise the catchable `CyclicValueError`
 ([Exceptions](exceptions.md#cyclicvalueerror)) if the walk re-enters a value
-already on its own path. An `extern def` call can pass a cyclic array,
-dictionary, or mutable record as a live view; rendering that view in its
-companion raises `CyclicValueError`. `as?` never raises: it yields `None`
-when the corresponding conversion fails, so `as? text` and `as? json` on a
-cyclic value evaluate to `None` instead. `copy` is the exception: it is the
-one deep, structure-rebuilding walk that traverses a cyclic value to completion
-instead of raising — see [Copying values](#copying-values) below. A **shared**
-(diamond) structure — the same value reachable twice from different paths, but
-never from itself — is not a cycle and renders normally.
-
-Equality (`==`) is different: it never raises. Comparing two values assumes a
-pair already being compared is equal, so `==` on a cyclic value terminates and
-answers the same structural relation co-inductively — the comparison never
-needs a base case for the parts of the structure it has already matched up.
-
-Trace logging is a narrower exception still: a traced cyclic value is
-recorded as a placeholder marker rather than raising — see
-[Tracing](host-environment.md#tracing).
+already on its own path; so does rendering a cyclic live view in an extern
+companion. `as?` yields `None` instead. A **shared** (diamond) structure — the
+same value reachable twice, but never from itself — is not a cycle. Three
+operations traverse cycles without raising: `copy` (see [Copying
+values](#copying-values)), `==`, which treats a pair already being compared as
+equal and so terminates co-inductively, and trace logging, which records a
+placeholder ([Tracing](host-environment.md#tracing)).
 
 ### Copying values
 
-Because binding is by reference, a program that wants an independent value
-must ask for one explicitly. The standard library declares both host functions
-with this signature, and the prelude exports them:
-
-<!-- agl-check: fragment -->
-```agl
-builtin def copy[T](value: T) -> T
-builtin def shallow-copy[T](value: T) -> T
-```
-
-Both are generic and identity-typed — `T -> T` — so they compose with any
-value and never change its type. An explicit type argument
-(`copy::[decimal](5)`) is accepted and behaves like passing that value to any
-other declaration expecting the explicit type: the argument must be
-assignable to it. Both are first-class generic function values when an expected
-`T -> T` type or explicit type argument fixes `T`:
+Because binding is by reference, an independent value must be requested
+explicitly with the prelude functions `copy` and `shallow-copy`. Both are
+generic and identity-typed (`T -> T`), accept an explicit type argument
+(`copy::[decimal](5)`), and are first-class values once an expected type or
+type argument fixes `T`:
 
 ```agl
 program def main() -> unit =
   let clone: array[int] -> array[int] = copy
   let clone-level = shallow-copy::[array[int]]
-  ()
 ```
 
 `shallow-copy` rebuilds exactly **one** level: a new array, dict, record,
-enum, or exception holding the *same* element or field references as the
-original. Replacing the copy's own top-level contents — including assigning a
-`var` field — does not affect the original, but mutating a container reached
-*through* the copy — one level down or deeper — is observed through the
-original too, because that nested container is the same shared object. Every
-other value kind (`int`, `decimal`, `bool`, `text`, `json`, `unit`, a function
-value) is returned as-is:
-primitives are immutable, so there is nothing to detach. `shallow-copy`
-never recurses, so it can never loop and never raises, even on a cyclic
-value.
+enum, or exception holding the *same* element or field references. Replacing
+the copy's top-level contents — including a `var` field — does not affect the
+original, but a container reached through the copy is shared with the
+original. Every other value (`int`, `decimal`, `bool`, `text`, `json`, `unit`,
+a function) is returned as-is. `shallow-copy` never recurses and never raises.
 
 ```agl
 program def main() -> unit =
-  var inner = [1, 2]
-  var outer = [inner]
+  let inner = [1, 2]
+  let outer = [inner]
   let copied = shallow-copy(outer)
   copied[0][0] := 9
-  print(outer)
+  print(outer)   # [[9, 2]]
 ```
 
 `copy` is deep: every array, dict, record, enum, and exception reachable from
-the value is rebuilt with independently copied contents, all the way down.
-Function values reached along the way are returned as-is, exactly as for
-`shallow-copy`: a container reachable only through a function value's captured
-environment stays shared after the copy.
-A `json` leaf copies as an independent value. **Sharing is preserved**: if
-two fields or array slots pointed at the same array before the copy, they
-still point at the same (new) array after it — a diamond copies to a
-diamond, never to two independent arrays. `copy` is also the **one deep,
-structure-rebuilding walk in the language that traverses a cyclic value to
-completion**: it terminates and produces an isomorphic, independent cycle
-rather than the `CyclicValueError` ([Exceptions](exceptions.md#cyclicvalueerror))
-that every other container walk raises on one. The result is a genuinely
-separate structure — printing or otherwise walking the *copy* of a cyclic
-value still raises, exactly as it would for the original.
+the value is rebuilt, and a `json` leaf is copied. Function values are
+returned as-is, so a container reachable only through a closure stays shared.
+**Sharing is preserved**: two slots pointing at one array before the copy
+point at one new array after it. `copy` is the one deep walk that completes on
+a cyclic value: it produces an isomorphic, independent cycle (which still
+raises `CyclicValueError` when rendered).
 
 ```agl
 program def main() -> unit =
-  var shared = [1]
-  var pair = [shared, shared]
+  let shared = [1]
+  let pair = [shared, shared]
   let copied = copy(pair)
   copied[0][0] := 9
-  print(pair)
-  print(copied)
+  print(pair)     # [[1], [1]]
+  print(copied)   # [[9], [9]]
 ```
 
-### Parsing values
-
-`parse[T](value: text) -> T` and `try-parse[T](value: text) -> Result[T,
-ValueParseError]` accept exactly the targets `v as T` accepts (so, for
-instance, a function or `unit` target is a static error) and convert text the
-same way that cast would, but raise `ValueParseError` instead of `CastError`
-on failure ([Exceptions](exceptions.md#valueparseerror)). `try-parse` never
-raises: it returns `Result::Err` with the `ValueParseError` instead.
-
-A `T` requiring structure parses strict JSON (when it decodes into `T`) or
-[value-syntax](host-environment.md#value-syntax), the same as a cast to that
-`T` would. A `json` target also parses strict JSON or value syntax, as plain
-data only (see [Value syntax](host-environment.md#value-syntax)) — unlike
-`text as json`, which wraps the text as a JSON string instead of parsing it
-(see [`text as json` — embedding, not
-parsing](#text-as-json-embedding-not-parsing)). A `text` target returns the
-text unchanged.
-
-`T` comes from an explicit `::[T]` type argument or the contextual expected
-type; a call supplying neither is a static error. Unlike `copy`/
-`shallow-copy`, `parse` and `try-parse` are not identity-typed and cannot be
-used as first-class function values.
-
-### Function types: `A -> B` and `(A, B, …) -> C`
+### Function types
 
 A function value has a positional function type. The parameters appear as a
-type or a parenthesized comma-separated list of types; the arrow `->` separates
-the parameters from the result type. A single parameter may omit parentheses,
-and chained arrows associate to the right:
+type or a parenthesized comma-separated list of types; `->` separates them
+from the result type. A single parameter may omit parentheses, and chained
+arrows associate to the right:
 
 <!-- agl-check: fragment -->
 ```agl
@@ -417,336 +264,189 @@ let k: int -> text -> bool = chain   # int -> (text -> bool)
 ```
 
 Function type assignability is by **exact structural match** — same parameter
-count, same parameter types in order, same result type. No variance or
-subtyping applies.
+count, parameter types in order, and result type; no variance applies. Named
+and defaulted arguments belong to declared names (`def`s and built-ins), not to
+function value types.
 
-Named and defaulted arguments are a property of declared names (`def`s and
-built-ins), not of function value types. The value type is purely positional.
-
-Function values have **opaque rendering, no JSON encoding, and no equality**.
-A function value can be rendered, interpolated, or printed as an opaque handle
-such as `<function: int -> int>`, but cannot be stored in a `json` slot or
-compared with `==` or `!=`. These restrictions exist because function values
-are capability handles, not data.
-
-See [Functions](functions.md) for the declaration and call syntax.
+Function values are capability handles, not data: they render as an opaque
+handle such as `<function: int -> int>`, but have no JSON encoding and no
+equality. See [Functions](functions.md).
 
 ## Library types named by the language
 
-The types below are declared by the standard library and named by the
-language's own constructs — `exec`, `ask`, and sessions — so the reference
-describes them here. `std/prelude` re-exports their source modules, and every
-loaded entry and library module except `std/prelude` itself receives an
-automatic `import std/prelude::*`, unless `--no-stdlib` disables it or an
-explicit import whose expansion includes `std/prelude` supplies the prelude
-contribution instead.
+The standard library declares these types and the language's own constructs
+use them. The prelude ([Modules](modules.md#prelude)) makes them available
+without an import.
 
-The prelude also re-exports `std/option`, `std/optional`, `std/pair`, `std/either`, and
-`std/result`, which supply the generic optional `Option[T]`, host-default-aware
-`Optional[T]`, product
-`Pair[A, B]`, neutral sum `Either[A, B]`, and outcome `Result[T, E]`. Of those,
-`Option[T]` reaches the language surface: `null` is a value of type `json` only
-and ordinary AgL types are not nullable, so a value that may be absent has type
-`Option[T]`, and the `?` twins of raising operations throughout the standard
-library return one.
+### `Option` and `Optional`
 
-`Optional[T]` is the built-in three-way enum formed from `Option[T]`'s shared
-`Some(value)` and `None` members plus `Default`. It is intended for host parameters
-that distinguish an explicit value, explicit absence, and a request to use the host's default.
-Because `Optional` references `Option`'s members, a receiver typed `Option::Some[T]` or
-`Option::None` sees both enums' same-named methods, so `Some(1).map(f)` is ambiguous; give
-the receiver an `Option[T]` (or `Optional[T]`) type first, e.g. `let o: Option[int] = Some(1)`.
-See [Modules](modules.md#standard-library-modules) for the rest of the library.
+`Option[T]` is `Some(value)` or `None`. `as?` yields one, and a possibly absent
+value has this type, since ordinary types are not nullable. `Optional[T]` is
+`Option[T]`'s `Some` and `None` members plus `Default`, for host parameters
+that distinguish a value, explicit absence, and the host's default ([Program
+arguments](host-environment.md#program-arguments)). A receiver typed by the
+shared member (`Option::Some[T]`, `Option::None`) sees both enums' methods, so
+`Some(1).map(f)` is ambiguous between `Option::map` and `Optional::map`;
+annotate the value `Option[int]` first.
 
 ### `ExecResult`
 
-A structured record returned by `exec` when no target annotation is given
-(or when the annotation is explicitly `ExecResult`):
-
-```text
-stdout:    text
-exit-code: int
-stderr:    text
-timed-out: bool
-```
-
-Field access works normally: `res.stdout`, `res.exit-code`, etc.
+The record an unannotated `exec` returns, with the command's output, exit
+code, and timeout status ([Shell execution](shell-execution.md)).
 
 ### `Agent`
 
-`Agent` is a built-in enum describing an agent backend. Its members are the
-record types `AgentCommand(command)`, `AgentClaude(model = "", thinking = "")`,
-`AgentCodex(model = "", thinking = "")`, and
-`AgentPi(provider = "", model = "", thinking = "")`, so `AgentClaude()` and
-`AgentClaude(thinking = "high")` are valid; an empty field selects no provider,
-model, or effort unless the host configures a default
-([`agm exec`](../../commands/agl.md#agent-defaults)).
-Like every enum, `Agent` values have equality, rendering, and JSON casts; a
-member record exposes its own fields and, through the member/enum method rule
-([Methods](functions.md#methods)), `Agent`'s own methods. Its standard-library
-`ask` and `ask-request` builtin methods reach a member the same way, so
-`agent.ask(...)` and `agent.ask-request(...)` select that agent for the
-operation. Projecting either member produces a function value that captures
-that agent; see [Agent calls](agent-calls.md) for dispatch behavior.
+A builtin enum of agent backends whose members are records: `AgentPi` (the
+default), `AgentClaude`, `AgentCodex`, and `AgentCommand`. Its `ask` and
+`ask-request` methods select the receiver agent ([Agent
+calls](agent-calls.md)).
+
+### `AgentRequest`
+
+The first-attempt request `ask-request` builds without dispatching: the agent,
+the prompt, the output contract the call selects, the attempt number and
+previous error, metadata, and the sandbox
+([`ask-request`](agent-calls.md#ask-request-the-request-builder)).
+
+### `Session`
+
+An opaque, host-created handle for a continuing agent conversation
+([Sessions](agent-calls.md#sessions)). Source cannot invoke its constructor,
+and a `Session`, or any value whose type contains one, has no equality and no
+`json` conversion.
 
 ### `Sandbox`
 
-`Sandbox` is a built-in record naming a sandboxed run's resource limits:
-
-```text
-record Sandbox
-  memory:   Optional[text] = Default
-  swap:     Optional[text] = Default
-  settings: Option[path]   = None
-  patch:    bool           = true
-```
-
-Every field defaults, so the bare `Sandbox`, the empty call `Sandbox()`, and a
-partial call such as `Sandbox(memory = Some("8G"))` are all valid
-constructions (see [Fieldless and all-defaulted constructor
+`Sandbox` is a builtin record naming a sandboxed run's resource limits
+([Shell execution](shell-execution.md)). Every field has a default, so the
+bare `Sandbox`, `Sandbox()`, and a partial call such as
+`Sandbox(memory = Some("8G"))` are all valid constructions ([Fieldless and
+all-defaulted constructor
 references](expressions.md#fieldless-and-all-defaulted-constructor-references)).
 
 ### `AgentSandbox`
 
-`AgentSandbox` is a built-in enum selecting a sandboxing mode: `Disabled`,
+`AgentSandbox` is a builtin enum selecting a sandboxing mode: `Disabled`,
 `Native`, or a referenced `Sandbox` record ([Enum types](#enum-types)). Because
 the third member references `Sandbox` rather than declaring its own record, a
-`Sandbox` value widens into an `AgentSandbox`-typed slot with no rewrapping,
-and `is`/`case` reach it under its own name (`Sandbox`, not
-`AgentSandbox::Sandbox`) — see [Enum member
-construction](expressions.md#enum-member-construction) and `is`/`is not`
-([Expressions](expressions.md)). See
-[Engine settings](host-environment.md#engine-settings) for
+`Sandbox` value widens into an `AgentSandbox` slot with no rewrapping, and
+`is`/`case` reach it under its own name (`Sandbox`, not
+`AgentSandbox::Sandbox`). See [Engine
+settings](host-environment.md#engine-settings) for
 `std/config::default-sandbox`.
-
-### `AgentRequest`
-
-`AgentRequest` is the first-attempt request that `ask-request` builds
-without dispatching an agent (see [Agent calls](agent-calls.md)):
-
-```text
-record AgentRequest
-  agent:               Agent
-  prompt:              text
-  target-type:         Option[text]
-  format-instructions: Option[text]
-  json-schema:         Option[json]
-  attempt:             int
-  previous-error:      Option[text]
-  metadata:            json
-  sandbox:             AgentSandbox
-```
-
-`target-type`, `format-instructions`, and `json-schema` record the output
-contract selected by the call's type argument and parse-shaping options; the
-latter two are `None` whenever the contract has nothing to state, as for a
-`text` output. `previous-error` is `None` because it constructs only the
-first-attempt request. `sandbox` is the call's `sandbox` argument, defaulting
-to `std/config::default-sandbox` exactly as it does for `ask`.
-
-### `SessionTransport`
-
-The transport enum has two members: `Cli` for command-line continuation and
-`Rpc` for a persistent RPC process. When transport selection is omitted,
-`AgentPi` defaults to `Rpc` and other agents default to `Cli`.
-
-### `Session`
-
-`Session` is an opaque, host-created handle for a continuing agent conversation:
-
-```text
-record Session
-  id:        text
-  agent:     Agent
-  transport: SessionTransport
-  sandbox:   AgentSandbox
-```
-
-Create one with `Session::open(agent, transport = None, name = "", sandbox =
-std/config::default-sandbox, env = std/env::environ)`, or obtain the lazy
-default conversation with `Session::default()`. Its methods are `ask`,
-`compact`, `reset`, `fork`, `stats`, `set-name`, and `close`; each can also be
-projected as a receiver-capturing function value. `Session::open`,
-`Session::default`, and qualified method names are function values as well.
-Backend support for optional lifecycle operations varies. See
-[Agent calls](agent-calls.md#sessions).
-
-`sandbox` and `env` fix the session's sandboxing mode and process environment
-for its whole lifetime, decided once when the session opens; `Session::ask`
-has neither argument, and a later write to `std/config::default-sandbox` or
-`std/env::setenv` never reaches an already-open session. `fork` carries the
-parent's `sandbox` and `env` to the child unchanged.
-
-Source cannot invoke the `Session` constructor. A `Session`, or a nominal or
-container value that transitively contains one, is opaque non-data: it cannot
-be compared for equality or converted to `json`.
-
-### `SessionStats`
-
-`Session::stats()` returns host-reported usage:
-
-```text
-record SessionStats
-  input-tokens:    int
-  output-tokens:   int
-  cost:            decimal
-  context-percent: decimal
-```
-
-Unlike `Session`, this record is ordinary comparable and JSON-convertible data.
-Session lifecycle failures raise `SessionError`; see
-[Exceptions](exceptions.md).
-
-## Members of nominal types
-
-A method is a member of a record, enum, or exception's nominal type. It is
-selectable where the source module declares it or reaches its declaration by a
-qualified import route; `hiding` can remove that route. See
-[Methods](functions.md#methods) for declaration and call syntax.
-
-In the REPL, redeclaring a record, enum, or exception starts a new
-declaration rather than changing the existing one: a name always resolves to
-its most recently declared owner, but a value built before the redeclaration
-keeps working against the declaration it was built from — its fields or enum members, its methods, and equality with other values of that same
-declaration are all unaffected. The new declaration starts with no methods of
-its own; declare them again to use them on values of the new declaration.
-
-The two declarations are unrelated types that happen to share a name, and
-they are written and displayed identically: neither is usable where the other
-is expected, and comparing values across them is a type error. Every spelling
-that names the type or one of its constructors — a constructor call, a type
-annotation, a `catch` clause, a constructor pattern or `is` test, bare or
-qualified — means the declaration in effect where it is written, so one
-written after the redeclaration does not apply to an earlier value. A pattern
-or `is` test spells a superseded member only through an alias declared before
-the redeclaration: after `type OldTint = A::Tint` and `type OldA = A`,
-`OldTint(level)` and `tinted is OldA::Tint` still match. An earlier value also
-matches `_`, renders, and casts to such an alias. An alias keeps the
-type it named, permanently: a later redeclaration or import that would
-otherwise select something else there never retargets it. A path beneath the
-alias is read as the same path beneath its target as written, in the current
-session: after `type OldB = Base` and a redeclaration of `Base`, `OldB` is
-still the earlier type, while `OldB::h` reads whatever `Base::h` currently is.
-
-A failed entry that would have redeclared the type changes nothing — the
-previous declaration, its methods, and every binding built from it remain in
-effect. Redeclaring a record referenced by an existing enum, or the enum
-declaring a referenced member, does not change that enum's member set, but the
-superseded member stops being injected as a bare name; redeclaring an enum
-creates new identities for its inline member records, and a named scope
-nested under a superseded member goes with it: its types cannot be spelled
-any more, though values already built from them are unaffected.
 
 ## Record types
 
-A `record` declares a nominal product type. The fields are written in an
-indented block, one per line. Prefix a field with `var` when it may be
-reassigned in place:
+A `record` declares a nominal product type, its fields in an indented block,
+one per line:
 
 ```agl
 record Issue
   title: text
   var severity: int
   description: text
+
+program def main() -> unit =
+  let positional = Issue("Missing tests", 3, "No failure-path tests exist.")
+  let named = Issue(
+    title = "Missing tests",
+    severity = 3,
+    description = "No failure-path tests exist."
+  )
+  named.severity := 1
+  print(positional == named)   # false
 ```
 
-A field without a `=` default is required. A field with `= <constant expr>`
-is optional: a call that omits it uses the default. `var` is valid on
-records and enum-member records, not exceptions. It affects assignment
-only, not construction or the field's type. A fieldless record omits the body
-(`record R1`) or uses an empty parenthesized field list (`record R1()`). Its constructor reference in
-value position constructs an `R1` value; a record whose every field has a
-default behaves the same way — its bare reference constructs it with every
-default, exactly like `R1()` or `R1`; see
-[Expressions](expressions.md#fieldless-and-all-defaulted-constructor-references).
+- **Defaults.** A field without `= <constant expr>` is required; a field with
+  one is optional, and a construction that omits it uses the default.
+- **`var` fields.** A field marked `var` is a mutable reference slot:
+  `receiver.field := value` updates the shared record in place, so every alias
+  observes it. `var` is valid on records and enum-member records, not
+  exceptions, and affects assignment only. `with`
+  ([Record update](expressions.md#record-update)) always builds a new shallow
+  value instead.
+- **Fieldless records.** A fieldless record omits the body (`record Token`) or
+  writes `record Token()`. Its bare reference constructs a value, as does that
+  of a record whose every field has a default ([Fieldless and all-defaulted
+  constructor
+  references](expressions.md#fieldless-and-all-defaulted-constructor-references)).
+- **Inline form.** A parenthesized field list is equivalent to the block:
+  `record Point(x: int, y: int)`.
 
-By default, record fields are **standard**: they may be supplied positionally
-or as `field = value`:
+Two record types with identical fields are still distinct types, as are
+same-named records from different modules or scopes ([Module- and
+scope-qualified type identity](#module-and-scope-qualified-type-identity)). A
+record may be generic ([Generics](generics.md)). Records, enums, and exceptions
+may have [methods](functions.md#methods).
 
-<!-- agl-check: fragment -->
-```agl
-let positional = Issue("Missing tests", 3, "No failure-path tests exist.")
-let named = Issue(
-  title = "Missing tests",
-  severity = 3,
-  description = "No failure-path tests exist."
-)
-```
+### Field zones
 
-**Zone attributes** constrain fields to positional-only or named-only zones. An
-[attribute](attributes.md#zone-attributes) in front of a field zones that field; one in front
-of the declaration zones every field that does not carry its own:
+Record fields, inline enum-member fields, and an exception's own fields are
+**standard** by default, whatever their number: each may be supplied
+positionally or as `field = value`. An exception's inherited `message` field
+is named-only ([Exceptions](exceptions.md)). The `@arg-pos`, `@arg-std`, and
+`@arg-named` [zone attributes](attributes.md#zone-attributes) constrain
+fields: in front of a field (on its line or the line above) they zone that
+field; in front of the declaration, every field that carries none of its own.
 
 ```agl
 record Pair[T1, T2]      # both fields standard
   fst: T1
   snd: T2
 
-record R                 # x pos-only, y standard
-  @arg-pos x: int
-  y: int
+record Span              # first positional-only, last standard
+  @arg-pos first: int
+  last: int
 
 @arg-named
-record NamedPair         # both fields named-only
-  fst: int
-  snd: int
+record Labelled          # both fields named-only
+  id: int
+  label: text
 
-# The attribute may sit on its own line or in front of the field
 record Mixed
   id: int
   @arg-named
   value: int
   @arg-named label: text
+
+program def main() -> unit =
+  let p = Pair(1, snd = "b")     # first positional, second named
+  let s = Span(0, last = 4)      # Span(first = 0, last = 4) is an error
+  let l = Labelled(id = 1, label = "x")
+  let m = Mixed(7, value = 2, label = "y")
+  print(s.last - s.first + p.fst + l.id + m.value)
 ```
 
-A parenthesized or inline field list takes the same attributes in front of its
-fields: `record R(@arg-pos x: int, y: int)`.
-
-<!-- agl-check: fragment -->
-```agl
-let p = Pair(1, 2)             # positional (both fields are standard)
-let q = Pair(1, snd = 2)       # first positional, second named
-let r = R(0, y = 1)            # x positional-only, y named (standard)
-# R(x = 0, y = 1) is an error — x is positional-only
-```
-
-Fields are listed in zone order: positional-only, then standard, then named-only.
-A field that follows one from a later zone is a static error. Rendering
-follows the same zones — see
-[Uniform rendering rules](strings-and-interpolation.md#uniform-rendering-rules).
-
-Two record types with identical fields are still distinct types (nominal
-typing). Two record types from different modules are also distinct even if
-they have the same name and the same fields — see
-[Module- and scope-qualified type identity](#module-and-scope-qualified-type-identity).
-A record may be generic — `record Box[T]` then a field `value: T`
-(see [Generics](generics.md)).
-
-`builtin record` is the body-equivalent form for host-recognized nominal record
-types in the standard library. The name and full field shape must match a
-recognized built-in type exactly, and that complete scoped name may be declared
-only once across the whole program. A program loading the default standard
-library, as it does unless started with `--no-stdlib`, cannot redeclare a
-standard-library type at the same path (see [Built-in functions](functions.md#built-in-functions)).
+A parenthesized field list takes the same attributes:
+`record Span(@arg-pos first: int, last: int)`. Fields are listed in zone order —
+positional-only, then standard, then named-only; a field after one from a
+later zone is a static error. Rendering follows the same zones ([Uniform
+rendering rules](strings-and-interpolation.md#uniform-rendering-rules)).
 
 ## Enum types
 
 An `enum` declares a closed nominal union of record types. A value of an enum
 is one of its member-record values; constructing a member does not wrap or
 retag the record. A bare member name declares a new record in the enum's
-scope; it is either fieldless or carries named, typed fields:
+scope, fieldless or with fields:
 
 ```agl
-enum FixResult
-  | Complete(output: text)
-  | Changed(output: text)
-  | Blocked(reason: text, recoverable: bool)
+enum Outcome
+  | Ok(value: int)
+  | Err(reason: text, fatal: bool)
+
+let ok = Outcome::Ok(42)
+let ok2 = Outcome::Ok(value = 42)
+let err = Outcome::Err("bad", false)
+let named-err = Outcome::Err(reason = "bad", fatal = false)
 ```
 
-A member's fields may instead be written in an indented block under the
-member, one per line without parentheses or commas, exactly as in a `record`
-declaration. An attribute may then sit on the line above its field. Both
-forms are legal within one enum, which by convention uses one throughout:
+Member fields follow the record rules — standard by default, positionally or
+by name — and accept defaults, `var`, and zone attributes
+(`| @arg-named Values(var a: int, b: int)` makes every field named-only). They
+may also be written in an indented block under the member, one per line, with
+attributes on the line above a field. One enum may mix both forms, though by
+convention it uses one:
 
 ```agl
 enum VerifyResult
@@ -761,7 +461,7 @@ enum VerifyResult
       recoverable: bool = false
 ```
 
-A qualified member spelling instead references an existing record. The
+A qualified member spelling instead **references** an existing record. The
 reference may apply the enum's type parameters, and aliases are transparent:
 
 ```agl
@@ -774,113 +474,94 @@ record Box[T]
 enum Stored[T] = ::Saved | ::Box[T] | Fresh(value: T)
 ```
 
-A reference must name a record, including through a transparent type alias.
-An enum may not name the same member declaration twice, even with different
-type arguments, and its members must have distinct terminal names. The enum's
-scope contains only its inline declarations: `Stored::Fresh` is available,
-while `Stored::Saved` is not; `Saved` is reachable at its original
-declaration path. Referencing a record does not re-export it. Every member's
-terminal name is also an injected constructor and pattern candidate wherever
-the enum is reached: an enum declared at `S`, or reached there through an
-import, a `use`, or an alias, makes its members' names bare inside `scope S`
-([Names and visibility](scopes.md#names-and-visibility)).
+A reference must name a record, possibly through a type alias. An enum may not
+name one member declaration twice, even at different type arguments, and its
+members' terminal names must be distinct. The enum's scope contains only its
+inline members: `Stored::Fresh` exists, `Stored::Saved` does not, and
+referencing a record does not re-export it. Every member's terminal name is
+also injected as a bare constructor and pattern candidate wherever the enum is
+reached ([Injected enum members](scopes.md#injected-enum-members)).
 
-Each member is a record type. An inline member may appear in field, parameter,
-return, and generic-argument positions such as `array[Stored::Fresh]`; a
-referenced member retains its own record type and declaration path. Member
-records support record construction, field access, methods, `with`, casts, and
-standalone JSON decoding exactly like other records. A member's method level
-also includes the methods of every current enum that declares or references
-it, widening the receiver to that enum when such a method is selected (see
-[Methods](functions.md#methods)). `with` applies while a value has its
-member-record type, not after it has widened to the enum. A
-member value widens to an enum only in a known enum-typed slot, so its inferred
-type is the member record type. An inline member captures exactly the enum type parameters
-used by its fields, in enum declaration order. Thus `Tree[T]::Leaf` is
-fieldless and non-generic, while `Tree[T]::Node(value: T)` captures `T`.
+Each member is a record type usable in any type position, such as
+`array[Stored::Fresh]`; a referenced member keeps its own type and path.
+Member records support construction, field access, methods, `with`, casts,
+and standalone JSON decoding like other records. A member's methods include
+those of every enum that declares or references it, widening the receiver to
+that enum when one is selected ([Methods](functions.md#methods)). A member
+value widens to an enum only in a known enum-typed slot, so its inferred type
+is the member record type; `with` applies while it has that type.
 
-Enums are the intended model for agent outcomes. An enum establishes a
-same-named scope for its declared members, so `Review::Pass` is a qualified
-member access. The unqualified member spelling is available under the ordinary
-constructor rules.
+An inline member captures exactly the enum type parameters its fields use, in
+enum declaration order: `Tree[T]::Leaf` is fieldless and non-generic, while
+`Tree[T]::Node(value: T)` captures `T`. A member type may be selected from an
+applied owner, `Reply[text]::Answer`, which is already concrete and takes no
+further type arguments; `Reply::Answer[text]` applies the member directly.
 
-```agl
-enum Review
-  | Pass
-  | Fail(issues: array[text])
-```
+Enums are the intended model for agent outcomes. Their JSON wire shape (a
+member tag string, or a `"$case"`-tagged object) is described under [Nominal
+types `as json`](#nominal-types-as-json-structural-encoding); construction in
+[Expressions](expressions.md#enum-member-construction), and destructuring in
+[Pattern matching](pattern-matching.md).
 
-**Member field zones.** Member-record fields are standard by default,
-regardless of arity. Single-value and multi-field members may both be
-constructed positionally or by name:
+## Builtin type declarations
 
-```agl
-enum Outcome
-  | Ok(value: int)
-  | Err(reason: text, fatal: bool)
+`builtin record`, `builtin enum`, `builtin exception`, and `builtin type`
+declare host-recognized types; they are a standard-library authoring form.
+The `builtin` modifier may sit on the declaration keyword's line or the line
+above it. The declared name and complete shape — fields, or members and their
+fields — must match a recognized built-in exactly, and each complete scoped
+name may be declared only once across the program, so a program loading the
+default standard library cannot redeclare one at the same path ([Builtin
+declarations](scopes.md#builtin-declarations)).
 
-let ok = Outcome::Ok(42)
-let ok2 = Outcome::Ok(value = 42)
-let err = Outcome::Err("bad", false)
-let named-err = Outcome::Err(reason = "bad", fatal = false)
-```
+A builtin type declaration also names the type of the values the host
+produces under that name: an unannotated `exec` returns the program's
+`ExecResult`, `ask-request` builds its `AgentRequest`, and a built-in
+exception the host raises is its `builtin exception` of that name. Such a
+value carries that declaration's path, so it renders under it and a `catch`
+naming the declaration matches it. Consequently:
 
-Zone attributes and `var` are also available on inline member fields:
+- If a program declares its own `builtin` for a name, a `catch` naming the
+  standard declaration of that name is rejected.
+- The host fills nominal fields with standard values, so a field whose type is
+  nominal — `AgentRequest`'s `agent` and its `Option` fields, and the `agent`
+  field of `AgentCallError` and `AgentParseError` — must resolve to the
+  standard type. Redeclaring both such a field's type (a program's own
+  `builtin enum Agent`, or `Option` under `--no-stdlib`) and its containing
+  builtin, so that the field resolves to the redeclaration, is an error at the
+  `ask`/`ask-request` call or the `catch` clause that uses them.
+- The agent an `ask` or `ask-request` dispatches to, as argument or receiver,
+  must be the standard `Agent`.
 
-```agl
-enum Triple
-  | @arg-named Values(var a: int, b: int, c: int)   # all fields named-only
-```
+## REPL type redeclaration
 
-Construction, qualification, and ambiguity rules are covered in
-[Expressions](expressions.md); destructuring in
-[Pattern matching](pattern-matching.md); the JSON wire shape (a member tag
-string, or a `"$case"`-tagged object) in [Agent calls](agent-calls.md).
+In the REPL, redeclaring a record, enum, or exception creates a new type that
+shares the old one's name and display but is unrelated to it:
 
-`builtin enum` similarly declares a host-recognized nominal enum type. Its
-member names and fields must match the built-in shape exactly.
-
-The `builtin` modifier behaves like a decorator on a type declaration: it may
-sit on the same line as the `record`, `enum`, `exception`, or `type` keyword or on the
-line directly above it (the newline after the modifier is insignificant).
-
-A `builtin` type declaration also names the type the host produces values of
-under that name: an unannotated `exec` returns that program's
-`builtin record ExecResult`, `ask-request` builds its
-`builtin record AgentRequest`, and a built-in exception the host raises is its
-`builtin exception` of that name. Such a value carries that declaration's own
-path, so it renders under that path and a `catch` clause naming the declaration
-matches it. A name the program declares no `builtin` for keeps the standard-library
-type described in
-[Library types named by the language](#library-types-named-by-the-language). A `catch`
-clause naming the standard declaration of a name the program declares its own
-`builtin` for is rejected, wherever in the program it is written, because the
-host raises the program's own declaration under that name instead.
-
-The host fills the fields of such a value itself, always with standard
-values, so any field of one whose type is itself a nominal type must keep the
-standard identity for that name — including a nominal nested inside a type
-argument, such as the `Option` in `AgentRequest`'s `target-type:
-Option[text]`. The fields subject to this are `AgentRequest`'s `agent: Agent`
-and its `Option`-typed fields, and the `agent: Agent` field of the built-in
-exceptions `AgentCallError` and `AgentParseError`; `ExecResult` has no
-nominal field. So a program may declare its own `builtin enum Agent`, or —
-without the standard library — its own `Option`, and it may separately
-declare a `builtin record AgentRequest` or a `builtin exception
-AgentCallError`; but writing both so that the redeclaration is what the
-contract's own field resolves to makes the pair unusable together. That is
-reported where the contract is used: at an `ask`/`ask-request` call for
-`AgentRequest`, and at a `catch` clause naming the exception.
-
-The agent an `ask`/`ask-request` dispatches to must likewise be a standard
-`Agent`, whether it is supplied as the `agent` argument or as the receiver of
-`agent.ask(...)` / `agent.ask-request(...)`. A value of a program's own
-differently-scoped `Agent` is an ordinary type mismatch there.
+- Every later spelling of the name — constructor, annotation, `catch`,
+  pattern, `is`, bare or qualified — means the new declaration. The new
+  declaration starts with no methods.
+- A value built earlier keeps its declaration's fields, members, methods, and
+  equality; using it where the new type is expected, or comparing it with a
+  new value, is a type error. It still matches `_`, renders, and matches or
+  casts through an alias declared before the redeclaration: with
+  `type OldA = A` declared first, an earlier `A::Tint` value `v` still
+  satisfies `v is OldA::Tint`.
+- An alias names its type permanently; no redeclaration or import retargets
+  it. A path beneath an alias reads the current target path: after
+  `type OldB = Base` and a redeclaration of `Base`, `OldB::h` reads whatever
+  `Base::h` currently is.
+- A failed entry changes nothing. Redeclaring a record an existing enum
+  references, or the enum declaring a referenced member, keeps that enum's
+  member set but stops injecting the superseded member. Redeclaring an enum
+  creates new inline member types, and a scope nested under a superseded
+  member becomes unspellable.
 
 ## Recursive types
 
 A record, enum, or exception may reference its own type, directly or through
-another declaration, in its own fields or enum-member fields:
+other declarations, in its fields or enum-member fields — within one module or
+across any number of imported modules:
 
 ```agl
 enum Tree
@@ -895,27 +576,19 @@ exception Retryable extends Exception
   causes: array[Retryable]
 ```
 
-Mutual recursion — records, enums, and exceptions referencing each other in
-any combination — is allowed, and a recursive type may span any number of
-imported modules: a cycle through a cross-module reference is exactly as legal
-as one within a single module.
-
 ### Inhabitation
 
-Recursion is legal only when it is possible to build a finite value — the
-type must be **inhabited**. Recursion is well-founded when at least one of
-the following breaks the chain:
+Recursion is legal only when a finite value can be built — the type must be
+**inhabited**. The chain is broken by:
 
-- an enum member that does not need another value of the same (or a
-  mutually recursive) type — a **base case**, such as `Leaf` above;
-- an `array[T]`/`dict[K, V]` field whose element type is the recursive
-  type — the empty array or dict is always a value, regardless of `T`, as
-  with `Category.subcategories` above.
+- an enum member that needs no value of the same (or a mutually recursive)
+  type — a **base case**, such as `Leaf`;
+- an `array[T]`/`dict[K, V]` field, since the empty container is always a
+  value, as with `Category.subcategories`.
 
-A record or exception with a required field that needs another value of the
-same or a mutually recursive declaration with no such escape, or an enum each
-of whose members does, has no finite value and is rejected. One such field is
-enough:
+A record or exception with one required field that needs a value of the same
+or a mutually recursive declaration with no such escape, or an enum each of
+whose members does, has no finite value and is rejected at the declaration:
 
 <!-- agl-check: error -->
 ```agl
@@ -924,18 +597,12 @@ record Node
 # Rejected: every value of 'Node' would be infinite.
 ```
 
-The same rule rejects an enum whose only member carries itself, an exception
-whose required fields contain an unguarded cycle, and a mutually recursive
-pair with no base case or guard anywhere in the cycle (for example
-`record A { b: B }` / `record B { a: A }`, with no array/dict field and no enum
-alternative on either side). Abstract exception roots are inhabited only by
-constructible descendants, not by their own fields alone. The error is
-reported at the declaration and names its kind (`Record type`/`Enum type`/
-`Exception type`).
-
-An inline enum member is a record in its own right, so the rule applies to
-each member separately: a base-case sibling makes the enum inhabited, but not
-a member with a required field that needs another value of that member:
+This covers an enum whose only member carries itself and a mutually recursive
+pair with no base case or container field on either side. `Exception`, which
+is not constructible itself, is inhabited through its constructible
+descendants. An inline enum
+member is a record of its own, so the rule applies to each member: a
+base-case sibling does not rescue a member that requires itself:
 
 <!-- agl-check: error -->
 ```agl
@@ -946,27 +613,23 @@ enum Chain
 # itself has the base case 'End'.
 ```
 
-Generic recursive types — a declaration referencing itself at a different
-type argument, such as `Expr[T]` referencing `Expr[array[T]]` in its own body —
-are constructible under the same rule; see [Generics](generics.md) for the
-generics-specific recursion rules. A generic declaration applied to an
-instance of itself, such as `Box[Box[int]]`, is not recursion: a generic
-reference is inhabited according to which of its arguments are, here
-`Box[int]`.
+A generic declaration applied to an instance of itself, such as
+`Box[Box[int]]`, is not recursion: it is inhabited according to its arguments.
+For recursion at a different type argument, see [Recursive generic
+types](generics.md#recursive-generic-types).
 
 ### Recursive aliases are not allowed
 
-Unlike records, enums, and exceptions, a `type` alias may not be recursive,
-directly or through another alias — see [Type aliases](#type-aliases). An
-alias has no nominal identity of its own to anchor a cycle; recursion must
-always pass through a named `record`, `enum`, or `exception`.
+A `type` alias may not be recursive, directly or through another alias: an
+alias has no nominal identity to anchor a cycle, so recursion must pass
+through a `record`, `enum`, or `exception`.
 
 ## Module- and scope-qualified type identity
 
 Every `record`, `enum`, and `exception` declaration introduces its own type,
-named by its **defining module, scope path, and name**. Two types with the
-same name are distinct when they come from different modules or different
-named scopes, including a module root and a scope in that same module:
+identified by its **defining module, scope path, and name**. Two same-named
+types are distinct when they come from different modules or named scopes,
+including a module root and a scope in that module, whatever their structure:
 
 <!-- agl-check: fragment -->
 ```agl
@@ -985,31 +648,28 @@ import foo
 import bar
 
 let p: foo::Point = foo::Point(x = 0, y = 0)
-# The next line is a static error: bar::Point is not the same type as foo::Point
-# let q: bar::Point = p
+# let q: bar::Point = p   # static error: bar::Point is not foo::Point
 ```
 
-This is **deep nominal identity**: two `Point` types from different modules or
-scope paths are never interchangeable regardless of structural similarity.
-Because a type is its declaration rather than its name, declaring one name
-twice — which only the REPL allows — yields two distinct types sharing a
-module, scope path, and name; see [Members of nominal
-types](#members-of-nominal-types) for how that is resolved.
+Because a type is its declaration, not its name, the same path declared twice
+in one module — which only the REPL allows — yields two distinct types ([REPL
+type redeclaration](#repl-type-redeclaration)).
 
 ### Qualified type references
 
-A type from an imported module may be named explicitly using the module
-qualifier. A type in a named scope uses its complete scope path, such as
-`A::Token`, in annotations and constructor expressions:
+A type in another module or a named scope is spelled with its qualifier in
+annotations, cast targets, and constructor expressions. Type arguments follow
+the complete name, or a qualifier segment under the [segment type-argument
+rule](lexical-structure.md#qualifier-chains):
 
 <!-- agl-check: fragment -->
 ```agl
 import mylib
 import mylib as M
 
-# These are equivalent:
 let p1: mylib::Point = mylib::origin()
-let p2: M::Point     = M::origin()
+let p2: M::Point = M::origin()
+let b: mylib::Box[int] = mylib::Box(value = 2)
 
 scope A
   record Token
@@ -1018,100 +678,72 @@ end A
 let token: A::Token = A::Token()
 ```
 
-A plain import provides suffix routes; `as` provides its alias route. Qualified
-type references work in annotations, cast targets, and constructor expressions.
-An import tail or `use` declaration also brings the selected type name into bare
-scope, so `Point` resolves to `mylib::Point` when it has one bare contribution.
-
-A type name, bare or qualified, is looked up by its whole path at each
-[lookup step](scopes.md#names-and-visibility), and a type position takes only
-type declarations — records, enums, exceptions, aliases, and builtin types. A
-type the module declares at that path wins; otherwise the one imported or
-`use`-provided type is selected, and two distinct ones are ambiguous. A scope
-region is no type, so an own `scope Geo` never hides an imported
-`record Geo`. Another path beneath a type (`record Geo::Inner`) is an ordinary
-declaration found the same way.
-
-Generic imported types retain the same qualification rules. Apply type
-arguments after the complete qualified name, or to a qualifier segment under
-the [segment type-argument rule](lexical-structure.md#qualifier-chains):
-
-<!-- agl-check: fragment -->
-```agl
-import mylib::*
-
-let p1: Box[int] = Box(value = 1)
-let p2: mylib::Box[int] = mylib::Box(value = 2)
-```
+A type position takes only type declarations — records, enums, exceptions,
+aliases, and builtin types — looked up by whole path at each [lookup
+step](scopes.md#names-and-visibility). A scope region is no type, so an own
+`scope Geo` never hides an imported `record Geo`.
 
 ### Self-reference: `::TypeName`
 
-Inside a module, `::TypeName` refers to the **current module's own** type
-named `TypeName`. This reads only the module's own declarations from the
-root, bypassing every enclosing scope and every import and `use`:
+`::TypeName` names the **current module's own** type, read from the root,
+bypassing every enclosing scope, import, and `use`:
 
 ```agl
-# In mylib.agl
 record Node
   value: int
 
-def make() -> ::Node = Node(value = 0)   # refers to this module's own Node
+def make() -> ::Node = Node(value = 0)
 ```
 
 ## Type aliases
 
 `type` declares a transparent alias:
 
-<!-- agl-check: fragment -->
 ```agl
+enum Review
+  | Pass
+  | Fail(issues: array[text])
+
 type Status = Review
-type Issues = array[Issue]
+type Issues = array[text]
 type Metadata = dict[text, json]
 ```
 
-An alias is another name for the type its target denotes, never a new type:
-a value of type `Status` *is* a value of type `Review`. The target is
-resolved where the alias is declared — exactly as the same type in an
-annotation there, through that scope region's and module's imports and `use`
-declarations — and means that wherever the alias is used. An alias whose
-target names no type, or that is part of a cycle of aliases, is an error at
-its own declaration, whether or not anything uses it; a cycle is reported at
-its alias declared first. Alias chains resolve transitively.
+An alias is another name for the type its target denotes, never a new type. The
+target is resolved where the alias is declared, through that site's own
+declarations, imports, and `use` declarations, and means that wherever the
+alias is used. An alias whose target names no type, or that is part of an
+alias cycle, is an error at its declaration whether or not it is used (a cycle
+at the alias declared first). Alias chains resolve transitively.
 
-A spelling through an alias means exactly what the same spelling through its
-target, as written, means where the alias is declared, in every reading
-position — type, value, constructor, pattern, `is`, `use` target, import and
-export items, and `hiding`. With `type Geo = Base`:
+A spelling through an alias means what the same spelling through its target,
+as written, means at the alias's declaration — in every position: type, value,
+constructor, pattern, `is`, `use` target, import and export items, and
+`hiding`. With `type Geo = Base`:
 
-- A path beneath the alias is the same path beneath the target as written,
-  read at the alias's declaration: `Geo::Inner` means what `Base::Inner`
-  means there, through the declaring module's own declarations, imports,
-  `use` declarations, and `hiding` at that site, whether or not `Base` is
-  nameable where `Geo` is read. A reading module's own declarations beneath
-  `Base` are not reached through another module's `Geo`, and a target spelled
-  with a module route (`type Geo = base::Base`) reaches only what that module
-  exports.
-- An anchor narrows what the alias reaches: `::Geo::f` reads only the own
-  module's `Base::f`, and the route `al::Geo::f` only what module `al`
-  exports beneath `Base`.
-- An alias declares no scope, and a declaration is always at its written
-  path. Declaring beneath a name the module itself declares as an alias —
-  `def Geo::f()`, `let Geo::v = 1`, `record Geo::Part`, or a `scope Geo`
-  region — is an error, whichever comes first; in the REPL, the entry
-  completing the pair is rejected. Declare beneath the target instead.
-  Beneath the name of an imported alias, a module's own declaration stands at
-  its written path: `Geo::f` then reaches it as well as what the alias reaches
-  beneath its target, and the module's own declaration wins.
-- A method receiver names its type directly: `def Geo::m(self)` is an error
-  whether `Geo` is declared in the module or imported.
-- The alias and its target are one declaration: reaching it directly and
-  through an alias, or through aliases declared in different modules, is never
-  an ambiguity. Aliases of two distinct types still clash.
-- A path the module reaches through an alias it declares itself counts as
-  the module's own: with an own `type Color = lib2::Color` beside
+- **Paths beneath.** `Geo::Inner` means what `Base::Inner` means at the alias's
+  declaration, whether or not `Base` is nameable where `Geo` is read. A reading
+  module's own declarations beneath `Base` are not reached through another
+  module's `Geo`, and a target spelled with a module route
+  (`type Geo = base::Base`) reaches only what that module exports.
+- **Anchors.** `::Geo::f` reads only the own module's `Base::f`; the route
+  `al::Geo::f` only what module `al` exports beneath `Base`.
+- **No declarations beneath.** An alias declares no scope. Declaring beneath a
+  name the module declares as an alias — `def Geo::f()`, `let Geo::v = 1`,
+  `record Geo::Part`, or `scope Geo` — is an error, whichever comes first;
+  declare beneath the target. Beneath an *imported* alias's name, a module's
+  own declaration stands at its written path and wins over what the alias
+  reaches.
+- **Receivers.** `def Geo::m(self)` is an error: a method receiver names its
+  type directly ([Methods](functions.md#methods)).
+- **One declaration.** Reaching a type directly and through aliases, even
+  aliases from different modules, is never an ambiguity; aliases of two
+  distinct types still clash.
+- **Own aliases are own paths.** A path reached through an alias the module
+  declares counts as the module's own: with `type Color = lib2::Color` beside
   `import lib::*` whose `Color` also declares `Red`, `Color::Red` is
-  `lib2::Color::Red`. Where only the imported type declares a member,
-  `Color::Green` still reaches that one.
+  `lib2::Color::Red`; where only the imported type declares `Green`,
+  `Color::Green` reaches that one.
 
 ```agl
 record Base
@@ -1136,115 +768,67 @@ program def main() -> unit =
   print(b.twice() + i.y + Geo::twice(b))
 ```
 
-An alias of a record or exception is also that type's constructor, and the
-owner-qualified form `Point::Point(…)` accepts, in either position, the
-type's own name or the name of any alias on the chain leading to it. With
-`record Point`, `type P = Point`, and `type Q = P`, each of `Q::Q(…)`,
-`Q::P(…)`, `Q::Point(…)`, `P::P(…)`, and `P(…)` constructs a `Point`, in
-expressions and patterns alike, whether `Point` is declared locally or
-imported; `P::Other(…)` is a static error. A `use` rename names the type as
-well: after `use lib::{Point as R}`, `R::R(…)` is `lib::Point::Point(…)`.
+**Constructors.** An alias of a record or exception is also its constructor.
+The owner-qualified form `Point::Point(…)` accepts, in either position, the
+type's name or any alias on the chain to it: with `type P = Point` and
+`type Q = P`, each of `Q::Q(…)`, `Q::P(…)`, `Q::Point(…)`, `P::P(…)`, and
+`P(…)` constructs a `Point`, in expressions and patterns, while `P::Other(…)`
+is an error. A `use` rename names the type too: after
+`use lib::{Point as R}`, `R::R(…)` is `lib::Point::Point(…)`.
 
-An alias of an applied generic names that applied type, not the generic type,
-and fixes its type arguments: with `type B = Box[int]`, both `B(value = "s")`
-and a `B::B(…)` pattern on a `Box[text]` value are static errors.
-`B::B(value = 1)` is `Box[int]::Box(value = 1)`. A bare alias segment carries
-no type arguments of its own, so any other path beneath it reads beneath the
-target's head: `B::helper()` for a static `def Box::helper()` is
+**Applied aliases.** An alias of an applied generic names that applied type
+and fixes its type arguments: with `type B = Box[int]`, `B::B(value = 1)` is
+`Box[int]::Box(value = 1)`, and `B(value = "s")` or a `B::B(…)` pattern on a
+`Box[text]` is an error. Any other path beneath a bare alias segment reads
+beneath the target's head: `B::helper()` for a static `def Box::helper()` is
 `Box::helper()`, while a written application used as a segment
 (`Box[int]::helper()`) stays under the [segment type-argument
-rule](lexical-structure.md#qualifier-chains). Aliases denoting the same
-applied type are one declaration; `B` and the generic `Box` are distinct, so
-`hiding Box` leaves `B`. Whether an alias renames a type or applies one is
-decided by what it denotes once every alias in it is expanded: with
-`type Id[T] = T`, `type IB = Id[Base]` is another name for `Base`, while
-`Id[Base]::m()` stays under the segment rule, and an alias passing a
-parameter through (`Id`) reaches nothing beneath its bare name. A
+rule](lexical-structure.md#qualifier-chains). Aliases of the same applied type
+are one declaration; `B` and the generic `Box` are distinct, so `hiding Box`
+leaves `B`. Whether an
+alias renames or applies is decided after expanding every alias in it: with
+`type Id[T] = T`, `type IB = Id[Base]` renames `Base`, and an alias that
+passes a parameter through (`Id`) reaches nothing beneath its bare name. A
 parameterized alias constructor infers only the parameters its target
-mentions; an explicit type application still supplies every declared
-parameter, so with `type Tagged[X] = Point`, `Tagged(x = 1)` and
-`Tagged::[int](x = 1)` both construct a `Point`.
+mentions; an explicit application still supplies every declared one: with
+`type Tagged[X] = Point`, `Tagged(x = 1)` and `Tagged::[int](x = 1)` both
+construct a `Point`.
 
-An alias of an enum, renaming or applied, injects the enum's members as the
-generic member declarations. Where `a` declares
-`enum Opt[T] = Nothing | Som(value: T)`, `type IntOpt = Opt[int]`, and
-`type DecOpt = Opt[decimal]`, an import item naming `IntOpt`, or a module's
-own `type O = a::Opt[int]` after `import a`, makes bare `Som` mean
-`Opt::Som`, whose type arguments inference fixes as for any generic
-constructor: after `import a::{DecOpt}` alone, `Som(value = 1)` constructs an
-`Opt[int]` member, and after `import a::{IntOpt}` alone, `Som(value = "x")`
-an `Opt[text]` one. A bare spelling a `use` of the alias's members brings is
-the generic member too: after `import a::{IntOpt}` and `use IntOpt::*`,
-`Som(value = "x")` is accepted. Every route to one member is one candidate,
-so after `import a::{Opt, IntOpt}` bare `Nothing` is not ambiguous. Only a spelling
-beneath the alias carries its type arguments: `IntOpt::Som(value = 1)` is an
-`Opt[int]` member, and `IntOpt::Som(value = "x")` is a static error.
+**Enum aliases.** An alias of an enum is a transparent owner of its members.
+With `enum Reply[T] = Silent | Answer(value: T)`, `type Texts = Reply[text]`,
+and `type Rows[A] = Reply[array[A]]`:
 
-An alias of a structural type (`type F = int -> bool`) reaches no paths. Two
-aliases denoting the same structural type are one declaration.
+- `Texts::Answer` is `Reply[text]::Answer` in types, constructors, patterns,
+  and `is` tests, and carries the alias's type arguments:
+  `Texts::Answer(value = 1)` is an error.
+- A parameterized alias names a member type only once applied
+  (`Rows[int]::Answer`). An unapplied `Rows::Answer` in a constructor,
+  pattern, or `is` test infers `A`: `Rows::Answer(value = ["a"])` constructs a
+  `Reply[array[text]]::Answer`, while `Rows::Answer(value = 1)` and a
+  `Rows::Answer` test on a `Reply[int]` are errors.
+- A bare member name the alias injects — through an import item naming the
+  alias, the module's own alias, or `use Texts::*` — is the *generic* member,
+  whose type arguments inference fixes as for any constructor: with only
+  `Texts` imported, bare `Answer(value = 1)` constructs a `Reply[int]` member.
+  Every route to one member is one candidate, so importing both `Reply` and
+  `Texts` leaves bare `Silent` unambiguous.
 
-An alias of a builtin type reads as that builtin: with `type T2 = text`,
-`T2::size` is `text::size`, and with `type Arr[E] = array[E]`, `Arr::map` is
-`array::map`. Declaring through it follows the rules above: a method is
-declared on the builtin directly (`def text::shout(self)`), never through the
-alias. The builtin alias `path` is `text`, so `Box[path]` and `Box[text]` are
-one type.
+**Other aliases.** An alias of a structural type (`type F = int -> bool`)
+reaches no paths; two aliases of the same structural type are one declaration.
+An alias of a builtin type reads as that builtin (`type T2 = text` makes
+`T2::size` mean `text::size`), but methods are declared on the builtin
+directly (`def text::shout(self)`). An `is` test through an alias tests the
+declaration it denotes; for an exception alias, that includes descendants.
 
-An `is` test through an alias tests the declaration the alias denotes: with
-`type W = Plain::Wait`, `value is W` is `value is Plain::Wait`, and with
-`type F = Oops` for an exception `Oops`, `error is F` holds for an `Oops` or
-any of its descendants.
-
-`builtin type` declares a host-recognized alias. The one such alias is `path`,
-the `text` alias naming a filesystem location; its declaration must read
-exactly `builtin type path = text`, and like every `builtin` declaration its
-scoped name is declared at most once across the whole program. The standard
-library declares it in `std/path`, and the prelude forwards it
-([Modules](modules.md)). Where no declaration of `path` is visible — as in a
-program started with `--no-stdlib` — the name `path` still denotes `text`; a
-visible declaration of that name, builtin or not, takes precedence as usual.
-A host presents a program parameter annotated `path`, `Option[path]`, `Optional[path]`, or an
-alias of one as a filesystem location
-([Host environment](host-environment.md#program-arguments)); any other
-annotation, including a non-builtin alias named `path`, is ordinary `text`.
-
-## Type parameters and applied types
-
-`record`, `enum`, `type`, and `def` declarations may take **type parameters**
-in a bracketed list immediately after the declared name:
-
-```agl
-record Box[T]
-  value: T
-
-enum Option[T]
-  | None
-  | Some(value: T)
-
-type Transform[A, B] = A -> B
-```
-
-Each type parameter is an ordinary `name` in scope as a type throughout the
-declaration's body. A generic type is **used** by applying it to type
-arguments — `Box[int]`, `Option[text]`, `Outcome[int, text]` — producing a
-distinct concrete type for each instantiation.
-
-### Invariance
-
-Type arguments are **invariant**: an applied type matches another only when
-their type arguments match exactly, with no variance or subtyping. The
-`int → decimal` widening (below) does **not** propagate through type
-arguments.
-
-```agl
-let xs: array[int] = [1, 2]
-# let ys: array[decimal] = xs   # static error: array[int] ≠ array[decimal]
-```
-
-`Box[int]` and `Box[text]` are unrelated types, and `array[int]` is not
-assignable to `array[json]`. The full generics model — declaration syntax,
-inference, the `::[…]` override, and what may be done with a value of a type
-parameter — is covered in [Generics](generics.md).
+`builtin type path = text` is the one builtin alias: `path` is `text`, naming a
+filesystem location, so `Box[path]` and `Box[text]` are one type. The
+standard library declares it and the prelude forwards it; where no declaration
+of `path` is visible, as under `--no-stdlib`, `path` still denotes `text`,
+while a visible declaration of that name takes precedence. A host presents a
+program parameter annotated `path`, `Option[path]`, `Optional[path]`, or an
+alias of one as a filesystem location ([Host
+environment](host-environment.md#program-arguments)); any other annotation,
+including a non-builtin alias named `path`, is ordinary `text`.
 
 ## Declaration validity
 
@@ -1258,104 +842,68 @@ The following are static errors:
    parameter declarations.
 4. Cyclic aliases, and declarations beneath a name the same module declares
    as an alias ([Type aliases](#type-aliases)).
-5. An **uninhabitable** record, enum, or exception — see
-   [Recursive types](#recursive-types).
+5. An **uninhabitable** record, enum, or exception ([Inhabitation](#inhabitation)).
 
 Type declarations are valid at the module root and in [named scope
-regions](scopes.md), but not in ordinary expression blocks.
+regions](scopes.md), not in expression blocks.
 
 ## Assignability and coercion
 
 Typing is exact nominal matching with these implicit coercions:
 
-1. **`int` widens to `decimal`.** An `int` value is accepted wherever a
-   `decimal` is expected. Mixed arithmetic yields `decimal`. Comparisons
-   accept mixed operands without widening, so `1 == 1.0` is true.
+1. **`int` widens to `decimal`.** An `int` is accepted wherever a `decimal` is
+   expected, and mixed arithmetic yields `decimal`.
 2. **A `json` target accepts any *scalar* JSON-shaped value** — `null`,
-   `bool`, `int`, `decimal`, or `text` — storing it in canonical `json`
-   representation.
-3. **An enum member record widens to an enum that declares it.** This applies only
-   when checking against a known enum slot; it never finds a common enum while
-   inferring a mixed expression.
-4. **An enum widens to another enum that contains all of its constructors.**
-   Generic constructor instantiations must match; the value stays the same
-   constructor record and no runtime check is needed. Like member widening,
-   this applies against a known target slot and does not propagate through
-   containers.
-5. **A derived exception widens to any ancestor in its `extends` chain.** This
-   applies only against a known base-exception slot and preserves the value's
-   concrete identity; the same widening is available explicitly as `as` to a
-   named ancestor type. It does not propagate through containers. See
-   [`try`/`catch`](exceptions.md#try-catch) for how a `catch` clause matches
-   this hierarchy.
-6. There are no other implicit conversions. In particular, an `array` or
-   `dict` value — even one that is JSON-shaped — is never implicitly absorbed
-   into `json`: an implicit conversion never copies a data structure, and
-   converting a container to `json` builds one. Use an explicit `as json`
-   cast (see [Casts and convertibility](#casts-and-convertibility) below).
-7. Equality (`==`, `!=`) and ordering comparisons require both operands to
-   have the *same* type after rule 1. Equality also accepts operands where
-   either one's type widens to the other's by rules 3–5, so
-   `opt == None`, `Some(1) == opt`, and a derived exception against an
-   ancestor-typed value all check; two distinct members (`Some(1) == None`)
-   do not. Operands whose type is, or transitively
-   contains, a function, `unit`, or opaque `Session` value are a static error — see
-   [Values and equality](#values-and-equality) below.
-8. All branches of a `case` expression must have the same type after rule 1.
+   `bool`, `int`, `decimal`, or `text`.
+3. **An enum member record widens to an enum that declares or references it.**
+4. **An enum widens to another enum that contains all of its constructors**,
+   at matching type arguments; the value stays the same record.
+5. **A derived exception widens to any ancestor in its `extends` chain**,
+   keeping its concrete identity; `as` to a named ancestor does the same
+   explicitly ([`try`/`catch`](exceptions.md#try-catch)).
 
-For explicit, user-requested conversions between types, see
-[Casts and convertibility](#casts-and-convertibility) below.
+Rules 3–5 apply only against a known target slot — they never find a common
+type while inferring a mixed expression (`[Pass, Fail(issues = [])]` needs an
+annotation) — and never propagate through containers or type arguments. There
+are no other implicit conversions: in particular an `array` or `dict`, even a
+JSON-shaped one, is never implicitly absorbed into `json`, because an
+implicit conversion never builds a data structure; write `as json`. Without a
+known target slot, all branches of a `case` or `if` must have the same type
+after rule 1; against a slot, each branch is checked against it. Equality
+operands follow [Values and equality](#values-and-equality).
 
 ## Casts and convertibility
 
-AgL provides two cast operators:
+AgL provides two cast operators ([Expressions](expressions.md#casts-as-and-as)
+for syntax and precedence):
 
-- **`EXPR as T`** — converts the value of `EXPR` to type `T`. If the
-  conversion cannot succeed at runtime it raises `CastError`
-  ([Exceptions](exceptions.md)).
-- **`EXPR as? T`** — performs the same conversion without raising. It yields
-  `Option[T]`: `Some(value)` carrying the converted value on success, `None`
-  on failure.
+- **`EXPR as T`** — converts the value to type `T`, raising `CastError`
+  ([Exceptions](exceptions.md)) when a fallible conversion fails.
+- **`EXPR as? T`** — the same conversion without raising: `Some(value)` on
+  success, `None` on failure, including where `as` would raise
+  `CyclicValueError` or `ArithmeticError`.
 
-For an enum member record, these operators are identity casts rather than
-parsing conversions. A member value may be cast up to an enum that declares
-it only when that enum declares the member record; this upcast is a
-compile-time-checked no-op. An enum value may be cast down only to one of that
-enum's declared member records; this downcast checks the runtime nominal
-identity and returns the same record value on success. Two enums may be cast
-when their instantiated constructor sets overlap. The cast checks whether the
-runtime constructor belongs to that overlap; a subset-to-superset cast is
-total and needs no runtime check.
-
-An exception value follows the same identity-cast shape over its `extends`
-chain. Casting to itself or any ancestor, including the root `Exception`, is
-a compile-time-checked no-op. Casting to a descendant is a fallible identity
-downcast: it succeeds when the value's runtime type is the target or one of
-the target's own descendants, and raises `CastError` otherwise. Casting
-between unrelated exception types, including siblings, is a static error, as
-is casting `text` or `json` to an exception type. See
-[Exceptions](exceptions.md#casts-and-is) for `is`/`is not` and examples.
-
-The target type `T` is a type expression written the same way as any other
-type annotation (`int`, `array[text]`, `MyRecord`, etc.).
-
-Both operators are left-associative and sit at a precedence level between
-unary `-` and `* /`. See [Lexical structure](lexical-structure.md) and
-[Expressions](expressions.md) for the full precedence table and examples.
+Among enum members, enums, and exceptions, casts are **identity casts**,
+never parsing conversions: the result is the same value, and a fallible one
+checks the runtime nominal identity ([Conversion matrix](#conversion-matrix)).
+A cast between unrelated exception types, siblings included, is a static
+error. See
+[Exceptions](exceptions.md#casts-and-is) for exception `is` tests.
 
 ### Conversion matrix
 
-The table below defines every permitted and rejected source–target pair.
-**Static cast error** means the combination is rejected before the program
-runs. A **total** conversion has no conformance failure and therefore does not
-raise `CastError`; rendering or JSON conversion can still raise
-`CyclicValueError` when it walks a reference cycle. A **fallible** conversion
-may raise `CastError`.
+A **total** conversion has no conformance failure, so it never raises
+`CastError` — though rendering or JSON conversion still raises
+`CyclicValueError` on a reference cycle. A **fallible** conversion may raise
+`CastError`. A **static cast error** rejects the combination before the
+program runs. A cast to the source's own type is an accepted no-op; for an
+array or dict it yields the *same* value, not a copy, unlike `as json`, which
+builds an independent snapshot.
 
 | Target type | Permitted source types | Outcome |
 | ----------- | ---------------------- | ------- |
-| `text` | any data type (`text`, `json`, `bool`, `int`, `decimal`, `array[E]`, `dict[K,V]` for any `K`, record, enum, exception) | total for conformance — renders the value to its AgL-form text representation; a cyclic walk raises `CyclicValueError` |
-| `json` | any type with a JSON representation — see [Convertibility to `json`](#convertibility-to-json) | total for conformance — canonicalizes the value to `json`; a cyclic walk raises `CyclicValueError` |
+| `text` | any data type (`text`, `json`, `bool`, `int`, `decimal`, `array[E]`, `dict[K,V]` for any `K`, record, enum, exception) | total — renders the value as AgL-form text |
+| `json` | any type with a JSON representation — see [Convertibility to `json`](#convertibility-to-json) | total — canonicalizes the value to `json` |
 | `bool` | `bool` | total (no-op) |
 | `bool` | `text`, `json` | fallible — value must be a JSON boolean |
 | `int` | `int` | total (no-op) |
@@ -1365,60 +913,130 @@ may raise `CastError`.
 | `decimal` | `int` | total (widening, same as the implicit coercion) |
 | `decimal` | `text`, `json` | fallible — value must be a number |
 | `array[E]` | identical `array[E]` | total (no-op) |
-| `array[E]` | `text` | fallible — strict JSON or AgL value syntax parse, then element validation |
+| `array[E]` | `text` | fallible — [parse](#parsing-values), then element validation |
 | `array[E]` | `json` | fallible — element validation |
 | `dict[K,V]` | identical `dict[K,V]` | total (no-op), for any key type `K` |
-| `dict[K,V]` for a `Hashable`, decodable `K` | `text` | fallible — strict JSON or AgL value syntax parse, key decoding per its wire form, then value validation |
+| `dict[K,V]` for a `Hashable`, decodable `K` | `text` | fallible — [parse](#parsing-values), key decoding per its wire form, then value validation |
 | `dict[K,V]` for a `Hashable`, decodable `K` | `json` | fallible — key decoding per its wire form, then value validation |
-| `json` | `dict[K,V]` for any `Hashable` `K` | total for conformance — encodes in the key type's [wire form](#dict-wire-forms); decodes back from it (rows above) |
 | record `R` | same record `R` | total (no-op) |
-| record `R` | `text` | fallible — strict JSON or AgL value syntax parse, then field validation |
+| record `R` | `text` | fallible — [parse](#parsing-values), then field validation |
 | record `R` | `json` | fallible — field validation |
 | enum `E` | same enum `E` | total (no-op) |
-| member record `R` of enum `E` | `E` | total compile-time-checked identity upcast (no-op) |
-| enum `E` | declared member record `R` | fallible identity downcast — checks that the runtime member is `R` |
-| enum `A` | enum `B` containing every constructor of `A` | total identity widening (no-op) |
-| enum `A` | enum `B` sharing some but not all constructors of `A` | fallible identity cast — checks that the runtime constructor belongs to both enums |
-| enum `E` | `text` | fallible — strict JSON or AgL value syntax parse, then member validation |
+| enum `E` | member record `R` of `E` | total identity upcast (no-op) |
+| member record `R` of `E` | `E` | fallible identity downcast — checks that the runtime member is `R` |
+| enum `B` | enum `A` whose constructors `B` all contains | total identity widening (no-op) |
+| enum `B` | enum `A` sharing some but not all constructors with `B` | fallible identity cast — checks that the runtime constructor belongs to both |
+| enum `E` | `text` | fallible — [parse](#parsing-values), then member validation |
 | enum `E` | `json` | fallible — member validation |
-| exception type `T` | `T` itself, or any descendant of `T` in its `extends` chain | total identity upcast (no-op) — includes casting to the root `Exception` |
-| exception type `T` | any ancestor of `T` in its `extends` chain | fallible identity downcast — checks that the runtime type is `T` or a descendant of `T` |
-| exception type | `text`, `json` | **static cast error** — an exception cannot be decoded from text or JSON |
+| exception type `T` | `T`, or any descendant of `T` | total identity upcast (no-op), including to the root `Exception` |
+| exception type `T` | any ancestor of `T` | fallible identity downcast — checks that the runtime type is `T` or a descendant |
+| exception type | `text`, `json` | **static cast error** — an exception cannot be decoded |
 | `Agent` | `text` | fallible — a JSON object, an `Agent` member constructor call, or shorthand; no verbatim command fallback |
 | `Agent` | `json` | fallible — validates a tagged `Agent` member object |
 | any type | `unit`, function type | **static cast error** |
 | `unit`, function type | any type | **static cast error** |
 
-Any source–target combination not listed above is a static cast error. In
-particular: `bool as int`, `int as bool`, `bool as decimal`, `decimal as bool`
-are all static errors — booleans never convert to or from numbers.
+Any combination not listed is a static cast error; in particular, booleans
+never convert to or from numbers.
+
+### Parsing values
+
+When the target requires structure (`bool`, `int`, `decimal`, array, dict,
+record, or enum), a `json` source is only **validated** against the target's
+shape. A `text` source is first **parsed** — strictly, with no surrounding
+prose, no Markdown fences, and no recovery — as exactly one JSON value when
+that JSON decodes into the target, and otherwise as exactly one AgL
+[value-syntax](host-environment.md#value-syntax) literal; the result is then
+validated. A JSON object with a duplicate member name is rejected, by every
+JSON parse in the language. (Agent output, by contrast, is parsed with lenient
+recovery by default — [Agent calls](agent-calls.md).)
+
+The prelude functions `parse::[T](text)` and `try-parse::[T](text)` accept
+exactly the targets `as T` does and convert text the same way, but raise
+`ValueParseError` ([Exceptions](exceptions.md#valueparseerror)) instead of
+`CastError`; `try-parse` never raises and returns `Result::Err` with the
+error instead. A `parse::[json]` target parses strict JSON or value-syntax
+plain data. A `text` target returns the text unchanged. `T` comes from an
+explicit `::[T]` or the expected type, and a call supplying neither is a static
+error; both are call-only, never function values.
+
+#### `text as json` — embedding, not parsing
+
+Because `text` is already JSON-shaped, `"42" as json` is the JSON **string**
+`"42"`: a total cast that wraps the text without interpreting it. To read a
+text's contents as JSON, use `parse::[json]("42")`, which yields the JSON
+number `42`.
+
+### `decimal as int` integrality
+
+`decimal as int` succeeds only when the value has no fractional part:
+`3.0 as int` yields `3`, while `3.5 as int` raises `CastError`. The same rule
+narrows a `json` or wire number to `int`, which must also lie within the
+`decimal` range: a `json` number of magnitude `1e1000000` or more does not
+narrow.
 
 ### Convertibility to `json`
 
-A type converts to `json` with `as json` iff no **non-data** type — `unit`, a
-function type, or the opaque host-created `Session` — and no dict with a
-non-`Hashable` key is reachable from it:
+A type converts to `json` iff no **non-data** type — `unit`, a function type,
+or `Session` — and no dict with a non-`Hashable` key is reachable from it:
 
-- the scalars `text`, `json`, `bool`, `int`, `decimal` always convert;
-- `array[E]` converts iff `E` does; `dict[K, V]` converts iff `K` is
-  `Hashable` and `V` does;
+- `text`, `json`, `bool`, `int`, and `decimal` always convert;
+- `array[E]` converts iff `E` does; `dict[K, V]` iff `K` is `Hashable` and `V`
+  converts;
 - a record, enum, or exception converts iff neither is reachable from its
-  declaration at its type arguments, transitively through its fields (and,
-  for an exception, through its `extends` ancestors and its catchable
-  descendants, since a value statically typed as a base may hold a
-  descendant at runtime);
-- `unit`, function, and `Session` values never convert.
+  declaration at its type arguments, transitively through its fields — for an
+  exception also through its ancestors and its descendants, since a
+  base-typed value may hold a descendant.
 
-This makes `array[R] as json`, `dict[text, R] as json`, nested containers
-(`array[array[R]]`, `dict[text, array[R]]`), and a recursive declaration such
-as `record Node(tag: int, children: array[Node])` all convert, exactly as a
-bare `R as json` does — a container converts whenever its element type does,
-with no special case for a nominal element.
+So `array[R] as json`, `dict[text, array[R]] as json`, and a recursive
+`record Node(tag: int, children: array[Node])` all convert exactly as `R`
+does, and a record with a `unit` or function field is a static error. A
+**free type variable never converts**: `T as json`, `array[T] as json`, and
+`Box[T] as json` are static errors inside a generic `def`, since type
+arguments are erased.
 
-A **free type variable never converts**, so `T as json`, `array[T] as json`,
-and `Box[T] as json` are static errors inside a generic `def`: type
-arguments are erased, so at the point the cast is checked there is no way to
-know whether the eventual instantiation of `T` will carry a non-data value.
+### Nominal types `as json` — structural encoding
+
+Records, enums, exceptions, and containers of them convert to `json` only by an
+explicit `as json`, never implicitly. The encoding is structural:
+
+- **record** → a JSON object with one key per field, in declaration order,
+  keyed by each field's effective JSON name (its declared name unless
+  [`@name`/`@json-name`](attributes.md#name-and-json-name) overrides it).
+- **plain enum** (every member fieldless) → the JSON string of the member's
+  effective tag: `"Pass"`.
+- **any other enum** → a JSON object with a `"$case"` key holding the member's
+  effective tag, plus one key per member field; a fieldless member is the
+  object with only `"$case"`. The shape follows the slot's static type: a
+  record that is a member of both a plain and a non-plain enum is a string in
+  the first slot, a tagged object in the second, and its own record object in
+  a record-typed slot.
+- **exception** → a JSON object with every field of the value's runtime
+  exception type, in declaration order.
+- **`array[E]`/`dict[K, V]`** → the JSON array, or the dict's
+  [key-directed form](#dict-wire-forms), converting each element, key, and
+  value the same way.
+
+Except for exceptions and any type that reaches one (which cannot decode), this
+is exactly what the decoding rows of the [conversion matrix](#conversion-matrix)
+accept, so a round trip recovers
+the value: `(rs as json) as array[R] == rs`.
+
+```agl
+record R
+  x: int
+
+program def main() -> unit =
+  let r: R = R(x = 1)
+  print r                                   # R(x = 1)
+  print(r as json)                          # {"x": 1}
+  print render(r as json, pretty = true)
+```
+
+A finite value of a JSON-convertible recursive type always converts, even a
+growing polymorphic-recursive one such as `Perfect[int]`; a schema boundary
+still requires a finite schema ([The finite-schema
+boundary](generics.md#the-finite-schema-boundary)).
 
 ### Dict wire forms
 
@@ -1433,9 +1051,9 @@ A dict's JSON form is chosen by its static key type `K`, so a generic field
 | an enum whose members all have no fields | object keyed by the member's effective `$case` tag (see [`@json-name`](attributes.md#name-and-json-name)) |
 | any other `Hashable` key: a record, an exception, `json`, `Option[...]`, an enum with a member that has fields | array of `{"key": <key>, "value": <value>}` objects, each key in its own JSON form |
 
-The derived [JSON Schema](agent-calls.md#derived-json-schema) follows the
-same forms. Every form keeps the dict's insertion order. An empty dict still takes its
-key type's form.
+The [derived JSON Schema](agent-calls.md#derived-json-schema) follows the
+same forms. Every form keeps insertion order, and an empty dict still takes
+its key type's form.
 
 ```agl
 enum Color
@@ -1455,178 +1073,52 @@ program def main() -> unit =
   print(by-point as json)  # [{"key": {"x": 1, "y": 2}, "value": "p"}]
 ```
 
-Decoding reads the same forms: a cast from `text` or `json`, `parse`, agent
-and `exec` output, and program parameters accept any `Hashable`, decodable key
-type; the key's form fixes the wire shape expected. Host text for a parameter
-or a text cast may also spell a dict in
-[value syntax](host-environment.md#value-syntax), whose keys are read against
-the key type. A stringified key is read as its type: a number key follows the number rules (`"2.0"` fills an `int`
-key, `"2.5"` does not, non-number text fails), a `bool` key is exactly
-`"true"` or `"false"`, and an enum key is a member's effective tag. An entries
-element must be an object with exactly the members `key` and `value`.
+Decoding — a cast from `text` or `json`, `parse`, agent and `exec` output, and
+program parameters — reads the same forms for any `Hashable`, decodable key
+type; host text and text casts may also spell a dict in [value
+syntax](host-environment.md#value-syntax). A stringified key is read as its
+type: a number key follows the number rules (`"2.0"` fills an `int` key,
+`"2.5"` does not), a `bool` key is exactly `"true"` or `"false"`, and an enum
+key is a member's effective tag. An entries element must be an object with
+exactly the members `key` and `value`.
 
 Two wire keys that decode to equal keys (`"1"` and `"1.0"` for an `int` key,
-or a repeated entry key) fail the conversion. The failure is the
-conversion's own: `CastError` for `as`, `None` for `as?`, `ValueParseError`
-for `parse`, `ExecError` for `exec` output, a retry or `AgentParseError` for
-agent output, and a host invocation error for a program parameter; never
-`DuplicateKeyError`.
+or a repeated entry key) fail the conversion with the conversion's own
+failure — `CastError` for `as`, `None` for `as?`, `ValueParseError` for
+`parse`, `ExecError` for `exec` output, a retry or `AgentParseError` for agent
+output, and a host invocation error for a program parameter.
 
 A type-variable key cannot decode, bounded or not, and neither can an
-exception key. A type that reaches a dict with a non-`Hashable` key, such as
-`array[int]`, cannot be decoded or cast to `json`, and neither may an `extern def`
-signature (a type variable in a key counts as `Hashable` there); each is a
-static error. The same holds for a key reached through type arguments: if
-`Outer[T]` has a field of type `Box[Wrap[T]]` and `Box[K]` a field of type
-`dict[K, int]`, then `Outer[array[int]]` reaches `dict[Wrap[array[int]], int]`,
-whose key is not `Hashable` when `Wrap[T]` holds a `T`. `as text` renders
-both.
-
-### Total vs fallible casts
-
-A **total** cast has no conformance failure, so it does not raise `CastError`.
-Rendering or JSON conversion still raises `CyclicValueError` when it walks a
-reference cycle; the corresponding `as?` expression yields `None` instead.
-Redundant casts to the same type are accepted with no warning and are no-ops;
-`int as decimal` is the accepted widening conversion. Casting an array or dict
-to its own type (`xs as array[int]`) is a true no-op: it yields the *same*
-value, not a copy, so a mutation through the result is visible through `xs`
-and vice versa. This differs from `as json` on a container, which builds an
-independent snapshot (see [`array[T]` and `dict[K, V]`](#arrayt-and-dictk-v)
-above).
-
-A **fallible** cast may raise `CastError` if the value does not conform to
-the target type. The `as?` form instead yields the converted value as an
-`Option`, without handling an exception:
-
-<!-- agl-check: fragment -->
-```agl
-let parsed: Option[int] = some-json as? int
-```
-
-### Strict parsing in text and json casts
-
-When the target is a type that requires structure (`bool`, `int`, `decimal`,
-array, dict, record, or enum), a `json` source is only **validated** against
-the target's shape — it is already a value, not text to parse. A `text` source
-is first **parsed** as either strict JSON or an AgL
-[value-syntax](host-environment.md#value-syntax) literal — the input must be
-exactly one well-formed JSON value, or exactly one value-syntax literal, with
-no surrounding prose, no Markdown fences, and no recovery either way — and the
-result is then validated the same way. Strict JSON is read as JSON only when
-it decodes into the target; otherwise the text is read as value syntax. A JSON
-object with a duplicate member name is rejected. This contrasts with
-agent-output parsing, which uses lenient recovery by default (though it too
-rejects a duplicate member name). A cast to `Agent` from `text` accepts the
-same JSON object, member constructor call, or shorthand a host `Agent`
-parameter reads, but never falls back to a verbatim command; a cast to `Agent`
-from `json` validates a tagged member object the same way any other enum with
-a fielded member does. `parse`/`try-parse` apply the same rule under a
-different exception — see [Parsing values](#parsing-values) above.
-
-### `decimal as int` integrality
-
-`decimal as int` succeeds only when the decimal value has no fractional part:
-`3.0 as int` yields `3`, while `3.5 as int` raises `CastError`. The same rule
-narrows a `json` or wire number to `int`, which must also lie within the
-`decimal` range: a `json` number of magnitude `1e1000000` or more does not
-narrow.
-
-### Nominal types `as json` — structural encoding
-
-Records, enums, and exceptions can be explicitly cast to `json` with `as
-json`, and so can any `array`/`dict` built from them. This is a structural
-conversion:
-
-- **record** → a JSON object with one key per field, in declaration order,
-  keyed by each field's effective JSON name (declared name unless overridden
-  by [`@name`/`@json-name`](attributes.md#name-and-json-name)).
-- **plain enum** (every member fieldless) → the JSON string of the member's
-  effective JSON tag: `"Pass"`.
-- **any other enum** → a JSON object with a `"$case"` key holding the
-  member's effective JSON tag, plus one key per member-record field, each by
-  its effective JSON name. A fieldless member of such an enum is the object
-  with only its `"$case"` key.
-
-  The shape follows the slot's enum type, not the value: a record that is a
-  member of both a plain and a non-plain enum is a string in the first slot
-  and a tagged object in the second, and in a record-typed slot it is the
-  record's own object, with no `"$case"` key.
-- **exception** → a JSON object with every field of the value's runtime
-  exception type, in declaration order, each keyed by its effective JSON name.
-- **`array[E]`/`dict[K, V]`** → the JSON array, or the dict's key-directed
-  [JSON form](#dict-wire-forms), obtained by converting each
-  element/key/value the same way — so `array[R] as json` is a JSON array of
-  record objects, and a nested `array[array[R]]` or `dict[text, array[R]]`
-  converts to the matching nested JSON shape.
-
-Except for an exception-keyed dict (which cannot decode), this encoding is
-exactly what the decode direction (`json as R`, `text as array[R]`, and the other
-record/enum/array/dict rows in the [conversion matrix](#conversion-matrix)
-above) accepts, so a round trip through `json` recovers the original value:
-`(rs as json) as array[R] == rs`.
-
-This is an **explicit cast only**. Nominal values are not JSON-shaped and are
-not implicitly assignable to `json`; `as json` must be written explicitly:
-
-```agl
-record R
-  x: int
-
-program def main() -> unit =
-  let r: R = R(x = 1)
-  print r
-  print(r as json)
-  print render(r as json, pretty = true)
-```
-
-A record (or exception) with a field of type `unit` or a function type cannot
-be converted — see [Convertibility to
-`json`](#convertibility-to-json) above for the static error this produces and
-how it names the offending field. A JSON-convertible recursive value can be
-converted to `json` when its runtime value is finite, including a growing
-polymorphic-recursive value such as `Perfect[int]`. This does not make that
-type eligible for a JSON-schema boundary; those positions require a finite
-schema as described in [Generics](generics.md#the-finite-schema-boundary).
-
-### `text as json` — embedding, not parsing
-
-Because `text` is already JSON-shaped, `"42" as json` produces the JSON
-**string** `"42"` — it wraps the text in JSON representation and does not
-interpret it as a JSON value. This is a total, no-parse cast.
-
-To parse the *contents* of a text as JSON, import `std/json` and use
-`json::parse("42")`. It produces the JSON number `42` and raises
-`JsonParseError` (`std/json`) on malformed input. To read the contents of a
-text as a value of a specific data type, use `parse`/`try-parse`
-([Parsing values](#parsing-values)).
-
-`parse::[json]`/`try-parse::[json]` also parse a text's contents rather than
-embedding it, differing from `json::parse` in also accepting value-syntax
-data and raising `ValueParseError` rather than `JsonParseError`
-([Parsing values](#parsing-values)).
+exception key. A type that reaches a dict with a non-`Hashable` key — directly
+or through type arguments, as `Outer[array[int]]` does when `Outer[T]` holds a
+`Box[Wrap[T]]` and `Box[K]` a `dict[K, int]` — cannot be decoded, cast to
+`json`, or used in an `extern def` signature (where a type-variable key counts
+as `Hashable`). `as text` renders it.
 
 ## Values and equality
 
 Every **data** type has full value equality (`==` / `!=`):
 
 - Scalars compare by value; `int` and `decimal` compare numerically and
-  exactly ([Numbers](#numbers-int-and-decimal)).
-- Arrays compare element-wise; dictionaries compare by key set and per-key
-  values.
-- Records compare by nominal type and field values; enum values compare by
-  their member-record nominal type and field values, so an enum-typed value
-  compares with a member-typed one by value.
+  exactly, without widening ([Numbers](#numbers-int-and-decimal)).
+- Arrays compare element-wise; dicts by key set and per-key values.
+- Records and exceptions compare by nominal type and field values. An enum
+  value is its member record, so an enum-typed value compares with a
+  member-typed one by value.
 - `json` values compare structurally.
 
-Equality is cycle-safe: cyclic values, including cycles closed through `var`
-record fields, compare structurally and do not raise `CyclicValueError`.
+Both operands must have the same type after `int` → `decimal` widening, or
+one operand's type must widen to the other's by [assignability
+rules](#assignability-and-coercion) 3–5: `opt == None`, `Some(1) == opt`, and
+a derived exception against an ancestor-typed value all check, while two
+distinct member types (`Some(1) == None`) do not. Ordering comparisons accept
+only numbers or `text` ([Expressions](expressions.md)).
 
-Function types and `unit` have **no equality**. A comparison involving one of
-these types is a static error. This rule is **transitive**: an `array`, `dict`,
-`record`, `enum`, or `exception` that (at any depth) contains a function or
-`unit` value likewise has no equality and cannot be used with `==`/`!=`. For
-example, comparing two `array[int -> int]` values with `==` is a static error.
+Function types, `unit`, and `Session` have **no equality**, transitively: an
+`array`, `dict`, record, enum, or exception that contains one at any depth
+cannot be compared either, so `==` on two `array[int -> int]` values is a
+static error. A type parameter is comparable only under an `Eq` or `Hashable`
+bound ([Constraint blocks](generics.md#constraint-blocks)).
 
-See [Expressions](expressions.md) for the operator rules and
-[Pattern matching](pattern-matching.md) for enum-member tests with `is`.
+Equality is cycle-safe: cyclic values, including cycles through `var` fields,
+compare structurally and never raise `CyclicValueError` ([Cycles](#cycles)).

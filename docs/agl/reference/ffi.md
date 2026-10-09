@@ -60,9 +60,9 @@ missing callables, import failures, and unsatisfied
 package are load-time diagnostics. In a REPL session a companion is imported
 once until `:reset`.
 
-During the import, AgM temporarily supplies a module named `agl`, distinct from the
-`agnette.agl` implementation package. A companion imports the program's nominal classes,
-value constructors, and exception carrier from it:
+During the import, the host supplies a Python module named `agl`. A companion
+imports the program's nominal classes, value constructors, and exception
+carrier from it:
 
 ```python
 from agl import AglException, Box, Shape, array, dict, json
@@ -74,14 +74,12 @@ is loaded. `option` evaluates *value* eagerly, so a value that is well-defined
 only when present needs the conditional form.
 
 `agl` is available only for the companion import. The imported classes and
-constructors remain valid afterwards. The fixed module name means concurrent
-program loads in one Python process are not supported.
+constructors remain valid afterwards.
 
-### Interpreter-local companion state
+### Companion state
 
 A companion that needs mutable state may retain `runtime` and allocate a value
-by a stable key. The value belongs to the interpreter making the active extern
-call, even when interpreters share an imported companion module:
+by a stable key:
 
 ```python
 import random
@@ -93,17 +91,13 @@ def rng() -> random.Random:
     return runtime.state("mylib/rng", random.Random)
 ```
 
-`runtime.state(key, factory)` calls `factory` once for each host-session state
-bag and returns that value on later calls. It must be called during an extern
-invocation; direct host calls outside evaluation use a separate detached
-state, which is not closed automatically.
-
-This is distinct from ordinary Python module globals. A cached companion's
-globals are shared by every interpreter using that registry and last until its
-companion is re-imported. `runtime.state` instead uses the host session active
-for the current extern call: its bag lasts for that session, not for the Python
-module. Thus each batch run gets a fresh bag, while a REPL session keeps one bag
-across its entries until `:reset` or exit.
+`runtime.state(key, factory)` calls `factory` once per host session and
+returns that value on later calls. Unlike a module global, which lives as long
+as the imported companion module, the value belongs to the host session active
+for the current extern call: each run gets a fresh one, while a REPL session
+keeps one across its entries until `:reset` or exit. Called outside an extern
+invocation — a companion function called directly from Python — it uses a
+separate detached state that is never closed automatically.
 
 A value that owns a resource passes a `close` callable receiving that value,
 run once when the host session ends — on a clean return, an escaping exception,
@@ -143,9 +137,8 @@ def fetch(url: str) -> str:
     ...
 ```
 
-Like `runtime.state`, this must be called during an extern invocation; a
-direct host call outside evaluation is a silent no-op. Nothing is written when
-tracing is off. A payload value with no JSON representation, including a
+Called outside an extern invocation, it is a silent no-op. Nothing is written
+when tracing is off. A payload value with no JSON representation, including a
 reference cycle, is replaced by a marker rather than failing the call. A
 mapping nested in the payload whose keys are not all `str` is recorded as an
 array of `{"key": …, "value": …}` objects, so distinct keys never collapse
@@ -167,12 +160,10 @@ envelope and raises `ValueError`.
 
 The attributed call site is the nearest one outside the extern's own mount
 (same leading module-path segment: a package name, `std`, or a loose module's
-top-level directory): a package's own wrapper functions calling its extern
-are an implementation detail, so their internal calls are skipped in favor
-of the call the program author actually wrote. When the whole active call
-chain stays inside that mount (an entry point that is itself part of it),
-the immediate call is reported for lack of an outside one, and `site` is
-that call's own module.
+top-level directory), so calls through a package's own wrapper functions are
+attributed to the call the program author wrote. When the whole active call
+chain stays inside that mount (an entry point that is itself part of it), the
+immediate call is reported, and `site` is that call's own module.
 
 ## Value mapping
 
@@ -212,10 +203,10 @@ and `int`.
 container-valued `AglJson` is therefore usable as a Python dict key.
 
 Every AgL `text` value is a sequence of Unicode scalar values: a companion
-must return a `str` with no lone surrogate. A companion reading an OS name or
-decoding bytes checks it (for example with `agnette.util.unicode`) or decodes
-strictly; this is not checked at the boundary, so a companion that returns an
-invalid `str` produces text that fails wherever the program first encodes it.
+must return a `str` with no lone surrogate, so a companion reading an OS name
+or decoding bytes checks it or decodes strictly. This is not checked at the
+boundary: an invalid `str` produces text that fails wherever the program first
+encodes it.
 
 A `json` payload crosses without being copied or checked, so the companion
 carries two obligations: a payload it returns or writes must be JSON-shaped —
@@ -345,7 +336,7 @@ extern def apply(f: (int) -> int, value: int) -> int
 
 def increment(value: int) -> int = value + 1
 
-let result = apply(increment, 4)
+program def main() -> unit = print (apply(increment, 4))    # 5
 ```
 
 ```python
@@ -363,8 +354,8 @@ value.
 
 ## Callback invocation window
 
-A callback is valid only on the interpreter thread while an extern call is
-active. A companion may retain a callback and invoke it during a later extern
+A callback is valid only on the thread running the program while an extern
+call is active. A companion may retain a callback and invoke it during a later extern
 call on that thread, including a nested extern call. Calling it after the
 outermost extern call returns, or from another thread, raises a Python-side
 error before AgL execution resumes.
@@ -407,13 +398,16 @@ so its `catch` clauses match it normally.
 exception ParseFailure extends Exception
   input: text
 
-extern def parse(input: text) -> json
+extern def parse_config(input: text) -> json
+
+program def main() -> unit =
+  try print (parse_config("x")) catch ParseFailure as e => print "failed on %{e.input}"
 ```
 
 ```python
 from agl import AglException, ParseFailure
 
-def parse(input):
+def parse_config(input):
     raise AglException(ParseFailure(message="invalid input", input=input))
 ```
 
@@ -427,9 +421,8 @@ wrapped AgL exception's `message` field.
 Type-variable positions receive their ordinary runtime representation; the
 boundary does not enforce parametricity itself. A companion is trusted to
 respect the same parametricity rules that its AgL declaration promises;
-violations are latent and can produce an incorrect result later. In
-particular, `f[T, U](xs, xs)` is allowed: two generic positions never need
-schema reconciliation. A type parameter that no parameter mentions is the one
+violations are latent and can produce an incorrect result later. One value
+may fill two distinct type-variable positions (`f[T, U](xs, xs)`). A type parameter that no parameter mentions is the one
 exception: its instantiation crosses too, as a
 [target contract](#target-type-parameters).
 
@@ -542,7 +535,7 @@ else as the [value mapping](#value-mapping) prescribes.
 
 ## Trust boundary
 
-A companion runs unsandboxed and in-process with the privileges of the AgM
+A companion runs unsandboxed and in-process with the privileges of the host
 process. Load only companions you trust as much as the AgL program. A host can
 disable the Python FFI entirely; then any program declaring an extern is
 rejected before execution.

@@ -6,43 +6,15 @@ An attribute is a `@name` or `@name(args)` prefix on a defining declaration.
 It annotates the declaration for the compiler or the host; nothing in the
 program can read it.
 
-```ebnf
-attributes ::= attribute+
-attribute  ::= "@" NAME ["(" arg_list? ")"] NEWLINE?
-```
-
 ## Placement
 
 An attribute may prefix a `record`, `enum`, enum member, `exception`, `type`
 alias, any `def` form (`program`, `builtin`, and `extern` included), a
 `builtin var`, a field, a parameter, and a `let`/`var` binding. `import`,
-`use`, `export`, `infix`, and scope regions take none.
-
-Several attributes may be written in a row, on the line above the declaration
-or in front of it on the same line. An enum member's attributes follow its
-`|`; the constructor and further attributes may continue on indented lines
-below the prefix. Constructor fields are indented further below the constructor.
-Token-level rules: [Lexical structure](lexical-structure.md#attributes).
-
-```agl
-@doc("Formats one entry.")
-def g(a: int, @arg-named key: text) -> text = "%{a}: %{key}"
-
-record Entry
-  @arg-named
-  label: text
-  @arg-named count: int
-
-enum Shape
-  | @doc("""
-      A rectangle with horizontal and vertical extents.
-    """)
-    @arg-pos
-    Rect
-      width: int
-      height: int
-  | Empty
-```
+`use`, `export`, `infix`, and scope regions take none. Several attributes may
+be written in a row; their layout is given in
+[Lexical structure](lexical-structure.md#attributes), their syntax in
+[Grammar](grammar.md#attributes).
 
 Every built-in attribute but `@config` takes one constant text expression
 positionally, or nothing at all; see [Constant arguments](#constant-arguments)
@@ -114,16 +86,13 @@ that same binding in an expression reads whatever value the host bound.
 
 ## Zone attributes
 
-`@arg-pos`, `@arg-std`, and `@arg-named` are mutually exclusive. In front of
-a parameter or field they zone that entry; in front of the declaration they
-set the default zone of every entry that names none. Entries are listed in
-zone order: positional-only, standard, named-only.
-
-Default zones: `def`, `builtin def`, `extern def`, and `fn` parameters are
-standard; `program def` parameters are named-only; a method receiver `self`
-is always positional-only. Record, exception, and enum-member fields are
-standard. Zone semantics: [Functions](functions.md#parameters),
-[Types](types.md#record-types), [Pattern matching](pattern-matching.md).
+`@arg-pos` (positional-only), `@arg-std` (positional or named), and
+`@arg-named` (named-only) are mutually exclusive. In front of a parameter or
+field they zone that entry; in front of the declaration they set the zone of
+every entry that names none. Zones, their default per declaration form, and
+their ordering rule: [parameters](functions.md#parameters) and
+[record fields](types.md#field-zones); zones in patterns:
+[Pattern matching](pattern-matching.md).
 
 ## `@doc`
 
@@ -165,8 +134,8 @@ declared name. This is the object key a record or exception field encodes
 and decodes under, and the JSON tag naming a record wherever it inhabits an
 enum, wherever a value crosses JSON: agent structured output, `as`/`as?`
 casts, program parameters, and [uncaught-exception
-reports](host-environment.md#results-and-termination). A dict key of an enum whose members have no
-fields encodes as its member's tag ([Dict wire
+reports](host-environment.md#results-and-termination). A dict key of an enum
+whose members have no fields encodes as its member's tag ([Dict wire
 forms](types.md#dict-wire-forms)). Rendering (`print`, string
 interpolation, …) always uses the declared name.
 
@@ -175,10 +144,9 @@ whose declared/`@name` spellings collide, are static errors, checked across
 a record's own fields, an exception's inherited field chain, and an enum's
 members (inline and referenced alike).
 
-A record's or enum member's `@name` alias is also a valid constructor spelling
-in [host value syntax](host-environment.md#value-syntax): `Square` or `sq`
-both match the `Square` member below, and a field's `@name` alias binds it in
-a constructor call the same way it would bind a declared name.
+A record's, enum member's, or field's `@name` is also accepted in place of
+the declared name in [host value syntax](host-environment.md#value-syntax):
+`Square` and `sq` both construct the `Square` member below.
 
 ```agl
 enum Shape
@@ -222,29 +190,21 @@ A program outside a package registers nothing: nothing reads its `@command`.
 ## Module parameters
 
 `@param` exposes an ordinary static `let` or `var` binding as a module
-parameter. The binding must be at module root or directly in a scope region,
-must bind a readable name rather than `_`, and must
-have an initializer. Its type annotation is optional. It is not a `builtin var`
-and cannot appear in a function, block, lambda, or other nested binding.
-Its inferred or annotated type must be closed and decodable at the host
-parameter boundary.
+parameter. The binding must be at module root or directly in a scope region
+(never in a function, block, or lambda), must bind a name rather than `_`, and
+must have an initializer; it cannot be a `builtin var`. Its annotated or
+inferred type must be closed and decodable at the host parameter boundary.
 
-Its initializer supplies the value when the host leaves the parameter unset;
-when the host supplies a value, that value is bound instead and the initializer
-is not evaluated. A `var` stays mutable after that initial host value is
-bound. When exported (see [Modules](modules.md#re-exports-and-visibility)), an
-importer may also write it.
+How a host value takes the initializer's place: [Module
+parameters](host-environment.md#module-parameters). A `var` stays mutable
+after a host value is bound; when exported (see
+[Modules](modules.md#re-exports-and-visibility)), an importer may also write
+it.
 
-The presentation attributes `@opt-name`, `@opt-short`, `@opt-env`,
-`@opt-metavar`, `@opt-hidden`, and `@doc` apply to the binding. Without
-`@opt-name`, its external name is its declared name.
-
-Host command-line and configuration channels use the module parameter's
-presentation. The external name is the config leaf as well as the flag name;
-qualified module and scope spellings are dotted, while its declaration path
-uses `::`. Its [program route and module route](host-environment.md#module-parameters)
-use that same external name; the latter identifies its declaring module. See
-that section for precedence, help, and REPL behavior.
+The [host parameter attributes](#host-parameter-attributes) and `@doc` apply to
+the binding; its external name is its `@opt-name`, else its declared name.
+Flags, configuration routes, precedence, help, and REPL behavior:
+[Module parameters](host-environment.md#module-parameters).
 
 ```agl
 @param @doc("Log level") @opt-short("l") var level: int = 1
@@ -307,39 +267,42 @@ program def main() -> unit = print retries
 program reached through an ordinary call, or a sibling `program def` in the
 same module that is not selected, keeps its own parameters and settings
 unaffected by it. `agm check` and the REPL validate a `@config` attribute
-statically and apply nothing. Where `@config` ranks in the full resolution
-order for a module parameter and an engine setting, and how it interacts with
-a program's own configuration table: [Host environment](host-environment.md#host-configurable-settings).
+statically and apply nothing. Where `@config` ranks against the command line
+and configuration files: [Precedence](host-environment.md#precedence).
 
 ## Host parameter attributes
 
 `@opt-name`, `@opt-short`, `@opt-env`, `@opt-metavar`, and `@opt-hidden`
-shape how a `program def` value parameter or `@param` binding is addressed by
-the host. Program parameters are described under
-[Program definitions](program-structure.md#program-definitions).
+shape how a `program def` value parameter ([Program
+definitions](program-structure.md#program-definitions)) or a
+[`@param`](#module-parameters) binding is addressed by the host; their effects
+are in the [catalog](#catalog). Beyond it:
 
-- `@opt-name` takes a flag word: ASCII letters and digits with single interior
-  hyphens, so both `--word` and `--no-word` can be formed. It replaces the
-  declared name everywhere the parameter is addressed externally.
+- `@opt-name`'s flag word is ASCII letters and digits with single interior
+  hyphens, so both `--word` and `--no-word` can be formed.
 - `@opt-short` takes exactly one ASCII letter.
-- `@opt-env` reads its variable when no CLI token supplies the parameter. An
-  unset variable and an empty one both supply nothing; resolution falls
-  through to the config table and then the declared default.
-- `@opt-hidden` keeps a positional-capable parameter's usage slot.
+- An unset and an empty `@opt-env` variable both supply nothing.
+- A positional-capable parameter under `@opt-hidden` keeps its usage slot.
 
 A positional-only program parameter is never addressed by name, so `@opt-name`,
 `@opt-short`, `@opt-env`, and `@opt-hidden` on one are static errors.
 `@opt-metavar` and `@doc` still apply to it.
 
 ```agl
-@doc("Publish one artifact.")
+@doc("Deploy a release tag.")
 program def main(
-  @doc("Artifact to publish.") @opt-metavar("PATH") @arg-pos artifact: text,
-  @doc("Where to publish it.") @opt-short("t") @opt-env("PUBLISH_TARGET") target: text = "staging",
-  @opt-hidden trace-id: text = "",
+  @doc("Release tag.") @opt-metavar("TAG") @arg-pos tag: text,
+  @doc("Cluster to deploy to.") @opt-name("to") @opt-env("DEPLOY_CLUSTER") cluster: text = "staging",
+  @opt-hidden @opt-env("DEPLOY_SKIP_CHECKS") skip-checks: bool = false,
 ) -> unit =
-  print "%{artifact} -> %{target}"
+  let mode = if skip-checks => "unchecked" else => "checked"
+  print "deploying %{tag} to %{cluster} (%{mode})"
 ```
 
-Value resolution and help rendering: [Host environment](host-environment.md#program-arguments)
-and [Module parameters](host-environment.md#module-parameters).
+In `deploy.agl`, `agm exec deploy.agl v1.4 --to prod` deploys to `prod`, and
+with no `--to` the cluster comes from `DEPLOY_CLUSTER`, else `staging`. Help
+lists `TAG` and `--to`; `--skip-checks` and `DEPLOY_SKIP_CHECKS` work but stay
+unlisted.
+
+Value resolution and help: [Program arguments](host-environment.md#program-arguments)
+and [Precedence](host-environment.md#precedence).

@@ -2,56 +2,51 @@
 
 [← Index](index.md)
 
-AgL has two value binders (`let` and `var`), destructive assignment, and a
-function declaration (`def`). There is no bare
-assignment: `x = e` as an item is a syntax error — use `let`/`var` to bind or
-`:=` to reassign. The equality operator is `==`
-([Expressions](expressions.md)).
+AgL has two value binders (`let` and `var`), destructive assignment (`:=`), and
+function declarations (`def`). There is no bare assignment: `x = e` as an item
+is a syntax error — use `let`/`var` to bind, `:=` to reassign, or `==` to
+compare.
 
 ## `let` — immutable binding
 
 ```ebnf
-let_decl ::= "let" decl_head (":" type_expr)? "=" init_value
+let_decl   ::= attributes? "let" decl_head (":" type_expr)? "=" init_value
 init_value ::= expr | suite
 ```
 
-The initializer is evaluated before the bound name becomes visible in the
-continuation. The annotation constrains the initializer and declares the
-binding's type. Without an annotation, the type is inferred from the
-initializer; a bottom initializer therefore needs an annotation. `let` binds
-one name only. Use `case` to match or destructure a value.
+`let` binds exactly **one** name; there are no destructuring binders — use
+`case` to match or destructure a value. The initializer is evaluated and
+checked against the annotation, if any, before the name becomes visible. The
+annotation also declares the binding's type; without one, the type is inferred
+from the initializer, so a bottom initializer needs an annotation.
 
-`let` evaluates the initializer, checks it against the complete annotation (if
-any), and creates **immutable** bindings in the current scope. It scopes over the
-**continuation** — the remaining items in the block and any enclosing
-continuation that consumes the block — except at the root of a module with a
-static root, where every binding is visible throughout the module regardless
-of declaration order ([Names and visibility](scopes.md#names-and-visibility)).
-A block ending in a bare `let` has type
-`unit` unless its initializer exits, in which case it has bottom type:
+The binding is **immutable** and scopes over the **continuation** — the
+remaining items of the block and any enclosing continuation that consumes the
+block — except at the root of a module with a static root, where every binding
+is visible throughout the module regardless of declaration order ([Names and
+visibility](scopes.md#names-and-visibility)). A final binder makes its block
+`unit`-valued ([The block's value](program-structure.md#the-blocks-value)).
 
-<!-- agl-check: fragment -->
 ```agl
-let review: Review = reviewer.ask(
-  "Review %{artifact}",
-  parse-error-retries = 2
-)
-let count = 3
+enum Review
+  | Pass
+  | Fail(issues: array[text])
+
+program def main(artifact: text) -> unit =
+  let review: Review = ask "Review %{artifact}"   # annotation sets the agent's output type
+  let count = 3                                   # inferred: int
 ```
 
-`let` freezes the *name*, never the *data*: a `let`-bound array or dict is
-still a mutable reference value and can be updated in place through the name
-([Types](types.md)). A program that wants an independent value detaches one
-with `copy` ([Copying values](types.md#copying-values)).
+`let` freezes the *name*, never the *data*: a `let`-bound array, dict, or record
+with `var` fields can still be updated in place through the name
+([Destructive assignment](#destructive-assignment)). Use `copy` for an
+independent value ([Copying values](types.md#copying-values)).
 
-`_` is a wildcard binder. `let _ = e` evaluates `e` and discards its value
-without introducing a readable name; it may be repeated in a scope. `var _ =
-e` has the same discard behavior. `_` is never readable, even if an outer
-scope has a binding with that spelling. An annotation on `_` is deliberately
-ignored: annotations normally constrain an initializer and declare its binder's
-type, but `_` creates neither a readable binder nor a binding type. Its RHS is
-therefore checked without an annotation-derived expected type. Use it when a
-non-`unit` value is intentionally discarded.
+`_` is a wildcard binder. `let _ = e` and `var _ = e` evaluate `e` and discard
+its value without introducing a readable name; they may be repeated in a scope,
+and `_` is never readable, even when an outer scope binds that spelling. An
+annotation on `_` is ignored, so the initializer is checked without an expected
+type. Use `_` to discard a non-`unit` value intentionally.
 
 ### REPL persistence and echo
 
@@ -61,62 +56,55 @@ fails, completed bindings and function closures stay available.
 
 ### Binder scope paths
 
-`let` and `var` also accept an optional scope-path prefix on a single-name
-binder at the module root (`let A::x = 1`, `var A::count = 0`), declaring a
-binding at that path rather than in the module root namespace. The prefix is
-an ordinary declaration path, not a module route or a type-argument-applied
-segment. A binding is declared at its written path; a prefix naming a type
-alias the same module declares is an error ([Type
-aliases](types.md#type-aliases)). See
-[Named scopes](scopes.md#binder-paths) for declaring a binder inside a `scope`
-region.
+At the module root, `let` and `var` accept an optional scope-path prefix on the
+binder (`let A::x = 1`, `var A::count = 0`), declaring the binding at that path
+rather than in the module root namespace. The prefix is an ordinary
+declaration path, not a module route or a type-argument-applied segment; a
+prefix naming a type alias the same module declares is an error ([Type
+aliases](types.md#type-aliases)). See [Named scopes](scopes.md#binder-paths)
+for binders inside a `scope` region.
 
-A module-root or scope-region single-name binding may be marked `@param` to
-admit a host-supplied initial value. It is an ordinary `let` or `var` in
-all language semantics; the host-facing declaration and resolution rules are
-in [Module parameters](host-environment.md#module-parameters).
+A module-root or scope-region binding may be marked `@param` to admit a
+host-supplied initial value. It is an ordinary `let` or `var` in all language
+semantics; see [Module parameters](host-environment.md#module-parameters).
 
 ## `var` — mutable binding
 
 ```ebnf
-var_decl ::= "var" decl_head (":" type_expr)? "=" init_value
+var_decl ::= attributes? "var" decl_head (":" type_expr)? "=" init_value
 ```
 
-Identical to `let` except the binding is **mutable** — it may later be
-updated with `:=`. A final `var` also makes its block unit-valued (or bottom
-when its initializer exits); like a final `let`, it is visible to an
-enclosing continuation:
-
-<!-- agl-check: fragment -->
-```agl
-var artifact: text = impl.ask("Implement %{spec}")
-```
+Identical to `let` except that the binding is **mutable**: it may later be
+updated with `:=`.
 
 ## `:=` — destructive assignment
 
 ```ebnf
-assign_stmt ::= assign_target ":=" init_value
+assign_stmt   ::= assign_target ":=" init_value
 assign_target ::= qualifier_chain? name
                 | postfix "[" expr "]"
                 | postfix "." field_name
 ```
 
-A bare `:=` (no index) rebinds the nearest visible **mutable** binding, has
-type `unit`, and returns `()`. It never creates a binding. The expected
-type of the right-hand side is the declared type of the binding being
-updated. `qualifier_chain? name` is the same qualifier syntax a read uses, so
-a scoped `var`'s path (`A::count := 1`) is a valid target exactly as a scoped
-read is; see [Named scopes](scopes.md#names-and-visibility) for a scoped
-`var`'s bare-name and path assignment forms and its immutability rule:
+A bare `name := value` (no index) rebinds the nearest visible **mutable**
+binding; it never creates a binding. The right-hand side is checked against the
+binding's declared type. The assignment has type `unit` and returns `()`. The
+qualifier is the same one a read uses, so a scoped `var`'s path
+(`A::count := 1`) is a valid target; see [Named
+scopes](scopes.md#names-and-visibility) for the scoped forms. A cross-module
+target — qualified, or bare through an import tail or `use` — must be an
+exported `var` ([Modules](modules.md#re-exports-and-visibility)) or a
+[`builtin var`](#builtin-var-host-backed-bindings); an exported `let` is not
+writable.
 
-<!-- agl-check: fragment -->
 ```agl
-var proposal: Turn = researcher.ask("Initial proposal.")
-proposal := researcher.ask("Revise proposal.")   # target type: Turn
+program def main() -> unit =
+  var attempts: int = 0
+  attempts := attempts + 1   # target type: int
+  print attempts
 ```
 
-`:=` can also update an element of an array or an existing key of a
-dictionary:
+`:=` also updates an array element or an existing dictionary key:
 
 ```agl
 program def main() -> unit =
@@ -126,30 +114,20 @@ program def main() -> unit =
   metadata["status"] := "ready"
 ```
 
-Assignment indexes are adjacency-sensitive: the opening `[` must be adjacent
-to the target name or preceding index, as in `xs[0]`. A spaced form such as
-`xs [0]` is not an indexed assignment target.
+The opening `[` must be adjacent to the target name or the preceding index
+(`xs[0]`); `xs [0]` is not an indexed assignment target.
 
 Arrays and dicts are mutable reference values ([Types](types.md)), so an
-indexed assignment mutates the array or dictionary **in place**: every other
-binding, field, closure capture, or loop cursor that references the same
-array or dictionary observes the change.
-
-Indexed assignment is legal on **any** array- or dict-typed expression: a
-`let` binding, a function argument, a record or exception field, a
-function call result, and a qualified read all work as the container of
-`target[index] := value`. `let` guarantees only that the *name*
-cannot be rebound; it says nothing about the contents of what the name
-refers to, so mutating an array or dict through one is not a rebinding and is
-not restricted. A bare `name := value` — an actual rebinding, with no index —
-is a static error unless `name` is a mutable `var` binding. Array
-assignment uses the same negative-index and `IndexError` rules as array
-access. A dictionary index follows [Indexing](expressions.md#indexing): it
-has, or coerces to, the key type, which must be `Hashable`. Dictionary
-assignment updates existing keys only; assigning to a missing key raises
-`KeyError`. It replaces only the value: the stored key, as originally
-inserted, is kept even when the index is an equal but differently written
-value:
+indexed assignment mutates the container **in place**: every binding, field,
+closure capture, or loop cursor referencing it observes the change. The
+container may be any array- or dict-typed expression — a `let` binding, a
+parameter, a record or exception field, a call result, or a qualified read; mutating
+contents is not rebinding, so `let` does not restrict it. Array assignment uses
+the negative-index and `IndexError` rules of array access. A dictionary index
+has, or coerces to, the key type ([Indexing](expressions.md#indexing)).
+Dictionary assignment updates existing keys only — a missing key raises
+`KeyError` — and replaces only the value: the stored key keeps its originally
+inserted form even when the index is an equal but differently written value:
 
 ```agl
 program def main() -> unit =
@@ -161,49 +139,53 @@ program def main() -> unit =
   counts[2] := 1  # the int index coerces to the decimal key
 ```
 
-`:=` can also update a field declared with `var` on a record or enum-member
-record. The receiver may be any record-typed postfix expression, including a
-field, indexed element, parameter, or call result. The field must exist and be
-marked `var`; fields of exceptions and unmarked record fields are not
-assignable. An enum-typed receiver has no fields, so narrow it with a `case`
-pattern or cast it to its member record first. Like indexed assignment, field
-assignment mutates the shared value in place, even through a `let` binding.
+`receiver.field := value` updates a field declared `var` on a record or
+enum-member record. The receiver may be any record-typed postfix expression —
+a binding (`let` included), a field, an indexed element, a parameter, or a call
+result — and the shared value is mutated in place. Exception fields and fields
+without `var` are not assignable. An enum-typed receiver has no fields: narrow
+it with a `case` pattern or cast it to its member record first.
 
-Either indexed or `var`-field assignment can close a reference cycle — see
-[Cycles](types.md#cycles) for the operations that detect one. Because binding
-and assignment never copy, a program that wants an independent value asks for
-one with the `copy`/`shallow-copy` built-ins — see [`copy` and
+```agl
+record Counter
+  var hits: int
+
+program def main() -> unit =
+  let counter = Counter(hits = 0)
+  let alias = counter
+  counter.hits := counter.hits + 1
+  print(alias.hits)   # 1
+```
+
+Indexed or field assignment can close a reference cycle; see
+[Cycles](types.md#cycles). Binding and assignment never copy; see [`copy` and
 `shallow-copy`](types.md#copying-values).
 
-Evaluation order for `target[index] := value` is left to right: the
-container, then the index, then `value`, then the checked in-place store. A
-nested target such as `m["a"]["b"] := v` evaluates the outer container, reads
-its `"a"` entry to reach the inner container, evaluates `"b"` and `v`, then
-stores into the inner container — so a `KeyError` or `IndexError` raised
-while reaching the target aborts before `value` is evaluated, but a `value`
-with a side effect always runs before the store is checked. For
-`receiver.field := value`, the receiver is evaluated first, then `value`, then
-the in-place store.
+Evaluation order for `target[index] := value` is left to right: the container,
+the index, `value`, then the checked store. For a nested target such as
+`m["a"]["b"] := v`, the outer container is evaluated and its `"a"` entry read
+before `"b"` and `v` are evaluated, so a `KeyError` or `IndexError` while
+reaching the target aborts before `value` runs, while `value`'s side effects
+always precede the store's own check. For `receiver.field := value`: the
+receiver, `value`, then the store.
 
 Static rules, all checked before execution:
 
 1. Redeclaring a name in the same scope is an error.
-2. Assignment to an undeclared name is an error.
-3. A bare `name := value` (no index) to an immutable binding is an error; the
-   diagnostic names the binder kind — `let`, a function parameter, a catch
-   binder, or a pattern binding.
-4. A field-assignment target must be a `var` field of a record or
-   enum-member record; an enum-typed receiver must be narrowed first.
+2. Assigning to an undeclared name is an error.
+3. A bare `name := value` to an immutable binding — `let`, a function
+   parameter, a catch binder, or a pattern binder — is an error.
+4. A field-assignment target must be a `var` field of a record or enum-member
+   record.
 5. Reading a name that is not visible in the current scope chain is an error.
-6. The contextual keywords `ask` and `exec` cannot be used as binding or
-   parameter names.
+6. The built-in call names cannot be binder or parameter names
+   ([Keywords](lexical-structure.md#keywords)).
 
 ## Suite initializers
 
-Every binder's initializer takes the same two shapes a function body does: one
-expression, or an indented **suite** whose value is its last item. A suite lets
-a binding be computed from a sequence of steps without a helper function; names
-bound inside it are local to the suite.
+Every binder and `:=` initializer takes the same two shapes a function body
+does: one expression, or an indented **suite** whose value is its last item.
+Names bound inside the suite are local to it.
 
 ```agl
 program def main(threshold: int) -> unit =
@@ -230,61 +212,42 @@ the suite form wins when the next line is indented further.
 
 ## `def` — function declarations
 
-```ebnf
-func_def ::= "def" decl_head type_params? "(" param_list? ")" ("->" type_expr)? ("=" func_body | suite)
-decl_head ::= [scope_path "::"] name
-```
-
-`def` is a static declaration valid at the module root and in
-[named scope regions](scopes.md). Its head may include a scope path, such as
-`def Text::render(value: text) -> text = value`. It introduces an immutable
-function binding in its declaration layer.
-A root `def` may call itself or any other root `def`, including one declared
-later. `def`s in the same named scope have the same visibility, so they may
-call one another recursively without a forward declaration.
-
-```agl
-def is-even(n: int) -> bool =
-  if n == 0 => true else => is-odd(n - 1)
-
-def is-odd(n: int) -> bool =
-  if n == 0 => false else => is-even(n - 1)
-```
-
-A `def` may be **generic** — it can declare type parameters in a bracketed
-list after its name (`def id[T](x: T) -> T = x`); see [Generics](generics.md).
-
-A `def` inside a nested block is a static error. See
-[Functions](functions.md) for full details.
+`def` is a static declaration valid at the module root and in [named scope
+regions](scopes.md); a `def` inside a nested block is a static error. Its head
+may include a scope path (`def Text::render(value: text) -> text = value`). It
+introduces an immutable function binding; root and same-scope `def`s may refer
+to one another regardless of order, so they may be mutually recursive. See
+[Functions](functions.md) for declarations, parameters, and recursion, and
+[Generics](generics.md) for type parameters.
 
 ## Typing of bindings
 
-- With an annotation, the initializer is checked against the annotated binding
-  type (`int → decimal` widening applies; see [Types](types.md)).
-- Without an annotation, the binding type is inferred from the initializer.
-  **An untyped `ask` defaults to `text`; an untyped `exec` defaults to the
-  structured `ExecResult`**:
+- With an annotation, the initializer is checked against the annotated type
+  (`int → decimal` widening applies; see [Types](types.md)).
+- Without an annotation, the type is inferred from the initializer. **An
+  untyped `ask` defaults to `text`; an untyped `exec` defaults to
+  `ExecResult`**:
 
   ```agl
-program def main() -> unit =
-  let x = ask "A"
-  let res = exec "ls"
+  program def main() -> unit =
+    let x = ask "A"
+    let res = exec "ls"
   ```
 
-- Empty array/dictionary literals cannot be inferred and require an
-  annotation: `let items: array[Issue] = []`.
 - A module-level `var` of a module with a static root ([Library modules and
-  cycles](modules.md#library-modules-and-cycles)) needs an annotation whenever
-  its initializer would otherwise infer a single enum case (`var v = Some(1)`
-  infers `Option::Some`, not `Option[int]`, so it is rejected; `var v: Option[int]
-  = Some(1)` is fine): a later write could then never hold any other case. A
-  module-level `let` has no such restriction, since it is never reassigned.
-- A `let` or `var` bound to a function value has a function type:
+  cycles](modules.md#library-modules-and-cycles)) needs an annotation when its
+  initializer would infer a single enum member: `var v = Some(1)` infers
+  `Option::Some`, so no later write could hold `None`, and it is rejected;
+  `var v: Option[int] = Some(1)` is fine. A module-level `let` is never
+  reassigned and has no such restriction.
+- A binding of a function value has a function type:
 
-  <!-- agl-check: fragment -->
   ```agl
-  let double = fn(x: int) => x * 2   # double: int -> int
-  let f: int -> text = classify     # explicit function type annotation
+  def classify(n: int) -> text = if n > 0 => "positive" else => "non-positive"
+
+  program def main() -> unit =
+    let double = fn(x: int) => x * 2   # double: int -> int
+    let f: int -> text = classify      # explicit function type annotation
   ```
 
 ## Constant expressions
@@ -304,7 +267,7 @@ root](modules.md#library-modules-and-cycles), a `builtin var` default, an
   scope region, of the **same module**.
 
 Other reads, calls other than constructors and resource lookups, binary
-operators, and `${NAME}` environment interpolation are not constant.
+operators, and `${NAME}` environment holes are not constant.
 
 A constant reference resolves by the ordinary [scope
 rules](scopes.md#names-and-visibility) and may name a binding declared further
@@ -321,61 +284,27 @@ evaluates before any binding initializes, such as a `builtin var` default or a
 ## `builtin var` — host-backed bindings
 
 ```ebnf
-builtin_var_def ::= "builtin" NEWLINE? "var" name ":" type_expr ["=" expr]
+builtin_var_def ::= attributes? "builtin" NEWLINE? "var" name ":" type_expr ["=" expr]
 ```
 
 A `builtin var` declares a body-less, host-backed, **mutable** binding with a
-mandatory type and an optional declared default. Its initializer must be a
-[constant expression](#constant-expressions) of the declared type. The
-`builtin` marker may be on the same line as `var` or on the line directly
-above it. A declaration may appear only at the root, or in a named scope
-region, of a module whose path identity lies under `std`, which it
-keeps whether it is the entry program or one of its imports; a declaration in
-any other module is a static error regardless of scoping. A binding's host
-identity is its defining module, scope path, and name, so equal names in
-different scopes or modules are independent. Root `std/config` bindings are
-the program's engine settings; scoped `std/config` bindings are ordinary
-host-backed values:
+mandatory type and an optional default, which must be a [constant
+expression](#constant-expressions) of that type. The `builtin` marker may be on
+the same line as `var` or on the line directly above it. A declaration may
+appear only at the root, or in a named scope region, of a module whose path
+identity lies under `std` — whether that module is the entry program or an
+import; elsewhere it is a static error. Its host identity is its defining
+module, scope path, and name, so equal names in different scopes or modules are
+independent.
 
-```agl
-import std/config::*
-
-program def main() -> unit =
-  std/config::strict-json := true       # write a setting (qualified target)
-  default-agent := AgentClaude("sonnet", "medium") # import tail allows a bare target
-  let strict = std/config::strict-json  # read a setting
-```
-
-An engine setting is a host-backed mutable binding in another module, so an
-assignment target names it exactly as a read does: a qualifier always works,
-and an import tail or `use` declaration can contribute a bare name. An exported
-ordinary `var` (see [Modules](modules.md#re-exports-and-visibility)) is
-writable across a module boundary the same way; an exported `let` is not.
-When the host supplies no initial value, the declared default is used; a host
-seed wins over it. Reading another standard-library binding with neither a
-host seed nor a declared default instead reports an error. A write takes
-effect from its program point onward, exactly like any `var` mutation. The
-optional settings are set with `Some("…")` or `None`.
-
-Other standard-library modules may use `builtin var` for their own ambient
-host values. For example, `std/env` exposes an in-memory
-process-environment snapshot. See [Host environment](host-environment.md) for
-the engine settings table, their types and defaults, and how a source write
-combines with the host's CLI and config-file layers.
-
-## Agent values
-
-`Agent` is a standard-library enum. Construct an agent with an enum constructor
-and store it in ordinary bindings, arrays, or function parameters. The word
-`agent` is an ordinary identifier and may also be used as a record field name.
-
-```agl
-program def main() -> unit =
-  let reviewer = AgentClaude("sonnet", "medium")
-  let impl = AgentCommand("claude -p")
-  let agents: array[Agent] = [reviewer, impl]
-  let r: text = reviewer.ask("Review the artifact")
-```
+A host seed, when supplied, is the initial value; otherwise the declared
+default is. Reading a binding with neither raises an error. Reads and writes
+name the binding exactly as for an exported `var` (a qualifier always works; an
+import tail or `use` may contribute a bare name), and a write takes effect from
+its program point onward, like any `var` mutation. The root `std/config`
+bindings are the program's [engine settings](host-environment.md#engine-settings);
+other standard-library modules use `builtin var` for their own ambient host
+values.
 
 ## Names, namespaces, and constructors
 
@@ -423,26 +352,36 @@ stays visible in type position, and an imported value `Geo` in value position.
 
 ### Constructors in the value namespace
 
-Record constructors and injected enum-member constructors are normal bindings
-in the value namespace. A constructor with at least one required field can be
-referenced without being called, stored, and passed as a function value:
+Record constructors and injected enum-member constructors are ordinary bindings
+in the value namespace. Written directly, a constructor binds its arguments
+positional-greedy ([Constructors](expressions.md#constructors)). A constructor
+with at least one required field (no `=` default) is also an **ordinary
+function value**: it can be stored, passed, and called. Reached through a
+variable, it is called **positionally**, in field declaration order, since a
+function value has no named parameters:
 
-<!-- agl-check: fragment -->
 ```agl
-let mk: int -> Box[int] = Box   # the constructor as a first-class value
-let one = mk(1)                  # called positionally, in field order
+record Box[T]
+  value: T
+
+def apply[A, B](x: A, f: A -> B) -> B = f(x)
+
+program def main() -> unit =
+  let mk: int -> Box[int] = Box   # the constructor as a function value
+  print(mk(1).value)              # called positionally
+  print(apply(42, mk).value)      # passed to a higher-order function
 ```
 
-Direct construction uses positional-greedy binding — positional arguments fill
-positional-capable fields first, then named arguments follow (`Box(value = 1)`,
-`Some(value = x)`, or `Ok(42)` for a single-standard-field member). A
-constructor with a required field, reached **through a variable**, is an
-ordinary function value invoked **positionally**, in declaration order. A
-fieldless constructor reference, or one whose every field has a `=` default,
-constructs its value immediately instead; use `fn() => R1` where a `() -> R1`
-function is required. See
-[Expressions](expressions.md#fieldless-and-all-defaulted-constructor-references)
-and [Generics](generics.md) for constructor typing and inference.
+A **generic** constructor used as a value needs expression-local evidence for
+its instantiation, exactly like a generic `def` used as a value: an
+annotation, or a surrounding higher-order call's other arguments or result. A
+bare `let f = Some` is a static error.
+
+A fieldless constructor reference, or one whose every field has a default,
+constructs its value immediately instead; use `fn() => Marker` where a
+`() -> Marker` function is required ([Fieldless and all-defaulted constructor
+references](expressions.md#fieldless-and-all-defaulted-constructor-references)).
+See [Generics](generics.md) for constructor typing and inference.
 
 ### Overload sets, shadowing, and ambiguity
 
@@ -459,15 +398,16 @@ aliases](types.md#type-aliases) covers aliases of applied types).
 
 Several visible constructors may share an unqualified member name. In ordinary
 value position, a bare reference must resolve to exactly one constructor
-candidate in its lexical scope. If it does not, it is a **static scope
-ambiguity error**, even when an expected enum type contains one of the
-candidates: scope resolves the name before that type is used to check the
-expression. **Qualify** the reference with the member's owning enum or record
-to disambiguate. Enum-member patterns and `is` tests are different: their
-scrutinee's static enum type selects a bare member rather than using ordinary
-value-position scope selection. A module-qualified member spelling
-(`mylib::Tagged`, `::Tagged`) selects the same member in every position, unless
-a same-named declaration claims its value spelling as described below
+candidate at the deciding lookup step — two of the module's own, or two
+contributed ones when the module declares none, are a **static scope ambiguity
+error**. This holds even when an expected enum type contains one of the
+candidates: scope resolves the name before that type checks the expression.
+**Qualify** the reference: an inline member with its owning enum
+(`Holder::Tagged`), a record with its own name (`Saved::Saved`). Enum-member patterns and `is` tests differ:
+their scrutinee's static enum type selects among the bare candidates. A
+module-qualified member spelling (`mylib::Tagged`, `::Tagged`) selects the same
+member in every position, unless a same-named declaration claims its value
+spelling as described below
 ([Modules](modules.md#module-qualified-enum-members)).
 
 ```agl
@@ -478,7 +418,7 @@ enum Holder[T]
 enum Other
   | Tagged(label: text)      # same unqualified name 'Tagged'
 
-let h: Holder[int] = Holder::Tagged(by = 7)   # qualified — unambiguous
+let h: Holder[int] = Holder::Tagged(by = 7)   # bare 'Tagged' is ambiguous here
 ```
 
 A declaration of the module itself claims the spelling over any member an
@@ -494,9 +434,10 @@ Yielding applies in value position only: an enum-member pattern or `is` test
 selects among the bare candidates by its scrutinee's type
 ([Constructor patterns](pattern-matching.md#constructor-patterns)).
 
-A **nearer ordinary binding shadows** a constructor (or an overload set): an
-inner `let`, `var`, or function parameter named `Tagged` hides the outer
-constructor for the rest of its scope, exactly like any other shadowing.
+A **nearer ordinary binding shadows** a constructor or a set of same-named
+constructors entirely: an inner `let`, `var`, or function parameter named
+`Tagged` hides the outer constructors for the rest of its scope, like any other
+shadowing.
 
 ```agl
 def shadow(Tagged: int) -> int = Tagged * 10   # parameter hides the constructor
@@ -541,9 +482,16 @@ Use [`::name`](modules.md) to reach the module's own top-level declaration past
 any shadowing: it skips every nearer binding and lookup step and reads none of
 the module's imports or uses:
 
-<!-- agl-check: fragment -->
 ```agl
-print(::Red)                # the 'let', not the member
+enum Color
+  | Red
+  | Blue
+
+let Red = 5
+
+program def main() -> unit =
+  let Red = "local"
+  print(::Red)                # 5: the root 'let', not the local or the member
 ```
 
 ## Lexical scoping
@@ -551,21 +499,17 @@ print(::Red)                # the 'let', not the member
 All binding is statically scoped. The program root is a scope, and these
 constructs each introduce a nested scope:
 
-1. each `do` loop iteration (a fresh scope per iteration),
+1. each loop iteration (a fresh scope per iteration),
 2. each `if` branch body,
 3. each `case` branch body,
 4. a `try` body,
 5. each `catch` body,
 6. each function call (a fresh call scope with parameters bound).
 
-`let` and `var` bind in the *current* scope only; bindings never escape
-their scope. Lambda bodies close over their definition environment but are not
-self-recursive (the lambda name is not in scope inside its own body):
-
-```agl
-program def main() -> unit =
-  let double = fn(x: int) => x * 2
-```
+`let` and `var` bind in the *current* scope only; bindings never escape their
+scope. A lambda closes over its definition environment but is not
+self-recursive: the name a `let` binds it to is not in scope inside its body
+([Functions](functions.md#lambdas-are-not-self-recursive)).
 
 ### Shadowing
 
@@ -573,49 +517,37 @@ Inner scopes may **shadow** outer bindings with a new `let` or `var`.
 Shadowing is not mutation; the outer binding is unchanged when the inner
 scope ends:
 
-<!-- agl-check: fragment -->
 ```agl
-let x = "outer"
-if condition =>
-  let x = "inner"    # shadows outer x
-  ask "Uses %{x}"    # inner
-ask "Uses %{x}"      # outer
+program def main(condition: bool) -> unit =
+  let x = "outer"
+  if condition =>
+    let x = "inner"    # shadows the outer x
+    print "uses %{x}"  # inner
+  print "uses %{x}"    # outer
 ```
 
 ### Mutation across scopes
 
 `:=` reaches *through* scopes to the nearest visible mutable binding:
 
-<!-- agl-check: fragment -->
 ```agl
-var artifact: text = impl.ask("Implement %{spec}")
+enum Review
+  | Pass
+  | Fail(issues: array[text])
 
-case review of
-  | Fail(issues) =>
-      artifact := impl.ask("Fix %{issues} in %{artifact}")
-  | Pass => ()
+program def main(spec: text) -> unit =
+  var artifact: text = ask "Implement %{spec}"
+  let review: Review = ask "Review %{artifact}"
+  case review of
+    | Fail(issues) => artifact := ask "Fix %{issues} in %{artifact}"
+    | Pass => ()
+  print artifact
 ```
 
 ### Loop scope
 
-A `do` body opens a fresh scope on each iteration, and the `until` condition
-is evaluated **in that same iteration scope** — it can see `let` or `var`
-bindings made by the body, including a final binder. A `while` condition runs
-before the body and cannot see its bindings:
-
-<!-- agl-check: fragment -->
-```agl
-do[5]
-  let review: Review = reviewer.ask("Review %{artifact}")
-until review is Pass
-```
-
-`review` is visible to `until` but does not exist after the loop.
-
-When a bound expression `[expr]` is present, it is evaluated **once in the
-enclosing scope**, before the first iteration. It cannot see any binding
-introduced by the body, and mutating a `var` the bound references from inside
-the body does not affect the already-fixed bound.
+Each loop iteration opens a fresh scope whose bindings the `until` condition
+sees; see [Iteration order and scope](control-flow.md#iteration-order-and-scope).
 
 ### Pattern and catch variables
 
@@ -625,14 +557,17 @@ branch or handler body. See [Pattern matching](pattern-matching.md) and
 
 ### Function parameter scope
 
-Each call opens a fresh scope with the function's parameters bound. Defaults
-are evaluated in the function's **definition** scope (not the call site):
+Each call opens a fresh scope with the function's parameters bound. A default
+is evaluated at each call that omits its argument, but its names resolve in the
+function's **definition** scope, never the call site:
 
 ```agl
 let default-limit: int = 3
 
 def summarize(doc: text, limit: int = default-limit) -> text =
   "[%{limit}] %{doc}"
-```
 
-`default-limit` is resolved at definition time, not call time.
+program def main() -> unit =
+  let default-limit = 100      # not seen by the default
+  print(summarize("notes"))    # [3] notes
+```

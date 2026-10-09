@@ -81,12 +81,12 @@ program def main(spec: text) -> unit =
 
 | Chapter | Contents |
 | ------- | -------- |
-| [Lexical structure](lexical-structure.md) | Source text, comments, indentation and layout, keywords, tokens, declaration attributes, operator precedence |
-| [Program structure](program-structure.md) | Modules, `program def` entry points and their parameters, items, binders, inline forms |
+| [Lexical structure](lexical-structure.md) | Source text, comments, layout, keywords, qualifier-chain spelling, identifiers and operator names, literals, operator precedence, user-defined operators |
+| [Program structure](program-structure.md) | Modules, `program def` entry points and their parameters, declarations, block values and discarded values, inline forms |
 | [Types](types.md) | Built-in types, `record`/`enum`/`type` declarations, library types the language names, assignability, casts (`as`/`as?`), mutable fields and reference semantics, copying, parsing |
 | [Bindings and scope](bindings-and-scope.md) | `let`, `var`, `:=`, `builtin var`, `def`, lexical scoping, shadowing |
 | [Expressions](expressions.md) | Literals, constructors, calls, operators, `as`/`as?` cast operators, `render`, JSON parsing, `case`/`if` expressions, `unit`-typed forms, expected-type propagation |
-| [Strings and interpolation](strings-and-interpolation.md) | Templates, `$` literals, escapes, `%{…}` interpolation, uniform rendering rules |
+| [Strings and interpolation](strings-and-interpolation.md) | Templates, escapes, `%{…}` and `${…}` holes, `$` literals, uniform rendering rules |
 | [Functions](functions.md) | `def` declarations, `fn` lambdas, optional/named arguments, function types, first-class values, recursion and depth limit |
 | [Control flow](control-flow.md) | `if`, `case`, unified loops (`for`/`while`/`do`/`until`/`done`), `break`, `continue` |
 | [Pattern matching](pattern-matching.md) | Patterns, source priority, exhaustiveness, redundancy |
@@ -95,12 +95,12 @@ program def main(spec: text) -> unit =
 | [Shell execution](shell-execution.md) | `exec`, the `ExecResult` structured form vs the parsed form, `ExecError` |
 | [Exceptions](exceptions.md) | The exception model, `try`/`catch`/`raise`, the built-in exception catalog |
 | [Attributes](attributes.md) | `@name` declaration attributes: placement, catalog, zones, `@doc`, `@extern-name`, command registration, program parameter options |
-| [Modules](modules.md) | File-based module system: module identity, import forms, qualified access, visibility, cyclic imports, REPL imports, the standard-library module inventory |
+| [Modules](modules.md) | File-based module system: module identity, import forms, `use`, qualified access, re-exports and visibility, the prelude, cyclic imports, REPL imports |
 | [Named scopes](scopes.md) | Nestable declaration namespaces, qualifier paths, visibility, and `use` |
 | [Packages](packages.md) | Package module trees and identity, package-qualified paths, import visibility, programs as commands, params and qualified configuration keys, resources and companions |
-| [Python FFI](ffi.md) | `extern def`, the companion Python file, value mapping across the boundary, `ExternError`, interpreter-local companion state, the trace hook, target type parameters |
-| [Host environment](host-environment.md) | Agents, program arguments, host defaults, capability checking, tracing |
-| [Grammar](grammar.md) | The collected grammar |
+| [Python FFI](ffi.md) | `extern def`, the companion Python file, value mapping across the boundary, callbacks, `ExternError`, companion state, the trace hook, target type parameters |
+| [Host environment](host-environment.md) | The execution pipeline, agents, program arguments and value syntax, module parameters, engine settings and their precedence, tracing |
+| [Grammar](grammar.md) | The complete EBNF |
 
 The reference names a library type or function only where the language's semantics
 depend on it; the `std/*` modules are documented by their sources.

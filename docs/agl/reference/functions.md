@@ -2,47 +2,25 @@
 
 [← Index](index.md)
 
-AgL supports **user-defined functions**: named `def` declarations at the
-module root or in named scope regions, and anonymous `fn` expressions. Functions are first-class
-values; they may be stored in bindings, passed as arguments, and returned
-from other functions. The type of a function value is written
-`(A, B) -> C`.
+AgL has named `def` declarations and anonymous `fn` expressions (lambdas). Functions are first-class
+values: they may be stored in bindings, passed as arguments, and returned from
+other functions. The declaration, lambda, and call syntax is specified in
+[Grammar](grammar.md#function-declarations).
 
 ## `def` — named function declarations
 
-```ebnf
-func_def         ::= attributes? "def" func_decl_head type_params? constraint_block? "(" param_list? ")" ("->" type_expr)? ("=" func_body | suite)
-builtin_func_def ::= attributes? "builtin" NEWLINE? "def" func_decl_head type_params? constraint_block? "(" param_list? ")" "->" type_expr
-extern_func_def  ::= attributes? "extern" NEWLINE? "def" func_decl_head type_params? constraint_block? "(" param_list? ")" "->" type_expr
-func_decl_head   ::= decl_head | builtin_receiver "::" name
-decl_head     ::= [scope_path "::"] name
-builtin_receiver ::= "array" "[" name "]" | "dict" "[" (name | "text") "," name "]"
-                   | "text" | "json" | "int" | "decimal" | "bool"
-func_body     ::= expr | suite
-type_params   ::= "[" name ("," name)* "]"
-constraint_block ::= "{" constraint ("," constraint)* ","? "}"
-constraint       ::= ("Eq" | "Hashable") name
-param_list    ::= param ("," param)* ","?
-param         ::= attributes? field_name ":" type_expr ("=" or_expr)?
-                | "self" [":" type_expr]       (* first parameter of a method *)
-```
-
-`constraint_block` bounds one or more of `type_params` `Eq` or `Hashable`; see
-[Constraint blocks](generics.md#constraint-blocks).
-
-A `def` is a static declaration at the module root or in a
-[named scope](scopes.md). A declaration head may include its scope path, as in
-`def Text::render(value: text) -> text = value`. An inline body requires `=`.
-For an indented suite body, the `=` before the newline is optional. The body is
-a single expression — which may be a block (a sequence of items ending in an
+A declaration head may include its [scope](scopes.md) path, as in
+`def Text::render(value: text) -> text = value`. An inline body requires `=`;
+before an indented suite body the `=` is optional. The body is a single
+expression, which may be a block (a sequence of items ending in an
 expression):
 
 ```agl
 def classify(n: int) -> text =
   if
     | n > 0 => "pos"
-    | n < 0  => "neg"
-    | else   => "zero"
+    | n < 0 => "neg"
+    | else  => "zero"
 
 def summarize(doc: text, sentences: int = 3) -> text =
   let prompt = "Summarize in at most %{sentences} sentences:\n%{doc}"
@@ -54,45 +32,41 @@ def double(n: int) = n * 2
 def incremented() -> int = (let x = 0; x + 1)
 ```
 
-An inline `def` body is a single item. It ends at the next block separator —
-a newline or `;` — and a `;` after the body starts the next block item rather
-than extending the body. Write a multi-item body as a parenthesized block or
-as a suite — see [Inline bodies](grammar.md#inline-bodies).
+An inline `def` body is a single item. The next block separator — a newline
+or `;` — ends it and starts the next block item. Write a multi-item body as a
+parenthesized block or as a suite — see
+[Inline bodies](grammar.md#inline-bodies).
+
+`def` is valid only at the program root and in named scope regions; a `def`
+nested in a block (a loop body, an `if` branch, …) is a static error.
 
 ### Return type
 
 The `-> RetType` annotation is optional on ordinary `def` declarations. When
-present, the body is checked against it; a mismatch is a static error. When
-omitted, AgL makes a best-effort inference of the return type from the body,
-as it does for lambdas. A monomorphic function can infer through direct
-recursion, same-module forward references, and mutual recursion when the group
-provides concrete evidence:
+present, the body is checked against it. When omitted, AgL infers the return
+type from the body, as it does for lambdas. A monomorphic function infers
+through direct recursion, same-module forward references, and mutual
+recursion when the group provides concrete evidence:
 
 ```agl
 def is-even(n: int) = if n == 0 => true else => is-odd(n - 1)
 def is-odd(n: int) = if n == 0 => false else => is-even(n - 1)
 ```
 
-This also applies when a later function is used as a function value or through
-partial application. Inference uses only the definitions in that dependency
-group, never callers or their expected types. A recursive generic function is
-inferred when every recursive call preserves its type parameters in the same
-order; a call at changed, permuted, fixed, or nested type arguments needs an
-explicit result annotation. If a group has no concrete result evidence, for
-example because it always raises or only calls within the group, AgL asks for
-return type annotations.
-
-A function may also exit early with `return`; see [Early return](#early-return).
+This also applies when a later function is used as a function value or
+through partial application. Inference uses only the definitions in that
+dependency group, never callers or their expected types. A recursive generic
+function infers only when every recursive call passes its type parameters
+unchanged and in order ([Recursive generic
+functions](generics.md#recursive-generic-functions)). A group with no concrete
+result evidence — for example one that always raises or only calls within the
+group — needs return type annotations.
 
 ### Early return
 
-```ebnf
-return_expr ::= "return" or_expr?
-```
-
 `return expr` exits the nearest enclosing `def` or `fn` body immediately and
-makes `expr` the function call's result. A bare `return` is equivalent to
-`return ()` and is valid only when the function result type is `unit`.
+makes `expr` the call's result. A bare `return` is `return ()` and is valid
+only when the result type is `unit`.
 
 ```agl
 def first-positive(xs: array[int]) -> int =
@@ -107,54 +81,88 @@ def log-and-stop() -> unit =
   return
 ```
 
-The usual tail-value rule still applies: a body that does not execute a
-`return` yields its last expression. With an explicit return type annotation,
-each `return` operand is checked against that result type. Without an
-annotation, the inferred result type is the common type of all `return`
-operands and the body's tail value, using the same branch-unification rules as
-`if` and `case` (`int` may widen to `decimal`, and divergent branches are
-ignored). If these values have no common type, add a return type annotation.
+A body that does not execute a `return` yields its last expression. With a
+return type annotation, each `return` operand is checked against it. Without
+one, the inferred result type is the common type of every `return` operand and
+the tail value, unified as `if` and `case` branches are (`int` may widen to
+`decimal`; divergent branches are ignored); if there is none, annotate the
+result.
 
-A `return` inside a lambda returns from that lambda, not from an enclosing
-`def`. A `return` is valid only inside a function body; it is a static error at
-the program top level or in parameter defaults.
+A `return` inside a lambda returns from that lambda. `return` is a static
+error outside a function body, including at the program top level and in
+parameter defaults.
 
 Like `raise`, `return` is admitted directly in an inline branch or `catch`
 body (`if ready => return x else => 0`) and in a loop body. It is an
-`expr`-level form, so in an `or_expr` position — an `until` condition, a
-binder's right-hand side, an operand — it must be parenthesized. A `return`
+`expr`-level form, so in an `or_expr` position — an `until` condition or an
+operand — it must be parenthesized. A `return`
 followed by a newline is a bare `return`; the operand never continues onto the
 next line.
 
 ### Built-in functions
 
-`builtin def` declares a function implemented by the host, so it has no body.
-Its return type annotation is required. The declared name and signature must
-match a recognized built-in exactly. This form is used by the standard library; ordinary
-programs normally call those declarations through the default standard-library
-import instead of redeclaring them.
+`builtin def` declares a function implemented by the host, so it has no body
+and its return type annotation is required. `builtin` is a declaration
+modifier: it may precede `def` on the same line or on the line directly above
+it. The declared name and signature must match a recognized built-in exactly.
+The standard library makes these declarations; programs call them through the
+default standard-library import.
 
-A call to a built-in name resolves exactly like a call to any other name: the
-callee must reach a `builtin def` declaration — bare through the standard
-library's default import or a program's own declaration, or qualified through
-its declaring path — and a name with no such declaration in scope is an
-ordinary undefined-name error, not a host dispatch.
+A call to a built-in name resolves like any other name: the callee must reach
+a `builtin def` declaration — bare through the default import or a program's
+own declaration, or qualified through its declaring path. A name with no such
+declaration in scope is an ordinary undefined-name error.
 
-A built-in's complete scoped name — whether it names a `builtin def` or a
-`builtin record`/`enum`/`exception` — is its host identity. It may be declared
-only once at that path across the program. This lets a root `ask` coexist with
-`Agent::ask`, while still preventing a second declaration at either exact path.
-A program loading the default standard library, as it does unless started with
-`--no-stdlib` (see [Modules](modules.md#prelude)), therefore cannot redeclare
-a standard-library builtin at the same scoped name.
+A built-in's complete scoped name — of a `builtin def` or of a `builtin
+record`/`enum`/`exception` — is its host identity and may be declared only
+once across the program. A root `ask` therefore coexists with `Agent::ask`,
+and a program that loads the default standard library (unless started with
+`--no-stdlib`; see [Modules](modules.md#prelude)) cannot redeclare a
+standard-library builtin at the same scoped name.
 
-`builtin` is a declaration modifier: it may precede `def` on the same line or
-on the line directly above it (the newline after the modifier is
-insignificant).
+An ordinary function in a named scope, or in a module with a path identity
+([Modules](modules.md)), may reuse a built-in function's name because it is
+reached through its own qualified namespace. The bare built-in spelling stays
+reserved, even after a `use` makes that scope's or module's members bare. A
+root `def` in a module with no path identity cannot use a built-in function
+name: the bare namespace is the only one it declares into.
+
+```agl
+use Codec::*
+
+scope Codec
+  def render[T](value: T) -> array[T] = [value]
+end Codec
+
+program def main() -> unit =
+  let wrapped = Codec::render(1)  # the scoped generic function
+  let shown = render(1)           # the built-in render
+  print(wrapped)
+  print(shown)
+```
+
+A `builtin def` method must also match a recognized host method. On a
+[builtin receiver](#methods) it must be `print`, `render`, `copy`, or
+`shallow-copy` taking only `self`; `copy` and `shallow-copy` return the
+receiver's exact type, `print` returns `unit`, and `render` returns `text`.
+Calling one performs the corresponding bare built-in with `self` as its
+value. On a nominal receiver, the recognized host methods are the standard
+library's `Agent::ask`, `Agent::ask-request`, and `Session` methods
+([Agent calls](agent-calls.md)), whose receiver supplies the target agent or
+session. Host methods follow the ordinary selection, bound-method, and
+specialization rules.
+
+The special built-ins `print`, `render`, `copy`, `shallow-copy`, `parse`,
+`try-parse`, `resource`, `ask`, `ask-request`, and `exec`, and the `Agent::ask`,
+`Agent::ask-request`, and `Session::ask` methods, take their subject
+positionally only and every option by name only: `print(value = 1)`,
+`exec(command = "ls")`, and `ask("Hi", AgentClaude())` are static errors.
+`Session::open` and the other `Session` operations bind arguments like an
+ordinary `def`.
 
 Runtime built-ins are first-class values. A value occurrence is contextually
 specialized and behaves like an eta-expanded lambda over the declaration's
-required parameters; omitted optional parameters retain their host defaults:
+required parameters; omitted optional parameters keep their defaults:
 
 ```agl
 program def main() -> unit =
@@ -166,87 +174,78 @@ program def main() -> unit =
   ()
 ```
 
-Generic occurrences need an expected function type or explicit type arguments,
-except that an unconstrained `ask` value defaults its result to `text`, like a
-direct `ask` call. `ask-request` similarly defaults its embedded output
-contract to `text`. Configured variants can be expressed with a lambda around a
-direct call. Built-in methods produce receiver-capturing values, and qualified
-method or `Session` static references produce ordinary positional function
-values. `resource` is call-only because its path must be a source literal resolved
-at link time; the nullary `resource-dir` is a function value. `parse` and
+A generic built-in value needs an expected function type or explicit type
+arguments, except that an unconstrained `ask` value defaults its result to
+`text`, like a direct `ask` call, and `ask-request` its output contract to
+`text`; `exec` defaults to `ExecResult`. For calls and values alike, an
+expectation that is a type parameter nothing else in the enclosing expression
+pins counts as unconstrained: `print <| exec "date"` prints an `ExecResult`.
+To capture non-default options, wrap a direct call in a lambda. Built-in
+methods produce receiver-capturing values, and qualified method or `Session`
+static references produce ordinary positional function values. `resource` is call-only because its path must be
+a source literal; the nullary `resource-dir` is a function value. `parse` and
 `try-parse` are call-only because their target type comes from the call's
-explicit type argument or expected type ([Parsing values](types.md#parsing-values)).
+explicit type argument or expected type ([Parsing
+values](types.md#parsing-values)).
 
 ### Externally implemented functions
 
-`extern def` declares a function implemented by a companion Python file
-instead of an AgL body or the host — like `builtin def`, it has no body and a
-mandatory return type, but its implementation lives in ordinary program
-source (a co-located `.py` file) rather than the host. See
-[Python FFI](ffi.md) for the declaration syntax, the type mapping across the
-boundary, and the error model. A type parameter that no parameter mentions
-makes it **type-directed**: each call site's resolved type reaches the
-companion ([Target type parameters](ffi.md#target-type-parameters)).
+`extern def` declares a function implemented by a co-located Python companion
+file. Like `builtin def`, it has no body and a mandatory return type. A type
+parameter that no parameter mentions makes it **type-directed**: each call
+site's resolved type reaches the companion. See [Python FFI](ffi.md) for the
+declaration rules, the type mapping, and the error model.
 
 ### Parameters
 
 Parameters are listed with explicit types. Each parameter belongs to one of
-three **zones** that determine how arguments at the call site are matched:
+three **zones** that determine how call-site arguments match it:
 
 | Zone | Binding | Written as |
 |------|---------|------------|
-| **Positional-only** | Positional argument only; cannot be passed by name | `@arg-pos`; a method receiver `self` |
+| **Positional-only** | Positional argument only | `@arg-pos`; a method receiver `self` |
 | **Standard** | Positional or named | `@arg-std` |
 | **Named-only** | Named argument only (or bare-name shorthand) | `@arg-named` |
 
-An [attribute](attributes.md#zone-attributes) in front of a parameter puts that
-parameter in the zone it names. The same attribute in front of the declaration
-sets the zone of every parameter that does not name one itself.
+A [zone attribute](attributes.md#zone-attributes) in front of a parameter puts
+that parameter in its zone; in front of the declaration it sets the zone of
+every parameter that does not name one itself. Without one, parameters of a
+`def`, `extern def`, or `builtin def` are standard (the special built-ins
+above excepted), a method receiver `self` is positional-only, and parameters
+of a `program def` are named-only (its CLI projection is described in [Host
+environment](host-environment.md#program-arguments)). A lambda accepts zone
+attributes and parameter defaults, but they have no effect: a lambda is only
+called as a function value, positionally with every argument, so
+`fn(x: int = 4) => x` called as `f()` is an arity error.
 
-For `def`/`extern def`/`builtin def`/lambda, the **default zone is standard**: a
-parameter list with no zone attribute has all parameters in the standard zone
-(positional or named). A method receiver `self` is the exception: it is always
-positional-only. A `program def`'s parameter list defaults to the **named-only**
-AgL zone instead. Its CLI projects an unzoned required parameter to a
-positional-only slot — unless its type is `bool`, `Option[T]`, or
-`Optional[T]` — and every other unzoned parameter to `--name`
-([Host environment](host-environment.md#program-arguments)). Explicit zone
-attributes govern both AgL calls and CLI slots.
-
-<!-- agl-check: fragment -->
 ```agl
-def f(@arg-pos x: int, y: int) -> int = x + y     # x pos-only, y standard
-def g(@arg-pos x: int, y: int, @arg-named z: int) -> int = ...  # all three zones
-def simple(x: int, y: int) -> int = x + y         # both standard (default)
+def f(@arg-pos x: int, y: int) -> int = x + y                    # x pos-only, y standard
+def g(@arg-pos x: int, y: int, @arg-named z: int) -> int = x + y + z  # all three zones
+def simple(x: int, y: int) -> int = x + y                        # both standard
 
 @arg-pos
-def h(x: int, y: int) -> int = x + y              # both positional-only
+def h(x: int, y: int) -> int = x + y                             # both positional-only
 ```
 
 Parameters are listed in zone order: positional-only, then standard, then
 named-only. A parameter that follows one from a later zone is a static error.
 
-**Defaults.** A parameter default is an `or_expr` (`param: type = or_expr`).
-Open forms such as `if`, `case`, `try`, loops, `raise`, and `fn` must therefore
-be parenthesized in a default. Only positional-fillable (pos-only or standard)
-parameters are subject to the ordering constraint: no *required*
-pos-only/standard parameter may follow a *defaulted* pos-only/standard one.
-Named-only defaults may appear in any order:
+**Defaults.** A parameter default is an `or_expr`, so `if`, `case`, `try`,
+loops, `raise`, and `fn` must be parenthesized in a default. No *required*
+positional-only or standard parameter may follow a *defaulted* one of those
+zones; named-only defaults may appear in any order:
 
 ```agl
 def greet(name: text, greeting: text = "Hello") -> text =
   "%{greeting}, %{name}!"
 
 def with-named-default(x: int, @arg-named tag: text = "ok") -> text =
-  "%{tag}: %{x}"   # tag is named-only; its default is unconstrained
+  "%{tag}: %{x}"
 ```
 
-A [record field default](types.md#record-types) follows the same `= <constant
-expr>` shape and the same zone-ordering constraint, and is likewise omittable
-at a constructor call; see [Record types](types.md#record-types) for its
-constant-expression rule and [Value syntax](host-environment.md#value-syntax)
-for how an omitted defaulted field is filled outside AgL source (JSON, value
-syntax, agent output).
+Defaults are evaluated at each call that omits them. A [record field
+default](types.md#record-types) follows the same ordering rule and is likewise
+omittable at a constructor call.
 
 ## Methods
 
@@ -262,11 +261,12 @@ The receiver part of `def Type::f(self)` (or `scope Type` containing that
 without its own name — read at the path's parent step in the module
 containing the declaration ([Names and
 visibility](scopes.md#names-and-visibility)). A record, enum, enum member, or
-exception the module declares there wins. Otherwise, exactly one type an
-import tail or `use` written in that scope or an enclosing one provides there
-must supply it; renamed contributions may provide that spelling, and two
-distinct provided types are ambiguous. There is no outward fallback, and a
-qualified import alone provides no bare receiver name. A receiver names its
+exception the module declares there wins. Otherwise an import tail or `use` in
+that scope or an enclosing one must provide exactly one type at that path (a
+renamed contribution counts under its new name); two distinct provided types
+are ambiguous. There is no outward fallback — inside `scope r`,
+`def Geo::m(self)` extends `r::Geo`, never a root `Geo` — and a qualified
+import alone provides no bare receiver name. A receiver names its
 type directly: a receiver path that selects a type through a type alias, the
 module's own or an imported one, is an error. The declaration extends the
 resolved type's plain scope in the module that contains the `def`; it does
@@ -304,9 +304,9 @@ A method is selectable in a module when that module declares it or can reach
 its declaration by a qualified import route. Any import form — a plain import,
 alias, bare tail, wildcard, or facade re-export — can provide that route;
 `hiding` removes it. `use` adds bare names only and does not affect method
-visibility. The implicit
-`import std/prelude::*` is an ordinary route, so it also makes the methods its
-receiver-scope re-exports expose available.
+visibility. The implicit prelude import is an ordinary route, so the
+standard-library methods it re-exports, builtin-receiver ones included, are
+selectable wherever it is enabled ([Prelude](modules.md#prelude)).
 
 Method candidates for a name form **one level**, fixed by the receiver's
 static type `T`:
@@ -334,8 +334,7 @@ enum method named like a member field stays legal to declare: it clashes with
 the field only on a member-typed receiver, since an enum-typed receiver has
 no fields and simply selects the method. A method declaration itself is
 rejected when its resolved owner or an ancestor already has a field of that
-name (see below for the other rejection: a same-module, same-level method
-pair).
+name, or when it pairs with a same-module method of the same level (below).
 
 When the selected method belongs to an owning enum `E` rather than to the
 member itself, the receiver **widens** to `E` — an identity upcast, so
@@ -366,36 +365,24 @@ across modules and becomes an ambiguity only where both routes are visible at
 a call site; repair it with a qualified call, a rename, `hiding` one route, or
 an annotation or `as` that narrows or widens the receiver's static type.
 
-A builtin receiver may be named in a method declaration in any module. This
-syntax is available to ordinary, `builtin`, and `extern` definitions:
-`array[E]::name` binds its receiver element parameter and `dict[K, V]::name`
-binds its receiver key and value parameters; `dict[text, V]::name` binds only
-the value parameter and applies only to `text`-keyed dicts; `text`, `json`,
-`int`, `decimal`, and `bool` are bare receivers. Otherwise a builtin receiver
-must use its bare generic form, so `array[int]::name`, `dict[int, V]::name`,
-and `dict[text, array[int]]::name` are invalid, and so is a receiver spelled
+A builtin receiver may be named in a method declaration in any module, by an
+ordinary, `builtin`, or `extern` definition: `array[E]::name` binds its
+receiver element parameter and `dict[K, V]::name` binds its receiver key and
+value parameters; `dict[text, V]::name` binds only the value parameter and
+applies only to `text`-keyed dicts; `text`, `json`, `int`, `decimal`, and
+`bool` are bare receivers. Otherwise a builtin receiver must use its bare
+generic form, so `array[int]::name`, `dict[int, V]::name`, and
+`dict[text, array[int]]::name` are invalid, and so is a receiver spelled
 through an alias of a builtin type. These builtin heads are the only
 declaration-path segments that take type arguments, and only for a method:
-`def array[E]::f()` and `def Box[int]::f()` are invalid. As with a nominal generic
-receiver, `_` may occupy an unused receiver slot; it binds a private rigid
-parameter and cannot be named by the method body. A `{…}` constraint block may
-bound the receiver's key, element, or value parameter the same way it bounds a
-nominal receiver's; see [Generic methods](generics.md#generic-methods).
+`def array[E]::f()` and `def Box[int]::f()` are invalid. As with a nominal
+generic receiver, `_` may occupy an unused receiver slot; it binds a private
+rigid parameter the body cannot name. A `{…}` constraint block may bound the
+receiver's key, element, or value parameter; see [Generic
+methods](generics.md#generic-methods).
 
-The prelude re-exports builtin receiver scopes, making standard-library methods
-reachable wherever the prelude is enabled. With `--no-stdlib`, import a route
-to the module or facade that exports the method. Free functions remain subject
-to ordinary imports. Ordinary and `extern` builtin-receiver methods use the
-same direct-call, bound-method, and generic-specialization rules as nominal
-methods.
-
-A `builtin def` receiver method is a host route. Its name and signature must be
-one of `print`, `render`, `copy`, or `shallow-copy`; each takes only `self`.
-`copy` and `shallow-copy` return the receiver's exact type, `print` returns
-`unit`, and `render` returns `text`. Calling it reuses the corresponding bare
-builtin operation with `self` as its value. Projecting it produces a bound
-nullary function value, while a qualified reference includes `self` as its
-first positional parameter.
+Builtin-receiver methods follow the same visibility, call, bound-method, and
+specialization rules as nominal methods.
 
 ```agl
 record Person
@@ -427,20 +414,21 @@ program def main() -> unit =
   let counter = Counter(value = 1)
   let alias = counter
   counter.add(2)
-  print(alias.value)
+  print(alias.value)    # 3
 ```
 
-`self` must be the first parameter. It has no default and cannot be
-supplied by name. Its annotation is optional; when written, it must be exactly
-the resolved receiver type with its receiver type parameters. Thus an orphan
-on `geometry::Point` may write either `self: Point` or `self: geometry::Point`;
+`self` must be the first parameter. It has no default and cannot be supplied
+by name. Its annotation is optional; when written, it must be exactly the
+resolved receiver type with its receiver type parameters. Thus an orphan on
+`geometry::Point` may write either `self: Point` or `self: geometry::Point`;
 for a generic `Box` receiver, `self: Box[E]` is valid while `self: Box[int]`
-is not.
+is not. Elsewhere `self` is an ordinary identifier and, as an ordinary
+parameter, requires an annotation.
 
 On a generic receiver type, the first type parameters of a method bind the
 receiver type parameters in positional order. Their names are the method's
 choice. `_` may fill any unused receiver slot and may repeat; see
-[Generics](generics.md#generic-methods) for the complete rule.
+[Generic methods](generics.md#generic-methods) for the complete rule.
 
 ```agl
 record Box[T]
@@ -481,25 +469,35 @@ belongs to `Tree`, `Tree::Node`'s owning enum, so it is also in
 captures no type parameter, so calling `or-default` on it leaves `T`
 phantom; here the argument's type solves it.
 
+### Bound methods and leading-dot expressions
+
 A method member used without a call is a **bound method**: a function value
 that has captured its receiver and has parameters only for the remaining
-method parameters. It can be stored, passed to another function, or partially
-applied like any other function value.
+method parameters. It can be stored, passed, or partially applied like any
+other function value:
 
-A **leading-dot expression** omits the receiver of a member expression and
-produces a unary function that accepts it:
+```agl
+record Meter
+  value: int
 
-```ebnf
-leading_dot_expr ::= "." field_name postfix_suffix*
-postfix_suffix  ::= "." field_name | "[" expr "]"
-                  | "(" arg_list? ")" | value_type_args
+def Meter::add(self, amount: int) -> int = self.value + amount
+def apply(value: int, f: int -> int) -> int = f(value)
+
+program def main() -> unit =
+  let meter = Meter(value = 4)
+  let add = meter.add
+  let plus = meter.add(?)
+  print(apply(3, add))    # 7
+  print(plus(5))          # 9
 ```
 
-`.field` behaves like `fn(receiver: T) => receiver.field`, and `.method(args)`
-like `fn(receiver: T) => receiver.method(args)`. The surrounding expression must
-supply a unary function type with a resolved receiver type `T`; the result type
-may be inferred. Pipelines, annotated bindings, and callback parameter types
-can supply this context. An unconstrained `let read = .field` is rejected.
+A **leading-dot expression** omits the receiver of a member expression and
+produces a unary function that accepts it: `.field` behaves like
+`fn(receiver: T) => receiver.field`, and `.method(args)` like
+`fn(receiver: T) => receiver.method(args)`. The surrounding expression must
+supply a unary function type with a resolved receiver type `T` — a pipeline,
+an annotated binding, or a callback parameter type; the result type may be
+inferred. An unconstrained `let read = .field` is rejected.
 
 Selection and invocation follow ordinary member rules. A field yields its
 value; a method selected without parentheses yields a bound function. Thus,
@@ -509,15 +507,12 @@ a function can likewise be selected or called. Explicit method type arguments,
 named arguments, and partial-application placeholders are supported.
 
 The complete postfix chain belongs to the function body: `.owner.name`,
-`.copy().value`, and `.items[0]` select or call through the omitted receiver.
+`.trim().size()`, and `.items[0]` select or call through the omitted receiver.
 Parentheses end that chain; `(meter |> .add)(3)` first selects a bound method,
 then calls it. Each nested leading-dot expression introduces its own receiver.
 Names in arguments refer to their enclosing bindings, including a method's
-`self`.
-
-The receiver's static type determines member selection, visibility, and
-ambiguity. An enum receiver has no fields; narrow it to a member record before
-projecting a field.
+`self`. An enum receiver has no fields; narrow it to a member record before
+projecting a field:
 
 ```agl
 enum VerifyResult
@@ -534,81 +529,35 @@ program def main() -> unit =
   let reason = result as VerifyResult::Incomplete |> .reason
   let select-add: Meter -> int -> int = .add
   let add = select-add(Meter(4))
-  print(reason)
-  print(add(3))
-```
-
-```agl
-program def main() -> unit =
   let numbers = [1, 2, 3]
   let incremented = numbers |> .map(fn(value: int) => value + 1)
   let stringify: (array[int]) -> array[text] = .map::[text](fn(value: int) => "%{value}")
-  print(incremented)
-  print(stringify(numbers))
+  print(reason)               # pending
+  print(add(3))               # 7
+  print(incremented)          # [2, 3, 4]
+  print(stringify(numbers))   # ["1", "2", "3"]
 ```
-
-```agl
-record Meter
-  value: int
-
-def Meter::add(self, amount: int) -> int = self.value + amount
-def apply(value: int, f: int -> int) -> int = f(value)
-
-program def main() -> unit =
-  let meter = Meter(value = 4)
-  let add = meter.add
-  let plus = meter.add(?)
-  print(apply(3, add))
-  print(plus(5))
-```
-
-`self` is special only as a method receiver. Elsewhere it is an ordinary
-identifier and, as an ordinary parameter, requires an annotation. `def` and
-`extern def` may declare methods. A `builtin def` may also declare a host method
-when its signature is a recognized host contract: the standard library declares
-`Agent::ask` and `Agent::ask-request`. These methods use the same selection,
-bound-function, and specialization rules; see [Agent calls](agent-calls.md).
 
 ### Scope and forward references
 
 A root `def` may call itself or any other root `def`, including one declared
-later. `def`s in the same named scope have the same visibility, so root and
-same-scope `def`s may use mutual recursion:
-
-```agl
-def is-even(n: int) -> bool =
-  if n == 0 => true else => is-odd(n - 1)
-
-def is-odd(n: int) -> bool =
-  if n == 0 => false else => is-even(n - 1)
-```
-
-`def` is valid at the program root and in named scope regions, but not inside
-a block (`do` body, `if` branch, etc.). A static error is raised if a `def` is
-nested in a block.
-
-A root or same-scope `def` may likewise read or write a `let`/`var` binding
-declared later, in a module with a static root ([Names and
-visibility](scopes.md#names-and-visibility)).
+later; `def`s in the same named scope have the same visibility, so root and
+same-scope `def`s may be mutually recursive (`is-even`/`is-odd` under
+[Return type](#return-type)). A root or same-scope `def` may likewise read or
+write a `let`/`var` binding declared later, in a module with a static root
+([Names and visibility](scopes.md#names-and-visibility)).
 
 ## `fn` — anonymous functions (lambdas)
 
-```ebnf
-lambda_expr  ::= "fn" lambda_params ("->" type_expr)? "=>" expr
-lambda_params ::= field_name | "(" lambda_param_list? ")"
-lambda_param_list ::= lambda_param ("," lambda_param)* ","?
-lambda_param ::= attributes? field_name [":" type_expr] ("=" or_expr)?
-```
-
 `fn` produces a function value. A unary lambda may omit its parameter
-parentheses. The return type annotation is **optional**: when omitted it is
+parentheses. The return type annotation is optional: when omitted it is
 inferred from the body, unless a concrete expected function type checks the
 body against its result type.
 
-A parameter annotation may also be omitted when the lambda has a matching
-function context. Each omitted type comes from the corresponding parameter of
-that function type; annotations may be omitted independently. A function-typed
-binding and a higher-order function or method parameter provide such context:
+A parameter annotation may be omitted when the lambda has a matching function
+context — a function-typed binding or a higher-order function or method
+parameter. Each omitted type comes from the corresponding parameter of that
+function type; annotations may be omitted independently:
 
 ```agl
 program def main() -> unit =
@@ -616,295 +565,129 @@ program def main() -> unit =
   let increment: int -> int = fn x => x + 1
   let add: (int, int) -> int = fn (x, y) => x + y
   let add-left: (int, int) -> int = fn (x: int, y) => x + y
-  let add-right: (int, int) -> int = fn (x, y: int) => x + y
   let greet = fn(name: text) -> text => "Hello, %{name}!"
+  let ops: array[int -> int] = [double, increment, fn(x: int) => x * x]
+  let six = (fn(x: int) => x + 1)(5)
 ```
 
 An omitted parameter type without a matching context, or with a context of a
 different arity, is a static error. When generic argument inference supplies
 the context, concrete sibling arguments are considered before the contextual
-lambda.
-
-A lambda is an ordinary expression and may appear anywhere an expression is
-accepted — in a binding, as a call argument, or in an array:
-
-```agl
-program def main() -> unit =
-  let ops: array[int -> int] = [fn(x: int) => x + 1, fn(x: int) => x * 2]
-```
-
-When used in juxtaposition position (as the right operand of an operator or
-the lone argument to a single-arg call), a lambda must be parenthesized:
-
-```agl
-program def main() -> unit =
-  let result = (fn(x: int) => x + 1)(5)
-```
+lambda. A lambda in juxtaposition position — the right operand of an operator
+or the lone argument of a single-argument call — must be parenthesized.
 
 ### Lambdas are not self-recursive
 
-A lambda's name (the binding introduced by `let`) is not in scope inside
-the lambda body. Local recursion is expressed via a top-level `def`. The
-restriction is intentional: lambda return-type inference is local and safe
-precisely because the body never depends on the lambda's own type.
+A lambda's name (the binding introduced by `let`) is not in scope inside the
+lambda body, so lambdas are not self-recursive; express local recursion with a
+`def`. Lambda return-type inference stays local because the body never depends
+on the lambda's own type.
 
 ## Generic functions
 
-A `def` may declare **type parameters** in square brackets after its name,
-making it polymorphic over those types. This is prenex (rank-1) parametric
-polymorphism: the type parameters are universally quantified over the whole
-declaration. See [Generics](generics.md) for the full treatment; this section
-covers the function-specific surface.
-
-```agl
-def id[T](x: T) -> T = x
-
-def fst[A, B](a: A, b: B) -> A = a
-```
-
-An ordinary function in a named scope or in a module with a path identity may
-use the same name as a built-in function because it is reached through its own
-qualified namespace. The bare built-in spelling is reserved, even after a
-`use` declaration makes that scope's or module's members bare:
-
-<!-- agl-check: fragment -->
-```agl
-use Codec::*
-
-scope Codec
-  def render[T](value: T) -> array[T] = [value]
-end Codec
-
-let wrapped = Codec::render(1)  # the scoped generic function
-let shown = render(1)           # the built-in render
-```
-
-An ordinary user `def` at the root of a module with no path identity of its own
-(see [Modules](modules.md)) cannot use a built-in function name: the bare
-namespace is the only one it declares into. A module that has a path identity
-keeps its qualified namespace whether it is the entry program or one of its
-imports.
-
-A type parameter is an ordinary name; it may be used anywhere a type may
-appear within the declaration — parameter types, the return type, and any
-annotation **nested inside the body**:
-
-```agl
-def singleton[T](x: T) -> array[T] =
-  let single: array[T] = [x]
-  single
-
-def via-lambda[A](x: A) -> A =
-  let g: A -> A = fn(y: A) -> A => y
-  g(x)
-```
-
-Here `array[T]` is an annotation on an inner `let`, and the lambda's parameter
-and return types refer to the enclosing `A`. A type variable is in scope
-throughout the body of the `def` that introduces it.
-
-### Inference and explicit type arguments
-
-At a call site the type arguments are normally **inferred** — from the
-argument types and from the expected type of the call. Argument evidence fixes
-an instantiation before an expected result type is considered, so ordinary
-assignability (including `int` to `decimal`) applies only afterwards:
-
-<!-- agl-check: fragment -->
-```agl
-print(id(5))          # T = int, inferred from the argument
-print(id("hi"))       # T = text
-print(fst("x", 9))    # A = text, B = int
-```
-
-When inference is insufficient or you want to pin the instantiation, supply
-the type arguments explicitly with the typed-call form `::[…]`:
-
-<!-- agl-check: fragment -->
-```agl
-print(id::[int](5))
-```
-
-The type-argument list must match the declared type parameters in number and
-order.
-
-### A generic `def` as a first-class value
-
-A generic `def` can be used as a value wherever surrounding constraints fix
-its instantiation. An expected function type does so for an annotated binding:
-
-```agl
-def id[T](x: T) -> T = x
-
-program def main() -> unit =
-  let f: text -> text = id
-  print(f("via value"))
-```
-
-A higher-order declared call can supply those constraints through its other
-arguments, so a generic function occurrence is fresh at each use:
-
-```agl
-def apply[T](f: T -> T, value: T) -> T = f(value)
-def id[T](value: T) -> T = value
-
-program def main() -> unit =
-  let n = apply(id, 5)
-```
-
-You can also pin the instantiation explicitly without calling the function:
-
-<!-- agl-check: fragment -->
-```agl
-let g = id::[int]
-print(g(5))
-```
-
-A bare `let f = id` with no constraints is a **static error**: there is
-nothing to infer the type arguments from. Bindings finalize their initializer,
-so a later `f(5)` cannot retroactively specialize `f`. (Calling `id` directly,
-where the arguments drive inference, needs no annotation.)
-
-### Strict parametricity
-
-Inside a generic `def`, a value whose static type is a bare type variable
-`T` is **opaque**: it can be passed, returned, and stored, but not compared,
-used in arithmetic, field- or index-accessed, or tested with `is`/`is not`.
-See [Strict parametricity](generics.md#strict-parametricity) for the full
-rule and what a `{…}` [constraint block](generics.md#constraint-blocks)
-relaxes.
+A `def` may declare type parameters in square brackets after its name
+(`def id[T](x: T) -> T = x`) and bound them with a `{…}` constraint block.
+Type parameters, inference, explicit `::[…]` type arguments, generic functions
+as values, and strict parametricity are specified in [Generics](generics.md).
 
 ## Calling functions
 
-All calls use the same uniform parenthesized syntax:
-
-```ebnf
-call_expr ::= postfix "(" arg_list? ")"
-arg_list        ::= arg ("," arg)* ","?
-arg             ::= element_expr                 (* positional *)
-                  | placeholder_arg              (* positional hole *)
-                  | field_name "=" element_expr  (* named *)
-                  | field_name "=" placeholder_arg (* named hole *)
-placeholder_arg ::= "?" | "?<digits>"
-```
-
-`element_expr` is `expr` without a bare record update, which must be
-parenthesized in a comma-separated element position — see
-[Record update](expressions.md#record-update).
-
-The `postfix` callee may already carry explicit type arguments, so
-`id::[int](5)` is a typed call; the `::[…]` application itself may also be used
-without a call as described in [Generic functions](#generic-functions).
-
-**Single-argument sugar.** When there is exactly one positional argument
-and no named arguments, the parentheses may be dropped and the argument
-written directly after the callee:
-
-<!-- agl-check: fragment -->
-```agl
-print review          # equivalent to print(review)
-ask "Hello?"          # equivalent to ask("Hello?")
-print res.stdout      # field-access path is a valid sugar argument
-print classify(x)     # equivalent to print(classify(x))
-f Option::Some(value = 1)  # equivalent to f(Option::Some(value = 1))
-```
-
-Application binds **tighter than all operators**:
-
-<!-- agl-check: fragment -->
-```agl
-print x + 1           # parsed as (print x) + 1
-```
-
-### Calling functions
+All calls use the same parenthesized syntax, whether the callee is a user
+`def`, a constructor, a [built-in function](#built-in-functions) such as `ask`,
+`exec`, or `print`, or a function value. The callee may carry explicit type arguments, so
+`id::[int](5)` is a typed call. An argument is an expression without a bare
+record update, which must be parenthesized ([Record
+update](expressions.md#record-update)).
 
 Arguments are matched **positional-greedy**: positional arguments fill
-positional-capable (pos-only and standard) slots left to right, in
-declaration order. Named arguments use `name = value` and may follow the
-positional arguments in any order. Positional arguments must precede named
-arguments at the call site.
+positional-capable (positional-only and standard) slots left to right, in
+declaration order. Named arguments use `name = value`, follow every positional
+argument, and may appear in any order. Defaulted parameters may be omitted:
 
 ```agl
 def add(x: int, y: int) -> int = x + y
 def f(@arg-pos x: int, y: int) -> int = x + y
-def g(x: int, @arg-named z: int) -> int = x + z
-
-program def main() -> unit =
-  let r = add(3, 4)
-  let s = add(3, y = 4)
-  let a = f(1, 2)
-  let b = f(1, y = 2)
-  let c = g(5, z = 3)
-```
-
-**Named-only shorthand.** When a bare variable name `x` appears in a
-positional argument slot but all positional-capable parameters are already
-filled, it is reinterpreted as the named argument `x = x` — but only if
-`x` is a bare name (not an expression). A non-bare expression in that
-position is an error:
-
-```agl
-def h(a: int, @arg-named key: text) -> text = "%{a}: %{key}"
-
-program def main() -> unit =
-  let key = "hello"
-  print(h(1, key))
-  print(h(1, key = key))
-```
-
-**Defaults.** Defaulted parameters may be omitted. Named-only defaults may be
-supplied in any order:
-
-```agl
 def format-msg(message: text, prefix: text = "[INFO]") -> text =
   "%{prefix} %{message}"
 
 program def main() -> unit =
-  let _ = format-msg("Done.")
-  let _ = format-msg("Done.", prefix = "!")
+  print(add(3, 4))
+  print(add(3, y = 4))
+  print(f(1, y = 2))
+  print(format-msg("Done."))
+  print(format-msg("Done.", prefix = "[WARN]"))
 ```
 
-Unknown names, duplicates, and supplying a positional-only parameter by name
-are static errors.
+Unknown names, duplicates, missing required arguments, extra positional
+arguments, and supplying a positional-only parameter by name are static
+errors.
+
+**Named-only shorthand.** A bare name `x` in positional position, after every
+positional-capable parameter is filled, is the named argument `x = x` when it
+lands on a named-only parameter. A non-bare expression there is an error:
+
+```agl
+def tag(count: int, @arg-named label: text) -> text = "%{label}: %{count}"
+
+program def main() -> unit =
+  let label = "files"
+  print(tag(3, label))            # tag(3, label = label)
+```
 
 **Named arguments at declared-name sites only.** Named arguments are
-available when calling a **declared name** (`def` or built-in). A function
-*value* (bound in a `let` or passed as an argument) has a purely positional
-type and is called with positional arguments only.
+available when calling a declared name (`def`, constructor, or built-in). A
+function *value* has a purely positional type and is called with positional
+arguments only.
 
-### Calling function values
-
-A function value is called like any other call. The callee is an expression
-of function type:
+**Single-argument sugar.** With exactly one positional argument and no named
+arguments, the parentheses may be dropped:
 
 <!-- agl-check: fragment -->
 ```agl
-let g: int -> text = classify
-let label = g(7)               # positional call of a function value
+print review               # print(review)
+ask "Hello?"               # ask("Hello?")
+print res.stdout           # field-access path as the argument
+print classify(x)          # print(classify(x))
+f Option::Some(value = 1)  # f(Option::Some(value = 1))
+ask::[int] "How many?"     # ask::[int]("How many?")
 ```
 
-A generic call that produces a function value may use the arguments of that
-value call to determine its type arguments. The constraints of one enclosing
-expression are considered together, so this needs no intermediate annotation:
+A `$` literal may supply that single argument
+([Strings and interpolation](strings-and-interpolation.md#the-literal)).
+Application binds tighter than every operator, so `print x + 1` is
+`(print x) + 1`, and juxtaposition never chains: `print f x` does not parse
+([Operator precedence](lexical-structure.md#operator-precedence)). A symbolic
+operator name after a callee is an infix operator, so an operator value passed
+as an argument needs the call's parentheses: `f(>>)`.
+
+### Calling function values
+
+A function value is called like any other callee:
 
 ```agl
+def classify(n: int) -> text = if n < 0 => "negative" else => "non-negative"
 def maker[T]() -> T -> T = fn(value: T) => value
 
 program def main() -> unit =
+  let g: int -> text = classify
+  print(g(7))
   let number = maker()(7)
+  print(number)
 ```
 
-Each occurrence is inferred independently. As with any generic expression,
-an unconstrained function-producing call still requires explicit type arguments
-or an expected function type at its binding boundary.
+A generic call that produces a function value may take its type arguments from
+the arguments of that value call, as `maker()(7)` does: the constraints of one
+enclosing expression are solved together. An unconstrained function-producing
+call still requires explicit type arguments or an expected function type at
+its binding boundary.
 
 ## Partial application
 
 A parenthesized call that contains one or more placeholder arguments evaluates
-to a new function value instead of immediately calling the callee. A placeholder
-must be the whole value of a positional argument (`?`, `?1`, `?2`, …) or the
-whole value of a named argument (`name = ?`). Placeholders work with declared
-functions, constructors, and function values.
+to a new function value instead of calling the callee. A placeholder is the
+whole value of a positional argument (`?`, `?1`, `?2`, …) or of a named
+argument (`name = ?`). Placeholders work with declared functions,
+constructors, function values, and bound methods.
 
 ```agl
 def add(a: int, b: int) -> int = a + b
@@ -912,63 +695,49 @@ def digits(a: int, b: int, c: int) -> int = a * 100 + b * 10 + c
 
 program def main() -> unit =
   let inc: (int) -> int = add(?, 1)
-  print(inc(4))
+  print(inc(4))                   # 5
   let plus: (int, int) -> int = add
   let plus-two: (int) -> int = plus(?, 2)
-  print(plus-two(5))
+  print(plus-two(5))              # 7
   let fill-edges: (int, int) -> int = digits(?, 9, ?)
-  print(fill-edges(1, 2))
+  print(fill-edges(1, 2))         # 192
+  let reordered: (int, int) -> int = digits(?2, 9, ?1)
+  print(reordered(1, 2))          # 291
 ```
 
-The resulting function type has one parameter for each placeholder. Each
-parameter has the type of the callee parameter or constructor field that the
-placeholder binds to, and the result type is the result type of the underlying
-call.
-
-With bare `?` placeholders, the resulting function's parameter order is the
-placeholders' order of appearance in the written argument list, including named
-arguments. With numbered placeholders, the number gives the resulting
-function's parameter position explicitly:
-
-<!-- agl-check: fragment -->
-```agl
-let reordered: (int, int) -> int = digits(?2, 9, ?1)
-print(reordered(1, 2))          # 291
-```
-
-Within one call, placeholders must be either all bare or all numbered. Numbered
-placeholders must form exactly one use of each index from `?1` through `?n`:
-there may be no `?0`, gaps, repeats, or mixing such as `f(?, ?1)`.
+The resulting function has one parameter per placeholder, typed as the callee
+parameter or constructor field it binds to; its result type is the underlying
+call's. With bare `?`, the parameter order is the placeholders' order of
+appearance in the argument list, named arguments included. A numbered
+placeholder gives its parameter position explicitly. Within one call,
+placeholders are all bare or all numbered, and numbered ones use each index
+from `?1` through `?n` exactly once: `f(?0)`, `f(?2)`, `f(?1, ?1)`, and
+`f(?, ?1)` are rejected.
 
 Named-argument holes bind to the named parameter, including named-only
-parameters:
+parameters, and constructors follow the same argument binding rules:
 
 ```agl
 def shaped(x: int, @arg-named y: int, @arg-named z: int = 0) -> int = x * 100 + y * 10 + z
 
-program def main() -> unit =
-  let fill-y: (int) -> int = shaped(3, y = ?, z = 9)
-  let fill-x: (int) -> int = shaped(x = ?, y = 4)
-  print(fill-y(5))
-  print(fill-x(2))
-```
-
-For constructors, the same argument binding rules apply:
-
-```agl
 record Box[T]
   value: T
 
 program def main() -> unit =
+  let fill-y: (int) -> int = shaped(3, y = ?, z = 9)
+  let fill-x: (int) -> int = shaped(x = ?, y = 4)
   let make-box: (int) -> Box[int] = Box(value = ?)
-  print(make-box(8).value)
+  print(fill-y(5))                # 359
+  print(fill-x(2))                # 240
+  print(make-box(8).value)        # 8
 ```
 
-Non-placeholder arguments, and the callee expression for a function-value call,
-are evaluated once from left to right when the partial-application expression
-itself is evaluated. The created closure captures those values. Defaults for
-omitted parameters are not captured; they are evaluated each time the closure
-is invoked.
+Non-placeholder arguments, and the callee expression of a function-value call,
+are evaluated once, left to right, when the partial application itself is
+evaluated; the closure captures those values. Defaults for omitted parameters
+are not captured: they are evaluated at each invocation. An exception from a
+captured callee or argument is raised when the closure is created; one from
+the underlying call, when it is invoked:
 
 ```agl
 var ticks = 0
@@ -978,49 +747,32 @@ def next-tick() -> int =
   ticks := ticks + 1
   ticks
 
-def add-saved(a: int, b: int) -> int = a + b
-
+def add(a: int, b: int) -> int = a + b
 def stamped(x: int, suffix: int = next-tick()) -> int = x * 10 + suffix
+def fail-created() -> int = raise Abort(message = "created")
 
 program def main() -> unit =
-  let use-saved = add-saved(?, saved)
+  let use-saved = add(?, saved)
   saved := 100
   print(use-saved(6))             # 10; captured saved = 4
 
   let stamp: (int) -> int = stamped(?)
   print(stamp(2))                 # 21
-  print(stamp(2))                 # 22; default ran again
-```
+  print(stamp(2))                 # 22; the default ran again
 
-An exception raised while evaluating a captured callee or non-placeholder
-argument is raised when the closure is created. An exception from the
-underlying call is raised when the closure is invoked:
-
-```agl
-def add(a: int, b: int) -> int = a + b
-def fail-created() -> int = raise Abort(message = "created")
-def fail-called(x: int) -> int = raise Abort(message = "called %{x}")
-
-program def main() -> unit =
   try
     let f = add(?, fail-created())
     print(f(1))
   catch Abort as e =>
     print(e.message)              # created
-
-  try
-    let g = fail-called(?)
-    print(g(9))
-  catch Abort as e =>
-    print(e.message)
 ```
 
 Generic callees infer type arguments jointly from non-placeholder arguments,
-placeholder parameter types, and an expected function type when one is
-available. This applies equally when the callee is a function-valued expression;
-fixed arguments are considered before an expected shape completes any remaining
-type arguments. If a type argument is still not known, give it explicitly with
-the `::[…]` form.
+placeholder parameter types, and an expected function type, also when the
+callee is a function-valued expression; fixed arguments are considered before
+an expected shape completes any remaining type arguments. A type argument that
+is still unknown, as in `let make = singleton(?)`, needs the `::[…]` form or an
+expected function type:
 
 ```agl
 def id[T](x: T) -> T = x
@@ -1036,83 +788,44 @@ program def main() -> unit =
   print(make-text("hi")[0])
 ```
 
-Error conditions are reported statically:
-
-- A placeholder is a partial-application marker only in a parenthesized call;
-  forms such as a standalone `?`, `f(? + 1)`, and the single-argument sugar
-  `f ?` do not parse.
-- Placeholder partial application is not supported by free special built-in
-  calls such as `print(?)` or `ask(?)`; referencing the built-in directly
-  produces its defaulted function value instead. Receiver methods first
-  produce a bound value, so forms such as `reviewer.ask::[text](?)` work.
-- Numbered placeholders must be a permutation from `?1` through `?n`; examples
-  such as `f(?0)`, `f(?2)`, `f(?1, ?1)`, and `f(?, ?1)` are rejected.
-- Existing argument-binding errors still apply: arity mismatches such as too
-  many holes, unknown or duplicate named arguments such as `f(missing = ?)`,
-  missing required arguments, positional arguments for named-only parameters,
-  and named arguments when calling a function value such as `g(x = ?)`.
-- A generic partial application whose type arguments remain unknown, such as
-  `let make = singleton(?)`, needs explicit type arguments or an expected
-  function type.
+A placeholder is a partial-application marker only in a parenthesized call; a
+standalone `?`, `f(? + 1)`, and the sugar `f ?` do not parse. Free special
+built-in calls such as `print(?)` and `ask(?)` reject placeholders —
+reference the built-in directly for its defaulted function value instead —
+while a receiver method first produces a bound value, so
+`reviewer.ask::[text](?)` works. The ordinary argument-binding errors apply
+too: too many holes, unknown or duplicate names (`f(missing = ?)`), missing
+required arguments, positional arguments for named-only parameters, and named
+holes on a function value (`g(x = ?)`).
 
 ## Function types
 
-The type of a function value is `A -> B` for one parameter,
-`(A, B, …) -> C` for multiple parameters, and `() -> C` for no parameters.
-The arrow is right-associative, so `A -> B -> C` means `A -> (B -> C)`:
-
-```ebnf
-func_type ::= type_atom "->" type_expr
-            | "(" type_list? ")" "->" type_expr
-type_list ::= type_expr ("," type_expr)* ","?
-```
-
-<!-- agl-check: fragment -->
-```agl
-let f: int -> text = classify
-let g: (int, int) -> int = add
-let h: () -> bool = fn() => true
-```
-
-Function types are assignable by **exact structural match**: the number of
-parameters, their types (in order), and the result type must all agree. No
-variance or subtyping applies.
-
-Named and defaulted arguments are erased from the function *value* type.
-A `def` with optional parameters still has a fully positional function type;
-only the declared name retains the named/default information at call sites.
-
-## Opacity
-
-Function values have **opaque rendering, no JSON encoding, and no equality**.
-Rendering a function value, interpolating it in a template, or printing it
-produces a diagnostic surface form such as `<function: (int, int) -> int>`.
-Storing a function value in a `json` slot, passing it to `ask`, or using it
-where a JSON-shaped type is expected are static errors. These restrictions
-exist because function values are capability handles, not data.
-
-The REPL echoes bare function values with the same opaque rendering. That
-display is available through AgL rendering, but it is not JSON data.
+A function value has a positional type — `A -> B`, `(A, B) -> C`, or
+`() -> C` — matched exactly; parameter names, zones, and defaults belong only
+to the declared name. Function values have opaque rendering, no JSON
+encoding, and no equality. See [Function
+types](types.md#function-types).
 
 ## Recursion and the call-depth limit
 
-Top-level `def`s may call themselves and each other without restriction
-at the language level. The host enforces a **call-depth limit**, with a portable
-default of 256, and may select a different limit before execution. The limit is
-not an AgL engine-setting binding and cannot be changed by the program. Exceeding
-it raises `RecursionError` ([Exceptions](exceptions.md)):
+Functions may call themselves and each other without restriction at the
+language level. The host enforces a **call-depth limit** on active function
+calls, mutual recursion included, with a portable default of 256; the host
+may select a different limit before execution, and the program cannot change
+it. Exceeding it raises the catchable `RecursionError`
+([Exceptions](exceptions.md#recursionerror)):
 
 ```agl
 def fact(n: int) -> int =
   if n <= 1 => 1 else => n * fact(n - 1)
 
 program def main() -> unit =
-  let r = fact(10)
-  let s = fact(10000)
+  print(fact(10))                 # 3628800
+  try
+    print(fact(10000))
+  catch RecursionError as e =>
+    print "call depth exceeded %{e.limit}"   # call depth exceeded 256
 ```
-
-`RecursionError` is catchable with `try`/`catch`. The limit counts
-activation frames across all `def` calls including mutual recursion.
 
 ## Complete example
 
@@ -1121,23 +834,17 @@ enum Review
   | Pass
   | Fail(issues: array[text])
 
-let reviewer = AgentCommand("reviewer")
+let reviewer = AgentClaude("sonnet", "medium")
 
 def summarize-issues(issues: array[text]) -> text =
   "Issues found:\n%{issues}"
 
 def review-artifact(artifact: text) -> Review =
-  let r: Review = reviewer.ask(
-    "Review this artifact:\n%{artifact}",
-    parse-error-retries = 2
-  )
-  r
+  reviewer.ask("Review this artifact:\n%{artifact}", parse-error-retries = 2)
 
 program def main(spec: text) -> unit =
   let artifact: text = ask "Implement %{spec}"
-  let result = review-artifact(artifact)
-
-  case result of
+  case review-artifact(artifact) of
     | Pass => print "Accepted."
     | Fail(issues) => print(summarize-issues(issues))
 ```

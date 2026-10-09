@@ -10,35 +10,12 @@ initializers. Executable code — bare expressions, assignments, loops, agent
 calls — lives in function bodies, and a run starts in a
 [`program def`](#program-definitions). Items are separated by newlines or
 semicolons. There is no syntactic distinction between *statements* and
-*expressions*: every item is an expression with a well-defined type.
+*expressions*: every item is an expression with a well-defined type. The
+complete syntax is in [Grammar](grammar.md#programs-and-blocks).
 
 The module block is the only block that may be empty. A source file holding no
 items — blank, or nothing but comments — is a legal module that declares and
 exports nothing; running it still requires a `program def`.
-
-```ebnf
-program      ::= module_block EOF
-module_block ::= [ module_item ((NEWLINE | ";") module_item)* (NEWLINE | ";")? ]
-module_item   ::= scope_region | item
-block         ::= item ((NEWLINE | ";") item)* (NEWLINE | ";")?
-item          ::= import_decl                     (* header position only *)
-             | use_decl                           (* header position only *)
-             | export_decl                        (* header position only *)
-             | builtin_modifier? record_def        (* root only *)
-             | builtin_modifier? enum_def          (* root only *)
-             | type_alias                          (* root only *)
-             | builtin_modifier? exception_def     (* root only *)
-             | program_func_def                    (* root or scope region *)
-             | infix_decl                          (* root only *)
-             | builtin_var_def                     (* root or standard-library scope region *)
-             | func_def                            (* root only *)
-             | builtin_func_def                    (* root only *)
-             | extern_func_def                     (* module root only; file-backed modules *)
-             | let_decl | var_decl | assign_stmt
-             | expr
-
-builtin_modifier ::= "builtin" NEWLINE?
-```
 
 ## Program definitions
 
@@ -86,9 +63,9 @@ The selected program's value parameters are its **external inputs**. The
 parameter list defaults to the **named-only** zone. On the command line a
 required `name: text` fills a positional slot, while a defaulted parameter —
 and a required `bool`, `Option[T]`, or `Optional[T]` — is addressed by
-`--name`. `@arg-pos` opens a positional slot;
-`@arg-std` accepts both. Presentation attributes (`@doc`, `@opt-name`,
-`@opt-short`, `@opt-env`, `@opt-metavar`, `@opt-hidden`) shape the flag; see
+`--name`. `@arg-pos` opens a positional slot; `@arg-std` accepts both.
+Presentation attributes (`@doc`, `@opt-name`, `@opt-short`, `@opt-env`,
+`@opt-metavar`, `@opt-hidden`) shape the flag; see
 [Attributes](attributes.md#host-parameter-attributes).
 
 Each parameter resolves as CLI token > `@opt-env` variable > qualified config
@@ -98,9 +75,9 @@ must be JSON-wire-serializable: `text` crosses verbatim, every other type
 reads its external text as strict JSON or an [AgL value syntax
 literal](host-environment.md#value-syntax); `unit`, function types, and
 types reaching a dict whose key is not `Hashable` or not decodable (an
-exception key) are rejected. A name-addressable
-parameter cannot spell an [engine setting](#engine-settings) name, since both
-share one flag and config namespace. Full resolution and help rules:
+exception key) are rejected. A name-addressable parameter cannot spell an
+[engine setting](host-environment.md#engine-settings) name, since both share
+one flag and config namespace. Full resolution and help rules:
 [Host environment](host-environment.md#program-arguments).
 
 An `@param` static binding is a separate host input owned by its declaring
@@ -127,208 +104,97 @@ inside a named scope region. See [Modules](modules.md) and
 
 ### Named scope regions
 
-A named scope region is a module item containing nested regions, header `use`
-and `import` declarations, `export` declarations, static declarations,
-`program def` declarations, and `let`/`var` bindings. Its matching `scope`/`end`
-syntax, declaration and binder paths, and visibility rules are described in
+A named scope region is a module item containing nested regions, header
+`import`, `use`, and `export` declarations, static declarations, `program def`
+declarations, and `let`/`var` bindings. Its `scope`/`end` syntax, declaration
+and binder paths, and visibility rules are described in
 [Named scopes](scopes.md).
 
 ### Declarations
 
-The following are **root-only unless noted**: a static error if nested inside
-an ordinary block or, for forms without a scope-region exception, a named scope
-region.
+Declarations stand at the module root or in a named scope region, never in a
+nested block, unless noted otherwise. Every declaration that defines a name —
+the type, function, and binding forms below, along with their parameters and
+fields — may carry an [attribute](attributes.md) prefix; `import`, `use`,
+`export`, and infix declarations may not.
 
-Every declaration that defines a name — the type, function, and binding forms
-below, along with their parameters and fields — may carry an
-[attribute](attributes.md) prefix. `import`, `use`, `export`, and
-`infix` declarations may not.
-
-- **Type declarations** (`record`, `enum`, `exception`, `type`) — valid at the
-  module root and in named scope regions. They may refer to types declared
-  later in the program. `record`,
-  `enum`, and `type` declarations may be **generic**, declaring type parameters
-  in a bracketed list after the name (`record Box[T]`, `enum Option[T]`,
-  `type Pair[A, B] = …`); see [Generics](generics.md). `builtin` may prefix
-  `record`, `enum`, or `exception` for a host-recognized declaration, at the
-  module root or in a named scope region; a type alias does not accept it. A
-  scoped `builtin` type carries its declared scope path as part of its
-  nominal identity, exactly like an ordinary scoped type — but its complete
+- **Type declarations** (`record`, `enum`, `exception`, `type`). They may
+  refer to types declared later. `record`, `enum`, and `type` declarations
+  may be **generic** (`record Box[T]`, `type Pair[A, B] = …`); see
+  [Generics](generics.md). `builtin` may prefix any of the four for a
+  host-recognized declaration. A scoped `builtin` type carries its scope path
+  as part of its nominal identity like any scoped type, but its complete
   scoped name is shared with the host across the whole program and may be
-  declared only once at that path; see [Built-in functions](functions.md#built-in-functions).
-- **`import`/`use`/`export` declarations** — module-system declarations;
-  root-only or members of a named scope region. A scoped import tail or use
-  contributes bare names only to its own region and nested regions; an import's qualifier route
-  stays module-wide. A scoped export re-roots its forwarded atoms under the
-  region's path. See [Named scopes](scopes.md#import-and-export) and
+  declared only once at that path; see
+  [Built-in functions](functions.md#built-in-functions).
+- **`import`/`use`/`export` declarations.** A scoped import tail or use
+  contributes bare names only to its own region and nested regions; an
+  import's qualifier route stays module-wide. A scoped export re-roots its
+  forwarded atoms under the region's path. See
+  [Named scopes](scopes.md#import-and-export) and
   [Modules](modules.md#imports-and-use-inside-a-scope-region).
-- **`program def` declaration** — an entry point; legal at the module root or
-  as a non-method member of a named scope region. See
-  [Program definitions](#program-definitions).
-- **`builtin var` declarations** — body-less host-backed mutable bindings.
-  A module whose path identity lies under `std` may declare one, whether it is
-  the entry program or one of its imports; no other module may. A declaration
-  may be a member of a named scope region and is read and written through its
-  full path like any other scoped member.
-  `std/config` exclusively owns engine settings; other standard-library
-  modules own their domain-specific ambient bindings.
-- **`infix` declarations** — root-only operator-fixity declarations.
-- **Function declarations** — ordinary `def`s, `program def` entry functions, and body-less companion-backed
-  `extern def`s. They may be declared at the root or in named scope regions.
-  Root and same-scope `def`s may refer to declarations that appear later,
-  enabling mutual recursion (see [Functions](functions.md)). An ordinary `def`
-  may be **generic** (`def id[T](x: T) -> T = x`); see [Generics](generics.md).
-  `builtin` introduces only the body-less `builtin def` form, legal at the
-  module root or in a named scope region; a scoped `builtin def` still
-  dispatches to the same host implementation as a root one. A `builtin def`
-  with first parameter `self` in a type scope is a builtin method when it
-  matches a supported host contract (`Agent::ask` in
-  the standard library); it is selected by ordinary member syntax and can be
-  projected as a receiver-capturing function value. Its complete scoped name is
-  subject to the same whole-program
-  uniqueness as a `builtin` type (see [Built-in functions](functions.md#built-in-functions)).
-  Extern functions are file-backed-module only.
-- **Scoped `let`/`var` bindings** — a plain `let` or `var` is legal anywhere a
-  binder is. The scope-path-prefixed spelling (`let A::x = …`,
-  `var A::count = …`) declares a member of that scope instead, and the prefix
-  is legal only at the module root or inside a named scope region — the same
-  placement `def` and the type forms use. A module-level binding's own name
-  may not repeat a named scope's name at the same scope path. In a module with
-  a static root, a module-level binding is visible regardless of textual
-  order, exactly like a `def`; elsewhere it keeps the textual order its root
-  statements execute in. See [Named scopes](scopes.md#names-and-visibility)
-  for the complete spelling and visibility rules.
+- **Function declarations** — ordinary `def`s, `program def` entry points
+  (never a method), body-less host-implemented `builtin def`s, and body-less
+  companion-backed `extern def`s (file-backed modules only; see
+  [Python FFI](ffi.md)). Root and same-scope `def`s may refer to declarations
+  that appear later, enabling mutual recursion (see
+  [Functions](functions.md)). An ordinary `def` may be **generic**
+  (`def id[T](x: T) -> T = x`). A scoped `builtin def` dispatches to the same
+  host implementation as a root one; with first parameter `self` in a type
+  scope it is a builtin method (`Agent::ask`), selected by ordinary member
+  syntax. Its complete scoped name is subject to the same whole-program
+  uniqueness as a `builtin` type.
+- **`builtin var` declarations** — body-less host-backed mutable bindings,
+  declarable only by a module whose path identity lies under `std`, whether
+  it is the entry program or an import. `std/config` exclusively owns the
+  engine settings ([Host environment](host-environment.md#engine-settings));
+  other standard-library modules own their domain-specific ambient bindings.
+- **Infix declarations** — operator fixities, at the module root only
+  ([User-defined operators](lexical-structure.md#user-defined-operators)).
+- **`let`/`var` bindings** — a plain `let` or `var` is legal anywhere an item
+  is. The scope-path-prefixed spelling (`let A::x = …`, `var A::count = …`)
+  declares a member of that scope instead, and is legal only at the module
+  root or inside a named scope region. A module-level binding's own name may
+  not repeat a named scope's name at the same scope path. In a module with a
+  static root, a module-level binding is visible regardless of textual order,
+  exactly like a `def`; elsewhere it keeps the textual order its root
+  statements execute in. See [Named scopes](scopes.md#names-and-visibility).
+
+## Blocks
 
 ### The block's value
 
-A block's **value** is the value of its last item. A final `let` or `var`
-binder has no in-block continuation, so the block value is `unit` (or bottom
-when its initializer exits). The binding is available to an enclosing
-continuation that evaluates after the block, such as a loop's `until`
-condition.
+An executable block — a function body, a branch or loop body, a suite
+initializer, a parenthesized block — is a sequence of items whose **value** is
+the value of its last item. A module root is static and has no block value.
+
+`let` binds one immutable name and `var` one mutable name
+([Bindings and scope](bindings-and-scope.md)), each scoped over its
+**continuation**: the rest of the block, and any enclosing continuation that
+evaluates after the block, such as a loop's `until` condition. A **final**
+`let` or `var` has no in-block continuation, so it makes the block's value
+`unit` — or bottom when its initializer does not return:
 
 ```agl
 program def main() -> unit =
-  let x = ask "A"
-  let y = ask "B"
-  let _ = y
+  var n = 0
+  do[3]
+    n := n + 1
+    let doubled = n * 2    # final binder: the body is unit-valued
+  until doubled > 4        # the binding is visible to `until`
+  print n
 ```
 
-Side-effecting forms (`print`, `:=`, loops, else-less `if`) have type `unit`,
-return `()`, and are commonly followed by another expression.
+### Expression statements
 
-## Engine settings
-
-The standard-library module `std/config` exposes the program's engine
-settings — the knobs that control the default agent, trace logging,
-JSON strictness, and the shell-exec timeout. Each is a
-**mutable binding**; import the module and assign it through a qualified target
-to change a setting:
-
-```agl
-import std/config
-
-program def main() -> unit =
-  std/config::strict-json := true
-  std/config::timeout := Some("30s")
-  std/config::default-agent := AgentClaude("sonnet", "medium")
-  let strict = std/config::strict-json    # settings are readable
-  print strict
-```
-
-The settings and their types are:
-
-| Setting | Type | Meaning |
-|---------|------|---------|
-| `trace` | `bool` | Enable/disable trace logging. |
-| `trace-file` | `Option[path]` | Path to the trace log file. |
-| `strict-json` | `bool` | Parse agent JSON output strictly. |
-| `default-agent` | `Agent` | Default value for `ask` calls. |
-| `default-sandbox` | `AgentSandbox` | Default `sandbox` value for `ask`-like calls. |
-| `timeout` | `Option[text]` | Shell-exec timeout. |
-| `debug` | `bool` | Keep `std/fs` temporary paths when the host session ends. |
-| `parse-error-retries` | `int` | Default `parse-error-retries` for `ask`; never negative. |
-
-A write takes effect **positionally**, exactly like any `var` mutation: it
-governs the statements that follow it, in program order. An assignment target
-names an imported setting the same way a read does ([Modules](modules.md)): a
-qualified target always works, and a bare `strict-json := …` works after
-`import std/config::*` or an equivalent `use`, so the name is in scope
-unqualified.
-The optional settings (`trace-file`, `timeout`) are set with `Some("…")` or
-`None`. A `timeout` read preserves the exact assigned text; its parsed duration
-controls shell execution without normalizing the stored value.
-
-See [Host environment](host-environment.md) for the full settings table with
-their defaults and for how a source write combines with the host's CLI and
-config-file layers.
-
-## Binders: `let` and `var`
-
-`let` binds a single immutable name; `var` binds a single mutable name. Both
-scope their binding over the **continuation** — the rest of the block and any
-enclosing continuation that consumes the block. A final binder makes its block `unit`-valued unless its
-initializer exits, in which case the block is bottom-valued.
-
-```agl
-program def main() -> unit =
-  let left = 3
-  let right = 4
-  let _ = left + right
-```
-
-## Inline forms
-
-AgL is designed so that small workflows fit on one line. Items are separated
-by `;` inline. `until` conditions and the right-hand sides of binders are
-**`or_expr`** — the operator-chain level — so a `case` or `if` expression in
-those positions must be parenthesized. Loop bodies also admit `case`, `if`,
-`try`, and nested loops directly:
-
-<!-- agl-check: fragment -->
-```agl
-# Inline block: items separated by ';'
-let x = 3; let y = x + 1; y
-
-# Inline do loop: body items, then until condition
-do[5] r := reviewer.ask("Review %{a}"); case r of Fail(issues) => a := impl.ask("Fix %{issues} in %{a}") | Pass => () until r is Pass
-
-# A case expression as a loop condition must be parenthesized:
-do[3] n := n + 1 until (case st of Done => true | _ => false)
-```
-
-The `()` unit literal replaces `pass` — it is the idiomatic no-op in a
-branch body:
-
-<!-- agl-check: fragment -->
-```agl
-case review of
-  Pass => ()
-  | Fail(issues) => artifact := impl.ask("Fix %{issues}")
-```
-
-### Branch bodies
-
-An `if` or `case` branch body is either a suite (indented block) or an inline
-body. An inline body after `=>` is exactly one item: an `or_expr`, an inline
-assignment (`assign_target := or_expr`), `raise`, or `return`. A `;` sequence, a
-binder, or a body that begins a new `if`, `case`, `try`, or loop must be
-parenthesized or placed in a suite — see [Inline bodies](grammar.md#inline-bodies).
-
-### Inline `try`
-
-A `try`/`catch` inline holds a sequence of items up to the first `catch`
-keyword — binders and `assign_target := or_expr` assignments included. Its final item may be a `let` or
-`var`, making the try body `unit`-valued unless its initializer exits. The
-`catch` body, like any `=>` body, is a single item or a suite.
-
-## Expression statements
-
-An expression evaluated at block level for its side effect is simply written
-as an item. A non-final bare expression is a discarded-value position and
-therefore must have type `unit` or `bottom`; a value-producing call can be
-made explicit with `let _ = call()`. A final expression becomes the block's
-value:
+Every item before the last is in a **discarded-value position**: a bare
+expression there must have type `unit` or bottom, the type of an expression
+that does not return normally (`raise`, `return`, `break`, `continue`).
+Binders and declarations are valid intermediate items. A loop body's value is
+discarded on every iteration, so the same rule applies to its last item.
+Side-effecting forms (`print`, `:=`, loops, an `if` without `else`) have type
+`unit` and return `()`. A discarded-value position expects `unit`, so a
+type-directed call such as `ask` or `exec` there takes its `unit` form:
 
 ```agl
 program def main() -> unit =
@@ -337,6 +203,36 @@ program def main() -> unit =
   print "done"
 ```
 
+To run a value-producing expression for effect, bind it to the wildcard:
+`let _ = call()`.
+
 `=` is not an expression operator, so `n = 2` as a block item is a syntax
 error. Use `:=` to reassign a mutable binding, `let`/`var` to introduce a new
 binding, or `==` to compare for equality.
+
+## Inline forms
+
+Small workflows fit on one line: `;` separates items inline exactly as a
+newline does. `if`/`until` conditions are operator chains, so a `case` or `if`
+expression there must be parenthesized; loop bodies admit `case`, `if`, `try`,
+and nested loops directly:
+
+```agl
+enum Review
+  | Pass
+  | Fail(issues: array[text])
+
+def refine(spec: text, reviewer: Agent, impl: Agent) -> text =
+  var a: text = impl.ask("Implement %{spec}"); var r: Review = Pass
+  do[5] r := reviewer.ask("Review %{a}"); case r of Fail(issues) => a := impl.ask("Fix %{issues} in %{a}") | Pass => () until r is Pass
+  a
+
+def settle(draft: text, reviewer: Agent) -> Review =
+  var r: Review = Pass
+  do[3] r := reviewer.ask("Review %{draft}") until (case r of Pass => true | Fail(issues) => issues.size() == 0)
+  r
+```
+
+A body after `=>` is a single item or a suite (`()` is the idiomatic no-op
+body); which items an inline body admits, and which final forms an inline `try` body bars, is specified in
+[Inline bodies](grammar.md#inline-bodies).

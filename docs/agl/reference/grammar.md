@@ -3,12 +3,14 @@
 [← Index](index.md)
 
 The collected surface grammar. Names, numbers, templates, and layout rules
-are specified in [Lexical structure](lexical-structure.md).
+are specified in [Lexical structure](lexical-structure.md); the semantics of
+each form, in the chapter linked from its section.
 
 Notation: `::=` defines a production; `|` separates alternatives; `?`, `*`,
-`+` mark optional and repeated elements; quoted strings are literal source
-text. `NEWLINE`, `INDENT`, and `DEDENT` below are **source-layout notation**:
-they describe a line break and indentation change, not text written in source.
+`+` mark optional and repeated elements, and `[ … ]` an optional group; quoted
+strings are literal source text. `NEWLINE`, `INDENT`, and `DEDENT` are
+**source-layout notation**: they describe a line break and indentation
+change, not text written in source.
 
 ## Programs and blocks
 
@@ -17,34 +19,27 @@ name       ::= NAME | OP_NAME
 field_name ::= NAME
 
 program      ::= module_block EOF
-
 module_block ::= [ module_item ((NEWLINE | ";") module_item)* (NEWLINE | ";")? ]
-module_item   ::= scope_region | item
-block         ::= item ((NEWLINE | ";") item)* (NEWLINE | ";")?
+module_item  ::= scope_region | item
+block        ::= item ((NEWLINE | ";") item)* (NEWLINE | ";")?
 
-item       ::= import_decl                  (* header position only; scope_item also permits it *)
-             | use_decl                     (* module-root or scope-region header only *)
-             | builtin_var_def              (* root or standard-library scope region *)
-             | record_def                   (* root only *)
-             | enum_def                     (* root only *)
-             | type_alias                   (* root only *)
-             | exception_def                (* root only *)
-             | export_decl                  (* header position only; scope_item also permits it *)
-             | program_func_def             (* root or scope region *)
-             | infix_decl                   (* root only *)
-             | func_def                     (* root only *)
-             | builtin_func_def             (* root only *)
-             | extern_func_def              (* module root only; file-backed modules only *)
-             | let_decl | var_decl | assign_stmt
-             | expr
+item ::= header_decl                 (* module root or scope region, header position *)
+       | static_decl                 (* module root or scope region *)
+       | infix_decl                  (* module root only *)
+       | let_decl | var_decl
+       | assign_stmt | expr          (* not at a static module root or in a scope region *)
+
+header_decl ::= import_decl | use_decl | export_decl
+static_decl ::= record_def | enum_def | exception_def | type_alias
+              | func_def | program_func_def | builtin_func_def
+              | extern_func_def      (* file-backed modules only *)
+              | builtin_var_def      (* standard-library modules only *)
 
 builtin_modifier ::= "builtin" NEWLINE?
 ```
 
-A block's value is its last item. A final `let_decl` or `var_decl` has type
-`unit` (or bottom when its initializer exits); its binding is visible to
-any enclosing construct that evaluates a continuation after the block, such as
-a loop's `until` condition.
+Block values, binders in final position, and discarded values:
+[Program structure](program-structure.md#blocks).
 
 ### Scope regions
 
@@ -56,46 +51,33 @@ scope_region ::= "scope" scope_path (NEWLINE | ";")
                  scope_item ((NEWLINE | ";") scope_item)* (NEWLINE | ";")?
                  DEDENT NEWLINE "end" scope_path
 scope_path   ::= NAME ("::" NAME)*
-scope_item   ::= scope_region | use_decl
-               | import_decl                  (* header position only *)
-               | export_decl
-               | record_def | enum_def | exception_def | type_alias
-               | func_def | program_func_def | extern_func_def
-               | builtin_var_def | builtin_func_def
-               | let_decl | var_decl
+scope_item   ::= scope_region | header_decl | static_decl | let_decl | var_decl
 ```
 
-A scope region has a mandatory matching closer: `scope A::B` closes with
-`end A::B`. Its items either share the header's layout level or sit in an
-indented block beneath it; the closer stands at the header's own level either
-way. Regions may appear only as module-root items or as items of another
-scope region. They may nest, and a multi-segment header is equivalent to
-nested single-segment regions. Scope
-regions contain nested regions, header `use` and `import` declarations,
-`export` declarations, static declarations (including every `builtin` form),
-`program def` declarations, and `let`/`var` bindings; bare expressions, `:=`
-assignments, and infix declarations are not permitted. `scope` is contextual at item start before a scope path, and `end`
-is contextual only for a complete closer at an open region's layout level;
-both remain ordinary names in expression positions.
+The closer repeats the header's path: `scope A::B` closes with `end A::B`. The
+items either share the header's layout level or sit in an indented block
+beneath it; the closer stands at the header's own level either way. Regions
+appear only as module-root items or as items of another region, and a
+multi-segment header is equivalent to nested single-segment regions. `scope`
+and `end` are soft keywords ([Keywords](lexical-structure.md#soft-keywords)).
+Semantics: [Named scopes](scopes.md).
 
-`"builtin"` is a **declaration modifier** that behaves like a decorator: it may
-sit on the same line as the declaration it adorns (`builtin enum …`) or on the
-line directly above it (`builtin` then `enum …`). The newline after a modifier
-is insignificant. `builtin` prefixes a `record`, `enum`, `exception`, or `type`
-alias. `builtin def` is a body-less declaration form, not a modifier applied to
-an ordinary `def`. `builtin` is not accepted for extern functions. The `extern` of an `extern def` and the `program` of a
-`program def` place the same way: each may sit on its declaration's line or on
-the line directly above it.
+`builtin` is a **declaration modifier**: it sits on the same line as the
+declaration it adorns (`builtin enum …`) or on the line directly above it.
+It prefixes a `record`, `enum`, `exception`, or `type` alias; `builtin def`
+and `builtin var` are body-less declaration forms of their own. The `extern`
+of an `extern def` and the `program` of a `program def` place the same way.
 
 ## Import and export declarations
 
 ```ebnf
 import_decl ::= "import" module_path ["/*"]
                 ("as" NAME | "::" tail)? [hiding_clause]
-use_decl    ::= "use" use_target ("::" tail [hiding_clause] | "as" ref_name)
+use_decl    ::= "use" use_target ("::" use_tail | "as" NAME) [hiding_clause]
 export_decl ::= "export" module_path ["/*"] ["::" braces] [hiding_clause]
 
 tail          ::= "*" | braces | path_atom ["as" ref_name]
+use_tail      ::= "*" | braces | (NAME "::")* NAME ["as" NAME]
 braces        ::= "{" brace_item ("," brace_item)* ","? "}"
 brace_item    ::= path_atom ["as" ref_name]
 use_target    ::= "/" qualifier_path | "::" scope_path | qualifier_path
@@ -106,18 +88,12 @@ hiding_clause ::= "hiding" path_atom ("," path_atom)*
 path_atom     ::= (NAME "::")* name
 ```
 
-`"import"`, `"use"`, and `"export"` are contextual at item start when they
-begin their declaration form. `"hiding"` is contextual within those headers.
-They remain valid identifiers elsewhere. An import alias is an identifier
-because it becomes a qualifier segment. An import alias and a tail are
-exclusive. Braces cannot be empty or nested, cannot contain `*`, and cannot
-be combined with `hiding`. `hiding` is valid on a plain import, an import glob,
-a module wildcard import, or a use glob. An export accepts brace tails but not
-`::*`. A `use` alias for a complete scope or module target must be a `NAME`,
-because it becomes a qualifier segment; selected member renames may use any
-`name`.
-
-Examples:
+An import alias and a tail are exclusive. Braces cannot be empty or nested,
+and cannot be combined with `hiding`. `hiding` follows a plain import, an
+import glob, a module wildcard import, or a use glob. Outside braces, a `use`
+alias, selection, and rename are `NAME`s; an operator name, selected or as a
+rename, needs braces (`use S::{<+>}`, `use S::{plus as <+>}`). Semantics:
+[Modules](modules.md).
 
 <!-- agl-check: fragment -->
 ```agl
@@ -147,8 +123,8 @@ construct's level.
 ### Inline bodies
 
 Every body may be written as a suite. Written inline, a `;` sequence is
-admissible in the three body positions whose end is marked by a body-specific
-token: parenthesized blocks, loops, and `try` expressions.
+admissible only in the three body positions whose end is marked by a token:
+parenthesized blocks, loops, and `try` expressions.
 
 ```ebnf
 marked_body   ::= (marked_item ";")* marked_item
@@ -156,55 +132,42 @@ marked_item   ::= expr | inline_assign | let_decl | var_decl
 inline_assign ::= assign_target ":=" or_expr
 ```
 
-Those three *marked* bodies share `marked_body` and allow any marked item in
-final position, including a `let` or `var` binder. A final binder makes the
-body `unit`-valued unless its initializer exits, in which case it is
-bottom-valued.
-
 | body | delimiter | inline form |
 | ---- | --------- | ----------- |
 | `( … )` | `)` | `marked_body` |
 | `do … until`/`done` | `until` / `done` | `marked_body` |
-| `try … catch` | `catch` | `marked_body`, last item not a `try` or lambda |
-| `def f() = …` | enclosing newline or `;` | exactly one expression; delimiter starts the next block item |
+| `try … catch` | `catch` | `marked_body`, last item not a `try`, lambda, or record update |
+| `def f() = …` | enclosing newline or `;` | exactly one `expr` |
 | `… => …` | *none* | exactly one `closed_item` |
 
-An inline `def` body is exactly one expression, not a marked-body sequence.
-Its enclosing block separator — a newline or `;` — ends the body and starts
-the next block item. A `=>` body ends at nothing at all — a following `|`,
-`else`, or `catch` could belong either to the body or to the enclosing branch
-list.
+A marked body allows any marked item in final position, including a `let` or
+`var` binder. A body's last item may not be a form that could consume the
+body's own terminator. Nothing consumes `)`. A loop's `until`/`done` occurs
+exactly once per loop, so even a nested loop in final position is unambiguous
+— `do … until p until q` binds the inner `until` innermost-first. `catch` is a
+repeatable clause, so a `try` body's final item excludes a nested `try`, which
+would take every following `catch`, and a lambda, whose unmarked body extends
+rightwards; a record update is excluded there too. Each stays legal earlier in
+the sequence, and in final position once parenthesized —
+`try (fn(x: int) -> int => x) catch _ => …`.
 
-What differences remain among the marked bodies are derived, not stipulated: a
-body's last item may not be a form that could consume the body's own
-terminator. Nothing consumes `)`. A loop's `until`/`done` is mandatory and
-occurs exactly once per loop, so even a nested loop in final position is
-unambiguous — `do … until p until q` binds the inner `until` innermost-first.
-But `catch` is a repeatable clause, so two forms are barred from a `try`
-body's final position. A nested `try` there consumes every following `catch`,
-leaving none for the body's own `try`, which requires one — so that spelling
-could never parse in any case. A lambda is barred because its body is
-introduced by `=>` and is itself unmarked, extending rightwards, so a
-following `catch` is contested whenever that body ends in a `try`. Both stay
-legal anywhere earlier in the sequence, and in final position once
-parenthesized — `try (fn(x: int) -> int => x) catch _ => 0` — which restores
-the marker.
+An inline `def` body is exactly one expression; its enclosing block separator
+— a newline or `;` — ends the body and starts the next block item. A `=>` body
+ends at nothing at all — a following `|`, `else`, or `catch` could belong
+either to the body or to the enclosing branch list — so it holds a single
+`closed_item`: no `;`, no binder, and none of the right-extending forms
+(`if`, `case`, `try`, a loop, a lambda) whose own branch lists or body would
+swallow the enclosing form's continuation. To write a multi-item body after
+`=>`, parenthesize it or use the suite form:
 
-A `=>` body holds a single `closed_item` — no `;`, no binder, and none of the
-right-extending forms whose own branch lists would swallow the enclosing form's
-continuation.
-
-This is not a special restriction on `;`. Within a block, `;` and a newline
-are the same separator (see [Programs and blocks](#programs-and-blocks)), and
-a newline cannot appear inside an inline body either. To write a multi-item
-body after `=>`, parenthesize it or use the suite form:
-
-<!-- agl-check: fragment -->
 ```agl
-| 1 => (let doubled = k * 2; print "doubled:%{doubled}")
-| 2 =>
-    let doubled = k * 2
-    print "doubled:%{doubled}"
+def show(k: int) -> unit =
+  case k of
+    | 1 => (let doubled = k * 2; print "doubled:%{doubled}")
+    | 2 =>
+        let doubled = k * 2
+        print "doubled:%{doubled}"
+    | _ => ()
 ```
 
 Parentheses directly after a callee are that call's argument list, so a
@@ -219,24 +182,11 @@ attribute     ::= "@" NAME ["(" attr_arg_list? ")"] NEWLINE?
 attr_arg_list ::= attr_arg ("," attr_arg)* ","?
 attr_arg      ::= element_expr                    (* positional: every attribute but @config *)
                 | attr_key "=" element_expr       (* keyed: @config only *)
-attr_key      ::= name | qualifier_chain name
+attr_key      ::= qualifier_chain? name
 ```
 
-An attribute prefixes a **defining declaration**: a record, an enum, an enum
-member, an exception, a type alias, a `def` in any of its `program`, `builtin`,
-and `extern` forms, a `builtin var`, a record/enum-member/exception field, a
-function or lambda parameter, and a `let` or `var` binding. `import`, `use`,
-`export`, and `infix` declarations and scope regions define no name of their
-own and take no attribute.
-[Lexical structure](lexical-structure.md#attributes) gives the placements an
-attribute may take.
-
-Every built-in attribute but `@config` takes one constant text expression
-positionally. `@config` instead takes one or more keyed entries, each an
-`attr_key` — a bare or `::`-qualified reference, resolved like any other
-reference — paired with a constant value. The catalog, per-attribute
-semantics, and the errors an unknown, misplaced, repeated, or contradicted
-attribute raises: [Attributes](attributes.md).
+Layout: [Lexical structure](lexical-structure.md#attributes); placement and
+catalog: [Attributes](attributes.md).
 
 ## Type declarations
 
@@ -253,9 +203,9 @@ enum_def         ::= attributes? builtin_modifier? "enum" decl_head type_params?
                     "="? enum_body
 enum_body        ::= enum_member_seq
                    | NEWLINE INDENT enum_member_seq NEWLINE? DEDENT
-enum_member_seq  ::= first_enum_member ("|" enum_member)*
-first_enum_member ::= "|"? enum_member
-enum_member      ::= attributes? name member_payload? | qualifier_chain name member_type_args?
+enum_member_seq  ::= "|"? enum_member ("|" enum_member)*
+enum_member      ::= attributes? name member_payload?
+                   | qualifier_chain name member_type_args?
 member_type_args ::= "[" type_expr ("," type_expr)* "]"
 member_payload   ::= "(" field_list? ")"
                    | NEWLINE INDENT field_def (NEWLINE field_def)* NEWLINE? DEDENT
@@ -271,66 +221,30 @@ exception_body   ::= NEWLINE INDENT field_def (NEWLINE field_def)* NEWLINE? DEDE
 
 type_alias       ::= attributes? builtin_modifier? "type" decl_head type_params? "=" type_expr
 
-type_params      ::= "[" type_param ("," type_param)* "]"
-type_param       ::= name | "_"
-
-program_func_def ::= attributes? "program" NEWLINE? "def" decl_head type_params? "(" param_list? ")" ("->" type_expr)? ("=" func_body | suite)
-
+type_params      ::= "[" name ("," name)* "]"
 ```
 
-A `record` or `exception` declaration without a body declares no fields of its
-own, exactly like an empty `()` field list; `=` always requires a body.
-
-A zone attribute in front of a field puts that field in the zone it names; one
-in front of the declaration zones every field that carries none of its own. In
-the indented block form, the attribute may sit on the field's line or on the
-line above it. Fields are listed in zone order — positional-only, then
-standard, then named-only.
-
-A field's `"=" or_expr` default is a constant expression, evaluated once at
-the declaration; a constructor call may omit that field, exactly like a
-defaulted function parameter. No required positional-fillable field may
-follow a defaulted one in the same zone. An exception field inherits its
-base's default unchanged.
-
-A `type_params` list declares the declaration's type parameters; each named
-entry is an ordinary name in scope as a type throughout the declaration's body.
-`_` is an unused positional slot and introduces no type name. See
-[Generics](generics.md).
+A `record` or `exception` without a body declares no fields of its own,
+exactly like an empty `()` field list; `=` always requires a body. A field's
+`=` default is a constant expression. `var` marks a mutable field of a record
+or enum-member record, never of an exception. Attribute layout on enum
+members: [Lexical structure](lexical-structure.md#attributes).
 
 An enum member written as a bare `name` declares a record in the enum's scope;
-its optional field list is that record's field list, including optional `var`
-field markers. The list is parenthesized, or an indented block under the
-member, one field per line. `var` is valid for records and enum-member records,
-but not exception fields. A qualified member is a
-reference to an existing record, so it has no field list. Qualification is the
-declare/reference discriminator: `Entry(x: int)` declares `Enum::Entry`, while
-`::Entry` references the current module's `Entry`. See [Enums](types.md#enum-types).
+a qualified member references an existing record and has no field list:
+`Entry(x: int)` declares `Enum::Entry`, while `::Entry` references the current
+module's `Entry`. Semantics: [Record types](types.md#record-types),
+[Enum types](types.md#enum-types), [Generics](generics.md).
 
 ## Type expressions
 
 ```ebnf
 type_ann  ::= ":" type_expr
 
-type_expr ::= "unit"
-            | "text" | "json" | "bool" | "int" | "decimal"
-            | name
-            | name "[" type_expr ("," type_expr)* "]"   (* applied type *)
-            | qualifier_chain name "[" type_expr ("," type_expr)* "]"
-            | qualifier_chain name
-            | "array" "[" type_expr "]"
-            | "dict" "[" type_expr "," type_expr "]"
-            | func_type
-
-func_type ::= type_atom "->" type_expr
-            | "(" type_list? ")" "->" type_expr
-type_atom ::= "unit" | "text" | "json" | "bool" | "int" | "decimal"
-            | name
-            | name "[" type_expr ("," type_expr)* "]"
-            | qualifier_chain name "[" type_expr ("," type_expr)* "]"
-            | qualifier_chain name
-            | "array" "[" type_expr "]"
-            | "dict" "[" type_expr "," type_expr "]"
+type_expr ::= "(" type_list? ")" "->" type_expr       (* function type *)
+            | type_atom "->" type_expr                 (* one-parameter function type *)
+            | type_atom
+type_atom ::= qualifier_chain? name ["[" type_expr ("," type_expr)* "]"]
 type_list ::= type_expr ("," type_expr)* ","?
 
 qualifier_chain   ::= "::" qualifier_segment*
@@ -339,167 +253,100 @@ qualifier_segment ::= ["/"] NAME ("/" NAME)* "::"
                     | NAME "[" type_expr ("," type_expr)* "]" "::"
 ```
 
-`name "[" … "]"` is an applied type: a generic declaration instantiated at
-concrete type arguments (`Box[int]`, `Outcome[int, text]`). The built-in
-`array[T]` and `dict[K, V]` are the same form.
+The built-in types `unit`, `text`, `json`, `bool`, `int`, `decimal`,
+`array[T]`, and `dict[K, V]` are names in type position. `->` is
+right-associative, and there are no parenthesized type groups: `(A) -> B`
+is a one-parameter function type. A qualifier chain is byte-adjacent through
+each `::`, and an applied segment's `[` is byte-adjacent to its name
+(`Option[int]::Some`); an ordinary applied type may be spaced
+(`Option [int]`). See [Qualifier chains](lexical-structure.md#qualifier-chains)
+and [Types](types.md).
 
 ## Function declarations
 
 ```ebnf
-func_def         ::= attributes? "def" func_decl_head type_params? constraint_block? "(" param_list? ")" ("->" type_expr)? ("=" func_body | suite)
-builtin_func_def ::= attributes? "builtin" NEWLINE? "def" func_decl_head type_params? constraint_block? "(" param_list? ")" "->" type_expr
-extern_func_def  ::= attributes? "extern" NEWLINE? "def" func_decl_head type_params? constraint_block? "(" param_list? ")" "->" type_expr
+func_def         ::= attributes? "def" func_decl_head type_params? constraint_block?
+                     "(" param_list? ")" ("->" type_expr)? ("=" func_body | suite)
+program_func_def ::= attributes? "program" NEWLINE? "def" func_decl_head type_params?
+                     "(" param_list? ")" ("->" type_expr)? ("=" func_body | suite)
+builtin_func_def ::= attributes? "builtin" NEWLINE? "def" func_decl_head type_params?
+                     constraint_block? "(" param_list? ")" "->" type_expr
+extern_func_def  ::= attributes? "extern" NEWLINE? "def" func_decl_head type_params?
+                     constraint_block? "(" param_list? ")" "->" type_expr
 func_decl_head   ::= decl_head | builtin_receiver "::" name
-builtin_receiver ::= "array" "[" name "]" | "dict" "[" (name | "text") "," name "]"
+builtin_receiver ::= "array" "[" receiver_param "]"
+                   | "dict" "[" (receiver_param | "text") "," receiver_param "]"
                    | "text" | "json" | "int" | "decimal" | "bool"
+receiver_param   ::= name | "_"
 func_body        ::= expr | suite
 constraint_block ::= "{" constraint ("," constraint)* ","? "}"
 constraint       ::= ("Eq" | "Hashable") name
-param_list      ::= param ("," param)* ","?
-param           ::= attributes? field_name [":" type_expr] ("=" or_expr)?
+param_list       ::= param ("," param)* ","?
+param            ::= attributes? field_name [":" type_expr] ("=" or_expr)?
 ```
 
-In a function declaration, a parameter annotation may be omitted only for
-`self` as the first parameter of a method; every other parameter requires an
-annotation. Lambda parameters have the contextual rule below.
-
-An inline `def` body after `=` is exactly one expression. It ends at the next
-block separator — a newline or `;` — which starts the next block item, so an
-inline body admits neither a binder nor a `;` sequence. Parenthesize a
-multi-item block or use a suite when the body needs binders or a sequence; for
-suite bodies, the `=` before the newline is optional. The return type
-annotation is optional for ordinary `def` declarations and required for
-`builtin def` and `extern def` —
-neither has a body. A zone attribute in front of a parameter, or in front of
-the declaration, places parameters in zones; see [Functions](functions.md) for
-full zone semantics. No required
-positional-fillable (pos-only/standard) parameter may follow a defaulted one
-in the same zone. An optional `type_params` list after the function name makes
-the `def` generic (e.g. `def id[T](x: T) -> T`); see [Generics](generics.md).
-A `constraint_block` bounding one or more type parameters `Eq` or `Hashable`
-may follow — after the type parameters, or after the method name when there
-are none of its own (a builtin receiver: `array[E]::name{Eq E}`) — and may
-bound a receiver parameter as well as the declaration's own; see
-[Constraint blocks](generics.md#constraint-blocks).
-
-All three function declaration forms accept the same `func_decl_head` surface.
-A builtin receiver may be declared in any module and must use the bare generic
-form (`array[E]` or `dict[K, V]`) or `dict[text, V]`; see
-[Methods](functions.md#methods). `extern_func_def` is never followed by a
-body; it declares a function implemented by a companion Python file (see
-[Python FFI](ffi.md)) rather than an AgL expression.
+Only `self` as a method's first parameter may omit its annotation; every other
+`def` parameter is annotated. The return type is optional for `def` and
+required for the body-less `builtin def` and `extern def`. Before a suite
+body, the `=` is optional. `_` is a type parameter only in a built-in method's
+receiver (`array[_]::name`), where the method leaves it unnamed. A constraint block follows the type parameters, or
+the method name when the declaration has none of its own
+(`array[E]::name{Eq E}`). Semantics: [Functions](functions.md),
+[Methods](functions.md#methods),
+[Constraint blocks](generics.md#constraint-blocks), [Python FFI](ffi.md).
 
 ## Infix declarations
 
 ```ebnf
-infix_decl      ::= ("infixl" | "infixr") infix_op infix_priority?
-infix_priority  ::= "at" INT
-                  | "at" "prio" infix_op ("+" | "-") INT
-infix_op        ::= "or" | "and" | "in"
-                  | "==" | "!=" | "<" | "<=" | ">" | ">="
-                  | "+" | "-" | "*" | "/"
-                  | OP_NAME
+infix_decl     ::= ("infixl" | "infixr") infix_op infix_priority?
+infix_priority ::= "at" INT
+                 | "at" "prio" infix_op ("+" | "-") INT
+infix_op       ::= "or" | "and" | "in"
+                 | "==" | "!=" | "<" | "<=" | ">" | ">="
+                 | "+" | "-" | "*" | "/"
+                 | OP_NAME
 ```
 
-`infixl` and `infixr` declare a symbolic operator's associativity and optional
-integer priority. Larger priorities bind tighter; omitted priority defaults to
-the `+`/`-` level. The operator after `prio` is looked up at the module root
-like any operator name. An operator use takes the fixity that the module
-declaring the selected operator declares for it; see [Operator
-precedence](lexical-structure.md#operator-precedence). A chain cannot mix
-`infixl` and `infixr` operators at the same priority: parenthesize one side or
-assign distinct priorities.
+`at` is contextual. A built-in operator appears in an infix declaration only
+as the base of a relative priority. Semantics:
+[User-defined operators](lexical-structure.md#user-defined-operators).
 
 ## Bindings and mutation
 
 ```ebnf
-let_decl       ::= attributes? "let" decl_head type_ann? "=" init_value
-var_decl       ::= attributes? "var" decl_head type_ann? "=" init_value
-builtin_var_def ::= attributes? "builtin" NEWLINE? "var" name type_ann ["=" expr]  (* standard library only *)
-assign_stmt ::= assign_target ":=" init_value
-init_value  ::= expr | suite
-assign_target ::= qualifier_chain? name
-                | postfix "[" expr "]"
-                | postfix "." field_name
+let_decl        ::= attributes? "let" decl_head type_ann? "=" init_value
+var_decl        ::= attributes? "var" decl_head type_ann? "=" init_value
+builtin_var_def ::= attributes? "builtin" NEWLINE? "var" name type_ann ["=" expr]
+assign_stmt     ::= assign_target ":=" init_value
+init_value      ::= expr | suite
+assign_target   ::= qualifier_chain? name
+                  | postfix "[" expr "]"
+                  | postfix "." field_name
 ```
 
-An initializer takes the same two shapes a function body does: one expression,
-or an indented suite whose value is its last item. A suite initializer is what
-lets a binding be computed from a sequence of steps without a helper function:
-
-```agl
-program def main() -> unit =
-  let summary =
-    let total = 1 + 2
-    let doubled = total * 2
-    "total %{total}, doubled %{doubled}"
-  print summary
-```
-
-A `builtin var` is a body-less, host-backed mutable binding with a mandatory
-type and an optional constant initializer. Its host identity is its defining
-module, scope path, and name, so same-named declarations in distinct scope
-regions remain independent. The initializer must have the
-declared type and use only literals, literal containers, constructors, and
-unary operators over those. It
-becomes the binding default only when the host supplies no initial value. The
-`builtin` modifier may sit on the same line or the line directly above (like
-`builtin def`). It may be declared only at the root, or in a named scope region,
-of a module whose path identity lies under `std`, the entry program included
-when its path lies there; no other module may declare one. `std/config`
-reserves builtin vars for engine settings.
-
-`var`'s `decl_head` accepts the same optional scope-path prefix as the type
-declarations above (`var A::count = 0`). `let` needs no separate grammar for
-its own shorthand: a `pattern` that is exactly a bare qualifier chain
-spellable as a declaration head (no argument list, no `as` binder, and
-otherwise a plain, non-`::`-anchored name chain) declares a scoped binding
-instead of matching a pattern — see [Bindings and scope](bindings-and-scope.md)
-for the full disambiguation.
-
-Assignment has type `unit` and returns `()`. `assign_target`'s qualifier
-accepts any number of segments: a local scope path (`A::B::count`) reaches a
-scoped `var` exactly as a qualified read does, while a bare (non-indexed)
-cross-module target — written with a qualifier, or bare when an import tail or
-`use` puts the name in scope — is valid only when it resolves to an exported
-`var` or a `builtin var`; type-qualified constructor forms are not assignment
-targets. An indexed
-assignment target's object expression is evaluated like any other read, so
-`assign_target` accepts any array- or dict-typed expression there; a field
-assignment likewise accepts any record-typed postfix receiver, provided its
-field is marked `var`. See [Bindings and scope](bindings-and-scope.md#destructive-assignment)
-for which roots are legal and the evaluation order. Each opening `[` must be
-adjacent to the target name or preceding index: `xs[0]` is indexed assignment,
-while `xs [0]` is not.
+A binder names exactly one `decl_head`; there are no destructuring binders.
+An initializer is one expression or a
+[suite](bindings-and-scope.md#suite-initializers). A `builtin var` has a mandatory type and an optional constant initializer. An
+indexing `[` in an assignment target is adjacent to the expression before it:
+`xs[0] := …` assigns an element, while `xs [0]` is no target. Semantics:
+[Bindings and scope](bindings-and-scope.md).
 
 ## Loops
 
 ```ebnf
-loop        ::= for_clause? while_clause? "do" loop_bound?
-                (suite loop_end? | inline_body loop_end)
-for_clause  ::= "for" name "in" or_expr range_tail? NEWLINE?
-range_tail  ::= ("to" | "downto") or_expr ("step" or_expr)?
-while_clause::= "while" or_expr NEWLINE?
-loop_bound  ::= "[" or_expr "]"           (* int; n <= 0 runs zero iterations *)
-loop_end    ::= "until" or_expr | "done"   (* omitted terminator allowed in suite form *)
-inline_body ::= marked_item (";" marked_item)*
-marked_item ::= expr | inline_assign | let_decl | var_decl
+loop         ::= for_clause? while_clause? "do" loop_bound?
+                 (suite loop_end? | marked_body loop_end)
+for_clause   ::= "for" name "in" or_expr range_tail? NEWLINE?
+range_tail   ::= ("to" | "downto") or_expr ("step" or_expr)?
+while_clause ::= "while" or_expr NEWLINE?
+loop_bound   ::= "[" or_expr "]"
+loop_end     ::= "until" or_expr | "done"
 ```
 
-A loop body is the one inline position that admits the *open* forms
-(`case`, `if`, `try`, and a nested loop). A loop is closed by its terminator
-(`until` / `done`), which no open form can extend into, so their branch lists
-end unambiguously (see [Inline bodies](#inline-bodies)). A nested
-`do … until p until q` binds the inner `until` innermost-first.
-
-At most one `for` and one `while` clause, in that order. `done` and an
-omitted (suite-form) terminator are equivalent to `until false`. `break` and
-`continue` are nullary expressions of the bottom type, valid anywhere in a
-loop's interior — its `while` guard, body, or `until` condition — within the
-same function/lambda. `return` may also appear inside a loop; it exits the
-nearest enclosing function. See
-[Control flow](control-flow.md) for the full clause, scope, and bound
-semantics.
+At most one `for` and one `while` clause, in that order. Only the suite form
+may omit its terminator. The `[` after `do` always opens the bound, whatever
+its spacing, so a bound never conflicts with an array literal; the bound is
+any `int` expression (`do[n + 1]`). Semantics: [Control flow](control-flow.md).
 
 ## `if`
 
@@ -509,22 +356,11 @@ if_cond_branch ::= or_expr "=>" branch_body
 if_else_branch ::= "|"? "else" "=>" branch_body
 
 branch_body    ::= suite | closed_item
-closed_item    ::= or_expr
-                 | inline_assign                  (* assign_target ":=" or_expr *)
-                 | raise_expr
-                 | return_expr
+closed_item    ::= or_expr | inline_assign | raise_expr | return_expr
 ```
 
 `branch_body` is shared by `if` branches, `case` branches, and `catch`
-clauses. An inline body after `=>` is exactly **one** item: no `;` sequence
-and no binder. See [Inline bodies](#inline-bodies) for why, and for the two
-ways to write a multi-item body inline. An inline `:=` has the form
-`assign_target := or_expr`; the suite form keeps the unrestricted
-`assign_target := expr` form.
-
-Without an `else` branch the `if` expression has type `unit` and returns
-`()`. With all branches returning a common type `T`, the `if` expression has
-type `T`.
+clauses; see [Inline bodies](#inline-bodies).
 
 ## `case`
 
@@ -537,30 +373,26 @@ case_branch     ::= pattern "=>" branch_body
 ```
 
 The branch list either follows `of` on the same line or forms an indented
-block on the lines below it. The first branch's `|` is optional in both forms;
-every later branch starts with `|`.
+block on the lines below it.
 
 ## `try` / `catch`
 
 ```ebnf
-try_expr          ::= "try" try_body catch_clause+
-try_body          ::= suite | (marked_item ";")* try_tail
-try_tail          ::= or_expr | inline_assign | try_letvar_decl | raise_expr
-                    | return_expr | if_expr | case_expr | loop
-try_letvar_decl   ::= attributes? "let" decl_head type_ann? "=" try_value
-                    | attributes? "var" decl_head type_ann? "=" try_value
-try_value         ::= or_expr | raise_expr | return_expr | if_expr | case_expr | loop
-catch_clause      ::= "catch" catch_pattern "=>" branch_body
-catch_pattern     ::= name ("as" name)?
-                    | "_" ("as" name)?
+try_expr        ::= "try" try_body catch_clause+
+try_body        ::= suite | (marked_item ";")* try_tail
+try_tail        ::= or_expr | inline_assign | try_letvar_decl | raise_expr
+                  | return_expr | if_expr | case_expr | loop
+try_letvar_decl ::= attributes? ("let" | "var") decl_head type_ann? "=" try_value
+try_value       ::= or_expr | raise_expr | return_expr | if_expr | case_expr | loop
+catch_clause    ::= "catch" catch_pattern "=>" branch_body
+catch_pattern   ::= name ("as" name)?
 ```
 
-`catch` marks where a `try` body ends, so an inline try body is a full `;`
-sequence — binders and `assign_target := or_expr` assignments included. A final `let`
-or `var` binder is allowed
-and makes the body `unit`-valued unless its initializer exits. A final item and
-a final binder RHS must remain closed: an open form there would consume the
-`catch`.
+An inline try body is a full `;` sequence. Its final item, and a final
+binder's initializer, may be an `if`, `case`, or loop, but not a nested `try`,
+a lambda, or a record update unless parenthesized (see
+[Inline bodies](#inline-bodies)). A `catch_pattern` name is an exception type
+or `_`. Semantics: [Exceptions](exceptions.md).
 
 ## Patterns
 
@@ -568,40 +400,17 @@ a final binder RHS must remain closed: an open form there would consume the
 pattern        ::= pattern_atom ("as" name)*
 pattern_atom   ::= "_"
                  | INT | DECIMAL | "true" | "false" | "null" | STRING
-                 | name
-                 | name "(" pattern_fields? ")"
-                 | qualifier_chain name
-                 | qualifier_chain name "(" pattern_fields? ")"
+                 | qualifier_chain? name ["(" pattern_fields? ")"]
 pattern_fields ::= pattern_field ("," pattern_field)* ","?
-pattern_field  ::= pattern              (* positional sub-pattern *)
-                 | field_name "=" pattern
-                                           (* named sub-pattern: field = subpattern *)
+pattern_field  ::= pattern                     (* positional *)
+                 | field_name "=" pattern      (* named *)
 ```
 
-`pattern as name` binds `name` to the complete value matched by `pattern`.
-It has the lowest pattern precedence, may be chained, and cannot use `_` as
-its binder name. The binder is always a variable binder.
-
-A qualified member pattern (`Option::Some(value)`,
-`module::Option::Some(value)`, or `/module::Option::Some(value)`) names a
-member record with `::`. A leading `/` is an anchored qualifier; without it,
-the qualifier is resolved as a suffix. The complete qualifier through `::` is
-byte-adjacent. A qualified pattern's argument list is optional
-(`Option::None` and `Option::None()` are both nullary matches) except at the
-root of a `let` declaration, which accepts only a binding name. Unqualified
-constructor ownership is selected by the scrutinee's static nominal type, even
-when multiple enums contribute the same member name or a record constructor
-spelling collides with an injected member name; a qualifier is optional and
-must agree with that type when present ([Generics](generics.md),
-[Pattern matching](pattern-matching.md)). Type arguments are carried by the
-scrutinee type rather than written in a pattern.
-
-In a constructor pattern, **positional sub-patterns** (`pattern` without a
-`name "="` prefix) fill positional-capable (pos-only/standard) constructor fields
-left to right. Named sub-patterns follow. A bare name positional sub-pattern
-that lands on a named-only field is reinterpreted as the shorthand `name = name`.
-
-A `STRING` pattern may not contain interpolation.
+`as` has the lowest pattern precedence and may be chained. A `STRING` pattern
+contains no interpolation. A pattern's type arguments come from the
+scrutinee; an applied qualifier segment (`Option[int]::Some(…)`) is allowed and
+must agree with them.
+Semantics: [Pattern matching](pattern-matching.md).
 
 ## Expressions
 
@@ -613,52 +422,46 @@ record_update ::= update_target "with" field_update ("," field_update)*
 update_target ::= record_update | or_expr     (* chaining is left-associative *)
 field_update  ::= field_name "=" or_expr
 
-or_expr       ::= infix_expr
-infix_expr    ::= infix_operand (infix_op infix_operand)*
+or_expr       ::= infix_operand (infix_op infix_operand)*
 infix_operand ::= "not"* is_expr
 
-is_expr   ::= cast "is" "not"? qualified_constructor
-            | cast
+is_expr        ::= cast "is" "not"? qualifier_chain? name
+                 | cast
 
-cast           ::= cast "as" type_expr      (* type cast; may raise CastError *)
-               | cast "as?" type_expr      (* optional cast; yields Option[T] *)
-               | unary
-               (* left-associative; "as?" is a single token — no whitespace *)
+cast           ::= cast "as" type_expr
+                 | cast "as?" type_expr
+                 | unary
 
 unary          ::= "-" unary | juxt
 
-juxt           ::= postfix juxt_arg     (* single-arg sugar; non-chaining *)
-               | postfix
-
+juxt           ::= postfix juxt_arg     (* single-argument sugar; non-chaining *)
+                 | postfix
 juxt_arg       ::= juxt_atom juxt_suffix*
+juxt_atom      ::= INT | DECIMAL | "true" | "false" | "null"
+                 | array_literal | dict_literal | template
+                 | NAME                               (* not OP_NAME *)
+                 | qualifier_chain name
 juxt_suffix    ::= "." field_name
-               | "[" expr "]"                  (* adjacent bracket only *)
-               | "(" arg_list? ")"
-               | "::" "[" type_expr ("," type_expr)* "]" "(" arg_list? ")"
+                 | "[" expr "]"                       (* adjacent bracket only *)
+                 | "(" arg_list? ")"
+                 | "::" "[" type_expr ("," type_expr)* "]" "(" arg_list? ")"
 
 postfix        ::= atom postfix_suffix* | leading_dot_expr
-postfix_suffix ::= "." field_name                    (* member selection *)
-               | "(" arg_list? ")"                  (* call with parentheses *)
-               | "[" expr "]"                       (* adjacent bracket only *)
-               | "::" "[" type_expr ("," type_expr)* "]"   (* explicit type application *)
-
-applied_type_qualified_constructor ::= qualifier_chain NAME "[" type_expr ("," type_expr)* "]" "::" NAME
-                                           | NAME "[" type_expr ("," type_expr)* "]" "::" NAME
-                                           (* `[` is byte-adjacent to the preceding NAME *)
+postfix_suffix ::= "." field_name                     (* member selection *)
+                 | "(" arg_list? ")"                  (* call *)
+                 | "[" expr "]"                       (* indexing; adjacent bracket only *)
+                 | "::" "[" type_expr ("," type_expr)* "]"   (* explicit type arguments *)
+leading_dot_expr ::= "." field_name postfix_suffix*
 
 atom           ::= INT | DECIMAL | "true" | "false" | "null"
-               | "(" ")"                           (* unit literal *)
-               | array_literal
-               | dict_literal
-               | name                              (* variable / constructor reference *)
-               | qualifier_chain name               (* qualified ref / constructor *)
-               | applied_type_qualified_constructor
-               | template
-               | "(" expr ")"                      (* parenthesized expr *)
-               | "(" paren_block ")"               (* parenthesized block *)
-               | "(" builtin_op ")"                (* operator as a function value *)
-               | break_expr
-               | continue_expr
+                 | "(" ")"                            (* unit literal *)
+                 | array_literal | dict_literal
+                 | qualifier_chain? name              (* reference or constructor *)
+                 | template
+                 | "(" expr ")"
+                 | "(" paren_block ")"
+                 | "(" builtin_op ")"                 (* operator as a function value *)
+                 | "break" | "continue"
 
 builtin_op     ::= "+" | "-" | "*" | "/" | "==" | "!=" | "<" | "<=" | ">" | ">="
 
@@ -666,157 +469,102 @@ paren_block    ::= (marked_item ";")+ marked_item
                  | inline_assign
                  | let_decl | var_decl
 
-juxt_atom      ::= INT | DECIMAL | "true" | "false" | "null"
-                 | array_literal | dict_literal | template
-                 | NAME                              (* bare references exclude OP_NAME *)
-                 | qualifier_chain name               (* qualified ref / constructor *)
-                 | applied_type_qualified_constructor
-
-qualified_constructor ::= qualifier_chain name | name
-
 raise_expr     ::= "raise" or_expr
 return_expr    ::= "return" or_expr?
-break_expr     ::= "break"
-continue_expr  ::= "continue"
-leading_dot_expr ::= "." field_name postfix_suffix*
 ```
 
-A leading-dot expression is a unary function whose omitted receiver type comes
-from its function context. `.field` selects a field or bound method, and
-`.f(args)` invokes the selected member. Every postfix suffix belongs to the
-function body until parentheses end the chain: `.copy().value` behaves like
-`fn(receiver: T) => receiver.copy().value`. Arguments retain their enclosing
-bindings. See [Methods](functions.md#methods) for typing and selection rules.
+An operator chain is flat in the grammar and grouped by
+[operator precedence](lexical-structure.md#operator-precedence): each binary
+operator at its priority and associativity, and each `not` as a prefix whose
+operand extends over the following operators of priority 25 or higher (`not a
+== b` is `not (a == b)`; `not a and b` is `(not a) and b`). Comparisons do not
+chain. `is` takes a constructor name, so it does not chain either.
 
-A bare name atom is resolved by scope and position: it may name a variable, a
-record constructor, an injected enum-member constructor, or a generic
-`def`/constructor used as a first-class value. The typed postfix form carries
-explicit type arguments to a generic `def` or bare constructor
-(`id::[int](5)`, `Some::[int](value = 1)`, `apply::[int, int](…)`), or
-instantiates a generic function value (`id::[int]`). A member selected through
-its owning generic enum puts the type arguments on the type side
-(`Option[int]::Some(value = 1)`).
-A qualifier that is a scope or module route rather than an owning type leaves
-the constructor's own spelling intact, so it carries type arguments exactly as
-the unqualified form does (`A::Pair::[int]`, `boxes::A::Box::[int]`). In that explicit
-type-qualified constructor form, the `[` is byte-adjacent to the applied type
-name: `Option[int]::Some` is valid, while `Option [int]::Some` is not. This
-restriction does not apply to ordinary applied types, so both `Option[int]` and
-`Option [int]` are valid type expressions. Both the applied type name and
-constructor name are `NAME` (not `OP_NAME`). A `postfix "." field_name` is
-always runtime field access; constructor qualification uses `::`. See
-[Generics](generics.md).
+A leading-dot expression is a unary function whose omitted receiver is the
+start of its postfix chain: `.trim().size()` behaves like
+`fn(receiver: text) => receiver.trim().size()`
+([Methods](functions.md#methods)). The `::[…]` suffix gives a generic callee
+explicit type arguments (`id::[int](5)`); a member selected through its owning
+generic type writes them on the type segment instead
+(`Option[int]::Some(value = 1)`) — see [Generics](generics.md). A
+`"." field_name` suffix is always member selection; constructor qualification
+uses `::`. A `return` followed by a newline is a bare `return`.
 
 ## Lambda expressions
 
 ```ebnf
-lambda_expr      ::= "fn" lambda_params ("->" type_expr)? "=>" expr
-lambda_params    ::= field_name | "(" param_list? ")"
+lambda_expr   ::= "fn" lambda_params ("->" type_expr)? "=>" expr
+lambda_params ::= field_name | "(" param_list? ")"
 ```
 
-A bare parameter form declares exactly one parameter; zero or multiple
-parameters use parentheses. The return type annotation is optional; when
-omitted, it is inferred from the body. A lambda parameter may omit its type
-annotation when the corresponding type is supplied by a matching expected
-function type. Annotated and unannotated parameters may be mixed.
+A bare parameter form declares exactly one parameter; zero or several use
+parentheses. Parameter and return annotations may be omitted where an
+expected function type supplies them ([Functions](functions.md)).
 
 ## Calls
 
 ```ebnf
 arg_list        ::= arg ("," arg)* ","?
-arg             ::= element_expr                 (* positional *)
-                  | placeholder_arg              (* positional hole *)
-                  | field_name "=" element_expr  (* named *)
+arg             ::= element_expr                   (* positional *)
+                  | placeholder_arg                (* positional hole *)
+                  | field_name "=" element_expr    (* named *)
                   | field_name "=" placeholder_arg (* named hole *)
 placeholder_arg ::= "?" | "?<digits>"
+element_expr    ::= expr                           (* without a bare record_update *)
 ```
 
-`element_expr` is `expr` without a bare record update: in comma-separated
-element positions (call arguments, array and dict literal elements) a record
-update — including one that forms the body of an inline lambda — must be
-parenthesized, so that its update list cannot be confused with the enclosing
-comma-separated list. See
-[Record update](expressions.md#record-update).
-
-A placeholder is legal only as a whole parenthesized call argument: either a
-positional argument (`f(?, x)`) or the value of a named argument (`f(x = ?)`).
-It is not an expression, so forms such as `f(? + 1)`, a standalone `?`, or a
-placeholder in single-argument sugar do not parse. The numbered form has no
-whitespace between `?` and its digits; `? 1` is a bare placeholder followed by
-an integer argument, not `?1`.
-
-Named arguments are available at declared-name call sites (`def`s and
-built-ins). A function value is called with positional arguments only.
-A bare name in positional position that lands on a **named-only** parameter
-(after all positional-capable slots are filled) is reinterpreted as the named
-argument `name = name` — this shorthand works in any call context (functions,
-constructors) and is triggered solely by the parameter's zone.
+In comma-separated element positions — call and attribute arguments, array
+and dict elements — a record update, including one that forms an inline
+lambda's body, is parenthesized so its update list cannot be confused with the
+enclosing list ([Record update](expressions.md#record-update)). A placeholder
+is legal only as a whole parenthesized call argument, so `f(? + 1)`, a
+standalone `?`, and a placeholder in single-argument sugar do not parse
+([Partial application](functions.md#partial-application)).
 
 ## Literals
 
 ```ebnf
 array_literal ::= "[" (element_expr ("," element_expr)* ","?)? "]"
-
-dict_literal ::= "{" (dict_entry ("," dict_entry)* ","?)? "}"
-dict_entry   ::= element_expr ":" element_expr
+dict_literal  ::= "{" (dict_entry ("," dict_entry)* ","?)? "}"
+dict_entry    ::= element_expr ":" element_expr
 ```
-
-`element_expr` excludes bare record updates — see [Calls](#calls).
 
 ## Templates
 
 ```ebnf
-template      ::= '"' (text_fragment | interpolation)* '"'
-                | "'" (text_fragment | interpolation)* "'"
-                | '"""' (text_fragment | interpolation)* '"""'
-                | "'''" (text_fragment | interpolation)* "'''"
+template      ::= '"' (text_fragment | interpolation | env_hole)* '"'
+                | "'" (text_fragment | interpolation | env_hole)* "'"
+                | '"""' (text_fragment | interpolation | env_hole)* '"""'
+                | "'''" (text_fragment | interpolation | env_hole)* "'''"
                 | "$" (verbatim_text | interpolation)+  (* to end of line, or an indented block *)
 
-interpolation ::= "%{" expr "}"
+interpolation ::= "%{" expr "}"                    (* single line *)
+env_hole      ::= "${" NAME "}"
 ```
 
-A `text_fragment` is literal template text between the surrounding quote
-delimiters and any interpolation; its escapes and, for triple-quoted templates,
-dedent are described in [Lexical structure](lexical-structure.md). Newlines are
-not permitted inside `%{…}`.
-
-A `$` template's payload (its `verbatim_text`) is specified in
-[Lexical structure](lexical-structure.md#verbatim-literals); its
-interpolation semantics are in
-[Strings and interpolation](strings-and-interpolation.md#the-literal).
+Escapes and triple-quoted dedent are lexical
+([Strings and templates](lexical-structure.md#strings-and-templates)), as is a
+`$` template's payload ([Verbatim literals](lexical-structure.md#verbatim-literals)).
+Hole semantics: [Strings and interpolation](strings-and-interpolation.md).
 
 ```agl
 program def main() -> unit =
   let path = "."
   let output: text = exec $ printf '%s' %{path}
+  print output
 ```
 
 ## Deterministic-parse notes
 
-- `==` is the equality operator; a single `=` is reserved for bindings, named
-  arguments, and declarations, and is not an expression operator.
-- Chained comparisons are rejected with a non-associativity message after the
-  infix chain is grouped.
-- The `[N]` after `do` is a single lexical unit, so it never conflicts with
-  an array literal.
+- A single `=` belongs to bindings, named arguments, fields, and declarations;
+  it is not an expression operator. Equality is `==`.
 - A `|`, `else`, `catch`, or `until` at the start of a line attaches to the
-  innermost construct that can accept it; the layout rules guarantee each
-  such token belongs to exactly one construct
-  ([Lexical structure](lexical-structure.md)).
-- The optional single-argument call syntax applies a function to one following
-  argument: `f x` means `f(x)`. It does not chain, so `f x y` is invalid.
-- `()` is both the unit literal and the empty argument list of a zero-arg
-  call — the two are syntactically unified.
-- Inline branch and `catch` bodies hold a single *closed* item — `or_expr`,
-  `:=`, `raise`, or `return`. They admit neither a `;` sequence nor a binder,
-  nor the *right-extending* forms (`case`, `if`, `try`, a loop) or a lambda, whose body is
-  itself an `expr`: those would extend rightwards into the enclosing branch
-  list's `|` / `else` / `catch`. Write them as a suite or parenthesize them
-  (see [Inline bodies](#inline-bodies)).
-- `until` conditions reference `or_expr` directly, so a right-extending form there must
-  be parenthesized.
-- Bodies whose end is marked by a token — a parenthesized block, a loop body,
-  a `try` body — take a full `;` sequence; loop bodies additionally admit the
-  right-extending forms, because the loop terminator closes the body.
-- A `return` followed by a newline is a bare `return`; its operand does not
-  continue onto the next line.
+  innermost construct that can accept it; the
+  [layout rules](lexical-structure.md#layout-indentation-newlines-continuation)
+  guarantee each such token belongs to exactly one construct.
+- The single-argument call `f x` means `f(x)`. It does not chain, so `f x y`
+  is invalid.
+- `()` is both the unit literal and the empty argument list of a zero-argument
+  call.
+- `if`/`until` conditions are `or_expr`, so a right-extending form there is
+  parenthesized.

@@ -3,36 +3,13 @@
 [← Index](index.md)
 
 This chapter covers literals, constructors, member access, record updates,
-operators, calls, and `case`/`if` expressions, together with the static typing
-rules and runtime semantics of each. Operator precedence is tabulated in
-[Lexical structure](lexical-structure.md).
-
-In AgL **everything is an expression**: there is no separate statement
-category. Bindings, `:=`, `print`, `if` without `else`, and loops are all
-expressions with well-defined types. An executable block, such as a function or
-branch body, is a sequence of items whose value is the value of its last item.
-A final `let` or `var` contributes `unit` as the block value, or bottom when its
-initializer exits. A file-backed module root is static and does not produce a
-block value.
-
-## Discarded values
-
-A bare expression before the final block item is evaluated in a discarded-value
-position and must have type `unit` or `bottom`. `bottom` is the type of an
-expression that does not return normally, such as `raise`, `return`, `break`,
-or `continue`; it is assignable wherever a value is expected. Binders and
-declarations are valid intermediate items. A `unit`-valued call is written
-bare; to run a value-producing expression for effect without retaining its
-result, bind it to `_`:
-
-```agl
-program def main() -> unit =
-  let _ = ["report"]
-  print "report fetched"
-```
-
-`_` creates no readable name and may be used repeatedly. The same rule applies
-to a loop body, whose value is discarded on every iteration.
+indexing, operators, casts, and how expected types propagate. Everything in
+AgL is an expression; a block's value and the `unit` rule for discarded values
+are in [The block's value](program-structure.md#the-blocks-value) and
+[Expression statements](program-structure.md#expression-statements). `if`,
+`case`, and loops are in [Control flow](control-flow.md), calls in
+[Functions](functions.md), and operator precedence in [Lexical
+structure](lexical-structure.md#operator-precedence).
 
 ## Literals
 
@@ -40,14 +17,14 @@ to a loop body, whose value is discarded on every iteration.
 ```agl
 42            # int
 1.5           # decimal
-true false    # bool
+true          # bool (and false)
 null          # json
-()            # unit — printable unit value
+()            # unit
 "text %{x}"   # template (type text; see Strings and interpolation)
 ```
 
-The unit literal `()` is the unit value. `()` is also the empty argument list
-of a zero-argument call — the two are syntactically unified.
+`()` is the unit value and also the empty argument list of a zero-argument
+call — the two are syntactically unified.
 
 ### Array literals
 
@@ -67,20 +44,13 @@ program def main() -> unit =
   let items = second([], [1])
 ```
 
-If no such constraint determines the element type before the enclosing
-expression ends, add an annotation:
-
-<!-- agl-check: fragment -->
-```agl
-let items: array[Issue] = []
-```
+Otherwise it needs an annotation (`let items: array[Issue] = []`).
 
 Under an expected type of `json`, each element is checked against `json`
-directly, so elements need **not** share a type — `[1, "two", true, null]` is
-a valid `json` value — and the literal itself is typed as `json`, not
-`array[json]`: a fresh literal is not an existing value being absorbed, so no
-`as json` cast is needed at that boundary. The same rule applies to
-dictionary literals below.
+directly, so elements need **not** share a type — `[1, "two", true, null]` is a
+valid `json` value — and the literal itself is typed `json`, not
+`array[json]`: a fresh literal needs no `as json` cast. The same applies to
+dictionary literals.
 
 ### Dictionary literals
 
@@ -95,275 +65,115 @@ A key is an ordinary expression of the dictionary's key type — a literal,
 interpolated text, a constructor application, an arithmetic expression, or a
 variable; a bare name is a reference, not a shorthand key. Under an expected
 type of `json`, keys are always `text`. A non-empty literal's key type must
-satisfy `Hashable`.
+satisfy `Hashable`. An empty literal takes its key and value types from an
+expected type or a constraint in the enclosing expression, or needs an
+annotation (`let metadata: dict[text, json] = {}`).
 
 Two entries are a static error when both keys are [constant
 expressions](bindings-and-scope.md#constant-expressions) with a comparable
-constant value: `null`, `bool`, int and decimal literals compare
-numerically (`1` and `1.0` collide), text compares after folding templates
-and constant references to the text each renders (`"%{prefix}-a"` collides
-with the text it folds to), and a constructor application — direct or
-reached through a constant alias — compares by constructor identity with
-its arguments normalized to field names, positional and named alike
-(`Point(1, 2)` collides with `Point(x = 1, y = 2)`). Folding a reference
-never crosses a `var`, whose value can still change, or a module parameter,
-whose value the host settles at run time, nor an annotation other than the
-referenced constant's own scalar type (`text`, `int`, `decimal`, `bool`) —
-a `json`-typed constant renders through `json`'s own rules, not scalar
-text, so a hole reading one is never comparable this way either. A constant
-key with no comparable value under these rules is left to run time, like
-any pair of genuinely computed keys: two entries whose keys compute an
-equal value at run time raise catchable `DuplicateKeyError` instead.
-
-An empty dictionary may obtain its key and value types from an expected
-dictionary type or another constraint in the same enclosing expression;
-otherwise it needs an annotation:
-
-```agl
-let metadata: dict[text, json] = {}
-```
+constant value: `null`, `bool`, int and decimal literals compare numerically
+(`1` and `1.0` collide); text compares after folding templates and constant
+references to the text each renders (`"%{prefix}-a"` collides with the text it
+folds to); a constructor application — direct or through a constant alias —
+compares by constructor identity with its arguments normalized to field names
+(`Point(1, 2)` collides with `Point(x = 1, y = 2)`). Folding never crosses a
+`var`, whose value can change, or a module parameter, whose value the host
+settles at run time; a template hole folds only a reference of scalar type
+(`text`, `int`, `decimal`, `bool`), so a `json` constant in a hole is not
+compared. Keys
+with no comparable constant value are left to run time: two entries whose keys
+compute equal values raise catchable `DuplicateKeyError`.
 
 ## Constructors
 
-```ebnf
-constructor ::= constructor_ref value_type_args? constructor_args?
-constructor_ref ::= name
-                  | qualifier_chain name
-                  | applied_type_qualified_constructor
-applied_type_qualified_constructor ::= qualifier_chain NAME "[" type_expr ("," type_expr)* "]" "::" NAME
-                                           | NAME "[" type_expr ("," type_expr)* "]" "::" NAME
-                                           (* `[` is byte-adjacent to the preceding NAME *)
-qualifier_chain ::= "::" qualifier_segment* | qualifier_segment+
-qualifier_segment ::= ["/"] NAME ("/" NAME)* "::"
-                    | NAME "[" type_expr ("," type_expr)* "]" "::"
-constructor_args ::= "(" (ctor_arg ("," ctor_arg)* ","?)? ")"
-value_type_args ::= "::" "[" type_expr ("," type_expr)* "]"
-ctor_arg    ::= element_expr      (* positional; expr without a bare record update *)
-              | field_name "=" element_expr
-```
-
-Constructor arguments follow the same **positional-greedy** binding as function
-calls — positional arguments fill positional-capable (pos-only/standard) field
-slots left to right; named arguments (`field = value`) follow. The optional
-value-position `::[…]` pins the type arguments of a generic constructor (see
-[Generic constructors](#generic-constructors)). In the explicit
-applied-type-qualified form, the `[` must be byte-adjacent to the type name:
-`Option[int]::Some` is valid, while `Option [int]::Some` is not. This
-restriction does not apply to ordinary applied types, so both `Option[int]` and
-`Option [int]` are valid type expressions. This form requires `NAME` for both
-the applied type and constructor; it does not accept `OP_NAME` there.
-
-**Per-type field zones.** Record fields, inline enum-member fields, and an
-exception's own fields default to the **standard** zone (positional or named),
-regardless of the number of fields. The `@arg-pos`, `@arg-std`, and
-`@arg-named` [attributes](attributes.md#zone-attributes) constrain fields to a
-different zone. An exception's inherited `message` field
-is named-only.
-
-**Bare-name shorthand.** A bare name `x` in a positional slot that lands on a
-**named-only** field (where positional binding is impossible) is reinterpreted as
-`x = x`. This shorthand applies in any call context — functions and constructors
-alike — whenever a named-only parameter is in play.
+Constructor arguments bind **positional-greedy**, as in calls
+([Functions](functions.md#calling-functions)): positional arguments fill
+positional-capable fields left to right, then named arguments (`field =
+value`) follow, and a bare name landing on a named-only field means
+`name = name`. Fields are standard (positional or named) unless a zone
+attribute says otherwise ([Field zones](types.md#field-zones)); an
+exception's inherited `message` is named-only. Every required field must be
+supplied; unknown and duplicate fields are static errors. A constructor with
+a required field is also a function value ([Constructors in the value
+namespace](bindings-and-scope.md#constructors-in-the-value-namespace)). The
+grammar of qualified and type-applied constructor references is in
+[Grammar](grammar.md#expressions).
 
 ### Record construction
 
-<!-- agl-check: fragment -->
 ```agl
-Issue(title = "Bug", severity = 2, description = "...")
-```
+record Issue
+  title: text
+  severity: int
+  description: text
 
-Every declared field must be supplied; unknown and duplicate fields are
-static errors.
+let bug = Issue(title = "Bug", severity = 2, description = "Crash on save.")
+let same = Issue("Bug", 2, description = "Crash on save.")
+```
 
 ### Enum member construction
 
-An enum establishes a same-named scope and each inline member is a record in
-that scope. Qualification uses the same chain syntax as every other scope
-member; every enum member also contributes its terminal name as an injected
-bare constructor candidate.
-
-Qualified or unqualified:
-
-<!-- agl-check: fragment -->
-```agl
-Review::Pass
-Review::Fail(issues = ["missing tests"])
-
-let review: Review = Pass           # checked in an enum-typed slot
-```
-
-A module qualifier also reaches an inline member of one of the module's root
-enums by its terminal name (`mylib::Pass`, `::Pass`); see
+An enum establishes a same-named scope, and each inline member is a record in
+that scope; every member also contributes its terminal name as an injected bare
+constructor candidate. A module qualifier reaches an inline member of one of
+the module's root enums by its terminal name (`mylib::Pass`, `::Pass`); see
 [Module-qualified enum members](modules.md#module-qualified-enum-members).
 
-A member constructor produces its own record type. Assign it to an enum slot
-to widen it: `let pass = Pass` has type `Review::Pass`, while the annotated
-binding above has type `Review`. This is a directed check, not common-type
-inference: `let items = [Pass, Fail(issues = [])]` has no inferred enum type,
-so write `let items: array[Review] = [Pass, Fail(issues = [])]`.
-
-In ordinary value position, an unqualified member name must resolve to exactly
-one visible constructor candidate in lexical scope. An expected enum type
-checks the selected constructor but cannot choose between same-named
-candidates. A nullary member is constructed by writing its name alone (no
-parentheses). Field-bearing members use positional-greedy binding. Every
-unmarked member-record field is standard (positional or named), regardless of
-the number of fields.
-
 ```agl
-enum Outcome
-  | Ok(value: int)
-  | Err(reason: text, fatal: bool)
+enum Review
+  | Pass
+  | Fail(issues: array[text])
 
-let ok = Outcome::Ok(42)
-let ok2 = Outcome::Ok(value = 42)
-let err = Outcome::Err("bad", false)
-let named-err = Outcome::Err(reason = "bad", fatal = false)
+let pass = Review::Pass                         # type Review::Pass
+let fail = Fail(issues = ["missing tests"])     # type Review::Fail
+let review: Review = Pass                       # widened in an enum-typed slot
+let reviews: array[Review] = [Pass, Fail(issues = [])]
 ```
 
-### Unqualified member ambiguity
-
-If two or more distinct constructor candidates have the same unqualified name
-at the [lookup step](scopes.md#names-and-visibility) that decides it — two of
-the module's own, or two contributed ones when the module declares none — a
-bare reference in ordinary value position is a **static scope ambiguity
-error**, even in a context with an expected enum type. Scope reports the
-ambiguity before type checking can use that type. Disambiguate by qualifying
-with the member's declaring record or, for an inline member, its owning enum:
-
-```agl
-enum Holder[T]
-  | Empty
-  | Tagged(by: T)
-
-enum Other
-  | Tagged(name: text)
-
-let h: Holder[int] = Holder::Tagged(by = 7)   # qualified; unqualified 'Tagged' is an error
-```
-
-A nearer binding (a `let`/`var`/parameter of the same name) **shadows** a
-constructor or an overloaded set of constructors entirely; within that scope
-the name refers to the binding, not the constructor.
+A member constructor produces its own record type; it widens to the enum only
+in an enum-typed slot. This is a directed check, not common-type inference:
+`[Pass, Fail(issues = [])]` without the annotation has no inferred enum type.
+A bare member name must resolve to exactly one visible constructor; an
+expected enum type cannot choose between same-named candidates
+([Overload sets, shadowing, and
+ambiguity](bindings-and-scope.md#overload-sets-shadowing-and-ambiguity)).
 
 ### Generic constructors
 
-The constructors of a generic record or enum ([Generics](generics.md)) are
-generic too. Their type arguments are normally inferred — from constructor
-arguments, the expected type, or other evidence in the surrounding expression:
-
-```agl
-record Box[T]
-  value: T
-
-let bi: Box[int] = Box(value = 5)        # T = int, inferred from the argument
-let bt: Box[text] = Box(value = "hi")    # same definition, T = text
-```
-
-Pin the instantiation explicitly with `::[…]` when inference cannot (or
-should not) determine it:
-
-<!-- agl-check: fragment -->
-```agl
-let be = Box::[int](value = 99)
-```
-
-This also applies when a field-bearing constructor value or partial
-constructor is an argument to another call: a sibling argument may determine
-its type arguments.
-
-```agl
-record Box[T]
-  value: T
-
-def build[T](factory: (T) -> Box[T], value: T) -> Box[T] = factory(value)
-
-program def main() -> unit =
-  let b = build(Box(value = ?), 5)
-```
-
-A fieldless member of a generic enum may need contextual evidence (or an
-owner-applied qualification) to determine the enum instantiation:
-
-```agl
-enum Option[T]
-  | None
-  | Some(value: T)
-
-let e: Option[int] = None          # T = int, fixed by the annotation
-let s = Some::[int](value = 1)      # T pinned explicitly
-let q = Option[int]::Some(value = 2) # qualification disambiguates the owner
-```
-
-### Field-bearing constructors as values
-
-A constructor with at least one required field (no `=` default) is an
-**ordinary function value**: it can be stored, passed to a function, and
-called like any other function value. When a constructor is reached
-**through a variable** rather than written directly, it is a positional
-callable — its arguments are supplied positionally in **declaration order**,
-since a function value has no named parameters
-([Functions](functions.md)):
-
-<!-- agl-check: fragment -->
-```agl
-let mk: int -> Box[int] = Box     # the constructor as a value
-let made = mk(1)                    # called positionally
-print made.value
-```
-
-This lets constructors be passed to higher-order functions:
-
-<!-- agl-check: fragment -->
-```agl
-def apply[A, B](x: A, f: A -> B) -> B = f(x)
-
-let built = apply(42, mk)           # mk applied inside a generic HOF
-print built.value
-```
-
-A **generic** constructor used as a value needs expression-local evidence to
-fix its instantiation, exactly like a generic `def` used as a value. An
-annotation supplies that evidence, and a surrounding higher-order call may
-supply it through another argument or its result. A bare `let f = Some` is a
-static error because the binding has no such evidence.
+Constructors of generic records and enums are generic. Their type arguments
+are inferred from the arguments, the expected type, or sibling arguments of an
+enclosing call, or pinned with `::[…]` (`Box::[int](value = 1)`) or an applied
+owner (`Option[int]::Some(value = 2)`). See [Constructor type
+arguments](generics.md#constructor-type-arguments).
 
 ### Fieldless and all-defaulted constructor references
 
-A fieldless constructor reference constructs its value immediately in value
-position. This applies uniformly to a standalone record and an enum member,
-whether bare or qualified:
+A fieldless constructor reference — a standalone record or an enum member,
+bare or qualified — constructs its value immediately in value position. So
+does one whose every field has a `=` default, filling every field with its
+default:
 
 ```agl
 record Marker
+record Settings
+  retries: int = 3
+  verbose: bool = false
+
 enum Status
   | Ready
   | Failed(reason: text)
 
-let marker = Marker
-let ready = Ready
-let qualified-ready = Status::Ready
-```
-
-A constructor whose every field has a `= <constant expr>` default behaves the
-same way: its bare reference constructs the value immediately, filling every
-field with its default:
-
-```agl
-record Config
-  retries: int = 3
-  verbose: bool = false
-
 program def main() -> unit =
-  let config = Config
-  print(config.retries)   # 3
-  print(config == Config())   # true — same value either spelling
+  let marker = Marker
+  let ready = Status::Ready
+  let settings = Settings
+  print(settings.retries)          # 3
+  print(settings == Settings())    # true — same value either spelling
 ```
 
-Calls remain direct constructor calls, so `Marker()`, `Status::Ready()`, and
-`Config()` construct the same values as the bare references above. A
-fieldless or all-defaulted constructor reference is not a `() -> T` function
-value. Supply an explicit function when one is required:
+The call forms `Marker()`, `Status::Ready()`, and `Settings()` construct the
+same values. Such a reference is not a `() -> T` function value; supply an
+explicit function where one is required:
 
 ```agl
 record Marker
@@ -373,18 +183,13 @@ program def main() -> unit =
   let result = invoke(fn() => Marker)
 ```
 
-A generic fieldless constructor may obtain its type arguments from context or
-from `::[…]`:
-
-```agl
-record Token[T]
-let from-context: Token[int] = Token
-let explicit = Token::[int]
-```
+A generic fieldless constructor takes its type arguments from context or from
+`::[…]` ([Constructor type
+arguments](generics.md#constructor-type-arguments)).
 
 ### Exception construction
 
-Built-in exception types are constructed like records:
+Exception types are constructed like records:
 
 ```agl
 program def main() -> unit =
@@ -393,12 +198,11 @@ program def main() -> unit =
 
 ## Member access
 
-`expr.member` projects either a field or a method. Fields belong to records,
-exceptions, and `ExecResult`; methods belong to records, enums, exceptions, and
-built-in receiver types. A field projection yields its field value. An ordinary
-or `extern` method projection yields a bound function value whose receiver is
-the value on the left of the dot. A `builtin def` method projection does the
-same, lowering the eventual value call to its host operation.
+`expr.member` projects a field or a method. Fields belong to records (member
+records and `ExecResult` included) and exceptions; methods belong to records,
+enums, exceptions, and built-in receiver types. A field projection yields the
+field's value; a method projection yields a bound function value whose receiver
+is the value left of the dot:
 
 ```agl
 record Meter
@@ -409,267 +213,190 @@ def Meter::add(self, amount: int) -> int = self.value + amount
 program def main() -> unit =
   let meter = Meter(value = 4)
   let value = meter.value
-  let add = meter.add
-  let plus = meter.add(?)
+  let add = meter.add          # bound method
+  let plus = meter.add(?)      # partial application
   meter.value := 7
-  print(value)
-  print(add(3))
-  print(plus(5))
+  print(value)                 # 4
+  print(add(3))                # 10
+  print(plus(5))               # 12
 ```
 
-Thus `meter.add(3)` calls the method with `meter` as its receiver, while
-`meter.add` can be stored, passed to another function, or partially applied.
-A leading-dot expression produces a unary function over a contextual receiver:
-`.value` reads its field, `.add` selects its bound method, and `.add(3)` invokes
-that method. Postfix chains such as `.copy().value` belong to the function body.
-This supports forms such as `meters |> .map(.value)`. See
-[Methods](functions.md#methods) for its contextual typing rules.
-Method selection uses the receiver's static type and the declaration routes
-visible in this module. A same-named field and visible method are ambiguous,
-including as an assignment target. Arrays and dictionaries have no fields; use
-indexing to read their elements or values. `std/prelude` re-exports their
-receiver scopes, so their methods are available wherever the prelude is
-enabled. With `--no-stdlib`, import a route to the method before calling it.
-
-A member record value exposes its own fields and methods, plus — as part of
-the same selection level — the methods of every current enum that declares or
-references it; selecting one of those widens the receiver to the enum (see
-[Methods](functions.md#methods)). An enum-typed value exposes only methods
-declared by that enum: it has no fields, even when every member record
-defines the same field. Use a pattern or a member-record cast before
-accessing a member-only field or method from an enum value.
-
-A field assignment `receiver.field := value` requires `field` to be declared
-with `var` on a record or enum-member record. It updates that field in place,
-so aliases of `receiver` observe the new value. A `let` receiver is valid: it
-prevents rebinding the name, not updating a `var` field. An enum-typed receiver
-has no fields; narrow it with a `case` pattern or cast it to a member record
-before assignment. Exceptions and fields without `var` cannot be assigned.
-See [Bindings and scope](bindings-and-scope.md#destructive-assignment) for
-assignment targets, evaluation order, and cycle behavior.
+A leading-dot expression (`.value`, `.add(3)`) is a unary function over a
+contextual receiver, as in `meters |> .map(.value)`. Arrays and dictionaries
+have no fields; use indexing. An enum-typed value has no fields, even when
+every member defines the same field, and exposes only the enum's own methods;
+narrow it with a pattern or a member-record cast first. A member-record value
+also exposes the methods of every enum that declares or references it. A
+same-named field and visible method are ambiguous. See
+[Methods](functions.md#methods) for selection, visibility, and leading-dot
+typing, and [Destructive
+assignment](bindings-and-scope.md#destructive-assignment) for
+`receiver.field := value`.
 
 ## Record update
 
 `target with field = value, ...` builds a **shallow copy** of a **record** or
 **exception** value with the listed fields replaced; an enum member record is
-a record for this rule. All other fields keep their values — an unlisted array
-or dict field is shared with the target, not copied, so mutating it through the
-update's result is observed through the
-target too. The target itself is unchanged, even when it has `var` fields:
+a record for this rule. Unlisted fields keep their values — an unlisted array
+or dict field is shared with the target, not copied, so mutating it through
+the result is observed through the target too. The target itself is unchanged,
+even when it has `var` fields. Update values are ordinary expressions in the
+enclosing scope; there is no implicit field scope:
 
-<!-- agl-check: fragment -->
 ```agl
-let base = Issue(title = "Bug", severity = 2, description = "...")
-let urgent = base with severity = 5, title = "Bug!"
+record Issue
+  title: text
+  severity: int
+
+program def main() -> unit =
+  let issue = Issue(title = "Bug", severity = 2)
+  let urgent = issue with severity = 5, title = "Bug!"
+  let louder = issue with severity = issue.severity + 1
+  print(urgent)
 ```
 
-The result has the target's static type. Every listed field must exist on
-that type, each value must be assignable to the declared field type (with the
-usual expected-type propagation and `int` → `decimal` coercion), and listing
-the same field twice in one update is a static error. Thus `with` rebuilds a
-new outer value, while `:=` updates a `var` field of the existing value in
-place. `with` does not apply
-to enums (match and reconstruct instead), dictionaries, arrays, or `json`
-values. The target is evaluated once, then the update values left to right.
-
-See [Types](types.md#copying-values) for the general-purpose `copy` and
-`shallow-copy` built-ins, which work over any type rather than only records
-and exceptions.
-
-Update values are ordinary expressions in the enclosing scope — there is no
-implicit field scope. To derive a new value from an old field, read it off the
-target:
-
-<!-- agl-check: fragment -->
-```agl
-let louder = issue with severity = issue.severity + 1
-```
+The result has the target's static type. Every listed field must exist on that
+type, each value must be assignable to the field type (with expected-type
+propagation and `int → decimal` coercion), and listing a field twice is a
+static error. `with` does not apply to enums (match and reconstruct instead),
+dictionaries, arrays, or `json`. The target is evaluated once, then the update
+values left to right. Updating an exception through a base-exception-typed
+binding preserves its concrete type ([Exceptions](exceptions.md)). For
+general copies see [Copying values](types.md#copying-values).
 
 **Binding and chaining.** `with` binds looser than every operator, on both
 sides: the target is the whole operator expression before `with`, and the
-update list extends to the end of the enclosing expression. Comparing an
-updated value therefore requires parentheses — `(r with x = 1) == r2`.
-Chaining is left-associative: `r with x = 1 with y = 2` updates the result of
-the first update. An update as an update *value* must be parenthesized:
+update list extends to the end of the enclosing expression, so comparing an
+updated value needs parentheses — `(r with x = 1) == r2`. Chaining is
+left-associative: `r with x = 1 with y = 2` updates the result of the first
+update. An update used as an update *value* must be parenthesized:
 `r with inner = (r.inner with x = 1)`.
 
 **Restricted positions.** In comma-separated element positions — call
-arguments, array and dict literal elements — and in inline `=>` branch bodies,
-a bare `with` would be ambiguous against the enclosing array or branch
-separator, so the whole update expression must be parenthesized there:
-`f((r with x = 1), y = 2)`. Suite (indented) bodies have no such restriction.
-
-Updating an exception through a binding typed as a base exception preserves
-the value's concrete exception type — see
-[Exceptions](exceptions.md).
+arguments, array and dict elements — and in inline `=>` branch bodies, the
+whole update must be parenthesized: `f((r with x = 1), y = 2)`. Suite bodies
+have no such restriction.
 
 ## Indexing
 
-`expr[index]` reads from an array, dictionary, or text:
+`expr[index]` reads from an array, dictionary, or text. It is a postfix
+operator and chains with calls and field access:
 
-<!-- agl-check: fragment -->
 ```agl
-let third = xs[2]
-let last = xs[-1]
-let value = metadata["source"]
-let initial = "Ada"[0]
+record Row
+  name: text
+
+def make-items() -> array[int] = [7, 8]
+
+program def main() -> unit =
+  let xs = [10, 20, 30]
+  let metadata = {"source": "reviewer"}
+  let matrix = [[1, 2], [3, 4]]
+  let rows = [Row(name = "Ada")]
+  print(xs[2])                # 30
+  print(xs[-1])               # 30
+  print(metadata["source"])   # reviewer
+  print("Ada"[0])             # A
+  print(matrix[0][1])         # 2
+  print(rows[0].name)         # Ada
+  print(make-items()[0])      # 7
 ```
 
-Indexing is a postfix operator and may be chained with calls and field access:
+Whitespace matters: `xs[0]` is indexing because `[` is adjacent to `xs`, while
+`f [0]` is the single-argument call `f([0])`.
 
-<!-- agl-check: fragment -->
-```agl
-let cell = matrix[0][1]
-let name = rows[0].name
-let item = make-items()[0]
-```
-
-Whitespace matters. `xs[0]` is indexing because the `[` is adjacent to `xs`.
-`f [0]` is the single-argument call sugar `f([0])`.
-
-Array and text indexes must be `int`. Negative indexes count from the end, as
-in Python: `xs[-1]` selects the last element. A text index returns one Unicode
-code point. An out-of-range array or text index raises catchable `IndexError`
-with `index`, `length`, and `message` fields. Text is immutable, so it cannot
-be an indexed-assignment target.
+Array and text indexes must be `int`; negative indexes count from the end. A
+text index returns one Unicode code point. An out-of-range array or text index
+raises catchable `IndexError`. Text is immutable, so it cannot be an
+indexed-assignment target.
 
 A dictionary index must have (or directedly coerce to, e.g. `int` into a
-`decimal` key) the dictionary's key type, which must satisfy `Hashable`.
-Missing keys raise catchable `KeyError` with `key` and `message` fields.
+`decimal` key) the dictionary's key type, which must satisfy `Hashable`. A
+missing key raises catchable `KeyError`.
 
 ## Calls
 
-All calls use the same uniform parenthesized syntax. This applies equally to
-user `def`s, built-in functions (`ask`, `exec`, `print`, `render`, `copy`,
-`shallow-copy`, `parse`, `try-parse`, `resource`, `resource-dir`), and
-function values stored in bindings:
-
-```ebnf
-call_expr ::= postfix "(" arg_list? ")"
-arg_list        ::= arg ("," arg)* ","?
-arg             ::= element_expr                 (* positional *)
-                  | placeholder_arg              (* positional hole *)
-                  | field_name "=" element_expr  (* named *)
-                  | field_name "=" placeholder_arg (* named hole *)
-placeholder_arg ::= "?" | "?<digits>"
-```
-
-`element_expr` is `expr` without a bare record update — see
-[Record update](#record-update).
-
-The `postfix` callee may already carry explicit type arguments, so
-`id::[int](5)` is a typed call.
-
-**Single-argument sugar.** When there is exactly one positional argument and
-no named arguments, the parentheses may be dropped:
-
-<!-- agl-check: fragment -->
-```agl
-print review          # equivalent to print(review)
-ask "Hello?"          # equivalent to ask("Hello?")
-print res.stdout      # field-access path is valid sugar argument
-print classify(x)     # equivalent to print(classify(x))
-f Option::Some(value = 1)  # equivalent to f(Option::Some(value = 1))
-ask::[int] "How many?"     # equivalent to ask::[int]("How many?")
-```
-
-A callee's explicit type arguments carry over to the sugar, so `f::[int] x`
-is the typed call `f::[int](x)`.
-
-Application binds **tighter than all operators**:
-
-<!-- agl-check: fragment -->
-```agl
-print x + 1           # parsed as (print x) + 1
-```
-
-With user-defined symbolic infix operators, `OP_NAME` after an expression is an
-operator position. To pass an operator-name value as a call argument, use
-parentheses: `print(>>)`.
-
-For details on named arguments, defaults, function types, and partial
-application with placeholder arguments, see [Functions](functions.md). For
-`ask`'s named parameters, see [Agent calls](agent-calls.md).
+`f(args)` calls a declared function, a built-in, a constructor, or any function
+value; a placeholder argument (`?`) makes it a partial application instead.
+With exactly one positional argument and no named arguments the parentheses
+may be dropped (`print review`), and a callee's explicit type arguments carry
+over to that sugar: `ask::[int] "How many?"` is `ask::[int]("How many?")`.
+Application binds tighter than every operator — `print x + 1` is
+`(print x) + 1` — and the sugar does not chain (`print f x` does not parse). See [Calling
+functions](functions.md#calling-functions), [Partial
+application](functions.md#partial-application), and [Agent
+calls](agent-calls.md) for `ask`.
 
 ## `print`
 
-`print` is a built-in function that accepts one argument of any type, writes
-its rendered value (followed by a newline) to the host's standard output, and
-returns `()`. It renders with `pretty = false` and `quote-strings = false`:
+`print` takes one argument of any type, writes its rendered value and a newline
+to standard output, and returns `()`. It renders with `pretty = false` and
+`quote-strings = false` (see [`render`](#render)), so a top-level `text`
+prints verbatim:
 
-<!-- agl-check: fragment -->
 ```agl
-print "Review round failed; retrying."
-print review                           # renders review in AgL form
-print(classify(-4))                    # compound argument needs parens
-print res.stdout                       # field-access chain as sugar arg
+record Review
+  score: int
+
+program def main() -> unit =
+  let review = Review(score = 4)
+  print "Review round failed; retrying."
+  print review                    # Review(score = 4)
+  print(review.score + 1)         # a compound argument needs parentheses
 ```
 
 `print` raises `CyclicValueError` when its argument contains a reference
-cycle. `print` is a generic function value when an expected type or explicit
-type argument fixes its input, for example `let f: text -> unit = print` or
-`let f = print::[text]`. An explicit type argument
-(`print::[decimal](5)`) is accepted, requires the argument to be
-assignable to it, and prints the argument coerced to that type — so
-`print::[json]("hi")` prints the quoted json form `"hi"`, not the bare text
-`hi`.
+cycle. As a function value it needs an expected type or explicit type argument
+(`let f: text -> unit = print`, `print::[text]`). An explicit type argument
+requires the argument to be assignable to it and prints the coerced value, so
+`print::[json]("hi")` prints the json form `"hi"`, not `hi`.
 
 ## `render`
 
-`render` is a built-in function that converts any value to `text` using the
-same renderer as interpolation, `print`, casts to `text`, and REPL echo.
-
-<!-- agl-check: fragment -->
-```agl
-render(value: T, pretty: bool = true, quote-strings: bool = true) -> text
-```
-
-`pretty` selects single-line versus multi-line indented rendering for
-structured values and JSON; a dict key always renders on one line.
-`quote-strings` controls only a top-level `text` or `json` argument. When it
-is `false`, rendering text is identity and a top-level `json` renders as pure
-JSON; when it is `true`, a `json` string escapes `%` and `${` as a text literal
-does, so the output is value syntax.
+`render(value, pretty = true, quote-strings = true)` converts any value to
+`text` by the [uniform rendering
+rules](strings-and-interpolation.md#uniform-rendering-rules) that
+interpolation, `print`, `as text`, and REPL echo share, adjusted by two
+parameters. `pretty = true` renders structured values and JSON on indented
+lines (a dict key stays on one line); `false` keeps the single-line form.
+`quote-strings` affects only a top-level `text` or `json` argument: `false`
+renders a `text` verbatim and a `json` as pure JSON; `true` renders value
+syntax, quoting the text, or each string in the `json`, as an AgL string
+literal.
 
 ```agl
 program def main() -> unit =
-  let _ = render("hi")
-  let _ = render("hi", quote-strings = false)
-  let _ = render([1, 2])
-  let _ = render([1, 2], pretty = false)
+  print(render("hi"))                          # "hi"
+  print(render("hi", quote-strings = false))   # hi
+  print(render([1, 2], pretty = false))        # [1, 2]
 ```
 
-`render` raises `CyclicValueError` when its argument contains a reference
-cycle. `render` is a generic function value when an expected type or explicit
-type argument fixes its input, for example `let f: json -> text = render`. An
-explicit type argument (`render::[decimal](5)`) is accepted, requires the argument to be
-assignable to it, and renders the argument coerced to that type — so
-`render::[json]("hi", quote-strings = false)` renders the quoted json form
-`"hi"`: the coerced argument has type `json`, so it is not rendered as text.
-`render::[json]("50%")` renders `"50\%"`, and with `quote-strings = false`
-`"50%"`.
+`render` raises `CyclicValueError` on a reference cycle. As a function value it
+needs an expected type or explicit type argument (`let f: json -> text =
+render`). An explicit type argument coerces the argument, so
+`render::[json]("hi", quote-strings = false)` renders `"hi"` (a `json` string,
+not text), and `render::[json]("50%")` renders `"50\%"`.
 
-## JSON parsing
-
-The language has no parsing form for `json` values: text is parsed by ordinary
-standard-library functions, which are values like any other and can be passed
-where their function type is expected.
+Other value built-ins: `copy` and `shallow-copy` ([Copying
+values](types.md#copying-values)); `parse` and `try-parse` ([Parsing
+values](types.md#parsing-values)).
 
 ## `resource` and `resource-dir`
 
-`resource(path: path) -> path` returns the absolute path of an existing packaged
-or adjacent resource. Its only argument must be a text literal using a relative,
-forward-slash path with no `..` segment; it cannot be computed or passed through a
-binding. `resource-dir() -> path` returns the same absolute resource anchor.
+`resource(path)` returns the absolute `path` of an existing packaged or
+adjacent resource. Its only argument must be a text literal holding a relative,
+forward-slash path with no `..` segment; it cannot be computed or passed
+through a binding, so `resource` is not a function value. `resource-dir()`
+returns the resource anchor itself.
 
-Resources in a loose module are anchored at that module's directory. Resources in a
-[package-owned](packages.md) module are anchored at the package root, so they remain stable when the
-module is imported from another project. A module with no backing file has no resource
-anchor, so either call in such a module is a static error. Both calls are constant
-expressions and may initialize root bindings and `builtin var` defaults. They resolve
-during linking; a missing target is a static error. Package checks and package creation verify each
-literal resource target. `resource` produces a path only; use `std/fs` to
-perform filesystem effects.
+A loose module's resources are anchored at its directory; a
+[package-owned](packages.md) module's at the package root, so they stay stable
+when the module is imported from another project. A module with no backing
+file has no anchor, so either call there is a static error. Both calls are
+[constant expressions](bindings-and-scope.md#constant-expressions) and resolve
+before execution; a missing target is a static error, and package checks and
+package creation verify each literal target. `resource` only produces a path;
+use `std/fs` for filesystem effects.
 
 <!-- agl-check: fragment -->
 ```agl
@@ -677,75 +404,54 @@ let prompt-path = resource("prompts/review.md")
 let package-root = resource-dir()
 ```
 
-## `copy` and `shallow-copy`
-
-`copy` and `shallow-copy` are the built-ins that ask for an independent value
-when binding is by reference — see [Copying values](types.md#copying-values)
-for the full deep-vs-shallow model and how each treats a cyclic value.
-
-## `parse` and `try-parse`
-
-`parse` and `try-parse` read a text as a value of a data type, like a
-`text`-to-`T` cast but raising `ValueParseError` or returning a `Result` —
-see [Parsing values](types.md#parsing-values).
-
 ## Operators
 
 ### Equality: `==` and `!=`
 
-`==` is **equality** (a single `=` is never a comparison — it is a
-binder/named-argument separator). Both operands must have the same type, or
-one `int` and the other `decimal`, or one operand's type must widen nominally to the
-other's (an enum member or narrower enum against an enum, a derived exception
-against an ancestor), so `opt == None` checks. Equality is full value equality
-([Types](types.md#assignability-and-coercion)); an `int` and a `decimal` compare exactly, without
-widening, so the comparison never raises
-([Numbers](types.md#numbers-int-and-decimal)).
-
-Operands whose type is, or transitively contains, a function or `unit` value
-are a static error — this applies to bare values as well as to
-containers (`array`, `dict`), records, enums, or exceptions that hold such
-a type at any depth. A generic type parameter — bare, or nested inside such
-a type — is comparable only where its declaration bounds it `Eq` or
-`Hashable`; see [Constraint blocks](generics.md#constraint-blocks).
-
-`==` is non-associative; `x == y == z` is a parse error.
+`==` is equality; a single `=` is never a comparison. Both operands must have
+the same type, or one `int` and one `decimal`, or one type must widen
+nominally to the other (a member record or narrower enum against an enum, a
+derived exception against an ancestor), so `opt == None` checks
+([Assignability and coercion](types.md#assignability-and-coercion)).
+Equality is full value equality, and `int`/`decimal` compare exactly without
+widening, so it never raises ([Values and equality](types.md#values-and-equality)).
+A type that is, or contains, a function or `unit` has no equality; a type
+parameter is comparable only under an `Eq` or `Hashable` bound ([Constraint
+blocks](generics.md#constraint-blocks)). Comparisons are non-associative:
+`x == y == z` is a parse error.
 
 ### Ordering: `<` `<=` `>` `>=`
 
 Both operands must be numeric or both `text`. Numbers order exactly, an `int`
-against a `decimal` included, without widening. Text ordering is
-lexicographic by code point.
+against a `decimal` included, without widening. Text orders lexicographically
+by code point.
 
 ### Membership: `in`
 
 <!-- agl-check: fragment -->
 ```agl
 issue in issues          # element membership:  issues: array[T]
-key in counts             # key membership:      counts: dict[K, V]
+key in counts            # key membership:      counts: dict[K, V]
 "missing" in body        # substring:           both text
 ```
 
-Element membership requires the array's element type to satisfy `Eq`; a bare
-generic element type needs an `Eq`/`Hashable` bound, as for `==`
-(see [Constraint blocks](generics.md#constraint-blocks)). Key membership
-requires the dict's key type to satisfy `Hashable`; the tested value must
-have (or directedly coerce to) that key type. An `int` tested against
-`decimal` elements or keys compares exactly and never raises; see
-[Numbers](types.md#numbers-int-and-decimal).
+Element membership requires the element type to satisfy `Eq` (a type
+parameter needs an `Eq`/`Hashable` bound). Key membership requires the
+`Hashable` key type, and the tested value must have, or directedly coerce to,
+that type. An `int` tested against `decimal` elements or keys compares exactly
+and never raises ([Numbers](types.md#numbers-int-and-decimal)).
 
 ### Arithmetic: `+` `-` `*` `/` and unary `-`
 
-1. Both operands must be numeric. `+ - *` on two `int` values yield `int`; if
-   either is `decimal`, the result is `decimal`.
+1. Both operands must be numeric. `+ - *` on two `int`s yield `int`; if either
+   is `decimal`, the result is `decimal`.
 2. `/` **always yields `decimal`**, even for two `int` operands.
-3. Division by zero raises `ArithmeticError` at runtime, as does a `decimal`
-   result outside the fixed decimal context's range
-   ([Numbers: int and decimal](types.md#numbers-int-and-decimal)).
+3. Division by zero raises `ArithmeticError`, as does a `decimal` result
+   outside the decimal range ([Numbers](types.md#numbers-int-and-decimal)).
 4. Unary `-` negates an `int` or `decimal`.
 
-Text is concatenated with the prelude operator `++`, not `+`; see
-[Prelude combinators](lexical-structure.md#prelude-combinators).
+Text is concatenated with the prelude operator `++`, not `+`
+([Operator precedence](lexical-structure.md#operator-precedence)).
 
 ### Boolean: `and`, `or`, `not`
 
@@ -755,121 +461,78 @@ Operands must be `bool`. `and` and `or` short-circuit.
 
 <!-- agl-check: fragment -->
 ```agl
-EXPR as T     # cast: convert EXPR to type T
-EXPR as? T    # optional cast: Option[T], never raises
+EXPR as T     # convert EXPR to T; raises CastError on failure
+EXPR as? T    # Option[T]: Some(converted value) or None; never raises
 ```
 
-`as` converts the value to the named type; `as?` performs the same conversion
-without raising, yielding `Some(value)` carrying the converted value on
-success and `None` on failure — so a successful test also supplies the value.
-`as text` and `as json` raise `CyclicValueError` when conversion walks a
-reference cycle; their `as?` forms yield `None` instead. `as decimal` on an
-`int` outside the fixed decimal context's range
-([Numbers: int and decimal](types.md#numbers-int-and-decimal)) raises
-`ArithmeticError` the same way, and `as? decimal` yields `None` instead.
-Casting from an enum to one of its member records is an identity downcast;
-casting a member record to a containing enum is an identity upcast. Enums can
-be cast when they share constructors; the runtime constructor must belong to
-the target enum. An exception value follows the same identity-cast shape over
-its `extends` chain: casting to itself or an ancestor, including the root
-`Exception`, is a no-op; casting to a descendant checks the runtime type.
-Unrelated exception types, including siblings, are a static error.
-The full conversion matrix and semantics are in
-[Types](types.md#casts-and-convertibility).
+`as?` performs the same conversion as `as` but yields `None` wherever `as`
+would raise — a `CastError`, a `CyclicValueError` while converting a cyclic
+value to `text` or `json`, or an `ArithmeticError` from `as decimal` on an
+out-of-range `int`. Enum, member-record, and exception casts are identity casts
+that check nominal identity rather than convert. A recursive record or enum is
+an ordinary cast target, including inside a container such as `array[Tree]`;
+a type with no finite schema is rejected as a fallible cast target ([The
+finite-schema boundary](generics.md#the-finite-schema-boundary)). The full
+conversion matrix is in [Casts and
+convertibility](types.md#casts-and-convertibility).
 
-**Precedence.** Cast operators sit between unary `-` (tighter) and `* /`
-(looser). They are **left-associative**:
+Casts are left-associative and bind tighter than every binary operator but
+looser than unary `-` and application: `-1 as text` is `(-1) as text`,
+`2 * 3 as text` is `2 * (3 as text)`, `f x as int` is `(f x) as int`, and
+`x as json as text` is `(x as json) as text`.
 
-| Expression | Parsed as |
-| ---------- | --------- |
-| `-1 as text` | `(-1) as text` — unary minus binds tighter |
-| `2 * 3 as text` | `2 * (3 as text)` — `*` is looser than cast |
-| `1 + 2 as text` | `1 + (2 as text)` — `+` is looser than cast |
-| `f x as int` | `(f x) as int` — application binds tighter |
-| `x as json as text` | `(x as json) as text` — left-associative |
-| `a as? int == b` | `(a as? int) == b` — `==` is looser than cast |
-
-**`as?` is a single token**: the `?` is part of the keyword and must be
-adjacent to `as` (no whitespace). `as` and `as?` are always reserved
-keywords — they cannot be used as variable names.
-
-Examples:
-
-<!-- agl-check: fragment -->
 ```agl
-let n: int = raw-value as int          # raises CastError if not an int
-let parsed: Option[int] = raw-value as? int
-
-case parsed of
-  | Some(value) => print value
-  | None => print "not an int"
-
-let s: text = some-int as text         # total — always succeeds
-let j: json = my-record.count as json  # total — int is JSON-shaped
-
-# left-associativity chains
-let t: text = some-int as json as text   # (some-int as json) as text
-
-# the optional cast carries its value, so no second cast is needed
-case count-json as? int of
-  | Some(value) => print value
-  | None => print "not an int"
+program def main() -> unit =
+  let raw: json = 3
+  let n: int = raw as int                # raises CastError unless an integral number
+  let maybe: Option[int] = raw as? int
+  case raw as? int of                    # the optional cast carries its value
+    | Some(value) => print value
+    | None => print "not an int"
+  let s: text = n as json as text        # total
 ```
-
-A `text` cast from a fallible source reads the value and formats it as text;
-it is always total regardless of the source type (any data value has a text
-rendering). For structured source types (`array`, records, enums, exceptions …)
-`as text` produces the same AgL-form text that `print` would render.
-For scalar types (`bool`, `int`, `decimal`) it produces the plain scalar text.
-
-**Recursive cast targets.** A [recursive record or enum](types.md#recursive-types)
-works as a `text`/`json` cast target exactly like any other: the value is
-validated and decoded through the same JSON Schema (`$defs`/`$ref` for the
-hoisted parts) used at the agent-call boundary, and `as`/`as?` behave
-normally, including inside a container target such as `array[Tree]`. The same
-finite-schema restriction applies as for an agent output type: a
-[polymorphically recursive](generics.md#recursive-generic-types) generic type
-whose reachable instantiations never close cannot be used as a cast target
-either — a static error at the `as`/`as?` expression, not a runtime failure.
 
 ### Enum-member and exception tests: `is`, `is not`
 
-<!-- agl-check: fragment -->
 ```agl
-review is Pass
-status is Status::Blocked     # qualified; aliases resolve transparently
-error is HttpError            # exception: HttpError or a descendant of it
+enum Status
+  | Ready
+  | Blocked(reason: text)
+
+exception Problem
+exception Timeout extends Problem
+
+def label(status: Status) -> text = if status is Ready => "ready" else => "blocked"
+
+def is-timeout(e: Problem) -> bool = e is Timeout    # Timeout or a descendant
+
+def wait(status: Status) -> unit =
+  if status is not Status::Ready => print "waiting"
 ```
 
-The left operand must have enum or exception type.
+The left operand must have enum or exception type. For an **enum**, the
+right-hand name must be one of that enum's members — its bare injected name,
+its record declaration name, or a qualified member spelling — and the test
+compares nominal member identity. When one bare spelling exposes members of
+several enums, the left operand's enum type selects the member; several
+distinct matching members remain ambiguous. For an **exception**, the
+right-hand name must be the left operand's static type, an ancestor, or a
+descendant (an unrelated type is a static error), and `x is T` holds exactly
+when `x as? T` is `Some`. Either name may be qualified, including through a
+named scope, as in a [constructor
+pattern](pattern-matching.md#module-qualified-constructor-patterns).
 
-For an **enum** left operand, the right-hand name must be one of that enum's
-members. A member may be written by its bare injected name, its record
-declaration name, or a qualified enum-member spelling. The test compares
-nominal member identity. A bare name selects among the constructors visible
-where the test is written: when one bare spelling exposes members from several
-enums, the left operand's enum type selects the member; several distinct
-matching members remain ambiguous.
-
-For an **exception** left operand, the right-hand name must name the left
-operand's static type, an ancestor of it in its `extends` chain, or a
-descendant; an unrelated type is a static error. `x is T` holds exactly when
-`x as? T` is `Some` — see [Casts and convertibility](types.md#casts-and-convertibility).
-
-Either right-hand name may be qualified, including through a named scope, the
-same way a [constructor pattern](pattern-matching.md#module-qualified-constructor-patterns)
-is.
-
-`is`/`is not` never narrows the static type of the left operand; cast to the
-target type first to access its fields or methods.
+`is`/`is not` bind tighter than every infix operator and looser than casts:
+`a == e is X` is `a == (e is X)`. The test never narrows the left operand's
+static type; cast it to reach the target's fields or methods.
 
 ### Operators as function values
 
-A built-in symbolic binary operator written alone in parentheses is a function
-value: `(+)`, `(-)`, `(*)`, `(/)`, `(==)`, `(!=)`, `(<)`, `(<=)`, `(>)`, and
-`(>=)`. It behaves like the lambda `fn(a: L, b: R) => a op b`, whose operand
-types `L` and `R` come from context: an expected function type, the parameter
-of a higher-order function, or the arguments of a direct or partial call.
+A built-in symbolic binary operator alone in parentheses is a function value:
+`(+)`, `(-)`, `(*)`, `(/)`, `(==)`, `(!=)`, `(<)`, `(<=)`, `(>)`, and `(>=)`.
+It behaves like the lambda `fn(a: L, b: R) => a op b`, with `L` and `R` taken
+from context: an expected function type, a higher-order function's parameter,
+or the arguments of a direct or partial call.
 
 ```agl
 program def main() -> unit =
@@ -882,178 +545,37 @@ program def main() -> unit =
 ```
 
 The operator's typing rules then apply to those operand types, including
-`int → decimal` widening. As for a lambda, a concrete expected result type is
-adopted when the operator's result is assignable to it, so
-`let f: (int, int) -> decimal = (*)` is valid. Operand types that the context
-does not determine are a static error, as in `let f = (+)`; annotate the
-binding instead. Like any function value, an operator value receives both
-operands already evaluated.
+`int → decimal` widening; as for a lambda, a concrete expected result type is
+adopted when the result is assignable to it
+(`let f: (int, int) -> decimal = (*)` is valid). Operand types the context does
+not determine are a static error (`let f = (+)`). Both operands arrive already
+evaluated. `(-)` is subtraction, not negation. The word operators have no
+operator-value form (`(and)` is a parenthesized name); use a lambda. A
+user-defined operator is an ordinary function, so `(|>)` names its
+declaration.
 
-`(-)` is subtraction, not negation. The word operators have no operator-value
-form (`(and)` is a parenthesized name); use a lambda instead. A user-defined
-operator is an ordinary function, so `(|>)` names its declaration directly.
+## Control-flow expressions
 
-## `case` expressions
-
-A `case` expression selects among pattern branches whose bodies use the
-canonical `branch_body` form:
-
-```ebnf
-case_expr       ::= "case" or_expr "of" case_body
-case_body       ::= case_branch_seq
-                  | NEWLINE INDENT case_branch_seq NEWLINE? DEDENT
-case_branch_seq ::= "|"? case_branch ("|" case_branch)*
-case_branch     ::= pattern "=>" branch_body
-```
-
-<!-- agl-check: fragment -->
-```agl
-let next: text = case action of
-  Stop => "Stop."
-  | Continue(prompt) => prompt
-  | Escalate(reason) => "Investigate blocker:\n%{reason}"
-```
-
-The branch list either follows `of` on the same line or forms an indented
-block on the lines below it; the first branch's `|` is optional in both forms.
-`branch_body` is the canonical branch-body production: a suite or one
-`closed_item` (`or_expr`, inline assignment, `raise`, or `return`). See
-[Grammar](grammar.md#if).
-
-All branch result types must agree after `int → decimal` widening. An outer
-expected type propagates into every branch. The patterns must be exhaustive
-and non-redundant, as described in [Pattern matching](pattern-matching.md).
-
-A `case` expression is one of the loosest expression forms: in positions where
-a following `|` could be ambiguous (branch bodies, `if`/`until` conditions) it
-must be parenthesized. The same expression form is valid at block level; AgL
-has no separate `case` statement.
-
-## `if` expressions
-
-An `if` **expression** selects among branches by boolean condition:
-
-```ebnf
-if_expr        ::= "if" "|"? if_cond_branch ("|" if_cond_branch)* if_else_branch?
-if_cond_branch ::= or_expr "=>" branch_body
-if_else_branch ::= "|"? "else" "=>" branch_body
-```
-
-<!-- agl-check: fragment -->
-```agl
-let label: text = if | score > 90 => "A" | score > 75 => "B" | else => "C"
-```
-
-The `else` branch is optional. It uses the canonical `branch_body` production
-([Grammar](grammar.md#if)). With `else`, all branch result types must agree after
-`int → decimal` widening. Without `else`, the `if` is an expression
-but has type `unit`, as described below.
-
-## Expressions with type `unit`
-
-The following expressions have type `unit` — they exist for their side
-effect, not their value:
-
-| Form | Type | Notes |
-|------|------|-------|
-| `print(e)` | `unit` | writes to stdout and returns `()` |
-| `x := e` | `unit` | mutates `x` and returns `()` |
-| `if c => body` (no `else`) | `unit` | branch body must be `unit`; returns `()` |
-| loop expressions | `unit` | loops run for effect and return `()` |
-| `return` | bottom expression returning `()` | valid only in a `unit` function |
-| `()` | `unit` | the unit literal |
-
-An `if` without `else` always has type `unit`, and each branch body must also
-have type `unit`. A loop likewise has type `unit` and returns `()`; a `case`
-has the common type of its branch bodies.
-
-`unit` values may appear anywhere in a block, including as the final
-expression. A function declared `-> unit` has its body checked against
-`unit`.
-
-## `let` and `var` as expressions
-
-`let` and `var` are **binders**: `let` binds one immutable name, while `var`
-binds one mutable name. Both scope their binding over the
-*continuation* — the remaining items in the block. The type and value of a
-`let`/`var` binding is the type and value of the continuation, not of the bound
-expression. Use `case` when a value must be matched or destructured:
-
-```agl
-program def main() -> unit =
-  let x = 3
-  let y = x + 1
-  let _ = y
-```
-
-A block may end in a `let` or `var`. With no following item, the binder has no
-in-block continuation and the block evaluates to `unit` (or bottom when its
-initializer exits); the binding still scopes over an enclosing continuation,
-such as a loop's `until` condition.
-
-```agl
-def prepare() -> unit =
-  let status = "ready"
-```
+`if`, `case`, loops, and `try` are expressions; their types and
+parenthesization rules are in [Control flow](control-flow.md) and
+[`try`/`catch`](exceptions.md#try-catch).
 
 ## Divergent expressions
 
-`raise expr` and `return expr` diverge — they never yield a value at their
-expression site. Their type is the **bottom type** (assignable to any expected
-type), so they may appear in expression positions such as a branch suite or the
-initializer of a `let`/`var`:
+`raise`, `return`, `break`, and `continue` never yield a value at their
+expression site. Their type is the **bottom type**, assignable to any expected
+type, so they may appear in any value position:
 
-<!-- agl-check: fragment -->
 ```agl
-let x: int = raise Abort(message = "Cannot continue.")
-let y: int = if finished => (return 0) else => 1
-
-case status of
-  | Ok => ()
-  | Error(reason) =>
-      raise Abort(message = reason)
+program def main(finished: bool, reason: text) -> unit =
+  for attempt in 1 to 3 do
+    let next: int = if finished => break else => attempt + 1
+    if next > 3 => raise Abort(message = reason)
+  done
 ```
 
-`raise` is described in [Exceptions](exceptions.md); `return` is described in
-[Functions](functions.md).
-
-## `break` and `continue` as expressions
-
-`break` and `continue` are loop-control expressions. Both have the **bottom
-type** (assignable to any expected type), so they may appear in any expression
-position inside a loop:
-
-<!-- agl-check: fragment -->
-```agl
-let x: int = if finished => break else => count
-```
-
-`break` exits the innermost enclosing loop immediately; the loop produces
-`unit`. `continue` starts the next iteration. From a body or `until` condition,
-it skips the remaining work in the current iteration (including the `until`
-condition when it occurs in the body); from a `while` guard, it starts over
-without entering the body. The next iteration performs its normal `for` advance
-and loop checks.
-
-Both are valid anywhere in a loop's **interior** — its `while` guard, body, or
-`until` condition — provided the target loop is in the same function or lambda.
-Using either outside a loop, including in a `fn` or `lambda` that would cross
-into an enclosing loop, is a static error.
-
-## `try` as an expression
-
-`try … catch …` yields a value: the body and every handler must agree on a
-common type (with `int → decimal` widening). This type becomes the `try`
-expression's type:
-
-<!-- agl-check: fragment -->
-```agl
-let result: decimal =
-  try
-    10 / 0
-  catch ArithmeticError =>
-    -1
-```
+See [Exceptions](exceptions.md#raise), [Early return](functions.md#early-return),
+and [`break` and `continue`](control-flow.md#break-and-continue).
 
 ## Expected-type propagation
 
@@ -1071,12 +593,12 @@ An expected type propagates top-down where it helps:
 | Lambda with omitted parameter annotations | matching function parameter types into the omissions |
 | Function body | `-> RetType` propagated in |
 
-After scope has resolved an unqualified enum-member constructor (`let r: Review = Pass`),
-propagation checks it against the expected enum type, types empty containers,
-and gives agent calls their output contracts. It does not select among
-same-named constructor candidates. A target that depends on sibling constraints
-is resolved with the enclosing expression before its codec and schema are
-chosen. Where no expectation exists, inference is bottom-up, and an untyped `ask`
-defaults to `text`; the same default applies to a generic type parameter that
-nothing else in the enclosing expression pins (as in `print <| exec "…"`),
-once sibling constraints have settled.
+Once scope has resolved an unqualified constructor (`let r: Review = Pass`),
+the expectation checks it against the enum type, types empty containers, and
+gives agent calls their output contracts; it never selects among same-named
+constructors. A target that depends on sibling constraints is settled with the
+whole enclosing expression before an agent call's output contract is fixed.
+Where no expectation exists, inference is bottom-up and an untyped `ask`
+defaults to `text`; so does a generic type parameter that nothing else in the
+enclosing expression pins (as in `print <| exec "…"`), once sibling
+constraints have settled.

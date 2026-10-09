@@ -177,9 +177,10 @@ Also reported before any agent runs: a parameter supplied twice (two flags, or p
 `--x`), an unrecognized `--flag`, or more positionals than positional-capable parameters.
 
 **Reserved names.** Program arguments and engine settings share one flag and config namespace,
-so a name-addressable parameter named after an engine setting (`default-agent`, `default-sandbox`,
-`strict-json`, `timeout`, `trace`, `trace-file`, `debug`, `parse-error-retries`) is a static error
-even if never supplied, also reported by `agm check`.
+so a parameter named after an engine setting (`default-agent`, `default-sandbox`, `strict-json`,
+`timeout`, `trace`, `trace-file`, `debug`, `parse-error-retries`) is a static error even if never
+supplied, also reported by `agm check` — an unzoned required one included, since it keeps its
+config key; only an explicit `@arg-pos` parameter may take such a name.
 A projected flag that collides with a reserved flag has no static check, only a host one: selecting that
 program for execution fails, while `--help` and shell completion silently fall back to
 `agm exec`'s own help and no completions. `agm exec` reserves:
@@ -434,6 +435,27 @@ An unresolvable hole raises a catchable `AgentCallError` with `cause` `"interpol
 
 ### Session runners
 
+Every agent call runs in a session (an explicit-agent ask in a short-lived one) whose runner the
+`Agent` member and `SessionTransport` select. `…` stands for the member's non-empty fields, after
+[agent defaults](#agent-defaults): `--model`/`--effort` (Claude), `--model`/`-c
+model_reasoning_effort=` (Codex), `--provider`/`--model`/`--thinking` (Pi), plus the sandbox
+mode's permission flag ([sandbox](../agl/reference/agent-calls.md#sandbox)).
+
+| Agent, transport | Invocation | Native optional operations |
+| --- | --- | --- |
+| `AgentCommand`, `Cli` | the command | none |
+| `AgentClaude`, `Cli` | `claude -p --session-id <id> …`, later prompts `--resume <id>` | `compact`, `fork` |
+| `AgentCodex`, `Cli` | `codex exec --json … -` starts a thread, `codex exec resume <id> … -` continues it (prompt on stdin) | none |
+| `AgentPi`, `Cli` | `pi -p --session-id <id> …` | `fork` |
+| `AgentPi`, `Rpc` (the `AgentPi` default) | one persistent `pi --mode rpc …` process | `compact`, `fork`, `set-name`, `stats` |
+
+Every runner supports `ask`, `reset`, and `close`; any other operation raises `SessionError`. A
+non-empty `Session::open` `name` is passed to Claude and Pi and rejected for command and Codex
+sessions. An explicit-agent ask that sends a single prompt (`parse-error-retries = 0`, or a `text`
+or `unit` target) runs Claude or Codex as a plain prompt command (`claude -p …`, `codex exec …
+-`). Sandboxed Codex invocations (asks, sessions, `chat`) add `--no-daemon`, so execution stays
+inside the sandbox instead of a shared host daemon; the installed Codex must support the flag.
+
 A continuing `AgentCommand` session requires an unescaped `%{SESSION_ID}` in its command. AgM
 substitutes a generated id into the argv (not the child environment); the command must use it to
 create or resume its transcript. Free `ask` with an `AgentCommand` default agent and
@@ -441,7 +463,7 @@ create or resume its transcript. Free `ask` with an `AgentCommand` default agent
 the placeholder raises `SessionError`. An explicit-agent ask (`AgentCommand(...).ask(...)` or
 `ask(..., agent = AgentCommand(...))`) needs none: without it, each corrective retry reruns the
 command with the complete prompt. See
-[Agent calls](../agl/reference/agent-calls.md#sessions) for all session backends.
+[Agent calls](../agl/reference/agent-calls.md#sessions) for the session semantics.
 
 ### Configuration
 
@@ -469,21 +491,23 @@ store tree, or selected standard library) keeps its package-qualified route, lik
 reference. A `review::main` program in `review-tools/review` reads engine overrides and its
 value parameters from `[review-tools.review.review.main]`, a shorter unambiguous suffix, or the
 exact quoted route `["review-tools/review".review.main]`. Inline `-c` programs have no route, so
-their parameters are CLI-only (CLI value, then signature default).
+their parameters resolve as CLI value > `@opt-env` > signature default.
 
-Module parameters use their declaring module's **module route**. For `A/logging`, root bindings
-use `[A.logging]`; bindings in `scope debug` use `[A.logging.debug]`, or the exact module anchor
-`["A/logging".debug]`. Leaves use `@opt-name` when present. The selected program's table is the
-**program route**: it overrides a module parameter through any resolving spelling — the bare
-external name, or a dotted qualified spelling as a quoted key such as `"A.logging.verbose"`,
-which reaches a parameter whose bare name a nearer declaration claims — and wins over the
-program's own [`@config`](../agl/reference/attributes.md#config) entries. Below `@config`, a
-package-owned program's [manifest `[config]`](pkg.md#config) table supplies further defaults —
-its own command table, then an inherited group table, then the manifest root — still above the
-module route; CLI and `@opt-env` still win over all of these. An inline entry has no
-config-file route or manifest, but its `@config` entries still apply to its own module
-parameters, so they resolve as CLI > `@opt-env` > `@config` > initializer; its imported modules
-retain their module routes and may still be seeded by `@config`.
+Module parameters use their declaring module's **module route**. For `A/logging`, root bindings use
+`[A.logging]`; bindings in `scope debug` use `[A.logging.debug]`, or the exact module anchor
+`["A/logging".debug]`. Leaves use `@opt-name` when present. An entry module no package owns (a loose
+file or `-c` source) has no module route: a loose `prog.agl`'s own `@param let own` is set through
+its program route, `[prog.main] own = 11`, never `[prog] own = 11`. The selected program's table is
+the **program route**: it overrides a module parameter through any resolving spelling — the bare
+external name, or a dotted qualified spelling as a quoted key such as `"A.logging.verbose"`, which
+reaches a parameter whose bare name a nearer declaration claims — and wins over the program's own
+[`@config`](../agl/reference/attributes.md#config) entries. Below `@config`, a package-owned
+program's [manifest `[config]`](pkg.md#config) table supplies further defaults — its own command
+table, then an inherited group table, then the manifest root — still above the module route; CLI and
+`@opt-env` still win over all of these. An inline entry has no config-file route or manifest, but
+its `@config` entries still apply to its own module parameters, so they resolve as
+CLI > `@opt-env` > `@config` > initializer; its imported modules retain their module routes and
+may still be seeded by `@config`.
 
 A [registered command](pkg.md#registered-commands)'s program route also inherits from its
 [group tables](pkg.md#registered-commands): a table named for a proper prefix of the command's
