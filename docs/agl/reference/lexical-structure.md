@@ -165,10 +165,17 @@ particular positions:
 - **Built-in call names.** `print`, `render`, `ask`, `ask-request`, `exec`,
   `copy`, `shallow-copy`, `resource`, and `resource-dir` name the built-in
   functions. None may be declared as a `let`/`var` binding, a function or
-  lambda parameter, a `for` variable, a pattern binder, or a `catch` binder.
+  lambda parameter, a `for` variable, a pattern binder, or a `catch` binder,
+  nor be the bare name of a value an `import` or `use` renames or selects
+  ([`use` declarations](modules.md#use-declarations)).
   In a module without a path identity
-  ([Modules](modules.md#slash-path-identity)), none may name a function
-  outside a named scope either. Each stays legal as a field or method name.
+  ([Modules](modules.md#slash-path-identity)), none may name a root
+  function, record, exception, or constructor-bearing alias either, since
+  such a declaration is reachable only bare. Elsewhere — in a named scope or
+  a module with a path identity — a function or constructor, including an
+  enum member, may take the name but is reached only qualified (`Mode::exec`);
+  the bare spelling always means the built-in. Each stays legal as a field or
+  method name.
 - **`self`** is special only as the first parameter of a `def` whose
   enclosing path resolves to a record, enum, exception, or built-in receiver
   type, including a foreign receiver name made bare-visible by an import or

@@ -1376,6 +1376,37 @@ class TestReservedNames:
         assert "print" in msg
         assert "built-in" in msg.lower()
 
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "record print\nprint",
+            "exception exec\nexec",
+            "record Box\ntype render = Box\nrender",
+        ),
+    )
+    def test_reserved_constructor_rejected_in_inline_entry(self, source: str) -> None:
+        err = reject_scope(source)
+        line, _ = diag(err)
+        assert line in (1, 2)
+
+    def test_reserved_enum_member_stays_qualified_and_bare_means_the_builtin(self) -> None:
+        resolved = parse_and_resolve(
+            'enum Mode\n  | exec\n  | Other\nlet m = Mode::exec\nexec "x"\n'
+        )
+        call = resolved.program.body.items[-1]
+        assert isinstance(call, Call)
+        assert isinstance(call.callee, VarRef)
+        assert resolved.resolution[call.callee.node_id].is_builtin
+
+    def test_reserved_constructor_in_scope_is_qualified_and_bare_means_the_builtin(self) -> None:
+        resolved = parse_and_resolve(
+            'scope S\n  record print\n  def f() -> unit = print("x")\nend S\n\nS::f()'
+        )
+        assert BuiltinKind.PRINT in resolved.builtin_calls.values()
+
+    def test_reserved_type_alias_without_constructor_is_accepted(self) -> None:
+        parse_and_resolve("type print = int\n()")
+
     def test_reserve_ask_param(self) -> None:
         err = reject_scope("def f(ask: int) -> int = 1\nf(1)")
         _, msg = diag(err)

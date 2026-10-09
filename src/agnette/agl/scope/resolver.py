@@ -922,7 +922,7 @@ class _Resolver(ModuleSources):
                 self._reject_unnamed(named)
         self._resolve_root_items(self._program.body.items)
         self._reject_fixities_declaring_nothing()
-        self._validate_function_names()
+        self._validate_bare_declaration_names()
         self._validate_non_method_type_params()
         program = (
             replace_infix_chains(self._program, self._infix_groupings)
@@ -1542,28 +1542,39 @@ class _Resolver(ModuleSources):
             if isinstance(declaration, FuncDef) and key not in self._method_declarations:
                 yield declaration
 
-    def _validate_function_names(self) -> None:
-        """Reject a built-in call name reused as an ordinary function name.
+    def _validate_bare_declaration_names(self) -> None:
+        """Reject a built-in call name declared where it is reachable only bare.
 
-        Methods are exempt: their names live in their receiver type's own
-        member namespace, distinct from the namespace this rule protects.
+        Covers functions and root records, exceptions and constructor-bearing
+        aliases. Methods are exempt: their names live in their receiver type's
+        own member namespace, distinct from the namespace this rule protects.
         """
         for declaration in self._non_method_functions():
             self._validate_function_decl(declaration)
+        for name in _RESERVED_NAMES.intersection(self._constructor_candidates):
+            declaring = self._root_declaring_candidates(name)
+            if declaring:
+                self._reject_bare_reserved(
+                    name, "a constructor", (), self._root_declaring_span(declaring[0])
+                )
 
     def _validate_function_decl(self, decl: FuncDef) -> None:
         """Apply function declaration validation independently of its scope path."""
-        if (
-            decl.name in _RESERVED_NAMES
-            and not decl.is_builtin
-            and not is_qualified_function_member(
-                not self._module_id.is_entry,
+        if decl.name in _RESERVED_NAMES and not decl.is_builtin:
+            self._reject_bare_reserved(
+                decl.name,
+                "a function",
                 tuple(segment.name for segment in decl.scope_path),
+                decl.span,
             )
-        ):
+
+    def _reject_bare_reserved(
+        self, name: str, what: str, scope_path: tuple[str, ...], span: SourceSpan
+    ) -> None:
+        """Raise unless a declaration of *name* is reachable qualified."""
+        if not is_qualified_function_member(not self._module_id.is_entry, scope_path):
             raise AglScopeError(
-                f"'{decl.name}' is a built-in name and cannot be used as a function name.",
-                span=decl.span,
+                f"'{name}' is a built-in name and cannot be used as {what} name.", span=span
             )
 
     def _validate_non_method_type_params(self) -> None:
@@ -2708,9 +2719,8 @@ class _Resolver(ModuleSources):
         enclosing block or function is nearest; then the whole-path lookup
         (:func:`lookup_bare`) decides, a binding and the constructor it names
         being one target. A built-in's spelling stays reserved: only this
-        module's own declarations other than ordinary functions are read
-        before the built-in. Constructors alone competing are an ambiguous
-        constructor.
+        module's own ``builtin def`` is read before the built-in. Constructors
+        alone competing are an ambiguous constructor.
         """
         start = self._scope if layer is None else layer
         for lexical in self._lexical_layers(start):
@@ -2729,17 +2739,10 @@ class _Resolver(ModuleSources):
         )
         if not reserved or isinstance(found, AglError):
             return found
-        if found is not None and not self._is_ordinary_function(found.ref):
+        if found is not None and self._is_builtin_function_ref(found.ref):
             return found
         builtin = self._bare_builtin_ref(name)
         return None if builtin is None else QualifiedTarget(None, builtin, None)
-
-    def _is_ordinary_function(self, ref: BindingRef | None) -> bool:
-        return (
-            ref is not None
-            and ref.kind is BinderKind.function_binding
-            and not self._is_builtin_function_ref(ref)
-        )
 
     def _record_bare_value(
         self, node: VarRef, target: QualifiedTarget | AglError | None, *, is_call_target: bool

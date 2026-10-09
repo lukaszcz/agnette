@@ -591,8 +591,21 @@ def test_builtin_free_function_explicit_type_application_checks_declared_bound()
         )
 
 
-def test_builtin_named_value_call_is_not_classified_as_builtin() -> None:
-    _check("enum E\n  | print\nlet x: E = print()\nx\n")
+def test_enum_member_named_like_a_builtin_is_reached_only_qualified() -> None:
+    _check('enum E\n  | print\nlet x: E = E::print()\nprint("x")\nx\n')
+
+
+def test_bare_builtin_name_runs_the_builtin_beside_a_same_named_enum_member(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = run_inline_code(
+        PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
+        'enum Mode\n  | print\n  | Other\nprint("x")\n',
+    )
+
+    assert list(result.diagnostics) == [], " | ".join(d.message for d in result.diagnostics)
+    assert result.error is None
+    assert capsys.readouterr().out == "x\n"
 
 
 def test_builtin_exception_own_fields_are_standard_zone(

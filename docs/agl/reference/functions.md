@@ -123,9 +123,9 @@ standard-library builtin at the same scoped name.
 An ordinary function in a named scope, or in a module with a path identity
 ([Modules](modules.md)), may reuse a built-in function's name because it is
 reached through its own qualified namespace. The bare built-in spelling stays
-reserved, even after a `use` makes that scope's or module's members bare. A
-root `def` in a module with no path identity cannot use a built-in function
-name: the bare namespace is the only one it declares into.
+reserved, even after a `use` makes that scope's or module's members bare.
+Constructors follow the same rule
+([Keywords](lexical-structure.md#keywords)).
 
 ```agl
 use Codec::*

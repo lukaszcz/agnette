@@ -468,22 +468,22 @@ class TestPackageDiscipline:
         validate_package(package)
 
     @pytest.mark.parametrize(
-        ("declaration", "constructor"),
+        ("declaration", "call"),
         (
-            ("record resource\n  value: text", "resource"),
-            ("enum Value | resource(value: text)", "resource"),
-            ("exception resource\n  value: text", "resource"),
-            ("record resource-dir\n  value: text", "resource-dir"),
-            ("enum Value | resource-dir(value: text)", "resource-dir"),
-            ("exception resource-dir\n  value: text", "resource-dir"),
+            ("scope S\n  record resource\n    value: text\nend S", "S::resource"),
+            ("enum Value | resource(value: text)", "Value::resource"),
+            ("scope S\n  exception resource\n    value: text\nend S", "S::resource"),
+            ("scope S\n  record resource-dir\n    value: text\nend S", "S::resource-dir"),
+            ("enum Value | resource-dir(value: text)", "Value::resource-dir"),
+            ("scope S\n  exception resource-dir\n    value: text\nend S", "S::resource-dir"),
         ),
     )
-    def test_accepts_constructor_named_like_resource_builtin(
-        self, tmp_path: Path, declaration: str, constructor: str
+    def test_accepts_qualified_constructor_named_like_resource_builtin(
+        self, tmp_path: Path, declaration: str, call: str
     ) -> None:
         package = _custom_package(tmp_path)
         (package.module_root / "main.agl").write_text(
-            f'{declaration}\nlet value = {constructor}(value = "not/a/resource")\n'
+            f'{declaration}\nlet value = {call}(value = "not/a/resource")\n'
         )
 
         validate_package(package)
