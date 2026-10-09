@@ -68,7 +68,7 @@ A **program** is the entry module plus its transitive import and re-export depen
 
 ## Layering
 
-`tests/test_agl_dependencies.py` enforces the import contract:
+A test enforces the import contract:
 
 - `semantics` is the foundation; `syntax` is an AST-only leaf.
 - `typecheck` reaches only scope's output and lower layers; `matchcompile` imports nothing downstream.
