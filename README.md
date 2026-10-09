@@ -3,454 +3,107 @@
 Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities
 and a complete agent workflow DSL:
 
-- **AgM (Agnette Manager)** — the CLI agent project manager for workspaces, git worktrees,
+- **AgM (Agnette Manager)** — the CLI agent project manager: workspaces, git worktrees,
   dependencies, tmux sessions, setup scripts, and sandboxed commands.
 - **AgL (Agnette Language)** — the statically typed workflow DSL for orchestrating agents
-  and shell commands, run through `agm exec` or explored interactively with `agm repl`.
+  and shell commands, run with `agm exec` or interactively with `agm repl`.
 
-The Python distribution and root package are `agnette`: `agnette.agm` owns the manager,
-`agnette.agl` owns the language, and both use shared services under `agnette`.
-The executable is `agm`; Python companions use the temporary `agl` API.
-Configuration uses `.agm` directories and `AGM_*` variables; AgL source files use `.agl`.
+The Python package is `agnette`, the executable `agm`. Configuration uses `.agm` directories
+and `AGM_*` variables; AgL sources use `.agl`.
 
 ## Documentation
 
-Start at the [documentation landing page](docs/index.md) for the language reference,
-command reference, and architecture guide. Sources remain Markdown under `docs/`.
+The [documentation landing page](docs/index.md) links the
+[AgL language reference](docs/agl/reference/index.md), the
+[command reference](docs/commands/index.md), and the [architecture guide](docs/arch/index.md).
+`agm help [COMMAND]` prints command help.
 
-Run `just docs-build` to build into `site/`, or `just docs-serve` for a live preview at
-<http://0.0.0.0:8000>, accessible over the LAN at `http://<host-ip>:8000`.
-These commands install the locked documentation dependencies;
-pass server options with `just docs-serve --dev-addr 127.0.0.1:8080`.
-
-Read the Docs uses `.readthedocs.yaml` and `mkdocs.yml`. Import this repository into
-[Read the Docs](https://app.readthedocs.org/) to enable hosted builds. Navigation is
-defined in `mkdocs.yml`; relative Markdown links work across all three components.
+`just docs-build` builds the site into `site/`; `just docs-serve` serves a live preview on
+port 8000 (pass server options, e.g. `--dev-addr 127.0.0.1:8080`). Read the Docs builds from
+`.readthedocs.yaml` and `mkdocs.yml`.
 
 ## Requirements
 
-- `git`
-- `bash`
-- `tmux` for `agm open` and `agm tmux ...`
-- Python 3.14
-- [`uv`](https://docs.astral.sh/uv/)
-- [`just`](https://github.com/casey/just)
+- Python 3.14, [`uv`](https://docs.astral.sh/uv/), [`just`](https://github.com/casey/just)
+- `git`, `bash`
+- `tmux` for `agm open` and `agm tmux`
 - [`srt`](https://github.com/anthropic-experimental/sandbox-runtime) for sandboxed `agm run`
-- `systemd-run` for memory limits on `agm run` when enabled
+  and agent calls; `systemd-run` for `agm run` memory limits
 
 ## Install
 
-Set up the development environment:
-
 ```bash
-just setup
+just setup                  # development environment in .venv
+just install                # install agm and its AgM home
+just install /usr/local     # install under a prefix
+just install --force        # replace differing config files, keeping <file>.bak
 ```
 
-Install Agnette with the runtime versions from `uv.lock` into an isolated `uv tool`
-environment and copy AgM config files and sandbox templates into the selected
-AgM home (`$AGM_HOME`, or `$HOME/.agm/` by default). The config installer refreshes the
-managed standard library; the recipe reinstalls the other packages under `packages/` with
-`agm pkg install --reinstall`, then runs `agm pkg sync` to restore the active packages'
-Python requirements. It also installs the AgL editor support: the Micro syntax file into
-`$HOME/.config/micro/syntax/`, and — when
-an `emacs` binary is available — the AgL Emacs mode (skipped with a notice otherwise):
+`just install` installs `agm` with the locked runtime dependencies as a `uv tool`, copies
+config files and sandbox templates into the AgM home, refreshes the managed standard
+library, reinstalls the repository packages under `packages/`, syncs their Python
+requirements, and installs the AgL editor modes (Micro, and Emacs when available — see
+[config/emacs/README.md](config/emacs/README.md)).
 
-```bash
-just install
-```
+The AgM home is `$AGM_HOME`, else a populated `.agm` beside the executable, else
+`$HOME/.agm`. A prefix install puts `agm` in `<prefix>/bin` (add it to `PATH`) and the
+AgM home in `<prefix>/.agm`, overriding `$AGM_HOME` while installing.
 
-Install the Emacs mode on its own with `just setup-emacs`. It gives `.agl` files
-syntax highlighting, indentation, declaration navigation, on-save diagnostics
-through `agm check`, and an inferior `agm repl` with buffer reloads — see
-[config/emacs/README.md](config/emacs/README.md).
+## Projects
 
-Built wheels also contain a bundled standard-library fallback, so a direct wheel
-installation can execute AgL before an AgM home or managed `std` store is populated.
-
-Pass arguments through to the config installer when needed:
-
-```bash
-just install --force
-just install /usr/local
-just install /usr/local --force
-```
-
-`--force` preserves each replaced, differing config file as `<file>.bak`; existing
-different backups are preserved recursively as `<file>.bak.bak`.
-
-An explicit prefix installs the executable link into `<prefix>/bin` and the complete
-runtime tree into `<prefix>/.agm`; add `<prefix>/bin` to `PATH`. That prefix takes
-precedence over `AGM_HOME` while installing. At runtime, `AGM_HOME` explicitly overrides
-an installation-local tree; otherwise AgM uses the populated `.agm` beside its executable,
-then falls back to `$HOME/.agm`.
-
-## Project layouts
-
-`agm init` supports two layouts.
-
-Split layout:
+`agm init` creates a project in one of two layouts: embedded by default when the project
+directory is already a git repo, split otherwise.
 
 ```text
-myproject/
-├── repo/
-├── deps/
-├── notes/
-├── worktrees/
-└── config/
+split                 embedded
+myproject/            myproject/
+├── repo/             ├── .agm/
+├── deps/             │   ├── config/
+├── notes/            │   ├── deps/
+├── worktrees/        │   ├── notes/
+└── config/           │   └── worktrees/
+                      └── <main workspace files>
 ```
 
-Embedded layout:
-
-```text
-myproject/
-├── .agm/
-│   ├── config/
-│   ├── deps/
-│   ├── notes/
-│   └── worktrees/
-└── <main workspace files>
-```
-
-Without `--embedded` or `--split`, AgM chooses:
-
-- embedded when the target project directory already exists and is a git repo
-- split otherwise
-
-`agm init` also creates `config/env.sh` and an executable `config/setup.sh` if they do not
-already exist. When initializing an embedded Git repository with no commits, it commits the
-generated `.gitignore` as the repository's initial commit.
-
-For split layouts without a repository URL, AgM initializes `repo/` as an empty git repository.
-Use `--no-repo-git` to skip that repository, or `--no-git-init` to skip all git repositories
-created by `agm init`.
-
-## Usage
+A workspace is the main repo or a branch worktree, with its own tmux session:
 
 ```bash
-agm <command> [options] [args]
+agm init myproject https://github.com/org/repo.git
+cd myproject
+agm open feat/login         # create the branch worktree and open its tmux session
+agm close feat/login        # remove the worktree, branch, and session
+agm sync pull               # fetch and merge all workspaces and dependencies
 ```
 
-Use `agm help` for the command list and `agm help <command>` for detailed help. Global options:
+## AgL
 
-- `--version` prints the AgM and AgL standard-library versions.
-- `--install-completion`
-- `--show-completion`
+```bash
+agm exec workflow.agl "add login"   # run a program; its parameters become CLI arguments
+agm exec -c 'print("hello")'        # run inline source
+agm check lib/*.agl                 # static check only
+agm repl                            # interactive session
+```
+
+Agent calls run inside the `agm run` sandbox by default. See the
+[AgL language reference](docs/agl/reference/index.md) and
+[`agm exec`/`check`/`repl`](docs/commands/agl.md).
 
 ## Commands
 
-### `agm pkg`
-
-Initialize, validate, archive, install, inspect, and remove AgL packages. Installations use a versioned
-store; editable packages mount their working directory directly. A package can register
-single- or multi-word commands that run its `program def` entries directly. Commands support source
-`@doc` documentation, additional manifest help, generated group help, and aliases that also
-name their configuration sections.
-
-```bash
-agm pkg init [DIR]
-agm pkg check [DIR]
-agm pkg create [DIR] [-o package.agmpkg]
-agm pkg install path/to/package
-agm pkg install package.agmpkg
-agm pkg install --editable path/to/package
-agm pkg switch package-name@1.0.2
-agm pkg list
-agm pkg info package-name
-agm pkg uninstall package-name
-agm pkg uninstall package-name@1.0.1
-agm pkg sync
-```
-
-`pkg init` writes a manifest and a starter module into a new or existing directory, so the result
-is a valid package immediately. `pkg check` validates package discipline and dependency
-satisfiability without writing. `pkg create`
-checks that its distribution dependencies are portable, then writes a deterministic archive; it removes
-local dependency paths from the archived manifest without changing the source manifest. Archive installs
-verify the archive contents before atomically activating them. `--dry-run` reports package archive creation
-or installation without writing an archive, store tree, or activation index. Installation also
-installs the third-party Python requirements a manifest declares under `[python]` into AgM's
-environment; `pkg sync` restores them for every active package.
-
-The repository's `packages/sysone` package (not shipped with AgM) asks TypeSafe's System One
-model typed questions from AgL through its `sysone/jev` module. Install it from a checkout with
-`agm pkg install packages/sysone`.
-
-### `agm open`
-
-Shortcut for `agm workspace open`. Open a tmux session for the main workspace or a branch
-workspace, creating or checking out the branch when needed. `--parent` bases only new
-branches; AgM warns if the target branch already exists and errors if its workspace already
-exists.
-
-```bash
-agm open repo
-agm open main
-agm open --num-panes 4 feat/login
-agm open --parent develop feat/search
-agm open --detach feat/search
-agm open --fetch feat/search
-```
-
-Opening uses locally available Git refs without fetching by default. Use `--fetch` to refresh
-remote refs first; `--no-fetch` explicitly keeps the default.
-
-### `agm close`
-
-Shortcut for `agm workspace close`. Remove a branch workspace and close its tmux session.
-
-```bash
-agm close feat/search
-agm close --force feat/search
-agm close --keep-branch feat/search
-agm close --keep-workspace feat/search
-```
-
-`repo` and the branch currently checked out in the main workspace resolve to the main workspace and
-cannot be closed. Use `--keep-branch` to remove only the worktree, or `--keep-workspace` to close the
-session while keeping both the workspace and branch.
-
-### `agm init`
-
-Initialize a project directory, optionally cloning a repo.
-
-```bash
-agm init myproject
-agm init https://github.com/org/repo.git
-agm init myproject https://github.com/org/repo.git
-agm init --split -b develop myproject https://github.com/org/repo.git
-agm init --embedded myproject
-```
-
-When only `REPO_URL` is provided, AgM derives the project name from the repository URL.
-
-### `agm workspace`
-
-Manage AgM workspaces. A workspace may be the main repo or a linked Git worktree in the project's
-worktrees directory, interpreted with AgM project config, workspace config, dependency environment,
-setup scripts, and tmux session lifecycle.
-
-```bash
-agm workspace open repo
-agm wsp open feat/login
-agm workspace close feat/login
-agm workspace list
-agm wsp list -v
-agm workspace setup
-```
-
-`agm workspace setup` runs configured setup scripts for the current workspace, in this order:
-
-1. `config/setup.sh`
-2. `<workspace>/.config/setup.sh`
-3. `<workspace>/.setup.sh`
-
-### `agm sync fetch`
-
-Prune stale Git worktree registrations, fetch the main repo and all checked-out dependencies, then
-create local tracking branches for remote branches that are not yet merged into the default origin
-branch.
-
-```bash
-agm sync fetch
-```
-
-### `agm sync pull`
-
-Run `agm sync fetch`, then run `git merge` in the main workspace, branch workspaces, and dependency
-worktrees.
-
-```bash
-agm sync pull
-```
-
-### `agm exec`
-
-Execute an AgL (Agnette Language) workflow program. AgL is a statically-typed, expression-oriented
-DSL for composable agent workflows: it supports typed program and module parameters and outputs,
-user-defined functions (`def`/`fn`), functions implemented by a co-located Python file (`extern def`),
-structured JSON targets, do-loops with retry/abort policies, control flow (if/case/try), shell
-execution (`exec`), and typed `Agent` values. Free `ask` lazily opens a persistent default agent
-session from `std/config::default-agent`; use `chat(...)` or `agent.chat(...)` for a blocking
-interactive agent UI, and `agent.ask(...)` or `Session::open(...)` to select
-an explicit agent or conversation. The selected value determines the invoked command. Agent calls
-run inside the `agm run` sandbox by default (see `agm run` below), and `sandbox = Native` or
-`sandbox = Disabled` opts one out (free `ask` requires an explicit agent to override its sandbox); `exec` runs
-unsandboxed unless given `sandbox = Some(Sandbox(...))`. Host `Agent` arguments accept compact
-forms such as bare `claude`, `claude/sonnet:medium`, `codex/o3:high`, and `pi/openai/gpt-5:low`;
-other text is a custom command. An `[agent]` config section fills an agent's omitted model, Pi
-provider, and effort per agent CLI, provider, or model.
-
-A file workflow declares one or more `program def` entries: `agm exec` invokes the sole one after
-initialization, or selects one of several with `-p`/`--program PATH` (for example,
-`review::main`). An entry's own value parameters project onto `agm exec`'s CLI as positional
-arguments and `--name` options (required parameters are positional by default; defaulted
-parameters use options). A static
-`@param let` or `@param var` in its import closure is a module parameter, configurable through
-the same host channels. Inline `-c` source is wrapped in a synthetic entry when needed. Programs
-can span multiple `.agl` files via
-the module system (`import utils/math`). Every loaded entry and library module, except
-`std/prelude` itself, receives `import std/prelude::*` by default. An explicit import whose
-expansion includes `std/prelude` supplies the prelude contribution instead, so plain `import
-std/prelude` leaves its names qualified-only. `--no-stdlib` disables the automatic prelude
-throughout the loaded program. Other imports are qualified by default; an import tail or `use`
-declaration makes selected names bare. `agm exec` searches the entry file's directory, the
-selected standard library (the active `<AgM-home>/packages/std/<AGM_VERSION>/` package, then the
-wheel-bundled or source-checkout fallback), the selected AgM home's global `lib` directory, and
-any configured `[modules] roots` for imported modules.
-
-```bash
-agm exec workflow.agl
-agm exec workflow.agl --name Alice   # --<name> per declared program parameter
-agm exec -c 'print "hello"'       # run inline program text instead of a file
-agm check workflow.agl            # static check only — no program execution
-```
-
-See `agm help exec` for options, exit codes, and config. The AgL language itself is
-documented in the [AgL language reference](docs/agl/reference/index.md).
-
-### `agm check`
-
-Statically check one or more AgL files: run the full static pipeline (parse, module
-loading, scope resolution, type checking, match compilation, and lowering) and report
-GNU-style diagnostics, without evaluating anything or running an agent. Unlike `agm exec`,
-no file needs to declare a `program def`, so plain library modules can be checked too.
-Each file is checked independently, in argument order; a clean file produces no output.
-
-```bash
-agm check workflow.agl
-agm check lib/*.agl              # library modules, no `program def` required
-```
-
-See `agm help check` and [docs/commands/agl.md](docs/commands/agl.md#agm-check) for options and
-exit codes. This is distinct from [`agm pkg check`](docs/commands/pkg.md), which validates
-a package directory's manifest and module-tree discipline.
-
-### `agm repl`
-
-Start an interactive read-eval-print loop for AgL. The REPL keeps a persistent session:
-each entry is parsed, type-checked, and evaluated once against an environment that
-accumulates bindings, types, and declarations, so earlier results stay available and agent
-calls fire exactly once. Multiline editing, syntax highlighting, tab-completion, and history
-are built in, and `:` meta-commands (`:help`, `:type`, `:info`, `:bindings`, …) inspect the session.
-Each loaded program receives the `std/prelude` standard-library prelude, as in
-`agm exec`, unless an explicit import includes `std/prelude`; plain `import std/prelude`
-therefore leaves its names qualified-only. Pass `--no-stdlib` to disable the
-prelude for the entry and its library modules.
-
-```bash
-agm repl                        # launch; type :help for commands, :quit to exit
-agl> let n = 21 * 2             # bindings persist across entries → "n : int = 42"
-```
-
-See `agm help repl` and [docs/commands/agl.md](docs/commands/agl.md#agm-repl) for the full reference, and the
-[AgL language reference](docs/agl/reference/index.md) for the language.
-
-### `agm run`
-
-Run a command directly or inside an Anthropic Sandbox Runtime container. Interactive runs receive a
-controlling pseudo-terminal by default; use `--no-pty` to disable it.
-
-```bash
-agm run pytest -q
-agm run --file .sandbox/ci.json make test
-agm run --no-patch python script.py
-agm run --no-sandbox --memory 8G make lint
-```
-
-`agm run` loads config from:
-
-1. `<install-prefix>/.agm/config.toml` when present
-2. the selected AgM home's `config.toml` when distinct (`$AGM_HOME`, otherwise
-   `<install-prefix>/.agm` when populated, otherwise `$HOME/.agm`)
-3. `<project-config-dir>/config.toml`
-4. `./.agm/config.toml`
-
-Sandbox settings are resolved from the global sandbox directory, the project sandbox config
-directory, and `./.sandbox/`, with later files merged over earlier ones.
-
-### `agm config copy`
-
-Copy known project config files from the shared project config directory into an existing target
-directory.
-
-```bash
-agm config copy target-dir
-agm config cp target-dir
-```
-
-Known files currently include `.setup.sh`, `.env`, `.env.local`, `.config`, `.agents`,
-`.opencode`, `.codex`, `.claude`, `.pi`, and `.mcp.json`.
-
-### `agm config env`
-
-Print shell statements that refresh the current workspace environment from project and workspace
-`.env`, `.env.local`, and `env.sh` files. Apply them to the current shell with:
-
-```bash
-eval "$(agm config env)"
-```
-
-### `agm config update`
-
-Create missing project and workspace `config.toml` files and commit generated changes.
-
-```bash
-agm config update
-```
-
-### `agm dep`
-
-Manage dependency checkouts under the project dependency directory. Switching uses local Git
-refs by default; `--fetch` refreshes remote refs first.
-
-```bash
-agm dep list
-agm dep new https://github.com/org/lib.git
-agm dep new --branch develop https://github.com/org/lib.git
-agm dep switch mylib feat/update
-agm dep switch --branch mylib feat/new-work
-agm dep switch --fetch mylib feat/update
-agm dep rm mylib/feat/update
-agm dep rm --all mylib
-```
-
-### `agm worktree`
-
-Low-level worktree operations for the main project repo. Creation uses local Git refs by
-default; `--fetch` refreshes remote refs first.
-
-```bash
-agm worktree new feat/search
-agm worktree new --fetch feat/search
-agm wt new --dir /tmp/worktrees feat/search
-agm worktree remove --force old-branch
-agm wt rm old-branch
-```
-
-### `agm tmux`
-
-Manage tmux sessions and apply AgM pane layouts directly.
-
-```bash
-agm tmux open
-agm tmux open --detach --num-panes 4 my-session
-agm tmux close my-session
-agm tmux layout 4 --window @1
-```
-
-## Aliases
-
-- `agm wsp` → `agm workspace`
-- `agm dep remove` → `agm dep rm`
-- `agm config cp` → `agm config copy`
-- `agm wt` → `agm worktree`
-- `agm wt rm` / `agm worktree rm` → `agm worktree remove`
-
-## Help
-
-```bash
-agm help
-agm help run
-agm help worktree new
-agm open --help
-```
+| Command | Purpose | Reference |
+| ------- | ------- | --------- |
+| `agm open`, `agm close` | Open or close a workspace and its tmux session | [workspaces](docs/commands/workspaces.md) |
+| `agm workspace` (`wsp`) | List, open, close, and set up workspaces | [workspaces](docs/commands/workspaces.md) |
+| `agm init` | Initialize a project, optionally cloning a repo | [workspaces](docs/commands/workspaces.md) |
+| `agm sync` | Fetch and merge the project's repositories | [workspaces](docs/commands/workspaces.md) |
+| `agm exec`, `agm check`, `agm repl` | Run, check, or explore AgL | [agl](docs/commands/agl.md) |
+| `agm pkg` | Create, check, install, and manage AgL packages | [pkg](docs/commands/pkg.md) |
+| `agm config` | Copy config files, print workspace env, update config | [config](docs/commands/config.md) |
+| `agm dep` | Manage dependency checkouts | [dependencies](docs/commands/dependencies.md) |
+| `agm run` | Run a command, sandboxed by default | [run](docs/commands/run.md) |
+| `agm worktree` (`wt`) | Low-level worktree operations | [worktrees](docs/commands/worktrees.md) |
+| `agm tmux` | Manage tmux sessions and pane layouts | [tmux](docs/commands/tmux.md) |
+
+Packages can register their `program def` entries as `agm` commands. The repository ships
+`packages/devel` (development workflows, e.g. `agm devel plan`) and `packages/sysone`
+(the `sysone/jev` module for TypeSafe's System One model); `just install` installs both.

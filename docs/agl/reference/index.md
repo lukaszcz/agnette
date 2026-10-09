@@ -1,15 +1,12 @@
 # AgL Language Reference
 
-AgL (Agnette Language) is Agnette's complete, statically checked agent workflow DSL.
-Agnette (Agentic Notation & Execution Toolkit) also provides CLI agent management
-facilities through AgM (Agnette Manager), the CLI agent project manager that runs AgL
-through `agm exec` and `agm repl`.
+AgL (Agnette Language) is the statically checked agent workflow DSL of Agnette
+(Agentic Notation & Execution Toolkit), run by AgM (Agnette Manager) through `agm exec`
+and `agm repl`. AgL programs call AI agents with typed output contracts, chain their
+results, run review/fix loops, and branch on structured agent outcomes.
 
-AgL programs call AI agents with typed output contracts, chain prompt results,
-run review/fix/refine loops, and branch on structured agent outcomes.
-
-AgL is not a general-purpose programming language. It is a typed, expression-
-oriented orchestration language whose core ideas are:
+AgL is a typed, expression-oriented orchestration language, not a general-purpose one.
+Its core ideas:
 
 - **Agent calls are first-class expressions.** `reviewer.ask("Review %{artifact}")`
   calls a host-provided agent with a rendered prompt template; the result is
@@ -18,24 +15,18 @@ oriented orchestration language whose core ideas are:
   result type drives the format instructions sent to the agent, the parsing
   and validation of its raw output, and the retry-or-abort behavior on
   malformed output.
-- **Structured outputs have one canonical wire format** — JSON, in which an
-  enum member is named by its effective JSON name (its terminal name unless
-  renamed): as a bare string for an enum of fieldless members, under a
-  reserved `"$case"` tag otherwise — parsed leniently by default and
-  validated strictly, always.
+- **Structured outputs have one canonical wire format** — JSON, parsed
+  leniently by default and validated strictly, always.
 - **Everything is an expression.** There is no statement category: binders
   (`let`/`var`) scope over a continuation, side-effecting forms have type
   `unit` and return `()`, and `if`/`case`/`try` with matching branches yield
   a typed value.
-- **Functions are first-class.** User-defined `def` declarations and `fn`
-  lambdas produce values of function type `A -> B` or `(A, B) -> C`; they may be stored,
-  passed, and returned.
-- **Mutability is explicit.** `let` binds a name immutably and `var` binds it
-  mutably; records and enum-member records may also mark individual fields
-  `var`. `:=` updates a mutable binding, container element, or `var` field in
-  place. Binding never copies, so every alias observes mutable arrays,
-  dictionaries, and record fields. Equality is `==`, while a single `=` is a
-  binder and named-argument separator, never assignment.
+- **Functions are first-class.** `def` declarations and `fn` lambdas produce
+  values of function type `A -> B` or `(A, B) -> C`.
+- **Mutability is explicit.** `let` binds immutably, `var` mutably, and record
+  fields may be marked `var`. `:=` updates a mutable binding, container element,
+  or field in place. Binding never copies, so aliases observe mutation. `=` binds
+  and names arguments, never assigns; equality is `==`.
 - **Failures are exceptions.** Parse failures, cast failures, loop exhaustion,
   explicitly raised match errors, recursion depth, and shell errors are typed,
   catchable exceptions.
@@ -78,7 +69,7 @@ program def main(spec: text) -> unit =
 | ------- | -------- |
 | [Lexical structure](lexical-structure.md) | Source text, comments, indentation and layout, keywords, tokens, declaration attributes, operator precedence |
 | [Program structure](program-structure.md) | Modules, `program def` entry points and their parameters, items, binders, inline forms |
-| [Types](types.md) | Built-in types (`unit`, `text`, `int`, `decimal`, `bool`, `json`, function types), `record`/`enum`/`type` declarations, the library types the language itself names (`ExecResult`, `Agent`, `AgentRequest`, `SessionTransport`, `Session`, `SessionStats`), assignability, casts and convertibility (`as`/`as?`), mutable record fields and reference semantics, cycles, copying (`copy`/`shallow-copy`), and parsing (`parse`/`try-parse`) |
+| [Types](types.md) | Built-in types, `record`/`enum`/`type` declarations, library types the language names, assignability, casts (`as`/`as?`), mutable fields and reference semantics, copying, parsing |
 | [Bindings and scope](bindings-and-scope.md) | `let`, `var`, `:=`, `builtin var`, `def`, lexical scoping, shadowing |
 | [Expressions](expressions.md) | Literals, constructors, calls, operators, `as`/`as?` cast operators, `render`, JSON parsing, `case`/`if` expressions, `unit`-typed forms, expected-type propagation |
 | [Strings and interpolation](strings-and-interpolation.md) | Templates, `$` literals, escapes, `%{…}` interpolation, uniform rendering rules |
@@ -97,9 +88,8 @@ program def main(spec: text) -> unit =
 | [Host environment](host-environment.md) | Agents, program arguments, host defaults, capability checking, tracing |
 | [Grammar](grammar.md) | The collected grammar |
 
-This reference describes the language. It names a library type or function only
-where the language's own semantics depend on it; the `std/*` modules themselves
-are documented by their sources.
+The reference names a library type or function only where the language's semantics
+depend on it; the `std/*` modules are documented by their sources.
 
 ## Notation
 

@@ -1,45 +1,47 @@
 # AgL end-to-end test corpus
 
-Data files for `tests/test_agl_e2e.py`, the specification suite for the AgL
-implementation (expression-oriented core, uniform call syntax, user-defined
-functions).
+Data files for `tests/test_agl_e2e.py`, the AgL specification suite.
 
-Layout:
-
-- `programs/**/*.agl` — valid AgL programs, each declaring an explicit
-  `program def` entry (or marked `inline_entry`, see below) and carrying a sidecar
-  `<name>.scenarios.json` describing the scenarios it runs under. Every program is
-  exercised under **multiple scenarios**: distinct combinations of host params,
-  scripted mock agent responses, and scripted shell results, each driving a different
-  control-flow path with its own expected outcome.
-- `rejections/**/*.agl` — invalid programs that the static pipeline
-  (lex/parse/scope/typecheck) must reject before executing anything, each with a
-  sidecar `<name>.expect.json`.
+- `programs/**/*.agl` — valid programs, each declaring a `program def` (or marked
+  `inline_entry`) with a sidecar `<name>.scenarios.json`. Every program runs under
+  **multiple scenarios**: combinations of parameters, scripted agent responses, and
+  scripted shell results, each driving a different path to its own expected outcome.
+- `rejections/**/*.agl` — invalid programs the static pipeline must reject before running
+  anything, each with a sidecar `<name>.expect.json`.
+- `program_modules/` — library roots for `module_roots`/`stdlib_root`; `multi_file/` and
+  `packages/` — fixtures for the module and package tests.
 
 ## Program categories
 
 | Directory | What it exercises |
 |-----------|-------------------|
-| `attributes/` | Declaration attributes: `@arg-*` zones on functions, lambdas, records, exceptions, enum members, and `program def` |
-| `basics/` | `let`/`var`/`:=`, params, agent calls, print rendering |
-| `calls/` | `ask` parse-error retries, format options |
+| `attributes/` | Declaration attributes and `@arg-*` zones |
+| `basics/` | `let`/`var`/`:=`, parameters, agent calls, printing |
+| `calls/` | `ask` parse-error retries and format options |
 | `canonical/` | Multi-agent review/fix workflows |
-| `casts/` | `as`/`as?` casts and `CastError`/`JsonParseError` handling |
-| `control/` | `if`/`case`/`do…until`/`try…catch`/`raise` |
-| `errors/` | Exception types, field access in catch, rethrow |
-| `exec/` | Shell execution, `ExecResult` structured handle |
+| `casts/` | `as`/`as?` casts, `CastError`, `JsonParseError` |
+| `control/` | `if`/`case`/loops/`try…catch`/`raise` |
+| `errors/` | Exception types, catch field access, rethrow |
+| `exec/` | Shell execution and `ExecResult` |
 | `exprs/` | Arithmetic, comparisons, string operations |
-| `functions/` | User-defined functions: recursion, default args, first-class values, lambdas, `Agent::ask` in a `def` body |
-| `generics/` | Generic types/functions: inference, explicit `::[…]` overrides, erasure, HOFs, imported generics |
-| `inline/` | Single-expression programs and host-wrapped `inline_entry` sources |
-| `methods/` | Record and enum methods: direct and bound calls, generic receivers, partial application, and scope use |
-| `modules/` | Multi-file module programs (via `module_roots`): imports combined with generics, casts, records/enums, pattern matching, and cross-module mutual recursion |
-| `packages/` | Repository packages mounted as installed, such as `sysone/jev` over a scripted TypeSafe transport |
-| `partial/` | Partial application placeholders for calls, constructors, generics, eager capture, and higher-order use |
-| `rendering/` | Console/value rendering: nesting, escaping, exception rendering |
-| `templates/` | Template interpolation |
+| `externs/` | `extern def` Python companions and boundary crossing |
+| `functions/` | Recursion, default arguments, first-class functions, lambdas |
+| `generics/` | Inference, `::[…]` overrides, erasure, higher-order and imported generics |
+| `inline/` | Single-expression programs and `inline_entry` sources |
+| `methods/` | Record and enum methods: direct and bound calls, generic receivers |
+| `modules/` | Multi-file programs (via `module_roots`) |
+| `packages/` | Repository packages mounted as installed, e.g. `sysone/jev` |
+| `params/` | Program and `@param` module parameters |
+| `partial/` | Partial application placeholders |
+| `rendering/` | Console and value rendering |
+| `resources/` | Package resources and filesystem paths |
+| `return/` | `return` |
+| `scope/` | Named scopes, lookup, and `use` |
+| `sessions/` | Agent sessions and their native operations |
+| `stdlib/` | Standard-library modules and builtin methods |
+| `templates/`, `text/` | Interpolation, concatenation, escapes |
 | `types/` | Records, enums, `json`, `array`, `dict` |
-| `values/` | `std/value::parse`/`try-parse`: explicit and contextual type arguments, `ValueParseError` |
+| `values/` | `std/value::parse`/`try-parse`, `ValueParseError` |
 
 ## `<name>.scenarios.json`
 
@@ -93,7 +95,8 @@ Layout:
            "schema_contains": ["fragment"],
            "schema_paths": [
              {"path": ["$ref"], "equals": "#/$defs/Task"}
-           ]}
+           ],
+           "sandbox": "native"}
         ],
         "sessions": [
           {"agent": "impl", "tag": "session-1", "opened": true, "closed": true},
@@ -120,141 +123,80 @@ Layout:
 }
 ```
 
-Field notes:
+Inputs:
 
-- `params` — the selected entry's own named/standard-zone value-parameter
-  arguments, verbatim. JSON numbers with a fractional part are loaded as
-  `decimal.Decimal` (AgL has no binary floats).
-- `positional` — an entry program's own positional-only/standard-zone
-  arguments, in order.
-- `process_environment` — a `text`-to-`text` mapping seeding the program's
-  `std/env::environ` snapshot, in place of the harness process's real
-  environment.
-- `agents` — response queues selected by the `Agent` value at each call site,
-  consumed in call order. A list is a strict queue (a call past its end fails the
-  test); the object form allows `repeat_last` for loop-exhaustion scenarios. The key
-  `ask` scripts the default non-command `Agent` variants. An object may also
-  carry `session.capabilities`, a list of supported protocol operations (`ask`,
-  `compact`, `fork`, `set-name`, `stats`); when omitted, all are supported.
-  Omit an operation to script the service's capability rejection. Separately,
-  `session.operations` maps native operation names (`compact`, `reset`, `fork`,
-  `stats`, `set-name`) to ordered backend outcomes. `session.ask` can similarly
-  script each session prompt as `success` or a transport-failure object with a
-  `cause` (and optional `exit_code`, `stderr_tail`, and `elapsed`). Each supplied
-  outcome must be consumed; `success` is normal and a `stats` object may provide
-  `input_tokens`, `output_tokens`, `cost`, and `context_percent`. `reset` is
-  always dispatched by the service and cannot have an `unsupported` outcome.
-  Legacy `unsupported` outcomes remain accepted for optional operations, but
-  new scenarios should use `capabilities`. Session and ordinary asks consume the
-  same response queue.
-- `shell` — ordered scripted shell calls. Each object names the rendered
-  `command` and may set `stdout`, `stderr`, `returncode`, `timed_out`, or
-  `spawn_error`; omitted fields describe a successful command with empty output.
-  `stdout_hex`/`stderr_hex` give the stream as hexadecimal bytes instead, for
-  output a JSON fixture cannot hold as text (e.g. invalid UTF-8); they take
-  precedence over `stdout`/`stderr` when both are set.
-  The harness rejects an unexpected command and verifies the full script was used,
-  so acceptance tests never execute a real shell command. `sandbox_wrapped` asserts
-  the recorded argv carries the real `systemd-run`/`srt` sandbox wrap, by `profile`
-  (its `<profile>.json` settings candidate, or `null` for the `default.json`
-  fallback an unknown/unsplittable first word takes) or an exact `settings_suffix`
-  (exactly one of the two is required), plus optional `memory`/`swap` resource-limit
-  values; omitting `sandbox_wrapped` asserts the call carries no wrap at all
-  (`["sh", "-c", <command>]`) -- the blanket invariant every scenario's `shell`
-  entries satisfy unless they opt into `sandbox_wrapped`.
-- `sandbox_home` — when present, materializes a real `[home]/.agm/sandbox` settings
-  tree (`run_toml`, `extra_settings_files`) and PATH-reachable, never-invoked
-  `systemd-run`/`srt` shims (`tests/_agl_helpers.py::write_transparent_sandbox_shims`),
-  and threads a real `get_sandbox_context` into the runtime, so a `sandbox = Some(...)`
-  `exec` call resolves backend availability and settings through the real sandbox
-  library. `unavailable: true` points `PATH` at an empty directory instead, for a
-  preparation-failure scenario. A `params` value of the literal string
-  `"$SANDBOX_SETTINGS_FILE"` is replaced with a real settings file's path, for an
-  explicit `Sandbox(settings = Some(...))` scenario. `proj_dir: true` gives the
-  context a real project directory, needed for a scenario to observe `patch`
-  (`SrtBackend` only consults it when a project directory is present).
-- `http` — ordered scripted HTTP exchanges, in `tests/_http_helpers.py`'s `FakeHttp`
-  outcome shape: each object may assert an `expect` (method, url, a header subset where
-  a `null` value asserts the header's absence, body, `timeout` as a `[connect, read]`
-  two-element array or `null` for none, `verify`) against the actual request and scripts
-  its outcome — `status`,
-  `headers` (a mapping, or a list of `[name, value]` pairs to script repeated headers),
-  a `body` (+ optional `charset`) or `body_hex`, or a `fail`/`fail_mid_stream` kind. `fail`
-  is one of `url`, `connection`, `timeout`, `tls`, `redirect` (with an optional `redirects`
-  count) and raises before a response is built; `fail_mid_stream` is one of `connection`,
-  `timeout`, `tls`, `decode` and raises after the scripted body streams. The harness
-  installs `FakeHttp` in place of `agnette.core.http.open_session` and verifies the full script
-  was used, so acceptance tests never touch the network; an absent key means no HTTP call
-  is allowed.
-- `jev` — ordered scripted TypeSafe requests, in `tests/_jev_helpers.py`'s `JevTransport`
-  outcome shape: an optional `expect` (exact decoded `body`, exact `url`, a header subset,
-  `timeout` seconds) and a `status`, `json` or raw `content` body, and `headers` (such as
-  `x-typesafe-request-id` or `retry-after-ms`), or `fail: "connection" | "timeout"`. The key
-  mounts `packages/sysone` over the repository stdlib (it excludes `module_roots`), sets a
-  test API key, and swaps the companion's client seam for the scripted transport, verifying
-  the full script was used. Seed `"sysone/jev::max-retries": 0` through `module_params` when
-  a retryable failure is scripted, so the SDK never backs off.
-- `runtime` — optional `PipelineDriver` constructor overrides
-  (`default_call_depth_limit`, `default_strict_json`) and the `parse_error_retries` engine
-  seed (`std/config::parse-error-retries`, default 4).
-- `filesystem` — optional fixture in a test-created temporary root. It may declare
-  `directories`, UTF-8 `text_files`, hexadecimal `hex_files`, and
-  `directory_symlinks`; a `"$TEMP_ROOT"` parameter value is replaced with that root.
-- `module_roots` — optional paths relative to `tests/agl/`. When present, the
-  program runs through the multi-file module graph with these library roots.
-- `module_params` — directly supplied seed values for `@param` bindings, keyed
-  by declaration path (`<entry>::name` for the entry program's own module,
-  `module/path::name` for an import). Outranks every other tier, `@config`
-  included.
-- `inline_entry` — the program declares no `program def`: it runs through the
-  same synthetic-entry transform as `agm exec -c`, which keeps root
-  declarations and the bindings they read at the root.
-- `expect.calls` — exact number of ordinary (non-session) calls per listed agent;
-  ordinary retries count here. Session asks, including retries, are counted only
-  by `expect.session_prompts`.
-- `expect.prompts` — assertions on the rendered user prompt (`request.prompt`) an
-  agent received on a given 0-based call index. `schema_contains` instead checks
-  that call's output contract JSON Schema (the format-instructions/JSON Schema
-  channel a real runner-backed agent appends to the message; see
-  `runtime/agents.py`). `schema_paths` asserts exact values at dictionary-key
-  paths in that schema, such as a recursive root and child `$ref` pointing to the
-  same `$defs` entry.
-- `expect.sessions` — exact observed set of deterministic per-agent session
-  tags. `opened`, `closed`, `transport`, `single_prompt`, and (for a forked session)
-  `parent` are optional exact assertions. Tags are assigned in creation order as
-  `session-1`, `session-2`, and so on.
-- `expect.session_prompts` — assertions on a session prompt. `session` selects
-  its tag and `call` is its 0-based prompt number. For every created tag, the
-  entries must enumerate every received prompt exactly once, so an extra session
-  retry fails the scenario. Its prompt checks use the same `equals`,
-  `starts_with`, `contains`, and `not_contains` fields as `expect.prompts`;
-  `follow_up` contains those checks and requires a later call on that same
-  session.
-- `expect.session_operations` — assertions for native session operations;
-  `operation`, optional 0-based `call`, optional `arg`, and optional `outcome`
-  select and check each observation. When present, entries must enumerate every
-  operation on every created session exactly once, including an `unsupported`
-  capability rejection; omit the field to leave operation coverage unchecked.
-- `expect.raises` — the uncaught AgL exception ending the run: its type name, an
-  exact-match subset of its fields, and substrings of its `message` field. A
-  dict-shaped field value (a nested record) is itself an exact-match subset of
-  its keys, recursively — useful for asserting part of a nested field (e.g. a
-  status and body) while ignoring a nondeterministic one (e.g. elapsed time).
-  An optional `line` asserts the 1-based source line the raise is attributed to.
-  An optional `source_contains` asserts a substring of the raise's source file
-  display name (e.g. an imported module's path), for a multi-module program.
-- `expect.exit_code` — the program must terminate through `SystemExit` with this
-  status; it is used for host-termination workflows such as `std/os::exit`.
-- `expect.host_error` — the run must fail pre-execution (program argument
-  binding or decode failure): no agent is called, no AgL exception is
-  raised, and the diagnostics mention the fragments.
-- `expect.shell_sandbox_units_distinct` — every scripted shell call's
-  `systemd-run --unit` scope name is distinct, proving a sandboxed retry
-  re-prepares rather than reuses the first attempt's prepared command.
-- Exact `stdout` is asserted only where rendering is pinned by the design (`text`
-  verbatim, scalars as scalar text). Pretty-JSON console rendering and
-  boundary-marked prompt rendering are asserted with `contains` fragments to avoid
-  pinning incidental formatting.
+- `params` — the entry's named value-parameter arguments; `positional` — its positional
+  ones, in order. JSON decimals load as `decimal.Decimal`.
+- `module_params` — `@param` seeds keyed by declaration path (`<entry>::name` or
+  `module/path::name`); they outrank every other tier, `@config` included.
+- `process_environment` — the `std/env::environ` snapshot, replacing the real environment.
+- `module_roots` — library roots relative to `tests/agl/`, run through the module graph;
+  `stdlib_root` replaces the standard library root; `no_stdlib` disables the prelude.
+- `inline_entry` — no `program def`: run through the same synthetic-entry transform as
+  `agm exec -c`.
+- `runtime` — `PipelineDriver` overrides (`default_call_depth_limit`,
+  `default_strict_json`) and the `parse_error_retries` engine seed.
+- `filesystem` — a fixture in a temporary root: `directories`, UTF-8 `text_files`,
+  `hex_files`, `directory_symlinks`; a `"$TEMP_ROOT"` parameter value becomes that root.
+
+Scripted boundaries (every script must be fully consumed; an absent key allows no calls):
+
+- `agents` — response queues keyed by the call site's `Agent` value (`ask` for the default
+  non-command variants), consumed in order. A list is strict; the object form adds
+  `repeat_last`. Session and ordinary asks share the queue. `session.capabilities` lists
+  supported operations (`ask`, `compact`, `fork`, `set-name`, `stats`; default all) —
+  omit one to script a capability rejection. `session.operations` maps native operations
+  (`compact`, `reset`, `fork`, `stats`, `set-name`) to ordered outcomes: `success`, a
+  `stats` object, or (legacy, prefer `capabilities`) `unsupported`; `reset` cannot be
+  unsupported. `session.ask` scripts each session prompt as `success` or a transport
+  failure (`cause`, optional `exit_code`, `stderr_tail`, `elapsed`).
+- `shell` — ordered calls: the rendered `command` plus optional `stdout`, `stderr`
+  (or `stdout_hex`/`stderr_hex` for non-UTF-8 bytes, taking precedence), `returncode`,
+  `timed_out`, `spawn_error`. Unexpected commands fail. `sandbox_wrapped` asserts the real
+  `systemd-run`/`srt` wrap by `profile` (`null` for the `default.json` fallback) or exact
+  `settings_suffix` — exactly one — plus optional `memory`/`swap`; without it the call must
+  be unwrapped (`["sh", "-c", <command>]`).
+- `sandbox_home` — materializes a real `.agm/sandbox` tree (`run_toml`,
+  `extra_settings_files`) with never-invoked `systemd-run`/`srt` shims, so sandboxed `exec`
+  resolves through the real sandbox library. `unavailable: true` empties `PATH` instead;
+  `proj_dir: true` adds a project directory (needed to observe `patch`). A
+  `"$SANDBOX_SETTINGS_FILE"` parameter value becomes a real settings file path.
+- `http` — ordered `FakeHttp` exchanges (`tests/_http_helpers.py`): optional `expect`
+  (method, url, header subset with `null` for absence, body, `timeout` as
+  `[connect, read]` or `null`, `verify`), then `status`, `headers` (mapping or
+  `[name, value]` pairs), `body` (+ `charset`) or `body_hex`, or a failure: `fail`
+  (`url`, `connection`, `timeout`, `tls`, `redirect` with optional `redirects`) before the
+  response, `fail_mid_stream` (`connection`, `timeout`, `tls`, `decode`) after the body.
+- `jev` — ordered TypeSafe exchanges (`tests/_jev_helpers.py`): optional `expect` (exact
+  decoded `body`, `url`, header subset, `timeout`), then `status`, `json` or `content`,
+  `headers`, or `fail: "connection" | "timeout"`. Mounts `packages/sysone` (excludes
+  `module_roots`) with a test API key; seed `"sysone/jev::max-retries": 0` in
+  `module_params` when scripting a retryable failure.
+
+Expectations:
+
+- `stdout` (exact), `stdout_contains`, `stdout_not_contains` — pin exact output only where
+  rendering is fixed by design; use fragments for pretty JSON and boundary-marked prompts.
+- `calls` — exact ordinary (non-session) call count per agent, retries included.
+- `prompts` — checks on an agent's 0-based `call`: the rendered prompt (`equals`,
+  `starts_with`, `contains`, `not_contains`), its output-contract JSON Schema
+  (`schema_contains`, exact `schema_paths`), and `sandbox` — a permission mode or an
+  object of `mode` plus `memory`/`swap`/`patch`/`settings` limits.
+- `sessions` — the exact set of session tags (`session-1`, `session-2`, … in creation
+  order), with optional `opened`, `closed`, `transport`, `single_prompt`, `parent`, and
+  `sandbox`.
+- `session_prompts` — every prompt of every created session, exactly once, by `session`
+  tag and 0-based `call`, with the `prompts` text checks; `follow_up` applies them to a
+  required later call on that session.
+- `session_operations` — when present, every native operation on every session exactly
+  once, matched by `operation`, optional `call`, `arg`, and `outcome`.
+- `raises` — the uncaught exception: `type`, a recursive exact-match subset of `fields`,
+  `message_contains`, optional 1-based `line` and `source_contains` (source display name).
+- `exit_code` — termination through `SystemExit` with this status.
+- `host_error` — a pre-execution failure (argument binding or decoding): no agent call, no
+  AgL exception, diagnostics containing `message_contains`.
+- `shell_sandbox_units_distinct` — every sandboxed shell call has a distinct
+  `systemd-run --unit` name (retries re-prepare).
 
 ## `<name>.expect.json`
 
@@ -262,15 +204,17 @@ Field notes:
 {"diagnostic": {"line": 2, "message_contains": ["equality"]}}
 ```
 
-The program must be rejected statically: `result.ok` is false, `result.error` is
-`None` (nothing executed), and at least one diagnostic exists — on `line`
-(1-based, when given) and containing the `message_contains` fragments
-(case-insensitive, when given).
+The program must be rejected statically with nothing executed, with a diagnostic on `line`
+(1-based, optional) containing the `message_contains` fragments (case-insensitive,
+optional). `module_roots` and `stdlib_root` work as in scenarios.
 
 ## Rejection categories
 
 | Directory | What it tests |
 |-----------|---------------|
+| `lex/` | Lexical errors |
 | `parse/` | Syntax errors |
+| `infix/` | Operator fixity and import errors |
 | `scope/` | Undefined names, duplicate declarations |
 | `type/` | Type mismatches, arity errors, operator type rules, opacity |
+| `match/` | Non-exhaustive and redundant matches |
