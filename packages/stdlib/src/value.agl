@@ -2,11 +2,16 @@ import std/result::Result
 import std/errors::ValueParseError
 
 @doc("""
-  Render a value as AgL text.
+  Render a value as AgL text; `pretty` puts structured values on indented lines and
+  `quote-strings` quotes a top-level `text` or `json` string.
 
   Raises `CyclicValueError` when the value contains a cycle.
 """)
-builtin def render[T](value: T) -> text
+builtin def render[T](
+  value: T,
+  pretty: bool = true,
+  quote-strings: bool = true,
+) -> text
 
 @doc("Return a deep copy of the value, detaching nested mutable storage.")
 builtin def copy[T](value: T) -> T

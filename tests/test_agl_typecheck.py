@@ -1862,7 +1862,7 @@ class TestScopedBuiltinTypes:
         canonical (path-``()``) signature once re-rooted."""
         r = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}"
-            "builtin def exec(command: text) -> ExecResult\nend A\n()\n",
+            "builtin def exec[T](command: text) -> T\nend A\n()\n",
             default_stdlib=False,
         )
         assert r.resolved.program is not None
@@ -1936,13 +1936,22 @@ class TestScopedBuiltinTypes:
         declared in a DIFFERENT region does not re-root to the canonical
         shape and must be rejected."""
         err = reject_type(
-            f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n"
-            "scope B\n  builtin def exec(command: text) -> A::ExecResult\nend B\n"
+            f"scope A\nbuiltin enum Agent\n{_AGENT_VARIANTS_TC}end A\n"
+            "scope B\n"
+            "  builtin def ask[T](\n"
+            "    prompt: text,\n"
+            '    agent: A::Agent = A::Agent::AgentCommand("x"),\n'
+            '    format: text = "",\n'
+            "    strict-json: bool = false,\n"
+            "    parse-error-retries: int = 0,\n"
+            "    sandbox: AgentSandbox = Disabled,\n"
+            "  ) -> T\n"
+            "end B\n"
             "\n"
             "()\n",
             default_stdlib=False,
         )
-        assert "exec" in err.to_diagnostic().message
+        assert "ask" in err.to_diagnostic().message
 
 
 class TestBuiltinDeclarationUniqueness:

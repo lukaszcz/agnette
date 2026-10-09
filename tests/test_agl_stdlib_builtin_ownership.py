@@ -88,7 +88,7 @@ _MODULES: dict[str, str] = {
         "  stderr: text\n"
         "  timed-out: bool\n"
         "\n"
-        "builtin def exec(command: text) -> ExecResult\n"
+        "builtin def exec[T](command: text) -> T\n"
     ),
     "agent.agl": (
         "import std/errors::{Exception}\n"

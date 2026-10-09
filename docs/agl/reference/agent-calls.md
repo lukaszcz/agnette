@@ -277,14 +277,15 @@ Names the output codec with a text literal, `"text"` or `"json"`. It is
 redundant: `text` targets use the `text` codec, and every other target —
 `json`, records, enums, arrays, dicts, numbers, and `bool` — the `json` codec.
 A non-literal value, an unknown name, or a codec that does not support the
-target type is a static error.
+target type is a static error; the default `""` equals omitting the option.
 
 ### `strict-json`
 
 A `bool` that opts a JSON-codec call into [strict parsing](#strict-parsing);
-`false` explicitly selects lenient parsing, overriding a host default. It is a
-static error unless the codec is `json`. When omitted, the host default
-applies; the portable default is [lenient recovery](#lenient-recovery).
+`false` explicitly selects lenient parsing, overriding a host default. `true`
+is a static error unless the codec is `json`; `false` has no effect on a
+`text` codec. When omitted, the host default applies; the portable default is
+[lenient recovery](#lenient-recovery).
 
 ### `parse-error-retries`
 

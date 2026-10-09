@@ -2284,14 +2284,17 @@ def _scoped_stdlib_root(tmp_path: Path) -> Path:
             )
         if name == "exec":
             source = source.replace(
-                "builtin def exec(\n"
+                "builtin def exec[T](\n"
                 "  command: text,\n"
                 "  env: Environ = std/env::environ,\n"
                 "  cwd: Option[path] = None,\n"
                 "  timeout: Option[text] = std/config::timeout,\n"
                 "  sandbox: Option[Sandbox] = None,\n"
-                ") -> ExecResult\n",
-                "builtin def exec(command: text) -> ExecResult\n",
+                '  format: text = "",\n'
+                "  strict-json: bool = false,\n"
+                "  parse-error-retries: int = 0,\n"
+                ") -> T\n",
+                "builtin def exec[T](command: text) -> T\n",
             )
         scoped_sources.append(source)
     (std_dir / "prelude.agl").write_text(
@@ -2518,7 +2521,7 @@ def test_scoped_builtin_hierarchy_declared_in_the_entry_module_catches_a_host_ra
         "    exit-code: int\n"
         "    stderr: text\n"
         "    timed-out: bool\n"
-        "  builtin def exec(command: text) -> ExecResult\n"
+        "  builtin def exec[T](command: text) -> T\n"
         "  def run(cmd: text) -> text =\n"
         "    try\n"
         "      let out: text = exec(cmd)\n"

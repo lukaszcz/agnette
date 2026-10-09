@@ -277,7 +277,12 @@ class _BuiltinMethodChecker(Protocol):
     """Shared call shape for a receiver-directed built-in method checker."""
 
     def __call__(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type: ...
 
 
@@ -673,7 +678,13 @@ def _builtin_function_signature(
             )
         case "render":
             return FunctionSignature(
-                params=(_std_param("value", t),), result=TextType(), type_params=("T",)
+                params=(
+                    _std_param("value", t),
+                    _std_param("pretty", BoolType(), has_default=True),
+                    _std_param("quote-strings", BoolType(), has_default=True),
+                ),
+                result=TextType(),
+                type_params=("T",),
             )
         case "copy":
             return FunctionSignature(params=(_std_param("value", t),), result=t, type_params=("T",))
@@ -709,8 +720,12 @@ def _builtin_function_signature(
                         standard_option_type(BUILTIN_PRELUDE_TYPES["Sandbox"]),
                         has_default=True,
                     ),
+                    _std_param("format", TextType(), has_default=True),
+                    _std_param("strict-json", BoolType(), has_default=True),
+                    _std_param("parse-error-retries", IntType(), has_default=True),
                 ),
-                result=BUILTIN_PRELUDE_TYPES["ExecResult"],
+                result=t,
+                type_params=("T",),
             )
         case _:
             return None
@@ -765,7 +780,17 @@ def _builtin_function_signature_alternates(
             expected,
             FunctionSignature(
                 params=(_std_param("command", TextType()),),
-                result=BUILTIN_PRELUDE_TYPES["ExecResult"],
+                result=TypeVarType("T"),
+                type_params=("T",),
+            ),
+        )
+    if name == "render":
+        return (
+            expected,
+            FunctionSignature(
+                params=(_std_param("value", TypeVarType("T")),),
+                result=TextType(),
+                type_params=("T",),
             ),
         )
     return (expected,)
@@ -2442,8 +2467,6 @@ class _Checker:
             target = expected.result if isinstance(expected, FunctionType) else None
         if target is None and kind is BuiltinKind.ASK_REQUEST:
             target = TextType()
-        if target is None and kind is BuiltinKind.EXEC:
-            target = engine.fresh()
 
         if isinstance(target, InferenceVarType):
             # Only an ask/exec result target is an inference variable.
@@ -2462,7 +2485,7 @@ class _Checker:
                 type_args = instantiation.variables
                 for type_param in signature.type_params:
                     variable = instantiation.variables[type_param]
-                    if kind is BuiltinKind.ASK:
+                    if kind is BuiltinKind.ASK or kind is BuiltinKind.EXEC:
                         self._defer_builtin_default(
                             variable, self._builtins.default_target(kind), span, ref.name
                         )
@@ -2481,8 +2504,6 @@ class _Checker:
         else:
             concrete = template
 
-        if kind is BuiltinKind.EXEC and target is not None:
-            concrete = FunctionType(params=concrete.params, result=target)
         if expected is not None:
             engine.complete_from_context(
                 concrete,
@@ -2802,7 +2823,7 @@ class _Checker:
             if ref.is_builtin and ref.kind is BinderKind.function_binding
             else None
         )
-        if builtin_kind is not None and (sig.type_params or builtin_kind is BuiltinKind.EXEC):
+        if builtin_kind is not None and sig.type_params:
             if len(node.type_args) != 1:
                 raise AglTypeError(
                     f"'{ref.name}' requires 1 type argument, but "
@@ -3664,6 +3685,7 @@ class _Checker:
                         forwarded,
                         expected=expected,
                         receiver_type=receiver_type,
+                        signature=signature,
                     )
 
         # Other qualified builtin methods are unbound positional function
@@ -4085,7 +4107,12 @@ class _Checker:
                 if checker is None:
                     checker = self._agent_builtin_method_checkers.get(callee_type.name)
             if checker is not None:
-                return checker(node, expected=expected, receiver_type=callee_type.receiver_type)
+                return checker(
+                    node,
+                    expected=expected,
+                    receiver_type=callee_type.receiver_type,
+                    signature=self._env.function_signature_of(callee_type.method.decl_node_id),
+                )
             callee_type, _instantiation = self._bound_method_type(
                 callee_type.method,
                 callee_type.receiver_type,

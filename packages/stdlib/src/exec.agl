@@ -25,13 +25,19 @@ exception ExecError extends Exception
 @doc("""
   Run a shell command and return its captured output and exit status.
 
+  `T` defaults to `ExecResult`. For any other `T`, stdout is parsed into it, shaped by `format`,
+  `strict-json` and `parse-error-retries`; those options apply only to a parsed target.
+
   Non-zero exit statuses are returned in `ExecResult`. Raises `ExecError` on spawn or sandbox
   preparation failure, timeout, or invalid UTF-8 output; raises `TypeError` for an invalid timeout.
 """)
-builtin def exec(
+builtin def exec[T](
   command: text,
   env: Environ = std/env::environ,
   cwd: Option[path] = None,
   timeout: Option[text] = std/config::timeout,
   sandbox: Option[Sandbox] = None,
-) -> ExecResult
+  format: text = "",
+  strict-json: bool = false,
+  parse-error-retries: int = 0,
+) -> T

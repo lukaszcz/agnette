@@ -26,7 +26,7 @@ scope Stdlib
 
   builtin def print[T](value: T) -> unit
 
-  builtin def exec(command: text) -> ExecResult
+  builtin def exec[T](command: text) -> T
 
   def report(code: int) -> text =
     try

@@ -3622,7 +3622,7 @@ class TestBuiltinIdentityAcrossEntries:
             "scope Stdlib\n"
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}"
             "builtin def print[T](value: T) -> unit\n"
-            "builtin def exec(command: text) -> ExecResult\n"
+            "builtin def exec[T](command: text) -> T\n"
             "end Stdlib\n"
         )
         assert declare.ok, declare.diagnostics
@@ -3646,13 +3646,13 @@ class TestBuiltinIdentityAcrossEntries:
         first = s.eval_entry(
             "scope A\n"
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}"
-            "builtin def exec(command: text) -> ExecResult\n"
+            "builtin def exec[T](command: text) -> T\n"
             "end A\n"
         )
         second = s.eval_entry(
             "scope B\n"
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}"
-            "builtin def exec(command: text) -> ExecResult\n"
+            "builtin def exec[T](command: text) -> T\n"
             "end B\n"
         )
         assert first.ok, first.diagnostics
@@ -3751,7 +3751,7 @@ class TestBuiltinIdentityAcrossEntries:
         s = open_session(default_stdlib=False)
         declare = s.eval_entry(
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}"
-            "builtin def exec(command: text) -> ExecResult\n"
+            "builtin def exec[T](command: text) -> T\n"
             "builtin\nexception Exception\n  @arg-named message: text\n"
             "builtin exception Abort extends Exception\n"
         )
@@ -3975,7 +3975,7 @@ class TestBuiltinIdentityWithStandardLibrary:
         s = open_session(default_stdlib=False)
         declare = s.eval_entry(
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}"
-            "builtin def exec(command: text) -> ExecResult\n"
+            "builtin def exec[T](command: text) -> T\n"
         )
         assert declare.ok, declare.diagnostics
 
@@ -5413,7 +5413,7 @@ enum Agent
         session = open_session(default_stdlib=False)
         declared = session.eval_entry(
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}"
-            "builtin def exec(command: text) -> ExecResult\n"
+            "builtin def exec[T](command: text) -> T\n"
         )
         assert declared.ok, declared.diagnostics
 

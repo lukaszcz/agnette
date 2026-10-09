@@ -31,19 +31,22 @@ value is a static error.
 
 ```text
 @arg-named
-exec(
+exec[T](
   @arg-pos command: text,
   env: Environ = std/env::environ,
   cwd: Option[path] = None,
   timeout: Option[text] = std/config::timeout,
   sandbox: Option[Sandbox] = None,
-) -> ExecResult
+  format: text = "",
+  strict-json: bool = false,
+  parse-error-retries: int = 0,
+) -> T
 ```
 
 `command` is positional-only and every option named-only ([Built-in
-functions](functions.md#built-in-functions)). The parsing options `format`,
-`strict-json`, and `parse-error-retries` are described under [Named
-parameters](#named-parameters).
+functions](functions.md#built-in-functions)). `T` defaults to `ExecResult`; the
+parsing options `format`, `strict-json`, and `parse-error-retries` apply only to
+a parsed target and are described under [Named parameters](#named-parameters).
 
 - `env` is the complete environment of the shell; it replaces rather than
   merges with the host process environment. The default is the current
@@ -195,7 +198,8 @@ message names the stream and the byte offset of the first invalid byte
 
 `exec` accepts the same parsing options as `ask`
 ([Named parameters](agent-calls.md#named-parameters)), only in the parsed
-form; in the structured and unit forms each is a static error.
+form; in the structured and unit forms each is a static error, except that
+passing a default (`format = ""`, `strict-json = false`) equals omitting it.
 
 - `format` — codec name, a `"text"` or `"json"` literal matching the target.
 - `strict-json` — `bool`; opts the JSON codec into strict parsing.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unittest.mock
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,6 @@ from agnette.agl.semantics.types import (
     Type,
     TypeVarType,
 )
-from agnette.agl.typecheck.builtins import BuiltinCallChecker
 from agnette.agl.typecheck.checker import (
     _builtin_function_signature,
     _builtin_function_signature_alternates,
@@ -39,6 +39,7 @@ from agnette.agl.typecheck.env import AglTypeError, FunctionSignature, ParamSpec
 from agnette.agl.typecheck.program import check_program
 from agnette.agl.zones import ParamZone
 from tests._agl_helpers import agl_roots, run_inline_code
+from tests._process_helpers import FakeShell
 from tests.agl.module_graph import load_graph, resolve_and_check_inline_entry, resolve_inline_entry
 
 _ROOTS = agl_roots()
@@ -130,27 +131,173 @@ def test_canonical_builtin_signatures_name_the_shared_prelude_handles() -> None:
     assert ask_request.result == BUILTIN_PRELUDE_TYPES["AgentRequest"]
     exec_sig = _builtin_function_signature("exec")
     assert exec_sig is not None
-    assert exec_sig.result == BUILTIN_PRELUDE_TYPES["ExecResult"]
+    assert exec_sig.result == TypeVarType("T")
 
 
-def test_ask_surfaces_declare_every_named_argument_they_accept() -> None:
-    """The declared surface and the accepted named arguments are one surface.
+def _shipped_signature(module: str, name: str) -> FunctionSignature:
+    graph = load_graph(
+        "program def main() = ()\n", entry_path=None, roots=_ROOTS, default_stdlib=True
+    )
+    checked = check_program(resolve_program(graph))
+    return checked.modules[ModuleId.from_path(module)].function_signatures[name]
 
-    An ``ask``/``ask-request`` call is checked against the accepted named-argument
-    set rather than against the declaration it was resolved from, so only this
-    ties the two together; the declaration in turn cannot deviate from the
-    canonical signature (:func:`_builtin_function_signature`) without being
-    rejected outright.
-    """
-    expected_named_args = {
-        "ask": BuiltinCallChecker._ASK_ALLOWED_NAMED_ARGS,
-        "ask-request": BuiltinCallChecker._ASK_REQUEST_ALLOWED_NAMED_ARGS,
+
+@pytest.mark.parametrize(
+    ("module", "name"),
+    [
+        ("std/agent", "ask"),
+        ("std/agent", "ask-request"),
+        ("std/value", "render"),
+        ("std/exec", "exec"),
+    ],
+)
+def test_shipped_builtin_declares_the_options_of_its_canonical_signature(
+    module: str, name: str
+) -> None:
+    """A built-in's named options are the defaulted parameters of its resolved declaration."""
+    canonical = _builtin_function_signature(name)
+    assert canonical is not None
+    declared = _shipped_signature(module, name)
+    assert declared.type_params == canonical.type_params
+
+    def options(signature: FunctionSignature) -> set[str]:
+        return {param.name for param in signature.params if param.has_default}
+
+    assert options(declared) == options(canonical)
+
+
+def test_shipped_render_and_exec_declare_their_options() -> None:
+    render = _shipped_signature("std/value", "render")
+    assert [(p.name, p.has_default) for p in render.params] == [
+        ("value", False),
+        ("pretty", True),
+        ("quote-strings", True),
+    ]
+    exec_sig = _shipped_signature("std/exec", "exec")
+    assert exec_sig.type_params == ("T",)
+    assert exec_sig.result == TypeVarType("T")
+    assert {"format", "strict-json", "parse-error-retries"} <= {
+        param.name for param in exec_sig.params if param.has_default
     }
-    for name, allowed in expected_named_args.items():
-        signature = _builtin_function_signature(name)
-        assert signature is not None
-        optional = {param.name for param in signature.params if param.has_default}
-        assert optional == allowed
+
+
+_RENDER_WITH_OPTION = "H::render(1, pretty = false)\n"
+_EXEC_WITH_OPTIONS = 'H::exec::[int]("echo 1", format = "json", parse-error-retries = 1)\n'
+
+
+def test_scoped_render_declaration_without_options_rejects_them() -> None:
+    with pytest.raises(AglTypeError):
+        _check("scope H\n  builtin def render[T](value: T) -> text\nend H\n" + _RENDER_WITH_OPTION)
+
+
+def test_scoped_render_declaration_with_options_accepts_them() -> None:
+    _check(
+        "scope H\n"
+        "  builtin def render[T](value: T, pretty: bool = true, quote-strings: bool = true)"
+        " -> text\n"
+        "end H\n" + _RENDER_WITH_OPTION
+    )
+
+
+def test_scoped_exec_declaration_without_options_rejects_them() -> None:
+    with pytest.raises(AglTypeError):
+        _check("scope H\n  builtin def exec[T](command: text) -> T\nend H\n" + _EXEC_WITH_OPTIONS)
+
+
+def test_scoped_exec_declaration_with_options_accepts_them() -> None:
+    _check(
+        "import std/env::Environ\n"
+        "import std/path::path\n"
+        "\n"
+        "scope H\n"
+        "  builtin def exec[T](\n"
+        "    command: text,\n"
+        "    env: Environ = std/env::environ,\n"
+        "    cwd: Option[path] = None,\n"
+        "    timeout: Option[text] = None,\n"
+        "    sandbox: Option[Sandbox] = None,\n"
+        '    format: text = "",\n'
+        "    strict-json: bool = false,\n"
+        "    parse-error-retries: int = 0,\n"
+        "  ) -> T\n"
+        "end H\n" + _EXEC_WITH_OPTIONS
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import std/env\nask-request("p", env = std/env::environ)\n',
+        'import std/env\nAgentCommand("x").ask-request("p", env = std/env::environ)\n',
+        'Session::default().ask("p", sandbox = Disabled)\n',
+        'Session::default().ask("p", agent = AgentCommand("x"))\n',
+        'import std/env\nSession::default().ask("p", env = std/env::environ)\n',
+        'ask("p", cwd = None)\n',
+        'exec("true", agent = AgentCommand("x"))\n',
+    ],
+)
+def test_option_absent_from_the_resolved_declaration_is_rejected(source: str) -> None:
+    with pytest.raises(AglTypeError):
+        _check(source)
+
+
+_OMITTED_AND_DEFAULT_OPTIONS = [
+    ('ask("p")', 'ask("p", format = "", strict-json = false)'),
+    ('ask-request("p")', 'ask-request("p", format = "", strict-json = false)'),
+    (
+        'AgentCommand("x").ask("p")',
+        'AgentCommand("x").ask("p", format = "", strict-json = false)',
+    ),
+    (
+        'AgentCommand("x").ask-request("p")',
+        'AgentCommand("x").ask-request("p", format = "", strict-json = false)',
+    ),
+    ('Session::default().ask("p")', 'Session::default().ask("p", format = "")'),
+    ('exec("true")', 'exec("true", format = "", strict-json = false)'),
+    ('exec::[unit]("true")', 'exec::[unit]("true", format = "", strict-json = false)'),
+    ('ask::[int]("p")', 'ask::[int]("p", format = "")'),
+    ('exec::[int]("true")', 'exec::[int]("true", format = "")'),
+]
+
+
+@pytest.mark.parametrize(("omitted", "defaulted"), _OMITTED_AND_DEFAULT_OPTIONS)
+def test_passing_a_declared_default_option_equals_omitting_it(omitted: str, defaulted: str) -> None:
+    def specs(call: str) -> list[object]:
+        checked = resolve_and_check_inline_entry(f"let r = {call}\n()\n")
+        return list(checked.contract_specs.values())
+
+    assert specs(defaulted) == specs(omitted)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'ask("p", strict-json = true)\n',
+        'ask("p", format = "nope")\n',
+        'exec::[int]("true", strict-json = true, format = "text")\n',
+        'exec("true", format = "json")\n',
+        'exec::[unit]("true", strict-json = true)\n',
+    ],
+)
+def test_non_default_parse_options_stay_strict(source: str) -> None:
+    with pytest.raises(AglTypeError):
+        _check(source)
+
+
+def test_exec_with_default_parse_options_runs_like_exec_without_them(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = FakeShell([{"command": "echo 7", "stdout": "7\n"}])
+    with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
+        result = run_inline_code(
+            PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
+            'let n: int = exec("echo 7", format = "", strict-json = false)\nprint(n)\n',
+        )
+
+    assert list(result.diagnostics) == [], " | ".join(d.message for d in result.diagnostics)
+    assert result.error is None
+    shell.assert_complete()
+    assert capsys.readouterr().out == "7\n"
 
 
 def test_builtin_function_signature_mismatches_are_rejected() -> None:

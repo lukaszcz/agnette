@@ -53,6 +53,7 @@ from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.typecheck.arguments import bind_call_args
 from agnette.agl.typecheck.env import (
     AglTypeError,
+    FunctionSignature,
     OutputContractSpec,
     ParamSpec,
     TypeEnvironment,
@@ -243,20 +244,6 @@ class BuiltinCallChecker:
     All built-in dispatch in ``_check_call`` is delegated here.
     """
 
-    _ASK_ALLOWED_NAMED_ARGS: frozenset[str] = frozenset(
-        {"agent", "format", "strict-json", "parse-error-retries", "sandbox", "env"}
-    )
-
-    # ask-request never accepts 'env': the built request record has no env
-    # field (printing a record must never leak secrets).
-    _ASK_REQUEST_ALLOWED_NAMED_ARGS: frozenset[str] = frozenset(
-        {"agent", "format", "strict-json", "parse-error-retries", "sandbox"}
-    )
-
-    _EXEC_ALLOWED_NAMED_ARGS: frozenset[str] = frozenset(
-        {"env", "cwd", "timeout", "sandbox", "format", "strict-json", "parse-error-retries"}
-    )
-
     # ask arguments meaningful only when the call carries its own agent: a
     # bare 'ask' with no 'agent' dispatches through the fixed-at-open default
     # session, so neither has any effect there.
@@ -338,7 +325,7 @@ class BuiltinCallChecker:
                 "render() requires exactly one positional argument.",
                 span=node.span,
             )
-        allowed = {"pretty", "quote-strings"}
+        allowed = self._declared_options(self._declared_signature(node))
         for named in node.named_args:
             if named.name not in allowed:
                 raise AglTypeError(
@@ -384,6 +371,16 @@ class BuiltinCallChecker:
         self._register_declared_bound(node, name, result)
         return result
 
+    def _declared_signature(self, node: CompleteCall) -> FunctionSignature:
+        """Return the resolved declaration's signature of *node*'s directly named callee."""
+        ref = self._ctx._binding_for(node.callee.node_id)
+        return self._ctx._env.function_signature_of(ref.decl_node_id)
+
+    @staticmethod
+    def _declared_options(signature: FunctionSignature) -> frozenset[str]:
+        """Return the names of *signature*'s defaulted parameters: its named options."""
+        return frozenset(param.name for param in signature.params if param.has_default)
+
     def _register_declared_bound(self, node: CompleteCall, name: str, target: Type) -> None:
         """Check *name*'s declared ``{…}`` constraint block, if any, against *target*.
 
@@ -391,8 +388,7 @@ class BuiltinCallChecker:
         declaration the same way a method call resolves the receiver's: by
         ``node.callee``'s binding, never a copy of the declared signature.
         """
-        ref = self._ctx._binding_for(node.callee.node_id)
-        sig = self._ctx._env.function_signature_of(ref.decl_node_id)
+        sig = self._declared_signature(node)
         self._ctx._register_bound_obligation(
             sig.bounds, {sig.type_params[0]: target}, span=node.span, subject=name
         )
@@ -459,20 +455,23 @@ class BuiltinCallChecker:
     # --- Session methods ---
 
     def check_session_ask(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
-        """Type-check ``Session.ask`` with its receiver-owned agent and fixed sandbox mode."""
-        for forbidden, label in (
-            ("agent", "an explicit agent"),
-            ("sandbox", "an explicit sandbox mode"),
-            ("env", "an explicit environment"),
-        ):
-            if any(argument.name == forbidden for argument in node.named_args):
-                raise AglTypeError(f"Session.ask does not accept {label}.", span=node.span)
-        return self.check_ask(node, expected=expected)
+        """Type-check ``Session.ask``: its declaration omits the receiver-owned options."""
+        return self.check_ask(node, expected=expected, signature=signature)
 
     def check_session_compact(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
         return self._check_static_call(
             node,
@@ -482,22 +481,42 @@ class BuiltinCallChecker:
         )
 
     def check_session_reset(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
         return self._check_session_nullary(node, "Session::reset")
 
     def check_session_fork(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
         return self._check_static_call(node, "Session::fork", (), receiver_type)
 
     def check_session_stats(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
         return self._check_session_nullary(node, "Session::stats", result="SessionStats")
 
     def check_session_set_name(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
         return self._check_static_call(
             node,
@@ -507,7 +526,12 @@ class BuiltinCallChecker:
         )
 
     def check_session_close(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
         return self._check_session_nullary(node, "Session::close")
 
@@ -610,8 +634,7 @@ class BuiltinCallChecker:
         ``Result[T, ValueParseError]`` shape to substitute ``T`` into, so this
         never hand-constructs the ``Result`` type.
         """
-        ref = self._ctx._binding_for(node.callee.node_id)
-        signature = self._ctx._env.function_signature_of(ref.decl_node_id)
+        signature = self._declared_signature(node)
         type_param = signature.type_params[0]
         explicit = self._resolve_explicit_target(node, "try-parse")
         target_type = self._resolved_parse_target(
@@ -702,9 +725,17 @@ class BuiltinCallChecker:
     # --- ask ---
 
     def check_ask(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type | None = None
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type | None = None,
+        signature: FunctionSignature | None = None,
     ) -> Type:
         """Type-check ``ask``. *receiver_type* is set only for ``x.ask(...)``.
+
+        *signature* is the resolved declaration of a method call; a free call's is
+        read from its callee.
 
         A bare call with no explicit ``agent`` dispatches through the default
         session at lowering (see ``lower.lowerer``'s ``ASK`` case), which, like
@@ -739,18 +770,30 @@ class BuiltinCallChecker:
             result_type=target_type,
             kind=BuiltinObligationKind.ASK,
             receiver_type=receiver_type,
+            signature=signature or self._declared_signature(node),
         )
         return target_type
 
     # --- ask-request ---
 
     def check_agent_ask_request(
-        self, node: CompleteCall, *, expected: Type | None, receiver_type: Type
+        self,
+        node: CompleteCall,
+        *,
+        expected: Type | None,
+        receiver_type: Type,
+        signature: FunctionSignature,
     ) -> Type:
         """Type-check ``Agent.ask-request`` using its receiver as the agent."""
-        return self.check_ask_request(node, receiver_type=receiver_type)
+        return self.check_ask_request(node, receiver_type=receiver_type, signature=signature)
 
-    def check_ask_request(self, node: CompleteCall, *, receiver_type: Type | None = None) -> Type:
+    def check_ask_request(
+        self,
+        node: CompleteCall,
+        *,
+        receiver_type: Type | None = None,
+        signature: FunctionSignature | None = None,
+    ) -> Type:
         """Type-check the side-effect-free ``ask-request`` builder.
 
         The builder mirrors ``ask``'s whole call surface — target type argument
@@ -772,6 +815,7 @@ class BuiltinCallChecker:
             result_type=agent_request_type,
             kind=BuiltinObligationKind.ASK_REQUEST,
             receiver_type=receiver_type,
+            signature=signature or self._declared_signature(node),
             agent_request_type=agent_request_type,
         )
         return agent_request_type
@@ -784,23 +828,18 @@ class BuiltinCallChecker:
         result_type: Type,
         kind: BuiltinObligationKind,
         receiver_type: Type | None,
+        signature: FunctionSignature,
         agent_request_type: RecordType | None = None,
     ) -> None:
         """Check target-independent syntax, then queue contract materialization."""
-        callee = kind.value
-        base_allowed = (
-            self._ASK_REQUEST_ALLOWED_NAMED_ARGS
-            if kind is BuiltinObligationKind.ASK_REQUEST
-            else self._ASK_ALLOWED_NAMED_ARGS
-        )
         named = self._validate_ask_like_arguments(
             node,
-            callee,
-            allowed_named=base_allowed - ({"agent"} if receiver_type is not None else set()),
+            kind.value,
+            allowed_named=self._declared_options(signature),
             receiver_type=receiver_type,
             agent_request_type=agent_request_type,
         )
-        format_name, strict_json = self._parse_options(named)
+        format_name, strict_json, parse_option_spans = self._parse_options(named)
         self._ctx._register_builtin_obligation(
             PendingBuiltinObligation(
                 node_id=node.node_id,
@@ -810,7 +849,7 @@ class BuiltinCallChecker:
                 kind=kind,
                 format_name=format_name,
                 strict_json=strict_json,
-                parse_option_spans=self._collect_parse_option_spans(named),
+                parse_option_spans=parse_option_spans,
             )
         )
 
@@ -825,9 +864,7 @@ class BuiltinCallChecker:
     ) -> dict[str, NamedArg[Expr]]:
         """Check syntax and value arguments that do not need the target type.
 
-        *allowed_named* is the caller's permitted named-argument set: ``ask``
-        and ``ask-request`` share one set of parse-shaping options, and a
-        receiver call drops ``agent`` because the receiver already supplies it.
+        *allowed_named* is the resolved declaration's named options.
 
         Every ``ask``/``ask-request`` call resolves the ``AgentRequest``
         contract unconditionally, whether or not ``agent`` is itself supplied:
@@ -889,7 +926,7 @@ class BuiltinCallChecker:
             )
         if "env" in named:
             env_na = named["env"]
-            env_type = self._resolve_environ_type(callee, env_na.span)
+            env_type = self._resolve_environ_type()
             env_type_actual = self._ctx._check_expr(env_na.value, expected=env_type)
             self._ctx._assert_assignable_from(env_type_actual, env_type, env_na.span, env_na.value)
         self._check_parse_error_retries_option(named)
@@ -941,6 +978,7 @@ class BuiltinCallChecker:
     # --- exec ---
 
     def check_exec(self, node: CompleteCall, *, expected: Type | None) -> Type:
+        allowed = self._declared_options(self._declared_signature(node))
         # Explicit type argument overrides context.
         explicit = self._resolve_explicit_target(node, "exec")
         target_type: Type = (
@@ -953,7 +991,7 @@ class BuiltinCallChecker:
         reject_type_var_target("exec", target_type, node.span)
         named = {na.name: na for na in node.named_args}
         for arg_name, na in named.items():
-            if arg_name not in self._EXEC_ALLOWED_NAMED_ARGS:
+            if arg_name not in allowed:
                 raise AglTypeError(f"exec: unknown argument '{arg_name}'.", span=na.span)
         if not node.args:
             raise AglTypeError("exec() requires a command argument.", span=node.span)
@@ -963,7 +1001,7 @@ class BuiltinCallChecker:
         self._ctx._assert_assignable_from(cmd_type, TextType(), node.args[0].span, node.args[0])
         self._check_exec_spawn_options(named)
         self._check_parse_error_retries_option(named)
-        format_name, strict_json = self._parse_options(named)
+        format_name, strict_json, parse_option_spans = self._parse_options(named)
         self._ctx._register_builtin_obligation(
             PendingBuiltinObligation(
                 node_id=node.node_id,
@@ -973,30 +1011,22 @@ class BuiltinCallChecker:
                 kind=BuiltinObligationKind.EXEC,
                 format_name=format_name,
                 strict_json=strict_json,
-                parse_option_spans=self._collect_parse_option_spans(named),
+                parse_option_spans=parse_option_spans,
             )
         )
         return target_type
 
-    def _resolve_environ_type(self, subject: str, span: SourceSpan) -> Type:
-        """Resolve the loaded ``std/env::Environ`` type for an 'env' argument.
+    def _resolve_environ_type(self) -> Type:
+        """Return ``std/env::Environ`` for an ``exec``/``ask`` ``env`` argument.
 
-        Shared by every built-in that accepts an ``env`` operand (``exec``,
-        ``ask``, ``Agent::ask``, ``Session::open``).
+        A declaration declares ``env`` only when ``std/env`` is loaded.
         """
-        env_type_def = self._ctx._env.type_table.get(STD_ENV_ID, "Environ")
-        if env_type_def is None:
-            raise AglTypeError(
-                f"{subject} 'env' requires std/env::Environ, which this standard library "
-                "does not provide.",
-                span=span,
-            )
-        return env_type_def.handle()
+        return self._ctx._env.type_table.named(STD_ENV_ID, "Environ").handle()
 
     def _check_exec_spawn_options(self, named: dict[str, NamedArg[Expr]]) -> None:
         """Check the non-codec ``exec`` options against their stdlib types."""
         if "env" in named:
-            env_type = self._resolve_environ_type("exec", named["env"].span)
+            env_type = self._resolve_environ_type()
             actual = self._ctx._check_expr(named["env"].value, expected=env_type)
             self._ctx._assert_assignable_from(
                 actual, env_type, named["env"].span, named["env"].value
@@ -1227,8 +1257,16 @@ class BuiltinCallChecker:
 
     # --- shared parse-option handling (ask / exec) ---
 
-    def _parse_options(self, named: dict[str, NamedArg[Expr]]) -> tuple[str | None, bool | None]:
-        """Validate static option syntax without selecting a target-dependent codec."""
+    def _parse_options(
+        self, named: dict[str, NamedArg[Expr]]
+    ) -> tuple[str | None, bool | None, tuple[tuple[str, SourceSpan], ...]]:
+        """Validate static option syntax without selecting a target-dependent codec.
+
+        Returns the codec name, the ``strict-json`` flag and the spans of the
+        parse-shaping options present. Passing the declared default ``format = ""`` is
+        omitting it; ``strict-json = false`` stays a per-call override of the global
+        default, but is inert on a non-JSON target and not a parse-shaping option.
+        """
         format_name: str | None = None
         if "format" in named:
             format_na = named["format"]
@@ -1236,7 +1274,7 @@ class BuiltinCallChecker:
                 raise AglTypeError(
                     "'format' must be a static text literal (codec name).", span=format_na.span
                 )
-            format_name = format_na.value.value
+            format_name = format_na.value.value or None
         strict_json: bool | None = None
         if "strict-json" in named:
             strict_na = named["strict-json"]
@@ -1245,18 +1283,13 @@ class BuiltinCallChecker:
                     "'strict-json' must be a static bool literal.", span=strict_na.span
                 )
             strict_json = strict_na.value.value
-        return format_name, strict_json
-
-    @staticmethod
-    def _collect_parse_option_spans(
-        named: dict[str, NamedArg[Expr]],
-    ) -> tuple[tuple[str, SourceSpan], ...]:
-        """Capture the spans of the parse-shaping named args for later diagnostics."""
-        return tuple(
+        shaping = {"format": bool(format_name), "strict-json": bool(strict_json)}
+        spans = tuple(
             (name, named[name].span)
             for name in ("format", "strict-json", "parse-error-retries")
-            if name in named
+            if name in named and shaping.get(name, True)
         )
+        return format_name, strict_json, spans
 
     def _resolve_codec(self, obligation: PendingBuiltinObligation) -> tuple[str, bool | None]:
         """Select and validate the codec after the target type is concrete."""
@@ -1266,7 +1299,7 @@ class BuiltinCallChecker:
             codec_name = self._validate_format_option(
                 obligation.format_name, obligation.target_type, obligation.span
             )
-        if obligation.strict_json is not None and codec_name != "json":
+        if obligation.strict_json and codec_name != "json":
             raise AglTypeError(
                 f"'strict-json' is only valid when the codec is 'json'; the selected codec "
                 f"for this call is '{codec_name}'.",
