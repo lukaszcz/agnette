@@ -433,11 +433,7 @@ def _agm_install(
     if os.environ.get(_agm_zygote.DISABLE_ENV):
         yield
         return
-    # The socket lives in its own short directory: a Unix socket path is capped
-    # at about a hundred bytes, well under what a nested tmp_path can reach.
-    _AGM_LAUNCHER = _agm_zygote.start(
-        tmp_path_factory.mktemp("agm-zygote") / "s", repo_root / "src"
-    )
+    _AGM_LAUNCHER = _agm_zygote.start(repo_root / "src")
     try:
         yield
     finally:

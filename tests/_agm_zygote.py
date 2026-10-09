@@ -34,6 +34,7 @@ import sys
 import tempfile
 import time
 import traceback
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -217,7 +218,7 @@ def _child(request: Invocation, fds: Sequence[int], holding: Sequence[int]) -> N
         os._exit(code)
 
 
-def _serve(socket_path: str) -> None:
+def _serve(address: str) -> None:
     """Serve invocations until the worker that started this zygote is gone."""
     _preload()
     # Imported metadata stays live; keep child GC from dirtying its shared pages.
@@ -225,7 +226,7 @@ def _serve(socket_path: str) -> None:
     gc.freeze()
     worker = os.getppid()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
-        server.bind(socket_path)
+        server.bind(address)
         server.listen(64)
         server.settimeout(_IDLE_CHECK)
         while True:
@@ -265,8 +266,8 @@ def _serve(socket_path: str) -> None:
 class Zygote:
     """A running zygote process and the socket its clients invoke it through."""
 
-    def __init__(self, socket_path: Path, process: subprocess.Popen[bytes]) -> None:
-        self._socket_path = socket_path
+    def __init__(self, address: str, process: subprocess.Popen[bytes]) -> None:
+        self._address = address
         self._process = process
 
     def run(
@@ -291,7 +292,7 @@ class Zygote:
                 stdin_file.seek(0)
             request: Invocation = (list(argv), env, cwd)
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-                conn.connect(str(self._socket_path))
+                conn.connect(self._address)
                 _send(
                     conn,
                     pickle.dumps(request),
@@ -312,7 +313,7 @@ class Zygote:
             )
 
     def close(self) -> None:
-        """Stop the zygote, un-charge its subtree, and remove its socket.
+        """Stop the zygote and un-charge its subtree.
 
         Reaping the zygote credits this process with the CPU of every child the
         zygote reaped -- which each invocation was already charged for as it
@@ -323,30 +324,33 @@ class Zygote:
         self._process.terminate()
         self._process.wait()
         _charge(before - _reaped_cpu_seconds())
-        self._socket_path.unlink(missing_ok=True)
 
 
-def start(socket_path: Path, source_root: Path) -> Zygote:
-    """Spawn a zygote serving *socket_path* and wait until it accepts connections.
+def start(source_root: Path) -> Zygote:
+    """Spawn a zygote and wait until it accepts connections.
 
-    *source_root* is prepended to the child's import path, which is what makes
-    the zygote serve this checkout — the same selection the staged ``agm``
-    entry point makes for itself.
+    It listens on a Linux abstract-namespace socket: no filesystem path, so no
+    path-length cap under a long ``TMPDIR``, and the name vanishes with the
+    process. *source_root* is prepended to the child's import path, which is
+    what makes the zygote serve this checkout — the same selection the staged
+    ``agm`` entry point makes for itself.
     """
+    name = f"agm-zygote-{os.getpid()}-{uuid.uuid4().hex}"
+    address = "\0" + name
     process = subprocess.Popen(
-        [sys.executable, "-I", str(Path(__file__).resolve()), str(socket_path)],
+        [sys.executable, "-I", str(Path(__file__).resolve()), name],
         env={**os.environ, "PYTHONPATH": str(source_root)},
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
     )
-    zygote = Zygote(socket_path, process)
+    zygote = Zygote(address, process)
     deadline = time.monotonic() + _STARTUP_TIMEOUT
     while True:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-                probe.connect(str(socket_path))
+                probe.connect(address)
             return zygote
-        except (FileNotFoundError, ConnectionRefusedError):
+        except ConnectionRefusedError:
             if process.poll() is not None or time.monotonic() > deadline:
                 zygote.close()
                 raise RuntimeError("the agm zygote did not start") from None
@@ -356,4 +360,5 @@ def start(socket_path: Path, source_root: Path) -> Zygote:
 if __name__ == "__main__":
     # -I ignores PYTHONPATH, so the checkout's source root is placed by hand.
     sys.path.insert(0, os.environ["PYTHONPATH"])
-    _serve(sys.argv[1])
+    # argv cannot carry the abstract namespace's leading NUL.
+    _serve("\0" + sys.argv[1])
