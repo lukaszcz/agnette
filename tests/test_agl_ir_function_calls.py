@@ -601,7 +601,7 @@ def test_program_entry_use_default_reads_module_let(tmp_path: Path) -> None:
     checked = check_program(resolve_repl_graph(graph), base_caps())
     compiled = compile_program_matches(checked)
     assert isinstance(compiled.compiled, MatchCompiledProgram)
-    executable = lower_program(compiled.compiled, _entry_source_text=source)
+    executable = lower_program(compiled.compiled, _entry_source_text=source, contract_payloads={})
     (main_symbol,) = executable.program_functions
     ir = IrInterpreter(executable).run(
         program_symbol=main_symbol, arguments=(UseDefault(param_index=0),)

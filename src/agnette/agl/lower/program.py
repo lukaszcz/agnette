@@ -245,7 +245,7 @@ def lower_program(
     _link: _LinkState | None = None,
     _already_linked: frozenset[ModuleId] = frozenset(),
     _entry_source_text: str | None = None,
-    contract_payloads: Mapping[int, ContractPayload] | None = None,
+    contract_payloads: Mapping[int, ContractPayload],
 ) -> ExecutableProgram:
     """Lower a whole-program match-compiled artifact to an
     :class:`~agnette.agl.ir.program.ExecutableProgram`.
@@ -293,7 +293,6 @@ def lower_program(
         link.sources[source_id] = SourceFile(
             display_name=display_name,
             normalized_text=normalized,
-            file_name=cm.resolved.program.span.source.label,
         )
         module_source_ids[mid] = source_id
 
@@ -370,7 +369,7 @@ def lower_program(
                 sorted(link.builtin_nominals.declared.items()),
                 sorted(link.builtin_nominals.members.items()),
                 sorted(link.builtin_nominals.standard_members.items()),
-                [(nid, (contract_payloads or {}).get(nid)) for nid in sorted(cm.contract_specs)],
+                [(nid, contract_payloads.get(nid)) for nid in sorted(cm.contract_specs)],
             )
             key = hashlib.sha256(fingerprint + repr(context).encode()).digest()
         cached = module_cache.load(key) if key is not None else None
@@ -381,7 +380,7 @@ def lower_program(
             program_configs.update(cached.program_configs)
             continue
         body = cm.resolved.program.body
-        initializers = lowerer.lower_initializers(body, top_level=True)
+        initializers = lowerer.lower_initializers(body)
         executable_module = ExecutableModule(module_id=mid, initializers=initializers)
         executable_modules[mid] = executable_module
         with lowerer.substituted_constants():

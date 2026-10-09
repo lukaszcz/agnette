@@ -53,7 +53,7 @@ from agnette.agl.semantics.values import (
     TextValue,
     UnitValue,
 )
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.env import AglTypeError
 from tests._agl_helpers import let_root_capture
 from tests.agl.ir_harness import (
     evaluate_ir,

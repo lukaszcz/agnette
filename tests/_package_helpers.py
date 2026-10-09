@@ -22,6 +22,8 @@ its ``PackageInfo``.
 requirements; ``PythonInstaller`` records installer runs in place of the real
 installer (see the ``python_installer`` fixture).
 
+``exec_args`` builds the ``ExecArgs`` a registered run is given.
+
 ``write_rollback_package``, ``replace_rollback_payload``, and
 ``InstalledPackageSnapshot`` share failed-reinstall setup and restoration checks.
 """
@@ -38,6 +40,7 @@ from click.testing import CliRunner
 from typer.main import get_command
 
 import agnette.packages.archive as package_archive
+from agnette.agm.cli_support.args import ExecArgs
 from agnette.packages.activation import (
     ActivationIndex,
     ActivePackage,
@@ -269,3 +272,14 @@ class PythonInstaller:
         if self.interrupt:
             raise KeyboardInterrupt
         return self.returncode
+
+
+def exec_args(argument_tokens: list[str] | None = None) -> ExecArgs:
+    """Return the ``agm exec`` arguments ``run_registered`` receives for a bare reference."""
+    return ExecArgs(
+        file=None,
+        argument_tokens=[] if argument_tokens is None else argument_tokens,
+        strict_json=None,
+        no_trace=False,
+        trace_file=None,
+    )

@@ -211,7 +211,7 @@ def test_builtin_direct_method_calls_lower_as_receiver_first_direct_calls() -> N
     )
 
     assert discovery.compiled is not None, discovery.diagnostics
-    executable = lower_program(discovery.compiled)
+    executable = lower_program(discovery.compiled, contract_payloads={})
     ((_, entry_function_id),) = executable.program_functions.items()
     entry = executable.functions[entry_function_id]
     assert isinstance(entry.impl, IrFunctionBody)
@@ -236,7 +236,7 @@ def test_builtin_receiver_host_method_values_reuse_core_lowering_routes() -> Non
     )
 
     assert discovery.compiled is not None, discovery.diagnostics
-    executable = lower_program(discovery.compiled)
+    executable = lower_program(discovery.compiled, contract_payloads={})
     ((_, entry_function_id),) = executable.program_functions.items()
     entry = executable.functions[entry_function_id]
     assert isinstance(entry.impl, IrFunctionBody)
@@ -277,7 +277,7 @@ def test_generic_unbound_builtin_method_calls_infer_or_accept_receiver_type_args
     )
 
     assert discovery.compiled is not None, discovery.diagnostics
-    lower_program(discovery.compiled)
+    lower_program(discovery.compiled, contract_payloads={})
 
 
 def test_generic_unbound_builtin_method_rejects_too_many_type_args() -> None:
@@ -304,7 +304,7 @@ def test_builtin_receiver_host_method_reuses_its_core_lowering_route() -> None:
     )
 
     assert discovery.compiled is not None, discovery.diagnostics
-    executable = lower_program(discovery.compiled)
+    executable = lower_program(discovery.compiled, contract_payloads={})
     ((_, entry_function_id),) = executable.program_functions.items()
     entry = executable.functions[entry_function_id]
     assert isinstance(entry.impl, IrFunctionBody)

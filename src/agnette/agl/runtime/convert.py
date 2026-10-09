@@ -33,7 +33,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from decimal import Decimal
 from types import MappingProxyType
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, assert_never, cast
 
 from agnette.agl.ir.contracts import (
     ArrayDecode,
@@ -47,6 +47,7 @@ from agnette.agl.ir.contracts import (
     ScalarKind,
     VariantDecode,
     is_plain_enum,
+    resolve_schema_ref,
 )
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.semantics.arithmetic import checked_decimal
@@ -413,9 +414,14 @@ type ResolvedDecode = ScalarDecode | ArrayDecode | DictDecode | RecordDecode | E
 
 def resolve_decode(schema: DecodeSchema, defs: Mapping[str, DecodeSchema]) -> ResolvedDecode:
     """Follow ``RefDecode`` nodes through *defs* to the first non-ref body."""
-    while isinstance(schema, RefDecode):
-        schema = defs[schema.key]
-    return schema
+    if not isinstance(schema, RefDecode):
+        return schema
+    return cast(
+        ResolvedDecode,
+        resolve_schema_ref(
+            schema.key, defs, lambda body: body.key if isinstance(body, RefDecode) else None
+        ),
+    )
 
 
 def _decode_scalar(kind: ScalarKind, obj: object) -> Value:

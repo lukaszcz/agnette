@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, NoReturn, Protocol, cast
 import typer
 
 from agnette.agm import completion
-from agnette.agm import parser as parser_helpers
 from agnette.agm.cli_dispatch import RegisteredCommandGroup, set_dry_run
 from agnette.agm.cli_support.args import (
     CheckArgs,
@@ -49,15 +48,10 @@ from agnette.agm.parser import (
     print_help_for_command_path,
     print_overview,
 )
-from agnette.command_catalog import COMMAND_OVERVIEW
 
 if TYPE_CHECKING:
     from agnette.agl.runtime.types import ProgramDeclInfo
     from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
-
-_HELP_TEXTS = parser_helpers._HELP_TEXTS
-_HELP_ALIASES = parser_helpers._HELP_ALIASES
-_COMMAND_OVERVIEW = COMMAND_OVERVIEW
 
 _BASE_CONTEXT_SETTINGS: dict[str, bool | list[str]] = {"help_option_names": []}
 _RUN_CONTEXT_SETTINGS: dict[str, bool | list[str]] = {
@@ -71,12 +65,6 @@ class _ContextWithMetadata(Protocol):
     """The Click context metadata AgM stores for one invocation."""
 
     meta: dict[str, object]
-
-
-_LOOP_CONTEXT_SETTINGS: dict[str, bool | list[str]] = {
-    **_RUN_CONTEXT_SETTINGS,
-    "allow_interspersed_args": False,
-}
 
 
 def _command_path_from_context(ctx: typer.Context) -> list[str]:
@@ -426,7 +414,7 @@ def _run_workspace_close(
             ),
             force=force,
             force_delete=force_delete,
-            keep_branch=keep_branch or keep_workspace,
+            keep_branch=keep_branch,
             keep_workspace=keep_workspace,
         )
     )

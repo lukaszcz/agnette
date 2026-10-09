@@ -31,14 +31,12 @@ class Mutation:
     id: str
     path: str
     module: str
-    function: str
     line: int
     column: int
     source_sha256: str
     before: str
     after: str
     mode: Literal["eval", "exec", "keyword"]
-    reason: str
     tests: list[str]
 
 

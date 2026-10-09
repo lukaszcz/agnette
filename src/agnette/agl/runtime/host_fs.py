@@ -14,7 +14,7 @@ from typing import NoReturn, Protocol, TypeVar
 from agnette.agl.runtime.boundary import AglException
 from agnette.core.fs import fs_error_message
 
-__all__ = ["FsErrorFactory", "raise_fs_error", "run_fs_action"]
+__all__ = ["raise_fs_error", "run_fs_action"]
 
 T = TypeVar("T")
 

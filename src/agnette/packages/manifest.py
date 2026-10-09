@@ -228,17 +228,14 @@ def load_manifest(path: Path, *, commands_complete: bool = True) -> PackageManif
     return _parse_manifest(raw, commands_complete=commands_complete)
 
 
-def load_manifest_text(content: str, *, commands_complete: bool = True) -> PackageManifest:
-    """Parse and validate package-manifest text without reading a filesystem path.
-
-    See :func:`load_manifest` for ``commands_complete``.
-    """
+def load_manifest_text(content: str) -> PackageManifest:
+    """Parse and validate package-manifest text without reading a filesystem path."""
 
     try:
         raw = toml_dict(toml_data(parse_toml_doc(content)))
     except TOMLKitError as exc:
         raise ManifestError(f"cannot parse package manifest: {exc}") from exc
-    return _parse_manifest(raw, commands_complete=commands_complete)
+    return _parse_manifest(raw)
 
 
 def _parse_manifest(raw: TomlDict, *, commands_complete: bool = True) -> PackageManifest:

@@ -29,6 +29,7 @@ import pytest
 from agnette.agl import artifact_storage
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.ir.program import ValueDescriptors
 from agnette.agl.modules.errors import MissingExternCompanion
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.roots import RootSet
@@ -46,6 +47,8 @@ from agnette.core import fs
 from tests._agl_helpers import file_program, prepare_inline_code
 from tests.agl.ir_harness import age_file, write_companion_file, write_module_file
 from tests.agl.module_graph import load_graph
+
+_NO_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field_encodes={})
 
 _CAPS = HostCapabilities(
     supports_shell_exec=True,
@@ -868,6 +871,7 @@ class TestCapabilityGate:
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
+            descriptors=_NO_DESCRIPTORS,
         )
         assert len(diagnostics) == 1
 
@@ -882,6 +886,7 @@ class TestCapabilityGate:
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
+            descriptors=_NO_DESCRIPTORS,
         )
         assert diagnostics == []
 
@@ -900,6 +905,7 @@ class TestCapabilityGate:
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
+            descriptors=_NO_DESCRIPTORS,
         )
         assert diagnostics == []
 
@@ -920,6 +926,7 @@ class TestFailFastDiagnostics:
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
+            descriptors=_NO_DESCRIPTORS,
         )
         assert len(diagnostics) == 1
         assert "lib/mod" in diagnostics[0].message
@@ -940,6 +947,7 @@ class TestFailFastDiagnostics:
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
+            descriptors=_NO_DESCRIPTORS,
         )
         assert len(diagnostics) == 1
 
@@ -967,6 +975,7 @@ class TestFailFastDiagnostics:
             registry=registry,
             companion_paths=companion_paths,
             packages=(),
+            descriptors=_NO_DESCRIPTORS,
         )
         assert diagnostics == []
         mid = ModuleId.from_path("lib/mod")
@@ -990,6 +999,7 @@ class TestFailFastDiagnostics:
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
+            descriptors=_NO_DESCRIPTORS,
         )
         assert len(diagnostics) == 1
 
@@ -1083,6 +1093,7 @@ class TestRegistryPopulatedViaPipeline:
             registry=driver.host_environment().extern_registry,
             companion_paths=prepared.companion_paths,
             packages=prepared.roots.packages,
+            descriptors=_NO_DESCRIPTORS,
         )
         assert diagnostics == []
         fn = driver.host_environment().extern_registry.resolve(ModuleId.from_path("lib/mod"), "f")

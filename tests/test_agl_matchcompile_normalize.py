@@ -56,7 +56,8 @@ from agnette.agl.semantics.values import DecimalValue, RecordValue, TextValue
 from agnette.agl.syntax.nodes import AsPattern, Case, ConstructorPattern
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck import CheckedModule, check_program
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import next_decl_id, strip_decl_ids
 from tests.agl.ir_harness import evaluate_ir_output, make_graph_from_files
 from tests.agl.match_reference import reference_action
@@ -131,7 +132,7 @@ def test_signatures_are_closed_for_boolean_and_enum_in_declaration_order() -> No
     assert isinstance(enum_type, EnumType)
     enum_signature = signature_for_type(enum_type, table)
     assert isinstance(enum_signature, ClosedSignature)
-    assert [constructor.terminal_name for constructor in enum_signature.constructors] == [
+    assert [constructor.record_type.name for constructor in enum_signature.constructors] == [
         "Empty",
         "Value",
     ]
@@ -528,7 +529,7 @@ def test_bare_nullary_variant_uses_resolver_classification() -> None:
     first = normalized.rows[0].cells[0]
     assert isinstance(first, ConstructorCell)
     assert isinstance(first.constructor, NominalConstructor)
-    assert first.constructor.terminal_name == "none"
+    assert first.constructor.record_type.name == "none"
     assert first.arguments == ()
     assert isinstance(normalized.rows[1].cells[0], ConstructorCell)
 

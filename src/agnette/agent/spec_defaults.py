@@ -25,14 +25,6 @@ from agnette.agent.spec import (
 )
 from agnette.core.toml import TomlDict, toml_dict
 
-__all__ = [
-    "AgentConfig",
-    "AgentConfigError",
-    "AgentSpecResolver",
-    "configured_defaults_resolver",
-    "with_configured_defaults",
-]
-
 #: Maps the spec an agent value decodes to onto the spec actually dispatched.
 AgentSpecResolver: TypeAlias = Callable[[AgentSpec], AgentSpec]
 

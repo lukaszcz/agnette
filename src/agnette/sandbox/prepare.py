@@ -30,8 +30,6 @@ from agnette.sandbox.backend import (
 )
 from agnette.sandbox.profile import profile_name
 from agnette.sandbox.request import (
-    DRY_RUN_SETTINGS_PLACEHOLDER,
-    Default,
     DefaultLimit,
     LimitSpec,
     PreparedSandboxCommand,
@@ -44,19 +42,9 @@ if TYPE_CHECKING:
     from agnette.config.context import ConfigContext
 
 __all__ = [
-    "DEFAULT_MEMORY_LIMIT",
-    "DEFAULT_SWAP_LIMIT",
-    "Default",
-    "DefaultLimit",
-    "LimitSpec",
-    "PreparedSandboxCommand",
     "ResolvedLimits",
     "SandboxContext",
-    "SandboxLimits",
-    "SandboxRequest",
     "SandboxRun",
-    "SandboxSpec",
-    "dry_run_argv",
     "lazy_sandbox_context",
     "prepare",
     "print_dry_run",
@@ -88,17 +76,15 @@ class SandboxContext:
         spec: SandboxSpec,
         *,
         env: Mapping[str, str],
-        cwd: Path | None = None,
+        cwd: Path,
         pty: bool = False,
-        alias_name: str | None = None,
     ) -> PreparedSandboxCommand:
         """Build a `SandboxRequest` from this context and prepare it.
 
         The one place a caller's `command`/`spec` maps onto this context's
         ambient fields and `run_config` threads through to `prepare()`, so a
-        caller never hand-maps `SandboxRequest`'s fields itself. *cwd*
-        overrides this context's own `cwd` for the one call -- the working
-        directory the command runs in (`exec`'s per-call `cwd` operand) --
+        caller never hand-maps `SandboxRequest`'s fields itself. *cwd* is the
+        working directory the command runs in (`exec`'s per-call `cwd` operand),
         but never the directory sandbox configuration resolves from: that
         stays this context's own `cwd` (`SandboxRequest.config_cwd`)
         regardless of *cwd*, so a per-call working directory can never supply
@@ -106,13 +92,12 @@ class SandboxContext:
         """
         request = SandboxRequest(
             command=command,
-            cwd=self.cwd if cwd is None else cwd,
+            cwd=cwd,
             config_cwd=self.cwd,
             env=dict(env),
             home=self.home,
             proj_dir=self.proj_dir,
             spec=spec,
-            alias_name=alias_name,
             pty=pty,
         )
         return prepare(request, run_config=self.run_config)
@@ -343,8 +328,7 @@ def prepare(
     confirmed it will actually run the command), the backend's settings are
     never read, merged, or written: no temp files, no tracked artifacts, and
     the wrapper argv carries `DRY_RUN_SETTINGS_PLACEHOLDER` instead of a real
-    settings path. `dry_run_argv`/`print_dry_run` work the same way in either
-    mode.
+    settings path.
 
     Raises :class:`~agnette.sandbox.backend.SandboxUnavailableError` or
     :class:`~agnette.sandbox.backend.SandboxSettingsError` on failure. Never
@@ -358,7 +342,6 @@ def prepare(
 
     env = dict(request.env)
     wrapper: list[str] = []
-    settings_path: Path | None = None
     temp_files: list[Path] = []
     tracked_artifacts: list[Path] = []
 
@@ -378,7 +361,6 @@ def prepare(
         active_backend.require_available(env)
         if resolve_settings:
             resolved = active_backend.resolve_settings(request)
-            settings_path = resolved.path
             temp_files.extend(resolved.temp_files)
             tracked_artifacts.extend(resolved.tracked_artifacts)
             wrapper = active_backend.wrap(request, resolved)
@@ -394,27 +376,10 @@ def prepare(
         env=env,
         cwd=request.cwd,
         interrupt_cleanup_cmd=interrupt_cleanup_cmd,
-        settings_path=settings_path,
         _temp_files=temp_files,
         _tracked_artifacts=tracked_artifacts,
     )
 
 
-def dry_run_argv(
-    prepared: PreparedSandboxCommand, *, placeholder: str = DRY_RUN_SETTINGS_PLACEHOLDER
-) -> list[str]:
-    """Return *prepared*'s argv with any settings-file path replaced by *placeholder*.
-
-    A no-op when *prepared* already carries no `settings_path` -- either it
-    was not sandboxed, or it came from `prepare(..., resolve_settings=False)`,
-    whose argv already carries `DRY_RUN_SETTINGS_PLACEHOLDER` verbatim.
-    """
-
-    if prepared.settings_path is None:
-        return list(prepared.argv)
-    settings_str = str(prepared.settings_path)
-    return [placeholder if part == settings_str else part for part in prepared.argv]
-
-
-def print_dry_run(prepared: PreparedSandboxCommand, *, label: str = "sandbox") -> None:
-    dry_run.print_labeled_command(label, dry_run_argv(prepared), cwd=prepared.cwd)
+def print_dry_run(prepared: PreparedSandboxCommand, *, label: str) -> None:
+    dry_run.print_labeled_command(label, prepared.argv, cwd=prepared.cwd)

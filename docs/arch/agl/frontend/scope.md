@@ -53,7 +53,8 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `external_names` | `@name`, `@json-name` | type building; collisions checked by typecheck |
 | `params`, `program_options`, `docs` | `@param`, `@opt-*`, `@doc` | program discovery and CLI projection ([hosting.md](../hosting.md)); `docs` also type building |
 | `program_configs` | `@config` | typecheck (keys resolved, values checked as constants) and lowering ([hosting.md](../hosting.md)) |
-| `command_registrations` | `@command` | validation only; package scan reuses the recognizer without a scope pass ([packages.md](../../packages.md)) |
+
+`@command` writes no fact: scope only validates its path, and the package command scan reuses the recognizer without a scope pass ([packages.md](../../packages.md)).
 
 ## Code Entry Points
 

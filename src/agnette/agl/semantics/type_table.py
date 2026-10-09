@@ -2469,10 +2469,8 @@ def is_json_convertible(t: Type, table: TypeTable) -> bool:
     analysis is for.
 
     This is what an explicit ``as json`` cast accepts. It is deliberately
-    wider than :func:`~agnette.agl.semantics.types.is_json_shaped` (what may
-    *inhabit* a ``json`` slot) and than
-    :func:`~agnette.agl.semantics.types.is_scalar_json_shaped` (what an *implicit*
-    coercion absorbs); all three answer different questions.
+    wider than :func:`~agnette.agl.semantics.types.is_scalar_json_shaped` (what
+    an *implicit* coercion absorbs).
     """
     match t:
         case TextType() | JsonType() | BoolType() | IntType() | DecimalType():
@@ -2720,7 +2718,6 @@ def _builtin_enum_defs(
     variants: tuple[tuple[str, tuple[tuple[str, Type], ...]], ...],
     *,
     type_params: tuple[str, ...] = (),
-    module_id: ModuleId = RESERVED_ID,
     field_defaults: Mapping[str, ReservedFieldDefault] = MappingProxyType({}),
 ) -> tuple[TypeDef, tuple[TypeDef, ...]]:
     """Build canonical enum and scoped record-member definitions for the prelude.
@@ -2734,7 +2731,7 @@ def _builtin_enum_defs(
         TypeDef(
             kind="record",
             name=member_name,
-            module_id=module_id,
+            module_id=RESERVED_ID,
             scope_path=scope_path,
             type_params=tuple(
                 param
@@ -2756,7 +2753,7 @@ def _builtin_enum_defs(
         TypeDef(
             kind="enum",
             name=name,
-            module_id=module_id,
+            module_id=RESERVED_ID,
             type_params=type_params,
             members=members,
         ),
@@ -3135,31 +3132,6 @@ def reserved_field_default(decl_id: DeclId, field_index: int) -> Value:
             return RecordValue(nominal=member, fields={})
         case scalar:
             return scalar
-
-
-def source_nominal_decl_id(
-    module_id: ModuleId, scope_path: tuple[str, ...], name: str, node_id: int
-) -> int:
-    """Return the semantic identity of a source nominal declaration.
-
-    Every parsed declaration retains its parser node identity. Reserved
-    identities belong only to seeded fallback definitions used when a program
-    loads no source declaration for a host-known type.
-    """
-    return node_id
-
-
-def source_enum_member_decl_id(
-    module_id: ModuleId,
-    scope_path: tuple[str, ...],
-    enum_name: str,
-    member_name: str,
-    node_id: int,
-    *,
-    is_builtin: bool,
-) -> int:
-    """Return a source inline enum member's parser node identity."""
-    return node_id
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ import pytest
 
 from agnette.config.general import parse_timeout
 from agnette.core.parse import parse_positive_timeout
-from agnette.core.process import run_capture, run_subprocess
+from agnette.core.process import run_capture, run_capture_result
 
 # ---------------------------------------------------------------------------
 # parse_timeout
@@ -61,36 +61,24 @@ class TestParsePositiveTimeout:
 
 
 # ---------------------------------------------------------------------------
-# run_subprocess idle timeout
+# idle timeout
 # ---------------------------------------------------------------------------
 
 
 class TestIdleTimeout:
     def test_fast_command_completes_within_timeout(self) -> None:
-        returncode, stdout, stderr = run_capture(
-            [sys.executable, "-c", "print('hello')"],
-            idle_timeout=30,
-        )
-        assert returncode == 0
-        assert stdout.strip() == "hello"
+        result = run_capture_result([sys.executable, "-c", "print('hello')"], idle_timeout=30)
+        assert result.returncode == 0
+        assert result.timed_out is False
+        assert result.stdout.text().strip() == "hello"
 
-    @pytest.mark.parametrize("isolate_process_group", [True, False])
-    def test_idle_timeout_kills_silent_process(self, isolate_process_group: bool) -> None:
-        """A process that produces no output for the timeout period gets killed.
-
-        Both the isolated-process-group kill path and the plain terminate path
-        must honour the idle timeout.
-        """
+    def test_idle_timeout_kills_silent_process(self) -> None:
+        """A process that produces no output for the timeout period gets killed."""
         script = "import time\ntime.sleep(60)\n"  # Would hang forever
         start = time.monotonic()
-        with pytest.raises(SystemExit) as exc_info:
-            run_capture(
-                [sys.executable, "-c", script],
-                isolate_process_group=isolate_process_group,
-                idle_timeout=0.5,
-            )
+        result = run_capture_result([sys.executable, "-c", script], idle_timeout=0.5)
         elapsed = time.monotonic() - start
-        assert exc_info.value.code == 124
+        assert result.timed_out is True
         # Should be killed quickly, not after 60 seconds
         assert elapsed < 5
 
@@ -113,42 +101,19 @@ class TestIdleTimeout:
             "    sys.stdout.flush()\n"
             "    time.sleep(0.2)\n"
         )
-        returncode, stdout, stderr = run_capture(
-            [sys.executable, "-c", script],
-            isolate_process_group=True,
-            idle_timeout=1.0,
-        )
-        assert returncode == 0
-        assert "chunk 0" in stdout
-        assert "chunk 2" in stdout
+        result = run_capture_result([sys.executable, "-c", script], idle_timeout=1.0)
+        assert result.returncode == 0
+        assert result.timed_out is False
+        assert "chunk 0" in result.stdout.text()
+        assert "chunk 2" in result.stdout.text()
 
     def test_idle_timeout_kills_after_output_stops(self) -> None:
         """Process that outputs then goes silent should be killed after timeout."""
         script = "import time, sys\nprint('initial output')\nsys.stdout.flush()\ntime.sleep(60)\n"
         start = time.monotonic()
-        with pytest.raises(SystemExit) as exc_info:
-            run_capture(
-                [sys.executable, "-c", script],
-                isolate_process_group=True,
-                idle_timeout=0.5,
-            )
+        result = run_capture_result([sys.executable, "-c", script], idle_timeout=0.5)
         elapsed = time.monotonic() - start
-        assert exc_info.value.code == 124
-        assert elapsed < 5
-
-    def test_idle_timeout_without_isolate_terminates_process(self) -> None:
-        """When idle timeout fires without isolate_process_group, terminate_process is used."""
-        script = "import time\ntime.sleep(60)\n"
-        start = time.monotonic()
-        with pytest.raises(SystemExit) as exc_info:
-            run_subprocess(
-                [sys.executable, "-c", script],
-                capture_output=True,
-                isolate_process_group=False,
-                idle_timeout=0.5,
-            )
-        elapsed = time.monotonic() - start
-        assert exc_info.value.code == 124
+        assert result.timed_out is True
         assert elapsed < 5
 
 

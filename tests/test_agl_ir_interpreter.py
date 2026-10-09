@@ -28,14 +28,8 @@ import pathlib
 import pytest
 
 from agnette.agl.eval.ir_interpreter import IrInterpreter
-from agnette.agl.ir import (
-    ExecutableModule,
-    ExecutableProgram,
-    FunctionDescriptor,
-    FunctionId,
-    IndexKind,
-    IntToDecimal,
-    InvalidIrError,
+from agnette.agl.ir.ids import FunctionId, Location, NominalId, SourceId, SymbolId
+from agnette.agl.ir.nodes import (
     IrAssign,
     IrBind,
     IrBlock,
@@ -54,7 +48,6 @@ from agnette.agl.ir import (
     IrExpr,
     IrField,
     IrFieldSet,
-    IrFunctionBody,
     IrFunctionParam,
     IrIndex,
     IrIndexSet,
@@ -74,19 +67,22 @@ from agnette.agl.ir import (
     IrRaise,
     IrSequence,
     IrUpdateRecord,
-    Location,
+    UseDefault,
+)
+from agnette.agl.ir.operations import IndexKind, IntToDecimal, ToJson
+from agnette.agl.ir.program import (
+    ExecutableModule,
+    ExecutableProgram,
+    FunctionDescriptor,
+    IrFunctionBody,
     NominalDescriptor,
     NominalKind,
     SourceFile,
-    SourceId,
     SymbolDescriptor,
-    SymbolId,
-    ToJson,
-    UseDefault,
     VariantDescriptor,
 )
-from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.ir.validate import InvalidIrError
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.semantics.values import (
     UNIT_VALUE,
@@ -459,8 +455,8 @@ class TestVarCell:
         interp = IrInterpreter(prog)
         interp.run()
 
-        assert interp.initializer_values[-1] == UNIT_VALUE
-        assert isinstance(interp.initializer_values[-1], UnitValue)
+        assert interp.module_initializer_values[ENTRY_ID][-1] == UNIT_VALUE
+        assert isinstance(interp.module_initializer_values[ENTRY_ID][-1], UnitValue)
 
     def test_var_assign_multiple_times(self) -> None:
         sym, desc = _var_sym(0, "x")
@@ -779,7 +775,8 @@ class TestAdditionalEvaluatorBehavior:
         """IrNeg on a decimal negates exactly (``copy_negate``), never
         rounding to the ambient context's 28-digit precision -- a
         31-significant-digit operand stays exact rather than being clipped."""
-        from agnette.agl.ir import IrNeg, NumericKind
+        from agnette.agl.ir.nodes import IrNeg
+        from agnette.agl.ir.operations import NumericKind
 
         big = decimal.Decimal(10**30 + 7)
         sym, desc = _let_sym(0, "n")
@@ -801,7 +798,8 @@ class TestAdditionalEvaluatorBehavior:
 
     def test_ir_nominal_cast_accepts_an_exact_exception_value(self) -> None:
         """IrNominalCast succeeds on an ExceptionValue whose nominal is accepted exactly."""
-        from agnette.agl.ir import IrMakeException, IrNominalCast, NominalId
+        from agnette.agl.ir.ids import NominalId
+        from agnette.agl.ir.nodes import IrMakeException, IrNominalCast
 
         exc_nominal = NominalId(4)
         out_sym, out_desc = _let_sym(0, "out")
@@ -829,7 +827,8 @@ class TestAdditionalEvaluatorBehavior:
         self,
     ) -> None:
         """A miss on the exact nominal walks the `base` chain for an ExceptionValue."""
-        from agnette.agl.ir import IrMakeException, IrNominalCast, NominalId
+        from agnette.agl.ir.ids import NominalId
+        from agnette.agl.ir.nodes import IrMakeException, IrNominalCast
 
         root_nominal = NominalId(4)
         leaf_nominal = NominalId(5)
@@ -867,7 +866,8 @@ class TestAdditionalEvaluatorBehavior:
         self,
     ) -> None:
         """A miss on the exact nominal walks the `base` chain for `is` on an ExceptionValue."""
-        from agnette.agl.ir import IrMakeException, IrNominalIs, NominalId
+        from agnette.agl.ir.ids import NominalId
+        from agnette.agl.ir.nodes import IrMakeException, IrNominalIs
 
         root_nominal = NominalId(4)
         leaf_nominal = NominalId(5)
@@ -2067,7 +2067,7 @@ class TestPrintParseJsonParam:
         interp.run()
 
         assert capsys.readouterr().out == "()\n"
-        assert interp.initializer_values == [UNIT_VALUE]
+        assert interp.module_initializer_values[ENTRY_ID] == [UNIT_VALUE]
 
 
 # ===========================================================================
@@ -2114,11 +2114,8 @@ class TestIrAsk:
             program,
             contracts={
                 contract_id: TextContractRequest(
-                    codec_name="text",
-                    strict_json=None,
                     target_type_label="text",
                     structured_exec=False,
-                    format_instructions="",
                 )
             },
         )
@@ -2152,10 +2149,8 @@ class TestIrExec:
 
         cid = ContractId(value=0)
         contract = TextContractRequest(
-            strict_json=None,
             target_type_label="text",
             structured_exec=structured_exec,
-            format_instructions="",
         )
         node = IrExec(
             location=location,
@@ -2314,7 +2309,6 @@ class TestIrExec:
         cid = ContractId(value=0)
         decode_schema = build_decode_schema(IntType(), create_seeded_type_table()).root
         contract = JsonContractRequest(
-            codec_name="json",
             strict_json=False,
             json_schema=json.dumps({"type": "integer"}),
             decode=decode_schema,
@@ -2354,7 +2348,7 @@ class TestIrExec:
         interpreter = IrInterpreter(program)
         interpreter.run()
 
-        assert interpreter.initializer_values == [BoolValue(True)]
+        assert interpreter.module_initializer_values[ENTRY_ID] == [BoolValue(True)]
 
     def test_host_setting_write_rolls_back_when_live_reconfiguration_fails(self) -> None:
         """A failed host callback leaves the setting register at its prior value."""
@@ -2485,7 +2479,6 @@ class TestIrExec:
         cid = ContractId(value=0)
         decode_schema = build_decode_schema(IntType(), create_seeded_type_table()).root
         contract = JsonContractRequest(
-            codec_name="json",
             strict_json=False,
             json_schema=json.dumps({"type": "integer"}),
             decode=decode_schema,
@@ -2569,7 +2562,6 @@ class TestIrExec:
         cid = ContractId(value=0)
         decode_schema = build_decode_schema(IntType(), create_seeded_type_table()).root
         contract = JsonContractRequest(
-            codec_name="json",
             strict_json=False,
             json_schema=json.dumps({"type": "integer"}),
             decode=decode_schema,
@@ -2639,7 +2631,6 @@ class TestIrExec:
         cid = ContractId(value=0)
         decode_schema = build_decode_schema(IntType(), create_seeded_type_table()).root
         contract = JsonContractRequest(
-            codec_name="json",
             strict_json=True,
             json_schema=json.dumps({"type": "integer"}),
             decode=decode_schema,

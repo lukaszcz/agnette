@@ -22,6 +22,7 @@ from agnette.config.general import CommandSetting, RunConfig
 from agnette.sandbox.prepare import SandboxContext, SandboxRun
 from agnette.sandbox.request import PreparedSandboxCommand, SandboxSpec
 from tests._agl_helpers import agent_value
+from tests._sandbox_helpers import settings_path_of
 
 
 def _sandbox_context(
@@ -159,23 +160,8 @@ def test_built_argv_feeds_shared_prompt_preparation() -> None:
     finally:
         cleanup_temp_files(temp_files)
 
-    assert prepared.command == ["claude", "-p", "--model", "sonnet", "--effort", "high"]
+    assert prepared.argv[:-1] == ["claude", "-p", "--model", "sonnet", "--effort", "high"]
     assert prepared.prompt_via_stdin is False
-
-
-def test_cleanup_temp_files_keeps_files_during_dry_run(tmp_path: Path) -> None:
-    from agnette.agent.runner import cleanup_temp_files
-    from agnette.core import dry_run
-
-    prompt_file = tmp_path / "prompt.md"
-    prompt_file.write_text("prompt", encoding="utf-8")
-    dry_run.set_enabled(True)
-    try:
-        cleanup_temp_files([prompt_file])
-    finally:
-        dry_run.set_enabled(False)
-
-    assert prompt_file.exists()
 
 
 def test_cleanup_temp_files_ignores_missing_files(tmp_path: Path) -> None:
@@ -425,9 +411,7 @@ def test_prepared_runner_maps_process_capture_result(
         spawn_error=spawn_error,
     )
     monkeypatch.setattr("agnette.agent.runner.run_capture_result", lambda *args, **kwargs: capture)
-    prepared = PreparedPromptRun(
-        command=["runner"], effective_file=Path("prompt.md"), env={}, temp_files=[]
-    )
+    prepared = PreparedPromptRun(env={}, argv=["runner", "@prompt.md"])
 
     result = run_prepared_prompt_result(prepared, idle_timeout=None)
 
@@ -456,14 +440,7 @@ def test_prepared_result_closes_stdin_for_no_prompt_delivery(
         )
 
     monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
-    prepared = PreparedPromptRun(
-        command=["runner"],
-        effective_file=Path("unused.md"),
-        env={},
-        temp_files=[],
-        argv=["runner", "--fork"],
-        delivery=PromptDelivery.NONE,
-    )
+    prepared = PreparedPromptRun(env={}, argv=["runner", "--fork"], delivery=PromptDelivery.NONE)
 
     run_prepared_prompt_result(prepared, idle_timeout=None)
 
@@ -857,7 +834,7 @@ def test_sandboxed_run_reaches_the_process_primitive_with_the_prepared_wrap(
     assert argv[srt_index : srt_index + 4] == [
         "srt",
         "--settings",
-        str(sandbox.settings_path),
+        str(settings_path_of(sandbox)),
         "--",
     ]
 

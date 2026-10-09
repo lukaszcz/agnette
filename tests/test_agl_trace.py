@@ -23,9 +23,9 @@ from agnette.agl import PipelineDriver
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import RunResult
-from agnette.agl.runtime import AgentRequest, AgentResponse
 from agnette.agl.runtime.agents import AgentFn
 from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.packages.manifest import PackageManifest
 from agnette.packages.model import PackageInfo
@@ -117,17 +117,6 @@ class TestTraceFileCreated:
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         result = _run_inline(rt, 'let x = 1\nprint "hello"', trace_file=None)
         assert result.ok
-        # No trace file: any file created would be under .agent-files/ which
-        # we cannot check here, but RunResult.trace_path should be None.
-        assert result.trace_path is None
-
-    def test_run_result_exposes_trace_path(self, tmp_path: Path) -> None:
-        """RunResult.trace_path is the Path of the written JSONL file."""
-        trace_path = tmp_path / "trace.jsonl"
-        rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        result = _run_inline(rt, "let x = 1\nx", trace_file=trace_path)
-        assert result.ok
-        assert result.trace_path == trace_path
 
     def test_trace_directory_creation_failure_is_best_effort(
         self,
@@ -146,7 +135,6 @@ class TestTraceFileCreated:
         )
 
         assert result.ok
-        assert result.trace_path is None
         assert capsys.readouterr().err.count("trace logging disabled") == 1
 
 
@@ -1201,11 +1189,6 @@ class TestNoLog:
         jsonl_files = list(tmp_path.rglob("*.jsonl"))
         assert not jsonl_files
 
-    def test_no_trace_result_trace_path_is_none(self, tmp_path: Path) -> None:
-        rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        result = _run_inline(rt, "let x = 1\nx", trace_file=None)
-        assert result.trace_path is None
-
     def test_no_trace_with_agent_call_writes_nothing(self, tmp_path: Path) -> None:
         rt = _agent_runtime(_agent_returning("hello"))
         result = _run_inline(
@@ -1269,12 +1252,6 @@ class TestCheckOnlyNoTrace:
         assert result.ok
         # No trace file created under check_only.
         assert not trace_path.exists()
-
-    def test_check_only_trace_path_is_none(self, tmp_path: Path) -> None:
-        trace_path = tmp_path / "trace.jsonl"
-        rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        result = _run_inline(rt, "let x = 1\nx", trace_file=trace_path, check_only=True)
-        assert result.trace_path is None
 
 
 # ---------------------------------------------------------------------------

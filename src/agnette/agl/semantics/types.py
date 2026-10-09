@@ -27,7 +27,7 @@ Type hierarchy
   positional only; named/optional arguments are erased from the value type.
 - ``TypeVarType(name)`` — a rigid type variable bound by an enclosing generic
   declaration.
-- ``InferenceVarType(display_hint)`` — an internal, identity-based flexible
+- ``InferenceVarType`` — an internal, identity-based flexible
   variable owned by a checker inference region; it is not source-spellable.
 
 ``Type`` is the closed union of all semantic types.
@@ -366,7 +366,7 @@ class TypeVarType:
     is constructed.
 
     Capability notes:
-    - Not JSON-shaped (``is_json_shaped`` returns ``False``), and never
+    - Never JSON-shaped, and never
       convertible to ``json``: a cast is compiled once with type arguments
       erased, so the conversion could not know what the variable stands for
       (``semantics.type_table.is_json_convertible``).
@@ -394,11 +394,9 @@ class InferenceVarType:
     """An internal flexible type variable identified by a fresh solver id.
 
     Unlike rigid :class:`TypeVarType`, this form has no source spelling and is
-    never emitted from checking. ``display_hint`` is solver-only diagnostic
-    metadata: equality and hashing use the private fresh identity alone.
+    never emitted from checking.
     """
 
-    display_hint: str = field(default="", compare=False, hash=False)
     _id: int = field(default_factory=lambda: next(_inference_var_ids), init=False, repr=False)
 
     @property
@@ -763,46 +761,11 @@ def is_scalar_json_shaped(value_type: Type) -> bool:
     The scalar JSON-shaped types are ``null``/``json``, ``bool``, ``int``,
     ``decimal``, and ``text`` — the leaf types an implicit coercion may absorb
     into a ``json`` slot without rebuilding any structure. ``array``/``dict``
-    are JSON-shaped (see :func:`is_json_shaped`) but not scalar: absorbing one
-    into ``json`` would require rebuilding the whole container, which is an
-    implicit deep copy, so it requires an explicit ``as json`` cast instead.
+    are not scalar: absorbing one into ``json`` would require rebuilding the
+    whole container, which is an implicit deep copy, so it requires an explicit
+    ``as json`` cast instead.
     """
     return isinstance(value_type, _SCALAR_JSON_SHAPED_TYPES)
-
-
-def is_json_shaped(value_type: Type) -> bool:
-    """Return ``True`` if ``value_type`` is JSON-shaped.
-
-    JSON-shaped types are the values that may inhabit a ``json`` slot:
-    ``null``/``json``, ``bool``, ``int``, ``decimal``, ``text``, and
-    ``array``/``dict`` whose element/value types are themselves JSON-shaped.
-    A ``dict`` is JSON-shaped only when its key is ``text`` — a native JSON
-    object slot has no other key representation. Records, enums, and
-    exceptions are **not** JSON-shaped — explicitly cast one with ``as json``
-    to convert it to its structural JSON representation.
-
-    AgL: ``UnitType`` and ``FunctionType`` are also NOT
-    JSON-shaped; function values render only as opaque handles.
-
-    Three predicates answer three different questions and must not be
-    conflated: this one decides ``json``-slot *inhabitation*,
-    :func:`is_scalar_json_shaped` decides what an *implicit* coercion absorbs
-    into a ``json`` slot, and
-    :func:`~agnette.agl.semantics.type_table.is_json_convertible` — wider than
-    both, since a nominal does have a JSON representation — decides what an
-    explicit ``as json`` cast accepts.
-    """
-    if is_scalar_json_shaped(value_type):
-        return True
-    if isinstance(value_type, ArrayType):
-        return is_json_shaped(value_type.elem)
-    if isinstance(value_type, DictType):
-        return isinstance(value_type.key, TextType) and is_json_shaped(value_type.value)
-    if isinstance(value_type, InferenceVarType):
-        return False
-    # RecordType, EnumType, ExceptionType, UnitType, FunctionType,
-    # BottomType, and TypeVarType are not JSON-shaped.
-    return False
 
 
 def is_assignable(value_type: Type, target_type: Type) -> bool:

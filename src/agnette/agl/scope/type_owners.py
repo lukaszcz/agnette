@@ -62,7 +62,6 @@ from agnette.agl.syntax.types import (
 )
 
 __all__ = [
-    "ReachedPaths",
     "TypeOwnerIndex",
     "beneath",
     "declared_member_scopes",

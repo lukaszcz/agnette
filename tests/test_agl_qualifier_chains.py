@@ -10,8 +10,8 @@ import pytest
 from agnette.agl.diagnostics import AglTypeError
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import LoadedModule, ModuleGraph
-from agnette.agl.parser import parse_program
-from agnette.agl.scope import AglScopeError, ModuleResolution
+from agnette.agl.parser.parser import parse_program
+from agnette.agl.scope import ModuleResolution
 from agnette.agl.scope.imports import (
     SingleTarget,
     build_import_env,
@@ -19,6 +19,7 @@ from agnette.agl.scope.imports import (
 )
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import (
+    AglScopeError,
     AmbiguousQualificationError,
     MissRepair,
     TypeArgumentsError,
@@ -33,7 +34,6 @@ from agnette.agl.syntax import (
     FuncDef,
     IsTest,
     LetDecl,
-    NameT,
     NameTarget,
     QualifierAnchor,
     ScopeRegion,
@@ -41,7 +41,8 @@ from agnette.agl.syntax import (
 )
 from agnette.agl.syntax.nodes import ConstructorPattern, ImportDecl, static_items
 from agnette.agl.syntax.qualifiers import enclosing_scope_bases
-from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
+from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
+from agnette.agl.syntax.types import NameT
 from agnette.agl.syntax.visitor import walk
 from tests.agl.qualifier_support import span_text
 
@@ -94,7 +95,6 @@ def _resolve_without_loader(modules: dict[str, str]) -> ModuleResolution:
             module_id=module_id,
             program=program,
             path=None,
-            source=SourceId(0),
             imports=tuple(
                 item for item in static_items(program.body.items) if isinstance(item, ImportDecl)
             ),

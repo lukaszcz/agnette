@@ -87,7 +87,6 @@ class _Host:
         agent: AgentSpec,
         transport: str,
         *,
-        name: str = "",
         permission_mode: PermissionMode = PermissionMode.NONE,
         sandbox: SandboxLimits | None = None,
         env: dict[str, str],
@@ -96,7 +95,6 @@ class _Host:
             self.default_handle = self.open(
                 agent,
                 transport,
-                name=name,
                 permission_mode=permission_mode,
                 sandbox=sandbox,
                 env=env,
@@ -828,9 +826,9 @@ def test_session_ask_host_failure_is_catchable_as_a_session_error() -> None:
 
 
 def test_session_ask_interrupt_becomes_an_interrupted_cancellation() -> None:
-    with pytest.raises(AgentCancelled) as interrupted:
+    with pytest.raises(AgentCancelled) as cancelled:
         _run(_ask_program("interrupt"), _AskInterruptedHost())
-    assert interrupted.value.reason == "interrupted"
+    assert "worker" in str(cancelled.value)
 
 
 def test_session_retry_redacts_schema_invalid_output_from_corrective_feedback() -> None:
@@ -984,12 +982,11 @@ def test_a_failing_default_becomes_a_catchable_session_error() -> None:
             agent: AgentSpec,
             transport: str,
             *,
-            name: str = "",
             permission_mode: PermissionMode = PermissionMode.NONE,
             sandbox: SandboxLimits | None = None,
             env: dict[str, str],
         ) -> str:
-            del agent, transport, name, permission_mode, sandbox, env
+            del agent, transport, permission_mode, sandbox, env
             raise SessionHostError("unavailable", "default")
 
     assert _run(_CLOSE_AFTER_DEFAULT, FailingDefaultHost()).ok
@@ -1057,7 +1054,6 @@ def test_session_cleanup_failure_preserves_a_program_error() -> None:
 def test_session_cleanup_failure_preserves_a_cancellation() -> None:
     with pytest.raises(AgentCancelled) as cancelled:
         _run(_ask_program("interrupt"), _InterruptedFailingCloseHost())
-    assert cancelled.value.reason == "interrupted"
     assert any("cleanup failed" in note for note in cancelled.value.__notes__)
 
 

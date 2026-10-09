@@ -155,7 +155,7 @@ class TraceStore:
         elif isinstance(span, Location):
             source = self._sources.get(span.source_id)
             if source is not None:
-                file = source.file_name or source.display_name
+                file = source.display_name
             line = span.start_line
             col = span.start_col
         record: dict[str, object] = {

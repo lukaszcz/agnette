@@ -29,22 +29,14 @@ from dataclasses import FrozenInstanceError, fields
 import pytest
 
 from agnette.agl.syntax import (
-    # sentinel
-    ELSE,
-    AppliedT,
     ArrayLit,
-    ArrayT,
     AsPattern,
     AssignStmt,
     AssignTarget,
     Attribute,
     AttributeKeyedArg,
-    BinaryOp,
-    Binder,
-    BinOp,
     Block,
     BoolLit,
-    BoolT,
     Break,
     BuiltinVarDecl,
     Call,
@@ -56,35 +48,27 @@ from agnette.agl.syntax import (
     ConstructorPattern,
     Continue,
     DecimalLit,
-    DecimalT,
-    Declaration,
     DictEntry,
     DictLit,
-    DictT,
-    ElseSentinel,
     EnumDef,
     ExceptionDef,
     Expr,
     FieldAccess,
     FieldTarget,
     FuncDef,
-    FuncT,
     If,
     IfBranch,
     IndexAccess,
     IndexTarget,
     InterpSegment,
     IntLit,
-    IntT,
     IsTest,
     Item,
-    JsonT,
     Lambda,
     LetDecl,
     LiteralPattern,
     Loop,
     NamedArg,
-    NameT,
     NameTarget,
     NullLit,
     Param,
@@ -97,31 +81,46 @@ from agnette.agl.syntax import (
     Raise,
     RecordDef,
     Return,
-    # spans
     ScopeRegion,
     ScopeSegment,
-    SourceSpan,
     StringLit,
     Template,
-    TemplateSegment,
     TextSegment,
-    # types
-    TextT,
     Try,
     TypeAlias,
     TypeApply,
     UnaryNeg,
-    UnaryNot,
     UnitLit,
     UnitT,
     VarDecl,
     VariantDef,
     VariantRef,
     VarPattern,
-    # nodes – expressions
     VarRef,
-    # nodes – patterns
     WildcardPattern,
+)
+from agnette.agl.syntax.nodes import (
+    ELSE,
+    BinaryOp,
+    Binder,
+    BinOp,
+    Declaration,
+    ElseSentinel,
+    TemplateSegment,
+    UnaryNot,
+)
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.syntax.types import (
+    AppliedT,
+    ArrayT,
+    BoolT,
+    DecimalT,
+    DictT,
+    FuncT,
+    IntT,
+    JsonT,
+    NameT,
+    TextT,
 )
 
 # ---------------------------------------------------------------------------
@@ -2250,7 +2249,7 @@ class TestWalk:
 
     def test_walk_qual_var_ref_visits_qualifier_chain(self) -> None:
         """walk() on a slash-qualified VarRef visits its qualifier chain."""
-        from agnette.agl.parser import parse_program
+        from agnette.agl.parser.parser import parse_program
         from agnette.agl.syntax import QualifierChain
         from agnette.agl.syntax.visitor import walk
 
@@ -2261,7 +2260,7 @@ class TestWalk:
 
     def test_walk_qual_constructor_visits_qualifier_chain(self) -> None:
         """walk() on a slash-qualified reference visits its qualifier chain."""
-        from agnette.agl.parser import parse_program
+        from agnette.agl.parser.parser import parse_program
         from agnette.agl.syntax import QualifierChain
         from agnette.agl.syntax.visitor import walk
 
@@ -2279,7 +2278,7 @@ class TestWalk:
         ),
     )
     def test_walk_qualified_references_visits_qualifier_chains(self, source: str) -> None:
-        from agnette.agl.parser import parse_program
+        from agnette.agl.parser.parser import parse_program
         from agnette.agl.syntax import QualifierChain
         from agnette.agl.syntax.visitor import walk
 
@@ -2289,7 +2288,7 @@ class TestWalk:
 
     def test_walk_constructor_pattern_visits_positional(self) -> None:
         """walk() on a ConstructorPattern with positional sub-patterns visits each one."""
-        from agnette.agl.parser import parse_program
+        from agnette.agl.parser.parser import parse_program
         from agnette.agl.syntax.visitor import walk
 
         prog = parse_program("case x of | Some(v) => 1")
@@ -2591,7 +2590,7 @@ class TestModuleSystemNodes:
         assert decl.tail == (item,)
 
     def test_parsed_use_preserves_current_module_anchor(self) -> None:
-        from agnette.agl.parser import parse_program
+        from agnette.agl.parser.parser import parse_program
         from agnette.agl.syntax import UseDecl
 
         program = parse_program("use ::Scope::*\nuse ::Scope as S")

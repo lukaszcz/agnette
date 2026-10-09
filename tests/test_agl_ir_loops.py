@@ -38,7 +38,7 @@ from agnette.agl.ir.nodes import (
     IrLoop,
     IrTry,
 )
-from agnette.agl.ir.operations import ArithKind, ArithOp, CmpOp, CompareKind, IterKind
+from agnette.agl.ir.operations import ArithKind, ArithOp, CmpOp
 from agnette.agl.ir.program import (
     ExecutableModule,
     ExecutableProgram,
@@ -272,8 +272,8 @@ def test_irloop_break_exits_immediately() -> None:
     result = interp.run()
     # The loop yields unit; no bindings → empty result
     assert result == {}
-    assert interp.initializer_values == [UNIT_VALUE]
-    assert isinstance(interp.initializer_values[0], UnitValue)
+    assert interp.module_initializer_values[ENTRY_ID] == [UNIT_VALUE]
+    assert isinstance(interp.module_initializer_values[ENTRY_ID][0], UnitValue)
 
 
 def test_irloop_break_exits_after_several_iterations() -> None:
@@ -289,7 +289,6 @@ def test_irloop_break_exits_after_several_iterations() -> None:
                         cond=IrCompare(
                             location=_DUMMY_LOC,
                             op=CmpOp.GE,
-                            kind=CompareKind.INT,
                             lhs=IrLoad(location=_DUMMY_LOC, symbol=count_sym),
                             rhs=IrConstInt(location=_DUMMY_LOC, value=3),
                         ),
@@ -341,7 +340,6 @@ def test_irloop_continue_reruns_body() -> None:
                         cond=IrCompare(
                             location=_DUMMY_LOC,
                             op=CmpOp.GE,
-                            kind=CompareKind.INT,
                             lhs=IrLoad(location=_DUMMY_LOC, symbol=count_sym),
                             rhs=IrConstInt(location=_DUMMY_LOC, value=5),
                         ),
@@ -416,7 +414,6 @@ def test_break_bypasses_irtry() -> None:
                         cond=IrCompare(
                             location=_DUMMY_LOC,
                             op=CmpOp.GE,
-                            kind=CompareKind.INT,
                             lhs=IrLoad(location=_DUMMY_LOC, symbol=count_sym),
                             rhs=IrConstInt(location=_DUMMY_LOC, value=3),
                         ),
@@ -497,7 +494,6 @@ def test_continue_bypasses_irtry() -> None:
                             cond=IrCompare(
                                 location=_DUMMY_LOC,
                                 op=CmpOp.GE,
-                                kind=CompareKind.INT,
                                 lhs=IrLoad(location=_DUMMY_LOC, symbol=count_sym),
                                 rhs=IrConstInt(location=_DUMMY_LOC, value=3),
                             ),
@@ -835,7 +831,6 @@ def test_validate_ir_iterinit_iternext_in_loop() -> None:
                 symbol=it_sym,
                 value=IrIterInit(
                     location=_DUMMY_LOC,
-                    kind=IterKind.ARRAY,
                     collection=IrConstText(location=_DUMMY_LOC, value="placeholder"),
                 ),
             ),

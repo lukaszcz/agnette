@@ -274,7 +274,6 @@ class ExternImportError(AglError):
 
     def __init__(self, module_id: ModuleId, message: str) -> None:
         super().__init__(f"module {module_id.display()!r}: {message}")
-        self.module_id = module_id
 
 
 class ExternResolutionError(AglError):
@@ -289,8 +288,6 @@ class ExternResolutionError(AglError):
             f"module {module_id.display()!r} extern {name!r}: companion has no "
             "callable attribute of that name"
         )
-        self.module_id = module_id
-        self.name = name
 
 
 def _optimize_level() -> int:

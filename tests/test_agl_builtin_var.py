@@ -15,7 +15,7 @@ import pytest
 
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.parser import parse_program
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.pipeline import PipelineDriver, RunResult
 from agnette.agl.runtime.option import some_value
 from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue, Value

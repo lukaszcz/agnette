@@ -26,12 +26,10 @@ __all__ = [
     "ArithOp",
     "CmpOp",
     "Coercion",
-    "CompareKind",
     "ContainsKind",
     "CopyKind",
     "IndexKind",
     "IntToDecimal",
-    "IterKind",
     "MutableIndexKind",
     "NumericKind",
     "ToJson",
@@ -87,19 +85,6 @@ class NumericKind(enum.Enum):
     DECIMAL = "decimal"
 
 
-class CompareKind(enum.Enum):
-    """Kind tag for comparison operations: integer, decimal, text, or structural.
-
-    A ``DECIMAL`` ordering may pair an int with a decimal operand: mixed
-    numbers compare exactly, without widening the int.
-    """
-
-    INT = "int"
-    DECIMAL = "decimal"
-    TEXT = "text"
-    STRUCTURAL = "structural"
-
-
 class ContainsKind(enum.Enum):
     """Kind tag for the ``in`` containment operator: array, dict, or text.
 
@@ -133,14 +118,6 @@ class CopyKind(enum.Enum):
 
     DEEP = "deep"
     SHALLOW = "shallow"
-
-
-class IterKind(enum.Enum):
-    """Kind tag for for-loop iteration: array elements, dict keys, or text chars."""
-
-    ARRAY = "array"
-    DICT_KEYS = "dict_keys"
-    TEXT = "text"
 
 
 # ---------------------------------------------------------------------------

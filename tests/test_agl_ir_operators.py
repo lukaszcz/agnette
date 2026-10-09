@@ -458,31 +458,3 @@ def test_validate_arith_div_non_decimal_raises() -> None:
     )
     with pytest.raises(InvalidIrError):
         validate_ir(program, deep=False)
-
-
-def test_validate_compare_structural_with_ordering_raises() -> None:
-    """Validate raises InvalidIrError when STRUCTURAL kind used with LT."""
-    from agnette.agl.ir.ids import Location, SourceId
-    from agnette.agl.ir.nodes import IrCompare, IrConstInt
-    from agnette.agl.ir.operations import CmpOp, CompareKind
-    from agnette.agl.ir.program import ExecutableModule, ExecutableProgram, SourceFile
-    from agnette.agl.ir.validate import InvalidIrError, validate_ir
-    from agnette.agl.modules.ids import ENTRY_ID
-
-    loc = Location(source_id=SourceId(0), start_offset=0, end_offset=1, start_line=1, start_col=0)
-    node = IrCompare(
-        location=loc,
-        op=CmpOp.LT,
-        kind=CompareKind.STRUCTURAL,
-        lhs=IrConstInt(location=loc, value=1),
-        rhs=IrConstInt(location=loc, value=2),
-    )
-    program = ExecutableProgram(
-        entry_module=ENTRY_ID,
-        modules={ENTRY_ID: ExecutableModule(module_id=ENTRY_ID, initializers=(node,))},
-        symbols={},
-        nominals={},
-        sources={SourceId(0): SourceFile(display_name="<test>", normalized_text="x")},
-    )
-    with pytest.raises(InvalidIrError):
-        validate_ir(program, deep=False)

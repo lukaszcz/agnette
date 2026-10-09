@@ -21,8 +21,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agnette.agl import AglError, PipelineDriver, SourceSpan
-from agnette.agl.diagnostics import Diagnostic, format_diagnostic, format_diagnostic_location
+from agnette.agl import PipelineDriver
+from agnette.agl.diagnostics import (
+    AglError,
+    Diagnostic,
+    SourceSpan,
+    format_diagnostic,
+    format_diagnostic_location,
+)
 from agnette.agl.ir.contracts import EncodePlan, ExceptionFieldEncode, ScalarEncode, ScalarKind
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.program import (
@@ -33,12 +39,12 @@ from agnette.agl.ir.program import (
 )
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.pipeline import RunResult
-from agnette.agl.runtime import AgentRequest
 from agnette.agl.runtime.contract import OutputContract
+from agnette.agl.runtime.request import AgentRequest
 from agnette.agl.runtime.serialize import WalkTags
 from agnette.agl.semantics.types import Type
 from agnette.agl.semantics.values import ExceptionValue
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.env import AglTypeError
 from agnette.agm.commands import exec_program as exec_engine
 from tests._agl_helpers import (
     agl_roots,
@@ -149,7 +155,7 @@ def _preflight_builtin_nominal(
     program = entry_programs[0] if entry_programs else None
     preflight = rt.preflight_arguments(prepared, program, ProgramArguments(positional=(), named={}))
     assert preflight.executable is not None
-    return prepared, preflight.executable, preflight.executable.builtin_nominals.nominal(name)
+    return prepared, preflight.executable, preflight.executable.builtin_nominals.resolve(name)
 
 
 class TestOperatorProgramsRunEndToEnd:
@@ -2403,7 +2409,7 @@ class TestRuntimeErrorPaths:
 
         def bad_execute(self: IrInterpreter, **_: object) -> dict[str, object]:
             exc_val = ExceptionValue(
-                nominal=self._program.builtin_nominals.nominal("Abort"),
+                nominal=self._program.builtin_nominals.resolve("Abort"),
                 fields={"message": TextValue("fatal")},
             )
             raise AglRaise(exc_val)
@@ -3641,7 +3647,7 @@ class TestDiscoverProgramsFailures:
         """discover_programs returns diagnostics when typecheck fails."""
         from unittest.mock import patch
 
-        from agnette.agl.typecheck import AglTypeError
+        from agnette.agl.typecheck.env import AglTypeError
 
         prepared = prepare_inline_code('def f(x: int) -> text = "bad"\nlet r = f(1)\nprint r')
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
@@ -3676,8 +3682,6 @@ class TestDiscoverProgramsFailures:
 
         roots = agl_roots()
         prepared = PreparedProgram(
-            source="let x = 1",
-            entry_path=None,
             roots=roots,
             resolved=MagicMock(),
             diagnostics=(),
@@ -3715,7 +3719,7 @@ class TestRunPreparedEdgeCases:
         """run_prepared exits early when typecheck fails (checked is None)."""
         from unittest.mock import patch
 
-        from agnette.agl.typecheck import AglTypeError
+        from agnette.agl.typecheck.env import AglTypeError
 
         prepared = prepare_inline_code("let x = 1\nx")
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
@@ -3771,7 +3775,7 @@ class TestRunPreparedEdgeCases:
         match_result = compile_program_matches(checked)
         assert isinstance(match_result.compiled, MatchCompiledProgram)
 
-        discovery = rt.discover_programs(prepared, compiled=match_result.compiled)
+        discovery = rt.discover_programs(prepared)
         program = discovery.programs[0]
         preflight = rt.preflight_arguments(
             prepared,

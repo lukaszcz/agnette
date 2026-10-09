@@ -271,7 +271,6 @@ class EntryPipeline:
             text=text,
             orig_program=orig_program,
             checked=checked,
-            entry_cm=entry_cm,
             checked_program=checked_program,
             compiled=compiled,
             host_env=host_env,
@@ -552,7 +551,6 @@ class EntryPipeline:
         text: str,
         orig_program: Program,
         checked: CheckedModule,
-        entry_cm: CheckedModule,
         checked_program: CheckedProgram,
         compiled: MatchCompiledProgram,
         host_env: HostEnvironment,
@@ -742,7 +740,6 @@ class EntryPipeline:
                 warnings=warnings,
                 error=error,
                 ok=False,
-                trace_path=self._ctx._trace_path,
             )
         except HostConfigurationError as exc:
             # The materialized ``default-agent`` value cannot be dispatched: a
@@ -763,7 +760,6 @@ class EntryPipeline:
                 warnings=warnings,
                 error=None,
                 ok=False,
-                trace_path=self._ctx._trace_path,
             )
         from agnette.agl.modules.ids import STD_CONFIG_ID
 
@@ -897,7 +893,6 @@ class EntryPipeline:
                 warnings=warnings,
                 error=error,
                 ok=False,
-                trace_path=self._ctx._trace_path,
                 installed=installed,
             )
 
@@ -981,7 +976,6 @@ class EntryPipeline:
             warnings=warnings,
             error=None,
             ok=True,
-            trace_path=self._ctx._trace_path,
             quote_strings=self._ctx._quote_strings_for_entry(orig_program),
             type_table=checked.type_env.type_table,
             descriptors=ValueDescriptors.from_program(lowered.program),

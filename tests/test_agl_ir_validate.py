@@ -19,16 +19,28 @@ from dataclasses import replace
 
 import pytest
 
-from agnette.agl.ir import (
-    CmpOp,
-    CompareKind,
-    ExecutableModule,
-    ExecutableProgram,
-    ExternFunctionBody,
-    FunctionDescriptor,
+from agnette.agl.ir.contracts import (
+    ContractRequest,
+    JsonContractRequest,
+    ScalarDecode,
+    ScalarKind,
+    TargetContractRequest,
+    TypeNode,
+    TypeNodeField,
+    TypeNodeKind,
+    TypeNodeRef,
+    TypeTree,
+)
+from agnette.agl.ir.ids import (
+    HOST_SOURCE_ID,
+    ContractId,
     FunctionId,
-    IndexKind,
-    IntToDecimal,
+    Location,
+    NominalId,
+    SourceId,
+    SymbolId,
+)
+from agnette.agl.ir.nodes import (
     IrAssign,
     IrBind,
     IrBlock,
@@ -38,17 +50,17 @@ from agnette.agl.ir import (
     IrCase,
     IrCaseArm,
     IrCoerce,
-    IrCompare,
     IrConstBool,
     IrConstDecimal,
     IrConstInt,
     IrConstJsonNull,
     IrConstText,
     IrConstUnit,
+    IrContract,
     IrDirectCall,
+    IrExpr,
     IrField,
     IrFieldSet,
-    IrFunctionBody,
     IrFunctionParam,
     IrIndex,
     IrIndexSet,
@@ -64,40 +76,30 @@ from agnette.agl.ir import (
     IrMakeJsonObject,
     IrMakeRecord,
     IrNominalCaseKey,
-    IrProgramParam,
     IrRenderTemplate,
     IrSequence,
     IrTemplateText,
     IrTemplateValue,
-    Location,
-    NominalDescriptor,
-    NominalId,
-    NominalKind,
-    ParamZone,
-    SourceFile,
-    SourceId,
-    SymbolDescriptor,
-    SymbolId,
     UseDefault,
+)
+from agnette.agl.ir.operations import IndexKind, IntToDecimal
+from agnette.agl.ir.program import (
+    ExecutableModule,
+    ExecutableProgram,
+    ExternFunctionBody,
+    FunctionDescriptor,
+    IrFunctionBody,
+    IrProgramParam,
+    NominalDescriptor,
+    NominalKind,
+    SourceFile,
+    SymbolDescriptor,
     VariantDescriptor,
 )
-from agnette.agl.ir.contracts import (
-    ContractRequest,
-    JsonContractRequest,
-    ScalarDecode,
-    ScalarKind,
-    TargetContractRequest,
-    TypeNode,
-    TypeNodeField,
-    TypeNodeKind,
-    TypeNodeRef,
-    TypeTree,
-)
-from agnette.agl.ir.ids import HOST_SOURCE_ID, ContractId
-from agnette.agl.ir.nodes import IrContract, IrExpr
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.ir.validate import InvalidIrError, validate_ir
 from agnette.agl.modules.ids import STD_CONFIG_ID, ModuleId
+from agnette.agl.zones import ParamZone
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1225,104 +1227,6 @@ class TestChildTraversal:
         prog = _make_program(initializers=(node,))
         with pytest.raises(InvalidIrError, match="444"):
             validate_ir(prog)
-
-
-# ===========================================================================
-# IrCompare: tightened EQ/NEQ ↔ STRUCTURAL constraints
-# ===========================================================================
-
-
-def _make_compare_program(op: CmpOp, kind: CompareKind) -> ExecutableProgram:
-    """Build a minimal program containing a single IrCompare node."""
-    node = IrCompare(
-        location=LOC,
-        op=op,
-        kind=kind,
-        lhs=IrConstInt(location=LOC, value=1),
-        rhs=IrConstInt(location=LOC, value=2),
-    )
-    return _make_program(initializers=(node,))
-
-
-class TestIrCompareTightenedConstraints:
-    """EQ/NEQ ⇒ STRUCTURAL and ordering ops ⇒ non-STRUCTURAL."""
-
-    # --- EQ with non-STRUCTURAL kind must be rejected ---
-
-    def test_eq_with_int_kind_raises(self) -> None:
-        """EQ requires STRUCTURAL kind; INT kind must raise."""
-        prog = _make_compare_program(CmpOp.EQ, CompareKind.INT)
-        with pytest.raises(InvalidIrError, match="EQ/NEQ requires STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_eq_with_decimal_kind_raises(self) -> None:
-        """EQ requires STRUCTURAL kind; DECIMAL kind must raise."""
-        prog = _make_compare_program(CmpOp.EQ, CompareKind.DECIMAL)
-        with pytest.raises(InvalidIrError, match="EQ/NEQ requires STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_eq_with_text_kind_raises(self) -> None:
-        """EQ requires STRUCTURAL kind; TEXT kind must raise."""
-        prog = _make_compare_program(CmpOp.EQ, CompareKind.TEXT)
-        with pytest.raises(InvalidIrError, match="EQ/NEQ requires STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_neq_with_int_kind_raises(self) -> None:
-        """NEQ requires STRUCTURAL kind; INT kind must raise."""
-        prog = _make_compare_program(CmpOp.NEQ, CompareKind.INT)
-        with pytest.raises(InvalidIrError, match="EQ/NEQ requires STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_eq_with_structural_kind_passes(self) -> None:
-        """EQ + STRUCTURAL is valid."""
-        prog = _make_compare_program(CmpOp.EQ, CompareKind.STRUCTURAL)
-        validate_ir(prog, deep=False)  # no exception
-
-    def test_neq_with_structural_kind_passes(self) -> None:
-        """NEQ + STRUCTURAL is valid."""
-        prog = _make_compare_program(CmpOp.NEQ, CompareKind.STRUCTURAL)
-        validate_ir(prog, deep=False)  # no exception
-
-    # --- Ordering ops with STRUCTURAL kind must be rejected ---
-
-    def test_lt_with_structural_kind_raises(self) -> None:
-        """LT requires non-STRUCTURAL kind."""
-        prog = _make_compare_program(CmpOp.LT, CompareKind.STRUCTURAL)
-        with pytest.raises(InvalidIrError, match="ordering op.*STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_le_with_structural_kind_raises(self) -> None:
-        """LE requires non-STRUCTURAL kind."""
-        prog = _make_compare_program(CmpOp.LE, CompareKind.STRUCTURAL)
-        with pytest.raises(InvalidIrError, match="ordering op.*STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_gt_with_structural_kind_raises(self) -> None:
-        """GT requires non-STRUCTURAL kind."""
-        prog = _make_compare_program(CmpOp.GT, CompareKind.STRUCTURAL)
-        with pytest.raises(InvalidIrError, match="ordering op.*STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_ge_with_structural_kind_raises(self) -> None:
-        """GE requires non-STRUCTURAL kind."""
-        prog = _make_compare_program(CmpOp.GE, CompareKind.STRUCTURAL)
-        with pytest.raises(InvalidIrError, match="ordering op.*STRUCTURAL"):
-            validate_ir(prog, deep=False)
-
-    def test_lt_with_int_kind_passes(self) -> None:
-        """LT + INT is valid."""
-        prog = _make_compare_program(CmpOp.LT, CompareKind.INT)
-        validate_ir(prog, deep=False)  # no exception
-
-    def test_gt_with_decimal_kind_passes(self) -> None:
-        """GT + DECIMAL is valid."""
-        prog = _make_compare_program(CmpOp.GT, CompareKind.DECIMAL)
-        validate_ir(prog, deep=False)  # no exception
-
-    def test_le_with_text_kind_passes(self) -> None:
-        """LE + TEXT is valid."""
-        prog = _make_compare_program(CmpOp.LE, CompareKind.TEXT)
-        validate_ir(prog, deep=False)  # no exception
 
 
 # ---------------------------------------------------------------------------
@@ -2551,7 +2455,7 @@ class TestPrintParseJsonValidation:
 
     def test_ir_print_valid(self) -> None:
         """IrPrint with valid location and inner expr passes validation."""
-        from agnette.agl.ir import IrPrint
+        from agnette.agl.ir.nodes import IrPrint
 
         node = IrPrint(location=LOC, value=IrConstInt(location=LOC, value=42))
         prog = _make_program(initializers=(node,))
@@ -2559,7 +2463,7 @@ class TestPrintParseJsonValidation:
 
     def test_ir_print_bad_location_raises(self) -> None:
         """IrPrint with invalid own location raises InvalidIrError."""
-        from agnette.agl.ir import IrPrint
+        from agnette.agl.ir.nodes import IrPrint
 
         bad_loc = Location(
             source_id=SID0,
@@ -2575,7 +2479,7 @@ class TestPrintParseJsonValidation:
 
     def test_ir_print_bad_inner_location_raises(self) -> None:
         """IrPrint validator recurses into the inner value expression."""
-        from agnette.agl.ir import IrPrint
+        from agnette.agl.ir.nodes import IrPrint
 
         bad_loc = Location(
             source_id=SID0,
@@ -2601,7 +2505,8 @@ class TestCopyValidation:
 
     def test_ir_copy_value_valid_for_both_kinds(self) -> None:
         """Both copy kinds with valid locations and inner expressions pass validation."""
-        from agnette.agl.ir import CopyKind, IrCopyValue
+        from agnette.agl.ir.nodes import IrCopyValue
+        from agnette.agl.ir.operations import CopyKind
 
         for kind in CopyKind:
             node = IrCopyValue(location=LOC, kind=kind, value=IrConstInt(location=LOC, value=42))
@@ -2609,7 +2514,8 @@ class TestCopyValidation:
 
     def test_ir_copy_value_bad_location_raises(self) -> None:
         """An IrCopyValue with an invalid own location raises InvalidIrError."""
-        from agnette.agl.ir import CopyKind, IrCopyValue
+        from agnette.agl.ir.nodes import IrCopyValue
+        from agnette.agl.ir.operations import CopyKind
 
         bad_loc = Location(
             source_id=SID0,
@@ -2628,7 +2534,8 @@ class TestCopyValidation:
 
     def test_ir_copy_value_bad_inner_location_raises(self) -> None:
         """An IrCopyValue validator recurses into the inner value expression."""
-        from agnette.agl.ir import CopyKind, IrCopyValue
+        from agnette.agl.ir.nodes import IrCopyValue
+        from agnette.agl.ir.operations import CopyKind
 
         bad_loc = Location(
             source_id=SID0,
@@ -2687,11 +2594,8 @@ class TestIrExecValidation:
 
         cid = ContractId(value=0)
         contract = TextContractRequest(
-            codec_name="text",
-            strict_json=None,
             target_type_label="text",
             structured_exec=False,
-            format_instructions="",
         )
         node = IrExec(
             location=LOC,
@@ -2736,7 +2640,6 @@ class TestIrExecValidation:
 
         cid = ContractId(value=0)
         contract = JsonContractRequest(
-            codec_name="json",
             strict_json=None,
             json_schema="{}",
             decode=RefDecode("A"),
@@ -2769,7 +2672,6 @@ class TestIrExecValidation:
 
         cid = ContractId(value=0)
         contract = JsonContractRequest(
-            codec_name="json",
             strict_json=None,
             json_schema="{}",
             decode=RefDecode("A"),

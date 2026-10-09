@@ -124,7 +124,7 @@ def test_graph_lowering_trusts_the_artifact_that_already_validated_itself(
 
     # ... and not re-checked by lowering, which never repeats the check.
     object.__setattr__(compiled, "sites_by_module", corrupt)
-    assert lower_program(compiled).symbols
+    assert lower_program(compiled, contract_payloads={}).symbols
 
 
 def test_repl_entry_lowering_trusts_the_artifact_that_already_validated_itself() -> None:
@@ -140,7 +140,9 @@ def test_repl_entry_lowering_trusts_the_artifact_that_already_validated_itself()
         MatchCompiledProgram(compiled.checked, {**compiled.sites_by_module, ENTRY_ID: corrupt})
 
     object.__setattr__(compiled, "sites_by_module", {**compiled.sites_by_module, ENTRY_ID: corrupt})
-    entry = lower_repl_program(compiled, image=LinkImage(), source_text=source)
+    entry = lower_repl_program(
+        compiled, image=LinkImage(), source_text=source, contract_payloads={}
+    )
     assert entry.program.symbols
 
 
@@ -158,6 +160,7 @@ def test_repl_entry_lowering_does_not_validate_ir_when_disabled(
         _compiled_inline_program(_SOURCE, default_stdlib=False),
         image=_broken_image(),
         source_text=_SOURCE,
+        contract_payloads={},
     )
 
     # Returned rather than rejected, even though the IR is structurally invalid.
@@ -173,6 +176,7 @@ def test_repl_entry_lowering_validates_ir_when_enabled() -> None:
             _compiled_inline_program(_SOURCE, default_stdlib=False),
             image=_broken_image(),
             source_text=_SOURCE,
+            contract_payloads={},
         )
 
 
@@ -197,7 +201,7 @@ def test_production_match_compilation_takes_the_unvalidated_path(
     program_result = compile_program_matches(check_program(resolve_program(graph), base_caps()))
     assert isinstance(program_result.compiled, MatchCompiledProgram)
 
-    lowered = lower_program(program_result.compiled)
+    lowered = lower_program(program_result.compiled, contract_payloads={})
     assert lowered.symbols
 
 
@@ -206,7 +210,9 @@ def test_lowering_does_not_validate_ir_when_disabled(
 ) -> None:
     """Production lowering trusts its own output: structural IR validation is test-only."""
     program = lower_program(
-        _compiled_inline_program(_SOURCE, default_stdlib=False), _link=_broken_link()
+        _compiled_inline_program(_SOURCE, default_stdlib=False),
+        _link=_broken_link(),
+        contract_payloads={},
     )
 
     # Returned rather than rejected, even though the IR is structurally invalid.
@@ -218,7 +224,11 @@ def test_lowering_does_not_validate_ir_when_disabled(
 def test_lowering_validates_ir_when_enabled() -> None:
     """With the flag on (the suite default), every lowering is an IR invariant oracle."""
     with pytest.raises(InvalidIrError):
-        lower_program(_compiled_inline_program(_SOURCE, default_stdlib=False), _link=_broken_link())
+        lower_program(
+            _compiled_inline_program(_SOURCE, default_stdlib=False),
+            _link=_broken_link(),
+            contract_payloads={},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +484,7 @@ def test_closed_output_covers_explicit_builtin_targets() -> None:
     type-bearing side table.
     """
     checked = resolve_and_check_inline_entry(_SOURCE, base_caps())
-    leaked = replace(checked, explicit_builtin_targets={-1: InferenceVarType("leak")})
+    leaked = replace(checked, explicit_builtin_targets={-1: InferenceVarType()})
 
     with pytest.raises(AssertionError, match="inference variable leaked"):
         assert_checked_module_closed(leaked)

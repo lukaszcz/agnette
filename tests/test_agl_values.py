@@ -248,7 +248,8 @@ def test_values_equal_diamond_short_circuit_bounded_calls(
     fails fast rather than hanging even if the fast path regresses.
     """
     import agnette.agl.semantics.values as values_module
-    from agnette.agl.semantics.values import IntValue, NominalId, RecordValue, Value
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.semantics.values import IntValue, RecordValue, Value
 
     nominal = NominalId(1)
     depth = 32
@@ -305,7 +306,8 @@ def test_record_value_eq() -> None:
     A record naming a different declaration is NOT equal, whether or not the
     two declarations render under the same spelling.
     """
-    from agnette.agl.semantics.values import IntValue, NominalId, RecordValue
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.semantics.values import IntValue, RecordValue
 
     nom_a = NominalId(1)
     nom_b = NominalId(2)
@@ -324,7 +326,8 @@ def test_record_value_eq() -> None:
 
 def test_constructor_value_eq_and_hash() -> None:
     """ConstructorValue equality considers its record nominal."""
-    from agnette.agl.semantics.values import ConstructorValue, NominalId
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.semantics.values import ConstructorValue
 
     nom_a = NominalId(1)
     nom_b = NominalId(2)
@@ -344,7 +347,8 @@ def test_constructor_value_eq_and_hash() -> None:
 
 def test_record_value_eq_with_json_payload() -> None:
     """RecordValue equality is consistent with JsonValue eq (numerically equal payloads)."""
-    from agnette.agl.semantics.values import JsonValue, NominalId, RecordValue
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.semantics.values import JsonValue, RecordValue
 
     nom = NominalId(1)
     r1 = RecordValue(nominal=nom, fields={"v": JsonValue(1)})
@@ -360,7 +364,8 @@ def test_record_value_eq_with_json_payload() -> None:
 
 def test_enum_value_eq() -> None:
     """RecordValue equality considers member nominal identity and fields."""
-    from agnette.agl.semantics.values import NominalId, RecordValue
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.semantics.values import RecordValue
 
     nom_color = NominalId(1)
     nom_shape = NominalId(2)
@@ -384,7 +389,8 @@ def test_enum_value_eq() -> None:
 
 def test_exception_value_eq() -> None:
     """ExceptionValue equality considers nominal identity and fields."""
-    from agnette.agl.semantics.values import ExceptionValue, NominalId, TextValue
+    from agnette.agl.ir.ids import NominalId
+    from agnette.agl.semantics.values import ExceptionValue, TextValue
 
     nom_err = NominalId(1)
     nom_err2 = NominalId(2)
@@ -400,8 +406,9 @@ def test_exception_value_eq() -> None:
 
 def test_builtin_exception_value_uses_std_core_id() -> None:
     """Built-in exception values carry the reserved NominalId for their name."""
+    from agnette.agl.ir.ids import NominalId
     from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
-    from agnette.agl.semantics.values import ExceptionValue, NominalId, TextValue
+    from agnette.agl.semantics.values import ExceptionValue, TextValue
 
     exc = ExceptionValue(
         nominal=NominalId(require_reserved_nominal_id("AgentParseError")),
@@ -467,12 +474,12 @@ def test_array_dict_record_enum_exception_are_genuinely_unhashable() -> None:
 
 def test_array_dict_record_enum_exception_hash_raises() -> None:
     """Every mutable-payload value type raises TypeError on hash() — never a stable hash."""
+    from agnette.agl.ir.ids import NominalId
     from agnette.agl.semantics.values import (
         ArrayValue,
         DictValue,
         ExceptionValue,
         IntValue,
-        NominalId,
         RecordValue,
         TextValue,
     )

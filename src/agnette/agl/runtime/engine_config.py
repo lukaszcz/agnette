@@ -20,9 +20,6 @@ if TYPE_CHECKING:
     from agnette.agl.semantics.values import Value
 
 __all__ = [
-    "build_engine_config_seeds",
-    "convert_config_value",
-    "convert_host_value",
     "engine_default_settings",
     "EngineRangeError",
     "raw_option_str",
@@ -83,7 +80,7 @@ def _restamp_value_tree(
         if member_name is None
         else to_table.resolve_standard_member(name, member_name)
     )
-    return RecordValue(nominal=target.nominal, fields=fields)
+    return RecordValue(nominal=target, fields=fields)
 
 
 def _restamp_host_enum_member(
@@ -106,7 +103,7 @@ def _restamp_host_enum_member(
     """
     for member_name in member_names:
         source = from_table.resolve_standard_member(enum_name, member_name)
-        if value.nominal == source.nominal:
+        if value.nominal == source:
             restamped = _restamp_value_tree(value, from_table=from_table, to_table=to_table)
             assert isinstance(restamped, RecordValue)
             return restamped

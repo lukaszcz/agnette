@@ -834,7 +834,7 @@ class TestSessionExists:
     ) -> None:
         calls = self._record_tmux(monkeypatch, returncode=0)
 
-        assert session_exists("proj/feature", cwd=tmp_path) is True
+        assert session_exists("proj/feature", cwd=tmp_path, env={}) is True
         assert calls[0][:2] == ["tmux", "has-session"]
 
     def test_absent_session_is_reported_missing(
@@ -842,7 +842,7 @@ class TestSessionExists:
     ) -> None:
         self._record_tmux(monkeypatch, returncode=1)
 
-        assert session_exists("proj/feature", cwd=tmp_path) is False
+        assert session_exists("proj/feature", cwd=tmp_path, env={}) is False
 
     def test_require_session_absent_passes_when_no_session_runs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -161,7 +161,7 @@ class _Session(requests.Session):
             del headers["Authorization"]
 
 
-def open_session() -> requests.Session:
+def open_session() -> _Session:
     """Build a pooled session for one interpreter run.
 
     Honours environment proxy variables and the CA-bundle variables
@@ -263,7 +263,6 @@ class StreamedResponse:
     method: str
     cookies: dict[str, str]
     elapsed: float
-    encoding: str
     body_sha256: str
 
 
@@ -355,7 +354,7 @@ def _validate_cookies(cookies: Mapping[str, str]) -> str:
 
 
 def perform(
-    session: requests.Session, spec: RequestSpec, *, on_headers: Callable[[], None] | None = None
+    session: _Session, spec: RequestSpec, *, on_headers: Callable[[], None] | None = None
 ) -> StreamedResponse:
     """Send *spec* through *session* and stream its body per ``spec.receive``.
 
@@ -403,8 +402,7 @@ def perform(
         )
         prepared = session.prepare_request(request)
         prepared.method = spec.method
-        if isinstance(session, _Session):
-            session.track_caller_cookies(prepared, caller_cookie_header)
+        session.track_caller_cookies(prepared, caller_cookie_header)
         settings = session.merge_environment_settings(prepared.url, {}, True, spec.verify_tls, None)
         with _insecure_warning_suppressed(spec.verify_tls):
             response = session.send(
@@ -436,7 +434,6 @@ def perform(
         method=final_method,
         cookies=cookies,
         elapsed=elapsed,
-        encoding=body.encoding,
         body_sha256=body.sha256,
     )
 
@@ -457,7 +454,6 @@ class _Body:
 
     text: str = ""
     byte_count: int = 0
-    encoding: str = ""
     sha256: str = ""
 
 
@@ -488,7 +484,7 @@ def _consume(response: requests.Response, receive: ReceiveSpec, method: str) -> 
             encoding=encoding,
             url=response.url,
         ) from exc
-    return _Body(text=text, byte_count=len(data), encoding=encoding)
+    return _Body(text=text, byte_count=len(data))
 
 
 def _save(response: requests.Response, receive: Save) -> _Body:

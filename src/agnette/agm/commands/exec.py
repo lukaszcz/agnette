@@ -24,7 +24,7 @@ def run(args: ExecArgs) -> None:
     """
     try:
         if args.file is not None and is_installed_reference(args.file, code=args.code):
-            exec_program.run_registered(args.file, args.argument_tokens, args=args)
+            exec_program.run_registered(args.file, args=args)
             return
         exec_program.run(args)
     except ProgramHelpRequested as exc:

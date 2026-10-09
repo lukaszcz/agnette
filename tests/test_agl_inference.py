@@ -147,8 +147,8 @@ class TestUnification:
 
     def test_flexible_variables_merge_and_solve_to_a_rigid(self) -> None:
         engine = InferenceEngine()
-        first = engine.fresh("T")
-        second = engine.fresh("T")
+        first = engine.fresh()
+        second = engine.fresh()
         engine.unify(second, first, _origin(engine, 1))
         engine.unify(TypeVarType("T"), second, _origin(engine, 2))
 
@@ -157,11 +157,11 @@ class TestUnification:
 
     def test_structural_unification_descends_to_flexible_children(self) -> None:
         engine = InferenceEngine()
-        array_variable = engine.fresh("array")
-        dict_variable = engine.fresh("dict")
-        function_variable = engine.fresh("function")
-        record_variable = engine.fresh("record")
-        enum_variable = engine.fresh("enum")
+        array_variable = engine.fresh()
+        dict_variable = engine.fresh()
+        function_variable = engine.fresh()
+        record_variable = engine.fresh()
+        enum_variable = engine.fresh()
 
         engine.unify(ArrayType(array_variable), ArrayType(IntType()), _origin(engine, 1))
         engine.unify(
@@ -198,7 +198,7 @@ class TestUnification:
     def test_structural_unification_descends_into_dict_key(self) -> None:
         # The key is a flexible child too, unified independently of the value.
         engine = InferenceEngine()
-        key_variable = engine.fresh("key")
+        key_variable = engine.fresh()
 
         engine.unify(
             DictType(key_variable, TextType()), DictType(IntType(), TextType()), _origin(engine, 1)
@@ -259,7 +259,7 @@ class TestUnification:
         )
         table.register(tree)
         engine = InferenceEngine(table)
-        value_type = RecordType("Leaf", (engine.fresh("T"),), scope_path=("Tree",), decl_id=1)
+        value_type = RecordType("Leaf", (engine.fresh(),), scope_path=("Tree",), decl_id=1)
 
         engine.unify(value_type, tree.handle((IntType(),)), _origin(engine, 1))
 
@@ -279,21 +279,21 @@ class TestUnification:
         self, wrap: Callable[[InferenceVarType], Type]
     ) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
 
         with pytest.raises(InferenceError, match="infinite"):
             engine.unify(variable, wrap(variable), _origin(engine, 1))
 
     def test_occurs_check_never_expands_nominal_definitions(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         with pytest.raises(InferenceError):
             engine.unify(variable, RecordType("Recursive", (variable,)), _origin(engine, 1))
 
     def test_equal_flexible_variables_retain_evidence(self) -> None:
         """A self-unify doesn't erase prior evidence, but never outranks a real binding."""
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         touch = _origin(engine, 1)
         binding = _origin(engine, 2)
         engine.unify(variable, variable, touch)
@@ -306,7 +306,7 @@ class TestUnification:
 
     def test_bottom_succeeds_without_solving_a_flexible_variable(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         engine.unify(variable, BottomType(), _origin(engine, 1))
         engine.unify(BottomType(), ArrayType(variable), _origin(engine, 2))
 
@@ -317,8 +317,8 @@ class TestUnification:
 class TestContextCompletion:
     def test_context_fills_only_unresolved_representatives(self) -> None:
         engine = InferenceEngine()
-        first = engine.fresh("T")
-        second = engine.fresh("U")
+        first = engine.fresh()
+        second = engine.fresh()
         engine.complete_from_context(
             FunctionType((ArrayType(first),), DictType(TextType(), second)),
             FunctionType((ArrayType(IntType()),), DictType(TextType(), TextType())),
@@ -340,7 +340,7 @@ class TestContextCompletion:
         )
         table.register(tree)
         engine = InferenceEngine(table)
-        value_type = RecordType("Leaf", (engine.fresh("T"),), scope_path=("Tree",), decl_id=1)
+        value_type = RecordType("Leaf", (engine.fresh(),), scope_path=("Tree",), decl_id=1)
 
         engine.complete_from_context(value_type, tree.handle((IntType(),)), _origin(engine, 1))
 
@@ -353,7 +353,7 @@ class TestContextCompletion:
 
     def test_context_never_overrides_actual_equality_evidence(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         engine.unify(variable, IntType(), _origin(engine, 1))
         engine.complete_from_context(variable, TextType(), _origin(engine, 2))
 
@@ -361,7 +361,7 @@ class TestContextCompletion:
 
     def test_context_ignores_mismatched_shapes_and_bottom(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         engine.complete_from_context(
             ArrayType(variable), DictType(TextType(), IntType()), _origin(engine, 1)
         )
@@ -371,11 +371,11 @@ class TestContextCompletion:
 
     def test_context_recurses_through_each_matching_shape(self) -> None:
         engine = InferenceEngine()
-        array_variable = engine.fresh("array")
-        dict_variable = engine.fresh("dict")
-        function_variable = engine.fresh("function")
-        record_variable = engine.fresh("record")
-        enum_variable = engine.fresh("enum")
+        array_variable = engine.fresh()
+        dict_variable = engine.fresh()
+        function_variable = engine.fresh()
+        record_variable = engine.fresh()
+        enum_variable = engine.fresh()
         engine.complete_from_context(
             ArrayType(array_variable), ArrayType(IntType()), _origin(engine, 1)
         )
@@ -411,7 +411,7 @@ class TestContextCompletion:
     def test_context_recurses_into_dict_key(self) -> None:
         # The key is completed from context independently of the value.
         engine = InferenceEngine()
-        key_variable = engine.fresh("key")
+        key_variable = engine.fresh()
         engine.complete_from_context(
             DictType(key_variable, TextType()), DictType(IntType(), TextType()), _origin(engine, 1)
         )
@@ -420,8 +420,8 @@ class TestContextCompletion:
 
     def test_context_ignores_recursive_or_incompatible_matching_shapes(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
-        other = engine.fresh("U")
+        variable = engine.fresh()
+        other = engine.fresh()
         engine.complete_from_context(variable, other, _origin(engine, 1))
         engine.complete_from_context(variable, variable, _origin(engine, 2))
         engine.complete_from_context(variable, ArrayType(variable), _origin(engine, 3))
@@ -442,7 +442,7 @@ class TestContextCompletion:
             _origin(engine, 6),
         )
         engine.complete_from_context(
-            EnumType("One", (engine.fresh("V"),), decl_id=1),
+            EnumType("One", (engine.fresh(),), decl_id=1),
             EnumType("Two", (IntType(),), decl_id=2),
             _origin(engine, 7),
         )
@@ -593,8 +593,8 @@ def test_qualified_generic_member_infers_without_shadowing_a_bare_builtin() -> N
 class TestFinalizationAndProvenance:
     def test_solved_query_rejects_nested_unresolved_solution(self) -> None:
         engine = InferenceEngine()
-        result = engine.fresh("result")
-        element = engine.fresh("element")
+        result = engine.fresh()
+        element = engine.fresh()
         engine.unify(result, ArrayType(element), _origin(engine, 1))
 
         assert engine.is_solved(result) is False
@@ -605,9 +605,9 @@ class TestFinalizationAndProvenance:
 
     def test_zonk_compresses_links_and_rebuilds_nested_types(self) -> None:
         engine = InferenceEngine()
-        first = engine.fresh("T")
-        second = engine.fresh("U")
-        third = engine.fresh("V")
+        first = engine.fresh()
+        second = engine.fresh()
+        third = engine.fresh()
         engine.unify(first, second, _origin(engine, 1))
         engine.unify(second, third, _origin(engine, 2))
         engine.unify(third, IntType(), _origin(engine, 3))
@@ -620,7 +620,7 @@ class TestFinalizationAndProvenance:
 
     def test_requirements_and_leak_assertions_are_owned_and_reusable(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         requirement = _origin(engine, 1, subject="id", type_param="T")
         engine.require_solved(variable, requirement)
 
@@ -636,8 +636,8 @@ class TestFinalizationAndProvenance:
 
     def test_requirement_rejects_a_solution_with_nested_unresolved_variables(self) -> None:
         engine = InferenceEngine()
-        outer = engine.fresh("T")
-        inner = engine.fresh("U")
+        outer = engine.fresh()
+        inner = engine.fresh()
         engine.unify(outer, ArrayType(inner), _origin(engine, 1))
         engine.require_solved(outer, _origin(engine, 2, type_param="T"))
 
@@ -648,7 +648,7 @@ class TestFinalizationAndProvenance:
 
     def test_mismatch_uses_failing_origin_and_earliest_related_evidence(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         first = _origin(engine, 10, subject="id", type_param="T")
         second = _origin(engine, 20, subject="id", type_param="T")
         engine.unify(variable, IntType(), first)
@@ -668,8 +668,8 @@ class TestFinalizationAndProvenance:
     ) -> None:
         """An earlier variable-variable merge never outranks the later concrete binding."""
         engine = InferenceEngine()
-        variable = engine.fresh("T")
-        other = engine.fresh("U")
+        variable = engine.fresh()
+        other = engine.fresh()
         merge = _origin(engine, 1, subject="merge", type_param="T")
         binding = _origin(engine, 2, subject="id", type_param="T")
         engine.unify(variable, other, merge)
@@ -685,8 +685,8 @@ class TestFinalizationAndProvenance:
     ) -> None:
         """With no binding evidence at all, the related note cites the earliest touch."""
         engine = InferenceEngine()
-        x = engine.fresh("T")
-        y = engine.fresh("U")
+        x = engine.fresh()
+        y = engine.fresh()
         merge = _origin(engine, 1, subject="m", type_param="T")
         engine.unify(x, y, merge)
 
@@ -698,7 +698,7 @@ class TestFinalizationAndProvenance:
     def test_conflict_related_note_cites_the_builtin_default_role(self) -> None:
         """A conflict against an applied builtin default cites the ``BUILTIN_DEFAULT`` role."""
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         default = _origin(engine, 1, role=ConstraintRole.BUILTIN_DEFAULT, subject="exec")
         engine.unify(variable, TextType(), default)
 
@@ -710,7 +710,7 @@ class TestFinalizationAndProvenance:
 
     def test_colliding_external_origin_sequences_keep_both_provenance_records(self) -> None:
         engine = InferenceEngine()
-        variable = engine.fresh("T")
+        variable = engine.fresh()
         first = ConstraintOrigin(_span(1), 0, ConstraintRole.FUNCTION_ARGUMENT, "first", "T")
         second = ConstraintOrigin(_span(2), 0, ConstraintRole.FUNCTION_ARGUMENT, "second", "T")
         engine.unify(variable, IntType(), first)

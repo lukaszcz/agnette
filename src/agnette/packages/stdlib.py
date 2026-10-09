@@ -38,8 +38,6 @@ class StdlibVersionMismatchError(StdlibResolutionError):
     """Raised when the active store ``std`` version differs from AgM's version."""
 
     def __init__(self, installed_version: str, running_version: str) -> None:
-        self.installed_version = installed_version
-        self.running_version = running_version
         super().__init__(
             f"Active std package version {installed_version} does not match running AgM version "
             f"{running_version}. Re-run `just install` to install the matching std package."

@@ -22,7 +22,6 @@ from agnette.util.decimal import parse_json_decimal, reject_json_constant
 __all__ = [
     "LoneSurrogateError",
     "holds_surrogate",
-    "json_object_unique",
     "loads_exact_json",
     "loads_json",
     "require_scalar_text",

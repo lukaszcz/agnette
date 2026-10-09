@@ -332,9 +332,9 @@ def _write_shell_files(
     zsh_dir = shell_dir / "zsh"
     bash_dir = shell_dir / "bash"
     sh_dir = shell_dir / "sh"
-    mkdir(zsh_dir, parents=True, exist_ok=True)
-    mkdir(bash_dir, parents=True, exist_ok=True)
-    mkdir(sh_dir, parents=True, exist_ok=True)
+    mkdir(zsh_dir)
+    mkdir(bash_dir)
+    mkdir(sh_dir)
     write_text(zsh_dir / ".zshenv", _zshenv_body())
     write_text(
         zsh_dir / ".zshrc",
@@ -401,7 +401,7 @@ def ensure_workspace_shell(
     shell_dir = workspace_shell_dir(session_name)
     if shell_dir.exists():
         rmtree(shell_dir)
-    mkdir(shell_dir, parents=True, exist_ok=True)
+    mkdir(shell_dir)
     wrapper_path = shell_dir / WRAPPER_NAME
     real_shell = _real_shell(env=env)
     _write_shell_files(

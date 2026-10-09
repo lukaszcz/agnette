@@ -58,7 +58,6 @@ __all__ = [
     "ArgumentBindingError",
     "ArgumentBindingErrorKind",
     "BindParam",
-    "ParamZone",
     "bind_arguments",
     "positional_field_names",
 ]

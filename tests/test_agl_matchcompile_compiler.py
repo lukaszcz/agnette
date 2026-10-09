@@ -15,7 +15,13 @@ import pytest
 import agnette.agl.matchcompile.compiler as compiler_module
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
-from agnette.agl.matchcompile import (
+from agnette.agl.matchcompile.compiler import (
+    CompiledMatchSite,
+    compile_match_site,
+    validate_compiled_case,
+    validate_decision_dag,
+)
+from agnette.agl.matchcompile.diagnostics import (
     BoolWitness,
     ConstructorWitness,
     LiteralWitness,
@@ -26,12 +32,6 @@ from agnette.agl.matchcompile import (
     WildcardWitness,
     WitnessField,
     render_witness,
-)
-from agnette.agl.matchcompile.compiler import (
-    CompiledMatchSite,
-    compile_match_site,
-    validate_compiled_case,
-    validate_decision_dag,
 )
 from agnette.agl.matchcompile.matrix import (
     OccurrenceAllocator,
@@ -66,10 +66,8 @@ from agnette.agl.semantics.types import EnumType, IntType, RecordType, Type
 from agnette.agl.semantics.values import BoolValue, RecordValue, Value
 from agnette.agl.syntax.nodes import Case
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck import (
-    CheckedModule,
-    check_program,
-)
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.match_reference import enum_variant_members, reference_action
 from tests.agl.module_graph import resolve_and_check_inline_entry

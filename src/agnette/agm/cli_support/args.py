@@ -177,7 +177,6 @@ class CheckArgs:
 class ExecutionOptionValues(Protocol):
     """Execution options shared by commands that run AgL programs."""
 
-    echo: bool | None
     strict_json: bool | None
     default_agent: str | None
     default_sandbox: str | None

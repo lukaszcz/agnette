@@ -7,7 +7,7 @@ import pytest
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.semantics.types import TextType
 from agnette.agl.syntax.nodes import Call, LetDecl
-from agnette.agl.typecheck import AglTypeError, CheckedModule
+from agnette.agl.typecheck.env import AglTypeError, CheckedModule
 from tests.agl.module_graph import resolve_and_check_repl_entry
 
 _CAPABILITIES = HostCapabilities(

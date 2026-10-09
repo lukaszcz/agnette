@@ -294,7 +294,6 @@ class ReplSession:
         stdlib_root: "Path | None" = None,
         lib_root: "Path | None" = None,
         configured_roots: "Iterable[tuple[str, Path]]" = (),
-        extra_cli_roots: "Iterable[str]" = (),
         package_roots: "Iterable[PackageInfo]" = (),
         default_stdlib: bool = True,
     ) -> None:
@@ -446,7 +445,6 @@ class ReplSession:
         self._stdlib_root: Path | None = stdlib_root
         self._lib_root: Path | None = lib_root
         self._configured_roots: tuple[tuple[str, Path], ...] = tuple(configured_roots)
-        self._extra_cli_roots: tuple[str, ...] = tuple(extra_cli_roots)
         self._package_roots: tuple[PackageInfo, ...] = tuple(package_roots)
         # Lazily assembled RootSet (set directly in tests via s._roots = ...).
         self._roots: RootSet | None = None
@@ -514,7 +512,7 @@ class ReplSession:
             stdlib_root=self._stdlib_root,
             lib_root=self._lib_root,
             configured=self._configured_roots,
-            cli=self._extra_cli_roots,
+            cli=(),
             cwd=cwd,
             package_roots=self._package_roots,
         )
@@ -1248,7 +1246,6 @@ class ReplSession:
         installed = (
             self._installed_report(
                 program,
-                checked,
                 promoted_binding_node_ids=promoted_binding_node_ids,
                 promoted_type_names=frozenset(
                     name for path, name in promoted_type_name_paths if not path
@@ -1379,7 +1376,6 @@ class ReplSession:
     @staticmethod
     def _installed_report(
         program: "Program",
-        checked: "CheckedModule",
         *,
         promoted_binding_node_ids: set[int],
         promoted_type_names: frozenset[str],
@@ -1676,7 +1672,7 @@ class ReplSession:
                 return f"{name} is a value.\n{_format_info_section('Type', repr(binding_type))}"
             value = slot.value if isinstance(slot, Cell) else slot
             rendered = _render_value_or_cyclic_message(
-                value, self.descriptors(), pretty=True, quote_strings=True
+                value, self.descriptors(), quote_strings=True
             )
             keyword = "var" if ref.mutable else "let"
             return "\n".join(

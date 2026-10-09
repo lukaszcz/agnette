@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.diagnostics import AglError, HiddenMemberError
-from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.symbols import AglScopeError
 from tests._agl_helpers import check_agl_program
 
 _LIBRARIES = {

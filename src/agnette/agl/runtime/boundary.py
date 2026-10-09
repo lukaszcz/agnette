@@ -317,8 +317,6 @@ class _AglNominal:
 
     __slots__ = ("_agl_values",)
     _agl_values: dict[str, object]
-    _agl_nominal: NominalId
-    _agl_kind: NominalKind
     _agl_fields: tuple[str, ...]
     _agl_field_set: frozenset[str]
     _agl_descriptor: NominalDescriptor
@@ -399,8 +397,6 @@ class _AglRecordView:
     __slots__ = ("_agl_value", "_agl_descriptors")
     _agl_value: RecordValue
     _agl_descriptors: ValueDescriptors
-    _agl_nominal: NominalId
-    _agl_kind: NominalKind
     _agl_fields: tuple[str, ...]
     _agl_field_set: frozenset[str]
     _agl_descriptor: NominalDescriptor
@@ -474,7 +470,6 @@ class _AglEnum:
     """
 
     __slots__ = ()
-    _agl_nominal: NominalId
 
 
 def _nominal_class_name(descriptor: NominalDescriptor) -> str:
@@ -484,8 +479,6 @@ def _nominal_class_name(descriptor: NominalDescriptor) -> str:
 def _nominal_attrs(descriptor: NominalDescriptor) -> dict[str, object]:
     """Return the class-level attributes shared by every synthesized nominal shape."""
     return {
-        "_agl_nominal": descriptor.nominal,
-        "_agl_kind": descriptor.kind,
         "_agl_fields": descriptor.fields,
         # Kept alongside the ordered tuple so a companion-side construction
         # checks its keyword names without building a set per instance.
@@ -540,7 +533,7 @@ def _create_enum(
         type(
             name,
             (cast(type[object], _AglEnum),),
-            _class_namespace({"_agl_nominal": descriptor.nominal}),
+            _class_namespace({}),
         ),
     )
     for variant in descriptor.variants:

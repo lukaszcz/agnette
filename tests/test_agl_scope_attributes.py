@@ -17,8 +17,9 @@ import pytest
 
 from agnette.agl.attributes import ProgramOptionSpec, ProgramRegistration
 from agnette.agl.parser.parser import parse_program_seeded
-from agnette.agl.scope import AglScopeError, ModuleResolution, recognize_program_registration
+from agnette.agl.scope import ModuleResolution, recognize_program_registration
 from agnette.agl.scope.attributes import recognize_attributes
+from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.syntax.module_constants import ModuleConstants
 from agnette.agl.syntax.nodes import (
     Attribute,
@@ -529,13 +530,7 @@ class TestDocumentationTexts:
 
 
 class TestCommandRegistrations:
-    """``@command``, keyed by the program it registers, carrying that program's ``@doc``."""
-
-    def test_the_registered_path_reaches_the_fact_table(self) -> None:
-        resolution = resolve_entry('@command("devel review")\nprogram def main() -> unit = ()\n')
-
-        program = _program(resolution, "main")
-        assert resolution.attributes.command_registrations[program.node_id] == "devel review"
+    """``@command`` validation, and a registered program's ``@doc``."""
 
     def test_a_registered_program_documents_itself_like_any_other(self) -> None:
         resolution = resolve_entry(
@@ -544,31 +539,18 @@ class TestCommandRegistrations:
 
         program = _program(resolution, "main")
         assert resolution.attributes.docs[program.node_id] == "Change review"
-        assert resolution.attributes.command_registrations[program.node_id] == "audit"
 
-    def test_documentation_alone_registers_no_command(self) -> None:
-        resolution = resolve_entry('@doc("Change review")\nprogram def main() -> unit = ()\n')
-
-        assert resolution.attributes.command_registrations == {}
-
-    def test_an_unregistered_program_has_no_entry(self) -> None:
-        resolution = resolve_entry("program def main() -> unit = ()\n")
-
-        assert resolution.attributes.command_registrations == {}
-
-    def test_a_program_in_a_scope_region_is_registered(self) -> None:
-        resolution = resolve_entry(
-            "scope Tools\n"
-            "\n"
-            '  @command("devel review")\n'
-            "  program def run() -> unit = ()\n"
-            "end Tools\n"
-            "\n"
-            "program def main() -> unit = ()\n"
-        )
-
-        program = _program(resolution, "run")
-        assert resolution.attributes.command_registrations[program.node_id] == "devel review"
+    def test_a_malformed_path_in_a_scope_region_is_rejected(self) -> None:
+        with pytest.raises(AglScopeError, match="Command path"):
+            resolve_entry(
+                "scope Tools\n"
+                "\n"
+                '  @command(" bad")\n'
+                "  program def run() -> unit = ()\n"
+                "end Tools\n"
+                "\n"
+                "program def main() -> unit = ()\n"
+            )
 
     @pytest.mark.parametrize("path", ("", "   ", "devel  review", "devel\treview"))
     def test_a_path_that_is_not_space_separated_words_is_rejected(self, path: str) -> None:

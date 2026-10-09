@@ -27,6 +27,7 @@ from agnette.packages.activation import (
     merge_package_commands,
     package_provenance_path,
     resolve_active_package,
+    resolve_indexed_packages,
     select_active_packages,
     select_package_roots,
     write_activation_index,
@@ -235,31 +236,6 @@ def test_effective_command_index_reconciles_cached_immutable_command_priority(
     assert effective_command_index(home=home, proj_dir=None, cwd=tmp_path, env=env).commands == {
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
-
-
-def test_effective_command_index_reuses_a_preresolved_index(tmp_path: Path) -> None:
-    """A caller that already loaded the activation index can hand it back in."""
-    home = tmp_path / "agm-home"
-    _write_package(home, "alpha", "1.0.0")
-    env = {"AGM_HOME": str(home)}
-    write_activation_index(
-        ActivationIndex(
-            {"alpha": ActivePackage(semver.Version.parse("1.0.0"), registration_order=1)}
-        ),
-        home=home,
-        env=env,
-    )
-    supplied = ActivationIndex(
-        {"alpha": ActivePackage(semver.Version.parse("1.0.0"), registration_order=99)}
-    )
-
-    result = effective_command_index(
-        home=home, proj_dir=None, cwd=tmp_path, env=env, index=supplied
-    )
-
-    # The supplied index's registration order wins, proving it was used
-    # directly instead of the differing persisted index being reloaded.
-    assert result.packages["alpha"].registration_order == 99
 
 
 def test_effective_command_index_uses_live_editable_manifest_commands(tmp_path: Path) -> None:
@@ -571,7 +547,10 @@ def test_command_shadow_diagnostics_and_registry_merge_are_deterministic(tmp_pat
         {"launch": CommandRegistration("alpha", "alpha/main::main")},
     )
 
-    diagnostics = command_shadow_diagnostics(index, home=home, env={"AGM_HOME": str(home)})
+    diagnostics = command_shadow_diagnostics(
+        index,
+        packages=resolve_indexed_packages(index, home=home, env={"AGM_HOME": str(home)}),
+    )
 
     assert diagnostics == {"bravo": (CommandShadow("launch", ("alpha", "charlie")),)}
     with pytest.raises(PackageActivationError, match="launch"):
@@ -1249,9 +1228,7 @@ def test_editable_package_source_command_conflict_falls_back_to_manifest_command
         env=env,
     )
 
-    (package,) = select_active_packages(
-        home=home, proj_dir=None, cwd=tmp_path, env=env, fallback_to_manifest_commands=True
-    )
+    (package,) = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
 
     assert package.manifest.commands == {"review": CommandSpec("alpha/other::main")}
 
@@ -1285,9 +1262,7 @@ def test_editable_package_with_an_unparsable_module_falls_back_to_manifest_comma
         env=env,
     )
 
-    (package,) = select_active_packages(
-        home=home, proj_dir=None, cwd=tmp_path, env=env, fallback_to_manifest_commands=True
-    )
+    (package,) = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
 
     assert package.manifest.commands == {"launch": CommandSpec("alpha/main::main")}
 
@@ -1609,13 +1584,7 @@ def test_editable_package_with_broken_source_drops_an_unsatisfiable_command_set(
     index = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=root)})
     write_activation_index(index, home=home, env=env)
 
-    commands = effective_command_index(
-        home=home,
-        proj_dir=None,
-        cwd=tmp_path,
-        env=env,
-        fallback_to_manifest_commands=True,
-    ).commands
+    commands = effective_command_index(home=home, proj_dir=None, cwd=tmp_path, env=env).commands
 
     assert commands == {}
 

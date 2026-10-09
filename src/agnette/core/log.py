@@ -84,18 +84,14 @@ class LiveTracePathResolver:
         if trace_file is None and self._auto_path is not None:
             path = self._auto_path
         else:
-            path = _log_file_path(
-                command_name=self._command_name,
-                log_file=trace_file,
-                extension=".jsonl",
-            )
+            path = _log_file_path(command_name=self._command_name, log_file=trace_file)
             if trace_file is None:
                 self._auto_path = path
-        mkdir(path.parent, parents=True, exist_ok=True)
+        mkdir(path.parent)
         return path
 
 
-def _log_file_path(*, command_name: str, log_file: str | None, extension: str) -> Path:
+def _log_file_path(*, command_name: str, log_file: str | None) -> Path:
     """Resolve the trace path for enabled logging — the always-a-path core."""
     if log_file is not None:
         resolved = Path(log_file)
@@ -104,7 +100,7 @@ def _log_file_path(*, command_name: str, log_file: str | None, extension: str) -
         return resolved
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     pid = os.getpid()
-    return default_agent_files_dir() / f"{command_name}-{timestamp}-{pid}{extension}"
+    return default_agent_files_dir() / f"{command_name}-{timestamp}-{pid}.jsonl"
 
 
 def prepare_trace_log(
@@ -125,13 +121,9 @@ def prepare_trace_log(
     """
     if not enabled:
         return None
-    log_path = _log_file_path(
-        command_name=command_name,
-        log_file=trace_file,
-        extension=".jsonl",
-    )
+    log_path = _log_file_path(command_name=command_name, log_file=trace_file)
     try:
-        mkdir(log_path.parent, parents=True, exist_ok=True)
+        mkdir(log_path.parent)
         write_text(log_path, "", encoding="utf-8")
     except OSError as exc:
         print(f"Error: cannot write trace log to {log_path}: {exc}", file=sys.stderr)
@@ -158,4 +150,4 @@ def append_jsonl(path: Path | None, record: Mapping[str, object]) -> None:
         return
     obj: dict[str, object] = {k: v for k, v in record.items()}
     line = json.dumps(obj, ensure_ascii=False) + "\n"
-    append_text(path, line, encoding="utf-8")
+    append_text(path, line)

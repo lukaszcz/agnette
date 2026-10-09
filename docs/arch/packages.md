@@ -24,16 +24,12 @@ Commands come from two equivalent sources:
 
 Each invocation derives its command registry from the selected manifests, so project pins affect dispatch, help, and completion. A command path may not start with a reserved AgM name (`command_catalog.py`); activation rejects path conflicts between packages unless installed with `--shadow`. Dispatch runs the program through the same host as `agm exec`, with the same parameter projection and precedence ([cli.md](cli.md)). An editable package re-scans its source when its commands are needed: operations that persist command state (install) fail on a scan error, while reads (dispatch, help, completion, `pkg sync`) fall back to the manifest's own commands.
 
-## Façade
-
-`agnette.packages` resolves its exports lazily, so model leaves are usable by AgL module loading without pulling in validation (which depends on AgL scope resolution) or the parser; reading package metadata loads no compiler code.
-
 ## Code Entry Points
 
 - `src/agnette/packages/manifest.py` — manifest schema, alias expansion, distribution-manifest view.
 - `src/agnette/packages/model.py`, `development.py`, `dependencies.py` — identity and version selection, development-package discovery, dependency closure.
 - `src/agnette/packages/discipline.py` — package validation; `source_commands.py` — `@command` scan and merge.
-- `src/agnette/packages/__init__.py` — lazy façade; `layout.py` — pure layout constants.
+- `src/agnette/packages/layout.py` — pure layout constants.
 - `src/agnette/agl/modules/roots.py`, `loader.py` — package-root mounting and import visibility.
 - `src/agnette/agm/commands/pkg/` — the package CLI; `src/agnette/agm/cli_dispatch.py`, `commands/exec_program.py` — registered-command dispatch and execution.
 - `packages/sysone/` — the repository's `sysone/jev` package (TypeSafe SDK companion), outside the coverage gates.

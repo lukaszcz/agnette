@@ -370,8 +370,8 @@ def _focus_command(session_name: str, env: dict[str, str]) -> list[str]:
 def session_exists(
     session_name: str,
     *,
+    env: dict[str, str],
     cwd: Path | None = None,
-    env: dict[str, str] | None = None,
 ) -> bool:
     """Return whether a tmux session named *session_name* is running."""
 
@@ -414,10 +414,10 @@ def require_session_absent(
 def focus_tmux_session(
     *,
     session_name: str,
-    cwd: Path | None = None,
+    cwd: Path,
     env: dict[str, str] | None = None,
 ) -> int:
-    current = Path.cwd() if cwd is None else cwd.resolve()
+    current = cwd.resolve()
     resolved_env = clone_env(env)
     command = _focus_command(session_name, resolved_env)
     if dry_run.enabled():

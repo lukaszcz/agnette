@@ -24,9 +24,6 @@ class TestIsInstalledReference:
     def test_inline_code_is_never_a_reference(self) -> None:
         assert is_installed_reference("pkg/mod::main", code="print 1") is False
 
-    def test_missing_file_argument_is_not_a_reference(self) -> None:
-        assert is_installed_reference(None, code=None) is False
-
     def test_no_separator_is_not_a_reference(self, tmp_path: Path) -> None:
         assert is_installed_reference(str(tmp_path / "missing.agl"), code=None) is False
 

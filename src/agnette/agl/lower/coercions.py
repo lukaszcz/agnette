@@ -19,23 +19,20 @@ and enum values are never recursed into. The whole rule:
 
 from __future__ import annotations
 
-from agnette.agl.ir.operations import AS_DECIMAL_OPERATION, Coercion, IntToDecimal, ToJson
+from agnette.agl.ir.operations import Coercion, IntToDecimal, ToJson
 from agnette.agl.semantics.types import DecimalType, IntType, JsonType, Type, is_scalar_json_shaped
 
 __all__ = ["compile_coercion"]
 
 
-def compile_coercion(
-    source: Type, target: Type, *, operation: str = AS_DECIMAL_OPERATION
-) -> Coercion | None:
+def compile_coercion(source: Type, target: Type, *, operation: str) -> Coercion | None:
     """Compile an implicit coercion from *source* to *target*.
 
     Returns a ``Coercion`` descriptor to be wrapped in an ``IrCoerce`` node, or
     ``None`` when no coercion node is needed (identity, or no implicit
     coercion exists for this pair). *operation* labels an ``IntToDecimal``
-    coercion's out-of-range error: the caller passes the triggering
-    operator for a mixed binary-operator operand, or leaves the default for
-    a cast or another implicit non-operator context.
+    coercion's out-of-range error: the triggering operator for a mixed
+    binary-operator operand, else ``AS_DECIMAL_OPERATION``.
     """
     if source == target:
         return None

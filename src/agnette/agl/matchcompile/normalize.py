@@ -390,14 +390,10 @@ def normalize_case(
 
 
 __all__ = [
-    "CheckedPatternOwner",
     "MatchCompileInvariantError",
     "constructor_inhabits_type",
-    "enum_constructor",
     "match_case_context",
     "normalize_case",
-    "normalize_pattern",
-    "pattern_cell_inhabits_type",
     "record_constructor",
     "signature_for_type",
 ]

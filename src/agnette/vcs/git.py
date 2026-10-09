@@ -23,9 +23,7 @@ class WorktreeInfo:
     branch: str | None
 
 
-def _git_args(repo_dir: Path | None = None) -> list[str]:
-    if repo_dir is None:
-        return ["git"]
+def _git_args(repo_dir: Path) -> list[str]:
     return ["git", "-C", str(repo_dir)]
 
 
@@ -117,12 +115,18 @@ def has_staged_changes(
     return returncode == 1
 
 
-def git_common_dir(cwd: Path | None = None) -> Path:
-    """Return the common git directory shared by the current worktree."""
+def git_common_dir(cwd: Path) -> Path:
+    """Return the common git directory shared by the worktree at *cwd*."""
 
-    current = Path.cwd() if cwd is None else cwd.resolve()
     common_dir = require_capture(
-        ["git", "-C", str(current), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        [
+            "git",
+            "-C",
+            str(cwd.resolve()),
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ],
     ).strip()
     return Path(common_dir)
 
@@ -377,7 +381,10 @@ def unique_remote_branch_ref(
 def default_remote_branch_ref(repo_dir: Path, *, env: dict[str, str] | None = None) -> str:
     """Return the local remote-tracking ref for origin's default branch."""
 
-    default_ref = symbolic_ref(repo_dir, "refs/remotes/origin/HEAD", env=env)
+    default_ref = require_capture(
+        [*_git_args(repo_dir), "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+        env=env,
+    ).strip()
     if default_ref:
         return default_ref
     print(
@@ -419,12 +426,6 @@ def create_tracking_branch(
         [*_git_args(repo_dir), "branch", "--track", branch, remote_branch],
         env=env,
     )
-
-
-def symbolic_ref(repo_dir: Path, ref: str, *, env: dict[str, str] | None = None) -> str:
-    return require_capture(
-        [*_git_args(repo_dir), "symbolic-ref", "--quiet", "--short", ref], env=env
-    ).strip()
 
 
 def ls_remote_head(repo_url: str, *, env: dict[str, str] | None = None) -> str:

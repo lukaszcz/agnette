@@ -8,7 +8,7 @@ import pytest
 
 from agnette.agl import PipelineDriver
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.parser import parse_program
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.pipeline import PreparedProgram
 from agnette.agl.semantics.types import ArrayType, DictType, IntType, TextType, TypeVarType
 from agnette.agl.syntax import FuncDef

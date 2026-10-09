@@ -1643,7 +1643,6 @@ class TestExecParsesSourceOnce:
             roots: RootSet,
             default_stdlib: bool = True,
             spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
-            default_label: str = "<repl>",
             source_text: str = "",
         ) -> tuple[ModuleGraph, int, dict[ModuleId, LoadedModule]]:
             nonlocal build_graph_calls
@@ -1656,7 +1655,6 @@ class TestExecParsesSourceOnce:
                 roots=roots,
                 default_stdlib=default_stdlib,
                 spaced_qualifiers=spaced_qualifiers,
-                default_label=default_label,
                 source_text=source_text,
             )
 

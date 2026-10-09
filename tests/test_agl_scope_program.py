@@ -289,7 +289,7 @@ class TestResolvedProgramShape:
         assert mylib_id in result.modules
 
     def test_pre_pass_tables_populated(self, tmp_path: Path) -> None:
-        """all_public_funcs and all_public_types are populated."""
+        """A module's function is among its exports."""
         graph = _make_graph_from_files(
             tmp_path,
             {
@@ -299,7 +299,7 @@ class TestResolvedProgramShape:
         )
         result = resolve_program(graph)
         mylib_id = ModuleId.from_path("mylib")
-        assert (mylib_id, "foo") in result.all_public_funcs
+        assert "foo" in result.modules[mylib_id].exports
 
     @pytest.mark.parametrize(
         "modules",
@@ -2298,8 +2298,8 @@ class TestTypeDeclarationsInModules:
         mylib_id = ModuleId.from_path("mylib")
         assert "Point" in result.modules[mylib_id].exports
 
-    def test_enum_in_module_in_pre_pass_tables(self, tmp_path: Path) -> None:
-        """An enum in a module is in all_public_types."""
+    def test_enum_in_module_exports(self, tmp_path: Path) -> None:
+        """An enum in a module is in exports."""
         graph = _make_graph_from_files(
             tmp_path,
             {
@@ -2309,7 +2309,7 @@ class TestTypeDeclarationsInModules:
         )
         result = resolve_program(graph)
         mylib_id = ModuleId.from_path("mylib")
-        assert (mylib_id, "Color") in result.all_public_types
+        assert "Color" in result.modules[mylib_id].exports
 
     def test_type_alias_in_module_exports(self, tmp_path: Path) -> None:
         """A type alias in a non-entry module is in exports."""
@@ -2323,7 +2323,6 @@ class TestTypeDeclarationsInModules:
         result = resolve_program(graph)
         mylib_id = ModuleId.from_path("mylib")
         assert "MyInt" in result.modules[mylib_id].exports
-        assert (mylib_id, "MyInt") in result.all_public_types
 
     def test_brace_tail_preserves_full_qualified_module_surface(self, tmp_path: Path) -> None:
         """A brace tail limits bare names, not qualified module members."""
@@ -2968,19 +2967,6 @@ class TestExceptionDefInGraph:
         result = resolve_program(graph)
         mylib_id = ModuleId.from_path("mylib")
         assert "MyErr" in result.modules[mylib_id].exports
-
-    def test_exception_in_all_public_types(self, tmp_path: Path) -> None:
-        """A public exception is in all_public_types."""
-        graph = _make_graph_from_files(
-            tmp_path,
-            {
-                "entry": "import mylib::*\n()",
-                "mylib": "exception MyErr\n  msg: text",
-            },
-        )
-        result = resolve_program(graph)
-        mylib_id = ModuleId.from_path("mylib")
-        assert (mylib_id, "MyErr") in result.all_public_types
 
     def test_exception_constructor_candidate_available(self, tmp_path: Path) -> None:
         """A glob-imported exception's name resolves to its constructor."""

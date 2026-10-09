@@ -76,7 +76,7 @@ def _run_request(
         if stdout_finalizer is not None:
             stdout_finalizer()
         call_info = AgentCallInfo(
-            argv=prepared.argv or [],
+            argv=prepared.argv,
             prompt_via_stdin=prepared.prompt_via_stdin,
             elapsed=result.elapsed,
             exit_code=result.returncode,
@@ -202,11 +202,11 @@ def agent_value(spec: AgentSpec, nominals: BuiltinNominals) -> RecordValue:
     """
     from agnette.agent.spec import payload_items
 
-    declared = nominals.resolve_standard_member("Agent", type(spec).__name__)
+    nominal = nominals.resolve_standard_member("Agent", type(spec).__name__)
     fields: dict[str, Value] = {
         name: TextValue(value) for name, value in payload_items(spec).items()
     }
-    return RecordValue(nominal=declared.nominal, fields=fields)
+    return RecordValue(nominal=nominal, fields=fields)
 
 
 def _text_field(value: RecordValue, name: str) -> str:

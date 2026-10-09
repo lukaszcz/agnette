@@ -142,7 +142,7 @@ def test_t3_structured_exec() -> None:
     assert isinstance(ir["r"], RecordValue)
     assert ir["r"].fields["exit-code"] == IntValue(1)
     program = lower_inline_ir(source, caps=shell_caps())
-    assert ir["r"].nominal == program.builtin_nominals.nominal("ExecResult")
+    assert ir["r"].nominal == program.builtin_nominals.resolve("ExecResult")
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +394,6 @@ def test_t11_exec_empty_parse_failure_raises_agent_parse_error() -> None:
     )
     cid = ContractId(value=0)
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=False,
         json_schema='{"type":"integer"}',
         decode=None,
@@ -456,7 +455,7 @@ def test_t11_exec_empty_parse_failure_raises_agent_parse_error() -> None:
         ):
             with pytest.raises(AglRaise) as exc_info:
                 IrInterpreter(prog).run()
-    assert exc_info.value.exc.nominal == prog.builtin_nominals.nominal("ExecError")
+    assert exc_info.value.exc.nominal == prog.builtin_nominals.resolve("ExecError")
 
 
 # ---------------------------------------------------------------------------

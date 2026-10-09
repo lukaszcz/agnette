@@ -216,8 +216,6 @@ __all__ = [
     "default_field_resolver",
     "lazy_interpreter",
     "resolver_over_interpreter",
-    "_apply_coercion",
-    "_make_exc_value",
 ]
 
 
@@ -467,7 +465,6 @@ class IrInterpreter:
         self._program = program
         self._descriptors = ValueDescriptors.from_program(program)
         self._frames: list[Frame] = [base_frame if base_frame is not None else {}]
-        self.initializer_values: list[Value] = []
         self.module_initializer_values: dict[ModuleId, list[Value]] = {}
         self.module_completed_initializer_indices: dict[ModuleId, set[int]] = {}
         self._initializer_indices = {
@@ -482,7 +479,6 @@ class IrInterpreter:
         self._trace: TraceStore = trace if trace is not None else noop_trace()
         self._echo_agent_output = echo_agent_output
         self._max_call_depth: int = max_call_depth
-        self._agent_dispatcher = agent_dispatcher
         self._session_host: SessionHost = (
             session_host
             if session_host is not None
@@ -1148,8 +1144,8 @@ class IrInterpreter:
         arguments: "tuple[object, ...]",
         eval_arg: "Callable[[_ArgT], Value]",
         *,
-        location: Location | None = None,
-        retain_frame: bool = False,
+        location: Location | None,
+        retain_frame: bool,
     ) -> Value:
         """Resolve each argument against the callee, in one positional pass, then invoke.
 
@@ -1194,8 +1190,6 @@ class IrInterpreter:
         fn_id: FunctionId,
         arguments: "tuple[IrExpr | UseDefault, ...]",
         location: Location | None,
-        *,
-        retain_frame: bool = False,
     ) -> Value:
         """Execute a direct call to a named user function or an extern.
 
@@ -1233,7 +1227,7 @@ class IrInterpreter:
                     arguments,
                     self._eval,
                     location=location,
-                    retain_frame=retain_frame,
+                    retain_frame=False,
                 )
             case other:  # pragma: no cover
                 assert_never(other)
@@ -1429,7 +1423,6 @@ class IrInterpreter:
         nothing here needs to backfill a span.
         """
         value = self._eval_initializer(node)
-        self.initializer_values.append(value)
         self.module_initializer_values.setdefault(module_id, []).append(value)
         self.module_completed_initializer_indices.setdefault(module_id, set()).add(
             self._initializer_indices[id(node)]
@@ -1450,8 +1443,7 @@ class IrInterpreter:
                     # module binding is never captured, see lowerer
                     # `_compute_captures_for`), so `_install_function_closures`
                     # has already installed this exact symbol into frame 0.
-                    slot = self._frames[0][sym]
-                    return slot.value if isinstance(slot, Cell) else slot
+                    return cast(Value, self._frames[0][sym])
             case _:
                 pass
         return self._eval(node)
@@ -1468,7 +1460,6 @@ class IrInterpreter:
         if isinstance(node, IrSessionDefault):
             default_env = None if self._default_session_opened else self._eval(node.env)
             result = self._effects.eval_ir_session_default(
-                node,
                 self._load_builtin_setting("default-agent"),
                 self._load_builtin_setting("default-sandbox"),
                 default_env,
@@ -1626,7 +1617,7 @@ class IrInterpreter:
                             AglArithmeticSignal(arith_op.value, signal_kind_for(exc))
                         )
 
-                case IrCompare(op=cmp_op, kind=_kind, lhs=lhs_expr, rhs=rhs_expr):
+                case IrCompare(op=cmp_op, lhs=lhs_expr, rhs=rhs_expr):
                     lhs_val = self._eval(lhs_expr)
                     rhs_val = self._eval(rhs_expr)
                     match cmp_op:
@@ -1995,7 +1986,7 @@ class IrInterpreter:
                     sandbox=sandbox_expr,
                 ):
                     return self._effects.eval_ir_ask_request(
-                        node, agent_expr, prompt_expr, contract_id, retries_expr, sandbox_expr
+                        agent_expr, prompt_expr, contract_id, retries_expr, sandbox_expr
                     )
 
                 case IrExec(

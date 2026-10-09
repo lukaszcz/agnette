@@ -9,7 +9,8 @@ import pytest
 
 from agnette.agl.ir.program import ValueDescriptors
 from agnette.agl.lexer import tokenize
-from agnette.agl.matchcompile import LiteralKind, LiteralWitness, render_witness
+from agnette.agl.matchcompile import LiteralKind
+from agnette.agl.matchcompile.diagnostics import LiteralWitness, render_witness
 from agnette.agl.runtime.render import render_value
 from agnette.agl.semantics.values import TextValue
 from agnette.agl.value_syntax.lexical import (

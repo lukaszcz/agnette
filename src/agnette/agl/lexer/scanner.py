@@ -1362,22 +1362,3 @@ def lex_comment_spans(source: str) -> list[tuple[int, int]]:
     except LexError:
         pass
     return scanner.comment_spans
-
-
-def lex_tab_warnings(source: str) -> list[Diagnostic]:
-    """Return a ``Diagnostic`` warning for every TAB character in *source*.
-
-    Drives the real lexer scan (the single source of TAB-detection truth) and
-    returns the advisories it accumulated — there is NO separate TAB scan pass.
-    One warning is emitted per ``\\t`` in code, indentation, a comment, or an
-    interpolation hole (literal string content is exempt), with a simple 1-based
-    column.
-
-    The full scan over *source* must succeed (lex-valid input); callers that may
-    pass lex-invalid source should instead read advisories from the parse path
-    (``tab_warning_collector``), which surfaces whatever was collected.
-    """
-    scanner = _Scanner(source)
-    for _ in scanner.scan():
-        pass
-    return scanner.tab_warnings

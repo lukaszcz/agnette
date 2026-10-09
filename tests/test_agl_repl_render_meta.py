@@ -372,7 +372,6 @@ class TestDispatchMeta:
         ctx = _ctx()
         outcome = meta_mod.dispatch_meta(":quit", ctx)
         assert outcome.quit is True
-        assert ctx.quit is True
 
     def test_exit_alias(self) -> None:
         outcome = meta_mod.dispatch_meta(":exit", _ctx())

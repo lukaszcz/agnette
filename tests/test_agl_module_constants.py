@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agnette.agl.parser import parse_program
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants, constant_key
 from agnette.agl.syntax.nodes import Expr, FuncDef, LetDecl, static_items
 

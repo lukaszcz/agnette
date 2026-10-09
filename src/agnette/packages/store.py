@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path, PureWindowsPath
 
 import semver
@@ -117,17 +117,14 @@ def iter_installed_packages(
     *,
     home: Path,
     env: Mapping[str, str] | None = None,
-    on_manifest_error: Callable[[ManifestError, Path], Exception] | None = None,
 ) -> Iterator[PackageInfo]:
     """Yield every installed package version, validated against its store identity.
 
     Iterates store name directories, then each package's version directories,
     loading and checking ``package.toml`` against the store's own naming.
-    ``on_manifest_error`` lets a caller translate a manifest-loading failure
-    into its own domain error, retaining the offending version directory for
-    the message; without it, ``ManifestError`` propagates unchanged. A
-    version whose manifest identity disagrees with its store location raises
-    :class:`StoreIdentityError`.
+    A manifest-loading failure raises :class:`PackageInstallError` naming the
+    offending version directory. A version whose manifest identity disagrees
+    with its store location raises :class:`StoreIdentityError`.
     """
 
     for name_dir in iter_store_package_dirs(home=home, env=env):
@@ -135,9 +132,9 @@ def iter_installed_packages(
             try:
                 manifest = load_manifest(version_dir / "package.toml")
             except ManifestError as exc:
-                if on_manifest_error is None:
-                    raise
-                raise on_manifest_error(exc, version_dir) from exc
+                raise PackageInstallError(
+                    f"cannot load installed package at {version_dir}: {exc}"
+                ) from exc
             if canonical_package_identity(manifest.name, manifest.version) != (
                 name_dir.name,
                 version_dir.name,
@@ -251,14 +248,6 @@ def installed_packages(
     """Return all installed immutable package versions, sorted by identity."""
 
     try:
-        return tuple(
-            iter_installed_packages(
-                home=home,
-                env=env,
-                on_manifest_error=lambda exc, version_dir: PackageInstallError(
-                    f"cannot load installed package at {version_dir}: {exc}"
-                ),
-            )
-        )
+        return tuple(iter_installed_packages(home=home, env=env))
     except StoreIdentityError as exc:
         raise PackageInstallError(str(exc)) from exc

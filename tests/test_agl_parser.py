@@ -36,10 +36,10 @@ from agnette.agl.parser import (
     AglSyntaxError,
     has_unterminated_triple_quoted_string,
     is_incomplete_source,
-    parse_program,
     parse_program_seeded,
-    parse_type_expr,
+    parse_type_expr_seeded,
 )
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.parser.transform import AstBuilder
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.syntax import (
@@ -48,8 +48,6 @@ from agnette.agl.syntax import (
     AssignStmt,
     Attribute,
     AttributeKeyedArg,
-    BinaryOp,
-    BinOp,
     Block,
     BoolLit,
     Call,
@@ -61,7 +59,6 @@ from agnette.agl.syntax import (
     DecimalLit,
     DictEntry,
     DictLit,
-    Do,
     EnumDef,
     ExceptionDef,
     ExportDecl,
@@ -81,6 +78,7 @@ from agnette.agl.syntax import (
     Lambda,
     LetDecl,
     LiteralPattern,
+    Loop,
     NamedArg,
     NameTarget,
     NullLit,
@@ -102,7 +100,6 @@ from agnette.agl.syntax import (
     TypeAlias,
     TypeApply,
     UnaryNeg,
-    UnaryNot,
     UnitLit,
     UseDecl,
     VarDecl,
@@ -111,7 +108,7 @@ from agnette.agl.syntax import (
     VarRef,
     WildcardPattern,
 )
-from agnette.agl.syntax.nodes import ELSE
+from agnette.agl.syntax.nodes import ELSE, BinaryOp, BinOp, UnaryNot
 from agnette.agl.syntax.types import (
     AppliedT,
     ArrayT,
@@ -123,6 +120,7 @@ from agnette.agl.syntax.types import (
     JsonT,
     NameT,
     TextT,
+    TypeExpr,
     UnitT,
 )
 from agnette.agl.syntax.visitor import walk
@@ -1358,62 +1356,67 @@ class TestScopeRegions:
 
 
 # ---------------------------------------------------------------------------
-# parse_type_expr — direct unit tests
+# parse_type_expr_seeded — direct unit tests
 # ---------------------------------------------------------------------------
 
 
+def _type_expr(text: str, *, start_id: int = 0) -> TypeExpr:
+    """Parse *text* as a single type expression."""
+    return parse_type_expr_seeded(text, start_id=start_id)[0]
+
+
 class TestParseTypeExpr:
-    """parse_type_expr(text) parses a single AgL type expression."""
+    """_type_expr(text) parses a single AgL type expression."""
 
     def test_int(self) -> None:
         from agnette.agl.syntax.types import IntT
 
-        result = parse_type_expr("int")
+        result = _type_expr("int")
         assert isinstance(result, IntT)
 
     def test_text(self) -> None:
         from agnette.agl.syntax.types import TextT
 
-        result = parse_type_expr("text")
+        result = _type_expr("text")
         assert isinstance(result, TextT)
 
     def test_bool(self) -> None:
         from agnette.agl.syntax.types import BoolT
 
-        result = parse_type_expr("bool")
+        result = _type_expr("bool")
         assert isinstance(result, BoolT)
 
     def test_decimal(self) -> None:
         from agnette.agl.syntax.types import DecimalT
 
-        result = parse_type_expr("decimal")
+        result = _type_expr("decimal")
         assert isinstance(result, DecimalT)
 
     def test_array_int(self) -> None:
         from agnette.agl.syntax.types import ArrayT, IntT
 
-        result = parse_type_expr("array[int]")
+        result = _type_expr("array[int]")
         assert isinstance(result, ArrayT)
         assert isinstance(result.elem, IntT)
 
     def test_dict_text_int(self) -> None:
         from agnette.agl.syntax.types import DictT, IntT
 
-        result = parse_type_expr("dict[text, int]")
+        result = _type_expr("dict[text, int]")
         assert isinstance(result, DictT)
         assert isinstance(result.value, IntT)
 
     def test_named_type(self) -> None:
         from agnette.agl.syntax.types import NameT
 
-        result = parse_type_expr("MyRecord")
+        result = _type_expr("MyRecord")
         assert isinstance(result, NameT)
         assert result.name == "MyRecord"
 
     def test_applied_generic(self) -> None:
         from agnette.agl.syntax.types import AppliedT, IntT
 
-        result = parse_type_expr("Option[int]")
+        result = _type_expr("Option[int]")
         assert isinstance(result, AppliedT)
         assert result.name == "Option"
         assert len(result.args) == 1
@@ -1422,7 +1425,7 @@ class TestParseTypeExpr:
     def test_func_type(self) -> None:
         from agnette.agl.syntax.types import FuncT, IntT, TextT
 
-        result = parse_type_expr("(int) -> text")
+        result = _type_expr("(int) -> text")
         assert isinstance(result, FuncT)
         assert len(result.params) == 1
         assert isinstance(result.params[0], IntT)
@@ -1431,7 +1434,7 @@ class TestParseTypeExpr:
     def test_unparenthesized_func_type(self) -> None:
         from agnette.agl.syntax.types import FuncT, IntT, TextT
 
-        result = parse_type_expr("int -> text")
+        result = _type_expr("int -> text")
         assert isinstance(result, FuncT)
         assert len(result.params) == 1
         assert isinstance(result.params[0], IntT)
@@ -1440,7 +1443,7 @@ class TestParseTypeExpr:
     def test_unparenthesized_func_type_chain(self) -> None:
         from agnette.agl.syntax.types import BoolT, FuncT, IntT, TextT
 
-        result = parse_type_expr("int -> text -> bool")
+        result = _type_expr("int -> text -> bool")
         assert isinstance(result, FuncT)
         assert isinstance(result.params[0], IntT)
         assert isinstance(result.result, FuncT)
@@ -1450,14 +1453,14 @@ class TestParseTypeExpr:
     def test_unit_type(self) -> None:
         from agnette.agl.syntax.types import UnitT
 
-        result = parse_type_expr("unit")
+        result = _type_expr("unit")
         assert isinstance(result, UnitT)
 
     def test_qualified_named_type(self) -> None:
         from agnette.agl.syntax.types import AppliedT
 
         # mod::Box[int] — qualified applied type
-        result = parse_type_expr("mymod::Box[int]")
+        result = _type_expr("mymod::Box[int]")
         assert isinstance(result, AppliedT)
         assert result.name == "Box"
         assert result.qualifier is not None
@@ -1465,15 +1468,15 @@ class TestParseTypeExpr:
 
     def test_invalid_raises_syntax_error(self) -> None:
         with pytest.raises(AglSyntaxError):
-            parse_type_expr("let x = 1")
+            _type_expr("let x = 1")
 
     def test_empty_raises_syntax_error(self) -> None:
         with pytest.raises(AglSyntaxError):
-            parse_type_expr("")
+            _type_expr("")
 
     def test_start_id_is_honoured(self) -> None:
         """start_id offsets the first assigned node_id."""
-        result = parse_type_expr("int", start_id=100)
+        result = _type_expr("int", start_id=100)
         from agnette.agl.syntax.types import IntT
 
         assert isinstance(result, IntT)
@@ -3051,27 +3054,27 @@ class TestCaseExpr:
 class TestDoExpr:
     def test_do_simple(self) -> None:
         e = first(parse("do x := 1 until x > 5"))
-        assert isinstance(e, Do)
-        assert e.limit is None
-        assert isinstance(e.condition, BinaryOp)
+        assert isinstance(e, Loop)
+        assert e.bound is None
+        assert isinstance(e.until_cond, BinaryOp)
 
     def test_do_with_bound(self) -> None:
         e = first(parse("do[10] x := 1 until x > 5"))
-        assert isinstance(e, Do)
-        assert e.limit == 10
+        assert isinstance(e, Loop)
+        assert isinstance(e.bound, IntLit) and e.bound.value == 10
 
     def test_do_zero_bound_parses(self) -> None:
         # A non-positive bound is not a parse error (n <= 0 runs the body
         # zero times and completes normally).  The lowerer's runtime bound
         # check handles it.
         e = first(parse("do[0] x until true"))
-        assert isinstance(e, Do)
-        assert e.limit == 0
+        assert isinstance(e, Loop)
+        assert isinstance(e.bound, IntLit) and e.bound.value == 0
 
     def test_do_suite_body(self) -> None:
         src = "do\n  x := 1\n  y := 2\nuntil x > 5"
         e = first(parse(src))
-        assert isinstance(e, Do)
+        assert isinstance(e, Loop)
         assert isinstance(e.body, Block)
 
     @pytest.mark.parametrize(("keyword", "binder_type"), _BINDER_CASES)
@@ -3079,7 +3082,7 @@ class TestDoExpr:
         self, keyword: str, binder_type: type[LetDecl | VarDecl]
     ) -> None:
         e = first(parse(f"do {keyword} terminal = 1 until true"))
-        assert isinstance(e, Do)
+        assert isinstance(e, Loop)
         assert isinstance(e.body, Block)
         assert isinstance(e.body.items[-1], binder_type)
 
@@ -4902,7 +4905,7 @@ class TestQualifiedTypeRefs:
         prog = parse("let x: m::Box[int] = null")
         (decl,) = items(prog)
         assert isinstance(decl, LetDecl)
-        assert isinstance(decl.type_ann, syntax.AppliedT)
+        assert isinstance(decl.type_ann, AppliedT)
         assert decl.type_ann.name == "Box"
         assert decl.type_ann.qualifier is not None
         assert tuple(s.name for s in decl.type_ann.qualifier.segments) == ("m",)
@@ -5387,7 +5390,7 @@ def _check_dollar_type_alias(prog: Program) -> None:
 
 def _check_dollar_for_loop_variable(prog: Program) -> None:
     loop = first(prog)
-    assert isinstance(loop, Do)
+    assert isinstance(loop, Loop)
     assert loop.for_var == "exec$"
     assert isinstance(loop.for_iter, ArrayLit)
     assert loop.for_iter.elements == ()

@@ -140,18 +140,17 @@ class ParsedModuleCache:
                 self._entries.move_to_end(key)
                 return entry
             cacheable = not _emits_lexical_advisories(source_text)
-            persistent = cacheable
             # A content-addressed namespace survives process and import-order
             # changes. Leave a 32-bit local allocation range for each version.
             start_id = module_node_id_base(module_id, path, source_text, default_stdlib)
             restored = (
                 disk_cache.load(module_id, path, source_text, start_id, default_stdlib)
-                if persistent
+                if cacheable
                 else None
             )
             if restored is None:
                 module, next_id = build(start_id, source_text)
-                if persistent:
+                if cacheable:
                     disk_cache.save(
                         module, next_id, start_id=start_id, default_stdlib=default_stdlib
                     )
@@ -186,8 +185,7 @@ def cached_parsed_module(
 def clear_parsed_module_cache() -> None:
     """Discard every parsed module the process has cached.
 
-    Hosts that replace modules in place, and tests that must observe a cold
-    parse, call this; ordinary compilation never needs it, since changed source
-    simply misses.
+    A test hook for observing a cold parse; compilation never needs it, since
+    changed source simply misses.
     """
     _PARSED_MODULES.clear()

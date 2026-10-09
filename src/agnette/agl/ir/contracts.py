@@ -684,18 +684,17 @@ class TextContractRequest:
     every ``ContractRequest`` variant.
     """
 
-    strict_json: bool | None
+    codec_name: ClassVar[Literal["text"]] = "text"
+    strict_json: ClassVar[None] = None
+    format_instructions: ClassVar[str] = ""
     target_type_label: str
     structured_exec: bool
-    format_instructions: str
-    codec_name: Literal["text"] = "text"
 
 
 @dataclass(frozen=True, slots=True)
 class JsonContractRequest:
     """Contract descriptor for the built-in ``json`` codec: ``json_schema``
-    and ``decode`` are always derived and present. ``codec_name`` is always
-    ``"json"``.
+    and ``decode`` are always derived and present.
 
     Built at lowering while checker types are available; evaluated WITHOUT any
     checker ``Type``.  The evaluator parses agent output using only this descriptor.
@@ -719,7 +718,7 @@ class JsonContractRequest:
     target_type_label: str
     structured_exec: bool
     format_instructions: str
-    codec_name: Literal["json"] = "json"
+    codec_name: ClassVar[Literal["json"]] = "json"
     defs: "tuple[tuple[str, DecodeSchema], ...]" = ()
 
 

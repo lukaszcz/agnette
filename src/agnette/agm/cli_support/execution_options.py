@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
 from dataclasses import dataclass
 
 import click
@@ -77,38 +76,29 @@ def execution_option_flags() -> frozenset[str]:
     )
 
 
-def execution_option_rows(parameter_names: Collection[str]) -> tuple[tuple[str, str], ...]:
-    """Return ``(options, help)`` rows for the given supported execution options."""
-    names = frozenset(parameter_names)
+def _execution_option_rows() -> tuple[tuple[str, str], ...]:
+    """Return one ``(options, help)`` row per help group."""
     rows: list[tuple[str, str]] = []
     for group in _HELP_GROUPS:
-        specs = [
-            spec
-            for spec in EXECUTION_OPTION_SPECS
-            if spec.group == group.key and spec.name in names
-        ]
-        if not specs:
-            continue
         labels = [
             " ".join(filter(None, (spec.declarations[0].replace("/", " / "), spec.metavar)))
-            for spec in specs
+            for spec in EXECUTION_OPTION_SPECS
+            if spec.group == group.key
         ]
         rows.append((" / ".join(labels), group.description))
     return tuple(rows)
 
 
-def write_execution_options(
-    formatter: click.HelpFormatter, parameter_names: Collection[str]
-) -> None:
-    """Write the ``Execution options`` section for *parameter_names*, if any, to *formatter*."""
-    rows = execution_option_rows(parameter_names)
-    if rows:
-        with formatter.section("Execution options"):
-            formatter.write_dl(rows, col_max=min(_LABEL_COLUMN_MAX, formatter.width // 2))
+def write_execution_options(formatter: click.HelpFormatter) -> None:
+    """Write the ``Execution options`` section to *formatter*."""
+    with formatter.section("Execution options"):
+        formatter.write_dl(
+            _execution_option_rows(), col_max=min(_LABEL_COLUMN_MAX, formatter.width // 2)
+        )
 
 
 def execution_options_section(*, width: int) -> str:
     """Render the ``Execution options`` section, wrapped to *width*."""
     formatter = click.HelpFormatter(width=width)
-    write_execution_options(formatter, EXECUTION_OPTION_NAMES)
+    write_execution_options(formatter)
     return formatter.getvalue()

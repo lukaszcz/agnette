@@ -204,7 +204,6 @@ class AglSessionHost:
         agent: "AgentSpec",
         transport: str,
         *,
-        name: str = "",
         permission_mode: PermissionMode = PermissionMode.NONE,
         sandbox: "SandboxLimits | None" = None,
         env: dict[str, str],
@@ -213,7 +212,6 @@ class AglSessionHost:
             lambda: self._service.default(
                 agent,
                 SessionTransport(transport),
-                name=name,
                 permission_mode=permission_mode,
                 sandbox=sandbox,
                 env=env,
@@ -407,11 +405,7 @@ class _SessionEntry:
     """The host state associated with one opaque session handle."""
 
     backend: SessionBackend
-    agent: "AgentSpec"
-    transport: SessionTransport
     ephemeral: bool
-    permission_mode: PermissionMode = PermissionMode.NONE
-    sandbox: "SandboxLimits | None" = None
     closed: bool = False
 
 
@@ -454,14 +448,7 @@ class SessionService:
             )
         )
         handle = str(uuid4())
-        self._entries[handle] = _SessionEntry(
-            backend=backend,
-            agent=agent,
-            transport=transport,
-            ephemeral=ephemeral,
-            permission_mode=permission_mode,
-            sandbox=sandbox,
-        )
+        self._entries[handle] = _SessionEntry(backend=backend, ephemeral=ephemeral)
         return handle
 
     def default(
@@ -469,7 +456,6 @@ class SessionService:
         agent: "AgentSpec",
         transport: SessionTransport,
         *,
-        name: str = "",
         permission_mode: PermissionMode = PermissionMode.NONE,
         sandbox: "SandboxLimits | None" = None,
         env: dict[str, str],
@@ -479,7 +465,6 @@ class SessionService:
             self._default_handle = self.open(
                 agent,
                 transport,
-                name=name,
                 permission_mode=permission_mode,
                 sandbox=sandbox,
                 env=env,
@@ -503,19 +488,12 @@ class SessionService:
 
     def fork(self, handle: str) -> str:
         """Fork a live session, returning a distinct host handle for the child."""
-        entry, fork = self._native(
+        _entry, fork = self._native(
             handle, SessionOperation.FORK, lambda operations: operations.fork
         )
         forked_backend = self._run_lifecycle(SessionOperation.FORK, fork)
         forked_handle = str(uuid4())
-        self._entries[forked_handle] = _SessionEntry(
-            backend=forked_backend,
-            agent=entry.agent,
-            transport=entry.transport,
-            ephemeral=False,
-            permission_mode=entry.permission_mode,
-            sandbox=entry.sandbox,
-        )
+        self._entries[forked_handle] = _SessionEntry(backend=forked_backend, ephemeral=False)
         return forked_handle
 
     def set_name(self, handle: str, name: str) -> None:
@@ -592,7 +570,6 @@ class SessionService:
         transport: SessionTransport,
         action: Callable[[str], _T],
         *,
-        name: str = "",
         on_closed: Callable[[str], None] | None = None,
         single_prompt: bool = False,
         permission_mode: PermissionMode = PermissionMode.NONE,
@@ -603,7 +580,6 @@ class SessionService:
         handle = self.open(
             agent,
             transport,
-            name=name,
             ephemeral=True,
             single_prompt=single_prompt,
             permission_mode=permission_mode,

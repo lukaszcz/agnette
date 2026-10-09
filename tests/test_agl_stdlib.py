@@ -9,12 +9,12 @@ from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.scope import AglScopeError
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import (
     BUILTIN_CALL_NAMES,
     BUILTIN_TYPE_STATICS,
     NON_RESERVED_BUILTIN_CALL_NAMES,
+    AglScopeError,
 )
 from agnette.agl.semantics.type_table import create_seeded_type_table
 from agnette.agl.semantics.types import (
@@ -177,7 +177,7 @@ def test_builtin_signature_helpers_cover_negative_paths() -> None:
     table = create_seeded_type_table()
     sig = FunctionSignature(params=(_ps("value", TextType()),), result=TextType())
     assert _builtin_function_signature("unknown") is None
-    assert _builtin_function_signature_alternates("unknown") == ()
+    assert _builtin_function_signature_alternates("unknown", type_table=table) == ()
     assert not _signature_matches(
         sig,
         FunctionSignature(params=(_ps("value", IntType()),), result=TextType()),
@@ -216,7 +216,7 @@ def test_builtin_signature_helpers_cover_negative_paths() -> None:
 
 
 def test_standard_library_declares_every_public_builtin() -> None:
-    from agnette.agl.parser import parse_program
+    from agnette.agl.parser.parser import parse_program
     from agnette.agl.syntax.nodes import EnumDef, ExceptionDef, FuncDef, RecordDef
 
     items = [
@@ -253,7 +253,7 @@ def test_standard_library_declares_every_public_builtin() -> None:
 
 
 def test_std_option_declares_the_builtin_option_and_keeps_its_host_identity() -> None:
-    from agnette.agl.parser import parse_program
+    from agnette.agl.parser.parser import parse_program
     from tests.agl.ir_harness import lower_ir
 
     program = parse_program(_STD_OPTION.read_text())
@@ -266,14 +266,14 @@ def test_std_option_declares_the_builtin_option_and_keeps_its_host_identity() ->
 
     executable = lower_ir("program def main() -> unit = ()\n", caps=_CAPS)
     option = executable.builtin_nominals.resolve("Option")
-    option_descriptor = executable.nominals[option.nominal]
+    option_descriptor = executable.nominals[option]
     assert option_descriptor.module_id == ModuleId.from_path("std/option")
     assert {variant.name for variant in option_descriptor.variants} == {"None", "Some"}
     assert all(variant.member in executable.nominals for variant in option_descriptor.variants)
 
 
 def test_std_optional_declares_the_builtin_optional_and_is_in_the_prelude() -> None:
-    from agnette.agl.parser import parse_program
+    from agnette.agl.parser.parser import parse_program
     from agnette.agl.syntax.nodes import EnumDef
 
     program = parse_program(_STD_OPTIONAL.read_text())

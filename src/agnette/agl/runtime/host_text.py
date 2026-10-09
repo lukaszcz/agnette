@@ -14,7 +14,7 @@ from typing import Protocol
 from agnette.agl.runtime.boundary import AglException
 from agnette.util.unicode import LoneSurrogateError, require_scalar_text, visible_text
 
-__all__ = ["EncodingErrorFactory", "scalar_host_text"]
+__all__ = ["scalar_host_text"]
 
 
 class EncodingErrorFactory(Protocol):

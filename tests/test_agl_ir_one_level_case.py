@@ -7,10 +7,8 @@ import decimal
 import pytest
 
 from agnette.agl.eval.ir_interpreter import IrInterpreter
-from agnette.agl.ir import (
-    ExecutableModule,
-    ExecutableProgram,
-    InvalidIrError,
+from agnette.agl.ir.ids import Location, NominalId, SourceId, SymbolId
+from agnette.agl.ir.nodes import (
     IrBind,
     IrCase,
     IrCaseArm,
@@ -22,17 +20,17 @@ from agnette.agl.ir import (
     IrLoad,
     IrMakeRecord,
     IrNominalCaseKey,
-    Location,
+)
+from agnette.agl.ir.program import (
+    ExecutableModule,
+    ExecutableProgram,
     NominalDescriptor,
-    NominalId,
     NominalKind,
     SourceFile,
-    SourceId,
     SymbolDescriptor,
-    SymbolId,
     VariantDescriptor,
-    validate_ir,
 )
+from agnette.agl.ir.validate import InvalidIrError, validate_ir
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.semantics.values import IntValue
 

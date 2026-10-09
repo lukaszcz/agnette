@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import signal
-import tempfile
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -28,7 +27,7 @@ def fetch_archive[T](
     url: str,
     expected_hash: str,
     handoff: Callable[[Path], T],
-    scratch_dir: Path | None = None,
+    scratch_dir: Path,
 ) -> T:
     """Fetch, hash-verify, and hand an archive to the installer, returning its result.
 
@@ -45,8 +44,7 @@ def fetch_archive[T](
     """
 
     expected_digest = _expected_digest(requirement, expected_hash)
-    directory = Path(tempfile.gettempdir()) if scratch_dir is None else scratch_dir
-    archive = directory / f"agm-fetch-{uuid4().hex}.agmpkg"
+    archive = scratch_dir / f"agm-fetch-{uuid4().hex}.agmpkg"
     primary_failure = False
     try:
         with _connect_alarm(requirement, _FETCH_TIMEOUT_SECONDS) as connected:

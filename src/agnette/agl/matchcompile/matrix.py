@@ -520,11 +520,10 @@ class QbaScore:
 
 @dataclass(frozen=True, slots=True)
 class QbaSelection:
-    """The deterministic qba choice and its inspectable score."""
+    """The deterministic qba choice."""
 
     index: int
     occurrence: Occurrence
-    score: QbaScore
 
 
 def _qba_score(matrix: PatternMatrix, column: int) -> QbaScore:
@@ -558,11 +557,11 @@ def select_qba_column(matrix: PatternMatrix) -> QbaSelection:
             candidate_index,
         )
 
-    index, score = min(
+    index, _ = min(
         candidates,
         key=rank,
     )
-    return QbaSelection(index=index, occurrence=matrix.occurrences[index], score=score)
+    return QbaSelection(index=index, occurrence=matrix.occurrences[index])
 
 
 # ---------------------------------------------------------------------------
@@ -776,13 +775,9 @@ __all__ = [
     "OccurrenceAllocator",
     "OccurrenceIndex",
     "PatternMatrix",
-    "QbaScore",
-    "QbaSelection",
-    "Specialization",
     "default_matrix",
     "head_constructors",
     "matrix_from_normalized",
     "select_qba_column",
     "specialize",
-    "validate_matrix",
 ]

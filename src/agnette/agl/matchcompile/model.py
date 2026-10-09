@@ -46,10 +46,6 @@ class NominalConstructor:
     def arity(self) -> int:
         return len(self.fields)
 
-    @property
-    def terminal_name(self) -> str:
-        return self.record_type.name
-
 
 def field_bearing_constructor_sort_key(
     constructor: NominalConstructor,
@@ -427,14 +423,12 @@ __all__ = [
     "FieldOccurrenceProvenance",
     "LiteralConstructor",
     "LiteralKind",
-    "LiteralValue",
     "MatchCaseContext",
     "MatchSiteSource",
     "MatrixRow",
     "NormalizedMatchSite",
     "Occurrence",
     "OccurrenceId",
-    "OccurrenceProvenance",
     "OmittedFieldProvenance",
     "OpenSignature",
     "PathDecomposition",

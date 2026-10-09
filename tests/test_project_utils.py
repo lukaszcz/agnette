@@ -84,7 +84,7 @@ def test_main_workspace_branch_helpers_for_repo_name(tmp_path: Path) -> None:
     (project / "repo").mkdir()
     (project / "worktrees").mkdir()
 
-    assert is_main_workspace_branch(project, "repo", repo_branch="main") is True
+    assert is_main_workspace_branch("repo", repo_branch="main") is True
     assert branch_worktree_path(project, "repo", repo_branch="main") == project / "repo"
     assert branch_session_name(project, "repo") == "proj"
 
@@ -103,7 +103,7 @@ def test_main_workspace_branch_helpers_for_repo_current_branch(
 
     monkeypatch.setattr(project_helpers.git_helpers, "current_branch", fake_current_branch)
 
-    assert is_main_workspace_branch(project, "main", repo_branch="main") is True
+    assert is_main_workspace_branch("main", repo_branch="main") is True
     assert branch_worktree_path(project, "main", repo_branch="main") == project / "repo"
     assert branch_session_name(project, "main") == "proj"
 
@@ -122,7 +122,7 @@ def test_branch_helpers_for_worktree_branch(
 
     monkeypatch.setattr(project_helpers.git_helpers, "current_branch", fake_current_branch)
 
-    assert is_main_workspace_branch(project, "feat/x", repo_branch="main") is False
+    assert is_main_workspace_branch("feat/x", repo_branch="main") is False
     assert (
         branch_worktree_path(
             project,

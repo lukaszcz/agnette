@@ -21,19 +21,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.symbols import AglScopeError
+from agnette.agl.semantics.types import ArrayType, EnumType, FunctionType, IntType, TextType, Type
 from agnette.agl.syntax.nodes import LetDecl
-from agnette.agl.typecheck import (
-    AglTypeError,
-    ArrayType,
-    CheckedModule,
-    CheckedProgram,
-    EnumType,
-    FunctionType,
-    IntType,
-    TextType,
-    Type,
-)
+from agnette.agl.typecheck.env import AglTypeError, CheckedModule
+from agnette.agl.typecheck.program import CheckedProgram
 from tests._agl_helpers import (
     AGL_TEST_CAPS,
     check_agl_program,

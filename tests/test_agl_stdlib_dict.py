@@ -14,7 +14,7 @@ from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescript
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.boundary import AglDictView, decode_boundary_value
 from agnette.agl.runtime.externs import ExternRegistry
-from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.semantics.values import DictValue, IntValue, RecordValue
 from tests._agl_helpers import (
     fieldless_enum_descriptors,

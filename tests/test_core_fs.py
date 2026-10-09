@@ -162,7 +162,7 @@ def test_copy_tree_rejects_symlinks_in_an_existing_destination(tmp_path: Path) -
     (destination / "modules").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ValueError):
-        fs.copy_tree(source, destination, dirs_exist_ok=True)
+        fs.copy_tree(source, destination)
 
     assert not (outside / "main.agl").exists()
 
@@ -320,12 +320,12 @@ def test_lstat_reports_the_link_rather_than_its_target(tmp_path: Path) -> None:
     assert stat.S_ISREG(fs.stat(link).st_mode)
 
 
-def test_write_text_atomic_honors_requested_encoding(tmp_path: Path) -> None:
-    path = tmp_path / "latin.txt"
+def test_write_text_atomic_encodes_utf8(tmp_path: Path) -> None:
+    path = tmp_path / "utf8.txt"
 
-    fs.write_text_atomic(path, "café", encoding="latin-1")
+    fs.write_text_atomic(path, "café")
 
-    assert path.read_bytes() == b"caf\xe9"
+    assert path.read_bytes() == b"caf\xc3\xa9"
 
 
 def test_write_bytes_atomic_keeps_in_progress_contents_private(tmp_path: Path) -> None:

@@ -446,5 +446,5 @@ def save_repl_setting(key: str, value: str | bool, *, home: Path) -> None:
     path = agm_home_dir(home=home) / "config.toml"
     doc = load_toml_doc(path) if path.is_file() else empty_toml_doc()
     set_toml_table_value(doc, "repl", key, value)
-    mkdir(path.parent, parents=True, exist_ok=True)
+    mkdir(path.parent)
     write_text(path, dumps_toml(doc), encoding="utf-8")

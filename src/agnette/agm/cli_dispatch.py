@@ -44,9 +44,7 @@ def load_command_index(*, home: Path, proj_dir: Path | None, cwd: Path) -> Activ
 
     from agnette.packages import activation
 
-    return activation.effective_command_index(
-        home=home, proj_dir=proj_dir, cwd=cwd, fallback_to_manifest_commands=True
-    )
+    return activation.effective_command_index(home=home, proj_dir=proj_dir, cwd=cwd)
 
 
 def set_dry_run(ctx: object, param: object, value: bool) -> None:
@@ -154,7 +152,6 @@ def registered_command_help(
         program_name=f"agm {path_name}",
         description=description or "Run the registered AgL program.",
         extra_options=run_options,
-        list_execution_options=True,
     )
 
 
@@ -372,7 +369,6 @@ class RegisteredProgramCommand(TyperCommand):
         try:
             run_registered(
                 self._program,
-                exec_args.argument_tokens,
                 args=exec_args,
                 package=self._registration.package,
                 command_path=self._path_name,

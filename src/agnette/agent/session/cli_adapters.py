@@ -31,7 +31,7 @@ from agnette.agent.session.protocol import (
     SessionOperation,
     SessionOperations,
 )
-from agnette.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi, PermissionMode
+from agnette.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi
 from agnette.agent.stream import ClaudeOutputStream, CodexOutputStream, decode_claude_stream_json
 from agnette.agent.transport import (
     AgentCallInfo,
@@ -41,7 +41,7 @@ from agnette.agent.transport import (
 )
 from agnette.core.cleanup import preserve_primary_error
 from agnette.sandbox.prepare import SandboxContext, sandbox_run_for
-from agnette.sandbox.request import PreparedSandboxCommand, SandboxLimits
+from agnette.sandbox.request import PreparedSandboxCommand
 from agnette.util.interp import InterpolationError
 from agnette.util.unicode import loads_json
 
@@ -140,10 +140,8 @@ class _CliPromptBackend(SandboxFixture):
         prompt: str,
         command: list[str],
         *,
-        delivery: PromptDelivery = PromptDelivery.FILE,
+        delivery: PromptDelivery,
         session_id: str | None = None,
-        permission_mode: PermissionMode,
-        sandbox: SandboxLimits | None,
         output_callback: "AgentOutputCallback | None" = None,
         stdout_callback: Callable[[str], None] | None = None,
         stdout_finalizer: Callable[[], None] | None = None,
@@ -151,6 +149,7 @@ class _CliPromptBackend(SandboxFixture):
         stdout_to_file: bool = False,
     ) -> SessionAskResponse:
         """Run one prepared prompt and translate process failures for sessions."""
+        permission_mode = self._settings.permission_mode
         temp_files: list[Path] = []
         with preserve_primary_error(
             lambda: cleanup_temp_files(temp_files), label="Temporary prompt cleanup"
@@ -163,7 +162,9 @@ class _CliPromptBackend(SandboxFixture):
                     env=self._settings.env,
                     delivery=delivery,
                     session_id=session_id,
-                    sandbox=sandbox_run_for(sandbox, self._settings.get_sandbox_context),
+                    sandbox=sandbox_run_for(
+                        self._settings.sandbox, self._settings.get_sandbox_context
+                    ),
                 )
                 result = runner.run_prepared_prompt_result(
                     prepared,
@@ -200,7 +201,7 @@ class _CliPromptBackend(SandboxFixture):
                     stderr_tail=result_stderr_tail(failure.result),
                     elapsed=failure.result.elapsed,
                     call_info=AgentCallInfo(
-                        argv=(prepared.argv or []).copy(),
+                        argv=prepared.argv.copy(),
                         prompt_via_stdin=prepared.prompt_via_stdin,
                         elapsed=failure.result.elapsed,
                         exit_code=failure.result.returncode,
@@ -224,7 +225,7 @@ class _CliPromptBackend(SandboxFixture):
                         stderr_tail=result_stderr_tail(result),
                         elapsed=result.elapsed,
                         call_info=AgentCallInfo(
-                            argv=(prepared.argv or []).copy(),
+                            argv=prepared.argv.copy(),
                             prompt_via_stdin=prepared.prompt_via_stdin,
                             elapsed=result.elapsed,
                             exit_code=result.returncode,
@@ -237,7 +238,7 @@ class _CliPromptBackend(SandboxFixture):
                 content=content,
                 metadata={"elapsed": result.elapsed},
                 call_info=AgentCallInfo(
-                    argv=(prepared.argv or []).copy(),
+                    argv=prepared.argv.copy(),
                     prompt_via_stdin=prepared.prompt_via_stdin,
                     elapsed=result.elapsed,
                     exit_code=result.returncode,
@@ -299,8 +300,6 @@ class AgentCommandSessionBackend(_CliPromptBackend):
             self._session.command,
             delivery=PromptDelivery.FILE,
             session_id=self._session.session_id,
-            permission_mode=self._settings.permission_mode,
-            sandbox=self._settings.sandbox,
             output_callback=request.output_callback,
         )
 
@@ -339,9 +338,7 @@ class _SessionIdCliBackend(_CliPromptBackend, Generic[_SessionAgentT], ABC):
         """Start or resume this backend's transcript for one prompt."""
         session = self._session
         stream_output = request.output_callback is not None
-        command = self._prompt_command(
-            session, self._settings.permission_mode, stream_output=stream_output
-        )
+        command = self._prompt_command(session, stream_output=stream_output)
         stdout_stream = None
         if request.output_callback is not None and isinstance(session.agent, AgentClaude):
             stdout_stream = ClaudeOutputStream(request.output_callback)
@@ -352,8 +349,6 @@ class _SessionIdCliBackend(_CliPromptBackend, Generic[_SessionAgentT], ABC):
                 request.prompt,
                 command,
                 delivery=PromptDelivery.FILE,
-                permission_mode=self._settings.permission_mode,
-                sandbox=self._settings.sandbox,
                 output_callback=request.output_callback,
                 stdout_callback=None if stdout_stream is None else stdout_stream.feed,
                 stdout_finalizer=None if stdout_stream is None else stdout_stream.finish,
@@ -373,7 +368,6 @@ class _SessionIdCliBackend(_CliPromptBackend, Generic[_SessionAgentT], ABC):
     def _prompt_command(
         self,
         session: _SessionIdCliState[_SessionAgentT],
-        permission_mode: PermissionMode,
         *,
         stream_output: bool,
     ) -> list[str]:
@@ -408,10 +402,10 @@ class ClaudeCliSessionBackend(_SessionIdCliBackend[AgentClaude]):
     def _prompt_command(
         self,
         session: _SessionIdCliState[AgentClaude],
-        permission_mode: PermissionMode,
         *,
         stream_output: bool,
     ) -> list[str]:
+        permission_mode = self._settings.permission_mode
         return (
             session.agent.argv(
                 permission_mode=permission_mode,
@@ -444,8 +438,6 @@ class ClaudeCliSessionBackend(_SessionIdCliBackend[AgentClaude]):
                 permission_mode=self._settings.permission_mode,
             ),
             delivery=PromptDelivery.LITERAL,
-            permission_mode=self._settings.permission_mode,
-            sandbox=self._settings.sandbox,
         )
         _require_claude_compaction_confirmation(response.content)
         session.started = True
@@ -465,8 +457,6 @@ class ClaudeCliSessionBackend(_SessionIdCliBackend[AgentClaude]):
                 permission_mode=self._settings.permission_mode,
             ),
             delivery=PromptDelivery.NONE,
-            permission_mode=self._settings.permission_mode,
-            sandbox=self._settings.sandbox,
         )
         return self._forked(_require_claude_session_id(response.content))
 
@@ -524,8 +514,6 @@ class CodexCliSessionBackend(_CliPromptBackend):
                 ),
                 delivery=PromptDelivery.STDIN,
                 stdout_to_file=True,
-                permission_mode=self._settings.permission_mode,
-                sandbox=self._settings.sandbox,
                 output_callback=request.output_callback,
                 stdout_callback=None if stdout_stream is None else stdout_stream.feed,
                 stdout_finalizer=None if stdout_stream is None else stdout_stream.finish,
@@ -561,8 +549,6 @@ class CodexCliSessionBackend(_CliPromptBackend):
                 ),
                 delivery=PromptDelivery.STDIN,
                 stdout_to_file=True,
-                permission_mode=self._settings.permission_mode,
-                sandbox=self._settings.sandbox,
                 output_callback=request.output_callback,
                 stdout_callback=None if stdout_stream is None else stdout_stream.feed,
                 stdout_finalizer=None if stdout_stream is None else stdout_stream.finish,
@@ -604,11 +590,11 @@ class PiCliSessionBackend(_SessionIdCliBackend[AgentPi]):
     def _prompt_command(
         self,
         session: _SessionIdCliState[AgentPi],
-        permission_mode: PermissionMode,
         *,
         stream_output: bool,
     ) -> list[str]:
         del stream_output
+        permission_mode = self._settings.permission_mode
         return (
             session.agent.argv(permission_mode=permission_mode)
             if session.single_prompt
@@ -633,8 +619,6 @@ class PiCliSessionBackend(_SessionIdCliBackend[AgentPi]):
                 permission_mode=self._settings.permission_mode,
             ),
             delivery=PromptDelivery.NONE,
-            permission_mode=self._settings.permission_mode,
-            sandbox=self._settings.sandbox,
         )
         return self._forked(child_id)
 

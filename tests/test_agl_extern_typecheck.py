@@ -23,20 +23,16 @@ import pytest
 
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.diagnostics import Diagnostic
-from agnette.agl.parser import parse_program
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import AglScopeError
-from agnette.agl.semantics.types import CastSpec
+from agnette.agl.semantics.types import CastSpec, FunctionType, IntType
 from agnette.agl.syntax.nodes import Block, FuncDef
 from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.typecheck import (
+from agnette.agl.typecheck.env import (
     AglTypeError,
     CheckedModule,
     FunctionSignature,
-    FunctionType,
-    IntType,
-)
-from agnette.agl.typecheck.env import (
     OutputContractSpec,
     PartialCallSpec,
 )
@@ -597,7 +593,7 @@ class TestExternProvenanceFinalization:
         from agnette.agl.typecheck.inference import InferenceEngine
 
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), _CAPS)
-        unresolved = InferenceEngine().fresh("target")
+        unresolved = InferenceEngine().fresh()
         with pytest.raises(AglTypeError, match="concrete target"):
             checker._finalize_extern_call_obligation(
                 PendingExternCallObligation(

@@ -23,7 +23,6 @@ from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID, ModuleId
 from agnette.agl.modules.loader import LoadedModule, ModuleGraph, build_repl_graph
 from agnette.agl.modules.roots import RootSet, assemble_roots
 from agnette.agl.syntax.nodes import ImportDecl
-from agnette.agl.syntax.spans import SourceId
 from agnette.core import fs
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.model import PackageInfo
@@ -116,7 +115,6 @@ class TestDataclasses:
         assert entry.module_id == ENTRY_ID
         assert entry.program is not None
         assert entry.path is None  # inline entry
-        assert isinstance(entry.source, SourceId)
         assert isinstance(entry.imports, tuple)
 
     def test_module_graph_contains_entry_id(self, tmp_path: Path) -> None:
@@ -144,7 +142,7 @@ class TestEntrySourceId:
         root.mkdir()
         graph = load_graph(_MINIMAL, entry_path=None, roots=_roots(root))
         entry = graph.modules[ENTRY_ID]
-        assert entry.source.label == "<code>"
+        assert entry.program.span.source.label == "<code>"
 
     def test_file_entry_source_label_is_path(self, tmp_path: Path) -> None:
         entry_file = tmp_path / "prog.agl"
@@ -152,7 +150,7 @@ class TestEntrySourceId:
         root = tmp_path
         graph = load_graph(_MINIMAL, entry_path=entry_file, roots=_roots(root))
         entry = graph.modules[ENTRY_ID]
-        assert entry.source.label == str(entry_file.resolve())
+        assert entry.program.span.source.label == str(entry_file.resolve())
 
     def test_entry_path_stored_as_canonical(self, tmp_path: Path) -> None:
         root = tmp_path / "r"
@@ -1164,7 +1162,7 @@ class TestFileBasedEntry:
         link.symlink_to(entry_file)
         graph = load_graph(_MINIMAL, entry_path=link, roots=_roots(root))
         entry_mod = graph.modules[ENTRY_ID]
-        assert entry_mod.source.label == str(entry_file.resolve())
+        assert entry_mod.program.span.source.label == str(entry_file.resolve())
 
     def test_loaded_module_source_id_uses_canonical_path(self, tmp_path: Path) -> None:
         root = tmp_path / "r"
@@ -1172,7 +1170,7 @@ class TestFileBasedEntry:
         mod_path = _write_module(root, "deps/lib")
         graph = load_graph("import deps/lib::*", entry_path=None, roots=_roots(root))
         lib_mod = graph.modules[ModuleId.from_path("deps/lib")]
-        assert lib_mod.source.label == str(mod_path.resolve())
+        assert lib_mod.program.span.source.label == str(mod_path.resolve())
         assert lib_mod.path == mod_path.resolve()
 
     def test_all_modules_have_non_none_path_except_inline_entry(self, tmp_path: Path) -> None:
@@ -1374,18 +1372,6 @@ class TestBuildReplGraph:
         assert graph2.modules[STD_PRELUDE_ID] is std_core
         assert STD_PRELUDE_ID not in new2
 
-    def test_path_sets_entry_source_id(self, tmp_path: Path) -> None:
-        """When *path* is given, the entry source ID uses the canonical path label."""
-        entry_file = tmp_path / "entry.agl"
-        entry_file.write_text("let x = 1\n")
-        program = _parse_for_repl("let x = 1")
-        graph, _next_id, _new = build_repl_graph(
-            program, 0, path=entry_file, cached={}, roots=_roots(tmp_path)
-        )
-        entry_loaded = graph.modules[ENTRY_ID]
-        assert entry_loaded.source is not None
-        assert str(entry_file.resolve()) in entry_loaded.source.label
-
     def test_wildcard_import_expands_modules(self, tmp_path: Path) -> None:
         """Wildcard imports (``import pkg.*``) load all modules in the package."""
         pkg = tmp_path / "pkg"
@@ -1466,7 +1452,8 @@ class TestBuildReplGraph:
 
 class TestUseDeclarationLoading:
     def test_standalone_use_does_not_create_a_module_graph_edge(self, tmp_path: Path) -> None:
-        from agnette.agl.scope import AglScopeError, resolve_program
+        from agnette.agl.scope import resolve_program
+        from agnette.agl.scope.symbols import AglScopeError
 
         graph = load_graph(
             "use missing::*",
@@ -1485,7 +1472,8 @@ class TestPreludeSupersession:
     def test_explicit_core_wildcard_import_suppresses_the_default_prelude(
         self, tmp_path: Path
     ) -> None:
-        from agnette.agl.scope import AglScopeError, resolve_program
+        from agnette.agl.scope import resolve_program
+        from agnette.agl.scope.symbols import AglScopeError
 
         graph = load_graph(
             "import std/prelude::* hiding ask",
@@ -1604,7 +1592,8 @@ class TestWildcardTailDistribution:
         assert ModuleId.from_path("package/two") in graph.modules
 
     def test_wildcard_tail_is_checked_against_each_matched_module(self, tmp_path: Path) -> None:
-        from agnette.agl.scope import AglScopeError, resolve_program
+        from agnette.agl.scope import resolve_program
+        from agnette.agl.scope.symbols import AglScopeError
 
         root = tmp_path / "modules"
         root.mkdir()

@@ -36,7 +36,7 @@ def run(args: PkgInitArgs) -> None:
             for path in created:
                 dry_run.print_operation("init-package", str(path))
             return
-        fs.mkdir(module_path.parent, parents=True, exist_ok=True)
+        fs.mkdir(module_path.parent)
         fs.write_text(manifest_path, content)
         if module_path in created:
             fs.write_text(module_path, STARTER_MODULE_SOURCE)

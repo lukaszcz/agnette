@@ -14,9 +14,9 @@ from agnette.agl.ir.program import NominalDescriptor, NominalKind
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.boundary import AglException, decode_boundary_value
 from agnette.agl.runtime.externs import ExternRegistry
-from agnette.agl.scope import AglScopeError
+from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.semantics.values import ArrayValue, IntValue, RecordValue, TextValue
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.env import AglTypeError
 from tests._agl_helpers import option_nominal_descriptors
 from tests.agl.module_graph import resolve_and_check_inline_entry
 

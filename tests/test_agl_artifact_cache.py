@@ -11,7 +11,8 @@ from agnette.agl import artifact_cache, artifact_storage
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintKind
 from agnette.agl.lower.program import lower_program
-from agnette.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
+from agnette.agl.matchcompile import compile_program_matches
+from agnette.agl.matchcompile.diagnostics import NonExhaustiveIssue, render_witness
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.loader import build_repl_graph, parse_entry_module
 from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
@@ -756,7 +757,9 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
     caps = base_caps()
     artifact_cache.clear_retained_artifacts()
     warm_checked = check_program(_resolved(), caps)  # populates the disk-backed "checked" entries
-    original_executable = lower_program(compile_program_matches(warm_checked).compiled)
+    original_executable = lower_program(
+        compile_program_matches(warm_checked).compiled, contract_payloads={}
+    )
 
     artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
 
@@ -777,7 +780,9 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
     monkeypatch.setattr(program_module, "retained_checked_modules", spied)
 
     rehydrated_checked = check_program(_resolved(), caps)
-    rehydrated_executable = lower_program(compile_program_matches(rehydrated_checked).compiled)
+    rehydrated_executable = lower_program(
+        compile_program_matches(rehydrated_checked).compiled, contract_payloads={}
+    )
 
     assert served_images, "expected check_program to serve at least one disk-rehydrated image"
     assert rehydrated_executable == original_executable
@@ -1055,3 +1060,30 @@ def test_replayed_module_headers_reproduce_a_from_source_preparation(
         != _normalize_env_value(vars(replayed.module_envs[mid]).get(name, "<missing>"))
     ]
     assert not diffs, f"replayed vs from-source header preparation diverged: {diffs}"
+
+
+def test_persisted_match_sites_are_not_served_without_their_checked_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agnette.agl.matchcompile import cached_module_sites
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    graph = make_inline_graph_from_files(
+        tmp_path,
+        {
+            "entry": "import lib::*\npick(1)\n",
+            "lib": "def pick(n: int) -> int = case n of | 1 => 2 | _ => 3\n",
+        },
+        default_stdlib=False,
+    )
+    resolved = resolve_program(graph)
+    caps = base_caps()
+    artifact_cache.clear_retained_artifacts()
+    compiled = compile_program_matches(check_program(resolved, caps)).compiled
+    assert compiled is not None
+    retainable = artifact_cache.retained_module_sources(resolved.graph)
+    artifact_cache.retain_match_sites(retainable, caps, cached_module_sites(compiled))
+
+    artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
+
+    assert artifact_cache.retained_match_sites(retainable, caps) == {}

@@ -75,13 +75,11 @@ from agnette.agl.value_syntax.nodes import (
 from agnette.agl.value_syntax.reader import read_ctor_head, read_value
 
 __all__ = [
-    "ValueDecodeError",
     "host_data_to_json",
     "host_param_text_to_json",
     "host_text_to_json",
     "option_some_field_schema",
     "option_some_json_name",
-    "value_node_to_json",
 ]
 
 type DefsMap = Mapping[str, DecodeSchema]

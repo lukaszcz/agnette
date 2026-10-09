@@ -8,15 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agent.session import (
-    AglSessionHost,
+from agnette.agent.session.protocol import (
     SessionAskRequest,
     SessionAskResponse,
     SessionHostError,
     SessionOpenRequest,
     SessionOperations,
-    SessionService,
 )
+from agnette.agent.session.service import AglSessionHost, SessionService
 from agnette.agent.spec import PermissionMode
 from agnette.agm.commands import exec_program
 from agnette.sandbox.request import SandboxLimits

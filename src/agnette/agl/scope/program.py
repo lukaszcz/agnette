@@ -13,9 +13,9 @@ Design
   any body is resolved.
 - **Contribution import environment per module**: built from each module's
   import declarations against the already-loaded graph (no re-reading files).
-- **Whole-program pre-pass tables**: ``all_public_funcs`` and ``all_public_types``
-  collect source declarations BEFORE resolving any body, enabling cross-module
-  mutual recursion without publishing host-only synthetic entries.
+- **Whole-program pre-pass table**: public type declarations are collected
+  BEFORE resolving any body, enabling cross-module mutual recursion without
+  publishing host-only synthetic entries.
 - **Static module roots**: every file-backed module permits declarations,
   parameters, and bindings but rejects root assignments and bare expressions;
   the incremental REPL is the executable-root host.
@@ -96,7 +96,6 @@ from agnette.agl.scope.type_owners import (
     declared_member_scopes,
     retired_member_scopes,
 )
-from agnette.agl.semantics.type_table import source_enum_member_decl_id, source_nominal_decl_id
 from agnette.agl.syntax.nodes import (
     BuiltinVarDecl,
     EnumDef,
@@ -204,13 +203,6 @@ class ResolvedProgram:
         owning package declares, or
         :data:`~agnette.agl.modules.ids.ENTRY_ID` for a source with no module
         identity.
-    ``all_public_funcs``
-        Whole-program pre-pass table mapping ``(ModuleId, name)`` to the
-        :class:`~agnette.agl.syntax.nodes.FuncDef` node. Contains every source-level
-        function across all modules; host-only synthetic entries are excluded.
-    ``all_public_types``
-        Whole-program pre-pass table mapping ``(ModuleId, name)`` to the
-        type declaration node (``RecordDef | EnumDef | TypeAlias``).
     ``import_sccs``
         The graph's import strongly-connected components, in their
         deterministic reverse-topological order for downstream program passes.
@@ -227,8 +219,6 @@ class ResolvedProgram:
     """
 
     modules: dict[ModuleId, ResolvedModule]
-    all_public_funcs: dict[QName, FuncDef]
-    all_public_types: dict[QName, RecordDef | EnumDef | ExceptionDef | TypeAlias]
     graph: ModuleGraph
     sources: Callable[[ModuleId], ModuleSources] = field(repr=False, compare=False)
     retired_member_scopes: frozenset[ScopePath] = frozenset()
@@ -393,9 +383,7 @@ def _member_record_constructor_refs(
         if isinstance(declaration, (RecordDef, ExceptionDef)):
             result[(module_id, atom)] = ConstructorRef(
                 owner_name=declaration.name,
-                owner_decl_node_id=source_nominal_decl_id(
-                    module_id, path[:-1], declaration.name, declaration.node_id
-                ),
+                owner_decl_node_id=declaration.node_id,
                 type_params=declaration.type_params,
                 owner_module_id=module_id,
                 owner_path=path[:-1],
@@ -405,14 +393,7 @@ def _member_record_constructor_refs(
             for member, variant_atom in _inline_members(declaration, path):
                 result[(module_id, variant_atom)] = ConstructorRef(
                     owner_name=member.name,
-                    owner_decl_node_id=source_enum_member_decl_id(
-                        module_id,
-                        path[:-1],
-                        declaration.name,
-                        member.name,
-                        member.node_id,
-                        is_builtin=declaration.is_builtin,
-                    ),
+                    owner_decl_node_id=member.node_id,
                     type_params=member_type_params(
                         (cast(TypeExpr, field.type_expr) for field in member.fields),
                         declaration.type_params,
@@ -421,9 +402,7 @@ def _member_record_constructor_refs(
                     owner_path=path,
                     can_match_bare_pattern=not member.fields,
                     is_builtin=declaration.is_builtin,
-                    inline_enum_owner_decl_node_id=source_nominal_decl_id(
-                        module_id, path[:-1], declaration.name, declaration.node_id
-                    ),
+                    inline_enum_owner_decl_node_id=declaration.node_id,
                 )
     return result
 
@@ -978,7 +957,7 @@ def _declarations_beneath(decl_info: _DeclInfo) -> Callable[[QName], tuple[Scope
 
 
 def _reusable(
-    cached_modules: Mapping[ModuleId, ResolvedModule] | None,
+    cached_modules: Mapping[ModuleId, ResolvedModule],
     module_id: ModuleId,
     loaded: LoadedModule,
 ) -> ResolvedModule | None:
@@ -987,7 +966,7 @@ def _reusable(
     Identity of the ``Program`` node is the whole condition: a reparse, a REPL
     splice or a redeclaration produces a different node and misses.
     """
-    cached = cached_modules.get(module_id) if cached_modules is not None else None
+    cached = cached_modules.get(module_id)
     if cached is not None and cached.source is loaded.program:
         return cached
     return None
@@ -1426,8 +1405,6 @@ def resolve_program(
     resolvers.clear()
     return ResolvedProgram(
         modules=resolved_modules,
-        all_public_funcs=all_public_funcs,
-        all_public_types=all_public_types,
         graph=graph,
         sources=sources_of,
         retired_member_scopes=retired,

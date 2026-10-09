@@ -46,8 +46,7 @@ from agnette.packages.distribution import (
     manifests_equivalent,
     materialize_distribution,
 )
-from agnette.packages.errors import DisciplineError as DisciplineError
-from agnette.packages.errors import FetchError as FetchError
+from agnette.packages.errors import DisciplineError, FetchError
 from agnette.packages.errors import PackageInstallError as PackageInstallError
 from agnette.packages.manifest import (
     DependencySpec,
@@ -247,7 +246,6 @@ def activate_installed_package_with_plan(
     *,
     home: Path,
     env: Mapping[str, str] | None = None,
-    shadow: bool = False,
 ) -> PackageInstallPlan:
     """Activate an exact version already present in the package store."""
 
@@ -265,10 +263,10 @@ def activate_installed_package_with_plan(
         )
         if package is None:
             raise PackageInstallError(f"package {name!r} version {version} is not installed")
-        _activate_package(package, state, editable_root=None, shadow=shadow)
+        _activate_package(package, state, editable_root=None, shadow=False)
         return package
 
-    return _install_with_plan(activate, home=home, env=env, shadow=shadow)
+    return _install_with_plan(activate, home=home, env=env, shadow=False)
 
 
 def _install_with_plan(
@@ -553,7 +551,7 @@ def _stage_directory_package(
     staging_parent = destination.parent.resolve()
     if staging_parent == source_root or staging_parent.is_relative_to(source_root):
         raise PackageInstallError(f"cannot stage package inside source directory {source_root}")
-    fs.mkdir(staging_parent, parents=True, exist_ok=True)
+    fs.mkdir(staging_parent)
     staging = Path(mkdtemp(prefix=".agm-package-", dir=staging_parent))
     try:
         distribution = distribution_manifest(package.manifest)
@@ -726,7 +724,7 @@ def _install_directory(
                 raise PackageInstallError(
                     f"cannot install package {package.manifest.name!r}: {exc}"
                 ) from exc
-            fs.mkdir(destination.parent, parents=True, exist_ok=True)
+            fs.mkdir(destination.parent)
             fs.copy_tree(root, destination)
 
     # Dependents see what a package actually ships: the published store tree,
@@ -773,7 +771,7 @@ def _install_archive(
             destination = canonical_package_store_path(
                 metadata.manifest.name, metadata.manifest.version, home=state.home, env=state.env
             )
-            fs.mkdir(destination.parent, parents=True, exist_ok=True)
+            fs.mkdir(destination.parent)
             staging = Path(mkdtemp(prefix=".agm-package-", dir=destination.parent))
             prepared.append((destination, staging))
             return staging
@@ -796,7 +794,7 @@ def _install_archive(
                     f"cannot install package archive {archive}: {exc}"
                 ) from exc
             if not destination_exists:
-                fs.mkdir(destination.parent, parents=True, exist_ok=True)
+                fs.mkdir(destination.parent)
                 staging.replace(destination)
                 _record_created_tree(state, destination)
             elif reinstall:
@@ -1025,18 +1023,12 @@ def _activate_package(
     """Select a package, register its commands, and retain it for this install."""
 
     try:
-        validate_package_command_conflicts(
-            state.index,
-            package.manifest,
-            shadow=shadow,
-            home=state.home,
-            env=state.env,
-            transient_packages=state.transient_packages,
-            # ``shadow`` skips conflict resolution entirely, so resolving the
-            # active set only when it is actually needed avoids forcing a
-            # resolve/verify pass that its caller would otherwise skip.
-            packages=None if shadow else _transaction_resolved_packages(state),
-        )
+        # ``shadow`` skips conflict resolution entirely, so the active set is
+        # resolved only when needed.
+        if not shadow:
+            validate_package_command_conflicts(
+                package.manifest, packages=_transaction_resolved_packages(state)
+            )
         packages = dict(state.index.packages)
         packages[package.manifest.name] = ActivePackage(
             package.manifest.version,
@@ -1097,7 +1089,7 @@ def _fetch_archive_install(
         )
     scratch = store_root(home=state.home, env=state.env)
     try:
-        fs.mkdir(scratch, parents=True, exist_ok=True)
+        fs.mkdir(scratch)
     except OSError as exc:
         error = FetchError(f"fetch failed for {requirement}: {exc}")
         raise PackageInstallError(str(error)) from error
@@ -1107,15 +1099,13 @@ def _fetch_archive_install(
             url=url,
             expected_hash=expected_hash,
             handoff=lambda archive: _install_archive(archive, state=state, shadow=False),
-            scratch_dir=scratch if scratch.is_dir() else None,
+            scratch_dir=scratch,
         )
     except (FetchError, PackageInstallError) as exc:
         raise PackageInstallError(str(exc)) from exc
 
 
-def _verify_existing_install(
-    root: Path, manifest: PackageManifest, package_hash: str | None = None
-) -> None:
+def _verify_existing_install(root: Path, manifest: PackageManifest, package_hash: str) -> None:
     """Check an existing install matches *manifest*.
 
     RECORD is unsigned and lives inside the tree it describes, so verifying it only proves
@@ -1130,7 +1120,7 @@ def _verify_existing_install(
         ) or not manifests_equivalent(installed, manifest):
             raise _already_installed_error(manifest)
         entries = verify_record(root)
-        if package_hash is not None and content_hash(entries) != package_hash:
+        if content_hash(entries) != package_hash:
             raise _already_installed_error(manifest)
     except (ManifestError, RecordError) as exc:
         raise PackageInstallError(
@@ -1203,11 +1193,7 @@ def _commit_install_activation(
         )
         command_shadows = (
             command_shadow_diagnostics(
-                reconciled,
-                home=state.home,
-                env=state.env,
-                transient_packages=state.transient_packages,
-                packages=_transaction_resolved_packages(state),
+                reconciled, packages=_transaction_resolved_packages(state)
             ).get(package.manifest.name, ())
             if report_shadows
             else ()
@@ -1225,7 +1211,6 @@ def _commit_activation(
     *,
     home: Path,
     env: Mapping[str, str] | None,
-    transient_packages: Mapping[str, PackageInfo] | None = None,
 ) -> ActivationIndex:
     """Validate and atomically publish a complete activation selection."""
 
@@ -1234,7 +1219,7 @@ def _commit_activation(
             index,
             home=home,
             env=env,
-            transient_packages=transient_packages,
+            transient_packages=None,
         )
         _publish_activation(reconciled, home=home, env=env)
         return reconciled
@@ -1275,13 +1260,7 @@ def _prepare_activation(
             packages=resolved,
         )
     )
-    validate_activation_index(
-        reconciled,
-        home=home,
-        env=env,
-        transient_packages=transient_packages,
-        packages=resolved,
-    )
+    validate_activation_index(reconciled, packages=resolved)
     return reconciled
 
 

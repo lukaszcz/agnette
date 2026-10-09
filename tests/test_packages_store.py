@@ -12,7 +12,8 @@ import semver
 
 from agnette.core.env import agm_installation_prefix
 from agnette.packages.activation import ActivePackage
-from agnette.packages.manifest import DependencySpec, ManifestError
+from agnette.packages.errors import PackageInstallError
+from agnette.packages.manifest import DependencySpec
 from agnette.packages.record import write_record
 from agnette.packages.store import (
     StoreIdentityError,
@@ -193,7 +194,7 @@ def test_iter_installed_packages_yields_every_store_version_in_order(tmp_path: P
     ]
 
 
-def test_iter_installed_packages_raises_manifest_error_without_a_translator(
+def test_iter_installed_packages_raises_an_install_error_for_an_unloadable_manifest(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
@@ -201,28 +202,8 @@ def test_iter_installed_packages_raises_manifest_error_without_a_translator(
     (root / "alpha").mkdir(parents=True)
     (root / "package.toml").write_text("", encoding="utf-8")
 
-    with pytest.raises(ManifestError):
+    with pytest.raises(PackageInstallError, match="cannot load"):
         list(iter_installed_packages(home=home, env={}))
-
-
-def test_iter_installed_packages_translates_manifest_errors_when_given_a_translator(
-    tmp_path: Path,
-) -> None:
-    home = tmp_path / "home"
-    root = store_root(home=home, env={}) / "alpha" / "1.0.0"
-    (root / "alpha").mkdir(parents=True)
-    (root / "package.toml").write_text("", encoding="utf-8")
-
-    with pytest.raises(ValueError, match="cannot load"):
-        list(
-            iter_installed_packages(
-                home=home,
-                env={},
-                on_manifest_error=lambda exc, version_dir: ValueError(
-                    f"cannot load {version_dir}: {exc}"
-                ),
-            )
-        )
 
 
 def test_iter_installed_packages_rejects_identity_mismatch(tmp_path: Path) -> None:

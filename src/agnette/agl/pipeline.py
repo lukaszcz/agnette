@@ -161,9 +161,6 @@ class ArgumentPreflight:
         The bound, decoded arguments, ready for ``run_prepared``'s own
         ``arguments`` — one entry per declared parameter, in declaration
         order.
-    ``argument_diagnostics``
-        Program argument failures, separate from static and module parameter
-        diagnostics so CLI hosts can present them as usage errors.
     ``param_seeds``
         The decoded module-parameter values, ready for ``run_prepared``.
         Already folds in any ``@config`` entry targeting a ``@param``
@@ -185,12 +182,15 @@ class ArgumentPreflight:
     arguments: "tuple[Value | UseDefault, ...]"
     param_seeds: "Mapping[StaticBindingKey, Value]"
     program_config: "Mapping[StaticBindingKey, Value]"
-    argument_diagnostics: "tuple[Diagnostic, ...]" = ()
 
 
 @dataclass(frozen=True, slots=True)
 class ArgumentPreflightFailure:
-    """Failed result of ``PipelineDriver.preflight_arguments``; ``result`` holds the diagnostics."""
+    """Failed result of ``PipelineDriver.preflight_arguments``; ``result`` holds the diagnostics.
+
+    ``argument_diagnostics`` are the program argument failures, separate from static and
+    module parameter diagnostics so CLI hosts can present them as usage errors.
+    """
 
     result: "RunResult"
     argument_diagnostics: "tuple[Diagnostic, ...]" = ()
@@ -204,7 +204,7 @@ class RunOptions:
     and documents them, through :meth:`PipelineDriver._run_program` down to
     :meth:`PipelineDriver._execute_ir`. It deliberately carries only what
     reaches execution, and is not to be completed with the rest of
-    ``run_prepared``'s keywords: the cached ``compiled``/``checked``/
+    ``run_prepared``'s keywords: the cached ``compiled``/
     ``executable`` artifacts and ``selected_program`` are consumed by the
     static passes and stop there, and ``host_env``/``warnings`` are assembled
     mid-pipeline rather than supplied by the caller.
@@ -281,8 +281,6 @@ class PreparedProgram:
         declared extern before evaluation.
     """
 
-    source: str
-    entry_path: "Path | None"
     roots: "RootSet"
     resolved: "ResolvedProgram | None"
     diagnostics: tuple[Diagnostic, ...]
@@ -375,10 +373,6 @@ class RunResult:
         (``A::x``). An explicitly selected synthetic inline ``main`` also
         contributes its direct bindings; an explicit file entry does not.
         Empty for failed runs.
-    ``trace_path``
-        Path of the JSONL trace file written during this run, or ``None``
-        when tracing was disabled (``--no-trace``) or execution was check-only.
-        This handle identifies the prepared program.
     """
 
     ok: bool
@@ -386,7 +380,6 @@ class RunResult:
     error: RunError | None
     warnings: list[Diagnostic] = field(default_factory=list)
     bindings: dict[str, Value] = field(default_factory=dict)
-    trace_path: Path | None = field(default=None)
 
 
 class PipelineDriver:
@@ -610,7 +603,6 @@ class PipelineDriver:
                     error=None,
                     warnings=list(warnings),
                     bindings={},
-                    trace_path=None,
                 )
             if len(entry_programs) == 1:
                 program_symbol = entry_programs[0]
@@ -636,7 +628,6 @@ class PipelineDriver:
                     error=None,
                     warnings=list(warnings),
                     bindings={},
-                    trace_path=None,
                 )
         elif arguments is None:
             arguments = ()
@@ -657,7 +648,6 @@ class PipelineDriver:
                 error=None,
                 warnings=list(warnings),
                 bindings={},
-                trace_path=None,
             )
 
         # ----------------------------------------------------------------
@@ -673,7 +663,6 @@ class PipelineDriver:
                 error=None,
                 warnings=list(warnings),
                 bindings={},
-                trace_path=None,
             )
 
         # ----------------------------------------------------------------
@@ -689,7 +678,7 @@ class PipelineDriver:
             from agnette.core.fs import mkdir
 
             try:
-                mkdir(options.trace_file.parent, parents=True, exist_ok=True)
+                mkdir(options.trace_file.parent)
             except OSError as exc:
                 trace.disable(exc)
         if options.host_settings_policy is not None:
@@ -806,7 +795,6 @@ class PipelineDriver:
                 error=error,
                 warnings=list(warnings),
                 bindings={},
-                trace_path=trace.path,
             )
         except SystemExit as exc:
             trace.run_end(ok=exc.code is None or exc.code == 0)
@@ -823,7 +811,6 @@ class PipelineDriver:
                 error=None,
                 warnings=list(warnings),
                 bindings={},
-                trace_path=trace.path,
             )
 
         trace.run_end(ok=True)
@@ -834,7 +821,6 @@ class PipelineDriver:
             error=None,
             warnings=list(warnings),
             bindings=entry_bindings,
-            trace_path=trace.path,
         )
 
     @staticmethod
@@ -942,8 +928,6 @@ class PipelineDriver:
                 default_stdlib_root = resolve_stdlib_root(home=Path.home(), anchor=entry_directory)
             except StdlibResolutionError as exc:
                 return PreparedProgram(
-                    entry_source,
-                    entry_path,
                     RootSet(roots=frozenset()),
                     None,
                     (Diagnostic(message=str(exc), line=1),),
@@ -962,9 +946,7 @@ class PipelineDriver:
             )
 
         if parsed.program is None:
-            return PreparedProgram(
-                entry_source, entry_path, roots, None, parsed.diagnostics, parsed.warnings
-            )
+            return PreparedProgram(roots, None, parsed.diagnostics, parsed.warnings)
 
         with tab_warning_collector() as tab_sink:
             try:
@@ -977,14 +959,11 @@ class PipelineDriver:
                         roots=roots,
                         default_stdlib=default_stdlib,
                         spaced_qualifiers=parsed.spaced_qualifiers,
-                        default_label="<code>",
                         source_text=normalize_newlines(entry_source),
                     )
                     resolved = resolve_program(graph)
             except AglError as exc:
                 return PreparedProgram(
-                    entry_source,
-                    entry_path,
                     roots,
                     None,
                     (exc.to_diagnostic(),),
@@ -994,8 +973,6 @@ class PipelineDriver:
 
         companion_paths = {mid: lm.companion_path for mid, lm in graph.modules.items()}
         return PreparedProgram(
-            entry_source,
-            entry_path,
             roots,
             resolved,
             (),
@@ -1070,19 +1047,12 @@ class PipelineDriver:
             select_default_program=True,
         )
 
-    def _discover_static(
-        self,
-        prepared: PreparedProgram,
-        *,
-        compiled: "MatchCompiledProgram | None" = None,
-    ) -> ProgramDiscovery:
-        """Run typecheck + match compilation, reusing a supplied artifact.
+    def _discover_static(self, prepared: PreparedProgram) -> ProgramDiscovery:
+        """Run typecheck + match compilation.
 
         The static-pipeline steps :meth:`discover_programs` needs before
         building its own program-declaration products: entry-module
-        resolution, typecheck, match compilation, and (when self-validation
-        is enabled) artifact-provenance checking against a reused *compiled*
-        artifact.
+        resolution, typecheck, and match compilation.
 
         Returns a :class:`ProgramDiscovery` whose ``programs`` is always
         empty — :meth:`discover_programs` fills it in on success.
@@ -1104,17 +1074,7 @@ class PipelineDriver:
             )
 
         capabilities = self.host_environment().capabilities
-        if compiled is not None:
-            if self_validation_enabled():
-                _check_program_artifact_provenance(prepared.resolved, compiled.checked)
-            if compiled.capabilities != capabilities:
-                compiled = None
-
-        if compiled is None:
-            checked, tc_diagnostics = _run_typecheck_program(prepared.resolved, capabilities)
-        else:
-            checked = compiled.checked
-            tc_diagnostics = ()
+        checked, tc_diagnostics = _run_typecheck_program(prepared.resolved, capabilities)
         all_warnings_list: list[Diagnostic] = list(prepared.warnings)
         if checked is not None:
             _append_checker_warnings(all_warnings_list, checked)
@@ -1129,18 +1089,17 @@ class PipelineDriver:
                 warnings=all_warnings,
             )
 
+        compiled, match_diagnostics = _run_matchcompile_program(
+            checked, prepared.resolved, capabilities
+        )
         if compiled is None:
-            compiled, match_diagnostics = _run_matchcompile_program(
-                checked, prepared.resolved, capabilities
+            return ProgramDiscovery(
+                programs=(),
+                checked=checked,
+                compiled=None,
+                diagnostics=match_diagnostics,
+                warnings=all_warnings,
             )
-            if compiled is None:
-                return ProgramDiscovery(
-                    programs=(),
-                    checked=checked,
-                    compiled=None,
-                    diagnostics=match_diagnostics,
-                    warnings=all_warnings,
-                )
 
         if checked.entry_id not in checked.modules:
             return ProgramDiscovery(
@@ -1155,21 +1114,16 @@ class PipelineDriver:
             programs=(), checked=checked, compiled=compiled, diagnostics=(), warnings=all_warnings
         )
 
-    def discover_programs(
-        self,
-        prepared: PreparedProgram,
-        *,
-        compiled: "MatchCompiledProgram | None" = None,
-    ) -> ProgramDiscovery:
+    def discover_programs(self, prepared: PreparedProgram) -> ProgramDiscovery:
         """Discover every ``program def`` declaration with its typed parameter signature.
 
-        A supplied artifact is reused; otherwise the successful artifact is
-        returned for later lowering by :meth:`run_prepared`. Reports each
+        The successful artifact is returned for later lowering by
+        :meth:`run_prepared`. Reports each
         program's own value-parameter signature (``ProgramDeclInfo.parameters``),
         ready for :meth:`preflight_arguments`/:meth:`run_prepared` with
         ``arguments``.
         """
-        static = self._discover_static(prepared, compiled=compiled)
+        static = self._discover_static(prepared)
         checked = static.checked
         if static.compiled is None or checked is None:
             return static
@@ -1223,7 +1177,6 @@ class PipelineDriver:
         program_function: str | None = None,
         program_span: "SourceSpan | None" = None,
         compiled: "MatchCompiledProgram | None" = None,
-        checked: "CheckedProgram | None" = None,
         executable: "ExecutableProgram | None" = None,
         host_settings_policy: "HostSettingsPolicy | None" = None,
         builtin_host_settings: "Mapping[str, Value] | None" = None,
@@ -1299,17 +1252,11 @@ class PipelineDriver:
                 arguments=arguments,
             ),
             compiled=compiled,
-            checked=checked,
             executable=executable,
         )
         return result
 
-    def check_prepared(
-        self,
-        prepared: PreparedProgram,
-        *,
-        compiled: "MatchCompiledProgram | None" = None,
-    ) -> RunResult:
+    def check_prepared(self, prepared: PreparedProgram) -> RunResult:
         """Run the full static pipeline over *prepared*, with no execution.
 
         An intent-revealing façade over ``run_prepared(..., check_only=True)``:
@@ -1317,12 +1264,8 @@ class PipelineDriver:
         materialization, and lowering, reporting every static failure
         lowering catches (an invalid ``resource``/``resource-dir`` path, an
         unmaterializable output contract), with no execution.
-
-        ``compiled``
-            As in :meth:`run_prepared`: a caller-supplied typecheck/match-compile
-            artifact to reuse instead of running those passes here.
         """
-        return self.run_prepared(prepared, check_only=True, compiled=compiled)
+        return self.run_prepared(prepared, check_only=True)
 
     def _lower_and_record(
         self,
@@ -1461,7 +1404,6 @@ class PipelineDriver:
         options: RunOptions,
         *,
         compiled: "MatchCompiledProgram | None" = None,
-        checked: "CheckedProgram | None" = None,
         executable: "ExecutableProgram | None" = None,
         selected_program: ProgramDeclInfo | None = None,
     ) -> "tuple[RunResult, ExecutableProgram | None]":
@@ -1497,22 +1439,15 @@ class PipelineDriver:
                 _check_program_artifact_provenance(resolved, compiled.checked)
             if compiled.capabilities != capabilities:
                 compiled = None
-        if checked is not None and compiled is None:
-            if self_validation_enabled():
-                _check_program_artifact_provenance(resolved, checked)
-            if checked.capabilities != capabilities:
-                checked = None
 
         # Reuse a supplied match-compiled program rather than repeating its
         # typecheck and match-compilation passes.
-        tc_diagnostics: tuple[Diagnostic, ...]
+        tc_diagnostics: tuple[Diagnostic, ...] = ()
+        checked: CheckedProgram | None
         if compiled is not None:
-            tc_diagnostics = ()
             checked = compiled.checked
-        elif checked is None:
-            checked, tc_diagnostics = _run_typecheck_program(resolved, capabilities)
         else:
-            tc_diagnostics = ()
+            checked, tc_diagnostics = _run_typecheck_program(resolved, capabilities)
         if checked is None:
             return (
                 RunResult(
@@ -1756,12 +1691,11 @@ def _module_param_infos(
     *aliases* is the caller's shared alias index when it also discovers
     programs from the same checked program; ``None`` builds one for this call.
     """
-    from agnette.agl.syntax.nodes import VarDecl, static_binding_name
+    from agnette.agl.syntax.nodes import static_binding_name
 
     alias_index = _TypeAliasIndex(checked) if aliases is None else aliases
     module_params: dict[ModuleId, tuple[ParamBindingInfo, ...]] = {}
     for module_id, checked_module in checked.modules.items():
-        attributes = checked_module.resolved.attributes
         type_table = checked_module.type_env.type_table
         params: list[ParamBindingInfo] = []
         for binding in checked_module.resolved.param_bindings():
@@ -1772,12 +1706,8 @@ def _module_param_infos(
                     module=module_id,
                     scope_path=binding.scope_path,
                     name=name,
-                    node_id=binding.node_id,
-                    span=binding.item.span,
                     type=binding_type,
-                    mutable=isinstance(binding.item, VarDecl),
                     cli=binding.cli,
-                    doc=attributes.docs.get(binding.item.node_id),
                     is_path=_annotates_path(
                         checked, module_id, binding.item.type_ann, binding_type, alias_index
                     ),
@@ -2106,8 +2036,8 @@ def _wire_extern_registry(
     registry: "ExternRegistry",
     companion_paths: "Mapping[ModuleId, Path | None]",
     packages: "tuple[PackageInfo, ...]",
+    descriptors: "ValueDescriptors",
     module_ids: "set[ModuleId] | None" = None,
-    descriptors: "ValueDescriptors | None" = None,
 ) -> list[Diagnostic]:
     """Import every companion and resolve every declared extern, up front.
 
@@ -2144,12 +2074,11 @@ def _wire_extern_registry(
             )
         ]
     declarations = _extern_declarations(checked, module_ids)
-    if descriptors is not None:
-        registry.set_nominals(
-            dict(descriptors.nominals),
-            functions=descriptors.functions,
-            exception_field_encodes=descriptors.exception_field_encodes,
-        )
+    registry.set_nominals(
+        dict(descriptors.nominals),
+        functions=descriptors.functions,
+        exception_field_encodes=descriptors.exception_field_encodes,
+    )
 
     diagnostics: list[Diagnostic] = []
     loaded_modules: set["ModuleId"] = set()

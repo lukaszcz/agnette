@@ -50,7 +50,7 @@ _PARSER: Lark = build_parser()
 _TYPED_CALL_WITHOUT_CALL_RE = re.compile(r"::\s*\[.*\]\s*$", re.DOTALL)
 
 # A second Lark instance rooted at the ``type_expr`` grammar rule, built lazily.
-# Used only by :func:`parse_type_expr` for the REPL's bare-type-entry fallback;
+# Used only by :func:`parse_type_expr_seeded` for the REPL's bare-type-entry fallback;
 # keeping a separate start symbol avoids perturbing the program parser's start
 # rule.  ``type_expr`` is an existing rule in ``agl.lark`` (every type-expression
 # alternative), so this reuses the same grammar/lexer with no grammar changes.
@@ -352,57 +352,20 @@ def parse_program_seeded(
     return _parse_to_program(text, start_id=start_id, source=source)
 
 
-def parse_type_expr(
-    text: str,
-    *,
-    start_id: int = 0,
-    source: SourceId | None = None,
-) -> syntax.TypeExpr:
-    """Parse *text* as a single AgL type expression and return a ``TypeExpr``.
-
-    This is a REPL-only convenience: the interactive loop uses it to recognize
-    a bare type entry (``int``, ``array[T]``, a declared record/enum name, …) so
-    it can echo the resolved type instead of reporting ``'X' is not defined.``.
-    It reuses the same grammar/lexer/transformer as :func:`parse_program` but
-    roots the parse at the ``type_expr`` rule, so any input that is not a single
-    type expression raises ``AglSyntaxError`` and the caller falls back to the
-    normal evaluation path.  The language and program parser are unchanged.
-
-    Parameters
-    ----------
-    text:
-        The source code to parse (a single type expression).
-    start_id:
-        The first ``node_id`` to assign (default ``0``).  Throwaway for the
-        REPL fallback, which never promotes; passed for symmetry.
-    source:
-        Optional :class:`~agnette.agl.syntax.spans.SourceId` stamped on spans.
-
-    Returns
-    -------
-    syntax.TypeExpr
-        The parsed type-expression AST node.
-
-    Raises
-    -----
-    AglSyntaxError
-        On any lex or parse error.
-    """
-    result, _next_id = parse_type_expr_seeded(text, start_id=start_id, source=source)
-    return result
-
-
 def parse_type_expr_seeded(
     text: str,
     *,
     start_id: int,
     source: SourceId | None = None,
 ) -> tuple[syntax.TypeExpr, int]:
-    """Parse *text* as a type expression with node ids starting at *start_id*.
+    """Parse *text* as a single type expression, ids starting at *start_id*.
 
-    Like :func:`parse_type_expr` but returns ``(type_expr, next_start_id)`` so a
-    caller that embeds the result in a larger synthetic AST (e.g. the REPL's
-    bare-type-entry fallback) can continue assigning ids past it.
+    The REPL uses it to recognize a bare type entry (``int``, ``array[T]``, a
+    declared record/enum name, ...) so it can echo the resolved type. It roots
+    the parse at the ``type_expr`` rule, so any input that is not a single type
+    expression raises ``AglSyntaxError`` and the caller falls back to normal
+    evaluation. Returns ``(type_expr, next_start_id)`` so the caller can keep
+    assigning ids past the result.
     """
     tree = _parse_tree(_type_parser(), text, source=source)
     result, next_id = _transform_tree(tree, start_id=start_id, source=source)

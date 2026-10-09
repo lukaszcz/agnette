@@ -26,7 +26,7 @@ _TEMP_PATHS_KEY = "std/fs/temp-paths"
 
 def _ensure_parent_directory(path: Path) -> None:
     if not path.parent.exists():
-        fs.mkdir(path.parent, parents=True, exist_ok=True)
+        fs.mkdir(path.parent)
 
 
 def _scalar_entries(path: str, operation: str, names: Iterable[str]) -> list[str]:
@@ -101,7 +101,7 @@ def list(path: str) -> object:
 
 def mkdir(path: str) -> None:
     """Create *path* and any missing parent directories."""
-    run_fs_action(FsError, path, "mkdir", lambda: fs.mkdir(Path(path), parents=True, exist_ok=True))
+    run_fs_action(FsError, path, "mkdir", lambda: fs.mkdir(Path(path)))
 
 
 def _remove_entry(target: Path, *, missing_ok: bool = False) -> None:

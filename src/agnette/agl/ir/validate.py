@@ -184,7 +184,7 @@ from agnette.agl.ir.nodes import (
     UseDefault,
     is_canonical_literal_scalar,
 )
-from agnette.agl.ir.operations import ArithKind, ArithOp, CmpOp, CompareKind
+from agnette.agl.ir.operations import ArithKind, ArithOp
 from agnette.agl.ir.program import (
     ExecutableProgram,
     ExternFunctionBody,
@@ -401,9 +401,9 @@ def _validate_constructor_fields(
     """
     if ctx.deep:
         _check_nominal_in_table(nominal, ctx)
-    desc = ctx.program.nominals.get(nominal)
+    desc = ctx.program.nominals[nominal] if ctx.deep else None
     context = f"{node_name} for nominal {nominal!r}"
-    if ctx.deep and desc is not None:
+    if desc is not None:
         if len(fields) != len(desc.fields):
             raise InvalidIrError(
                 f"{context} has {len(fields)} field slots but the nominal declares"
@@ -423,7 +423,7 @@ def _validate_constructor_fields(
                 fexpr,
                 index,
                 ctx,
-                desc.field_defaults[index] is not None if ctx.deep and desc is not None else None,
+                desc.field_defaults[index] is not None if desc is not None else None,
             )
         else:
             _validate_expr(fexpr, ctx)
@@ -431,9 +431,7 @@ def _validate_constructor_fields(
 
 def _check_nominal_field(nominal: NominalId, field: str, ctx: _Context, node_name: str) -> None:
     """Reject a field reference outside the declaring nominal's field shape."""
-    desc = ctx.program.nominals.get(nominal)
-    if desc is None:  # pragma: no cover
-        return  # already caught by _check_nominal_in_table
+    desc = ctx.program.nominals[nominal]
     if desc.kind is NominalKind.ENUM:
         known_fields = {name for variant in desc.variants for name in variant.fields}
     else:
@@ -451,9 +449,7 @@ def _check_record_nominal(nominal: NominalId, ctx: _Context, node_name: str) -> 
         raise InvalidIrError(f"{node_name} references non-record nominal {nominal!r}")
 
 
-def _check_downcast_nominals(
-    nominals: tuple[NominalId, ...], ctx: _Context, node_name: str
-) -> None:
+def _check_downcast_nominals(nominals: tuple[NominalId, ...], ctx: _Context) -> None:
     """Require a downcast's accepted set: all RECORD, or exactly one EXCEPTION."""
     for nominal in nominals:
         _check_nominal_in_table(nominal, ctx)
@@ -463,15 +459,15 @@ def _check_downcast_nominals(
     if kinds == {NominalKind.EXCEPTION} and len(nominals) == 1:
         return
     raise InvalidIrError(
-        f"{node_name} nominals {nominals!r} must be RECORD members or exactly one EXCEPTION"
+        f"IrNominalCast nominals {nominals!r} must be RECORD members or exactly one EXCEPTION"
     )
 
 
-def _check_nominal_is_target(nominal: NominalId, ctx: _Context, node_name: str) -> None:
+def _check_nominal_is_target(nominal: NominalId, ctx: _Context) -> None:
     """Require an `is`-test target to be a record or exception identity."""
     _check_nominal_in_table(nominal, ctx)
     if ctx.program.nominals[nominal].kind not in (NominalKind.RECORD, NominalKind.EXCEPTION):
-        raise InvalidIrError(f"{node_name} references non-record/non-exception nominal {nominal!r}")
+        raise InvalidIrError(f"IrNominalIs references non-record/non-exception nominal {nominal!r}")
 
 
 def _check_mutable_record_field(nominal: NominalId, field: str, ctx: _Context) -> None:
@@ -576,7 +572,6 @@ def _walk_encode_schema(encode: EncodeSchema, walk: _EncodeWalk, parameter_count
                 walk.definitions,
                 forwarded_encode_key,
                 ref_kind="EncodeSchema RefEncode",
-                key_noun="$defs key",
             )
             if len(arguments) != target.parameter_count:
                 raise InvalidIrError(
@@ -694,7 +689,6 @@ def _walk_decode_schema(
                 defs,
                 lambda t: t.key if isinstance(t, RefDecode) else None,
                 ref_kind="DecodeSchema RefDecode",
-                key_noun="$defs key",
             )
         case ArrayDecode(elem=elem):
             _walk_decode_schema(elem, defs, ctx)
@@ -768,26 +762,25 @@ def _check_ref_chain(
     follow: "Callable[[_RefT], str | None]",
     *,
     ref_kind: str,
-    key_noun: str,
 ) -> "_RefT":
     """Resolve a chain of ``$defs`` refs to the non-ref body it must reach.
 
     *follow* returns the next key when its argument is itself a ref node
     (``RefDecode``), or ``None`` at a concrete body where the
     chain terminates.  A key absent from *defs* or revisited (a cycle) is an
-    IR invariant violation; *ref_kind* and *key_noun* name the schema flavour
-    and its defs-key wording in the message.  The resolved entry is returned
-    for callers that must also check it against the reference itself.
+    IR invariant violation; *ref_kind* names the schema flavour in the message.
+    The resolved entry is returned for callers that must also check it against
+    the reference itself.
     """
     seen: set[str] = set()
     current = key
     while True:
         if current in seen:
-            raise InvalidIrError(f"{ref_kind} cycle reaches no body at {key_noun} {current!r}")
+            raise InvalidIrError(f"{ref_kind} cycle reaches no body at $defs key {current!r}")
         seen.add(current)
         target = defs.get(current)
         if target is None:
-            raise InvalidIrError(f"{ref_kind} references unknown {key_noun} {current!r}")
+            raise InvalidIrError(f"{ref_kind} references unknown $defs key {current!r}")
         next_key = follow(target)
         if next_key is None:
             return target
@@ -807,7 +800,7 @@ def _leading_contract_count(
             (i for i, arg in enumerate(arguments) if not isinstance(arg, IrContract)),
             len(arguments),
         )
-    fn_desc = _resolve_callable(fn_id, ctx, "IrDirectCall")
+    fn_desc = _resolve_callable(fn_id, ctx)
     impl = fn_desc.impl
     targets = impl.target_count if isinstance(impl, ExternFunctionBody) else 0
     if len(arguments) != targets + len(fn_desc.params):
@@ -824,13 +817,13 @@ def _leading_contract_count(
     return targets
 
 
-def _resolve_callable(fn_id: FunctionId, ctx: _Context, node_desc: str) -> FunctionDescriptor:
+def _resolve_callable(fn_id: FunctionId, ctx: _Context) -> FunctionDescriptor:
     """Resolve *fn_id* through the unified ``program.functions`` table."""
     fn_desc = ctx.program.functions.get(fn_id)
     if fn_desc is not None:
         return fn_desc
     raise InvalidIrError(
-        f"{node_desc} references function_id={fn_id!r} which is not in program.functions"
+        f"IrDirectCall references function_id={fn_id!r} which is not in program.functions"
     )
 
 
@@ -1118,16 +1111,8 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
             _validate_expr(lhs, ctx)
             _validate_expr(rhs, ctx)
 
-        case IrCompare(op=op, kind=kind, lhs=lhs, rhs=rhs):
+        case IrCompare(lhs=lhs, rhs=rhs):
             _validate_location(node.location, ctx)
-            if op in (CmpOp.EQ, CmpOp.NEQ) and kind is not CompareKind.STRUCTURAL:
-                raise InvalidIrError(
-                    f"IrCompare: EQ/NEQ requires STRUCTURAL kind, got kind={kind!r}"
-                )
-            if op in (CmpOp.LT, CmpOp.LE, CmpOp.GT, CmpOp.GE) and kind is CompareKind.STRUCTURAL:
-                raise InvalidIrError(
-                    f"IrCompare: ordering op {op!r} requires INT/DECIMAL/TEXT kind, got STRUCTURAL"
-                )
             _validate_expr(lhs, ctx)
             _validate_expr(rhs, ctx)
 
@@ -1218,13 +1203,13 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
             if ctx.deep:
                 if not nominals:
                     raise InvalidIrError("IrNominalCast requires at least one nominal")
-                _check_downcast_nominals(nominals, ctx, "IrNominalCast")
+                _check_downcast_nominals(nominals, ctx)
             _validate_expr(val, ctx)
 
         case IrNominalIs(nominal=nominal, value=val):
             _validate_location(node.location, ctx)
             if ctx.deep:
-                _check_nominal_is_target(nominal, ctx, "IrNominalIs")
+                _check_nominal_is_target(nominal, ctx)
             _validate_expr(val, ctx)
 
         case IrConvert(value=val, recipe=recipe):

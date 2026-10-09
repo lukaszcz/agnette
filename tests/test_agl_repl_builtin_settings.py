@@ -657,8 +657,7 @@ class TestLiveHostReconfiguration:
         _ok(s, 'print "traced"')
         _ok(s, "std/config::trace := false")
 
-        result = _ok(s, 'print "untraced"')
-        assert result.trace_path is None
+        _ok(s, 'print "untraced"')
         text = trace_path.read_text(encoding="utf-8")
         assert '"rendered": "traced"' in text
         assert "untraced" not in text

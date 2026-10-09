@@ -29,7 +29,6 @@ from agnette.agl.ir.contracts import (
 from agnette.agl.ir.ids import ContractId, Location
 from agnette.agl.ir.nodes import (
     IrAsk,
-    IrAskRequest,
     IrExec,
     IrExpr,
     IrSessionAsk,
@@ -41,7 +40,6 @@ from agnette.agl.ir.nodes import (
 from agnette.agl.ir.program import ExecutableProgram, ExternFunctionBody, ValueDescriptors
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.agents import (
-    AgentFn,
     agent_member_name,
     decode_agent_value,
 )
@@ -121,7 +119,6 @@ class EffectCtx(Protocol):
     _program: ExecutableProgram
     _descriptors: ValueDescriptors
     _trace: TraceStore
-    _agent_dispatcher: AgentFn | None
     _echo_agent_output: bool
     _session_host: SessionHost
     _get_sandbox_context: "Callable[[], SandboxContext] | None"
@@ -287,7 +284,7 @@ class EffectHandlers:
         }
 
     def _agent_output_callback(
-        self, span: Location, intermediate_output: list[dict[str, str]]
+        self, intermediate_output: list[dict[str, str]]
     ) -> "AgentOutputCallback | None":
         """Build a stream sink for echoing or collecting output for the trace."""
         echo = self._ctx._echo_agent_output
@@ -326,7 +323,7 @@ class EffectHandlers:
         agent_label = render_value(agent, self._descriptors())
         raise AglRaise(
             ExceptionValue(
-                nominal=declared.nominal,
+                nominal=declared,
                 fields={
                     "message": TextValue(
                         f"Agent {agent_label!r} failed: {error.cause}"
@@ -532,12 +529,12 @@ class EffectHandlers:
         nominals = self._ctx._program.builtin_nominals
         declared = nominals.resolve("Session")
         return RecordValue(
-            nominal=declared.nominal,
+            nominal=declared,
             fields={
                 "id": TextValue(handle),
                 "agent": agent,
                 "transport": RecordValue(
-                    nominal=nominals.resolve_standard_member("SessionTransport", transport).nominal,
+                    nominal=nominals.resolve_standard_member("SessionTransport", transport),
                     fields={},
                 ),
                 "sandbox": sandbox,
@@ -610,7 +607,6 @@ class EffectHandlers:
 
     def eval_ir_session_default(
         self,
-        _node: IrSessionDefault,
         default_agent: Value,
         default_sandbox: Value,
         default_env: Value | None,
@@ -714,17 +710,14 @@ class EffectHandlers:
         except SessionHostError as error:
             self._session_error(error)
         except KeyboardInterrupt as error:
-            cancelled = AgentCancelled(
-                render_value(agent_value, self._descriptors()), "interrupted", span=node.location
-            )
             self._ctx._trace.agent_response(
                 ok=False,
                 cancelled=True,
-                reason=cancelled.reason,
+                reason="interrupted",
                 intermediate_output=request.intermediate_output,
                 span=node.location,
             )
-            raise cancelled from error
+            raise AgentCancelled(render_value(agent_value, self._descriptors())) from error
         self._ctx._trace.agent_response(
             ok=True,
             content=raw,
@@ -890,7 +883,7 @@ class EffectHandlers:
                 output_contract=output_contract,
                 permission_mode=permission_mode,
                 sandbox=sandbox,
-                output_callback=self._agent_output_callback(node.location, intermediate_output),
+                output_callback=self._agent_output_callback(intermediate_output),
                 intermediate_output=intermediate_output,
             )
             request.prompt = self._compose_session_prompt(handle, request)
@@ -954,7 +947,7 @@ class EffectHandlers:
                     stats = host.stats(handle)
                     declared = self._ctx._program.builtin_nominals.resolve("SessionStats")
                     return RecordValue(
-                        nominal=declared.nominal,
+                        nominal=declared,
                         fields={
                             "input-tokens": IntValue(stats.input_tokens),
                             "output-tokens": IntValue(stats.output_tokens),
@@ -970,14 +963,13 @@ class EffectHandlers:
 
     def eval_ir_ask_request(
         self,
-        _node: IrAskRequest,
         agent_expr: IrExpr,
         prompt_expr: IrExpr,
         contract_id: ContractId,
         retries_expr: IrExpr,
         sandbox_expr: IrExpr,
     ) -> Value:
-        """Handle IrAskRequest: build AgentRequest record without dispatching."""
+        """Handle ``IrAskRequest``: build AgentRequest record without dispatching."""
         agent_value = cast(RecordValue, self._ctx._eval(agent_expr))
         prompt_text = self._text_of(self._ctx._eval(prompt_expr))
         max_attempts = self._eval_max_attempts(retries_expr, contract_id)
@@ -991,7 +983,7 @@ class EffectHandlers:
         agent_request = nominals.resolve("AgentRequest")
         json_schema = _contract_json_schema(contract)
         return RecordValue(
-            nominal=agent_request.nominal,
+            nominal=agent_request,
             fields={
                 "agent": agent_value,
                 "prompt": TextValue(prompt_text),
@@ -1174,7 +1166,6 @@ class EffectHandlers:
                 idle_timeout=timeout,
                 cwd=run_cwd,
                 env=run_env,
-                isolate_process_group=True,
                 interrupt_cleanup_cmd=interrupt_cleanup_cmd,
             )
         finally:
@@ -1289,7 +1280,7 @@ class EffectHandlers:
                 )
             exec_result = nominals.resolve("ExecResult")
             return RecordValue(
-                nominal=exec_result.nominal,
+                nominal=exec_result,
                 fields={
                     "stdout": TextValue(stdout_text),
                     "exit-code": IntValue(actual_exit_code),

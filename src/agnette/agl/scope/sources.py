@@ -628,7 +628,7 @@ class ModuleSources(SourcesHost):
         """Read :meth:`contributed_at`."""
         imported = (
             Candidate(
-                self._contributed_target(ref, ()),
+                self._contributed_target(ref),
                 layer,
                 contribution_origin(_ref_qname(ref), layer),
                 hiding,
@@ -754,7 +754,7 @@ class ModuleSources(SourcesHost):
         """What module *route* alone reaches at *path* beneath it."""
         candidates = (
             Candidate(
-                self._contributed_target(self._cross_module_binding_ref(qname), ()),
+                self._contributed_target(self._cross_module_binding_ref(qname)),
                 ContributionLayer.IMPORTED,
                 ImportedModuleOrigin(qname),
                 self._hiding(ways),
@@ -1832,22 +1832,12 @@ class ModuleSources(SourcesHost):
             return target.constructor is not None
         return ref is not None and ref.kind is not BinderKind.constructor_binding
 
-    def _contributed_target(
-        self, ref: BindingRef, constructors: Collection[ConstructorRef]
-    ) -> QualifiedTarget:
-        """Return the target contributed *ref* names, with its constructor, if any.
-
-        A local declaration's constructor is the contributing layers' own
-        candidate with the same identity; an imported one's is its module's.
-        """
+    def _contributed_target(self, ref: BindingRef) -> QualifiedTarget:
+        """Return the target contributed *ref* names, with its imported constructor, if any."""
         key = (ref.module_id, ref.scope_path, ref.name)
         if ref.module_id != self._module_id:
             return QualifiedTarget(key, ref, self._cross_module_constructor(_ref_qname(ref)))
-        constructor = next(
-            (candidate for candidate in constructors if candidate.key == key),
-            None,
-        )
-        return QualifiedTarget(key, ref, constructor)
+        return QualifiedTarget(key, ref, None)
 
     def _owner_less(self, key: DeclarationKey) -> bool:
         """Whether declaration *key* is selected directly, not as a type owner's member."""

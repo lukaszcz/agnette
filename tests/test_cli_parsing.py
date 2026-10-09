@@ -922,16 +922,6 @@ class TestClose:
         assert calls[0].keep_branch is True
         assert calls[0].keep_workspace is False
 
-    def test_close_keep_workspace_implies_keep_branch_in_args(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        calls = make_recorder(monkeypatch, workspace_close_command)
-        result = invoke(runner, ["close", "--keep-workspace", "feat/x"])
-        assert result.exit_code == 0
-        assert len(calls) == 1
-        assert calls[0].keep_branch is True
-        assert calls[0].keep_workspace is True
-
 
 class TestRun:
     def test_run_simple(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1221,8 +1211,6 @@ class TestTopLevel:
 
 class TestEveryCommandHasHelpText:
     def test_every_canonical_command_has_help_text(self) -> None:
-        from agnette.agm.cli import _HELP_TEXTS
-
         canonical_commands = {
             "open",
             "close",
@@ -1237,12 +1225,12 @@ class TestEveryCommandHasHelpText:
             "help",
         }
         for cmd in canonical_commands:
-            assert cmd in _HELP_TEXTS, f"missing help text for '{cmd}'"
+            assert cmd in parser_helpers._HELP_TEXTS, f"missing help text for '{cmd}'"
 
     def test_every_overview_command_has_help_text(self) -> None:
-        from agnette.agm.cli import _COMMAND_OVERVIEW
+        from agnette.command_catalog import COMMAND_OVERVIEW
 
-        for name, _ in _COMMAND_OVERVIEW:
+        for name, _ in COMMAND_OVERVIEW:
             text = parser_helpers.help_text_for(name)
             assert text is not None, f"overview lists '{name}' without help text"
             assert text.startswith(f"agm {name}")
@@ -1266,23 +1254,17 @@ class TestEveryCommandHasHelpText:
             walk(command, (name,))
 
     def test_aliases_point_to_valid_commands(self) -> None:
-        from agnette.agm.cli import _HELP_ALIASES, _HELP_TEXTS
-
-        for alias, target in _HELP_ALIASES.items():
-            assert target in _HELP_TEXTS, (
-                f"alias '{alias}' -> '{target}' but '{target}' not in _HELP_TEXTS"
+        for alias, target in parser_helpers._HELP_ALIASES.items():
+            assert target in parser_helpers._HELP_TEXTS, (
+                f"alias '{alias}' -> '{target}' but '{target}' not in parser_helpers._HELP_TEXTS"
             )
 
     def test_no_empty_help_texts(self) -> None:
-        from agnette.agm.cli import _HELP_TEXTS
-
-        for cmd, text in _HELP_TEXTS.items():
+        for cmd, text in parser_helpers._HELP_TEXTS.items():
             assert text.strip(), f"help text for '{cmd}' is empty"
 
     def test_help_texts_contain_command_name(self) -> None:
-        from agnette.agm.cli import _HELP_TEXTS
-
-        for cmd, text in _HELP_TEXTS.items():
+        for cmd, text in parser_helpers._HELP_TEXTS.items():
             assert f"agm {cmd}" in text, f"help text for '{cmd}' doesn't mention 'agm {cmd}'"
 
     def test_command_reference_mentions_all_cli_commands(self) -> None:

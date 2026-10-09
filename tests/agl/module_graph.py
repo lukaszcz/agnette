@@ -58,7 +58,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from agnette.agl.capabilities import HostCapabilities
-from agnette.agl.lexer import SpacedQualifier, spaced_qualifier_collector
+from agnette.agl.lexer import spaced_qualifier_collector
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import (
     LoadedModule,
@@ -72,11 +72,10 @@ from agnette.agl.parser.wrap import wrap_inline_program
 from agnette.agl.scope import ModuleResolution
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import ScopeNode, ScopePath, TypeOwner
+from agnette.agl.syntax.advisories import SpacedQualifier
 from agnette.agl.syntax.nodes import Block, ExportDecl, FuncDef, ImportDecl, Program, static_items
-from agnette.agl.syntax.spans import SourceId
-from agnette.agl.typecheck import CheckedModule
 from agnette.agl.typecheck.checker import _check_prepared_module
-from agnette.agl.typecheck.env import TypeEnvironment
+from agnette.agl.typecheck.env import CheckedModule, TypeEnvironment
 from agnette.agl.typecheck.program import check_program
 from agnette.util.text import normalize_newlines
 from tests._agl_helpers import agl_roots
@@ -196,7 +195,6 @@ def load_graph(
         roots=roots,
         default_stdlib=default_stdlib,
         spaced_qualifiers=parsed.spaced_qualifiers,
-        default_label="<code>",
         source_text=normalize_newlines(entry_source),
     )
     return graph
@@ -525,7 +523,6 @@ def _single_module_graph(program: Program, *, origin_path: Path | None) -> Modul
                 module_id=ENTRY_ID,
                 program=program,
                 path=origin_path,
-                source=SourceId(0),
                 imports=tuple(
                     item
                     for item in static_items(program.body.items)

@@ -32,15 +32,10 @@ from agnette.sandbox.request import Default, DefaultLimit, LimitSpec, SandboxLim
 
 __all__ = [
     "AgentSandboxMode",
-    "Disabled",
-    "Native",
-    "Sandboxed",
     "agent_sandbox_value",
     "decode_agent_sandbox",
     "decode_exec_sandbox",
-    "decode_sandbox_record",
     "permission_mode_and_limits",
-    "sandbox_limits_value",
     "sandbox_mode_from_permission",
 ]
 
@@ -164,12 +159,12 @@ def agent_sandbox_value(mode: AgentSandboxMode, nominals: BuiltinNominals) -> Re
     """
     if isinstance(mode, Native):
         return RecordValue(
-            nominal=nominals.resolve_standard_member("AgentSandbox", "Native").nominal, fields={}
+            nominal=nominals.resolve_standard_member("AgentSandbox", "Native"), fields={}
         )
     if isinstance(mode, Sandboxed):
         return sandbox_limits_value(mode.limits, nominals)
     return RecordValue(
-        nominal=nominals.resolve_standard_member("AgentSandbox", "Disabled").nominal, fields={}
+        nominal=nominals.resolve_standard_member("AgentSandbox", "Disabled"), fields={}
     )
 
 
@@ -181,7 +176,7 @@ def sandbox_limits_value(limits: SandboxLimits, nominals: BuiltinNominals) -> Re
     wherever either type is expected.
     """
     return RecordValue(
-        nominal=nominals.resolve("Sandbox").nominal,
+        nominal=nominals.resolve("Sandbox"),
         fields={
             "memory": _limit_value(limits.memory, nominals),
             "swap": _limit_value(limits.swap, nominals),
@@ -210,14 +205,12 @@ def _limit_value(limit: LimitSpec, nominals: BuiltinNominals) -> RecordValue:
     """Encode a ``LimitSpec`` back into its ``Optional[text]`` member value."""
     if isinstance(limit, DefaultLimit):
         return RecordValue(
-            nominal=nominals.resolve_standard_member("Optional", "Default").nominal, fields={}
+            nominal=nominals.resolve_standard_member("Optional", "Default"), fields={}
         )
     if limit is None:
-        return RecordValue(
-            nominal=nominals.resolve_standard_member("Optional", "None").nominal, fields={}
-        )
+        return RecordValue(nominal=nominals.resolve_standard_member("Optional", "None"), fields={})
     return RecordValue(
-        nominal=nominals.resolve_standard_member("Optional", "Some").nominal,
+        nominal=nominals.resolve_standard_member("Optional", "Some"),
         fields={"value": TextValue(limit)},
     )
 

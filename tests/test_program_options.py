@@ -180,10 +180,7 @@ def _module_param(
         module=module,
         scope_path=scope_path,
         name=name,
-        node_id=next_decl_id(),
-        span=_SPAN,
         type=typ,
-        mutable=False,
         cli=ProgramOptionSpec(
             name=name if external is None else external,
             short=short,
@@ -192,7 +189,6 @@ def _module_param(
             hidden=hidden,
             doc=doc,
         ),
-        doc=doc,
         is_path=is_path,
     )
 
@@ -586,16 +582,16 @@ class TestCommandParameterPresentation:
 class TestParseText:
     def test_named_value_flag(self) -> None:
         args = _command(_param("name", TextType())).parse(["--name", "hello"])
-        assert args.positional == ()
-        assert args.named == {"name": "hello"}
+        assert args.arguments.positional == ()
+        assert args.arguments.named == {"name": "hello"}
 
     def test_equals_form(self) -> None:
         args = _command(_param("name", TextType())).parse(["--name=hello"])
-        assert args.named == {"name": "hello"}
+        assert args.arguments.named == {"name": "hello"}
 
     def test_equals_form_preserves_embedded_equals(self) -> None:
         args = _command(_param("expr", TextType())).parse(["--expr=a=b"])
-        assert args.named == {"expr": "a=b"}
+        assert args.arguments.named == {"expr": "a=b"}
 
     def test_missing_value_raises(self) -> None:
         with pytest.raises(ValueError):
@@ -603,13 +599,13 @@ class TestParseText:
 
     def test_equals_form_with_empty_value_yields_empty_string(self) -> None:
         args = _command(_param("name", TextType())).parse(["--name="])
-        assert args.named == {"name": ""}
+        assert args.arguments.named == {"name": ""}
 
     def test_a_flag_shaped_token_is_taken_as_the_preceding_options_value(self) -> None:
         """Click's convention: an option that requires a value consumes the
         next token whatever it looks like, so ``--msg --x`` supplies ``--x``."""
         args = _command(_param("msg", TextType())).parse(["--msg", "--x"])
-        assert args.named == {"msg": "--x"}
+        assert args.arguments.named == {"msg": "--x"}
 
     def test_a_repeated_option_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="more than once"):
@@ -623,25 +619,25 @@ class TestParseText:
 class TestParseShortOptions:
     def test_separate_value(self) -> None:
         args = _command(_param("name", TextType(), short="n")).parse(["-n", "hello"])
-        assert args.named == {"name": "hello"}
+        assert args.arguments.named == {"name": "hello"}
 
     def test_attached_value(self) -> None:
         args = _command(_param("name", TextType(), short="n")).parse(["-nhello"])
-        assert args.named == {"name": "hello"}
+        assert args.arguments.named == {"name": "hello"}
 
     def test_bundled_bool_flags(self) -> None:
         args = _command(
             _param("alpha", BoolType(), short="a"),
             _param("beta", BoolType(), short="b"),
         ).parse(["-ab"])
-        assert args.named == {"alpha": True, "beta": True}
+        assert args.arguments.named == {"alpha": True, "beta": True}
 
     def test_bundled_bool_flag_followed_by_a_value_option(self) -> None:
         args = _command(
             _param("alpha", BoolType(), short="a"),
             _param("name", TextType(), short="n"),
         ).parse(["-an", "hello"])
-        assert args.named == {"alpha": True, "name": "hello"}
+        assert args.arguments.named == {"alpha": True, "name": "hello"}
 
     def test_a_repetition_across_the_short_and_long_spellings_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="more than once"):
@@ -651,17 +647,17 @@ class TestParseShortOptions:
         args = _command(_param("who", TextType(), external="addressee", short="a")).parse(
             ["-a", "agm"]
         )
-        assert args.named == {"who": "agm"}
+        assert args.arguments.named == {"who": "agm"}
 
 
 class TestParseBool:
     def test_positive_flag_is_true(self) -> None:
         args = _command(_param("verbose", BoolType())).parse(["--verbose"])
-        assert args.named == {"verbose": True}
+        assert args.arguments.named == {"verbose": True}
 
     def test_negative_flag_is_false(self) -> None:
         args = _command(_param("verbose", BoolType())).parse(["--no-verbose"])
-        assert args.named == {"verbose": False}
+        assert args.arguments.named == {"verbose": False}
 
     def test_value_for_a_bool_flag_is_rejected(self) -> None:
         with pytest.raises(ValueError):
@@ -689,21 +685,21 @@ class TestParseBool:
 
     def test_omitted_bool_supplies_nothing(self) -> None:
         args = _command(_param("verbose", BoolType())).parse([])
-        assert args.named == {}
+        assert args.arguments.named == {}
 
 
 class TestParseJson:
     def test_json_form_value_stays_a_raw_string(self) -> None:
         args = _command(_param("count", IntType())).parse(["--count", "42"])
-        assert args.named == {"count": "42"}
+        assert args.arguments.named == {"count": "42"}
 
     def test_array_typed_value_stays_a_raw_string(self) -> None:
         args = _command(_param("tags", ArrayType(elem=TextType()))).parse(["--tags", '["a","b"]'])
-        assert args.named == {"tags": '["a","b"]'}
+        assert args.arguments.named == {"tags": '["a","b"]'}
 
     def test_equals_form_with_empty_value_yields_empty_string(self) -> None:
         args = _command(_param("count", IntType())).parse(["--count="])
-        assert args.named == {"count": ""}
+        assert args.arguments.named == {"count": ""}
 
     def test_a_repeated_option_is_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"'--n' specified more than once"):
@@ -713,20 +709,20 @@ class TestParseJson:
 class TestParseOption:
     def test_positive_text_option_boxes_the_value_verbatim(self) -> None:
         args = _command(_param("region", _option_type(TextType()))).parse(["--region", "eu"])
-        assert args.named == {"region": OptionSome("eu")}
+        assert args.arguments.named == {"region": OptionSome("eu")}
 
     def test_negative_option_flag_is_none(self) -> None:
         args = _command(_param("region", _option_type(TextType()))).parse(["--no-region"])
-        assert args.named == {"region": {"$case": "None"}}
+        assert args.arguments.named == {"region": {"$case": "None"}}
 
     def test_positive_int_option_boxes_the_raw_token(self) -> None:
         """A CLI token is boxed, not parsed: decoding is deferred to ``decode_param_value``."""
         args = _command(_param("count", _option_type(IntType()))).parse(["--count", "5"])
-        assert args.named == {"count": OptionSome("5")}
+        assert args.arguments.named == {"count": OptionSome("5")}
 
     def test_positive_bool_option_boxes_the_raw_token(self) -> None:
         args = _command(_param("flag", _option_type(BoolType()))).parse(["--flag", "true"])
-        assert args.named == {"flag": OptionSome("true")}
+        assert args.arguments.named == {"flag": OptionSome("true")}
 
     @pytest.mark.parametrize(
         "token",
@@ -740,27 +736,27 @@ class TestParseOption:
             ["--worker", token]
         )
 
-        assert args.named == {"worker": OptionSome(token)}
+        assert args.arguments.named == {"worker": OptionSome(token)}
 
     def test_positive_nested_option_boxes_the_raw_token(self) -> None:
         token = '{"$case": "Some", "value": 7}'
         args = _command(_param("nested", _option_type(_option_type(IntType())))).parse(
             ["--nested", token]
         )
-        assert args.named == {"nested": OptionSome(token)}
+        assert args.arguments.named == {"nested": OptionSome(token)}
 
     def test_malformed_option_value_is_not_rejected_at_parse_time(self) -> None:
         """Decoding (and any diagnostic) is deferred to ``decode_param_value``."""
         args = _command(_param("count", _option_type(IntType()))).parse(["--count", "not-json"])
-        assert args.named == {"count": OptionSome("not-json")}
+        assert args.arguments.named == {"count": OptionSome("not-json")}
 
     def test_text_option_empty_inline_value_is_a_verbatim_empty_string(self) -> None:
         args = _command(_param("region", _option_type(TextType()))).parse(["--region="])
-        assert args.named == {"region": OptionSome("")}
+        assert args.arguments.named == {"region": OptionSome("")}
 
     def test_json_option_empty_inline_value_is_boxed(self) -> None:
         args = _command(_param("count", _option_type(IntType()))).parse(["--count="])
-        assert args.named == {"count": OptionSome("")}
+        assert args.arguments.named == {"count": OptionSome("")}
 
     def test_a_repeated_positive_flag_is_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"'--region' specified more than once"):
@@ -782,24 +778,24 @@ class TestParseOption:
 
     def test_omitted_option_supplies_nothing(self) -> None:
         args = _command(_param("region", _option_type(TextType()))).parse([])
-        assert args.named == {}
+        assert args.arguments.named == {}
 
 
 class TestParseOptional:
     def test_positive_value_boxes_some(self) -> None:
         args = _command(_param("file", _optional_type(TextType()))).parse(["--file", "result.txt"])
 
-        assert args.named == {"file": OptionSome("result.txt")}
+        assert args.arguments.named == {"file": OptionSome("result.txt")}
 
     def test_negative_flag_supplies_none(self) -> None:
         args = _command(_param("file", _optional_type(TextType()))).parse(["--no-file"])
 
-        assert args.named == {"file": {"$case": "None"}}
+        assert args.arguments.named == {"file": {"$case": "None"}}
 
     def test_default_token_supplies_default(self) -> None:
         args = _command(_param("file", _optional_type(TextType()))).parse(["--file", "default"])
 
-        assert args.named == {"file": {"$case": "Default"}}
+        assert args.arguments.named == {"file": {"$case": "Default"}}
 
     def test_config_default_string_supplies_default(self) -> None:
         projected = project_option("file", _optional_type(TextType()))
@@ -813,16 +809,16 @@ class TestParsePositional:
             _param("first", TextType(), ParamZone.POSITIONAL_ONLY),
             _param("second", TextType(), ParamZone.POSITIONAL_ONLY),
         ).parse(["a", "b"])
-        assert args.positional == ("a", "b")
-        assert args.named == {}
+        assert args.arguments.positional == ("a", "b")
+        assert args.arguments.named == {}
 
     def test_positional_and_options_interleave(self) -> None:
         args = _command(
             _param("first", TextType(), ParamZone.POSITIONAL_ONLY),
             _param("name", TextType()),
         ).parse(["a", "--name", "hello"])
-        assert args.positional == ("a",)
-        assert args.named == {"name": "hello"}
+        assert args.arguments.positional == ("a",)
+        assert args.arguments.named == {"name": "hello"}
 
     def test_more_positional_tokens_than_declared_are_collected_unconditionally(self) -> None:
         """No cap here: an excess positional argument is diagnosed downstream
@@ -831,21 +827,21 @@ class TestParsePositional:
         named-only parameters — this parser defers to it rather than
         duplicating (and pre-empting) that diagnosis."""
         args = _command(_param("first", TextType(), ParamZone.POSITIONAL_ONLY)).parse(["a", "b"])
-        assert args.positional == ("a", "b")
+        assert args.arguments.positional == ("a", "b")
 
     def test_bare_token_with_no_positional_params_is_still_collected(self) -> None:
         args = _command(_param("name", TextType())).parse(["bare"])
-        assert args.positional == ("bare",)
-        assert args.named == {}
+        assert args.arguments.positional == ("bare",)
+        assert args.arguments.named == {}
 
     def test_double_dash_ends_options(self) -> None:
         args = _command(_param("first", TextType(), ParamZone.POSITIONAL_ONLY)).parse(
             ["--", "--not-a-flag"]
         )
-        assert args.positional == ("--not-a-flag",)
+        assert args.arguments.positional == ("--not-a-flag",)
 
     def test_double_dash_with_no_positional_params_still_collects_the_rest(self) -> None:
-        assert _command().parse(["--", "x"]).positional == ("x",)
+        assert _command().parse(["--", "x"]).arguments.positional == ("x",)
 
     def test_a_bare_leading_dash_token_is_an_unknown_option(self) -> None:
         """``@opt-short`` makes single-dash spellings real options, so a bare
@@ -863,7 +859,7 @@ class TestParsePositional:
 
     def test_a_leading_dash_positional_is_spelled_after_the_end_of_options_marker(self) -> None:
         args = _command(_param("first", IntType(), ParamZone.POSITIONAL_ONLY)).parse(["--", "-5"])
-        assert args.positional == ("-5",)
+        assert args.arguments.positional == ("-5",)
 
     def test_a_token_skips_a_standard_slot_filled_by_name_to_reach_a_cli_positional_slot(
         self,
@@ -873,8 +869,8 @@ class TestParsePositional:
             _param("name", TextType(), cli_positional=True),
         )
         args = command.parse(["--n", "2", "Bob"])
-        assert args.positional == ()
-        assert args.named == {"n": "2", "name": "Bob"}
+        assert args.arguments.positional == ()
+        assert args.arguments.named == {"n": "2", "name": "Bob"}
 
     def test_tokens_fill_every_slot_in_order_when_none_is_filled_by_name(self) -> None:
         command = _command(
@@ -882,8 +878,8 @@ class TestParsePositional:
             _param("name", TextType(), cli_positional=True),
         )
         args = command.parse(["3", "Bob"])
-        assert args.positional == ("3",)
-        assert args.named == {"name": "Bob"}
+        assert args.arguments.positional == ("3",)
+        assert args.arguments.named == {"name": "Bob"}
 
     def test_a_standard_slot_after_a_skipped_one_is_still_filled_by_the_next_token(self) -> None:
         command = _command(
@@ -892,8 +888,8 @@ class TestParsePositional:
             _param("name", TextType(), cli_positional=True),
         )
         args = command.parse(["--a", "1", "x", "Bob"])
-        assert args.positional == ()
-        assert args.named == {"a": "1", "b": "x", "name": "Bob"}
+        assert args.arguments.positional == ()
+        assert args.arguments.named == {"a": "1", "b": "x", "name": "Bob"}
 
     def test_a_standard_slot_filled_by_name_is_not_skipped_without_a_cli_positional_slot(
         self,
@@ -906,8 +902,8 @@ class TestParsePositional:
             _param("tag", TextType(), ParamZone.STANDARD, has_default=True),
         )
         args = command.parse(["a", "x", "--tag", "y"])
-        assert args.positional == ("a", "x")
-        assert args.named == {"tag": "y"}
+        assert args.arguments.positional == ("a", "x")
+        assert args.arguments.named == {"tag": "y"}
 
     def test_an_environment_value_does_not_make_a_slot_skipped(
         self, monkeypatch: pytest.MonkeyPatch
@@ -918,8 +914,8 @@ class TestParsePositional:
             _param("name", TextType(), cli_positional=True),
         )
         args = command.parse(["7", "Bob"])
-        assert args.positional == ("7",)
-        assert args.named == {"name": "Bob"}
+        assert args.arguments.positional == ("7",)
+        assert args.arguments.named == {"name": "Bob"}
 
     def test_a_surplus_token_after_a_slot_filled_by_name_is_a_usage_error(self) -> None:
         """The binder pairs a leftover positional token with the first
@@ -942,12 +938,12 @@ class TestParsePositional:
     @pytest.mark.parametrize("zone", [ParamZone.POSITIONAL_ONLY, ParamZone.STANDARD])
     def test_a_positional_option_token_is_boxed_like_a_flag_value(self, zone: ParamZone) -> None:
         args = _command(_param("region", _option_type(TextType()), zone)).parse(["eu"])
-        assert args.positional == (OptionSome("eu"),)
+        assert args.arguments.positional == (OptionSome("eu"),)
 
     def test_a_positional_optional_token_reads_the_default_shortcut(self) -> None:
         command = _command(_param("file", _optional_type(TextType()), ParamZone.POSITIONAL_ONLY))
-        assert command.parse(["default"]).positional == ({"$case": "Default"},)
-        assert command.parse(["out.txt"]).positional == (OptionSome("out.txt"),)
+        assert command.parse(["default"]).arguments.positional == ({"$case": "Default"},)
+        assert command.parse(["out.txt"]).arguments.positional == (OptionSome("out.txt"),)
 
     def test_a_positional_option_token_routed_by_name_is_boxed(self) -> None:
         command = _command(
@@ -956,17 +952,17 @@ class TestParsePositional:
             _param("name", TextType(), cli_positional=True),
         )
         args = command.parse(["--a", "1", "eu", "Bob"])
-        assert args.positional == ()
-        assert args.named == {"a": "1", "region": OptionSome("eu"), "name": "Bob"}
+        assert args.arguments.positional == ()
+        assert args.arguments.named == {"a": "1", "region": OptionSome("eu"), "name": "Bob"}
 
     def test_a_token_past_the_last_slot_stays_verbatim(self) -> None:
         command = _command(_param("region", _option_type(TextType()), ParamZone.POSITIONAL_ONLY))
-        assert command.parse(["eu", "extra"]).positional == (OptionSome("eu"), "extra")
+        assert command.parse(["eu", "extra"]).arguments.positional == (OptionSome("eu"), "extra")
 
     def test_a_leading_dash_option_value_is_spelled_inline_or_as_the_next_token(self) -> None:
         param = _param("n", IntType())
-        assert _command(param).parse(["--n=-5"]).named == {"n": "-5"}
-        assert _command(param).parse(["--n", "-5"]).named == {"n": "-5"}
+        assert _command(param).parse(["--n=-5"]).arguments.named == {"n": "-5"}
+        assert _command(param).parse(["--n", "-5"]).arguments.named == {"n": "-5"}
 
 
 class TestParseErrors:
@@ -984,25 +980,25 @@ class TestParseErrors:
 
     def test_empty_tokens_returns_empty_arguments(self) -> None:
         args = _command(_param("name", TextType())).parse([])
-        assert args.positional == ()
-        assert args.named == {}
+        assert args.arguments.positional == ()
+        assert args.arguments.named == {}
 
     def test_no_params_empty_tokens(self) -> None:
         args = _command().parse([])
-        assert args.positional == ()
-        assert args.named == {}
+        assert args.arguments.positional == ()
+        assert args.arguments.named == {}
 
 
 class TestParseEnvironment:
     def test_env_supplies_an_omitted_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GREET_WHO", "world")
         args = _command(_param("who", TextType(), env="GREET_WHO")).parse([])
-        assert args.named == {"who": "world"}
+        assert args.arguments.named == {"who": "world"}
 
     def test_a_cli_token_overrides_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GREET_WHO", "world")
         args = _command(_param("who", TextType(), env="GREET_WHO")).parse(["--who", "agm"])
-        assert args.named == {"who": "agm"}
+        assert args.arguments.named == {"who": "agm"}
 
     def test_a_positional_standard_argument_overrides_the_environment(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1011,25 +1007,25 @@ class TestParseEnvironment:
         args = _command(_param("who", TextType(), ParamZone.STANDARD, env="GREET_WHO")).parse(
             ["agm"]
         )
-        assert args.positional == ("agm",)
-        assert args.named == {}
+        assert args.arguments.positional == ("agm",)
+        assert args.arguments.named == {}
 
     def test_env_supplies_a_bool_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("VERBOSE", "true")
         args = _command(_param("verbose", BoolType(), env="VERBOSE")).parse([])
-        assert args.named == {"verbose": True}
+        assert args.arguments.named == {"verbose": True}
 
     def test_env_supplies_an_option_value_wrapped_some(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("REGION", "eu")
         args = _command(_param("region", _option_type(TextType()), env="REGION")).parse([])
-        assert args.named == {"region": OptionSome("eu")}
+        assert args.arguments.named == {"region": OptionSome("eu")}
 
     def test_an_unset_variable_supplies_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("GREET_WHO", raising=False)
         args = _command(_param("who", TextType(), env="GREET_WHO")).parse([])
-        assert args.named == {}
+        assert args.arguments.named == {}
 
     def test_an_environment_value_is_taken_verbatim_as_one_occurrence(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1038,7 +1034,7 @@ class TestParseEnvironment:
         environment fallback can never look like a repeated flag."""
         monkeypatch.setenv("GREET_WHO", "a:b")
         args = _command(_param("who", TextType(), env="GREET_WHO")).parse([])
-        assert args.named == {"who": "a:b"}
+        assert args.arguments.named == {"who": "a:b"}
 
     def test_the_negative_flag_beats_an_environment_supplied_option_value(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1049,7 +1045,7 @@ class TestParseEnvironment:
         args = _command(_param("region", _option_type(TextType()), env="REGION")).parse(
             ["--no-region"]
         )
-        assert args.named == {"region": {"$case": "None"}}
+        assert args.arguments.named == {"region": {"$case": "None"}}
 
 
 # ---------------------------------------------------------------------------
@@ -1146,7 +1142,7 @@ class TestDecodeSeam:
         self, name: str, typ: Type, tokens: tuple[str, ...], expected: Value
     ) -> None:
         args = _command(_param(name, typ)).parse(list(tokens))
-        assert _decode(typ, args.named[name]) == expected
+        assert _decode(typ, args.arguments.named[name]) == expected
 
 
 # ---------------------------------------------------------------------------

@@ -46,9 +46,7 @@ def test_restamp_engine_setting_leaves_an_unrecognized_nested_field_identity_alo
     """
     from agnette.agl.runtime.engine_config import restamp_engine_setting
 
-    sandbox_nominal = NO_BUILTIN_DECLARATIONS.resolve_standard_member(
-        "AgentSandbox", "Sandbox"
-    ).nominal
+    sandbox_nominal = NO_BUILTIN_DECLARATIONS.resolve_standard_member("AgentSandbox", "Sandbox")
     stray_field = RecordValue(nominal=NominalId(-999_999_999), fields={})
     value = RecordValue(nominal=sandbox_nominal, fields={"memory": stray_field})
 

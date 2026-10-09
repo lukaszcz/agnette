@@ -25,14 +25,11 @@ from agnette.agl.syntax.nodes import (
 from agnette.agl.syntax.spans import SourceSpan
 
 __all__ = [
-    "EMPTY_IMPORT_ENV",
-    "Exposure",
     "ItemDeclaration",
     "ImportEnv",
     "ImportTarget",
     "ImportWay",
     "BareRoute",
-    "ModuleContribution",
     "NameAtom",
     "PathAtom",
     "QName",
@@ -42,7 +39,6 @@ __all__ = [
     "alias_prefix",
     "build_import_env",
     "validate_import_items",
-    "target_modules",
     "contribution_routes",
     "matching_atoms",
     "qualifier_candidates",
@@ -296,13 +292,6 @@ class ImportEnv:
                 suffix.setdefault((alias,), set()).add(module)
         object.__setattr__(self, "suffix_routes", _frozen_routes(suffix))
         object.__setattr__(self, "anchored_routes", _frozen_routes(anchored))
-
-
-# A module with no imports at all shares this single empty environment rather
-# than each caller allocating its own throwaway ``ImportEnv()``. Safe to share:
-# the dataclass is frozen and every mapping field is frozen in ``__post_init__``,
-# so nothing can mutate ``contributions``/``unqualified`` through a reference.
-EMPTY_IMPORT_ENV = ImportEnv(contributions={}, unqualified={})
 
 
 @dataclass(slots=True)

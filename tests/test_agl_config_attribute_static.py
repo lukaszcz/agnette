@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.scope import AglScopeError
 from agnette.agl.scope.program import resolve_program
+from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.typecheck.env import AglTypeError
 from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import base_caps, make_file_graph_from_files

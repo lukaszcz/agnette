@@ -9,10 +9,10 @@ import pytest
 from agnette.agl import PipelineDriver
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.scope import AglScopeError
-from agnette.agl.scope.symbols import AmbiguousQualificationError, UnknownMemberError
+from agnette.agl.scope.symbols import AglScopeError, AmbiguousQualificationError, UnknownMemberError
 from agnette.agl.syntax.nodes import Call, LetDecl
-from agnette.agl.typecheck import AglTypeError, CheckedModule, check_program
+from agnette.agl.typecheck.env import AglTypeError, CheckedModule
+from agnette.agl.typecheck.program import check_program
 from tests.agl.module_graph import resolve_and_check_repl_entry
 
 _CAPABILITIES = HostCapabilities(

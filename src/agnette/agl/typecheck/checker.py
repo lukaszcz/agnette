@@ -341,8 +341,8 @@ def _type_argument_mismatch(
 class EnumOwnerMismatchError(AglTypeError):
     """A qualifier naming an enum other than the one the value has.
 
-    ``owner`` is the qualifier as written; ``resolved`` and ``actual`` spell
-    the enum it selects and the value's enum as the module would write them.
+    ``resolved`` and ``actual`` spell the enum the qualifier selects and the
+    value's enum as the module would write them.
     """
 
     def __init__(self, owner: str, resolved: str, actual: str, *, span: SourceSpan) -> None:
@@ -351,7 +351,6 @@ class EnumOwnerMismatchError(AglTypeError):
             f"but the value has enum type '{actual}'.",
             span=span,
         )
-        self.owner = owner
         self.resolved = resolved
         self.actual = actual
 
@@ -514,18 +513,7 @@ class _CandidateEvidenceError(AglTypeError):
 
 
 class _FramedCandidateEvidenceError(AglTypeError):
-    """A candidate-return frame retaining its unmodified triggering error."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        original: AglTypeError,
-        span: SourceSpan | None,
-        related: Sequence[tuple[str, SourceSpan]],
-    ) -> None:
-        super().__init__(message, span=span, related=related)
-        self.original = original
+    """A candidate-return frame: an error already carrying inference guidance."""
 
 
 class _InferenceConstraintError(AglTypeError):
@@ -533,7 +521,6 @@ class _InferenceConstraintError(AglTypeError):
 
     def __init__(self, message: str, *, original: InferenceError) -> None:
         super().__init__(message, span=original.span, related=original.related)
-        self.original = original
         self.origins = original.origins
 
 
@@ -739,7 +726,7 @@ def _builtin_function_signature_alternates(
     method_receiver_name: str | None = None,
     allow_stdlib_session_declaration: bool = False,
     static_kind: BuiltinStaticKind | None = None,
-    type_table: TypeTable | None = None,
+    type_table: TypeTable,
 ) -> tuple[FunctionSignature, ...]:
     expected = _builtin_function_signature(
         name,
@@ -753,7 +740,7 @@ def _builtin_function_signature_alternates(
         return ()
     # A redeclaration may omit the trailing ``env`` parameter only when there
     # is no ``Environ`` type to name it with (``std/env`` is not loaded).
-    env_omittable = type_table is None or type_table.get(STD_ENV_ID, "Environ") is None
+    env_omittable = type_table.get(STD_ENV_ID, "Environ") is None
     if env_omittable and (
         (name == "ask" and is_method and method_receiver_name == "Agent")
         or static_kind is BuiltinStaticKind.SESSION_OPEN
@@ -2460,7 +2447,7 @@ class _Checker:
         if target is None and kind is BuiltinKind.ASK_REQUEST:
             target = TextType()
         if target is None and kind is BuiltinKind.EXEC:
-            target = engine.fresh("exec result")
+            target = engine.fresh()
 
         if isinstance(target, InferenceVarType):
             # Only an ask/exec result target is an inference variable.
@@ -2636,7 +2623,7 @@ class _Checker:
             or callee_declaration_id not in candidate.session.provisional_declaration_ids
         ):
             return result
-        delayed = self._active_inference_engine().fresh("generic recursive result")
+        delayed = self._active_inference_engine().fresh()
         candidate.session.record_generic_edge(
             caller_declaration_id=candidate.declaration_id,
             callee_declaration_id=callee_declaration_id,
@@ -3429,7 +3416,6 @@ class _Checker:
             )
         return _FramedCandidateEvidenceError(
             guidance,
-            original=exc,
             span=exc.span,
             related=related,
         )
@@ -4783,10 +4769,6 @@ class _Checker:
         self,
         left: Type,
         right: Type,
-        *,
-        allowed: tuple[type[Type], ...],
-        span: SourceSpan,
-        subject: str,
     ) -> Type | None:
         """Propagate a candidate provisional result through a same-family operation."""
         if self._candidate is None:
@@ -4799,7 +4781,7 @@ class _Checker:
         concrete = tuple(
             typ for typ in (left, right) if not isinstance(typ, (InferenceVarType, BottomType))
         )
-        if not all(isinstance(typ, allowed) for typ in concrete):
+        if not all(isinstance(typ, (IntType, DecimalType)) for typ in concrete):
             return None
         if concrete:
             if any(isinstance(typ, DecimalType) for typ in concrete):
@@ -4811,7 +4793,7 @@ class _Checker:
         # recursion. Yield a fresh provisional result and leave the operation's
         # type for later concrete evidence; an unsolved result requires an
         # annotation like any other underconstrained group.
-        return engine.fresh(subject)
+        return engine.fresh()
 
     def _candidate_defers(self, *types: Type) -> bool:
         """Whether candidate mode must defer a check because some *type* is still unresolved."""
@@ -4919,8 +4901,8 @@ class _Checker:
         else:
             engine = self._active_inference_engine()
             function_type = FunctionType(
-                params=(engine.fresh("left operand"), engine.fresh("right operand")),
-                result=engine.fresh("operator result"),
+                params=(engine.fresh(), engine.fresh()),
+                result=engine.fresh(),
             )
         region = self._active_region()
         region.operator_values.append((node, function_type))
@@ -5094,13 +5076,7 @@ class _Checker:
     def _check_numeric_binop(
         self, left_type: Type, right_type: Type, span: SourceSpan, op_str: str
     ) -> Type:
-        candidate = self._candidate_same_family_result(
-            left_type,
-            right_type,
-            allowed=(IntType, DecimalType),
-            span=span,
-            subject=f"'{op_str}' operands",
-        )
+        candidate = self._candidate_same_family_result(left_type, right_type)
         if candidate is not None:
             return candidate
         # reject operations on bare type variables.
@@ -5341,7 +5317,7 @@ class _Checker:
             # uninferred receiver position gets SOLVED rather than merely
             # accepted.
             receiver_type_params = method.type_params[: method.receiver_type_param_arity]
-            fresh = {name: engine.fresh(name) for name in receiver_type_params}
+            fresh = {name: engine.fresh() for name in receiver_type_params}
             freshened_template = (
                 substitute(receiver_template, fresh) if fresh else receiver_template
             )
@@ -5360,9 +5336,7 @@ class _Checker:
         # introduced (e.g. a caller's own generic parameter reaching the
         # receiver's type argument), and would rewrite both alike, capturing
         # the caller's variable.
-        own_fresh: dict[str, InferenceVarType] = {
-            name: engine.fresh(name) for name in own_type_params
-        }
+        own_fresh: dict[str, InferenceVarType] = {name: engine.fresh() for name in own_type_params}
         combined: dict[str, Type] = {**substitutions, **own_fresh}
         declared_signature = self._env.function_signature_of(method.decl_node_id)
         self._register_bound_obligation(
@@ -5611,7 +5585,7 @@ class _Checker:
         self, engine: InferenceEngine, enum_name: str, param: str, span: SourceSpan
     ) -> InferenceVarType:
         """Allocate a phantom enum type argument that this inference region must resolve."""
-        var = engine.fresh(param)
+        var = engine.fresh()
         engine.require_solved(
             var,
             engine.origin(
@@ -5629,7 +5603,7 @@ class _Checker:
     ) -> Type | _SelectedBuiltinMethod:
         obj_type = self._check_expr(node.obj, expected=None)
         if self._candidate_defers(obj_type):
-            return self._active_inference_engine().fresh("member result")
+            return self._active_inference_engine().fresh()
         try:
             if isinstance(obj_type, TypeVarType):
                 raise _no_type_var_members(obj_type, "fields or methods", node.span)
@@ -5769,23 +5743,18 @@ class _Checker:
         index: Expr,
         *,
         span: SourceSpan,
-        obj_expr: Expr | None = None,
-        binding_node_ids: Sequence[int] = (),
+        obj_expr: Expr,
     ) -> Type:
         if self._candidate_defers(obj_type):
             self._check_expr(index, expected=None)
-            return self._active_inference_engine().fresh("index result")
+            return self._active_inference_engine().fresh()
         # reject operations on bare type variables.
         if isinstance(obj_type, TypeVarType):
             error = AglTypeError(
                 f"a value of type variable '{obj_type.name}' is not indexable.",
                 span=span,
             )
-            raise self._frame_inferred_return_error(
-                error,
-                exprs=(obj_expr,) if obj_expr else (),
-                binding_node_ids=binding_node_ids,
-            ) from error
+            raise self._frame_inferred_return_error(error, exprs=(obj_expr,)) from error
         if isinstance(obj_type, ArrayType):
             index_type = self._check_expr(index, expected=IntType())
             self._assert_assignable_from(index_type, IntType(), index.span, index)
@@ -5808,11 +5777,7 @@ class _Checker:
             f"indexing requires an array or dict or text; got '{obj_type!r}'.",
             span=span,
         )
-        raise self._frame_inferred_return_error(
-            error,
-            exprs=(obj_expr,) if obj_expr else (),
-            binding_node_ids=binding_node_ids,
-        ) from error
+        raise self._frame_inferred_return_error(error, exprs=(obj_expr,)) from error
 
     # --- array / dict literals ---
 
@@ -6134,7 +6099,7 @@ class _Checker:
             resolved = [engine.zonk(typ) for typ in types]
             evidence = [typ for typ in resolved if not isinstance(typ, BottomType)]
             if not evidence:
-                return engine.fresh(f"{subject} evidence")
+                return engine.fresh()
             concrete = [typ for typ in evidence if not contains_inference_var(typ)]
             provisional = [typ for typ in evidence if contains_inference_var(typ)]
             if concrete:
@@ -6408,7 +6373,6 @@ class _Checker:
         self._validate_enum_constructor_qualification(
             qualifier=qualifier,
             variant=variant,
-            enum_type=enum_type,
             constructor=constructor,
             member=member,
             span=span,
@@ -6466,7 +6430,6 @@ class _Checker:
         *,
         qualifier: QualifierChain | None,
         variant: str,
-        enum_type: EnumType,
         constructor: ConstructorRef,
         member: RecordType,
         span: SourceSpan,

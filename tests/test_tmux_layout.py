@@ -69,19 +69,14 @@ def test_layout_checksum_wraps_at_16_bits() -> None:
 
 
 def test_build_row_layout_single_pane() -> None:
-    result = build_row_layout(200, 50, 0, 0, 0, 1)
+    result = build_row_layout(200, 50, 0, 0, 1)
     assert result == "200x50,0,0,0"
-
-
-def test_build_row_layout_single_pane_nonzero_origin() -> None:
-    result = build_row_layout(100, 30, 10, 5, 3, 1)
-    assert result == "100x30,10,5,3"
 
 
 def test_build_row_layout_two_panes_equal_width() -> None:
     # width=100, pane_total=2 => base_width=(100-1)//2=49
-    # pane0: 49x50,0,0,0  pane1: gets remaining = x+width-current_x = 0+100-(49+1)=50
-    result = build_row_layout(100, 50, 0, 0, 0, 2)
+    # pane0: 49x50,0,0,0  pane1: gets remaining = width-current_x = 0+100-(49+1)=50
+    result = build_row_layout(100, 50, 0, 0, 2)
     assert result == "100x50,0,0{49x50,0,0,0,50x50,50,0,1}"
 
 
@@ -90,38 +85,29 @@ def test_build_row_layout_three_panes() -> None:
     # pane0: 32x20,0,0,0  current_x=33
     # pane1: 32x20,33,0,1  current_x=66
     # pane2: remaining = 0+100-66=34 => 34x20,66,0,2
-    result = build_row_layout(100, 20, 0, 0, 0, 3)
+    result = build_row_layout(100, 20, 0, 0, 3)
     assert result == "100x20,0,0{32x20,0,0,0,32x20,33,0,1,34x20,66,0,2}"
 
 
 def test_build_row_layout_panes_contain_separator_prefix() -> None:
-    result = build_row_layout(80, 24, 0, 0, 0, 2)
+    result = build_row_layout(80, 24, 0, 0, 2)
     assert result.startswith("80x24,0,0{")
     assert result.endswith("}")
 
 
 def test_build_row_layout_start_index_offset() -> None:
     # start_index=5, pane_total=2, so pane indices are 5 and 6
-    result = build_row_layout(100, 50, 0, 0, 5, 2)
+    result = build_row_layout(100, 50, 0, 5, 2)
     assert ",5}" not in result
     assert "5," in result
     assert "6}" in result
-
-
-def test_build_row_layout_nonzero_xy_origin_multi_pane() -> None:
-    # x=10, y=5, width=50, pane_total=2
-    # base_width=(50-1)//2=24
-    # pane0: 24x10,10,5,0  current_x=35
-    # pane1: x+width-current_x=10+50-35=25 => 25x10,35,5,1
-    result = build_row_layout(50, 10, 10, 5, 0, 2)
-    assert result == "50x10,10,5{24x10,10,5,0,25x10,35,5,1}"
 
 
 def test_build_row_layout_last_pane_gets_remaining_width() -> None:
     # With width=10, pane_total=3: base_width=(10-2)//3=2
     # pane0: 2x5,0,0,0 current_x=3; pane1: 2x5,3,0,1 current_x=6
     # pane2: 0+10-6=4 => 4x5,6,0,2
-    result = build_row_layout(10, 5, 0, 0, 0, 3)
+    result = build_row_layout(10, 5, 0, 0, 3)
     assert result == "10x5,0,0{2x5,0,0,0,2x5,3,0,1,4x5,6,0,2}"
 
 
@@ -138,7 +124,7 @@ def test_build_window_layout_single_row_single_pane() -> None:
 def test_build_window_layout_single_row_multiple_panes() -> None:
     # rows=1 => delegates directly to build_row_layout
     result = build_window_layout(100, 24, 2, 2, 1)
-    expected = build_row_layout(100, 24, 0, 0, 0, 2)
+    expected = build_row_layout(100, 24, 0, 0, 2)
     assert result == expected
 
 
@@ -159,8 +145,8 @@ def test_build_window_layout_two_rows() -> None:
 def test_build_window_layout_two_rows_structure() -> None:
     # Verify the exact structure for 2 rows, 2 cols, 4 panes, 100x50
     result = build_window_layout(100, 50, 4, 2, 2)
-    row0 = build_row_layout(100, 24, 0, 0, 0, 2)
-    row1 = build_row_layout(100, 25, 0, 25, 2, 2)
+    row0 = build_row_layout(100, 24, 0, 0, 2)
+    row1 = build_row_layout(100, 25, 25, 2, 2)
     assert result == f"100x50,0,0[{row0},{row1}]"
 
 
@@ -178,8 +164,8 @@ def test_build_window_layout_uneven_panes_in_last_row() -> None:
     # pane_total=3, cols=2, rows=2 => row0 has 2 panes, row1 has 1 pane
     result = build_window_layout(100, 50, 3, 2, 2)
     # row0: 2 panes (indices 0,1); row1: 1 pane (index 2)
-    row0 = build_row_layout(100, 24, 0, 0, 0, 2)
-    row1 = build_row_layout(100, 25, 0, 25, 2, 1)
+    row0 = build_row_layout(100, 24, 0, 0, 2)
+    row1 = build_row_layout(100, 25, 25, 2, 1)
     assert result == f"100x50,0,0[{row0},{row1}]"
 
 

@@ -216,8 +216,6 @@ def environment_hole_name(source: str, offset: int) -> str | None:
 
 
 __all__ = [
-    "ESCAPE_DECODE",
-    "ESCAPE_ENCODE",
     "decode_escape",
     "environment_hole_name",
     "identifier_end",

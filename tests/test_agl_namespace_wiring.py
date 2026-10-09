@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.diagnostics import HiddenMemberError
-from agnette.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
+from agnette.agl.matchcompile import compile_program_matches
+from agnette.agl.matchcompile.diagnostics import NonExhaustiveIssue, render_witness
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.loader import ModuleGraph
 from agnette.agl.scope.program import resolve_program
@@ -20,7 +21,7 @@ from agnette.agl.scope.symbols import (
     UnknownQualifierError,
     UseDeclarationOrigin,
 )
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.env import AglTypeError
 from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
     base_caps,

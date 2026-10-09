@@ -13,7 +13,7 @@ import requests.exceptions
 import urllib3.exceptions
 
 from agnette.core import http
-from tests._http_helpers import FakeHttp, fake_session
+from tests._http_helpers import fake_session
 
 
 def test_open_session_honours_environment_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,20 +58,6 @@ def test_perform_sends_method_url_and_headers() -> None:
 
     assert result.status == 200
     assert result.text == "ok"
-    adapter.assert_complete()
-
-
-def test_perform_accepts_a_plain_requests_session() -> None:
-    session = requests.Session()
-    adapter = FakeHttp([{"status": 200, "body": ""}])
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-
-    result = http.perform(
-        session, http.RequestSpec(method="GET", url="https://example.org/x", timeout_seconds=5.0)
-    )
-
-    assert result.status == 200
     adapter.assert_complete()
 
 
@@ -466,7 +452,6 @@ def test_perform_decodes_utf8_by_default() -> None:
     )
 
     assert result.text == "café"
-    assert result.encoding == "utf-8"
     adapter.assert_complete()
 
 
@@ -487,7 +472,6 @@ def test_perform_decodes_the_declared_charset() -> None:
     )
 
     assert result.text == "café"
-    assert result.encoding == "iso-8859-1"
     adapter.assert_complete()
 
 
@@ -514,7 +498,6 @@ def test_perform_ignores_charset_text_inside_a_quoted_parameter(content_type: st
     )
 
     assert result.text == "café"
-    assert result.encoding == "utf-8"
     adapter.assert_complete()
 
 
@@ -534,7 +517,6 @@ def test_perform_ignores_a_parameter_whose_name_only_ends_in_charset() -> None:
     )
 
     assert result.text == "café"
-    assert result.encoding == "utf-8"
     adapter.assert_complete()
 
 
@@ -1187,7 +1169,6 @@ def test_perform_decodes_every_allowlisted_charset_sampled(
     )
 
     assert result.text == expected
-    assert result.encoding == charset
     adapter.assert_complete()
 
 

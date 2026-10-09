@@ -16,6 +16,7 @@ from unittest.mock import patch
 from agnette.config.general import CommandSetting, RunConfig
 from agnette.sandbox.prepare import prepare
 from agnette.sandbox.request import SandboxRequest, SandboxSpec
+from tests._sandbox_helpers import settings_path_of
 
 
 def _run_config() -> RunConfig:
@@ -65,8 +66,8 @@ def test_prepare_merges_patches_and_cleans_tracked_artifacts(tmp_path: Path) -> 
         assert prepared.argv[:1] == ["srt"]
         assert prepared.argv[-3:] == ["--", "echo", "hi"]
 
-        assert prepared.settings_path is not None
-        settings = json.loads(prepared.settings_path.read_text())
+        settings_path = settings_path_of(prepared)
+        settings = json.loads(settings_path.read_text())
         assert settings["network"]["allowedDomains"] == ["example.com"]
         assert settings["filesystem"]["allowWrite"] == [
             "/home-write",

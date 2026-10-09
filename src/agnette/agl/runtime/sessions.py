@@ -19,14 +19,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AgentDispatcherSessionHost",
-    "EphemeralSessionHost",
     "SessionAgentError",
     "SessionAskError",
     "SessionHost",
     "SessionRequestHost",
     "SessionHostError",
     "SessionSnapshot",
-    "SessionStats",
     "default_session_transport",
     "with_ephemeral_session",
 ]
@@ -169,7 +167,6 @@ class SessionHost(Protocol):
         agent: "AgentSpec",
         transport: str,
         *,
-        name: str = "",
         permission_mode: PermissionMode = PermissionMode.NONE,
         sandbox: "SandboxLimits | None" = None,
         env: dict[str, str],
@@ -288,12 +285,10 @@ class AgentDispatcherSessionHost(SessionHost):
         agent: "AgentSpec",
         transport: str,
         *,
-        name: str = "",
         permission_mode: PermissionMode = PermissionMode.NONE,
         sandbox: "SandboxLimits | None" = None,
         env: dict[str, str],
     ) -> str:
-        del name
         if self._default_handle is None:
             self._default_handle = self._new_handle()
             self._sessions[self._default_handle] = SessionSnapshot(

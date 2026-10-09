@@ -42,12 +42,8 @@ def _binding(
         module=ModuleId.from_path(module) if isinstance(module, str) else module,
         scope_path=scope_path,
         name=name,
-        node_id=1,
-        span=_SPAN,
         type=type_,
-        mutable=False,
         cli=_option(name if external is None else external),
-        doc=None,
     )
 
 

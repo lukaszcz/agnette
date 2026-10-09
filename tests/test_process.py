@@ -26,17 +26,13 @@ from tests._proc_helpers import wait_for_signal_ignored_script
 
 
 @pytest.mark.parametrize("boundary", ["spawn", "unmask", "reader", "reader-failure"])
-@pytest.mark.parametrize(
-    ("mode", "isolate"),
-    [("foreground", True), ("capture", True), ("stdin", False), ("file", True)],
-)
+@pytest.mark.parametrize("mode", ["foreground", "capture", "stdin", "file"])
 def test_startup_interrupt_reaps_child_and_runs_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     default_sigint: None,
     boundary: str,
     mode: str,
-    isolate: bool,
 ) -> None:
     """An interrupt before waiting must release the child and external resources."""
     children: list[subprocess.Popen[bytes]] = []
@@ -76,16 +72,15 @@ def test_startup_interrupt_reaps_child_and_runs_cleanup(
     try:
         error = RuntimeError if boundary == "reader-failure" else KeyboardInterrupt
         with pytest.raises(error):
-            options: dict[str, Any] = {"isolate_process_group": isolate}
+            options: dict[str, Any] = {}
+            run = run_capture_result
             if mode == "stdin":
                 options["stdin_text"] = "input"
-                run = run_capture
             elif mode == "file":
                 options["stdout_to_file"] = True
-                run = run_capture_result
-            else:
-                options["capture_output"] = mode == "capture" or boundary.startswith("reader")
-                run = process_mod.run_subprocess
+            elif mode == "foreground" and not boundary.startswith("reader"):
+                options["isolate_process_group"] = True
+                run = run_foreground
             run(
                 [sys.executable, "-c", "import time; time.sleep(60)"],
                 **options,
@@ -106,7 +101,7 @@ def test_startup_interrupt_reaps_child_and_runs_cleanup(
             child.wait()
 
 
-def test_run_capture_streams_stdout_and_stderr_before_process_exit(tmp_path: Path) -> None:
+def test_run_capture_result_streams_stdout_and_stderr_before_process_exit(tmp_path: Path) -> None:
     script = tmp_path / "stream.py"
     script.write_text(
         "import sys, time\n"
@@ -124,13 +119,15 @@ def test_run_capture_streams_stdout_and_stderr_before_process_exit(tmp_path: Pat
     events: list[tuple[str, str, float]] = []
     started = time.monotonic()
 
-    returncode, stdout, stderr = run_capture(
+    result = run_capture_result(
         [sys.executable, str(script)],
         stdout_callback=lambda chunk: events.append(("stdout", chunk, time.monotonic() - started)),
         stderr_callback=lambda chunk: events.append(("stderr", chunk, time.monotonic() - started)),
     )
 
-    assert returncode == 0
+    stdout = result.stdout.text()
+    stderr = result.stderr.text()
+    assert result.returncode == 0
     assert stdout == "out-1out-2\n"
     assert stderr == "err-1"
     assert events
@@ -162,7 +159,6 @@ def test_file_capture_streams_before_exit_and_preserves_final_output(tmp_path: P
         stdout_to_file=True,
         stdout_callback=progress,
         idle_timeout=5,
-        isolate_process_group=True,
     )
 
     assert result.returncode == 7
@@ -409,23 +405,6 @@ class TestRunCaptureResultEmbeddedNullByte:
         assert result.stderr.text() == ""
 
 
-class TestRunCaptureIdleTimeout:
-    def test_idle_timeout_is_reported_through_callback(self) -> None:
-        messages: list[str] = []
-
-        with pytest.raises(SystemExit) as exc_info:
-            run_capture(
-                [sys.executable, "-c", "import time; time.sleep(60)"],
-                idle_timeout=0.2,
-                isolate_process_group=True,
-                timeout_callback=messages.append,
-            )
-
-        assert exc_info.value.code == 124
-        assert len(messages) == 1
-        assert "0.2" in messages[0]
-
-
 class TestRunCaptureResultIdleTimeout:
     """Idle timeout fires: timed_out=True, returncode reflects kill, no SystemExit raised."""
 
@@ -433,25 +412,13 @@ class TestRunCaptureResultIdleTimeout:
         result = run_capture_result(
             [sys.executable, "-c", "import time; time.sleep(60)"],
             idle_timeout=0.2,
-            isolate_process_group=True,
         )
-        assert result.timed_out is True
-
-    def test_idle_timeout_does_not_raise_system_exit(self) -> None:
-        """Where ``run_capture`` exits the process, ``run_capture_result`` returns."""
-        command = [sys.executable, "-c", "import time; time.sleep(60)"]
-
-        with pytest.raises(SystemExit):
-            run_capture(command, idle_timeout=0.2, isolate_process_group=True)
-
-        result = run_capture_result(command, idle_timeout=0.2, isolate_process_group=True)
         assert result.timed_out is True
 
     def test_idle_timeout_returncode_is_set(self) -> None:
         result = run_capture_result(
             [sys.executable, "-c", "import time; time.sleep(60)"],
             idle_timeout=0.2,
-            isolate_process_group=True,
         )
         # returncode is the kill exit code (nonzero), not None
         assert result.returncode is not None
@@ -461,7 +428,6 @@ class TestRunCaptureResultIdleTimeout:
         result = run_capture_result(
             [sys.executable, "-c", "import time; time.sleep(60)"],
             idle_timeout=0.3,
-            isolate_process_group=True,
         )
         assert result.elapsed > 0
 
@@ -477,7 +443,6 @@ class TestRunCaptureResultIdleTimeout:
         result = run_capture_result(
             [sys.executable, "-c", script],
             idle_timeout=1.0,
-            isolate_process_group=True,
         )
         assert result.returncode == 0
         assert result.timed_out is False
@@ -513,11 +478,9 @@ class TestRunCaptureResultIdleTimeout:
         process = ClosedStreamsProcess()
         monkeypatch.setattr("subprocess.Popen", lambda *_args, **_kwargs: process)
 
-        result = run_capture_result(
-            ["child"],
-            idle_timeout=1.0,
-            isolate_process_group=False,
-        )
+        monkeypatch.setattr(process_mod, "kill_process_group", lambda proc: proc.terminate())
+
+        result = run_capture_result(["child"], idle_timeout=1.0)
 
         assert result.timed_out is True
         assert result.returncode == -15

@@ -147,7 +147,6 @@ def bind_arguments(
     except pure.ArgumentBindingError as err:
         raise _to_agl_type_error(
             err,
-            params,
             positional,
             named,
             span_of=span_of,
@@ -158,7 +157,6 @@ def bind_arguments(
 
 def _to_agl_type_error(
     err: pure.ArgumentBindingError,
-    params: Sequence[BindParam],
     positional: Sequence[T],
     named: Sequence[BoundName[T]],
     *,

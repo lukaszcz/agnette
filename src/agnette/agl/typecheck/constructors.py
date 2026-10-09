@@ -14,7 +14,7 @@ from typing import Literal, Protocol, TypeGuard, cast
 from weakref import proxy
 
 from agnette.agl.diagnostics import type_name_not_a_value
-from agnette.agl.scope.symbols import ConstructorRef, ModuleResolution
+from agnette.agl.scope.symbols import ConstructorRef
 from agnette.agl.semantics.type_table import TypeTable
 from agnette.agl.semantics.types import (
     EnumType,
@@ -51,16 +51,13 @@ from agnette.agl.zones import ParamZone
 def _nominal_constructor_signature(
     table: TypeTable,
     owner: RecordType | ExceptionType,
-    owner_name: str,
     type_params: tuple[str, ...],
 ) -> ConstructorSignature:
     """Return the signature of the constructor producing *owner*.
 
     *owner* applies its declaration to arguments over *type_params*; the
     fields -- an exception's including its bases' -- are read by *owner*'s
-    declaration identity with those arguments substituted. *owner_name* is
-    the spelling the constructor was written with -- the declaration's own
-    name or a transparent alias of it.
+    declaration identity with those arguments substituted.
     """
     fields = (
         table.record_fields(owner)
@@ -68,7 +65,6 @@ def _nominal_constructor_signature(
         else table.exception_fields(owner)
     )
     return ConstructorSignature(
-        owner_name=owner_name,
         field_names=tuple(fields),
         field_templates=tuple(fields.values()),
         result_template=owner,
@@ -128,7 +124,7 @@ def constructor_signature_of(
     template = constructed_template(env, ctor_ref)
     owner = _constructible_nominal(template.template, spelling, span)
     return replace(ctor_ref, type_params=template.type_params), _nominal_constructor_signature(
-        env.type_table, owner, ctor_ref.owner_name, template.type_params
+        env.type_table, owner, template.type_params
     )
 
 
@@ -184,7 +180,7 @@ def selected_constructor_signature(
             env, ctor_ref, span, spelling=render_qualified_name(ref.qualifier, ref.name)
         )
     return replace(ctor_ref, type_params=()), _nominal_constructor_signature(
-        env.type_table, member, ctor_ref.owner_name, ()
+        env.type_table, member, ()
     )
 
 
@@ -197,7 +193,6 @@ class ConstructorCheckCtx(Protocol):
     """The minimal _Checker surface the constructor checker needs."""
 
     _env: TypeEnvironment
-    _resolved: ModuleResolution
     _current_type_vars: frozenset[str]
 
     def _record_constructor_call_binding(self, node_id: int, binding: dict[str, Expr]) -> None: ...

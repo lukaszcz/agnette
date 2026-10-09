@@ -330,12 +330,16 @@ class TestRehydratedProgramLowering:
         underlying ``resolved`` AST objects on both sides (rehydration keeps
         ``resolved`` identical), so no identity-sensitive field can differ.
         """
-        original_executable = lower_program(compile_program_matches(compiled.checked).compiled)
+        original_executable = lower_program(
+            compile_program_matches(compiled.checked).compiled, contract_payloads={}
+        )
 
         reassembled_modules = dict(compiled.checked.modules)
         reassembled_modules.update(rehydrated)
         reassembled = dataclasses.replace(compiled.checked, modules=reassembled_modules)
-        rehydrated_executable = lower_program(compile_program_matches(reassembled).compiled)
+        rehydrated_executable = lower_program(
+            compile_program_matches(reassembled).compiled, contract_payloads={}
+        )
 
         assert rehydrated_executable == original_executable
 
@@ -440,7 +444,6 @@ class TestImageMirrorsItsModule:
         assert module_fields - image_fields == {
             "resolved",
             "type_env",
-            "import_env",
             "source_text",
         }
 

@@ -15,18 +15,16 @@ from typing import cast
 
 import pytest
 
-from agnette.agent.session import (
-    AglSessionHost,
+from agnette.agent.session import create_agl_session_host, rpc
+from agnette.agent.session.protocol import (
+    BackendSettings,
     SessionAskError,
     SessionAskRequest,
     SessionHostError,
-    SessionService,
     SessionStats,
-    create_agl_session_host,
-    rpc,
 )
-from agnette.agent.session.protocol import BackendSettings
 from agnette.agent.session.rpc import PiRpcSessionBackend
+from agnette.agent.session.service import AglSessionHost, SessionService
 from agnette.agent.spec import AgentPi, PermissionMode, SessionTransport
 from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 from agnette.sandbox.request import PreparedSandboxCommand, SandboxLimits

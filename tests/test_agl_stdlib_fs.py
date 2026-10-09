@@ -10,6 +10,7 @@ import semver
 
 from agnette.agl import PipelineDriver
 from agnette.agl.capabilities import HostCapabilities
+from agnette.agl.ir.program import ValueDescriptors
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import _wire_extern_registry
 from agnette.agl.runtime.externs import ExternRegistry
@@ -351,6 +352,7 @@ def test_fs_externs_honor_the_existing_extern_capability_gate() -> None:
             module_id: module.companion_path for module_id, module in graph.modules.items()
         },
         packages=(),
+        descriptors=ValueDescriptors(nominals={}, functions={}, exception_field_encodes={}),
     )
 
     assert len(diagnostics) == 1

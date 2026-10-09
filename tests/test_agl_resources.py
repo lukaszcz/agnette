@@ -196,7 +196,7 @@ def test_lowering_attaches_the_call_span_to_a_missing_resource(tmp_path: Path) -
     assert discovery.compiled is not None
 
     with pytest.raises(ResourceError) as raised:
-        lower_program(discovery.compiled)
+        lower_program(discovery.compiled, contract_payloads={})
 
     assert raised.value.span is not None
 

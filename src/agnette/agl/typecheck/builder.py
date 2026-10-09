@@ -59,8 +59,6 @@ from agnette.agl.scope.symbols import AttributeFacts
 from agnette.agl.semantics.external_names import NO_EXTERNAL_NAME, ExternalName
 from agnette.agl.semantics.type_table import (
     TypeDef,
-    source_enum_member_decl_id,
-    source_nominal_decl_id,
 )
 from agnette.agl.semantics.types import (
     BUILTIN_ALIAS_TARGETS,
@@ -119,19 +117,6 @@ _BUILTIN_TYPE_NAMES: frozenset[str] = (
 # invalid referent is reported at the declaration the author actually wrote
 # instead of at the built-in downstream of it.
 _DERIVED_BUILTIN_SHAPES: frozenset[str] = frozenset({"Optional"})
-
-
-def _decl_identity(
-    module_id: ModuleId, scope_path: tuple[str, ...], bare_name: str, node_id: int
-) -> int:
-    """Return the declaration identity for a record/enum/exception declaration.
-
-    Every parsed declaration is identified by its own AST node id, which the
-    loader keeps disjoint across a program's modules. Host-known reserved ids
-    identify only seeded fallback definitions used when no source declaration
-    is loaded.
-    """
-    return source_nominal_decl_id(module_id, scope_path, bare_name, node_id)
 
 
 def _mutable_field_names(fields: Sequence[Param]) -> frozenset[str]:
@@ -198,18 +183,6 @@ def _check_external_name_siblings(
                     span=span,
                 )
             seen_alias[alias] = name
-
-
-def _member_identity(enum: EnumDef, member: VariantDef, module_id: ModuleId) -> int:
-    """Return an inline member's source declaration identity."""
-    return source_enum_member_decl_id(
-        module_id,
-        tuple(segment.name for segment in enum.scope_path),
-        _bare_name(enum.name),
-        member.name,
-        member.node_id,
-        is_builtin=enum.is_builtin,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +333,7 @@ class _TypeBuilder:
                     name=bare_name,
                     module_id=module_id,
                     scope_path=scope_path,
-                    decl_id=_decl_identity(module_id, scope_path, bare_name, item.node_id),
+                    decl_id=item.node_id,
                 )
                 self._env.register_type(item.name, handle)
                 if item.is_builtin and module_id.is_standard_library:
@@ -420,8 +393,7 @@ class _TypeBuilder:
 
     def _enum_identity(self, enum: EnumDef) -> int:
         """Return the declaration identity of *enum*, declared in this module."""
-        enum_scope_path = tuple(segment.name for segment in enum.scope_path)
-        return _decl_identity(self._module_id, enum_scope_path, _bare_name(enum.name), enum.node_id)
+        return enum.node_id
 
     def _register_inline_member_handle(self, enum: EnumDef, member: VariantDef) -> None:
         """Register an inline enum member as its scoped record type."""
@@ -440,7 +412,7 @@ class _TypeBuilder:
         enum_scope_path = tuple(segment.name for segment in enum.scope_path)
         member_name = f"{enum.name}::{member.name}"
         self._env.unregister_name(member_name)
-        decl_id = _member_identity(enum, member, self._module_id)
+        decl_id = member.node_id
         template = RecordType(
             name=member.name,
             type_args=tuple(TypeVarType(param) for param in type_params),
@@ -463,7 +435,7 @@ class _TypeBuilder:
         module_id = self._module_id
         declared_name = _bare_name(item.name)
         scope_path = tuple(segment.name for segment in item.scope_path)
-        decl_id = _decl_identity(module_id, scope_path, declared_name, item.node_id)
+        decl_id = item.node_id
         type_params = item.type_params
         if type_params:
             type_args = tuple(TypeVarType(p) for p in type_params)
@@ -693,11 +665,7 @@ class _TypeBuilder:
             # registered in phase 1 (:meth:`_register_record_or_enum_handle`),
             # so the TypeDef and every instantiated handle agree on which
             # declaration they name.
-            decl_node_id=(
-                _decl_identity(module_id, scope_path, bare_name, stmt.node_id)
-                if template is None
-                else template.decl_id
-            ),
+            decl_node_id=(stmt.node_id if template is None else template.decl_id),
             external_name=self._attributes.external_names.get(stmt.node_id, NO_EXTERNAL_NAME),
             field_external_names=self._field_external_names(stmt.fields),
             field_docs=self._field_docs(stmt.fields),
@@ -726,7 +694,7 @@ class _TypeBuilder:
         member_scope_path = (*scope_path, bare_name)
         member_defs: list[TypeDef] = []
         members: list[RecordType] = []
-        enum_decl_id = _decl_identity(module_id, scope_path, bare_name, stmt.node_id)
+        enum_decl_id = stmt.node_id
         member_spans: list[SourceSpan] = []
         for member in stmt.members:
             if isinstance(member, VariantRef):
@@ -770,7 +738,7 @@ class _TypeBuilder:
                 for param in stmt.type_params
                 if any(param in free_type_vars(field_type) for field_type in fields.values())
             )
-            decl_id = _member_identity(stmt, vd, module_id)
+            decl_id = vd.node_id
             member_def = TypeDef(
                 kind="record",
                 name=vd.name,
@@ -878,7 +846,7 @@ class _TypeBuilder:
             field_kinds=self._field_zones(stmt.fields),
             field_has_default=self._field_has_default(stmt.fields),
             is_builtin=stmt.is_builtin,
-            decl_node_id=_decl_identity(module_id, scope_path, bare_name, stmt.node_id),
+            decl_node_id=stmt.node_id,
             field_external_names=self._field_external_names(stmt.fields),
             field_docs=self._field_docs(stmt.fields),
             doc=self._attributes.docs.get(stmt.node_id),

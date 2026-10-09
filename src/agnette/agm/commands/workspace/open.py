@@ -133,9 +133,9 @@ def open_workspace(
     detached: bool,
     pane_count: str | None,
     branch: str | None,
-    cwd: Path | None = None,
+    cwd: Path,
 ) -> None:
-    current = Path.cwd() if cwd is None else cwd.resolve()
+    current = cwd.resolve()
     validate_pane_count(pane_count)
     proj_dir = require_current_project_dir(current)
     repo_branch = git_helpers.current_branch(project_repo_dir(proj_dir))
@@ -178,14 +178,14 @@ def _prepare_workspace(
     branch: str,
     create_branch: bool,
     no_fetch: bool = True,
-    cwd: Path | None = None,
+    cwd: Path,
 ) -> None:
-    current = Path.cwd() if cwd is None else cwd.resolve()
+    current = cwd.resolve()
     validate_pane_count(pane_count)
     proj_dir = require_current_project_dir(current)
     start_point = require_parent_start_point(proj_dir, parent)
     repo_path = branch_path(proj_dir, branch)
-    mkdir(repo_path, parents=True, exist_ok=True)
+    mkdir(repo_path)
     ensure_dependency_configs_for_branch(
         project_dir=proj_dir,
         branch=branch,
@@ -223,8 +223,8 @@ def create_workspace(
     pane_count: str | None,
     parent: str | None,
     branch: str,
+    cwd: Path,
     no_fetch: bool = True,
-    cwd: Path | None = None,
 ) -> None:
     _prepare_workspace(
         detached=detached,
@@ -241,15 +241,14 @@ def checkout_workspace(
     *,
     detached: bool,
     pane_count: str | None,
-    parent: str | None,
     branch: str,
+    cwd: Path,
     no_fetch: bool = True,
-    cwd: Path | None = None,
 ) -> None:
     _prepare_workspace(
         detached=detached,
         pane_count=pane_count,
-        parent=parent,
+        parent=None,
         branch=branch,
         create_branch=False,
         no_fetch=no_fetch,
@@ -272,7 +271,6 @@ def open_or_create_workspace(
 
     repo_dir = project_repo_dir(proj_dir)
     if is_main_workspace_branch(
-        proj_dir,
         branch,
         repo_branch=git_helpers.current_branch(repo_dir),
     ):
@@ -298,7 +296,6 @@ def open_or_create_workspace(
         checkout_workspace(
             detached=detached,
             pane_count=pane_count,
-            parent=None,
             branch=branch,
             no_fetch=no_fetch,
             cwd=current,

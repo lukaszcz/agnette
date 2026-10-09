@@ -21,9 +21,10 @@ import pytest
 
 from agnette.agl import PipelineDriver, artifact_serialization
 from agnette.agl.constraints import ConstraintKind
-from agnette.agl.parser import AglSyntaxError, parse_program
-from agnette.agl.scope import AglScopeError, ModuleResolution
-from agnette.agl.scope.symbols import TypeArgumentsError
+from agnette.agl.parser import AglSyntaxError
+from agnette.agl.parser.parser import parse_program
+from agnette.agl.scope import ModuleResolution
+from agnette.agl.scope.symbols import AglScopeError, TypeArgumentsError
 from agnette.agl.syntax.nodes import Constraint, FuncDef
 from agnette.agl.syntax.visitor import walk
 from tests.agl.module_graph import resolve_inline_entry

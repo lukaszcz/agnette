@@ -26,11 +26,12 @@ from agnette.agl.diagnostics import (
     type_name_not_a_value,
 )
 from agnette.agl.ir.static_keys import StaticBindingKey
-from agnette.agl.matchcompile import NonExhaustiveMatchError
+from agnette.agl.matchcompile.diagnostics import NonExhaustiveMatchError
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.parser import AglSyntaxError
 from agnette.agl.recursion import NestingTooDeepError
-from agnette.agl.repl import EntryResult, ReplSession
+from agnette.agl.repl import ReplSession
+from agnette.agl.repl.entry import EntryResult
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.runtime.types import ParamBindingInfo
@@ -70,7 +71,7 @@ from agnette.agl.semantics.values import (
     Value,
 )
 from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.env import AglTypeError
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._agl_helpers import REPO_STDLIB_ROOT, agent_value, repl_session_with_root
 from tests._process_helpers import FakeShell
@@ -6066,7 +6067,7 @@ class TestTypeOf:
             s.type_of("let q = 1")
 
     def test_type_of_propagates_type_error(self) -> None:
-        from agnette.agl.typecheck import AglTypeError
+        from agnette.agl.typecheck.env import AglTypeError
 
         s = open_session()
         s.eval_entry('let s = "x"')
@@ -7134,7 +7135,6 @@ class TestEntryResultShape:
         s = open_session()
         r = s.eval_entry("let x = 1")
         assert isinstance(r, EntryResult)
-        assert r.trace_path is None  # no --trace-file → no trace path
         with pytest.raises(dataclasses.FrozenInstanceError):
             r.ok = False
 
@@ -7360,7 +7360,7 @@ class TestTraceLogging:
         s = open_session(agent_dispatcher=CountingAgent("ok"))
         r = s.eval_entry('let g = ask """hi"""')
         assert r.ok
-        assert r.trace_path is None
+        assert not list(tmp_path.iterdir())
 
     def test_trace_file_records_run_and_agent_call(self, tmp_path: Path) -> None:
         import json
@@ -7369,7 +7369,6 @@ class TestTraceLogging:
         s = open_session(agent_dispatcher=CountingAgent("reply"), trace_path=trace)
         r = s.eval_entry('let g = ask """ask"""')
         assert r.ok
-        assert r.trace_path == trace
         assert trace.exists()
         records = [json.loads(line) for line in trace.read_text().splitlines() if line]
         kinds = [rec["kind"] for rec in records]
@@ -7449,7 +7448,6 @@ class TestTraceLogging:
 
         assert first.ok
         assert second.ok
-        assert second.trace_path == trace
         records = [json.loads(line) for line in trace.read_text().splitlines() if line]
         rendered = [rec["rendered"] for rec in records if rec["kind"] == "print"]
         assert rendered == ["two"]
@@ -9913,7 +9911,7 @@ class TestUnpromotedNominalDeclarationEffects:
         What is actually in effect is which nominal a fresh host mint raises
         under: an uncaught error's ``type_name`` is resolved from that
         nominal via the program's descriptor table at report time (see
-        ``DeclaredNominal.display_name``), and a later entry's uncaught error
+        the descriptor's ``display_name``), and a later entry's uncaught error
         reports the identity the mint actually used, which is the
         previously-declared, unscoped ``"RangeError"`` here, since the
         host-mint table is rebuilt from the shared type table on every

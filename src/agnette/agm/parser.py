@@ -614,9 +614,8 @@ def help_text_for(command: str) -> str | None:
     return _HELP_TEXTS.get(canonical)
 
 
-def print_overview(file: _Writeable | None = None) -> None:
-    output = sys.stdout if file is None else file
-    print(_overview_text(), end="", file=output)
+def print_overview() -> None:
+    print(_overview_text(), end="")
 
 
 def print_command_help(command: str, file: _Writeable | None = None) -> None:
@@ -660,13 +659,11 @@ def print_help_for_command_path(
     print(_help_text_for_path(command_path), end="", file=output)
 
 
-def exit_with_usage_error(
-    command_path: Sequence[str], message: str, *, exit_code: int = 1
-) -> NoReturn:
-    """Report *message* with the command's usage lines and exit with *exit_code*."""
+def exit_with_usage_error(command_path: Sequence[str], message: str) -> NoReturn:
+    """Report *message* with the command's usage lines and exit with status 1."""
     usage, _, _ = _help_text_for_path(command_path).partition("\n\n")
     prefix = "usage: "
     print(message, file=sys.stderr)
     print(prefix + usage.replace("\n", "\n" + " " * len(prefix)), file=sys.stderr)
     print(f"Run 'agm help {' '.join(command_path)}' for details.", file=sys.stderr)
-    raise SystemExit(exit_code)
+    raise SystemExit(1)

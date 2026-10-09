@@ -35,7 +35,6 @@ from agnette.vcs.git import (
     remote_unmerged_branches,
     remotes_with_branch,
     repo_name_from_url,
-    symbolic_ref,
     unique_remote_branch_ref,
     worktree_add,
     worktree_list,
@@ -57,12 +56,6 @@ from tests._git_helpers import (
 
 
 class TestGitArgs:
-    def test_no_repo_dir_returns_plain_git(self) -> None:
-        assert _git_args() == ["git"]
-
-    def test_none_returns_plain_git(self) -> None:
-        assert _git_args(None) == ["git"]
-
     def test_repo_dir_returns_git_with_C_flag(self, tmp_path: Path) -> None:
         result = _git_args(tmp_path)
         assert result == ["git", "-C", str(tmp_path)]
@@ -1032,25 +1025,6 @@ class TestCreateTrackingBranch:
             clone, ["rev-parse", "origin/feature"], env
         )
         assert _branch_upstream(clone, "feature", env=env) == "origin/feature"
-
-
-# ---------------------------------------------------------------------------
-# symbolic_ref
-# ---------------------------------------------------------------------------
-
-
-class TestSymbolicRef:
-    def test_resolves_head_to_the_checked_out_branch(
-        self, tmp_path: Path, env: dict[str, str]
-    ) -> None:
-        repo = init_repo(tmp_path / "repo", env)
-        assert symbolic_ref(repo, "HEAD", env=env) == "main"
-
-    def test_resolves_origin_head_to_the_remote_tracking_ref(
-        self, tmp_path: Path, env: dict[str, str]
-    ) -> None:
-        _source, clone = clone_local_remote(tmp_path, env)
-        assert symbolic_ref(clone, "refs/remotes/origin/HEAD", env=env) == "origin/main"
 
 
 # ---------------------------------------------------------------------------

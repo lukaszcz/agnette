@@ -47,36 +47,6 @@ def _preflight(runtime: PipelineDriver, prepared: PreparedProgram) -> ArgumentPr
     )
 
 
-def test_single_run_rejects_checked_artifact_from_different_prepared_program(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    prepared_a = prepare_inline_code('print "stale"')
-    discovery_a = runtime.discover_programs(prepared_a)
-    assert discovery_a.checked is not None
-    prepared_b = prepare_inline_code('print "fresh"')
-
-    with pytest.raises(ArtifactProvenanceError):
-        runtime.run_prepared(prepared_b, checked=discovery_a.checked)
-
-    assert capsys.readouterr().out == ""
-
-
-def test_program_run_rejects_checked_artifact_from_different_prepared_program(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    prepared_a = _prepare_graph('print "stale"')
-    discovery_a = runtime.discover_programs(prepared_a)
-    assert discovery_a.checked is not None
-    prepared_b = _prepare_graph('print "fresh"')
-
-    with pytest.raises(ArtifactProvenanceError):
-        runtime.run_prepared(prepared_b, checked=discovery_a.checked)
-
-    assert capsys.readouterr().out == ""
-
-
 def test_run_rejects_executable_from_different_prepared_program(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -83,9 +83,6 @@ class LoadedModule:
         The ``Program`` AST produced by parsing this module's source text.
     path:
         Canonical absolute file path.  ``None`` for an inline/``-c`` entry.
-    source:
-        The :class:`~agnette.agl.syntax.spans.SourceId` stamped on every span in
-        ``program``.
     imports:
         :class:`~agnette.agl.syntax.nodes.ImportDecl` nodes extracted from the
         module root and named scope regions.
@@ -109,7 +106,6 @@ class LoadedModule:
     module_id: ModuleId
     program: syntax.Program
     path: Path | None
-    source: SourceId
     imports: tuple[ImportDecl, ...]
     export_decls: tuple[ExportDecl, ...]
     source_text: str
@@ -133,8 +129,6 @@ class ParsedEntryModule:
 
     program: syntax.Program
     next_id: int
-    canonical_path: Path | None
-    source_id: SourceId
     spaced_qualifiers: tuple[SpacedQualifier, ...]
 
 
@@ -441,9 +435,7 @@ def _tarjan_sccs(
     return _compute_sccs(graph, key=_mid_sort_key)
 
 
-def load_parsed_module(
-    module_id: ModuleId, path: Path, *, default_stdlib: bool = True
-) -> LoadedModule:
+def load_parsed_module(module_id: ModuleId, path: Path) -> LoadedModule:
     """Serve one module's parse from the shared cache, parsing only on a miss.
 
     The single entry point for a caller that needs a module's AST without
@@ -451,8 +443,8 @@ def load_parsed_module(
     same cache the graph loader keys, so a module parsed here is reused there
     and the reverse, and neither parses source the other already has.
     """
-    build = partial(_parse_imported_module, module_id, path, default_stdlib=default_stdlib)
-    return cached_parsed_module(module_id, path, default_stdlib=default_stdlib, build=build)
+    build = partial(_parse_imported_module, module_id, path, default_stdlib=True)
+    return cached_parsed_module(module_id, path, default_stdlib=True, build=build)
 
 
 def _parse_imported_module(
@@ -484,7 +476,6 @@ def _parse_imported_module(
         module_id=module_id,
         program=program,
         path=path,
-        source=file_source_id,
         imports=_extract_imports(program),
         export_decls=_extract_exports(program),
         source_text=source_text,
@@ -616,19 +607,9 @@ def _load_into_graph(
     return graph, next_id, newly_loaded
 
 
-def entry_source_id(
-    entry_path: Path | None,
-    *,
-    default_label: str = "<code>",
-) -> tuple[Path | None, SourceId]:
-    """Return an entry's canonical path and the source id its label implies.
-
-    A source without a backing file uses *default_label*; every entry-loading
-    path derives its diagnostic identity here.
-    """
-    canonical_path = entry_path.resolve() if entry_path is not None else None
-    label = str(canonical_path) if canonical_path is not None else default_label
-    return canonical_path, SourceId(label=label)
+def entry_source_id(entry_path: Path | None) -> SourceId:
+    """Return the source id of an entry: its canonical path, or ``<code>`` without a file."""
+    return SourceId(label=str(entry_path.resolve()) if entry_path is not None else "<code>")
 
 
 def parse_entry_module(
@@ -643,7 +624,7 @@ def parse_entry_module(
     failures intentionally propagate to let callers choose their own raising or
     diagnostic-capturing policy.
     """
-    canonical_path, source_id = entry_source_id(entry_path)
+    source_id = entry_source_id(entry_path)
     with spaced_qualifier_collector() as spaced_sink:
         try:
             program, next_id = parse_program_seeded(entry_source, start_id=0, source=source_id)
@@ -654,8 +635,6 @@ def parse_entry_module(
     return ParsedEntryModule(
         program=program,
         next_id=next_id,
-        canonical_path=canonical_path,
-        source_id=source_id,
         spaced_qualifiers=tuple(spaced_sink),
     )
 
@@ -701,7 +680,6 @@ def _build_entry_loaded_module(
     *,
     entry_id: ModuleId,
     canonical_entry_path: Path | None,
-    entry_source_id: SourceId,
     default_stdlib: bool,
     spaced_qualifiers: tuple[SpacedQualifier, ...],
     source_text: str,
@@ -722,7 +700,6 @@ def _build_entry_loaded_module(
         module_id=entry_id,
         program=program,
         path=canonical_entry_path,
-        source=entry_source_id,
         imports=imports,
         export_decls=_extract_exports(program),
         source_text=source_text,
@@ -741,7 +718,6 @@ def build_repl_graph(
     roots: RootSet,
     default_stdlib: bool = True,
     spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
-    default_label: str = "<repl>",
     source_text: str = "",
 ) -> tuple[ModuleGraph, int, dict[ModuleId, LoadedModule]]:
     """Build a module graph from an already-parsed entry program.
@@ -770,11 +746,6 @@ def build_repl_graph(
         newly loaded library modules.
     spaced_qualifiers:
         Spaced-qualifier advisories collected while *program* was lexed.
-    default_label:
-        The entry source label used when *path* is ``None`` (inline entry).
-        Defaults to ``"<repl>"`` for the REPL's own incremental sessions;
-        callers outside the REPL (e.g. an ``exec -c`` style host pipeline)
-        pass the label :func:`parse_entry_module` used so diagnostics match.
     source_text:
         The entry's normalized source text, recorded on the entry
         ``LoadedModule`` for deep IR-validation span checks and runtime
@@ -791,7 +762,7 @@ def build_repl_graph(
         - A dict of newly-loaded modules (not in *cached*) for promotion,
           including the entry when a package names it.
     """
-    canonical_entry_path, source_id = entry_source_id(path, default_label=default_label)
+    canonical_entry_path = path.resolve() if path is not None else None
 
     seed_modules = dict(cached)
     entry_id = _entry_module_id(canonical_entry_path, roots)
@@ -800,7 +771,6 @@ def build_repl_graph(
         next_start_id,
         entry_id=entry_id,
         canonical_entry_path=canonical_entry_path,
-        entry_source_id=source_id,
         default_stdlib=default_stdlib,
         spaced_qualifiers=spaced_qualifiers,
         source_text=source_text,

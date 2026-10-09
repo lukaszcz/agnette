@@ -612,15 +612,6 @@ class TestRemoveWorktree:
         assert _worktree_paths(repo, env) == [repo.resolve()]
         assert _local_branches(repo, env) == ["main"]
 
-    def test_can_keep_the_branch(self, tmp_path: Path, env: dict[str, str]) -> None:
-        project, worktree = self._project_with_worktree(tmp_path, env)
-        repo = project / "repo"
-
-        remove_worktree(repo_dir=repo, force=False, branch="feat", delete_branch=False, env=env)
-
-        assert not worktree.exists()
-        assert _local_branches(repo, env) == ["feat", "main"]
-
     def test_refuses_to_remove_a_dirty_worktree_without_force(
         self, tmp_path: Path, env: dict[str, str]
     ) -> None:
@@ -653,21 +644,6 @@ class TestRemoveWorktree:
             remove_worktree(repo_dir=project / "repo", force=False, branch="feat", env=env)
 
         assert "feat" in _local_branches(project / "repo", env)
-
-    def test_force_delete_removes_an_unmerged_branch(
-        self, tmp_path: Path, env: dict[str, str]
-    ) -> None:
-        project, worktree = self._project_with_worktree(tmp_path, env)
-        (worktree / "work.txt").write_text("work\n", encoding="utf-8")
-        _git("add", ".", cwd=worktree, env=env)
-        _git("commit", "-m", "work", "-q", cwd=worktree, env=env)
-
-        remove_worktree(
-            repo_dir=project / "repo", force=False, branch="feat", force_delete=True, env=env
-        )
-
-        assert not worktree.exists()
-        assert _local_branches(project / "repo", env) == ["main"]
 
     def test_exits_when_no_worktree_exists_for_the_branch(
         self, tmp_path: Path, env: dict[str, str]

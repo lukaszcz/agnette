@@ -126,9 +126,6 @@ class ReceiverOwner:
     builtin: BuiltinMethodReceiver | None = None
 
 
-BareRoute: TypingTypeAlias = tuple[ModuleId, ScopePath]
-
-
 def to_bare_path(atom: BareAtom) -> ScopePath:
     return (atom,) if isinstance(atom, str) else atom
 
@@ -646,7 +643,6 @@ class SlotCandidate:
 class PatternSlot:
     """Parallel metadata for candidates owned by one pattern match site.
 
-    ``match_site_node_id`` identifies the owning case branch.
     ``alternative`` is what the name reads outside the pattern -- an
     enclosing binding, an outer pattern-slot binding, or a declaration --
     if anything, and ``alternative_constructor`` the constructor it names.
@@ -657,7 +653,6 @@ class PatternSlot:
     name: str
     candidates: tuple[SlotCandidate, ...]
     alternative: BindingRef | None
-    match_site_node_id: int
     alternative_constructor: ConstructorRef | None = None
     outside_ambiguity: Ambiguity | None = None
 
@@ -951,10 +946,6 @@ class AttributeFacts:
         The host presentation of every static ``let`` or ``var`` marked
         ``@param``, keyed by its binding node id. Bindings without the marker
         have no entry.
-    ``command_registrations``
-        The command path every ``program def`` registers itself as through
-        ``@command``, keyed by ``FuncDef.node_id``. Only a program carrying
-        ``@command`` has an entry.
     ``docs``
         The ``@doc`` text of every declaration carrying one, parameters and
         fields included, keyed by that declaration's node id.
@@ -973,7 +964,6 @@ class AttributeFacts:
     extern_names: dict[int, str] = field(default_factory=dict)
     program_options: dict[int, ProgramOptionSpec] = field(default_factory=dict)
     params: dict[int, ProgramOptionSpec] = field(default_factory=dict)
-    command_registrations: dict[int, str] = field(default_factory=dict)
     docs: dict[int, str] = field(default_factory=dict)
     external_names: dict[int, ExternalName] = field(default_factory=dict)
     program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = field(default_factory=dict)
@@ -1465,9 +1455,7 @@ class DuplicateDeclarationError(AglScopeError):
     conflict is the duplicate.
     """
 
-    def __init__(
-        self, name: str, *, reexports: tuple[str, ...] = (), span: SourceSpan | None
-    ) -> None:
+    def __init__(self, name: str, *, reexports: tuple[str, ...] = (), span: SourceSpan) -> None:
         detail = f": it re-exports {_join_list(reexports, comma_pair=False)}" if reexports else ""
         super().__init__(f"Name '{name}' is already declared in this scope{detail}.", span=span)
         self.name = name
@@ -1499,7 +1487,7 @@ class UnknownQualifierError(AglScopeError):
     """
 
     def __init__(
-        self, qualifier: str, *, span: SourceSpan | None, repair: MissRepair | None = None
+        self, qualifier: str, *, span: SourceSpan, repair: MissRepair | None = None
     ) -> None:
         super().__init__(
             f"Unknown qualifier '{qualifier}': no imported module route, scope, or type "
@@ -1519,7 +1507,7 @@ class UnknownMemberError(AglScopeError):
     """
 
     def __init__(
-        self, spelling: str, *, span: SourceSpan | None, repair: MissRepair | None = None
+        self, spelling: str, *, span: SourceSpan, repair: MissRepair | None = None
     ) -> None:
         super().__init__(
             f"'{spelling}' names no visible member.{_repair_text(repair)}"
@@ -1533,7 +1521,7 @@ class UnknownMemberError(AglScopeError):
 class SpacedQualifierError(AglScopeError):
     """A member reference whitespace split from its qualifier; *repair* is the tight spelling."""
 
-    def __init__(self, member: str, repair: str, *, span: SourceSpan | None) -> None:
+    def __init__(self, member: str, repair: str, *, span: SourceSpan) -> None:
         super().__init__(
             f"Whitespace before '::{member}' makes this a call with a self-reference, "
             f"not a qualifier. Write '{repair}' without whitespace.",
@@ -1549,9 +1537,8 @@ class TypeArgumentsError(AglScopeError):
     alias (``IntBox``). It takes them only when it selects a generic type
     whose inline member the next segment selects, and exactly as many as that
     type declares; a declaration's path takes none, but a builtin receiver's
-    bare generic head. *segment* is the segment as spelled; *arity* the
-    owner's type parameter count, ``None`` when the segment selects no such
-    owner.
+    bare generic head. The message names the segment as spelled and the
+    owner's type parameter count, when the segment selects such an owner.
     """
 
     def __init__(self, segment: str, arity: int | None, *, span: SourceSpan) -> None:
@@ -1563,5 +1550,3 @@ class TypeArgumentsError(AglScopeError):
         super().__init__(
             f"Type arguments cannot be applied to segment '{segment}': {reason}.", span=span
         )
-        self.segment = segment
-        self.arity = arity

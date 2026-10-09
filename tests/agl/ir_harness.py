@@ -188,7 +188,7 @@ def lower_compiled_module(compiled: MatchCompiledModule, *, source_text: str) ->
         checked=single_module_program(compiled.checked),
         sites_by_module={ENTRY_ID: compiled.sites},
     )
-    return lower_program(program, _entry_source_text=source_text)
+    return lower_program(program, _entry_source_text=source_text, contract_payloads={})
 
 
 def inline_main_items(program: ExecutableProgram) -> tuple[IrExpr, ...]:
@@ -270,7 +270,7 @@ def lower_ir(
     compiled = _compiled_program(
         source, caps=caps, default_stdlib=default_stdlib, origin_path=origin_path
     )
-    return lower_program(compiled, _entry_source_text=source)
+    return lower_program(compiled, _entry_source_text=source, contract_payloads={})
 
 
 def lower_inline_ir(
@@ -285,6 +285,7 @@ def lower_inline_ir(
             source, caps=caps, default_stdlib=default_stdlib, origin_path=origin_path
         ),
         _entry_source_text=source,
+        contract_payloads={},
     )
 
 

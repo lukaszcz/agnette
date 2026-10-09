@@ -7,7 +7,6 @@ and result rendering.
 
 from __future__ import annotations
 
-from agnette.agl.repl.entry import EntryResult
 from agnette.agl.repl.session import ReplSession
 
-__all__ = ["EntryResult", "ReplSession"]
+__all__ = ["ReplSession"]

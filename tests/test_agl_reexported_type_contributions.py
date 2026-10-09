@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.diagnostics import HiddenMemberError
-from agnette.agl.matchcompile import NonExhaustiveMatchError
+from agnette.agl.matchcompile.diagnostics import NonExhaustiveMatchError
 from tests.agl.qualifier_support import (
     Probe,
     Scenario,

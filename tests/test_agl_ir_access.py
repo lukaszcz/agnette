@@ -537,8 +537,8 @@ point.x := 2
 
 def test_golden_field_assign_coerces_rhs_to_declared_field_type() -> None:
     """A field store lowers its replacement against the selected field type."""
-    from agnette.agl import ir
     from agnette.agl.ir.nodes import IrCoerce, IrFieldSet
+    from agnette.agl.ir.operations import IntToDecimal
 
     prog = _lower(
         """\
@@ -552,7 +552,7 @@ point.x := 2
     stores = [node for node in inline_main_items(prog) if isinstance(node, IrFieldSet)]
     assert len(stores) == 1
     assert isinstance(stores[0].new, IrCoerce)
-    assert isinstance(stores[0].new.operation, ir.IntToDecimal)
+    assert isinstance(stores[0].new.operation, IntToDecimal)
 
 
 def test_golden_indexed_assign_lowers_to_ir_index_set() -> None:

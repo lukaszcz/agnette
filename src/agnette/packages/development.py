@@ -24,7 +24,7 @@ from agnette.packages.store import is_package_store_root
 
 
 def containing_development_package(
-    anchor: Path, *, home: Path | None = None, env: Mapping[str, str] | None = None
+    anchor: Path, *, home: Path, env: Mapping[str, str] | None = None
 ) -> PackageInfo | None:
     """Return the nearest development package at or above *anchor*.
 
@@ -38,25 +38,20 @@ def containing_development_package(
         return None
     canonical_root = package_root.resolve()
     manifest = load_manifest(canonical_root / "package.toml", commands_complete=False)
-    if home is not None and is_package_store_root(
-        canonical_root, manifest.name, manifest.version, home=home, env=env
-    ):
+    if is_package_store_root(canonical_root, manifest.name, manifest.version, home=home, env=env):
         return None
     return PackageInfo(canonical_root, manifest, commands_complete=False)
 
 
-def discover_development_packages(
-    anchor: Path, *, home: Path | None = None
-) -> tuple[PackageInfo, ...]:
+def discover_development_packages(anchor: Path, *, home: Path) -> tuple[PackageInfo, ...]:
     """Return the containing development package and its path dependency closure.
 
     A development package is selected only by an ancestor ``package.toml`` of
     the host's source directory. Its mounted dependencies are the manifests at
     explicitly declared relative ``[dependencies]`` ``path`` sources. This
     deliberately does not scan loose module roots. Each path source must match
-    its dependency key and minimum version. When the host provides its home, an
-    immutable store entry is left to active package selection rather than being
-    reclassified as development source.
+    its dependency key and minimum version. An immutable store entry is left to
+    active package selection rather than being reclassified as development source.
     """
 
     seed = containing_development_package(anchor, home=home)
@@ -68,9 +63,7 @@ def discover_development_packages(
     def add(package: PackageInfo) -> None:
         canonical_root = package.root
         manifest = package.manifest
-        if home is not None and is_package_store_root(
-            canonical_root, manifest.name, manifest.version, home=home
-        ):
+        if is_package_store_root(canonical_root, manifest.name, manifest.version, home=home):
             return
         if canonical_root in packages:
             return

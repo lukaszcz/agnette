@@ -9,15 +9,6 @@ from typing import Any
 
 import pytest
 
-from agnette.agent.session import (
-    SessionAskError,
-    SessionAskRequest,
-    SessionBackend,
-    SessionHostError,
-    SessionOpenRequest,
-    SessionOperation,
-    SessionService,
-)
 from agnette.agent.session.cli_adapters import (
     AgentCommandSessionBackend,
     ClaudeCliSessionBackend,
@@ -25,7 +16,16 @@ from agnette.agent.session.cli_adapters import (
     PiCliSessionBackend,
     open_cli_session,
 )
-from agnette.agent.session.protocol import BackendSettings
+from agnette.agent.session.protocol import (
+    BackendSettings,
+    SessionAskError,
+    SessionAskRequest,
+    SessionBackend,
+    SessionHostError,
+    SessionOpenRequest,
+    SessionOperation,
+)
+from agnette.agent.session.service import SessionService
 from agnette.agent.spec import (
     AGENT_SPECS,
     AgentClaude,

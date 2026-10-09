@@ -28,5 +28,5 @@ def write_dotenv_values(path: Path, values: Mapping[str, str]) -> None:
     """Replace *path* atomically with sorted dotenv assignments."""
 
     content = "".join(_format_assignment(key, value) for key, value in sorted(values.items()))
-    mkdir(path.parent, parents=True, exist_ok=True)
+    mkdir(path.parent)
     write_text_atomic(path, content)

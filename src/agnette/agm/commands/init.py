@@ -85,7 +85,7 @@ def ensure_git_exclude_entry(repo_dir: Path, entry: str) -> None:
     per-clone ignore rule belongs.
     """
     exclude_path = git_helpers.git_common_dir(repo_dir) / "info" / "exclude"
-    mkdir(exclude_path.parent, parents=True, exist_ok=True)
+    mkdir(exclude_path.parent)
     ensure_gitignore_entry(exclude_path, entry)
 
 
@@ -107,7 +107,7 @@ def configure_project_dir(
     layout_dirs: Sequence[Path]
     if embedded:
         # project_dir is the .agm data directory; the git repo is its parent.
-        mkdir(project_dir, parents=True, exist_ok=True)
+        mkdir(project_dir)
         repo_root = project_dir.parent
         ensure_gitignore_entry(repo_root / ".gitignore", EMBEDDED_PROJECT_GITIGNORE_ENTRY)
         ensure_gitignore_entry(repo_root / ".gitignore", AGENT_FILES_GITIGNORE_ENTRY)
@@ -119,7 +119,7 @@ def configure_project_dir(
             project_dir / "worktrees",
         )
     else:
-        mkdir(project_dir, parents=True, exist_ok=True)
+        mkdir(project_dir)
         config_dir = project_config_dir(project_dir)
         layout_dirs = (
             project_dir / "repo",
@@ -129,7 +129,7 @@ def configure_project_dir(
             default_worktrees_dir(project_dir),
         )
     for dirname in layout_dirs:
-        mkdir(dirname, parents=True, exist_ok=True)
+        mkdir(dirname)
     if not embedded:
         repo_dir = project_repo_dir(project_dir)
         skip_repo_git = no_repo_git or no_git_init

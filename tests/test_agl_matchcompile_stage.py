@@ -16,20 +16,21 @@ import agnette.agl.matchcompile.compiler as compiler_module
 import agnette.agl.matchcompile.stage as stage_module
 from agnette.agl.matchcompile import (
     CachedModuleSites,
-    CaseSite,
     CompiledMatchSite,
-    ConstructorSpeller,
-    MatchCompilationResult,
     MatchCompiledProgram,
-    NonExhaustiveIssue,
-    RedundantArmIssue,
     compile_program_matches,
     diagnostics_from_match_issues,
 )
 from agnette.agl.matchcompile.compiler import compile_match_site, validate_compiled_case
-from agnette.agl.matchcompile.diagnostics import issue_sort_key
+from agnette.agl.matchcompile.diagnostics import (
+    ConstructorSpeller,
+    NonExhaustiveIssue,
+    RedundantArmIssue,
+    issue_sort_key,
+)
 from agnette.agl.matchcompile.matrix import OccurrenceAllocator, PatternMatrix, Specialization
 from agnette.agl.matchcompile.model import (
+    CaseSite,
     Constructor,
     DecisionBranch,
     DecisionDecompose,
@@ -40,6 +41,7 @@ from agnette.agl.matchcompile.model import (
     NormalizedMatchSite,
 )
 from agnette.agl.matchcompile.normalize import MatchCompileInvariantError, normalize_case
+from agnette.agl.matchcompile.stage import MatchCompilationResult
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import (
@@ -66,45 +68,22 @@ def test_matchcompile_public_exports_are_narrow_and_stable() -> None:
     assert set(matchcompile.__all__) == {
         "BoolConstructor",
         "CachedModuleSites",
-        "BoolWitness",
-        "CaseSite",
-        "CompiledMatchSite",
         "CompiledMatchSite",
         "Constructor",
         "Decision",
         "DecisionDecompose",
         "DecisionLeaf",
         "DecisionSwitch",
-        "NominalConstructor",
-        "ConstructorSpeller",
-        "ConstructorSpellers",
-        "ConstructorWitness",
         "FieldOccurrenceProvenance",
         "LiteralKind",
-        "LiteralWitness",
-        "MatchCompilationResult",
         "MatchCompiledProgram",
-        "MatchIssue",
-        "MatchSiteSource",
-        "MatchWitness",
-        "NonExhaustiveIssue",
-        "NonExhaustiveMatchError",
-        "NormalizedMatchSite",
+        "NominalConstructor",
         "Occurrence",
         "OccurrenceId",
-        "OpenComplementWitness",
-        "NominalConstructor",
-        "RedundantArmError",
-        "RedundantArmIssue",
-        "WildcardWitness",
-        "WitnessField",
         "cached_module_sites",
         "compile_program_matches",
-        "diagnostic_from_match_issue",
         "diagnostics_from_match_issues",
         "match_issue_error",
-        "render_witness",
-        "validate_match_compiled_program",
     }
     assert hasattr(matchcompile, "FieldOccurrenceProvenance")
 

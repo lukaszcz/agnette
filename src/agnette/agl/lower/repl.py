@@ -193,7 +193,7 @@ class LoweredReplEntry:
     promotion_plan: ReplPromotionPlan
 
 
-def _item_declaration_ids(item: Item, checked: "CheckedModule") -> frozenset[int]:
+def _item_declaration_ids(item: Item) -> frozenset[int]:
     """Return session-promotable declaration ids introduced by one leaf source item.
 
     Called only on the flattened, region-transparent sequence ``static_items``
@@ -360,7 +360,7 @@ def _promotion_plan(
     region for region.
     """
     leaf_items = tuple(static_items(checked.resolved.program.body.items))
-    source_declaration_ids = tuple(_item_declaration_ids(item, checked) for item in leaf_items)
+    source_declaration_ids = tuple(_item_declaration_ids(item) for item in leaf_items)
     entry_declaration_ids = frozenset().union(*source_declaration_ids, frozenset())
     use_declaration_source_indices = {
         item.node_id: index for index, item in enumerate(leaf_items) if isinstance(item, UseDecl)
@@ -434,7 +434,7 @@ def lower_repl_program(
     *,
     image: LinkImage,
     source_text: str,
-    contract_payloads: Mapping[int, ContractPayload] | None = None,
+    contract_payloads: Mapping[int, ContractPayload],
 ) -> LoweredReplEntry:
     """Incrementally link a match-compiled module graph into a REPL image."""
     from agnette.agl.lower.program import lower_program

@@ -13,17 +13,16 @@ from lark.lexer import LexerState, TextSlice
 
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.lexer import (
-    AglLexer,
     IncompleteInputError,
     LexError,
-    SpacedQualifier,
     UnterminatedTripleQuotedStringError,
     lex_comment_spans,
-    lex_tab_warnings,
     spaced_qualifier_collector,
     tab_warning_collector,
     tokenize,
 )
+from agnette.agl.lexer.lexer import AglLexer
+from agnette.agl.syntax.advisories import SpacedQualifier
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -33,6 +32,13 @@ from agnette.agl.lexer import (
 def tok(source: str) -> list[tuple[str, str]]:
     """Return ``(type, value)`` pairs for every token in *source*."""
     return [(t.type, str(t)) for t in tokenize(source)]
+
+
+def _tab_warnings(source: str) -> list[Diagnostic]:
+    """Return the TAB advisories the lexer collects while scanning *source*."""
+    with tab_warning_collector() as warnings:
+        list(AglLexer(None).lex(lexer_state(source), None))
+    return warnings
 
 
 def lexer_state(source: str) -> LexerState:
@@ -1214,7 +1220,7 @@ class TestVerbatimLiteral:
         assert (span.start_line, span.start_col) == (1, 2)
 
     def test_block_indentation_tab_is_advised_against(self) -> None:
-        assert lex_tab_warnings("$\n\ttext") != []
+        assert _tab_warnings("$\n\ttext") != []
 
     def test_tab_indentation_is_dedented_by_visual_width(self) -> None:
         assert ("STRING_FRAGMENT", "text") in tok("$\n\ttext")
@@ -1905,7 +1911,7 @@ class TestAglLexerClass:
         assert "INT" in types
 
     def test_speculative_use_parse_does_not_duplicate_tab_warning(self) -> None:
-        from agnette.agl.parser import parse_program
+        from agnette.agl.parser.parser import parse_program
 
         with tab_warning_collector() as warnings:
             parse_program("import shared\nuse\tshared::*")
@@ -2566,76 +2572,76 @@ class TestTripleDedentHoleAwareMinIndent:
 
 class TestTabWarnings:
     def test_empty_source_no_warnings(self) -> None:
-        assert lex_tab_warnings("") == []
+        assert _tab_warnings("") == []
 
     def test_source_without_tabs_no_warnings(self) -> None:
-        assert lex_tab_warnings("let x = 1\n    y = 2") == []
+        assert _tab_warnings("let x = 1\n    y = 2") == []
 
     def test_single_tab_yields_one_warning(self) -> None:
-        warnings = lex_tab_warnings("\tlet x = 1")
+        warnings = _tab_warnings("\tlet x = 1")
         assert len(warnings) == 1
         assert warnings[0].severity == "warning"
         assert warnings[0].line == 1
 
     def test_warning_message_mentions_tab(self) -> None:
-        warnings = lex_tab_warnings("let x =\t1")
+        warnings = _tab_warnings("let x =\t1")
         assert len(warnings) == 1
         assert "TAB" in warnings[0].message or "tab" in warnings[0].message.lower()
 
     def test_warning_includes_column_info(self) -> None:
         # Tab is the 9th character (column 9) on the line.
-        warnings = lex_tab_warnings("let x = \t1")
+        warnings = _tab_warnings("let x = \t1")
         assert len(warnings) == 1
         assert (warnings[0].column, warnings[0].end_column) == (9, 10)
 
     def test_tab_on_second_line_reported_at_correct_line(self) -> None:
-        warnings = lex_tab_warnings("let x = 1\n\tlet y = 2")
+        warnings = _tab_warnings("let x = 1\n\tlet y = 2")
         assert len(warnings) == 1
         assert warnings[0].line == 2
 
     def test_tabs_on_multiple_lines_each_get_warning(self) -> None:
-        warnings = lex_tab_warnings("\tlet x = 1\n\tlet y = 2")
+        warnings = _tab_warnings("\tlet x = 1\n\tlet y = 2")
         assert len(warnings) == 2
         assert warnings[0].line == 1
         assert warnings[1].line == 2
 
     def test_multiple_tabs_on_same_line_each_get_warning(self) -> None:
-        warnings = lex_tab_warnings("let\tx\t= 1")
+        warnings = _tab_warnings("let\tx\t= 1")
         assert len(warnings) == 2
         lines = [w.line for w in warnings]
         assert all(ln == 1 for ln in lines)
 
     def test_crlf_newlines_normalized_correctly(self) -> None:
         # CRLF: tab on second line should still be line 2.
-        warnings = lex_tab_warnings("let x = 1\r\n\tlet y = 2")
+        warnings = _tab_warnings("let x = 1\r\n\tlet y = 2")
         assert len(warnings) == 1
         assert warnings[0].line == 2
 
     def test_cr_newlines_normalized_correctly(self) -> None:
-        warnings = lex_tab_warnings("let x = 1\r\tlet y = 2")
+        warnings = _tab_warnings("let x = 1\r\tlet y = 2")
         assert len(warnings) == 1
         assert warnings[0].line == 2
 
     def test_tab_in_string_literal_is_allowed(self) -> None:
         # A literal TAB inside string content is allowed (only code TABs are
         # advised against), so it produces no warning.
-        assert lex_tab_warnings('let x = "hello\tworld"') == []
+        assert _tab_warnings('let x = "hello\tworld"') == []
 
     def test_tab_in_triple_quoted_string_is_allowed(self) -> None:
         # Same for triple-quoted templates: TABs in the literal body are fine.
-        assert lex_tab_warnings('let x = """\n\tindented body\n"""') == []
+        assert _tab_warnings('let x = """\n\tindented body\n"""') == []
 
     def test_tab_in_interpolation_is_code_and_warned(self) -> None:
         # An interpolation hole is CODE, so a TAB inside ``%{ ... }`` warns even
         # though it sits within a string literal.
-        warnings = lex_tab_warnings('let y = 1\nlet x = "%{y\t}"')
+        warnings = _tab_warnings('let y = 1\nlet x = "%{y\t}"')
         assert len(warnings) == 1
         assert warnings[0].line == 2
 
     def test_tab_in_comment_only_line_still_warned(self) -> None:
         # A TAB inside a comment-only line (skipped during indentation
         # measurement) is still reported, on the comment's line.
-        warnings = lex_tab_warnings("let x = 1\n#\tcomment\nlet y = 2")
+        warnings = _tab_warnings("let x = 1\n#\tcomment\nlet y = 2")
         assert len(warnings) == 1
         assert warnings[0].line == 2
 
@@ -2643,12 +2649,12 @@ class TestTabWarnings:
         # A whitespace-only EOF tail containing a TAB is reported exactly once
         # (the indentation probe rolls back so the code-mode rescan does not
         # double-count it).
-        warnings = lex_tab_warnings("let x = 1\n\t")
+        warnings = _tab_warnings("let x = 1\n\t")
         assert len(warnings) == 1
         assert warnings[0].line == 2
 
     def test_warnings_are_diagnostic_instances(self) -> None:
-        warnings = lex_tab_warnings("\tx = 1")
+        warnings = _tab_warnings("\tx = 1")
         assert all(isinstance(w, Diagnostic) for w in warnings)
         assert all(w.severity == "warning" for w in warnings)
 

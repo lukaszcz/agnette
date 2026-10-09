@@ -28,7 +28,7 @@ from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import CommandSpec, PackageManifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
-from tests._package_helpers import install_directory, write_installed_package
+from tests._package_helpers import exec_args, install_directory, write_installed_package
 
 if TYPE_CHECKING:
     from agnette.agl.runtime.types import ProgramDeclInfo
@@ -168,8 +168,8 @@ def test_registered_command_dispatches_trailing_arguments(
     monkeypatch.setattr(
         exec_program,
         "run_registered",
-        lambda program, argument_tokens, *, package, command_path, **_kwargs: calls.append(
-            (program, argument_tokens, package, command_path)
+        lambda program, *, package, command_path, args, **_kwargs: calls.append(
+            (program, args.argument_tokens, package, command_path)
         ),
     )
 
@@ -203,7 +203,7 @@ def test_a_stored_manifest_field_this_build_does_not_know_still_dispatches(
     monkeypatch.setattr(
         exec_program,
         "run_registered",
-        lambda program, argument_tokens, **_kwargs: calls.append(program),
+        lambda program, **_kwargs: calls.append(program),
     )
 
     result = invoke(CliRunner(), ["tools", "run"])
@@ -233,7 +233,7 @@ def test_plain_registered_command_does_not_discover_during_outer_parsing(
     monkeypatch.setattr(
         exec_program,
         "run_registered",
-        lambda _program, argument_tokens, **_kwargs: calls.append(argument_tokens),
+        lambda _program, *, args, **_kwargs: calls.append(args.argument_tokens),
     )
 
     result = invoke(CliRunner(), ["tools", "lint", "input"])
@@ -262,7 +262,7 @@ def test_registered_command_passes_dry_run_spelling_to_program(
     monkeypatch.setattr(
         exec_program,
         "run_registered",
-        lambda _program, argument_tokens, **_kwargs: calls.append(argument_tokens),
+        lambda _program, *, args, **_kwargs: calls.append(args.argument_tokens),
     )
 
     value_result = invoke(CliRunner(), ["tools", "lint", "--level=--dry-run"])
@@ -298,8 +298,10 @@ def test_registered_command_preserves_a_host_looking_program_option_value(
     monkeypatch.setattr(exec_program, "current_config_context", lambda: context)
     calls: list[tuple[list[str], object]] = []
 
-    def run_registered(_program: str, argument_tokens: list[str], **kwargs: object) -> None:
-        calls.append((argument_tokens, kwargs["pipeline_cache"]))
+    def run_registered(
+        _program: str, *, args: ExecArgs, pipeline_cache: object, **_kwargs: object
+    ) -> None:
+        calls.append((args.argument_tokens, pipeline_cache))
 
     monkeypatch.setattr(exec_program, "run_registered", run_registered)
 
@@ -345,9 +347,7 @@ def _record_registered_exec_args(
     monkeypatch.setattr(exec_program, "registered_program_declaration", lambda *_a, **_k: program)
     calls: list[ExecArgs | None] = []
 
-    def run_registered(
-        _program: str, _tokens: list[str], *, args: ExecArgs | None = None, **_kwargs: object
-    ) -> None:
+    def run_registered(_program: str, *, args: ExecArgs, **_kwargs: object) -> None:
         calls.append(args)
 
     monkeypatch.setattr(exec_program, "run_registered", run_registered)
@@ -476,7 +476,6 @@ def test_registered_command_conflict_help_includes_module_parameters(
 def test_ambiguous_registered_value_reuses_static_pipeline_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from agnette.agl.matchcompile.stage import MatchCompiledProgram
     from agnette.agl.pipeline import PipelineDriver, PreparedProgram, ProgramDiscovery
 
     home = tmp_path / "home"
@@ -497,15 +496,10 @@ def test_ambiguous_registered_value_reuses_static_pipeline_artifacts(
     real_discover = PipelineDriver.discover_programs
     discoveries = 0
 
-    def counting_discover(
-        self: PipelineDriver,
-        prepared: PreparedProgram,
-        *,
-        compiled: MatchCompiledProgram | None = None,
-    ) -> ProgramDiscovery:
+    def counting_discover(self: PipelineDriver, prepared: PreparedProgram) -> ProgramDiscovery:
         nonlocal discoveries
         discoveries += 1
-        return real_discover(self, prepared, compiled=compiled)
+        return real_discover(self, prepared)
 
     monkeypatch.setattr(PipelineDriver, "discover_programs", counting_discover)
 
@@ -518,7 +512,6 @@ def test_ambiguous_registered_value_reuses_static_pipeline_artifacts(
 def test_registered_value_named_like_short_help_reuses_static_pipeline_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from agnette.agl.matchcompile.stage import MatchCompiledProgram
     from agnette.agl.pipeline import PipelineDriver, PreparedProgram, ProgramDiscovery
 
     home = tmp_path / "home"
@@ -539,15 +532,10 @@ def test_registered_value_named_like_short_help_reuses_static_pipeline_artifacts
     real_discover = PipelineDriver.discover_programs
     discoveries = 0
 
-    def counting_discover(
-        self: PipelineDriver,
-        prepared: PreparedProgram,
-        *,
-        compiled: MatchCompiledProgram | None = None,
-    ) -> ProgramDiscovery:
+    def counting_discover(self: PipelineDriver, prepared: PreparedProgram) -> ProgramDiscovery:
         nonlocal discoveries
         discoveries += 1
-        return real_discover(self, prepared, compiled=compiled)
+        return real_discover(self, prepared)
 
     monkeypatch.setattr(PipelineDriver, "discover_programs", counting_discover)
 
@@ -581,7 +569,11 @@ def test_registered_command_help_does_not_dispatch_program(
     )
     monkeypatch.setattr(exec_program, "registered_program_declaration", lambda *_a, **_k: program)
     calls: list[object] = []
-    monkeypatch.setattr(exec_program, "run_registered", lambda *args, **kwargs: calls.append(args))
+    monkeypatch.setattr(
+        exec_program,
+        "run_registered",
+        lambda *args, **kwargs: calls.append((args[0], kwargs["args"].argument_tokens)),
+    )
 
     result = invoke(CliRunner(), ["tools", "lint", "--help"])
     short_result = invoke(CliRunner(), ["tools", "lint", "-h"])
@@ -623,7 +615,11 @@ def test_registered_command_help_recognizes_program_value_argument_flags(
     )
     monkeypatch.setattr(exec_program, "registered_program_declaration", lambda *_a, **_k: program)
     calls: list[object] = []
-    monkeypatch.setattr(exec_program, "run_registered", lambda *args, **kwargs: calls.append(args))
+    monkeypatch.setattr(
+        exec_program,
+        "run_registered",
+        lambda *args, **kwargs: calls.append((args[0], kwargs["args"].argument_tokens)),
+    )
 
     bare_short = invoke(CliRunner(), ["tools", "lint", "-h"])
     value_short = invoke(CliRunner(), ["tools", "lint", "--tag", "-h"])
@@ -1210,7 +1206,11 @@ def test_exec_prefers_an_existing_file_path_containing_a_reference_separator(
     agl_file = tmp_path / "tools::review.agl"
     agl_file.write_text("program def main() -> unit = ()\n", encoding="utf-8")
     calls: list[ExecArgs] = []
-    monkeypatch.setattr(exec_program, "run", lambda args, **_: calls.append(args))
+    monkeypatch.setattr(
+        exec_program,
+        "run",
+        lambda args, **_: calls.append(args),
+    )
 
     args = ExecArgs(file=str(agl_file), strict_json=None, no_trace=False, trace_file=None)
     exec_command.run(args)
@@ -1778,7 +1778,7 @@ def test_exec_rejects_malformed_installed_references(reference: str) -> None:
     import agnette.agm.commands.exec_program as exec_program
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_program.run_registered(reference, [])
+        exec_program.run_registered(reference, args=exec_args())
 
     assert exc_info.value.code == 1
 
@@ -1787,7 +1787,7 @@ def test_exec_rejects_incomplete_registered_command_metadata() -> None:
     import agnette.agm.commands.exec_program as exec_program
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_program.run_registered("tools/review::main", [], package="tools")
+        exec_program.run_registered("tools/review::main", args=exec_args(), package="tools")
 
     assert exc_info.value.code == 1
 
@@ -1810,7 +1810,7 @@ def test_exec_rejects_invalid_active_package_selection(
     )
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_program.run_registered("tools/review::main", [])
+        exec_program.run_registered("tools/review::main", args=exec_args())
 
     assert exc_info.value.code == 1
 
@@ -1842,7 +1842,7 @@ def test_registered_dispatch_rejects_a_stale_cached_program(
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered(
-            "tools/review::other", [], package="tools", command_path="review"
+            "tools/review::other", args=exec_args(), package="tools", command_path="review"
         )
 
     assert exc_info.value.code == 1
@@ -1882,7 +1882,9 @@ def test_editable_registered_dispatch_uses_the_live_manifest(
         ),
     )
 
-    exec_program.run_registered("tools/main::main", [], package="tools", command_path="live")
+    exec_program.run_registered(
+        "tools/main::main", args=exec_args(), package="tools", command_path="live"
+    )
 
     assert calls == [
         (
@@ -1929,7 +1931,9 @@ def test_editable_registered_dispatch_rejects_invalid_live_manifest_command(
     monkeypatch.setattr(exec_program, "load_activation_index", lambda **_: index)
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_program.run_registered("tools/main::main", [], package="tools", command_path="live")
+        exec_program.run_registered(
+            "tools/main::main", args=exec_args(), package="tools", command_path="live"
+        )
 
     assert exc_info.value.code == 1
 
@@ -1966,7 +1970,7 @@ def test_registered_dispatch_rejects_a_program_owned_by_another_package(
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered(
-            "tools/review::main", [], package="tools", command_path="review"
+            "tools/review::main", args=exec_args(), package="tools", command_path="review"
         )
 
     assert exc_info.value.code == 1
@@ -2011,7 +2015,7 @@ def test_exec_rejects_missing_module_in_an_active_package(
     monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: (package,))
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_program.run_registered("tools/review::main", [])
+        exec_program.run_registered("tools/review::main", args=exec_args())
 
     assert exc_info.value.code == 1
 
@@ -2048,8 +2052,18 @@ def test_registered_declaration_ignores_a_program_owned_by_another_package(tmp_p
     )
     context = ConfigContext(home=tmp_path, proj_dir=None, cwd=tmp_path)
 
-    assert registered_program_declaration("tools/main::main", "tools", context=context) is not None
-    assert registered_program_declaration("tools/main::main", "other", context=context) is None
+    assert (
+        registered_program_declaration(
+            "tools/main::main", "tools", context=context, artifact_sink=[]
+        )
+        is not None
+    )
+    assert (
+        registered_program_declaration(
+            "tools/main::main", "other", context=context, artifact_sink=[]
+        )
+        is None
+    )
 
 
 def test_registered_declaration_degrades_when_the_active_packages_are_unreadable(
@@ -2065,7 +2079,12 @@ def test_registered_declaration_degrades_when_the_active_packages_are_unreadable
     config.chmod(0)
     context = ConfigContext(home=tmp_path, proj_dir=None, cwd=tmp_path / "work")
 
-    assert registered_program_declaration("tools/main::main", "tools", context=context) is None
+    assert (
+        registered_program_declaration(
+            "tools/main::main", "tools", context=context, artifact_sink=[]
+        )
+        is None
+    )
 
 
 def test_registered_declaration_selects_the_active_packages_once(
@@ -2084,11 +2103,16 @@ def test_registered_declaration_selects_the_active_packages_once(
         nonlocal selections
         selections += 1
         del rest
-        return select(home=home, proj_dir=proj_dir, cwd=cwd, fallback_to_manifest_commands=True)
+        return select(home=home, proj_dir=proj_dir, cwd=cwd)
 
     monkeypatch.setattr(exec_target, "select_active_packages", counted)
 
-    assert registered_program_declaration("tools/main::main", "tools", context=context) is not None
+    assert (
+        registered_program_declaration(
+            "tools/main::main", "tools", context=context, artifact_sink=[]
+        )
+        is not None
+    )
     assert selections == 1
 
 
@@ -2097,9 +2121,24 @@ def test_registered_program_declaration_finds_the_referenced_program(tmp_path: P
 
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
 
-    assert registered_program_declaration("not-a-reference", "tools", context=context) is None
-    assert registered_program_declaration("tools/bad-name::main", "tools", context=context) is None
-    assert registered_program_declaration("other/lint::main", "tools", context=context) is None
+    assert (
+        registered_program_declaration(
+            "not-a-reference", "tools", context=context, artifact_sink=[]
+        )
+        is None
+    )
+    assert (
+        registered_program_declaration(
+            "tools/bad-name::main", "tools", context=context, artifact_sink=[]
+        )
+        is None
+    )
+    assert (
+        registered_program_declaration(
+            "other/lint::main", "tools", context=context, artifact_sink=[]
+        )
+        is None
+    )
 
 
 def test_registered_program_declaration_degrades_when_artifact_discovery_fails(
@@ -2112,7 +2151,9 @@ def test_registered_program_declaration_degrades_when_artifact_discovery_fails(
     monkeypatch.setattr(exec_program, "discover_program_artifacts_for_target", lambda **_: None)
 
     assert (
-        exec_program.registered_program_declaration("tools/main::main", "tools", context=context)
+        exec_program.registered_program_declaration(
+            "tools/main::main", "tools", context=context, artifact_sink=[]
+        )
         is None
     )
 
@@ -2135,12 +2176,19 @@ def test_registered_program_declaration_finds_its_own_value_parameters(tmp_path:
     )
     context = ConfigContext(home=tmp_path, proj_dir=None, cwd=tmp_path)
 
-    declaration = registered_program_declaration("tools/main::main", "tools", context=context)
+    declaration = registered_program_declaration(
+        "tools/main::main", "tools", context=context, artifact_sink=[]
+    )
 
     assert declaration is not None
     assert declaration.declaration_path == "main"
     assert [param.name for param in declaration.parameters] == ["level"]
-    assert registered_program_declaration("tools/main::main", "other", context=context) is None
+    assert (
+        registered_program_declaration(
+            "tools/main::main", "other", context=context, artifact_sink=[]
+        )
+        is None
+    )
 
 
 def test_registered_program_declaration_prefers_the_entry_module_over_an_import(
@@ -2170,7 +2218,9 @@ def test_registered_program_declaration_prefers_the_entry_module_over_an_import(
     )
     context = ConfigContext(home=home, proj_dir=None, cwd=tmp_path)
 
-    declaration = registered_program_declaration("tools/main::main", "tools", context=context)
+    declaration = registered_program_declaration(
+        "tools/main::main", "tools", context=context, artifact_sink=[]
+    )
 
     assert declaration is not None
     assert [param.name for param in declaration.parameters] == ["level"]
@@ -2189,7 +2239,12 @@ def test_registered_program_declaration_degrades_when_selection_fails(
         lambda **_: (_ for _ in ()).throw(PackageActivationError("unavailable")),
     )
 
-    assert registered_program_declaration("tools/lint::main", "tools", context=context) is None
+    assert (
+        registered_program_declaration(
+            "tools/lint::main", "tools", context=context, artifact_sink=[]
+        )
+        is None
+    )
 
 
 def test_registered_command_binds_module_parameters_from_its_command_table(
@@ -2235,11 +2290,16 @@ def test_registered_command_binds_module_parameters_from_its_command_table(
         encoding="utf-8",
     )
 
-    exec_program.run_registered("tools/main::main", [], package="tools", command_path="dev review")
+    exec_program.run_registered(
+        "tools/main::main", args=exec_args(), package="tools", command_path="dev review"
+    )
     assert capsys.readouterr().out == "false\n"
 
     exec_program.run_registered(
-        "tools/main::main", ["--verbose"], package="tools", command_path="dev review"
+        "tools/main::main",
+        args=exec_args(["--verbose"]),
+        package="tools",
+        command_path="dev review",
     )
     assert capsys.readouterr().out == "true\n"
 

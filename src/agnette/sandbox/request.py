@@ -9,10 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Placeholder standing in for a resolved settings path in a dry-run argv, both
-# when a real path is redacted after resolution and when resolution is
-# skipped entirely (`prepare(..., resolve_settings=False)`). A plain string,
-# never a `Path`, so it can never be mistaken for a real settings file.
+# Placeholder standing in for the settings path in a dry-run argv, where
+# resolution is skipped (`prepare(..., resolve_settings=False)`). A plain
+# string, never a `Path`, so it can never be mistaken for a real settings file.
 DRY_RUN_SETTINGS_PLACEHOLDER = "<dry-run-settings>"
 
 
@@ -120,7 +119,6 @@ class PreparedSandboxCommand:
     env: dict[str, str]
     cwd: Path
     interrupt_cleanup_cmd: list[str] | None
-    settings_path: Path | None
     _temp_files: list[Path] = field(default_factory=list)
     _tracked_artifacts: list[Path] = field(default_factory=list)
     _closed: bool = field(default=False, init=False, repr=False)

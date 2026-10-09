@@ -55,9 +55,12 @@ class AgentCallInfo:
         }
 
 
-def stderr_tail(stderr: str, *, max_chars: int = 500) -> str:
+_STDERR_TAIL_CHARS = 500
+
+
+def stderr_tail(stderr: str) -> str:
     """Return the bounded stderr diagnostic retained for an agent failure."""
-    return stderr[-max_chars:] if len(stderr) > max_chars else stderr
+    return stderr[-_STDERR_TAIL_CHARS:]
 
 
 class AgentTransportError(Exception):

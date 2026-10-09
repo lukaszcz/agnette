@@ -56,7 +56,7 @@ def close_workspace(
     proj_dir = require_current_project_dir(current)
     repo_dir = project_repo_dir(proj_dir)
     repo_branch = git_helpers.current_branch(repo_dir)
-    if is_main_workspace_branch(proj_dir, branch, repo_branch=repo_branch):
+    if is_main_workspace_branch(branch, repo_branch=repo_branch):
         print(
             (
                 f"error: '{branch}' resolves to the main workspace at "

@@ -145,7 +145,7 @@ class TestProgramSignatureFuse:
         # The executable's decoder tuple and the declaration's info tuple
         # arrive in different orders (as they would if built independently) —
         # `fuse` must still pair each decoder with its own parameter's span
-        # and type rather than the parameter at the same position.
+        # rather than the parameter at the same position.
         signature = ProgramSignature.fuse(
             params=(count_param, name_param),
             infos=(name_info, count_info),
@@ -153,9 +153,7 @@ class TestProgramSignatureFuse:
         )
         by_name = {p.name: p for p in signature.parameters}
         assert by_name["name"].span == name_info.span
-        assert by_name["name"].type == TextType()
         assert by_name["count"].span == count_info.span
-        assert by_name["count"].type == IntType()
 
         values, diagnostics = bind_program_arguments(
             signature,
@@ -562,14 +560,12 @@ def test_program_parameter_dataclass_carries_all_fields() -> None:
     param = ProgramParameter(
         name="count",
         kind=ParamZone.STANDARD,
-        type=IntType(),
         has_default=False,
         span=span,
         decoder=decoder,
     )
     assert param.name == "count"
     assert param.kind == ParamZone.STANDARD
-    assert param.type == IntType()
     assert param.has_default is False
     assert param.span == span
     assert param.decoder is decoder

@@ -46,13 +46,13 @@ from typing import Any, NamedTuple, Protocol
 
 import pytest
 
-from agnette.agent.session import (
+from agnette.agent.session.protocol import (
     SessionAgentError,
     SessionHostError,
     SessionOperation,
     SessionOperations,
-    SessionService,
 )
+from agnette.agent.session.service import SessionService
 from agnette.agent.spec import PermissionMode
 from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.modules.ids import STD_CONFIG_ID
@@ -443,7 +443,6 @@ class _ScriptedSessionService:
         agent: object,
         transport: str,
         *,
-        name: str = "",
         permission_mode: PermissionMode = PermissionMode.NONE,
         sandbox: SandboxLimits | None = None,
         env: dict[str, str] | None = None,
@@ -451,7 +450,6 @@ class _ScriptedSessionService:
         handle = self._service.default(
             agent,
             transport,
-            name=name,
             permission_mode=permission_mode,
             sandbox=sandbox,
             env=env,
@@ -655,7 +653,6 @@ class _ScenarioSessionHost:
         agent: Any,
         transport: str,
         *,
-        name: str = "",
         permission_mode: PermissionMode = PermissionMode.NONE,
         sandbox: SandboxLimits | None = None,
         env: dict[str, str] | None = None,
@@ -667,7 +664,6 @@ class _ScenarioSessionHost:
             handle = service.default(
                 agent,
                 transport.lower(),
-                name=name,
                 permission_mode=permission_mode,
                 sandbox=sandbox,
                 env=env,
@@ -687,7 +683,7 @@ class _ScenarioSessionHost:
         return handle
 
     def ask(self, handle: str, prompt: str) -> str:
-        from agnette.agent.session import SessionAskRequest
+        from agnette.agent.session.protocol import SessionAskRequest
         from agnette.agl.runtime.sessions import SessionAskError as AglSessionAskError
 
         try:
@@ -867,7 +863,7 @@ class _ScriptedSessionBackend:
         ) in self._native_capabilities and self._agent._supports_operation(operation)
 
     def ask(self, request: Any) -> Any:
-        from agnette.agent.session import SessionAskError, SessionAskResponse
+        from agnette.agent.session.protocol import SessionAskError, SessionAskResponse
         from agnette.agent.transport import AgentCallInfo
 
         self._session.prompts.append(request.prompt)
@@ -912,7 +908,7 @@ class _ScriptedSessionBackend:
         self._apply_operation("set-name", name)
 
     def stats(self) -> Any:
-        from agnette.agent.session import SessionStats
+        from agnette.agent.session.protocol import SessionStats
 
         outcome = self._apply_operation("stats", None)
         if not isinstance(outcome, dict):
@@ -932,7 +928,7 @@ class _ScriptedSessionBackend:
         outcome_name = _outcome_name(outcome)
         self._session.operations.append((operation, arg, outcome_name))
         if outcome_name == "unsupported":
-            from agnette.agent.session import SessionHostError
+            from agnette.agent.session.protocol import SessionHostError
 
             raise SessionHostError(f"scripted session does not support {operation}", operation)
         return outcome
@@ -1695,7 +1691,7 @@ def _assert_sessions(agents: dict[str, ScriptedAgent], expect: dict[str, Any]) -
 
 
 def test_scripted_sessions_observe_identity_operations_and_lifecycle() -> None:
-    from agnette.agent.session import SessionAskRequest, SessionHostError
+    from agnette.agent.session.protocol import SessionAskRequest, SessionHostError
 
     agent = _agent_from_spec(
         "writer",
@@ -1798,7 +1794,7 @@ def test_scripted_sessions_observe_identity_operations_and_lifecycle() -> None:
 
 
 def test_scripted_sessions_record_capability_rejections_without_outcomes() -> None:
-    from agnette.agent.session import SessionHostError
+    from agnette.agent.session.protocol import SessionHostError
 
     agent = _agent_from_spec(
         "writer",
@@ -1910,7 +1906,7 @@ def test_scenario_host_reports_unknown_handles_by_attempted_operation() -> None:
 
 
 def test_scripted_sessions_reject_extra_capability_rejection_operation() -> None:
-    from agnette.agent.session import SessionHostError
+    from agnette.agent.session.protocol import SessionHostError
 
     agent = _agent_from_spec(
         "writer",
@@ -1952,7 +1948,7 @@ def test_scripted_sessions_reject_unsupported_reset_outcomes() -> None:
 
 
 def test_scripted_sessions_detect_an_extra_retry_prompt() -> None:
-    from agnette.agent.session import SessionAskRequest
+    from agnette.agent.session.protocol import SessionAskRequest
 
     agent = _agent_from_spec("writer", {"responses": ["answer"], "repeat_last": True})
     service = agent.session_service()
@@ -1972,7 +1968,7 @@ def test_scripted_sessions_detect_an_extra_retry_prompt() -> None:
 
 
 def test_scripted_session_ask_closes_an_ephemeral_session() -> None:
-    from agnette.agent.session import SessionAskRequest
+    from agnette.agent.session.protocol import SessionAskRequest
 
     agent = _agent_from_spec("writer", ["answer"])
     service = agent.session_service()

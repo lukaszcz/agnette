@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agent.session import AglSessionHost, SessionService
 from agnette.agent.session.cli_adapters import open_cli_session
+from agnette.agent.session.service import AglSessionHost, SessionService
 from agnette.agl import PipelineDriver
 from agnette.agl.pipeline import RunResult
 from agnette.core.process import CapturedOutput, ProcessCaptureResult

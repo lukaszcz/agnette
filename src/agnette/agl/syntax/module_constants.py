@@ -101,7 +101,7 @@ from agnette.agl.syntax.types import (
 )
 from agnette.agl.value_syntax.lexical import scalar_text
 
-__all__ = ["FoldFailure", "ModuleConstants", "Scalar", "constant_key", "fold_scalar"]
+__all__ = ["FoldFailure", "ModuleConstants", "constant_key"]
 
 #: What a hole may fold to: the value kinds AgL spells as plain text.
 Scalar = str | int | decimal.Decimal | bool

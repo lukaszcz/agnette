@@ -45,7 +45,7 @@ def make_builtin_exception(
 ) -> ExceptionValue:
     """Create an ``ExceptionValue`` for a built-in exception type.
 
-    The exception's identity comes from ``nominals.resolve(type_name).nominal``
+    The exception's identity comes from ``nominals.resolve(type_name)``
     — the caller's built-in nominal table — so the value carries the identity
     that table resolves for *type_name* rather than a hardcoded one; its
     display spelling is looked up from the program's descriptor table when
@@ -54,8 +54,7 @@ def make_builtin_exception(
     """
     all_fields: dict[str, Value] = {"message": TextValue(message)}
     all_fields.update(fields or {})
-    declared = nominals.resolve(type_name)
-    return ExceptionValue(nominal=declared.nominal, fields=all_fields)
+    return ExceptionValue(nominal=nominals.resolve(type_name), fields=all_fields)
 
 
 class AglRaise(Exception):

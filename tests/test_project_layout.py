@@ -477,31 +477,31 @@ def test_project_notes_dir_embedded(tmp_path: Path) -> None:
 def test_is_main_workspace_branch_true_for_repo_literal(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
-    assert is_main_workspace_branch(project, "repo", repo_branch="main") is True
+    assert is_main_workspace_branch("repo", repo_branch="main") is True
 
 
 def test_is_main_workspace_branch_true_when_branch_equals_repo_branch(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
-    assert is_main_workspace_branch(project, "main", repo_branch="main") is True
+    assert is_main_workspace_branch("main", repo_branch="main") is True
 
 
 def test_is_main_workspace_branch_true_for_custom_repo_branch(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
-    assert is_main_workspace_branch(project, "master", repo_branch="master") is True
+    assert is_main_workspace_branch("master", repo_branch="master") is True
 
 
 def test_is_main_workspace_branch_false_for_different_branch(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
-    assert is_main_workspace_branch(project, "feat/x", repo_branch="main") is False
+    assert is_main_workspace_branch("feat/x", repo_branch="main") is False
 
 
 def test_is_main_workspace_branch_false_for_develop_branch(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
-    assert is_main_workspace_branch(project, "develop", repo_branch="main") is False
+    assert is_main_workspace_branch("develop", repo_branch="main") is False
 
 
 # ---------------------------------------------------------------------------

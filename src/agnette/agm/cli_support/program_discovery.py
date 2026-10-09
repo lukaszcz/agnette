@@ -32,9 +32,7 @@ _ProgramT = TypeVar("_ProgramT")
 __all__ = [
     "ExecProgramDiscovery",
     "ProgramDiscoveryArtifacts",
-    "ProgramSelection",
     "select_declared_program",
-    "discover_programs_for_target",
     "program_candidates",
     "registered_command_for",
     "registered_program_command",
@@ -55,43 +53,6 @@ class ProgramDiscoveryArtifacts:
     prepared: "PreparedProgram"
     discovery: "ProgramDiscovery"
     referenced_program: str | None = None
-
-
-def discover_programs_for_target(
-    *,
-    file: str | None,
-    code: str | None,
-    module_paths: "list[str] | None",
-    no_stdlib: bool,
-) -> "tuple[tuple[ProgramDeclInfo, ...], str | None]":
-    """Resolve an ``agm exec`` source selector and discover its ``program def`` declarations.
-
-    The single advisory discovery path behind both ``agm exec``'s help
-    rendering and its shell completion: it
-    resolves the same target the execution path would
-    (``exec_target.resolve_exec_target``), assembles the same module roots
-    (``exec_roots.effective_exec_roots``), and runs
-    ``PipelineDriver.discover_programs`` for it. A single implementation is
-    what keeps help and completion from disagreeing about which programs a
-    given selector offers.
-
-    Returns the discovered programs and, for an installed
-    ``PACKAGE/MODULE::PROGRAM`` reference, the declaration path that reference
-    already names — the implicit ``-p``/``--program`` selection a caller
-    applies when none was given explicitly. These are advisory surfaces, so
-    an unreadable entry, an unresolvable target or module-root configuration,
-    or a source that no longer parses degrades to ``((), None)`` rather than
-    failing the command.
-    """
-    artifacts = discover_program_artifacts_for_target(
-        file=file,
-        code=code,
-        module_paths=module_paths,
-        no_stdlib=no_stdlib,
-    )
-    if artifacts is None:
-        return (), None
-    return artifacts.discovery.programs, artifacts.referenced_program
 
 
 def discover_program_artifacts_for_target(
@@ -232,7 +193,10 @@ class ExecProgramDiscovery:
         return self._artifacts.get(file)
 
     def programs(self, file: str | None) -> "tuple[tuple[ProgramDeclInfo, ...], str | None]":
-        """Return :func:`discover_programs_for_target`'s answer for *file*, once."""
+        """Return *file*'s discovered programs and the program an installed reference names.
+
+        Advisory: an unreadable or unresolvable target degrades to ``((), None)``.
+        """
         artifacts = self.artifacts(file)
         if artifacts is None:
             return (), None
@@ -306,7 +270,7 @@ def registered_program_command(
 
     artifacts: list[ProgramDiscoveryArtifacts] = []
     declaration = registered_program_declaration(
-        program, package_name, context=context, artifact_sink=artifacts
+        program, package_name, artifact_sink=artifacts, context=context
     )
     return declaration, registered_command_for(declaration, artifacts[0] if artifacts else None)
 

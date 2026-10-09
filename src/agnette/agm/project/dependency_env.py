@@ -24,11 +24,10 @@ def current_config_branch(
     project_dir: Path,
     *,
     cwd: Path | None = None,
-    env: dict[str, str] | None = None,
 ) -> str | None:
     """Return the current workspace config name, or ``None`` for the main workspace."""
 
-    result = current_workspace(project_dir, cwd=cwd, env=env)
+    result = current_workspace(project_dir, cwd=cwd)
     return result.branch if result is not None else None
 
 
@@ -120,7 +119,7 @@ def update_dependency_toml_config(
     config_file = config_toml_file(project_dir, config_branch)
     content = read_text(config_file, encoding="utf-8") if exists(config_file) else ""
     updated = _set_toml_deps_value(content, dep_name, dep_branch)
-    mkdir(config_file.parent, parents=True, exist_ok=True)
+    mkdir(config_file.parent)
     write_text(config_file, updated, encoding="utf-8")
 
 
@@ -194,7 +193,7 @@ def _ensure_config_toml_file(project_dir: Path, branch: str | None) -> None:
     config_file = config_toml_file(project_dir, branch)
     if exists(config_file):
         return
-    mkdir(config_file.parent, parents=True, exist_ok=True)
+    mkdir(config_file.parent)
     write_text(config_file, "", encoding="utf-8")
 
 
@@ -273,7 +272,7 @@ def _seed_from_parent_config(
     if is_dir(new_config) and any(iterdir(new_config)):
         return
 
-    mkdir(new_config, parents=True, exist_ok=True)
+    mkdir(new_config)
     for item in iterdir(parent_config):
         if is_file(item):
             write_text(new_config / item.name, read_text(item), encoding="utf-8")
@@ -326,5 +325,5 @@ def ensure_project_name_in_config(
     config_file = config_toml_file(project_dir, None)
     content = read_text(config_file, encoding="utf-8") if exists(config_file) else ""
     updated = _set_toml_project_name(content, name)
-    mkdir(config_file.parent, parents=True, exist_ok=True)
+    mkdir(config_file.parent)
     write_text(config_file, updated, encoding="utf-8")

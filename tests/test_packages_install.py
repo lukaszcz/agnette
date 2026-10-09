@@ -35,6 +35,7 @@ from agnette.packages.activation import (
     write_activation_index,
 )
 from agnette.packages.archive import extract_archive, write_archive
+from agnette.packages.errors import FetchError
 from agnette.packages.install import (
     PackageInstallError,
     install_archive_with_plan,
@@ -3405,9 +3406,7 @@ def test_fetch_failure_and_dry_run_use_clean_dependency_errors(
     monkeypatch.setattr(
         package_fetch,
         "fetch_archive",
-        lambda **_: (_ for _ in ()).throw(
-            package_install.FetchError("fetch failed for bravo >= 1.0.0: offline")
-        ),
+        lambda **_: (_ for _ in ()).throw(FetchError("fetch failed for bravo >= 1.0.0: offline")),
     )
     with pytest.raises(PackageInstallError, match=r"fetch failed.*bravo >= 1\.0\.0"):
         install_directory(source, home=tmp_path / "home", env={})

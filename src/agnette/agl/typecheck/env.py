@@ -33,9 +33,6 @@ from agnette.agl.diagnostics import CycleAlias, Diagnostic, alias_cycle_error
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.scope.imports import (
-    ImportEnv,
-)
 from agnette.agl.scope.symbols import (
     BindingRef,
     ConstructorRef,
@@ -305,7 +302,6 @@ class ProgramAliasResolution:
 class ConstructorSignature(_Record):
     """Signature for one record or exception constructor.
 
-    ``owner_name``      — the spelling the constructor was written with.
     ``field_names``     — ordered field names accepted by the constructor.
     ``field_templates`` — field types (may contain ``TypeVarType`` nodes for
                           generic types).
@@ -313,7 +309,6 @@ class ConstructorSignature(_Record):
     ``type_params``     — type-parameter names for instantiation.
     """
 
-    owner_name: str
     field_names: tuple[str, ...]
     field_templates: tuple[Type, ...]
     result_template: RecordType | ExceptionType
@@ -556,7 +551,6 @@ class CheckedModule(_Record):
     published_signatures: dict[int, FunctionSignatureRecord] | None = None
     published_binding_types: dict[int, Type] | None = None
     module_id: ModuleId = ENTRY_ID
-    import_env: ImportEnv = field(default_factory=lambda: ImportEnv({}, {}))
     source_text: str = ""
     slot_resolution: dict[int, BindingRef] = field(default_factory=dict)
     slot_constructor_refs: dict[int, ConstructorRef] = field(default_factory=dict)
@@ -610,8 +604,8 @@ class CheckedModule(_Record):
 
         Every image field is this module's member of the same name: the
         checked side tables directly, ``interface`` and ``environment_facts``
-        through the type environment. The four members with no image field —
-        ``resolved``, ``type_env``, ``import_env``, ``source_text`` — are
+        through the type environment. The three members with no image field —
+        ``resolved``, ``type_env``, ``source_text`` — are
         recovered from the current ``ResolvedModule`` on rehydration. Only a
         journaled ``type_env`` (program path) has facts to persist.
         """
@@ -929,11 +923,11 @@ class EnvironmentFacts(_Record):
 class CheckedModuleImage(_Record):
     """Data-only image of a ``CheckedModule``, ready to persist and rehydrate.
 
-    Every ``CheckedModule`` field except ``resolved``, ``type_env``,
-    ``import_env``, and ``source_text`` — those are recovered from the
-    current ``ResolvedModule`` on rehydration — plus ``interface`` (this
-    module's closed type contribution) and ``environment_facts`` (its
-    environment's own-facts journal). Built by :meth:`CheckedModule.image`;
+    Every ``CheckedModule`` field except ``resolved``, ``type_env``, and
+    ``source_text`` — those are recovered from the current ``ResolvedModule``
+    on rehydration — plus ``interface`` (this module's closed type
+    contribution) and ``environment_facts`` (its environment's own-facts
+    journal). Built by :meth:`CheckedModule.image`;
     turned back into an equivalent ``CheckedModule`` by :meth:`rehydrate`.
     Both directions move a field by its name, so every field here names the
     ``CheckedModule`` member it mirrors.
@@ -983,7 +977,6 @@ class CheckedModuleImage(_Record):
         live: dict[str, object] = {
             "resolved": resolved_module.resolved,
             "type_env": env,
-            "import_env": resolved_module.import_env,
             "source_text": resolved_module.source_text,
         }
         state: list[object] = []

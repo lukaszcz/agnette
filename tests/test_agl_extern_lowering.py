@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from agnette.agl.capabilities import HostCapabilities
-from agnette.agl.ir import ExternFunctionBody, IrBind, IrMakeClosure
+from agnette.agl.ir.nodes import IrBind, IrMakeClosure
+from agnette.agl.ir.program import ExternFunctionBody
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import ArgumentPreflight, PipelineDriver
 from agnette.agl.runtime.arguments import ProgramArguments
@@ -43,9 +44,11 @@ def _compile(source: str, companion: str, tmp_path: Path) -> ArgumentPreflight:
 def _extern_body(result: ArgumentPreflight) -> ExternFunctionBody:
     """Return the single extern implementation *result* lowered."""
     assert result.executable is not None
-    descriptor = next(desc for desc in result.executable.functions.values() if desc.is_extern)
-    assert isinstance(descriptor.impl, ExternFunctionBody)
-    return descriptor.impl
+    return next(
+        desc.impl
+        for desc in result.executable.functions.values()
+        if isinstance(desc.impl, ExternFunctionBody)
+    )
 
 
 def test_extern_descriptor_has_no_boundary_contract(tmp_path: Path) -> None:

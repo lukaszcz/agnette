@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 
 def _render_value_or_cyclic_message(
-    value: "Value", descriptors: "ValueDescriptors", *, pretty: bool, quote_strings: bool
+    value: "Value", descriptors: "ValueDescriptors", *, quote_strings: bool
 ) -> str:
     """Render *value*, or the ``AgL exception: CyclicValueError: ...`` line.
 
@@ -52,7 +52,7 @@ def _render_value_or_cyclic_message(
     from agnette.agl.semantics.cycles import CYCLE_MESSAGE, AglCyclicValue
 
     try:
-        return render_value(value, descriptors, pretty=pretty, quote_strings=quote_strings)
+        return render_value(value, descriptors, pretty=True, quote_strings=quote_strings)
     except AglCyclicValue:
         return RunError(
             type_name="CyclicValueError",
@@ -72,7 +72,7 @@ def format_typed_value(
     :func:`_render_value_or_cyclic_message`).
     """
     prefix = f"{name} :" if name is not None else ":"
-    rendered = _render_value_or_cyclic_message(value, descriptors, pretty=True, quote_strings=True)
+    rendered = _render_value_or_cyclic_message(value, descriptors, quote_strings=True)
     return f"{prefix} {value_type!r} = {rendered}"
 
 
@@ -152,7 +152,6 @@ def _render_echo(result: "EntryResult") -> str | None:
         return _render_value_or_cyclic_message(
             cast("Value", result.value),
             cast("ValueDescriptors", result.descriptors),
-            pretty=True,
             quote_strings=result.quote_strings,
         )
     if result.kind == "binding":

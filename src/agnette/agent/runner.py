@@ -13,7 +13,6 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from agnette.agent.transport import AgentTransportFailureCause, stderr_tail
-from agnette.core import dry_run
 from agnette.core.process import CapturedOutput, ProcessCaptureResult, run_capture_result
 from agnette.sandbox.backend import SandboxSettingsError, SandboxUnavailableError
 from agnette.sandbox.prepare import SandboxRun
@@ -57,7 +56,7 @@ class SandboxPreparationFailure:
 
 @dataclass(slots=True)
 class PreparedPromptRun:
-    """Prepared agent argv and any temporary prompt files.
+    """Prepared agent argv, environment, and prompt delivery.
 
     Most agent calls attach a temporary prompt file. Native lifecycle calls
     instead need either a literal argv argument (Claude's ``/compact``) or no
@@ -66,12 +65,9 @@ class PreparedPromptRun:
     a file attachment.
     """
 
-    command: list[str]
-    effective_file: Path
     env: dict[str, str]
-    temp_files: list[Path]
+    argv: list[str]
     stdin_prompt: str | None = None
-    argv: list[str] | None = None
     delivery: PromptDelivery = PromptDelivery.FILE
     sandbox: PreparedSandboxCommand | SandboxPreparationFailure | None = None
 
@@ -278,9 +274,7 @@ def command_with_prompt_target(
 
 
 def cleanup_temp_files(temp_files: list[Path]) -> None:
-    """Remove temporary prompt files unless dry-run keeps them for inspection."""
-    if dry_run.enabled():
-        return
+    """Remove temporary prompt files."""
     for temp_file in temp_files:
         try:
             temp_file.unlink()
@@ -356,7 +350,6 @@ def prepare_rendered_prompt_run(
     as a ``SandboxPreparationFailure`` for ``run_prepared_prompt_result`` to
     represent as an ordinary spawn failure.
     """
-    command = runner.copy()
     child_env = env
     if delivery is PromptDelivery.FILE:
         with NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
@@ -364,26 +357,18 @@ def prepare_rendered_prompt_run(
             effective_file = Path(handle.name)
         temp_files.append(effective_file)
         argv = command_with_prompt_target(
-            command,
+            runner,
             effective_file,
             child_env,
             append_target=True,
             session_id=session_id,
         )
         argv, prepared_sandbox = _prepare_sandboxed_argv(argv, child_env, sandbox=sandbox, pty=pty)
-        return PreparedPromptRun(
-            command=command,
-            effective_file=effective_file,
-            env=env,
-            temp_files=temp_files,
-            argv=argv,
-            delivery=delivery,
-            sandbox=prepared_sandbox,
-        )
+        return PreparedPromptRun(env=env, argv=argv, delivery=delivery, sandbox=prepared_sandbox)
 
     effective_file = Path(os.devnull)
     argv = command_with_prompt_target(
-        command,
+        runner,
         effective_file,
         child_env,
         append_target=False,
@@ -393,10 +378,7 @@ def prepare_rendered_prompt_run(
         argv.append(rendered_prompt)
     argv, prepared_sandbox = _prepare_sandboxed_argv(argv, child_env, sandbox=sandbox, pty=pty)
     return PreparedPromptRun(
-        command=command,
-        effective_file=effective_file,
         env=env,
-        temp_files=temp_files,
         stdin_prompt=rendered_prompt if delivery is PromptDelivery.STDIN else None,
         argv=argv,
         delivery=delivery,
@@ -453,15 +435,7 @@ def run_prepared_prompt_result(
         )
     # ``prepared.env`` is the exact environment the child receives, even when
     # empty: an empty mapping means an empty environment, never a fallback to
-    # ``os.environ``. Interpolate argv holes against that same mapping so both
-    # agree on variable values.
-    child_env = prepared.env
-    argv = prepared.argv or command_with_prompt_target(
-        prepared.command,
-        prepared.effective_file,
-        child_env,
-        append_target=not prepared.prompt_via_stdin,
-    )
+    # ``os.environ``.
     if sandbox is not None:
         env_for_run: dict[str, str] | None = sandbox.env
         cwd_for_run: Path | None = sandbox.cwd
@@ -473,12 +447,11 @@ def run_prepared_prompt_result(
     try:
         run = _run_interactive_result if interactive else run_capture_result
         capture: ProcessCaptureResult = run(
-            argv,
+            prepared.argv,
             env=env_for_run,
             cwd=cwd_for_run,
             stdin_text=_prepared_stdin_text(prepared),
             idle_timeout=idle_timeout,
-            isolate_process_group=True,
             interrupt_cleanup_cmd=interrupt_cleanup_cmd,
             stdout_callback=stdout_callback,
             stderr_callback=stderr_callback,

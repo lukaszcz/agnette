@@ -35,8 +35,6 @@ from agnette.agl.modules.ids import ModuleId, spell_scope_path
 from agnette.agl.zones import ParamZone
 
 __all__ = [
-    "ContractId",
-    "ContractRequest",
     "ExecutableModule",
     "ExecutableProgram",
     "ExternFunctionBody",
@@ -245,12 +243,10 @@ class SourceFile:
 
     ``display_name``    — human-readable file name for error messages.
     ``normalized_text`` — the normalised UTF-8 source text (LF line endings).
-    ``file_name``      — source label used by trace records, or ``None`` when unknown.
     """
 
     display_name: str
     normalized_text: str
-    file_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,10 +296,6 @@ class FunctionDescriptor:
     param_labels: tuple[str, ...] = ()
     result_label: str = "?"
     is_synthetic_main: bool = False
-
-    @property
-    def is_extern(self) -> bool:
-        return isinstance(self.impl, ExternFunctionBody)
 
 
 # ---------------------------------------------------------------------------

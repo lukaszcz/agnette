@@ -42,7 +42,7 @@ from agnette.agl.semantics.values import (
 )
 from agnette.agl.syntax.nodes import Case, VarPattern
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck import CheckedModule
+from agnette.agl.typecheck.env import CheckedModule
 from tests.agl.match_reference import (
     canonical_cell_matches,
     enum_variant_members,
@@ -86,7 +86,7 @@ def _constructor_by_variant(matrix: PatternMatrix, column: int) -> dict[str, Nom
     constructors = head_constructors(matrix, column)
     assert all(isinstance(constructor, NominalConstructor) for constructor in constructors)
     return {
-        constructor.terminal_name: constructor
+        constructor.record_type.name: constructor
         for constructor in cast(tuple[NominalConstructor, ...], constructors)
     }
 

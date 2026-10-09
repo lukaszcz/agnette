@@ -9,10 +9,10 @@ import pytest
 from agnette.agl import PipelineDriver
 from agnette.agl.diagnostics import AglTypeError
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.parser import AglSyntaxError, parse_program
+from agnette.agl.parser import AglSyntaxError
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.pipeline import RunResult
-from agnette.agl.scope import AglScopeError
-from agnette.agl.scope.symbols import AmbiguousQualificationError
+from agnette.agl.scope.symbols import AglScopeError, AmbiguousQualificationError
 from agnette.agl.syntax import (
     BuiltinVarDecl,
     EnumDef,

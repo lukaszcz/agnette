@@ -17,7 +17,8 @@ from agnette.agl.scope.symbols import (
 )
 from agnette.agl.semantics.types import EnumType
 from agnette.agl.syntax.nodes import Case, ConstructorPattern, FuncDef, LetDecl
-from agnette.agl.typecheck import AglTypeError, CheckedProgram, check_program
+from agnette.agl.typecheck.env import AglTypeError
+from agnette.agl.typecheck.program import CheckedProgram, check_program
 from tests._agl_helpers import strip_decl_ids
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.module_graph import resolve_and_check_inline_entry

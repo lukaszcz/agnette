@@ -16,7 +16,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from agnette.agl.parser import parse_program
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.attributes import recognize_attributes
 from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.syntax.nodes import Item, LetDecl, ScopeRegion, VarDecl, exported_binding_name

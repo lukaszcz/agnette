@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from agnette.agl.parser import parse_type_expr
+from agnette.agl.parser import parse_type_expr_seeded
 from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.syntax.types import DictT, IntT, TextT, render_type_expr
+from agnette.agl.syntax.types import DictT, IntT, TextT, TypeExpr, render_type_expr
+
+
+def _type_expr(text: str, *, start_id: int = 0) -> TypeExpr:
+    """Parse *text* as a single type expression."""
+    return parse_type_expr_seeded(text, start_id=start_id)[0]
 
 
 @pytest.mark.parametrize(
@@ -43,7 +48,7 @@ from agnette.agl.syntax.types import DictT, IntT, TextT, render_type_expr
     ),
 )
 def test_render_type_expr_uses_a_canonical_source_spelling(source: str, expected: str) -> None:
-    assert render_type_expr(parse_type_expr(source)) == expected
+    assert render_type_expr(_type_expr(source)) == expected
 
 
 def _span() -> SourceSpan:

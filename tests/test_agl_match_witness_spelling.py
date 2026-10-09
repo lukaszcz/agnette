@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agnette.agl.matchcompile import NonExhaustiveIssue, compile_program_matches, render_witness
+from agnette.agl.matchcompile import compile_program_matches
+from agnette.agl.matchcompile.diagnostics import NonExhaustiveIssue, render_witness
 from agnette.agl.repl.session import ReplSession
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import AmbiguousConstructorError

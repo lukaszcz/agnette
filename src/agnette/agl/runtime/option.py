@@ -19,7 +19,7 @@ def _member(nominals: BuiltinNominals, name: str, *, declared: bool) -> NominalI
     contract field uses.
     """
     resolve = nominals.resolve_member if declared else nominals.resolve_standard_member
-    return resolve("Option", name).nominal
+    return resolve("Option", name)
 
 
 def some_value(value: Value, *, nominals: BuiltinNominals, declared: bool = False) -> RecordValue:

@@ -19,19 +19,9 @@ import decimal
 
 import pytest
 
-from agnette.agl.ir import (
-    NO_BUILTIN_DECLARATIONS,
-    ArithOp,
-    BuiltinNominals,
-    CmpOp,
-    CompareKind,
-    ContainsKind,
-    ContractId,
-    ExecutableModule,
-    ExecutableProgram,
-    FunctionId,
-    IndexKind,
-    IntToDecimal,
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS, BuiltinNominals
+from agnette.agl.ir.ids import ContractId, FunctionId, Location, NominalId, SourceId, SymbolId
+from agnette.agl.ir.nodes import (
     IrAssign,
     IrBind,
     IrBlock,
@@ -54,19 +44,28 @@ from agnette.agl.ir import (
     IrMakeJsonArray,
     IrMakeJsonObject,
     IrSequence,
-    Location,
-    NominalDescriptor,
-    NominalId,
-    NominalKind,
+)
+from agnette.agl.ir.operations import (
+    ArithOp,
+    CmpOp,
+    ContainsKind,
+    IndexKind,
+    IntToDecimal,
     NumericKind,
-    SourceFile,
-    SourceId,
-    SymbolDescriptor,
-    SymbolId,
     ToJson,
 )
-from agnette.agl.ir.builtin_nominals import DeclaredNominal
-from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
+from agnette.agl.ir.program import (
+    ExecutableModule,
+    ExecutableProgram,
+    NominalDescriptor,
+    NominalKind,
+    SourceFile,
+    SymbolDescriptor,
+)
+from agnette.agl.ir.reserved_nominals import (
+    require_reserved_enum_member_id,
+    require_reserved_nominal_id,
+)
 from agnette.agl.modules.ids import ModuleId
 
 # ---------------------------------------------------------------------------
@@ -179,19 +178,15 @@ class TestNominalId:
 class TestBuiltinNominals:
     def test_declared_name_answers_with_its_own_nominal(self) -> None:
         declared_nominal = NominalId(1)
-        table = BuiltinNominals(
-            declared={"Foo": DeclaredNominal(nominal=declared_nominal, display_name="Foo")}
-        )
-        assert table.nominal("Foo") == declared_nominal
-        assert table.resolve("Foo").display_name == "Foo"
+        table = BuiltinNominals(declared={"Foo": declared_nominal})
+        assert table.resolve("Foo") == declared_nominal
 
     def test_undeclared_name_answers_with_the_shipped_standard_library_identity(self) -> None:
         table = BuiltinNominals(declared={})
-        assert table.nominal("RangeError") == NominalId(require_reserved_nominal_id("RangeError"))
-        assert table.resolve("RangeError").display_name == "RangeError"
+        assert table.resolve("RangeError") == NominalId(require_reserved_nominal_id("RangeError"))
 
     def test_declared_enum_members_override_the_fallback_identity(self) -> None:
-        member = DeclaredNominal(nominal=NominalId(42), display_name="A::Option::Some")
+        member = NominalId(42)
         table = BuiltinNominals(declared={}, members={("Option", "Some"): member})
 
         assert table.resolve_member("Option", "Some") == member
@@ -199,11 +194,13 @@ class TestBuiltinNominals:
     def test_undeclared_enum_member_uses_the_fallback_identity(self) -> None:
         table = BuiltinNominals(declared={})
 
-        assert table.resolve_member("Option", "Some").display_name == "Option::Some"
+        assert table.resolve_member("Option", "Some") == NominalId(
+            require_reserved_enum_member_id("Option", "Some")
+        )
 
     def test_standard_enum_members_are_selected_independently(self) -> None:
-        selected = DeclaredNominal(nominal=NominalId(42), display_name="A::Option::Some")
-        standard = DeclaredNominal(nominal=NominalId(43), display_name="Option::Some")
+        selected = NominalId(42)
+        standard = NominalId(43)
         table = BuiltinNominals(
             declared={},
             members={("Option", "Some"): selected},
@@ -214,18 +211,14 @@ class TestBuiltinNominals:
 
     def test_reverse_finds_a_declared_name(self) -> None:
         nominal = NominalId(1)
-        table = BuiltinNominals(
-            declared={"Foo": DeclaredNominal(nominal=nominal, display_name="Foo")}
-        )
+        table = BuiltinNominals(declared={"Foo": nominal})
         assert table.reverse(nominal) == ("Foo", None)
 
     def test_reverse_finds_a_standard_member(self) -> None:
         nominal = NominalId(2)
         table = BuiltinNominals(
             declared={},
-            standard_members={
-                ("Option", "Some"): DeclaredNominal(nominal=nominal, display_name="X")
-            },
+            standard_members={("Option", "Some"): nominal},
         )
         assert table.reverse(nominal) == ("Option", "Some")
 
@@ -234,8 +227,8 @@ class TestBuiltinNominals:
         table = BuiltinNominals(
             declared={},
             standard_members={
-                ("Option", "Some"): DeclaredNominal(nominal=NominalId(4), display_name="other"),
-                ("Result", "Ok"): DeclaredNominal(nominal=wanted, display_name="wanted"),
+                ("Option", "Some"): NominalId(4),
+                ("Result", "Ok"): wanted,
             },
         )
         assert table.reverse(wanted) == ("Result", "Ok")
@@ -248,7 +241,7 @@ class TestBuiltinNominals:
         assert NO_BUILTIN_DECLARATIONS.reverse(NominalId(999999999)) is None
 
     def test_no_builtin_declarations_answers_every_name_with_the_shipped_identity(self) -> None:
-        assert NO_BUILTIN_DECLARATIONS.nominal("ExecResult") == NominalId(
+        assert NO_BUILTIN_DECLARATIONS.resolve("ExecResult") == NominalId(
             require_reserved_nominal_id("ExecResult")
         )
 
@@ -256,7 +249,7 @@ class TestBuiltinNominals:
         "name", ("SessionTransport", "Session", "SessionStats", "SessionError")
     )
     def test_session_nominal_resolves_to_its_reserved_identity(self, name: str) -> None:
-        assert NO_BUILTIN_DECLARATIONS.nominal(name) == NominalId(require_reserved_nominal_id(name))
+        assert NO_BUILTIN_DECLARATIONS.resolve(name) == NominalId(require_reserved_nominal_id(name))
 
     def test_frozen(self) -> None:
         table = BuiltinNominals(declared={})
@@ -334,17 +327,6 @@ class TestNumericKind:
 
     def test_exhaustive(self) -> None:
         assert {m.name for m in NumericKind} == {"INT", "DECIMAL"}
-
-
-class TestCompareKind:
-    def test_members(self) -> None:
-        assert CompareKind.INT
-        assert CompareKind.DECIMAL
-        assert CompareKind.TEXT
-        assert CompareKind.STRUCTURAL
-
-    def test_exhaustive(self) -> None:
-        assert {m.name for m in CompareKind} == {"INT", "DECIMAL", "TEXT", "STRUCTURAL"}
 
 
 class TestContainsKind:

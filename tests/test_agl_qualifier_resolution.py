@@ -8,7 +8,6 @@ from typing import Literal
 import pytest
 
 from agnette.agl.modules.ids import ModuleId
-from agnette.agl.scope import AglScopeError
 from agnette.agl.scope.imports import (
     ImportEnv,
     SingleTarget,
@@ -17,13 +16,14 @@ from agnette.agl.scope.imports import (
 )
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import (
+    AglScopeError,
     TypeArgumentsError,
     UnknownMemberError,
     UnknownQualifierError,
 )
 from agnette.agl.syntax.nodes import ImportDecl, ImportItem, QualifierChain, QualifierSegment
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.env import AglTypeError
 from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import base_caps, make_graph_from_files
 from tests.agl.module_graph import build_inline_entry_graph, resolve_inline_entry

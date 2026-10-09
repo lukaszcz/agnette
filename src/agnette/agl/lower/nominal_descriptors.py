@@ -23,12 +23,7 @@ from agnette.agl.semantics.arguments import positional_field_names
 from agnette.agl.semantics.type_table import TypeDef, TypeTable
 from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType
 
-__all__ = [
-    "enum_descriptor",
-    "exception_descriptor",
-    "nominal_descriptor",
-    "record_descriptor",
-]
+__all__ = ["nominal_descriptor"]
 
 
 def json_field_names(

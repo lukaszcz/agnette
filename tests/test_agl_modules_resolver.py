@@ -50,6 +50,7 @@ def _mounted_package_roots(tmp_path: Path, *, also_loose: bool = False) -> RootS
     _make_module(package.module_root, "sub/deep")
     return assemble_roots(
         invocation_root=invocation,
+        stdlib_root=tmp_path / "absent-stdlib",
         lib_root=None,
         configured=(),
         cli=(str(package_root),) if also_loose else (),

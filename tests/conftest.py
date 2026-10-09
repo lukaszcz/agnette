@@ -570,9 +570,7 @@ def fake_agent_transport(monkeypatch: pytest.MonkeyPatch) -> FakeAgentTransport:
 
     def prepare(prompt: str, *, runner: list[str], **_: object) -> PreparedPromptRun:
         transport.calls.append((prompt, runner))
-        return PreparedPromptRun(
-            command=runner, effective_file=Path("/dev/null"), env={}, temp_files=[]
-        )
+        return PreparedPromptRun(env={}, argv=runner)
 
     monkeypatch.setattr("agnette.agent.runner.prepare_rendered_prompt_run", prepare)
     monkeypatch.setattr(

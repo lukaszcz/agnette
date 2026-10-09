@@ -2,8 +2,6 @@
 
 Public API
 ----------
-- :class:`AglLexer` — Lark ``Lexer`` subclass; wire as
-  ``Lark(grammar, parser="lalr", lexer=AglLexer)``.
 - :class:`LexError` — span-aware lexical error raised by the scanner /
   layout filter.
 - :class:`IncompleteInputError` — a :class:`LexError` subtype raised only when
@@ -13,8 +11,8 @@ Public API
   the full token list (useful for tests and diagnostics).
 - :func:`lex_comment_spans` — offsets of the ``#`` comments the scan skipped
   (comments carry no token, so highlighters read them from here).
-- :class:`SpacedQualifier` / :func:`spaced_qualifier_collector` — lexical
-  advisories for qualifier runs broken by whitespace before ``::``.
+- :func:`spaced_qualifier_collector` — collects lexical advisories for
+  qualifier runs broken by whitespace before ``::``.
 - :func:`token_collector` — the lexer's single materialized token pass, for a
   diagnostic that must read tokens beyond the offending one without re-lexing.
 """
@@ -32,24 +30,19 @@ from agnette.agl.lexer.errors import (
 )
 from agnette.agl.lexer.layout import layout
 from agnette.agl.lexer.lexer import (
-    AglLexer,
     apply_module_passes,
     spaced_qualifier_collector,
     tab_warning_collector,
     token_collector,
     unclosed_scope_path,
 )
-from agnette.agl.lexer.scanner import lex_comment_spans, lex_tab_warnings, scan
-from agnette.agl.syntax.advisories import SpacedQualifier
+from agnette.agl.lexer.scanner import lex_comment_spans, scan
 
 __all__ = [
-    "AglLexer",
     "IncompleteInputError",
     "LexError",
-    "SpacedQualifier",
     "UnterminatedTripleQuotedStringError",
     "lex_comment_spans",
-    "lex_tab_warnings",
     "spaced_qualifier_collector",
     "tab_warning_collector",
     "token_collector",

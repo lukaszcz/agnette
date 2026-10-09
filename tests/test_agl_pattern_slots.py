@@ -15,16 +15,12 @@ import pytest
 
 from agnette.agl import PipelineDriver
 from agnette.agl.capabilities import HostCapabilities
-from agnette.agl.parser import parse_program
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope import ModuleResolution
 from agnette.agl.scope.symbols import AglScopeError, AmbiguousConstructorError, BinderKind
-from agnette.agl.syntax import (
-    Case,
-    ConstructorPattern,
-    pattern_binder_candidates,
-    pattern_binding_node_ids,
-)
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.syntax import Case, ConstructorPattern
+from agnette.agl.syntax.nodes import pattern_binder_candidates
+from agnette.agl.typecheck.env import AglTypeError
 from tests._agl_helpers import run_inline_code
 from tests.agl.module_graph import (
     check_resolved,
@@ -72,7 +68,6 @@ def test_pattern_binder_helpers_preserve_preorder_and_pattern_depth() -> None:
         ("value", True),
         ("whole", True),
     ]
-    assert pattern_binding_node_ids(pattern) == tuple(candidate.node_id for candidate in candidates)
     assert tuple(candidate.name for candidate in candidates) == ("value", "whole")
 
 

@@ -384,15 +384,16 @@ def registered_program_declaration(
     program: str,
     package_name: str,
     *,
+    artifact_sink: list[ProgramDiscoveryArtifacts],
     context: ConfigContext | None = None,
-    artifact_sink: list[ProgramDiscoveryArtifacts] | None = None,
 ) -> ProgramDeclInfo | None:
     """Discover the referenced program's own ``program def`` declaration.
 
     Returns ``None`` when the reference resolves to no program of
     *package_name* (including unreadable or invalid package state) or its
     source fails discovery, so help and completion describe the command
-    without its program's parameters.
+    without its program's parameters. The discovery's reusable artifacts are
+    appended to *artifact_sink*.
 
     A registered command names exactly one ``program def`` declaration — the
     one selected here by matching the installed reference's own declaration
@@ -416,8 +417,7 @@ def registered_program_declaration(
     )
     if artifacts is None:
         return None
-    if artifact_sink is not None:
-        artifact_sink.append(artifacts)
+    artifact_sink.append(artifacts)
     return select_entry_program(
         artifacts.discovery.programs, requested=target.declaration_path
     ).selected
@@ -692,12 +692,12 @@ def run(
             param_values=param_tiers.upper,
             param_values_lower=param_tiers.lower,
         )
-        if argument_preflight.argument_diagnostics:
-            raise RegisteredProgramUsageError(
-                "; ".join(diag.message for diag in argument_preflight.result.diagnostics),
-                selected_program,
-            )
         if isinstance(argument_preflight, ArgumentPreflightFailure):
+            if argument_preflight.argument_diagnostics:
+                raise RegisteredProgramUsageError(
+                    "; ".join(diag.message for diag in argument_preflight.result.diagnostics),
+                    selected_program,
+                )
             for diag in argument_preflight.result.diagnostics:
                 print(format_diagnostic(diag, source_name=diagnostic_source_name), file=sys.stderr)
             raise SystemExit(1)
@@ -847,9 +847,8 @@ def _resolve_installed_reference_or_exit(
 
 def run_registered(
     program: str,
-    argument_tokens: list[str],
     *,
-    args: ExecArgs | None = None,
+    args: ExecArgs,
     package: str | None = None,
     command_path: str | None = None,
     pipeline_cache: ProgramDiscoveryArtifacts | None = None,
@@ -898,29 +897,12 @@ def run_registered(
         )
         raise SystemExit(1)
 
-    execution_args = (
-        ExecArgs(
-            file=program,
-            argument_tokens=argument_tokens,
-            strict_json=None,
-            no_trace=False,
-            trace_file=None,
-        )
-        if args is None
-        else args
-    )
     run(
         replace(
-            execution_args,
+            args,
             file=str(target.entry_path.resolve()),
-            program=(
-                target.declaration_path
-                if execution_args.program is None
-                else execution_args.program
-            ),
-            pipeline_cache=(
-                pipeline_cache if pipeline_cache is not None else execution_args.pipeline_cache
-            ),
+            program=(target.declaration_path if args.program is None else args.program),
+            pipeline_cache=(pipeline_cache if pipeline_cache is not None else args.pipeline_cache),
         ),
         entry_module_segments=target.module_id.segments,
         reserved_flags=(EXEC_RESERVED_FLAGS if command_path is None else REGISTERED_RESERVED_FLAGS),

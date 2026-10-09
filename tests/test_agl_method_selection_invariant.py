@@ -20,7 +20,9 @@ from pathlib import Path
 
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.scope.symbols import AglScopeError
-from agnette.agl.typecheck import AglTypeError, CheckedProgram, TextType
+from agnette.agl.semantics.types import TextType
+from agnette.agl.typecheck.env import AglTypeError
+from agnette.agl.typecheck.program import CheckedProgram
 from tests._agl_helpers import check_agl_program, checked_program_selection_key, final_entry_call
 
 Selectable = CheckedProgram | AglTypeError | AglScopeError

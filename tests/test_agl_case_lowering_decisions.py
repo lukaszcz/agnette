@@ -8,8 +8,7 @@ from dataclasses import replace
 import pytest
 
 from agnette.agl.capabilities import HostCapabilities
-from agnette.agl.ir import (
-    ExecutableProgram,
+from agnette.agl.ir.nodes import (
     IrBind,
     IrCase,
     IrField,
@@ -18,6 +17,7 @@ from agnette.agl.ir import (
     IrLoad,
     IrSequence,
 )
+from agnette.agl.ir.program import ExecutableProgram
 from agnette.agl.matchcompile import DecisionDecompose
 from agnette.agl.matchcompile.model import (
     DecisionBranch,

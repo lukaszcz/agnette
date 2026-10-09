@@ -21,7 +21,6 @@ from agnette.agl.matchcompile.diagnostics import (
 from agnette.agl.matchcompile.matrix import (
     OccurrenceAllocator,
     PatternMatrix,
-    QbaScore,
     default_matrix,
     head_constructors,
     matrix_from_normalized,
@@ -54,7 +53,8 @@ from agnette.agl.semantics.types import BoolType, EnumType, IntType, RecordType,
 from agnette.agl.semantics.values import BoolValue, RecordValue
 from agnette.agl.syntax.nodes import Case
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck import CheckedModule, check_program
+from agnette.agl.typecheck.env import CheckedModule
+from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import strip_decl_ids
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.match_reference import matrix_action, reference_action
@@ -340,7 +340,7 @@ def test_qba_prefers_longest_leading_constructor_prefix() -> None:
     selection = select_qba_column(matrix)
 
     assert selection.index == 0
-    assert selection.score.leading_constructor_prefix == 2
+    assert matrix.column_profiles[selection.index].leading_constructor_prefix == 2
 
 
 def test_qba_prefers_fewer_runtime_semantic_branch_heads() -> None:
@@ -360,11 +360,9 @@ def test_qba_prefers_fewer_runtime_semantic_branch_heads() -> None:
     selection = select_qba_column(matrix)
 
     assert selection.index == 0
-    assert selection.score == QbaScore(
-        leading_constructor_prefix=3,
-        distinct_branch_heads=1,
-        introduced_arity=0,
-    )
+    profile = matrix.column_profiles[selection.index]
+    assert profile.leading_constructor_prefix == 3
+    assert len(profile.heads) == 1
     assert len(head_constructors(matrix, 0)) == 1
 
 
@@ -386,7 +384,7 @@ def test_qba_prefers_lower_total_introduced_arity() -> None:
     selection = select_qba_column(matrix)
 
     assert selection.index == 1
-    assert selection.score.introduced_arity == 0
+    assert sum(head.arity for head in matrix.column_profiles[selection.index].heads) == 0
 
 
 def _two_bool_columns(source: str) -> PatternMatrix:

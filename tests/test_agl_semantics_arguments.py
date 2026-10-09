@@ -15,10 +15,10 @@ from agnette.agl.semantics.arguments import (
     ArgumentBindingError,
     ArgumentBindingErrorKind,
     BindParam,
-    ParamZone,
     bind_arguments,
     positional_field_names,
 )
+from agnette.agl.zones import ParamZone
 
 POSITIONAL_ONLY = ParamZone.POSITIONAL_ONLY
 STANDARD = ParamZone.STANDARD

@@ -16,7 +16,7 @@ from agnette.agl.typecheck.env import TypeEnvironment
 
 
 def _open_session(root: Path | None = None) -> ReplSession:
-    session = ReplSession(cwd=root, extra_cli_roots=() if root is None else (str(root),))
+    session = ReplSession(cwd=root)
     assert session.open() == ()
     return session
 

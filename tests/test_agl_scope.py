@@ -18,12 +18,9 @@ import pytest
 
 from agnette.agl.diagnostics import AglTypeError
 from agnette.agl.modules.ids import ENTRY_ID
-from agnette.agl.scope import (
-    AglScopeError,
-    BuiltinKind,
-    ModuleResolution,
-)
+from agnette.agl.scope import BuiltinKind, ModuleResolution
 from agnette.agl.scope.symbols import (
+    AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
     BinderKind,
@@ -44,7 +41,6 @@ from agnette.agl.syntax.nodes import (
     CaseBranch,
     CatchClause,
     ConstructorPattern,
-    Do,
     EnumDef,
     Expr,
     FieldAccess,
@@ -55,6 +51,7 @@ from agnette.agl.syntax.nodes import (
     Item,
     Lambda,
     LetDecl,
+    Loop,
     NameTarget,
     Param,
     Program,
@@ -201,9 +198,9 @@ def _find_varref(program: object, name: str, occurrence: int = -1) -> VarRef:
             walk(node.subject)
             for cbranch in node.branches:
                 walk(cbranch.body)
-        elif isinstance(node, Do):
+        elif isinstance(node, Loop):
             walk(node.body)
-            walk(node.condition)
+            walk(node.until_cond)
         elif isinstance(node, Try):
             walk(node.body)
             for clause in node.handlers:
@@ -2639,10 +2636,10 @@ class TestDirectASTConstruction:
         assign_n = _make_assign("n", _make_varref("probe"))
         body = _make_block(let_probe, assign_n)
         cond_probe = _make_varref("probe")
-        do_node = Do(
-            limit=5,
+        do_node = Loop(
+            bound=_make_intlit(5),
             body=body,
-            condition=cond_probe,
+            until_cond=cond_probe,
             span=_sp(),
             node_id=_nid(),
         )
@@ -2653,10 +2650,10 @@ class TestDirectASTConstruction:
     def test_do_body_single_expr_resolved(self) -> None:
         var_n = _make_var("n", _make_intlit(0))
         body_n = _make_varref("n")
-        do_node = Do(
-            limit=5,
+        do_node = Loop(
+            bound=_make_intlit(5),
             body=body_n,
-            condition=_make_boollit(True),
+            until_cond=_make_boollit(True),
             span=_sp(),
             node_id=_nid(),
         )

@@ -3469,7 +3469,6 @@ class _Resolver(ModuleSources):
                 candidate.node_id,
                 scope,
                 match_site_slots,
-                match_site_node_id,
                 can_match_bare_pattern=any(
                     constructor.can_match_bare_pattern for constructor in constructor_candidates
                 ),
@@ -3485,7 +3484,6 @@ class _Resolver(ModuleSources):
         pattern_node_id: int,
         scope: ScopeNode,
         match_site_slots: dict[str, int],
-        match_site_node_id: int,
         *,
         can_match_bare_pattern: bool,
     ) -> None:
@@ -3514,7 +3512,6 @@ class _Resolver(ModuleSources):
                     if isinstance(outside, QualifiedTarget)
                     else None
                 ),
-                match_site_node_id=match_site_node_id,
                 alternative_constructor=(
                     outside.constructor if isinstance(outside, QualifiedTarget) else None
                 ),

@@ -151,9 +151,9 @@ class InferenceEngine:
         """Return whether any flexible variable was ever allocated in this region."""
         return self._next_variable > 0
 
-    def fresh(self, display_hint: str = "") -> InferenceVarType:
+    def fresh(self) -> InferenceVarType:
         """Allocate one flexible variable owned by this engine."""
-        variable = InferenceVarType(display_hint)
+        variable = InferenceVarType()
         self._register_variable(variable)
         return variable
 
@@ -161,7 +161,7 @@ class InferenceEngine:
         self, type_params: Sequence[str], templates: Sequence[Type]
     ) -> SchemeInstantiation:
         """Freshen ordered quantified templates without changing other rigids."""
-        variables = {name: self.fresh(name) for name in type_params}
+        variables = {name: self.fresh() for name in type_params}
         return SchemeInstantiation(
             templates=tuple(substitute(template, variables) for template in templates),
             variables=variables,

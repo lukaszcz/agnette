@@ -24,9 +24,7 @@ from agnette.sandbox.request import Default, SandboxLimits
 
 
 def _member(nominals: BuiltinNominals, enum_name: str, member_name: str) -> RecordValue:
-    return RecordValue(
-        nominal=nominals.resolve_standard_member(enum_name, member_name).nominal, fields={}
-    )
+    return RecordValue(nominal=nominals.resolve_standard_member(enum_name, member_name), fields={})
 
 
 def _optional_default(nominals: BuiltinNominals) -> RecordValue:
@@ -39,7 +37,7 @@ def _option_none(nominals: BuiltinNominals) -> RecordValue:
 
 def _option_some_text(nominals: BuiltinNominals, value: str) -> RecordValue:
     return RecordValue(
-        nominal=nominals.resolve_standard_member("Option", "Some").nominal,
+        nominal=nominals.resolve_standard_member("Option", "Some"),
         fields={"value": TextValue(value)},
     )
 
@@ -53,7 +51,7 @@ def _sandbox_record(
     patch: bool,
 ) -> RecordValue:
     return RecordValue(
-        nominal=nominals.resolve("Sandbox").nominal,
+        nominal=nominals.resolve("Sandbox"),
         fields={"memory": memory, "swap": swap, "settings": settings, "patch": BoolValue(patch)},
     )
 
@@ -141,11 +139,11 @@ class TestDecodeSandboxRecord:
         record = _sandbox_record(
             NO_BUILTIN_DECLARATIONS,
             memory=RecordValue(
-                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "Some").nominal,
+                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "Some"),
                 fields={"value": TextValue("8G")},
             ),
             swap=RecordValue(
-                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "Some").nominal,
+                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "Some"),
                 fields={"value": TextValue("1G")},
             ),
             settings=_option_none(NO_BUILTIN_DECLARATIONS),
@@ -161,11 +159,11 @@ class TestDecodeSandboxRecord:
         record = _sandbox_record(
             NO_BUILTIN_DECLARATIONS,
             memory=RecordValue(
-                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "None").nominal,
+                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "None"),
                 fields={},
             ),
             swap=RecordValue(
-                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "None").nominal,
+                nominal=NO_BUILTIN_DECLARATIONS.resolve_standard_member("Optional", "None"),
                 fields={},
             ),
             settings=_option_none(NO_BUILTIN_DECLARATIONS),
@@ -236,24 +234,22 @@ class TestAgentSandboxValue:
 
     def test_disabled_encodes_to_the_disabled_member(self) -> None:
         value = agent_sandbox_value(Disabled(), NO_BUILTIN_DECLARATIONS)
-        assert (
-            value.nominal
-            == NO_BUILTIN_DECLARATIONS.resolve_standard_member("AgentSandbox", "Disabled").nominal
+        assert value.nominal == NO_BUILTIN_DECLARATIONS.resolve_standard_member(
+            "AgentSandbox", "Disabled"
         )
         assert value.fields == {}
 
     def test_native_encodes_to_the_native_member(self) -> None:
         value = agent_sandbox_value(Native(), NO_BUILTIN_DECLARATIONS)
-        assert (
-            value.nominal
-            == NO_BUILTIN_DECLARATIONS.resolve_standard_member("AgentSandbox", "Native").nominal
+        assert value.nominal == NO_BUILTIN_DECLARATIONS.resolve_standard_member(
+            "AgentSandbox", "Native"
         )
         assert value.fields == {}
 
     def test_sandboxed_encodes_to_a_sandbox_record_carrying_its_limits(self) -> None:
         limits = SandboxLimits(memory="8G", swap=None, settings_file=Path("/etc/s.toml"))
         value = agent_sandbox_value(Sandboxed(limits), NO_BUILTIN_DECLARATIONS)
-        assert value.nominal == NO_BUILTIN_DECLARATIONS.resolve("Sandbox").nominal
+        assert value.nominal == NO_BUILTIN_DECLARATIONS.resolve("Sandbox")
         assert decode_sandbox_record(value, NO_BUILTIN_DECLARATIONS) == limits
 
     def test_round_trips_every_decoded_case_back_to_an_equal_value(self) -> None:

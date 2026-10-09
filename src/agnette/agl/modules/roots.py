@@ -105,7 +105,7 @@ def _canonicalize(path: Path) -> Path:
 def assemble_roots(
     *,
     invocation_root: Path | None,
-    stdlib_root: Path | None = None,
+    stdlib_root: Path,
     lib_root: Path | None,
     configured: Iterable[tuple[str, Path]],
     cli: Iterable[str],
@@ -121,9 +121,9 @@ def assemble_roots(
         keeps a package-owned entry's directory from becoming a loose root.
     stdlib_root:
         The selected standard-library package root (normally the active
-        ``<AgM home>/packages/std/<AgM version>`` tree), or ``None`` if the
-        caller does not want to add one.  It mounts ``std`` rather than
-        becoming a loose root, so only its module tree is importable.
+        ``<AgM home>/packages/std/<AgM version>`` tree); dropped if it does
+        not exist.  It mounts ``std`` rather than becoming a loose root, so
+        only its module tree is importable.
     lib_root:
         The global library root (e.g. ``~/.agm/lib``), or ``None`` if not
         configured.  Applied as-is; caller supplies the default if desired.
@@ -185,10 +185,9 @@ def assemble_roots(
     # 5. Standard-library root. Keep its distinct identity so package
     # visibility can admit host-provided modules without admitting loose roots.
     stdlib_roots: set[Path] = set()
-    if stdlib_root is not None:
-        canonical_stdlib_root = _canonicalize(stdlib_root)
-        if canonical_stdlib_root.exists():
-            stdlib_roots.add(canonical_stdlib_root)
+    canonical_stdlib_root = _canonicalize(stdlib_root)
+    if canonical_stdlib_root.exists():
+        stdlib_roots.add(canonical_stdlib_root)
 
     # 6. Package mounts. Keep the package metadata only when its root exists,
     # so ownership policy and resolver see the same selection.

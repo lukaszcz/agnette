@@ -7,14 +7,14 @@ from pathlib import Path
 import pytest
 
 from agnette.agent.runner import command_targets_session_id
-from agnette.agent.session import (
+from agnette.agent.session.cli_adapters import AgentCommandSessionBackend, open_cli_session
+from agnette.agent.session.protocol import (
+    BackendSettings,
     SessionAskError,
     SessionAskRequest,
     SessionHostError,
-    SessionService,
 )
-from agnette.agent.session.cli_adapters import AgentCommandSessionBackend, open_cli_session
-from agnette.agent.session.protocol import BackendSettings
+from agnette.agent.session.service import SessionService
 from agnette.agent.spec import AgentCommand, SessionTransport
 from agnette.core.process import CapturedOutput, ProcessCaptureResult
 from agnette.util.interp import InterpolationError

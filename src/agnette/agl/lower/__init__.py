@@ -11,24 +11,13 @@ Public API
 - :func:`lower_program` — whole-program lowering entry point.
 - :func:`lower_repl_program` — incremental whole-program lowering for one
   REPL entry.
-- :func:`compile_coercion` — coercion compiler
-  (``Type × Type × TypeTable → Coercion | None``).
 """
 
-from agnette.agl.lower.coercions import compile_coercion
 from agnette.agl.lower.program import lower_program
-from agnette.agl.lower.repl import (
-    LinkImage,
-    LoweredReplEntry,
-    ReplPromotionPlan,
-    lower_repl_program,
-)
+from agnette.agl.lower.repl import LinkImage, lower_repl_program
 
 __all__ = [
     "LinkImage",
-    "LoweredReplEntry",
-    "ReplPromotionPlan",
-    "compile_coercion",
     "lower_program",
     "lower_repl_program",
 ]

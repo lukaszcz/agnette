@@ -26,10 +26,11 @@ import pytest
 from agnette.agl.lexer import tokenize
 from agnette.agl.modules.loader import build_repl_graph
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.parser import AglSyntaxError, parse_program, parse_program_seeded
-from agnette.agl.scope import AglScopeError, ModuleResolution
+from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+from agnette.agl.parser.parser import parse_program
+from agnette.agl.scope import ModuleResolution
 from agnette.agl.scope.program import resolve_program
-from agnette.agl.scope.symbols import BinderKind
+from agnette.agl.scope.symbols import AglScopeError, BinderKind
 from agnette.agl.syntax.nodes import FuncDef
 from agnette.agl.syntax.visitor import walk
 from tests._agl_helpers import agl_roots
@@ -193,7 +194,7 @@ class TestScope:
             },
         )
         resolved = resolve_program(graph)
-        assert any(name == "f" for (_mid, name) in resolved.all_public_funcs)
+        assert any("f" in module.exports for module in resolved.modules.values())
 
     def test_private_extern_not_exported(self, tmp_path: Path) -> None:
         # ``lib.mod`` is never imported by the entry, so it is never reached by
@@ -206,7 +207,7 @@ class TestScope:
             },
         )
         resolved = resolve_program(graph)
-        assert all(name != "secret" for (_mid, name) in resolved.all_public_funcs)
+        assert all("secret" not in module.exports for module in resolved.modules.values())
 
 
 # ---------------------------------------------------------------------------

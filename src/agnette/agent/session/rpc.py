@@ -508,7 +508,7 @@ class PiRpcSessionBackend(SandboxFixture):
         operation: _RpcOperation,
         message: str,
         started: float,
-        cause: BaseException | None,
+        cause: BaseException,
         child: _RpcChild,
     ) -> None:
         if operation == "prompt":
@@ -839,7 +839,7 @@ def _emit_pi_progress(
     delta: str | None,
     assistant_progress: list[str],
     tool_output_lengths: dict[str, str],
-    tool_names: dict[str, str] | None = None,
+    tool_names: dict[str, str],
     callback: AgentOutputCallback,
 ) -> None:
     """Echo Pi tool activity and assistant messages that invoke a tool."""
@@ -864,7 +864,7 @@ def _emit_pi_progress(
     if event_type == "tool_execution_start":
         name = event.get("toolName")
         call_id = event.get("toolCallId")
-        if tool_names is not None and isinstance(call_id, str) and isinstance(name, str):
+        if isinstance(call_id, str) and isinstance(name, str):
             tool_names[call_id] = name
         if isinstance(name, str) and name:
             callback(
@@ -892,7 +892,7 @@ def _emit_pi_progress(
             "progress",
             added,
             event_type="tool_result",
-            tool_name=None if tool_names is None else tool_names.get(call_id),
+            tool_name=tool_names.get(call_id),
             tool_call_id=call_id,
         )
 
@@ -1069,7 +1069,7 @@ def _operation_name(operation: _RpcOperation) -> str:
     }[operation]
 
 
-def _transport_cause(error: BaseException | None) -> AgentTransportFailureCause:
+def _transport_cause(error: BaseException) -> AgentTransportFailureCause:
     if isinstance(error, _RpcIdleTimeout):
         return "timeout"
     if isinstance(error, _RpcProtocolError):

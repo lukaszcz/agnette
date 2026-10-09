@@ -14,13 +14,13 @@ from typing import IO, cast
 
 import pytest
 
-from agnette.agent.session import (
+from agnette.agent.session import rpc
+from agnette.agent.session.protocol import (
+    BackendSettings,
     SessionAskError,
     SessionAskRequest,
     SessionHostError,
-    rpc,
 )
-from agnette.agent.session.protocol import BackendSettings
 from agnette.agent.spec import AgentPi
 from agnette.agent.transport import AgentOutputPhase
 from agnette.sandbox.request import SandboxLimits
@@ -664,6 +664,7 @@ def test_pi_output_helpers_handle_empty_and_closed_output_channels() -> None:
         delta=None,
         assistant_progress=assistant_progress,
         tool_output_lengths=tool_output_lengths,
+        tool_names={},
         callback=callback,
     )
     rpc._emit_pi_progress(
@@ -671,6 +672,7 @@ def test_pi_output_helpers_handle_empty_and_closed_output_channels() -> None:
         delta=None,
         assistant_progress=assistant_progress,
         tool_output_lengths=tool_output_lengths,
+        tool_names={},
         callback=callback,
     )
     rpc._emit_pi_progress(
@@ -678,6 +680,7 @@ def test_pi_output_helpers_handle_empty_and_closed_output_channels() -> None:
         delta=None,
         assistant_progress=assistant_progress,
         tool_output_lengths=tool_output_lengths,
+        tool_names={},
         callback=callback,
     )
     rpc._emit_pi_progress(
@@ -685,6 +688,7 @@ def test_pi_output_helpers_handle_empty_and_closed_output_channels() -> None:
         delta=None,
         assistant_progress=assistant_progress,
         tool_output_lengths=tool_output_lengths,
+        tool_names={},
         callback=callback,
     )
     rpc._emit_pi_progress(
@@ -696,6 +700,7 @@ def test_pi_output_helpers_handle_empty_and_closed_output_channels() -> None:
         delta=None,
         assistant_progress=assistant_progress,
         tool_output_lengths=tool_output_lengths,
+        tool_names={},
         callback=callback,
     )
     assert assistant_progress == []

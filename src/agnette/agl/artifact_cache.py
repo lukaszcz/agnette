@@ -130,7 +130,7 @@ _SITES: _ArtifactStore["CachedModuleSites"] = _ArtifactStore(kind="matches")
 # Header preparation replays onto an environment the current compilation built,
 # so its facts are only worth keeping while the objects they name are still
 # live in this process -- memory only.
-_HEADERS: _ArtifactStore["EnvironmentFacts"] = _ArtifactStore(kind="headers", persist=False)
+_HEADERS: _ArtifactStore["EnvironmentFacts"] = _ArtifactStore(persist=False)
 
 
 _LOWERED: _ArtifactStore["LoweredModule"] = _ArtifactStore()

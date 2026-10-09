@@ -29,7 +29,7 @@ def run(args: DepNewArgs) -> None:
 
     resolved_branch = args.branch or git_helpers.default_branch_from_remote(args.repo_url)
     target_dir = dep_dir / resolved_branch
-    mkdir(target_dir.parent, parents=True, exist_ok=True)
+    mkdir(target_dir.parent)
     try:
         require_success(
             ["git", "clone", "--branch", resolved_branch, args.repo_url, str(target_dir)],

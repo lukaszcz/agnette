@@ -386,7 +386,7 @@ def test_precompiled_extern_type_trees_round_trip(
     def capture(
         compiled: MatchCompiledProgram,
         *,
-        contract_payloads: Mapping[int, ContractPayload] | None = None,
+        contract_payloads: Mapping[int, ContractPayload],
     ) -> ExecutableProgram:
         executables.append(lower_program(compiled, contract_payloads=contract_payloads))
         return executables[-1]
@@ -443,7 +443,7 @@ def test_cached_ir_tracks_resource_symlink_targets(
         assert capsys.readouterr().out == str(target) + "\n"
 
 
-@pytest.mark.parametrize("stage", ["prepared", "checked"])
+@pytest.mark.parametrize("stage", ["prepared", "compiled"])
 def test_cache_eviction_does_not_invalidate_an_inflight_compilation(
     tmp_path: Path,
     stage: str,
@@ -460,9 +460,9 @@ def test_cache_eviction_does_not_invalidate_an_inflight_compilation(
     assert driver.run(source, roots=roots, default_stdlib=False).ok
     assert capsys.readouterr().out == "42\n"
     prepared = driver.prepare_program(source, roots=roots, default_stdlib=False)
-    checked = driver.discover_programs(prepared).checked if stage == "checked" else None
+    compiled = driver.discover_programs(prepared).compiled if stage == "compiled" else None
     clear_retained_artifacts()
-    result = driver.run_prepared(prepared, checked=checked, select_default_program=True)
+    result = driver.run_prepared(prepared, compiled=compiled, select_default_program=True)
     assert result.ok, result.diagnostics
     assert capsys.readouterr().out == "42\n"
 

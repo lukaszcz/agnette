@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import shlex
-import stat
 from collections.abc import Generator
 from pathlib import Path
 
@@ -14,7 +12,6 @@ import agnette.core.dry_run as dry_run
 from agnette.core.dotenv import write_dotenv_values
 from agnette.core.env import load_dotenv_file
 from agnette.core.fs import (
-    access,
     append_text,
     chmod,
     exists,
@@ -237,14 +234,6 @@ class TestFsReadOnly:
         (tmp_path / "file.txt").write_text("x", encoding="utf-8")
         assert is_empty_dir(tmp_path) is False
 
-    def test_access_readable(self, tmp_path: Path) -> None:
-        f = tmp_path / "r.txt"
-        f.write_text("data", encoding="utf-8")
-        assert access(f, os.R_OK) is True
-
-    def test_access_non_existent(self, tmp_path: Path) -> None:
-        assert access(tmp_path / "ghost", os.R_OK) is False
-
     def test_stat_returns_correct_size(self, tmp_path: Path) -> None:
         """fs.stat reports the right byte-size for a file."""
         f = tmp_path / "measured.txt"
@@ -252,17 +241,6 @@ class TestFsReadOnly:
         f.write_text(text, encoding="utf-8")
         result = fs_stat(f)
         assert result.st_size == len(text.encode("utf-8"))
-
-    def test_access_write_permission(self, tmp_path: Path) -> None:
-        f = tmp_path / "writable.txt"
-        f.write_text("data", encoding="utf-8")
-        assert access(f, os.W_OK) is True
-
-    def test_access_execute_permission_on_script(self, tmp_path: Path) -> None:
-        f = tmp_path / "run.sh"
-        f.write_text("#!/bin/sh\n", encoding="utf-8")
-        f.chmod(stat.S_IRWXU)
-        assert access(f, os.X_OK) is True
 
 
 # ===========================================================================
@@ -276,15 +254,15 @@ class TestFsWriteNormal:
         mkdir(d)
         assert d.is_dir()
 
-    def test_mkdir_parents(self, tmp_path: Path) -> None:
+    def test_mkdir_creates_missing_parents(self, tmp_path: Path) -> None:
         d = tmp_path / "a" / "b" / "c"
-        mkdir(d, parents=True)
+        mkdir(d)
         assert d.is_dir()
 
-    def test_mkdir_exist_ok(self, tmp_path: Path) -> None:
+    def test_mkdir_tolerates_an_existing_directory(self, tmp_path: Path) -> None:
         existing = tmp_path / "existing.txt"
         existing.write_text("keep", encoding="utf-8")
-        mkdir(tmp_path, exist_ok=True)
+        mkdir(tmp_path)
         assert existing.read_text(encoding="utf-8") == "keep"
 
     def test_write_text_creates_file(self, tmp_path: Path) -> None:

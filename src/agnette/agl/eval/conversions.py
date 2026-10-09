@@ -74,7 +74,7 @@ def run_recipe(
     value: Value,
     descriptors: ValueDescriptors,
     *,
-    default_resolver: DefaultResolver | None = None,
+    default_resolver: DefaultResolver,
 ) -> Value:
     """Execute *recipe* against *value*; raise ``AglCastConversion`` on failure.
 
@@ -141,7 +141,7 @@ def _decode_from_json(
     obj: object,
     value: Value,
     descriptors: ValueDescriptors,
-    default_resolver: DefaultResolver | None,
+    default_resolver: DefaultResolver,
 ) -> Value:
     """JSON-Schema validate → decode."""
     errors = list(validator_for_schema(recipe.json_schema).iter_errors(obj))

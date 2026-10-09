@@ -40,7 +40,6 @@ if TYPE_CHECKING:
     from agnette.agl.ir.program import ExecutableProgram, IrProgramParam
     from agnette.agl.runtime.convert import DefaultResolver
     from agnette.agl.runtime.types import ProgramDeclInfo, ProgramParamInfo
-    from agnette.agl.semantics.types import Type as AglType
     from agnette.agl.semantics.values import Value
     from agnette.agl.syntax.spans import SourceSpan
     from agnette.agl.zones import ParamZone
@@ -48,9 +47,6 @@ if TYPE_CHECKING:
 __all__ = [
     "OptionSome",
     "ProgramArguments",
-    "ProgramParameter",
-    "ProgramSignature",
-    "bind_program_arguments",
     "bind_program_arguments_for",
     "bind_param_values",
     "decode_param_value",
@@ -112,15 +108,13 @@ class ProgramArguments:
 class ProgramParameter:
     """One ``program def`` value parameter, fused for binding and diagnostics.
 
-    ``name``, ``kind``, and ``has_default`` drive zone binding; ``type`` is
-    the parameter's checked type; ``span`` is its declaration span, the
-    anchor for a diagnostic naming this parameter; ``decoder`` decodes one
+    ``name``, ``kind``, and ``has_default`` drive zone binding; ``span`` is
+    its declaration span, the anchor for a diagnostic naming this parameter; ``decoder`` decodes one
     raw host-supplied value into this parameter's checked type.
     """
 
     name: str
     kind: "ParamZone"
-    type: "AglType"
     has_default: bool
     span: "SourceSpan"
     decoder: "ParamDecoder"
@@ -163,7 +157,6 @@ class ProgramSignature:
                 ProgramParameter(
                     name=param.name,
                     kind=param.kind,
-                    type=info.type,
                     has_default=info.has_default,
                     span=info.span,
                     decoder=param.external_decoder,

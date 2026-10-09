@@ -80,14 +80,14 @@ program def main() -> unit = ()
 
     params = discovery.module_params[discovery.programs[0].module]
 
-    assert [(param.name, param.cli.name, param.mutable, param.scope_path) for param in params] == [
-        ("verbose", "loud", False, ()),
-        ("retries", "retries", True, ()),
-        ("trace", "trace", False, ("Logging",)),
-        ("level", "level", True, ("Logging",)),
+    assert [(param.name, param.cli.name, param.scope_path) for param in params] == [
+        ("verbose", "loud", ()),
+        ("retries", "retries", ()),
+        ("trace", "trace", ("Logging",)),
+        ("level", "level", ("Logging",)),
     ]
-    assert params[0].doc == "Root verbosity"
-    assert params[2].doc == "Trace logging"
+    assert params[0].cli.doc == "Root verbosity"
+    assert params[2].cli.doc == "Trace logging"
     assert params[0].declaration_path == "<entry>::verbose"
     assert params[2].declaration_path == "<entry>::Logging::trace"
     assert params[0].key == (discovery.programs[0].module, (), "verbose")
@@ -369,7 +369,7 @@ program def main() -> unit = print value
             executable=preflight.executable,
             param_seeds=preflight.param_seeds,
         )
-        check_result = runtime.check_prepared(prepared, compiled=discovery.compiled)
+        check_result = runtime.check_prepared(prepared)
 
         assert run_result.ok
         assert run_result.bindings == {}

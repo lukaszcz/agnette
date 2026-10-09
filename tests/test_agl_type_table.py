@@ -21,7 +21,7 @@ from agnette.agl.ir.reserved_nominals import (
     RESERVED_NOMINAL_NAMES,
     reserved_nominal_id,
 )
-from agnette.agl.modules.ids import ENTRY_ID, RESERVED_ID, STD_PRELUDE_ID, ModuleId
+from agnette.agl.modules.ids import ENTRY_ID, RESERVED_ID, ModuleId
 from agnette.agl.repl import ReplSession
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import UnknownQualifierError
@@ -48,7 +48,6 @@ from agnette.agl.semantics.type_table import (
     json_cast_hint,
     parse_classification,
     satisfies,
-    source_enum_member_decl_id,
 )
 from agnette.agl.semantics.types import (
     BUILTIN_PRELUDE_TYPES,
@@ -81,7 +80,7 @@ from agnette.agl.syntax.nodes import (
     VariantDef,
     VariantRef,
 )
-from agnette.agl.typecheck import AglTypeError, CheckedModule
+from agnette.agl.typecheck.env import AglTypeError, CheckedModule
 from agnette.agl.typecheck.program import check_program
 from agnette.agl.zones import ParamZone
 from tests._agl_helpers import enum_typedef, register_typedef, strip_decl_ids
@@ -118,20 +117,6 @@ def test_orphaned_declaration_releases_its_current_name() -> None:
     table.orphan(typedef.decl_node_id)
 
     assert table.get(ENTRY_ID, "Point") is None
-
-
-def test_builtin_member_identity_falls_back_for_non_enum_prelude_types() -> None:
-    assert (
-        source_enum_member_decl_id(
-            STD_PRELUDE_ID,
-            (),
-            "ExecResult",
-            "not-a-member",
-            42,
-            is_builtin=True,
-        )
-        == 42
-    )
 
 
 def test_record_matches_enum_member_rejects_a_different_named_member() -> None:
@@ -4505,7 +4490,7 @@ class TestJsonRepresentationObstacle:
 
     def test_unresolved_inference_variable_has_no_specific_obstacle(self) -> None:
         table = TypeTable()
-        assert table.json_representation_culprit(ArrayType(elem=InferenceVarType(1))) is None
+        assert table.json_representation_culprit(ArrayType(elem=InferenceVarType())) is None
 
     def test_non_hashable_dict_key_is_named(self) -> None:
         table = TypeTable()

@@ -571,9 +571,7 @@ class TestCheckoutSession:
         dry_run.set_enabled(True)
         project = _make_git_project(tmp_path, env)
 
-        checkout_workspace(
-            detached=True, pane_count=None, parent=None, branch="feature", cwd=project
-        )
+        checkout_workspace(detached=True, pane_count=None, branch="feature", cwd=project)
 
         out = capsys.readouterr().out
         assert "worktree add" in out
@@ -618,10 +616,11 @@ class TestSmartOpenSession:
             "create": create_workspace,
             "checkout": checkout_workspace,
         }[workflow]
+        extra = {} if workflow == "checkout" else {"parent": None}
         prepare(
             detached=True,
             pane_count=None,
-            parent=None,
+            **extra,
             branch="new-branch",
             cwd=project,
             **fetch_options,

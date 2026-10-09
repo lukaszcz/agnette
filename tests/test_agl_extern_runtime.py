@@ -228,23 +228,22 @@ def test_extern_defaults_work_for_direct_calls(tmp_path: Path) -> None:
 def test_indirect_extern_call_uses_the_default_for_an_omitted_trailing_argument(
     tmp_path: Path,
 ) -> None:
-    from agnette.agl.ir import (
-        ExecutableModule,
-        ExecutableProgram,
-        ExternFunctionBody,
-        FunctionDescriptor,
-        FunctionId,
+    from agnette.agl.ir.ids import FunctionId, Location, SourceId, SymbolId
+    from agnette.agl.ir.nodes import (
         IrBind,
         IrConstInt,
         IrFunctionParam,
         IrIndirectCall,
         IrLoad,
         IrMakeClosure,
-        Location,
+    )
+    from agnette.agl.ir.program import (
+        ExecutableModule,
+        ExecutableProgram,
+        ExternFunctionBody,
+        FunctionDescriptor,
         SourceFile,
-        SourceId,
         SymbolDescriptor,
-        SymbolId,
     )
 
     companion = tmp_path / "companion.py"

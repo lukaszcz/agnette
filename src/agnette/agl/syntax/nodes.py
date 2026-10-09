@@ -621,7 +621,7 @@ class Case:
     node_id: int = dc_field(compare=False)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Loop:
     """Unified loop expression.
 
@@ -660,62 +660,17 @@ class Loop:
         ``done`` or an omitted terminator, both equivalent to ``until false``.
     """
 
-    for_var: str | None
-    for_iter: Expr | None
-    for_range_to: Expr | None
-    for_range_down: bool
-    for_range_step: Expr | None
-    while_cond: Expr | None
-    bound: Expr | None
+    for_var: str | None = None
+    for_iter: Expr | None = None
+    for_range_to: Expr | None = None
+    for_range_down: bool = False
+    for_range_step: Expr | None = None
+    while_cond: Expr | None = None
+    bound: Expr | None = None
     body: Expr
-    until_cond: Expr | None
+    until_cond: Expr | None = None
     span: SourceSpan = dc_field(compare=False)
     node_id: int = dc_field(compare=False)
-
-    def __init__(
-        self,
-        *,
-        for_var: str | None = None,
-        for_iter: Expr | None = None,
-        for_range_to: Expr | None = None,
-        for_range_down: bool = False,
-        for_range_step: Expr | None = None,
-        while_cond: Expr | None = None,
-        bound: Expr | None = None,
-        body: Expr,
-        until_cond: Expr | None = None,
-        span: SourceSpan,
-        node_id: int,
-        limit: int | Expr | None = None,
-        condition: Expr | None = None,
-    ) -> None:
-        if bound is None and limit is not None:
-            bound = (
-                IntLit(value=limit, span=span, node_id=node_id) if isinstance(limit, int) else limit
-            )
-        if until_cond is None and condition is not None:
-            until_cond = condition
-        object.__setattr__(self, "for_var", for_var)
-        object.__setattr__(self, "for_iter", for_iter)
-        object.__setattr__(self, "for_range_to", for_range_to)
-        object.__setattr__(self, "for_range_down", for_range_down)
-        object.__setattr__(self, "for_range_step", for_range_step)
-        object.__setattr__(self, "while_cond", while_cond)
-        object.__setattr__(self, "bound", bound)
-        object.__setattr__(self, "body", body)
-        object.__setattr__(self, "until_cond", until_cond)
-        object.__setattr__(self, "span", span)
-        object.__setattr__(self, "node_id", node_id)
-
-    @property
-    def limit(self) -> int | Expr | None:
-        if isinstance(self.bound, IntLit):
-            return self.bound.value
-        return self.bound
-
-    @property
-    def condition(self) -> Expr | None:
-        return self.until_cond
 
 
 @dataclass(frozen=True, slots=True)
@@ -740,9 +695,6 @@ class Continue:
 
     span: SourceSpan = dc_field(compare=False)
     node_id: int = dc_field(compare=False)
-
-
-Do = Loop
 
 
 @dataclass(frozen=True, slots=True)
@@ -1113,10 +1065,6 @@ def pattern_binder_candidates(pattern: Pattern) -> tuple[PatternBinderCandidate,
 
     collect(pattern, nested=False)
     return tuple(candidates)
-
-
-def pattern_binding_node_ids(pattern: Pattern) -> tuple[int, ...]:
-    return tuple(candidate.node_id for candidate in pattern_binder_candidates(pattern))
 
 
 # ---------------------------------------------------------------------------

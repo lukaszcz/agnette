@@ -129,12 +129,9 @@ def _scan(text: str, *, lenient: bool) -> tuple[list[Segment], bool]:
     return segments, malformed_hole
 
 
-def split_template(text: str, *, lenient: bool = False) -> list[Segment]:
-    """Split *text* into literal and named-hole segments.
-
-    In lenient mode malformed and unterminated holes remain literal text.
-    """
-    return _scan(text, lenient=lenient)[0]
+def split_template(text: str) -> list[Segment]:
+    """Split *text* into literal and named-hole segments; malformed holes raise."""
+    return _scan(text, lenient=False)[0]
 
 
 def interp_segments(

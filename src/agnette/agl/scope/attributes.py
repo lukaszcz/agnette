@@ -79,7 +79,7 @@ from agnette.agl.syntax.nodes import (
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import ParamZone
 
-__all__ = ["AttributeFacts", "recognize_attributes", "recognize_program_registration"]
+__all__ = ["recognize_attributes", "recognize_program_registration"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,7 +200,6 @@ def recognize_attributes(
         extern_names=recognizer.extern_names,
         program_options=recognizer.program_options,
         params=recognizer.params,
-        command_registrations=recognizer.command_registrations,
         docs=recognizer.docs,
         external_names=recognizer.external_names,
         program_configs=recognizer.program_configs,
@@ -224,7 +223,6 @@ class _Recognizer:
         self.extern_names: dict[int, str] = {}
         self.program_options: dict[int, ProgramOptionSpec] = {}
         self.params: dict[int, ProgramOptionSpec] = {}
-        self.command_registrations: dict[int, str] = {}
         self.docs: dict[int, str] = {}
         self.external_names: dict[int, ExternalName] = {}
         self.program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = {}
@@ -246,7 +244,7 @@ class _Recognizer:
             if node.is_extern:
                 self._extern_name(node, recognized)
             if node.is_program:
-                self._command_registration(node, recognized)
+                self._command_registration(recognized)
                 self._program_config(node, recognized)
             self._entries(
                 node.params,
@@ -412,13 +410,12 @@ class _Recognizer:
         self.extern_names[node.node_id] = name
 
     # ------------------------------------------------------------------
-    # Fact builder: package command registrations
+    # Validation: package command paths
     # ------------------------------------------------------------------
 
-    def _command_registration(self, node: FuncDef, recognized: _Recognized) -> None:
-        path = _program_command_path(recognized)
-        if path is not None:
-            self.command_registrations[node.node_id] = path
+    def _command_registration(self, recognized: _Recognized) -> None:
+        """Validate the ``@command`` path, if any."""
+        _program_command_path(recognized)
 
     # ------------------------------------------------------------------
     # Fact builder: program config entries

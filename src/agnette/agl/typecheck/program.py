@@ -456,7 +456,7 @@ def _raise_first_uninhabited(
 def _build_program_type_table(
     resolved: ResolvedProgram,
     *,
-    type_table: TypeTable | None = None,
+    type_table: TypeTable,
     entry_seed_env: TypeEnvironment | None = None,
     cached_modules: Mapping[ModuleId, PublishedModuleSurface] | None = None,
 ) -> ModuleTypeInterface:
@@ -509,9 +509,8 @@ def _build_program_type_table(
     # below, so declarations from all modules land in the same table.  Step A's
     # per-module envs are transient header-only scaffolding and never
     # dual-write, so they keep their own private (default) tables.
-    shared_type_table = type_table if type_table is not None else create_seeded_type_table()
     if entry_seed_env is not None:
-        shared_type_table.merge_from(entry_seed_env.type_table)
+        type_table.merge_from(entry_seed_env.type_table)
 
     interfaces = {
         mid: cm.interface
@@ -520,7 +519,7 @@ def _build_program_type_table(
     }
     for interface in interfaces.values():
         for definition in interface.definitions:
-            shared_type_table.register(definition)
+            type_table.register(definition)
 
     # Step A: register every declared name's handle for all modules.
     # For records/enums: register the handle in both the per-module env AND
@@ -643,7 +642,7 @@ def _build_program_type_table(
             program_alias_table=tables.aliases,
             program_aliases=program_aliases,
             module_id=mid,
-            type_table=shared_type_table,
+            type_table=type_table,
             owner_declarations=rmod.resolved.owner_declarations,
         )
         if mid == resolved.entry_id and entry_seed_env is not None:
@@ -709,9 +708,9 @@ def _build_program_type_table(
     # builtin/prelude defs, all trivially inhabited). This is the only
     # inhabitation check the pipeline runs; Phase 4's per-module re-check
     # never repeats it.
-    uninhabited = compute_uninhabited(shared_type_table)
+    uninhabited = compute_uninhabited(type_table)
     if uninhabited:
-        _raise_first_uninhabited(uninhabited, shared_type_table, resolved)
+        _raise_first_uninhabited(uninhabited, type_table, resolved)
 
     return tables
 
@@ -1199,7 +1198,6 @@ class _PreparedProgram:
     module_envs: dict[ModuleId, TypeEnvironment]
     program_type_table: dict[DeclKey, Type]
     program_func_sig_table: dict[int, FunctionSignatureRecord]
-    program_static_binding_table: dict[int, Type]
     candidate_records: dict[int, FunctionSignatureRecord]
     ordered_mids: tuple[ModuleId, ...]
     declaration_spans: dict[DeclarationKey, SourceSpan]
@@ -1406,7 +1404,6 @@ def _prepare_program(
         module_envs=module_envs,
         program_type_table=tables.types,
         program_func_sig_table=program_func_sig_table,
-        program_static_binding_table=program_static_binding_table,
         candidate_records=candidate_records,
         ordered_mids=ordered_mids,
         declaration_spans=declaration_spans,
@@ -1551,7 +1548,6 @@ def check_program(
         cm = replace(
             cp,
             module_id=mid,
-            import_env=rmod.import_env,
             source_text=rmod.source_text,
             function_signatures=_module_function_signatures(rmod.resolved.program, cp.type_env),
             published_signatures={

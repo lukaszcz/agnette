@@ -41,10 +41,9 @@ class ModuleNotFound(AglError):
 class AmbiguousModule(AglError):
     """A module id resolves to ≥2 distinct canonical files.
 
-    ``module_id`` is the ambiguous id.  ``candidates`` is a sorted tuple of
-    canonical :class:`~pathlib.Path` objects, one per distinct file the id
-    resolved to.  ``span`` is the originating import declaration span, when
-    available.
+    ``candidates`` is a sorted tuple of canonical :class:`~pathlib.Path`
+    objects, one per distinct file the id resolved to.  ``span`` is the
+    originating import declaration span, when available.
     """
 
     def __init__(
@@ -60,16 +59,13 @@ class AmbiguousModule(AglError):
             f"found in multiple roots: [{candidates_str}]"
         )
         super().__init__(msg, span=span)
-        self.module_id = module_id
         self.candidates = candidates
 
 
 class ModulePrefixNotFound(AglError):
     """A wildcard import prefix (``foo/*``) matched no module.
 
-    ``prefix`` is the tuple of segments that formed the wildcard prefix (e.g.
-    ``("foo", "bar")`` for ``import foo/bar/*``).  ``span`` is the originating
-    import declaration span, when available.
+    ``span`` is the originating import declaration span, when available.
     """
 
     def __init__(
@@ -81,29 +77,21 @@ class ModulePrefixNotFound(AglError):
         slash_prefix = "/".join(prefix)
         msg = f"wildcard prefix '{slash_prefix}/*' matched no module"
         super().__init__(msg, span=span)
-        self.prefix = prefix
 
 
 class ModuleReadError(AglError):
-    """A module file could not be read as UTF-8 text.
-
-    ``module_id`` is the module whose file failed to read and ``path`` the
-    file.
-    """
+    """A module file could not be read as UTF-8 text."""
 
     def __init__(self, module_id: ModuleId, path: Path, reason: str) -> None:
         super().__init__(f"cannot read module '{module_id.display()}' at '{path}': {reason}")
-        self.module_id = module_id
-        self.path = path
 
 
 class MissingExternCompanion(AglError):
     """A module declaring at least one ``extern def`` has no companion ``.py`` file.
 
-    ``module_id`` is the module missing its companion.  ``companion_path`` is
-    the derived (and missing) companion file path — the module's own file
-    with its suffix replaced by ``.py``.  ``span`` is the span of the first
-    ``extern def`` declaration in the module, when available.
+    The missing companion is the module's own file with its suffix replaced by
+    ``.py``.  ``span`` is the span of the first ``extern def`` declaration in
+    the module, when available.
     """
 
     def __init__(
@@ -111,15 +99,13 @@ class MissingExternCompanion(AglError):
         module_id: ModuleId,
         companion_path: Path,
         *,
-        span: SourceSpan | None = None,
+        span: SourceSpan,
     ) -> None:
         msg = (
             f"module '{module_id.display()}' declares an extern function but its "
             f"companion file '{companion_path}' does not exist"
         )
         super().__init__(msg, span=span)
-        self.module_id = module_id
-        self.companion_path = companion_path
 
 
 class PackageImportVisibilityError(AglError):
@@ -135,7 +121,7 @@ class PackageImportVisibilityError(AglError):
         importer: str,
         target: str,
         *,
-        span: SourceSpan | None = None,
+        span: SourceSpan,
     ) -> None:
         super().__init__(
             f"package {importer!r} imports package {target!r} without a "
@@ -150,9 +136,8 @@ class ImportEntryError(AglError):
     """An import declaration resolves to the entry file's canonical identity.
 
     Importing the entry program is rejected: the entry is a non-importable
-    program root.  ``module_id`` is the module id the user attempted to import.
-    ``entry_path`` is the canonical path of the entry file.  ``span`` is the
-    originating import declaration span, when available.
+    program root.  ``span`` is the originating import declaration span, when
+    available.
     """
 
     def __init__(
@@ -160,9 +145,7 @@ class ImportEntryError(AglError):
         module_id: ModuleId,
         entry_path: Path,
         *,
-        span: SourceSpan | None = None,
+        span: SourceSpan,
     ) -> None:
         msg = f"cannot import '{module_id.display()}': it resolves to the entry file '{entry_path}'"
         super().__init__(msg, span=span)
-        self.module_id = module_id
-        self.entry_path = entry_path

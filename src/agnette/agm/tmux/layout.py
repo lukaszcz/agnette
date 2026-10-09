@@ -19,26 +19,25 @@ def layout_checksum(layout: str) -> str:
 def build_row_layout(
     width: int,
     height: int,
-    x: int,
     y: int,
     start_index: int,
     pane_total: int,
 ) -> str:
-    """Build one row of panes."""
+    """Build one row of panes at the window's left edge."""
 
     if pane_total == 1:
-        return f"{width}x{height},{x},{y},{start_index}"
+        return f"{width}x{height},0,{y},{start_index}"
 
     base_width = (width - (pane_total - 1)) // pane_total
-    current_x = x
+    current_x = 0
     children: list[str] = []
     for pane_offset in range(pane_total):
-        current_width = base_width if pane_offset + 1 < pane_total else x + width - current_x
+        current_width = base_width if pane_offset + 1 < pane_total else width - current_x
         children.append(
             f"{current_width}x{height},{current_x},{y},{start_index + pane_offset}",
         )
         current_x += current_width + 1
-    return f"{width}x{height},{x},{y}" + "{" + ",".join(children) + "}"
+    return f"{width}x{height},0,{y}" + "{" + ",".join(children) + "}"
 
 
 def build_window_layout(
@@ -51,7 +50,7 @@ def build_window_layout(
     """Build the full tmux window layout."""
 
     if rows == 1:
-        return build_row_layout(width, height, 0, 0, 0, pane_total)
+        return build_row_layout(width, height, 0, 0, pane_total)
 
     base_height = (height - (rows - 1)) // rows
     current_y = 0
@@ -62,9 +61,7 @@ def build_window_layout(
         if row_panes > cols:
             row_panes = cols
         current_height = base_height if row + 1 < rows else height - current_y
-        children.append(
-            build_row_layout(width, current_height, 0, current_y, next_index, row_panes)
-        )
+        children.append(build_row_layout(width, current_height, current_y, next_index, row_panes))
         next_index += row_panes
         current_y += current_height + 1
     return f"{width}x{height},0,0[" + ",".join(children) + "]"

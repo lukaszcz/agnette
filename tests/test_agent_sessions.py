@@ -8,8 +8,8 @@ from uuid import UUID
 
 import pytest
 
-from agnette.agent.session import (
-    AglSessionHost,
+from agnette.agent.session import create_agl_session_host
+from agnette.agent.session.protocol import (
     SessionAskError,
     SessionAskRequest,
     SessionAskResponse,
@@ -18,10 +18,9 @@ from agnette.agent.session import (
     SessionOpenRequest,
     SessionOperation,
     SessionOperations,
-    SessionService,
     SessionStats,
-    create_agl_session_host,
 )
+from agnette.agent.session.service import AglSessionHost, SessionService
 from agnette.agent.spec import AgentCommand, AgentPi, PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo, AgentOutputPhase
 from agnette.agl.runtime.request import AgentRequest
@@ -671,15 +670,13 @@ def test_fork_returns_a_distinct_live_handle_and_reset_preserves_the_original_ha
     assert service.ask(forked, SessionAskRequest(prompt="forked")).content == "answer"
 
 
-def test_service_stores_and_forks_the_open_time_sandbox_mode() -> None:
-    """A session's permission mode and sandbox limits are fixed at ``open``,
-    reach the backend's own ``SessionOpenRequest``, and are copied forward to
-    a forked session's entry -- independent of whatever internal bookkeeping
-    the backend itself keeps for the same values."""
+def test_service_passes_the_open_time_sandbox_mode_to_the_backend() -> None:
+    """A session's permission mode and sandbox limits are fixed at ``open`` and
+    reach the backend's own ``SessionOpenRequest``."""
     limits = SandboxLimits(memory="4G")
     service, factory = _service()
 
-    handle = service.open(
+    service.open(
         AgentCommand("cat"),
         "cli",
         permission_mode=PermissionMode.UNRESTRICTED,
@@ -687,21 +684,9 @@ def test_service_stores_and_forks_the_open_time_sandbox_mode() -> None:
         env={},
     )
 
-    backend = factory.backends[0]
-    assert backend.open_requests[0].permission_mode == PermissionMode.UNRESTRICTED
-    assert backend.open_requests[0].sandbox == limits
-    assert service._entries[handle].permission_mode == PermissionMode.UNRESTRICTED
-    assert service._entries[handle].sandbox == limits
-
-    backend.fork_result = FakeBackend()
-    forked = service.fork(handle)
-
-    assert service._entries[forked].permission_mode == PermissionMode.UNRESTRICTED
-    assert service._entries[forked].sandbox == limits
-    # A session opened with no override keeps the "no sandbox" defaults.
-    default_handle = service.open(AgentCommand("cat"), "cli", env={})
-    assert service._entries[default_handle].permission_mode == PermissionMode.NONE
-    assert service._entries[default_handle].sandbox is None
+    request = factory.backends[0].open_requests[0]
+    assert request.permission_mode == PermissionMode.UNRESTRICTED
+    assert request.sandbox == limits
 
 
 def test_agl_session_host_snapshot_exposes_the_open_time_sandbox_mode() -> None:

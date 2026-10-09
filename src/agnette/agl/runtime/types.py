@@ -116,12 +116,8 @@ class ParamBindingInfo:
     module: "ModuleId"
     scope_path: tuple[str, ...]
     name: str
-    node_id: int
-    span: "SourceSpan"
     type: "AglType"
-    mutable: bool
     cli: "ProgramOptionSpec"
-    doc: str | None
     is_path: bool = False
     enum_values: tuple[str, ...] = ()
 

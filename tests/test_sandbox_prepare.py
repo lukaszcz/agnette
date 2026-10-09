@@ -27,7 +27,6 @@ from agnette.sandbox.prepare import (
     ResolvedLimits,
     _resolve_raw_limit,
     _validate_limit,
-    dry_run_argv,
     prepare,
     print_dry_run,
     resolve_limits,
@@ -43,6 +42,7 @@ from agnette.sandbox.request import (
     SandboxSpec,
 )
 from agnette.sandbox.srt import SRT_BACKEND
+from tests._sandbox_helpers import settings_path_of
 
 
 def _run_config(
@@ -303,12 +303,11 @@ class TestPrepareArgvComposition:
         prepared = prepare(request, run_config=run_config)
         try:
             assert prepared.argv[:4] == ["systemd-run", "--user", "--scope", "-q"]
-            assert prepared.settings_path is not None
             srt_index = prepared.argv.index("srt")
             assert prepared.argv[srt_index : srt_index + 4] == [
                 "srt",
                 "--settings",
-                str(prepared.settings_path),
+                str(settings_path_of(prepared)),
                 "--",
             ]
             assert prepared.argv[-3:] == ["--", "echo", "hi"]
@@ -338,7 +337,7 @@ class TestPrepareArgvComposition:
             assert prepared.argv[srt_index : srt_index + 4] == [
                 "srt",
                 "--settings",
-                str(prepared.settings_path),
+                str(settings_path_of(prepared)),
                 "--",
             ]
             assert prepared.argv[srt_index + 4 : srt_index + 8] == [
@@ -591,7 +590,7 @@ class TestSettingsResolution:
         with patch("shutil.which", return_value="/usr/bin/tool"):
             prepared = prepare(request, run_config=run_config)
         try:
-            assert prepared.settings_path == explicit
+            assert settings_path_of(prepared) == explicit
         finally:
             prepared.close()
 
@@ -626,13 +625,12 @@ class TestSettingsResolution:
         with patch("shutil.which", return_value="/usr/bin/tool"):
             prepared = prepare(request, run_config=run_config)
         try:
-            assert prepared.settings_path is not None
-            merged = json.loads(prepared.settings_path.read_text())
+            merged = json.loads(settings_path_of(prepared).read_text())
             assert merged["network"]["allowedDomains"] == ["a.test"]
             assert merged["enabled"] is False
         finally:
             prepared.close()
-            assert not prepared.settings_path.exists()
+            assert not settings_path_of(prepared).exists()
 
     def test_patch_false_skips_proj_dir_patch(self, home_with_default_settings: Path) -> None:
         proj_dir = home_with_default_settings / "project"
@@ -643,8 +641,7 @@ class TestSettingsResolution:
         run_config = _run_config()
         prepared = prepare(request, run_config=run_config)
         try:
-            assert prepared.settings_path is not None
-            data = json.loads(prepared.settings_path.read_text())
+            data = json.loads(settings_path_of(prepared).read_text())
             assert "filesystem" not in data
         finally:
             prepared.close()
@@ -660,8 +657,7 @@ class TestSettingsResolution:
         run_config = _run_config()
         prepared = prepare(request, run_config=run_config)
         try:
-            assert prepared.settings_path is not None
-            data = json.loads(prepared.settings_path.read_text())
+            data = json.loads(settings_path_of(prepared).read_text())
             allow_write = data["filesystem"]["allowWrite"]
             assert str(proj_dir / "repo" / ".git") in allow_write
         finally:
@@ -770,8 +766,7 @@ class TestClose:
         run_config = _run_config()
         with patch("shutil.which", return_value="/usr/bin/tool"):
             prepared = prepare(request, run_config=run_config)
-        settings_path = prepared.settings_path
-        assert settings_path is not None
+        settings_path = settings_path_of(prepared)
         assert settings_path.exists()
         prepared.close()
         assert not settings_path.exists()
@@ -787,8 +782,7 @@ class TestClose:
         run_config = _run_config()
         with patch("shutil.which", return_value="/usr/bin/tool"):
             prepared = prepare(request, run_config=run_config)
-        settings_path = prepared.settings_path
-        assert settings_path is not None
+        settings_path = settings_path_of(prepared)
         prepared.close()
         assert not settings_path.exists()
         prepared.close()  # must not raise
@@ -801,8 +795,7 @@ class TestClose:
         run_config = _run_config()
         with patch("shutil.which", return_value="/usr/bin/tool"):
             prepared = prepare(request, run_config=run_config)
-        assert prepared.settings_path is not None
-        prepared.settings_path.unlink()  # simulate something already removing it
+        settings_path_of(prepared).unlink()  # simulate something already removing it
         prepared.close()  # must not raise
 
     def test_close_under_dry_run_removes_temp_file_and_prints_nothing(
@@ -815,8 +808,7 @@ class TestClose:
         run_config = _run_config()
         with patch("shutil.which", return_value="/usr/bin/tool"):
             prepared = prepare(request, run_config=run_config)
-        settings_path = prepared.settings_path
-        assert settings_path is not None
+        settings_path = settings_path_of(prepared)
 
         dry_run.set_enabled(True)
         try:
@@ -968,51 +960,6 @@ class TestNodeUseEnvProxy:
 
 
 # ---------------------------------------------------------------------------
-# dry_run_argv / print_dry_run
-# ---------------------------------------------------------------------------
-
-
-class TestDryRunArgv:
-    def test_redacts_settings_path(self, home_with_default_settings: Path) -> None:
-        request = _request(tmp_path=home_with_default_settings)
-        run_config = _run_config()
-        prepared = prepare(request, run_config=run_config)
-        try:
-            redacted = dry_run_argv(prepared)
-            assert str(prepared.settings_path) not in redacted
-            assert DRY_RUN_SETTINGS_PLACEHOLDER in redacted
-        finally:
-            prepared.close()
-
-    def test_no_settings_path_leaves_argv_unchanged(self, tmp_path: Path) -> None:
-        request = _request(tmp_path=tmp_path, sandboxed=False, memory=None, swap=None)
-        run_config = _run_config()
-        with patch("shutil.which", return_value="/usr/bin/tool"):
-            prepared = prepare(request, run_config=run_config)
-        try:
-            assert dry_run_argv(prepared) == prepared.argv
-        finally:
-            prepared.close()
-
-
-class TestPrintDryRun:
-    def test_prints_labeled_command_with_redacted_settings(
-        self, home_with_default_settings: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        request = _request(tmp_path=home_with_default_settings)
-        run_config = _run_config()
-        prepared = prepare(request, run_config=run_config)
-        try:
-            print_dry_run(prepared)
-            captured = capsys.readouterr()
-            assert "sandbox" in captured.out
-            assert DRY_RUN_SETTINGS_PLACEHOLDER in captured.out
-            assert str(prepared.settings_path) not in captured.out
-        finally:
-            prepared.close()
-
-
-# ---------------------------------------------------------------------------
 # prepare(resolve_settings=False): dry-run mode with no filesystem resolution
 # ---------------------------------------------------------------------------
 
@@ -1034,13 +981,12 @@ class TestPrepareNoResolveMode:
                 "echo",
                 "hi",
             ]
-            assert prepared.settings_path is None
             # No settings scan or merge ever touched the filesystem.
             assert not (tmp_path / "home" / ".agm").exists()
         finally:
             prepared.close()
 
-    def test_dry_run_argv_and_print_dry_run_still_work(
+    def test_print_dry_run_prints_the_placeholder_argv(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         request = _request(tmp_path=tmp_path, memory=None, swap=None)
@@ -1048,8 +994,7 @@ class TestPrepareNoResolveMode:
         with patch("shutil.which", return_value="/usr/bin/tool"):
             prepared = prepare(request, run_config=run_config, resolve_settings=False)
         try:
-            assert dry_run_argv(prepared) == prepared.argv
-            print_dry_run(prepared)
+            print_dry_run(prepared, label="sandbox")
             captured = capsys.readouterr()
             assert DRY_RUN_SETTINGS_PLACEHOLDER in captured.out
         finally:

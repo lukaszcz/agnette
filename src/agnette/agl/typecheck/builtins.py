@@ -16,10 +16,10 @@ from weakref import proxy
 
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintBounds
-from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.diagnostics import Diagnostic, diagnostic_from_span
 from agnette.agl.ir.reserved_nominals import reserved_nominal_id
 from agnette.agl.modules.ids import STD_ENV_ID, spell_declaration
-from agnette.agl.scope.symbols import BindingRef, BuiltinKind, ConstructorRef
+from agnette.agl.scope.symbols import BindingRef, BuiltinKind
 from agnette.agl.semantics.analyses import nominal_references
 from agnette.agl.semantics.type_table import DeclId, TypeDef, parse_classification
 from agnette.agl.semantics.types import (
@@ -169,8 +169,6 @@ class BuiltinCheckCtx(Protocol):
         self, variable: InferenceVarType, default: Type, span: SourceSpan, subject: str
     ) -> None: ...
 
-    def _constructor_ref_for(self, node_id: int) -> ConstructorRef | None: ...
-
     def _binding_for(self, node_id: int) -> BindingRef: ...
 
     def _record_cast_spec(self, node_id: int, spec: CastSpec) -> None: ...
@@ -290,7 +288,7 @@ class BuiltinCallChecker:
     ) -> None:
         """Validate and register a context-specialized builtin function value."""
         if kind in {BuiltinKind.ASK, BuiltinKind.ASK_REQUEST}:
-            agent_request_type = self._resolve_host_record_contract("AgentRequest", span=span)
+            agent_request_type = self._resolve_host_record_contract(span=span)
             if kind is BuiltinKind.ASK_REQUEST and receiver_type is not None:
                 expected_agent = self._ctx._env.type_table.record_fields(agent_request_type)[
                     "agent"
@@ -767,7 +765,7 @@ class BuiltinCallChecker:
         argument alone, never from context: the expected type here is the
         request record, not the output the request asks for.
         """
-        agent_request_type = self._resolve_host_record_contract("AgentRequest", span=node.span)
+        agent_request_type = self._resolve_host_record_contract(span=node.span)
         explicit = self._resolve_explicit_target(node, "ask-request")
         target_type: Type = explicit if explicit is not None else TextType()
         reject_type_var_target("ask-request", target_type, node.span)
@@ -869,7 +867,7 @@ class BuiltinCallChecker:
         prompt_type = self._ctx._check_expr(node.args[0], expected=TextType())
         self._ctx._assert_assignable_from(prompt_type, TextType(), node.args[0].span, node.args[0])
         if agent_request_type is None:
-            agent_request_type = self._resolve_host_record_contract("AgentRequest", span=node.span)
+            agent_request_type = self._resolve_host_record_contract(span=node.span)
         expected_agent_type = self._ctx._env.type_table.record_fields(agent_request_type)["agent"]
         if receiver_type is not None and callee == "ask-request":
             self._ctx._assert_assignable(receiver_type, expected_agent_type, node.span)
@@ -937,15 +935,10 @@ class BuiltinCallChecker:
         ):
             return
         self._ctx._append_warning(
-            Diagnostic(
-                message=(
-                    "'parse-error-retries' has no effect on a text target: a text result "
-                    "never fails parsing, so no retry can ever fire."
-                ),
-                line=obligation.span.start_line,
-                column=obligation.span.start_col,
-                end_line=obligation.span.end_line,
-                end_column=obligation.span.end_col,
+            diagnostic_from_span(
+                "'parse-error-retries' has no effect on a text target: a text result "
+                "never fails parsing, so no retry can ever fire.",
+                obligation.span,
                 severity="warning",
             )
         )
@@ -1076,17 +1069,13 @@ class BuiltinCallChecker:
         """:meth:`contract_type` for a ``builtin enum`` contract *name*."""
         return cast(EnumType, self.contract_type(name))
 
-    def _resolve_host_record_contract(self, name: str, *, span: SourceSpan) -> RecordType:
-        """Resolve *name*'s host record contract, rejecting it if incoherent.
+    def _resolve_host_record_contract(self, *, span: SourceSpan) -> RecordType:
+        """Resolve the ``AgentRequest`` host record contract, rejecting it if incoherent.
 
-        Wraps :meth:`contract_type` for the two RECORD contracts a
-        host call mints directly (``AgentRequest``, ``ExecResult``) with the
-        one coherence check every such resolution needs
-        (:meth:`_check_host_contract_coherent`). *name* always names a
-        ``builtin record`` in the canonical prelude, so the resolved handle is
-        always a ``RecordType``.
+        Wraps :meth:`contract_record` with the coherence check every host-minted
+        record needs (:meth:`_check_host_contract_coherent`).
         """
-        contract_type = self.contract_record(name)
+        contract_type = self.contract_record("AgentRequest")
         self._check_host_contract_coherent(contract_type, span=span)
         return contract_type
 

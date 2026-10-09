@@ -11,7 +11,7 @@ from agnette.config.general import (
     load_merged_config,
     load_run_config,
 )
-from agnette.config.sandbox import sandbox_settings_candidates
+from agnette.config.sandbox.srt import sandbox_settings_candidates
 
 
 def test_load_run_config_merges_global_and_local_sections(tmp_path: Path) -> None:

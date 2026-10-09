@@ -85,7 +85,8 @@ from agnette.agl.diagnostics import AglError, AglTypeError
 from agnette.agl.matchcompile import cached_module_sites, compile_program_matches, match_issue_error
 from agnette.agl.modules.ids import ENTRY_ID, Reader, spell_declaration
 from agnette.agl.modules.loader import parse_entry_module
-from agnette.agl.repl import EntryResult, ReplSession
+from agnette.agl.repl import ReplSession
+from agnette.agl.repl.entry import EntryResult
 from agnette.agl.repl.type_display import format_type_for_repl
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import AmbiguousQualificationError, to_bare_path

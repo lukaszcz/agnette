@@ -27,10 +27,10 @@ import pytest
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintKind
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.parser import parse_program
-from agnette.agl.scope import AglScopeError
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.program import ResolvedProgram
 from agnette.agl.scope.symbols import (
+    AglScopeError,
     BinderKind,
     BindingRef,
     BuiltinKind,
@@ -53,12 +53,26 @@ from agnette.agl.semantics.types import (
     BUILTIN_PRELUDE_TYPE_NAMES,
     BUILTIN_PRELUDE_TYPES,
     EXCEPTION_BASE,
+    ArrayType,
+    BoolType,
+    BottomType,
     CastKind,
+    DecimalType,
+    DictType,
+    EnumType,
+    ExceptionType,
+    FunctionType,
     InferenceVarType,
+    IntType,
+    JsonType,
+    RecordType,
+    TextType,
+    Type,
+    TypeTemplate,
     TypeVarType,
+    UnitType,
     contains_inference_var,
     is_assignable,
-    is_json_shaped,
 )
 from agnette.agl.syntax.nodes import (
     ArrayLit,
@@ -73,7 +87,6 @@ from agnette.agl.syntax.nodes import (
     ConstructorPattern,
     DictEntry,
     DictLit,
-    Do,
     Expr,
     FieldAccess,
     FieldTarget,
@@ -86,6 +99,7 @@ from agnette.agl.syntax.nodes import (
     Item,
     Lambda,
     LetDecl,
+    Loop,
     OperatorRef,
     Param,
     Placeholder,
@@ -116,36 +130,19 @@ from agnette.agl.syntax.types import (
     UnitT,
 )
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck import (
-    AglTypeError,
-    ArrayType,
-    BoolType,
-    BottomType,
-    CheckedModule,
-    DecimalType,
-    DictType,
-    EnumType,
-    ExceptionType,
-    FunctionSignature,
-    FunctionType,
-    IntType,
-    JsonType,
-    ParamSpec,
-    PartialCallSpec,
-    RecordType,
-    TextType,
-    Type,
-    TypeEnvironment,
-    TypeTemplate,
-    UnitType,
-    assert_checked_module_closed,
-)
 from agnette.agl.typecheck.builder import _TypeBuilder
 from agnette.agl.typecheck.env import (
+    AglTypeError,
+    CheckedModule,
     CheckedModuleImage,
+    FunctionSignature,
     GenericTypeDef,
     OutputContractSpec,
+    ParamSpec,
+    PartialCallSpec,
+    TypeEnvironment,
     UnappliedGenericTypeError,
+    assert_checked_module_closed,
 )
 from agnette.agl.typecheck.function_inference import resolve_function_header
 from agnette.agl.typecheck.program import CheckedProgram
@@ -420,44 +417,8 @@ class TestBottomType:
 
 
 # ---------------------------------------------------------------------------
-# Types: is_json_shaped, comparable_types, is_assignable
+# Types: comparable_types, is_assignable
 # ---------------------------------------------------------------------------
-
-
-class TestIsJsonShaped:
-    def test_primitives(self) -> None:
-        for t in (TextType(), JsonType(), BoolType(), IntType(), DecimalType()):
-            assert is_json_shaped(t)
-
-    def test_array_of_json_shaped(self) -> None:
-        assert is_json_shaped(ArrayType(elem=IntType()))
-        assert is_json_shaped(ArrayType(elem=JsonType()))
-
-    def test_array_of_non_json(self) -> None:
-        assert not is_json_shaped(ArrayType(elem=UnitType()))
-
-    def test_dict_of_json_shaped(self) -> None:
-        assert is_json_shaped(DictType(key=TextType(), value=TextType()))
-
-    def test_record_not_json_shaped(self) -> None:
-        rt = RecordType(name="R")
-        assert not is_json_shaped(rt)
-
-    def test_enum_not_json_shaped(self) -> None:
-        et = EnumType(name="E")
-        assert not is_json_shaped(et)
-
-    def test_exception_not_json_shaped(self) -> None:
-        assert not is_json_shaped(ExceptionType(name="Ex"))
-
-    def test_unit_not_json_shaped(self) -> None:
-        assert not is_json_shaped(UnitType())
-
-    def test_function_not_json_shaped(self) -> None:
-        assert not is_json_shaped(FunctionType(params=(IntType(),), result=IntType()))
-
-    def test_bottom_not_json_shaped(self) -> None:
-        assert not is_json_shaped(BottomType())
 
 
 def _table_for(*typedefs: TypeDef) -> TypeTable:
@@ -633,7 +594,7 @@ class TestComparableTypes:
 
     def test_bottom_and_inference_var_never_comparable_with_real_bounds(self) -> None:
         assert not comparable_types(BottomType(), IntType(), _EMPTY_TABLE, bounds={})
-        iv = InferenceVarType("v")
+        iv = InferenceVarType()
         assert not comparable_types(iv, iv, _EMPTY_TABLE, bounds={})
 
 
@@ -739,11 +700,9 @@ class TestIsAssignable:
 
     def test_json_rejects_json_shaped_container(self) -> None:
         """An array/dict source is not implicitly absorbed into json — even one
-        that is JSON-shaped (is_json_shaped stays True; only is_assignable
-        narrows to scalars, since absorbing a container would rebuild it)."""
-        assert is_json_shaped(ArrayType(elem=IntType()))
+        that is JSON-shaped (only scalars are absorbed, since absorbing a
+        container would rebuild it)."""
         assert not is_assignable(ArrayType(elem=IntType()), JsonType())
-        assert is_json_shaped(DictType(key=TextType(), value=IntType()))
         assert not is_assignable(DictType(key=TextType(), value=IntType()), JsonType())
 
     def test_bottom_to_any(self) -> None:
@@ -995,7 +954,7 @@ class TestTypeEnvironment:
         source = TypeEnvironment(
             program_generic_table={
                 (ENTRY_ID, (), "Box"): GenericTypeDef(
-                    kind="record", type_params=("T",), template=InferenceVarType("leak")
+                    kind="record", type_params=("T",), template=InferenceVarType()
                 )
             }
         )
@@ -1239,7 +1198,7 @@ class TestCheckedOutputClosure:
         self, category: str
     ) -> None:
         checked = self._checked_with_all_type_bearing_side_tables()
-        flexible = InferenceVarType("leak")
+        flexible = InferenceVarType()
 
         if category == "node":
             checked = replace(checked, node_types={**checked.node_types, -1: flexible})
@@ -3039,16 +2998,16 @@ class TestAskRequest:
         from agnette.agl.typecheck.builtins import BuiltinCallChecker
 
         original = BuiltinCallChecker._resolve_host_record_contract
-        calls: list[str] = []
+        calls: list[None] = []
 
-        def counting(self: BuiltinCallChecker, name: str, *, span: SourceSpan) -> RecordType:
-            calls.append(name)
-            return original(self, name, span=span)
+        def counting(self: BuiltinCallChecker, *, span: SourceSpan) -> RecordType:
+            calls.append(None)
+            return original(self, span=span)
 
         with patch.object(BuiltinCallChecker, "_resolve_host_record_contract", counting):
             r = accept_type('ask-request("Q")')
         assert r.resolved.program is not None
-        assert calls == ["AgentRequest"]
+        assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -5133,8 +5092,8 @@ class TestPartialConstructorAndValueCalls:
         verdict, not a further ambiguity."""
         from pathlib import Path
 
-        from agnette.agl.scope import AglScopeError
         from agnette.agl.scope.program import resolve_program
+        from agnette.agl.scope.symbols import AglScopeError
         from agnette.agl.typecheck.program import check_program
         from tests.agl.ir_harness import make_graph_from_files
 
@@ -5700,7 +5659,7 @@ class TestDo:
     def test_do_yields_unit(self) -> None:
         r = accept_type("var i = 0\ndo\n  i := i + 1\nuntil i > 5")
         do_node = r.resolved.program.body.items[1]
-        assert isinstance(do_node, Do)
+        assert isinstance(do_node, Loop)
         t = r.node_types[do_node.node_id]
         assert t == UnitType()
 
@@ -5721,7 +5680,7 @@ class TestDo:
     def test_loop_body_binder_is_unit_and_visible_to_until(self) -> None:
         r = accept_type("do\n  let finished = true\nuntil finished")
         do_node = r.resolved.program.body.items[0]
-        assert isinstance(do_node, Do)
+        assert isinstance(do_node, Loop)
         assert r.node_types[do_node.body.node_id] == UnitType()
         assert r.node_types[do_node.node_id] == UnitType()
         binding = do_node.body.items[0]
@@ -11537,7 +11496,7 @@ class TestGenerics:
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
         engine = InferenceEngine()
         checker._inference_region = _InferenceRegion(engine, {}, {}, [])
-        unresolved = engine.fresh("target")
+        unresolved = engine.fresh()
         with pytest.raises(AglTypeError, match="concrete target"):
             checker._builtins.finalize(
                 PendingBuiltinObligation(
@@ -12071,7 +12030,7 @@ class TestGenericConstructorInference:
         checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
         engine = InferenceEngine()
         checker._inference_region = _InferenceRegion(engine, {}, {}, [])
-        flexible_owner = RecordType("Box", type_args=(engine.fresh("T"),))
+        flexible_owner = RecordType("Box", type_args=(engine.fresh(),))
         with pytest.raises(AssertionError, match="flexible"):
             checker._zonk_constructor_owner(flexible_owner)
 

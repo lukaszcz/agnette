@@ -23,7 +23,6 @@ from typing import assert_never, cast
 from agnette.agl.ir.builtin_nominals import (
     NO_BUILTIN_DECLARATIONS,
     BuiltinNominals,
-    DeclaredNominal,
 )
 from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import (
@@ -130,11 +129,9 @@ from agnette.agl.ir.operations import (
     ArithKind,
     ArithOp,
     CmpOp,
-    CompareKind,
     ContainsKind,
     CopyKind,
     IndexKind,
-    IterKind,
     MutableIndexKind,
     NumericKind,
 )
@@ -168,7 +165,6 @@ from agnette.agl.modules.ids import (
     STD_CONFIG_ID,
     STD_ENV_ID,
     ModuleId,
-    spell_scope_path,
 )
 from agnette.agl.scope.bindings import ModuleBindingReferences
 from agnette.agl.scope.symbols import (
@@ -390,9 +386,8 @@ def _add_builtin_nominals(
 def builtin_nominals_from_declarations(type_table: TypeTable) -> BuiltinNominals:
     """Return the built-in nominal table for every currently-resolved ``builtin`` declaration.
 
-    Maps each bare name with a live ``builtin`` declaration to a
-    ``DeclaredNominal`` pairing its own identity with its declared source
-    spelling, read from
+    Maps each bare name with a live ``builtin`` declaration to its own
+    identity, read from
     :meth:`~agnette.agl.semantics.type_table.TypeTable.builtin_declarations`
     -- the SAME resolution (same forward-scan, last-match-wins tie-break,
     same orphan skip) the checker itself queries
@@ -406,22 +401,13 @@ def builtin_nominals_from_declarations(type_table: TypeTable) -> BuiltinNominals
     :meth:`~agnette.agl.ir.builtin_nominals.BuiltinNominals.resolve`).
     """
     declarations = type_table.builtin_declarations()
-    declared = {
-        name: DeclaredNominal(
-            nominal=NominalId(typedef.decl_node_id),
-            display_name=spell_scope_path((*typedef.scope_path, typedef.name)),
-        )
-        for name, typedef in declarations.items()
-    }
+    declared = {name: NominalId(typedef.decl_node_id) for name, typedef in declarations.items()}
 
     def member_nominals(
         definitions: Mapping[str, TypeDef],
-    ) -> dict[tuple[str, str], DeclaredNominal]:
+    ) -> dict[tuple[str, str], NominalId]:
         return {
-            (name, member.name): DeclaredNominal(
-                nominal=NominalId(member.decl_id),
-                display_name=spell_scope_path((*typedef.scope_path, typedef.name, member.name)),
-            )
+            (name, member.name): NominalId(member.decl_id)
             for name, typedef in definitions.items()
             if typedef.kind == "enum"
             for member in typedef.members
@@ -476,8 +462,8 @@ class _LinkState:
     # declaration order (``None`` for a required field). Populated while a
     # declaring module's own items are lowered (``_Lowerer._lower_field_defaults``)
     # and read back once every module has been processed, building nominal
-    # descriptors (``_record_descriptor``/``exception_descriptor`` in
-    # ``lower/program.py``) — the constructor counterpart of
+    # descriptors (``record_descriptor``/``exception_descriptor`` in
+    # ``lower/nominal_descriptors.py``) — the constructor counterpart of
     # ``IrFunctionParam.default``, persisted across REPL entries like
     # ``functions``/``symbols`` so an already-linked module's descriptors keep
     # their defaults without being lowered again.
@@ -651,7 +637,7 @@ class _Lowerer:
         *,
         has_std_env: bool = False,
         stable_ids: bool = False,
-        contract_payloads: Mapping[int, ContractPayload] | None = None,
+        contract_payloads: Mapping[int, ContractPayload],
     ) -> None:
         self._checked = checked
         self._link = link
@@ -673,9 +659,7 @@ class _Lowerer:
         # and variant shapes for constructor lowering, nominal descriptors,
         # and contract/param schema derivation.
         self._type_table: TypeTable = checked.type_env.type_table
-        self._contract_payloads: Mapping[int, ContractPayload] = (
-            contract_payloads if contract_payloads is not None else {}
-        )
+        self._contract_payloads = contract_payloads
         self._return_expected_stack: list[Type] = []
         # The function whose body is being lowered, if any. A binding declared
         # there is owned by that function: it lives in a per-invocation call
@@ -771,7 +755,6 @@ class _Lowerer:
         name: str,
         mutable: bool,
         public: bool,
-        owner: "ModuleId | FunctionId | None" = None,
     ) -> SymbolId:
         """Return a pre-allocated declaration symbol or allocate a nested one."""
         sym = self._link.decl_to_sym.get(decl_node_id)
@@ -782,7 +765,6 @@ class _Lowerer:
             name=name,
             mutable=mutable,
             public=public,
-            owner=owner,
         )
 
     def _alloc_synthetic_sym(
@@ -855,10 +837,7 @@ class _Lowerer:
             # "text" is a reserved codec name (see `BUILTIN_CODEC_NAMES`): a
             # host codec can never register under it.
             return TextContractRequest(
-                strict_json=spec.strict_json,
-                target_type_label=repr(target),
-                structured_exec=structured_exec,
-                format_instructions="",
+                target_type_label=repr(target), structured_exec=structured_exec
             )
         payload = self._contract_payloads[node_id]
         return CustomContractRequest(
@@ -1194,12 +1173,7 @@ class _Lowerer:
             body_ir: IrExpr
             if funcdef.is_synthetic:
                 block = cast(Block, body)
-                body_ir = self._lower_block(
-                    block.items,
-                    block.span,
-                    top_level=True,
-                    force_unit_result=True,
-                )
+                body_ir = self._lower_block(block.items, block.span, synthetic_main=True)
             else:
                 body_ir = self.lower_coerced(body, sig.result)
 
@@ -1741,7 +1715,7 @@ class _Lowerer:
         """Desugar a ``Loop`` AST node to ``IrLoop(body)``.
 
         **Collection for — pre-loop** (emitted as needed):
-        - ``IrBind(__it, IrIterInit(kind, lower(for_iter_expr)))``  — mutable; for ``for``
+        - ``IrBind(__it, IrIterInit(lower(for_iter_expr)))``  — mutable; for ``for``
         - ``IrBind(__n, lower_coerced(bound_expr, IntType()))``      — immutable; for bound
         - ``IrBind(__count, IrConstInt(0))``                         — mutable; for bound
 
@@ -1809,8 +1783,7 @@ class _Lowerer:
             pre_items.append(IrBind(location=loc, symbol=step_sym, value=step_value))
             range_syms = (cur_sym, end_sym, step_sym)
             # Step guard: if __step <= 0 => raise RangeError(...)
-            range_error = self._link.builtin_nominals.resolve("RangeError")
-            range_error_nominal = range_error.nominal
+            range_error_nominal = self._link.builtin_nominals.resolve("RangeError")
             pre_items.append(
                 IrIf(
                     location=loc,
@@ -1819,7 +1792,6 @@ class _Lowerer:
                             cond=IrCompare(
                                 location=loc,
                                 op=CmpOp.LE,
-                                kind=CompareKind.INT,
                                 lhs=IrLoad(location=loc, symbol=step_sym),
                                 rhs=IrConstInt(location=loc, value=0),
                             ),
@@ -1847,13 +1819,6 @@ class _Lowerer:
         else:
             # ---- Collection for pre-loop ----
             if for_iter_expr is not None:
-                iter_type = self._node_type(for_iter_expr.node_id)
-                if isinstance(iter_type, ArrayType):
-                    iter_kind = IterKind.ARRAY
-                elif isinstance(iter_type, DictType):
-                    iter_kind = IterKind.DICT_KEYS
-                else:  # TextType
-                    iter_kind = IterKind.TEXT
                 it_sym = self._alloc_synthetic_sym(mutable=True)
                 pre_items.append(
                     IrBind(
@@ -1861,7 +1826,6 @@ class _Lowerer:
                         symbol=it_sym,
                         value=IrIterInit(
                             location=loc,
-                            kind=iter_kind,
                             collection=self.lower_expr(for_iter_expr),
                         ),
                     )
@@ -1905,7 +1869,6 @@ class _Lowerer:
                             cond=IrCompare(
                                 location=loc,
                                 op=term_op,
-                                kind=CompareKind.INT,
                                 lhs=IrLoad(location=loc, symbol=cur_sym),
                                 rhs=IrLoad(location=loc, symbol=end_sym),
                             ),
@@ -1999,8 +1962,9 @@ class _Lowerer:
                 self._source_slice(until_cond_expr.span) if until_cond_expr is not None else "false"
             )
             # Inner if: if __count == 0 => IrBreak else => IrRaise(MaxIterationsExceeded)
-            max_iterations_exceeded = self._link.builtin_nominals.resolve("MaxIterationsExceeded")
-            max_iterations_exceeded_nominal = max_iterations_exceeded.nominal
+            max_iterations_exceeded_nominal = self._link.builtin_nominals.resolve(
+                "MaxIterationsExceeded"
+            )
             inner_if = IrIf(
                 location=loc,
                 branches=(
@@ -2008,7 +1972,6 @@ class _Lowerer:
                         cond=IrCompare(
                             location=loc,
                             op=CmpOp.EQ,
-                            kind=CompareKind.STRUCTURAL,
                             lhs=IrLoad(location=loc, symbol=count_sym),
                             rhs=IrConstInt(location=loc, value=0),
                         ),
@@ -2059,7 +2022,6 @@ class _Lowerer:
                             cond=IrCompare(
                                 location=loc,
                                 op=CmpOp.GE,
-                                kind=CompareKind.INT,
                                 lhs=IrLoad(location=loc, symbol=count_sym),
                                 rhs=IrLoad(location=loc, symbol=n_sym),
                             ),
@@ -2264,7 +2226,7 @@ class _Lowerer:
         )
 
     def _lower_equality(self, op: BinOp, lhs: _Operand, rhs: _Operand, loc: Location) -> IrCompare:
-        """Lower EQ/NEQ: use STRUCTURAL kind; mixed int/decimal operands compare exactly."""
+        """Lower EQ/NEQ; mixed int/decimal operands compare exactly."""
         if isinstance(lhs.type, DecimalType) or isinstance(rhs.type, DecimalType):
             common: Type = DecimalType()
         else:
@@ -2272,26 +2234,21 @@ class _Lowerer:
         return IrCompare(
             location=loc,
             op=CmpOp.EQ if op is BinOp.EQ else CmpOp.NEQ,
-            kind=CompareKind.STRUCTURAL,
             lhs=self._compared_operand(lhs, common),
             rhs=self._compared_operand(rhs, common),
         )
 
     def _lower_ordering(self, op: BinOp, lhs: _Operand, rhs: _Operand, loc: Location) -> IrCompare:
-        """Lower LT/LE/GT/GE with kind based on operand types."""
+        """Lower LT/LE/GT/GE over the operands' common type."""
         if isinstance(lhs.type, TextType) and isinstance(rhs.type, TextType):
             common: Type = TextType()
-            kind = CompareKind.TEXT
         elif isinstance(lhs.type, DecimalType) or isinstance(rhs.type, DecimalType):
             common = DecimalType()
-            kind = CompareKind.DECIMAL
         else:
             common = IntType()
-            kind = CompareKind.INT
         return IrCompare(
             location=loc,
             op=_CMP_OP_MAP[op],
-            kind=kind,
             lhs=self._compared_operand(lhs, common),
             rhs=self._compared_operand(rhs, common),
         )
@@ -2834,13 +2791,13 @@ class _Lowerer:
                             receiver=self.lower_expr(call_node.args[0]),
                             is_session=is_session,
                         )
-                    return self._lower_indirect_call(call_node, nid, span)
-                return self._lower_direct_call(call_node, callee_ref, nid, span)
+                    return self._lower_indirect_call(call_node, span)
+                return self._lower_direct_call(callee_ref, nid, span)
 
         # Indirect/value call: callee is an arbitrary expression (lambda, let-bound
         # closure, function-value param, etc.).  Named args are rejected by the checker at
         # value-call sites, so only positional args exist here.
-        return self._lower_indirect_call(call_node, nid, span)
+        return self._lower_indirect_call(call_node, span)
 
     def _lower_direct_call_with_args(
         self,
@@ -2859,7 +2816,6 @@ class _Lowerer:
 
     def _lower_direct_call(
         self,
-        call_node: CompleteCall,
         callee_ref: BindingRef,
         result_node_id: int,
         span: "SourceSpan",
@@ -2928,7 +2884,6 @@ class _Lowerer:
     def _lower_indirect_call(
         self,
         call_node: CompleteCall,
-        result_node_id: int,
         span: "SourceSpan",
     ) -> IrIndirectCall:
         """Lower an indirect (value) call to IrIndirectCall.
@@ -3260,22 +3215,21 @@ class _Lowerer:
         items: tuple[Item, ...],
         span: SourceSpan,
         *,
-        top_level: bool = False,
-        force_unit_result: bool = False,
+        synthetic_main: bool = False,
     ) -> IrBlock:
         """Lower a ``Block``'s items to an ``IrBlock``.
 
-        Items are normally lowered as **nested** (``top_level=False``), so their
-        ``let``/``var`` binders are private. The synthesized inline ``main`` is
-        the one exception: its direct body items use ``top_level=True`` so the
-        evaluator can report its final locals. ``force_unit_result`` discards
-        that generated entry's final expression value after preserving its
-        effects. Scope rejects static declarations in ordinary blocks, so every
-        reachable item must lower to a runtime expression.
+        Items are normally lowered as **nested**, so their ``let``/``var``
+        binders are private. The synthesized inline ``main`` is the one
+        exception (*synthetic_main*): its direct body items are lowered
+        top-level so the evaluator can report its final locals, and its final
+        expression value is discarded after preserving its effects. Scope
+        rejects static declarations in ordinary blocks, so every reachable item
+        must lower to a runtime expression.
         """
         real: list[IrExpr] = []
         for item in items:
-            real.append(cast(IrExpr, self.lower_item(item, top_level=top_level)))
+            real.append(cast(IrExpr, self.lower_item(item, top_level=synthetic_main)))
             if self._item_is_bottom(item):
                 break
         if not real:
@@ -3283,7 +3237,7 @@ class _Lowerer:
         else:
             last = items[-1]
             if (
-                force_unit_result or isinstance(last, (LetDecl, VarDecl))
+                synthetic_main or isinstance(last, (LetDecl, VarDecl))
             ) and not self._item_is_bottom(last):
                 real.append(IrConstUnit(location=self._loc(last.span)))
         return IrBlock(location=self._loc(span), items=tuple(real))
@@ -3686,12 +3640,12 @@ class _Lowerer:
         """Build exec's ambient environment, cwd, timeout, and sandbox defaults."""
         env = self._default_environ_operand(loc)
         option_none = self._link.builtin_nominals.resolve_standard_member("Option", "None")
-        cwd = IrMakeRecord(location=loc, nominal=option_none.nominal, fields=())
+        cwd = IrMakeRecord(location=loc, nominal=option_none, fields=())
         timeout = IrBuiltinLoad(
             location=loc,
             key=builtin_var_key(STD_CONFIG_ID, (), "timeout"),
         )
-        sandbox = IrMakeRecord(location=loc, nominal=option_none.nominal, fields=())
+        sandbox = IrMakeRecord(location=loc, nominal=option_none, fields=())
         return env, cwd, timeout, sandbox
 
     def _lower_exec_operands(
@@ -3765,7 +3719,7 @@ class _Lowerer:
     # Item lowering
     # ------------------------------------------------------------------
 
-    def lower_item(self, item: Item, *, top_level: bool = False) -> IrExpr | None:
+    def lower_item(self, item: Item, *, top_level: bool) -> IrExpr | None:
         """Lower a block item.
 
         Returns an ``IrExpr`` for nodes with runtime action, or ``None`` for
@@ -3780,12 +3734,10 @@ class _Lowerer:
         top_level:
             When ``True``, ``let``/``var`` binders are allocated with
             ``public=True`` so they appear in ``_collect_results``.  When
-            ``False`` (the default), binders are allocated with ``public=False``
+            ``False``, binders are allocated with ``public=False``
             — they live in the flat per-invocation frame but are not exported.
-            The module-initializer driver passes ``top_level=True``; all block
-            bodies (``_lower_block``, if/try/case/do branch bodies) use the
-            default ``False`` so future control-flow nodes inherit safe behaviour
-            automatically.
+            The module-initializer driver and the synthesized ``main`` pass
+            ``True``; all other block bodies pass ``False``.
         """
         match item:
             # ----------------------------------------------------------
@@ -3991,8 +3943,6 @@ class _Lowerer:
     def lower_initializers(
         self,
         body: Block,
-        *,
-        top_level: bool,
     ) -> tuple[IrExpr, ...]:
         """Lower one module body and publish its initializer origins.
 
@@ -4013,7 +3963,7 @@ class _Lowerer:
         other_items: list[Item] = []
         for source_index, member in enumerate(static_items(body.items)):
             is_function = isinstance(member, FuncDef) and not member.is_builtin
-            ir = self.lower_item(member, top_level=top_level)
+            ir = self.lower_item(member, top_level=True)
             if ir is None:
                 continue
             origin = InitializerOrigin(source_index=source_index, is_function=is_function)

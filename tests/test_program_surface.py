@@ -45,12 +45,8 @@ def _param(
         module=ModuleId.from_path(module),
         scope_path=scope,
         name=name,
-        node_id=1,
-        span=_SPAN,
         type=type_,
-        mutable=False,
         cli=_option(name if external is None else external, short=short, hidden=hidden),
-        doc=None,
     )
 
 

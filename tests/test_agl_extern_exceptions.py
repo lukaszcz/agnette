@@ -191,7 +191,7 @@ def test_ordinary_python_exceptions_become_extern_error_and_base_exceptions_prop
             nominals=NO_BUILTIN_DECLARATIONS,
             descriptors=_NO_DESCRIPTORS,
         )
-    assert ordinary.value.exc.nominal == NO_BUILTIN_DECLARATIONS.resolve("ExternError").nominal
+    assert ordinary.value.exc.nominal == NO_BUILTIN_DECLARATIONS.resolve("ExternError")
     assert ordinary.value.exc.fields["python-type"] == TextValue("RuntimeError")
 
     with pytest.raises(KeyboardInterrupt):

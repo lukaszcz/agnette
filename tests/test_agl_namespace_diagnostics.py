@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.modules.loader import ModuleGraph
-from agnette.agl.parser import parse_program
 from agnette.agl.parser.errors import AglSyntaxError
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousQualificationError,

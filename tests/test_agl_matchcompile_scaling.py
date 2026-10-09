@@ -19,7 +19,7 @@ from agnette.agl.matchcompile.normalize import normalize_case
 from agnette.agl.semantics.types import BoolType, EnumType
 from agnette.agl.syntax.nodes import Case
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck import CheckedModule
+from agnette.agl.typecheck.env import CheckedModule
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
 _CAPS = HostCapabilities(

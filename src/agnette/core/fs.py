@@ -43,7 +43,7 @@ def read_text(path: Path, *, encoding: str = "utf-8") -> str:
     return path.read_text(encoding=encoding)
 
 
-def read_text_arg_or_none(path: Path, *, encoding: str = "utf-8") -> str | None:
+def read_text_arg_or_none(path: Path) -> str | None:
     """Read text from a user-supplied *path* argument, reporting failure.
 
     On failure, print a friendly ``Error: ...`` message to stderr (using the
@@ -54,7 +54,7 @@ def read_text_arg_or_none(path: Path, *, encoding: str = "utf-8") -> str | None:
     """
 
     try:
-        return path.read_text(encoding=encoding)
+        return path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         print(
             f"Error: cannot read {display_path(path)}: file is not valid UTF-8 text",
@@ -67,14 +67,14 @@ def read_text_arg_or_none(path: Path, *, encoding: str = "utf-8") -> str | None:
         return None
 
 
-def read_text_arg(path: Path, *, encoding: str = "utf-8") -> str:
+def read_text_arg(path: Path) -> str:
     """Read text from a user-supplied *path* argument.
 
     On failure, print a friendly ``Error: ...`` message to stderr (using the
     repo's display-path convention) and raise ``SystemExit(1)``.
     """
 
-    text = read_text_arg_or_none(path, encoding=encoding)
+    text = read_text_arg_or_none(path)
     if text is None:
         raise SystemExit(1)
     return text
@@ -123,17 +123,13 @@ def is_empty_dir(path: Path) -> bool:
     return not any(iterdir(path))
 
 
-def access(path: Path, mode: int) -> bool:
-    return os.access(path, mode)
-
-
-def mkdir(path: Path, *, parents: bool = False, exist_ok: bool = False) -> None:
-    """Create a directory unless dry-run is enabled."""
+def mkdir(path: Path) -> None:
+    """Create a directory and any missing parents unless dry-run is enabled."""
 
     if dry_run.enabled():
         dry_run.print_operation("mkdir", display_path(path))
         return
-    path.mkdir(parents=parents, exist_ok=exist_ok)
+    path.mkdir(parents=True, exist_ok=True)
 
 
 def write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
@@ -145,13 +141,13 @@ def write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
     path.write_text(content, encoding=encoding)
 
 
-def write_text_atomic(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+def write_text_atomic(path: Path, content: str) -> None:
     """Write text through a temporary sibling that replaces *path* in one step.
 
     See :func:`write_bytes_atomic` for the atomicity and dry-run contract.
     """
 
-    write_bytes_atomic(path, (content.encode(encoding),))
+    write_bytes_atomic(path, (content.encode(),))
 
 
 def write_bytes_atomic(path: Path, chunks: Iterable[bytes]) -> None:
@@ -196,13 +192,13 @@ def chmod(path: Path, mode: int) -> None:
     path.chmod(mode)
 
 
-def append_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+def append_text(path: Path, content: str) -> None:
     """Append text unless dry-run is enabled."""
 
     if dry_run.enabled():
         dry_run.print_operation("append-file", display_path(path))
         return
-    with path.open("a", encoding=encoding) as handle:
+    with path.open("a", encoding="utf-8") as handle:
         handle.write(content)
 
 
@@ -233,7 +229,7 @@ def move(source: Path, destination: Path) -> None:
     shutil.move(source, destination)
 
 
-def copy_tree(source: Path, destination: Path, *, dirs_exist_ok: bool = False) -> None:
+def copy_tree(source: Path, destination: Path) -> None:
     """Copy a tree, preserving source links and refusing linked roots or destinations.
 
     Descendant symbolic links are copied as links rather than dereferenced. A linked
@@ -254,7 +250,6 @@ def copy_tree(source: Path, destination: Path, *, dirs_exist_ok: bool = False) -
         source,
         destination,
         copy_function=shutil.copy2,
-        dirs_exist_ok=dirs_exist_ok,
         symlinks=True,
     )
 

@@ -29,7 +29,7 @@ from agnette.agl.semantics.type_table import create_seeded_type_table
 from agnette.agl.semantics.types import BoolType, DecimalType, IntType, JsonType, TextType, Type
 from agnette.agl.semantics.values import DictValue, IntValue, RecordValue
 from agnette.agl.type_schema import build_param_decoder, derive_schema_and_decode
-from agnette.agl.typecheck import CheckedModule
+from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.value_syntax.reader import read_value
 from tests._agl_helpers import build_decode_schema, record_type, type_table_for
 from tests.agl.module_graph import resolve_and_check_repl_entry

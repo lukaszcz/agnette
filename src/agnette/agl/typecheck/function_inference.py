@@ -552,7 +552,7 @@ def _infer_function_component(
         )
         receiver_owner = module.resolved.receiver_owner_for(module.module_id, node)
         checker._validate_funcdef_header(node, is_method=receiver_owner is not None)
-        result = engine.fresh(f"{node.name} result")
+        result = engine.fresh()
         signature, function_type, receiver = resolve_function_header(
             module.env,
             node,

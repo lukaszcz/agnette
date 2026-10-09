@@ -16,9 +16,7 @@ from agnette.agl.syntax.nodes import QualifierChain, QualifierSegment, VariantRe
 from agnette.agl.syntax.types import AppliedT, NameT, TypeExpr
 
 __all__ = [
-    "MemberHidden",
     "MemberReferenced",
-    "MemberSelection",
     "is_nominal_type_expr",
     "member_chain",
     "owner_member_selection",

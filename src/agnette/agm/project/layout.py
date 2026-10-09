@@ -188,15 +188,13 @@ def require_project_dir(project_dir: Path) -> Path:
     raise SystemExit(1)
 
 
-def require_current_project_dir(
-    cwd: Path | None = None, *, env: Mapping[str, str] | None = None
-) -> Path:
+def require_current_project_dir(cwd: Path | None = None) -> Path:
     """Resolve and validate the current AgM project directory."""
 
-    project_dir = discover_current_project_dir(cwd, env=env)
+    project_dir = discover_current_project_dir(cwd)
     if project_dir is not None:
         return project_dir.resolve()
-    return require_project_dir(current_workspace_or_project_root(cwd, env=env))
+    return require_project_dir(current_workspace_or_project_root(cwd))
 
 
 def current_workspace(
@@ -353,7 +351,7 @@ def project_notes_dir(project_dir: Path) -> Path:
     return project_dir / "notes"
 
 
-def is_main_workspace_branch(project_dir: Path, branch: str, *, repo_branch: str) -> bool:
+def is_main_workspace_branch(branch: str, *, repo_branch: str) -> bool:
     """Return whether *branch* resolves to the main workspace."""
 
     return branch in {MAIN_WORKSPACE_NAME, repo_branch}
@@ -362,7 +360,7 @@ def is_main_workspace_branch(project_dir: Path, branch: str, *, repo_branch: str
 def branch_worktree_path(project_dir: Path, branch: str, *, repo_branch: str) -> Path:
     """Return the workspace path corresponding to *branch*."""
 
-    if is_main_workspace_branch(project_dir, branch, repo_branch=repo_branch):
+    if is_main_workspace_branch(branch, repo_branch=repo_branch):
         return project_repo_dir(project_dir)
     return default_worktrees_dir(project_dir) / branch
 
@@ -384,7 +382,7 @@ def parent_config_branch(project_dir: Path, parent: str | None) -> str | None:
     repo_dir = project_repo_dir(project_dir)
     repo_branch = git_helpers.current_branch(repo_dir)
     resolved_parent = parent or repo_branch
-    if is_main_workspace_branch(project_dir, resolved_parent, repo_branch=repo_branch):
+    if is_main_workspace_branch(resolved_parent, repo_branch=repo_branch):
         return None
     return resolved_parent
 
@@ -398,7 +396,7 @@ def branch_session_name(project_dir: Path, branch: str) -> str:
         return name
 
     repo_branch = git_helpers.current_branch(project_repo_dir(project_dir))
-    if is_main_workspace_branch(project_dir, branch, repo_branch=repo_branch):
+    if is_main_workspace_branch(branch, repo_branch=repo_branch):
         return name
     return f"{name}/{_tmux_session_name(branch)}"
 
@@ -406,7 +404,7 @@ def branch_session_name(project_dir: Path, branch: str) -> str:
 def exit_if_main_workspace_branch(project_dir: Path, branch: str, *, repo_branch: str) -> None:
     """Exit when *branch* resolves to the main workspace."""
 
-    if not is_main_workspace_branch(project_dir, branch, repo_branch=repo_branch):
+    if not is_main_workspace_branch(branch, repo_branch=repo_branch):
         return
     print(
         (

@@ -28,27 +28,25 @@ from agnette.agl.scope.symbols import (
     UnknownQualifierError,
 )
 from agnette.agl.semantics.types import (
-    InferenceVarType,
-    contains_inference_var,
-)
-from agnette.agl.semantics.values import BoolValue, IntValue, TextValue
-from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.typecheck import (
-    AglTypeError,
     ArrayType,
     BoolType,
-    CheckedModule,
-    CheckedProgram,
     EnumType,
     ExceptionType,
     FunctionType,
+    InferenceVarType,
     IntType,
     RecordType,
     TextType,
     Type,
-    TypeEnvironment,
     TypeVarType,
     UnitType,
+    contains_inference_var,
+)
+from agnette.agl.semantics.values import BoolValue, IntValue, TextValue
+from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.typecheck.env import AglTypeError, CheckedModule, TypeEnvironment
+from agnette.agl.typecheck.program import (
+    CheckedProgram,
     assert_checked_program_closed,
     check_program,
 )
@@ -3281,9 +3279,9 @@ def test_unannotated_binding_pre_pass_type_matches_the_authoritative_check(
     with the module's own authoritative body check, across diverse initializer
     shapes: int, negated int, text, a record constructor, an array, a dict.
 
-    Observes the pre-pass's own ``program_static_binding_table`` (via a
-    separate :func:`_prepare_program` call over the same resolved program)
-    independently of ``published_binding_types``, which is read off the
+    Observes the pre-pass's binding types seeded into the prepared module
+    environments (via a separate :func:`_prepare_program` call over the same
+    resolved program) independently of ``published_binding_types``, which is read off the
     authoritative check and so would trivially agree with itself.
     """
     from agnette.agl.syntax.nodes import LetDecl, VarDecl, static_binding_node_id
@@ -3309,15 +3307,16 @@ def test_unannotated_binding_pre_pass_type_matches_the_authoritative_check(
     checked = check_program(resolved, AGL_TEST_CAPS)
 
     lib = checked.modules[ModuleId.from_path("lib")]
-    pre_pass_table = prepared.program_static_binding_table
+    pre_pass_env = prepared.module_envs[ModuleId.from_path("lib")]
     checked_names = set()
     for item in checked_module_items(lib):
         if not isinstance(item, (LetDecl, VarDecl)):
             continue
         node_id = static_binding_node_id(item)
-        if node_id not in pre_pass_table:
+        pre_pass_type = pre_pass_env.get_binding_type(node_id)
+        if pre_pass_type is None:
             continue
-        assert pre_pass_table[node_id] == lib.type_env.get_binding_type(node_id)
+        assert pre_pass_type == lib.type_env.get_binding_type(node_id)
         checked_names.add(node_id)
     assert len(checked_names) == 6, "expected every diverse-shaped binding to be published"
 
@@ -4151,6 +4150,7 @@ def test_cross_module_generic_record_template_has_module_id(tmp_path: Path) -> N
     Tested via the internal _build_program_type_table function to access the
     program_generic_table, which is not exposed on the public CheckedProgram API.
     """
+    from agnette.agl.semantics.type_table import create_seeded_type_table
     from agnette.agl.typecheck.program import _build_program_type_table
 
     modules = {
@@ -4159,7 +4159,9 @@ def test_cross_module_generic_record_template_has_module_id(tmp_path: Path) -> N
     }
     mg = _make_graph_from_files(tmp_path, modules)
     rg = resolve_program(mg)
-    program_generic_table = _build_program_type_table(rg).generics
+    program_generic_table = _build_program_type_table(
+        rg, type_table=create_seeded_type_table()
+    ).generics
 
     lib_id = ModuleId.from_path("lib")
     gdef = program_generic_table.get((lib_id, (), "Box"))
@@ -4181,6 +4183,7 @@ def test_cross_module_generic_enum_template_has_module_id(tmp_path: Path) -> Non
     Tested via the internal _build_program_type_table function to access the
     program_generic_table, which is not exposed on the public CheckedProgram API.
     """
+    from agnette.agl.semantics.type_table import create_seeded_type_table
     from agnette.agl.typecheck.program import _build_program_type_table
 
     modules = {
@@ -4189,7 +4192,9 @@ def test_cross_module_generic_enum_template_has_module_id(tmp_path: Path) -> Non
     }
     mg = _make_graph_from_files(tmp_path, modules)
     rg = resolve_program(mg)
-    program_generic_table = _build_program_type_table(rg).generics
+    program_generic_table = _build_program_type_table(
+        rg, type_table=create_seeded_type_table()
+    ).generics
 
     lib_id = ModuleId.from_path("lib")
     gdef = program_generic_table.get((lib_id, (), "Opt"))
@@ -4567,14 +4572,14 @@ def test_checked_module_graph_rejects_a_flexible_graph_type(tmp_path: Path) -> N
     key = next(iter(graph.program_type_table))
     leaked = replace(
         graph,
-        program_type_table={**graph.program_type_table, key: InferenceVarType("leak")},
+        program_type_table={**graph.program_type_table, key: InferenceVarType()},
     )
 
     with pytest.raises(AssertionError, match="leaked"):
         assert_checked_program_closed(leaked)
 
     entry = graph.modules[ENTRY_ID]
-    leaked_module = replace(entry, node_types={**entry.node_types, -1: InferenceVarType("leak")})
+    leaked_module = replace(entry, node_types={**entry.node_types, -1: InferenceVarType()})
     leaked = replace(graph, modules={**graph.modules, ENTRY_ID: leaked_module})
     with pytest.raises(AssertionError, match="leaked"):
         assert_checked_program_closed(leaked)

@@ -23,7 +23,6 @@ class _InstallArgs(Protocol):
 class InstallUserConfigResult:
     installed: list[Path]
     skipped: list[Path]
-    pruned: list[Path]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,7 +85,6 @@ def install_user_config(
 
     installed: list[Path] = []
     skipped: list[Path] = []
-    pruned: list[Path] = []
 
     config_source = repo_root / "config" / "config.toml"
     config_destination = agm_config_dir / "config.toml"
@@ -119,7 +117,7 @@ def install_user_config(
             skipped=skipped,
         )
 
-    return InstallUserConfigResult(installed=installed, skipped=skipped, pruned=pruned)
+    return InstallUserConfigResult(installed=installed, skipped=skipped)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -134,8 +132,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Installed {path}")
     for path in result.skipped:
         print(f"Skipped {path}")
-    for path in result.pruned:
-        print(f"Removed {path}")
     return 0
 
 

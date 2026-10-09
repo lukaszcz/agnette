@@ -368,8 +368,10 @@ def test_installer_failure_removes_the_download_and_preserves_the_original_error
     assert not tuple(tmp_path.iterdir())
 
 
-def test_fetch_preserves_an_existing_process_alarm(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A fetch with no scratch directory of its own still leaves the process alarm intact."""
+def test_fetch_preserves_an_existing_process_alarm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A fetch still leaves an existing process alarm intact."""
     content = b"archive bytes"
     install(monkeypatch, [_body(content)])
     previous_handler = signal.getsignal(signal.SIGALRM)
@@ -386,6 +388,7 @@ def test_fetch_preserves_an_existing_process_alarm(monkeypatch: pytest.MonkeyPat
             url=_URL,
             expected_hash=_sha256(content),
             handoff=lambda _: None,
+            scratch_dir=tmp_path,
         )
 
         restored_remaining, restored_interval = signal.getitimer(signal.ITIMER_REAL)

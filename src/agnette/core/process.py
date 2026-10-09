@@ -258,7 +258,6 @@ def _drain_process_streams(
     readers: list[threading.Thread],
     stream_queue: queue.Queue[tuple[str, bytes | None]],
     *,
-    capture_output: bool,
     stdout_callback: Callable[[str], None] | None,
     stderr_callback: Callable[[str], None] | None,
     idle_timeout: float | None,
@@ -314,8 +313,7 @@ def _drain_process_streams(
             continue
 
         last_chunk_time = time.monotonic()
-        if capture_output:
-            stream_data[stream_name].extend(chunk)
+        stream_data[stream_name].extend(chunk)
         callback = streamed.get(stream_name)
         if callback is not None:
             text = decoders[stream_name].decode(chunk)
@@ -573,20 +571,10 @@ def run_subprocess(
     *,
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
-    capture_output: bool = False,
     interrupt_cleanup_cmd: list[str] | None = None,
-    stdout_callback: Callable[[str], None] | None = None,
-    stderr_callback: Callable[[str], None] | None = None,
     isolate_process_group: bool = False,
-    idle_timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a command and clean it up on interrupt.
-
-    When *idle_timeout* is set (in seconds), the process is killed via
-    ``kill_process_group`` if no output chunk is received for that
-    duration.  Requires *isolate_process_group=True* so the entire
-    process tree can be cleaned up.
-    """
+    """Run a command inheriting stdio and clean it up on interrupt."""
 
     # A registered cleanup command releases something this process owns but
     # does not contain, so a termination signal must not be allowed to skip it.
@@ -601,42 +589,16 @@ def run_subprocess(
             cmd,
             cwd=cwd,
             env=env,
-            capture_output=capture_output,
-            stdout_callback=stdout_callback,
-            stderr_callback=stderr_callback,
+            capture_output=False,
+            stdout_callback=None,
+            stderr_callback=None,
             isolate_process_group=isolate_process_group,
             stdin_text=None,
             interrupt_cleanup_cmd=interrupt_cleanup_cmd,
-        ) as (process, readers, stream_queue),
+        ) as (process, _readers, _queue),
     ):
-        timed_out = False
-        if readers:
-            stdout_bytes, stderr_bytes, timed_out, _ = _drain_process_streams(
-                process,
-                readers,
-                stream_queue,
-                capture_output=capture_output,
-                stdout_callback=stdout_callback,
-                stderr_callback=stderr_callback,
-                idle_timeout=idle_timeout,
-                isolate_process_group=isolate_process_group,
-                interrupt_cleanup_cmd=interrupt_cleanup_cmd,
-                cwd=cwd,
-                env=env,
-            )
-            completed = subprocess.CompletedProcess(
-                cmd,
-                process.returncode,
-                _decode_lenient(stdout_bytes),
-                _decode_lenient(stderr_bytes),
-            )
-        else:
-            process.wait()
-            completed = subprocess.CompletedProcess(cmd, process.returncode, None, None)
-    if timed_out:
-        print(f"Idle timeout ({idle_timeout}s) exceeded, process terminated.", file=sys.stderr)
-        raise SystemExit(124)
-    return completed
+        process.wait()
+    return subprocess.CompletedProcess(cmd, process.returncode, None, None)
 
 
 def run_foreground(
@@ -646,7 +608,6 @@ def run_foreground(
     env: dict[str, str] | None = None,
     interrupt_cleanup_cmd: list[str] | None = None,
     isolate_process_group: bool = False,
-    idle_timeout: float | None = None,
 ) -> int:
     """Run a command inheriting stdio."""
 
@@ -656,7 +617,6 @@ def run_foreground(
         env=env,
         interrupt_cleanup_cmd=interrupt_cleanup_cmd,
         isolate_process_group=isolate_process_group,
-        idle_timeout=idle_timeout,
     )
     return result.returncode
 
@@ -699,19 +659,10 @@ def run_capture(
     *,
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
-    interrupt_cleanup_cmd: list[str] | None = None,
-    stdout_callback: Callable[[str], None] | None = None,
-    stderr_callback: Callable[[str], None] | None = None,
-    timeout_callback: Callable[[str], None] | None = None,
-    isolate_process_group: bool = False,
-    idle_timeout: float | None = None,
-    stdin_text: str | None = None,
 ) -> tuple[int, str, str]:
-    """Run a command, optionally supplying *stdin_text*, and capture stdout/stderr.
+    """Run a command and capture stdout/stderr.
 
-    On idle-timeout it reports a diagnostic through *timeout_callback* (or stderr
-    when omitted) and raises ``SystemExit(124)``. Spawn errors re-raise the original
-    exception object with all attributes intact:
+    Spawn errors re-raise the original exception object with all attributes intact:
     - ``OSError`` subclasses (``FileNotFoundError``, ``PermissionError``,
       ``OSError(ENOEXEC)``, etc.) are re-raised with ``errno``/``filename`` intact.
     - ``ValueError`` (e.g. ``'embedded null byte'`` from ``subprocess.Popen``) is
@@ -719,26 +670,9 @@ def run_capture(
     ``run_capture_result`` discards spawn exceptions and returns a
     structured :class:`ProcessCaptureResult` instead.
     """
-    result, spawn_exc = _run_capture_result_impl(
-        cmd,
-        cwd=cwd,
-        env=env,
-        idle_timeout=idle_timeout,
-        isolate_process_group=isolate_process_group,
-        interrupt_cleanup_cmd=interrupt_cleanup_cmd,
-        stdout_callback=stdout_callback,
-        stderr_callback=stderr_callback,
-        stdin_text=stdin_text,
-    )
+    result, spawn_exc = _run_capture_result_impl(cmd, cwd=cwd, env=env, isolate_process_group=False)
     if spawn_exc is not None:
         raise spawn_exc
-    if result.timed_out:
-        message = f"Idle timeout ({idle_timeout}s) exceeded, process terminated.\n"
-        if timeout_callback is None:
-            print(message, end="", file=sys.stderr)
-        else:
-            timeout_callback(message)
-        raise SystemExit(124)
     rc = result.returncode if result.returncode is not None else 1
     return rc, _decode_lenient(result.stdout.data), _decode_lenient(result.stderr.data)
 
@@ -831,11 +765,11 @@ class ProcessCaptureResult:
 def _run_capture_result_impl(
     cmd: list[str],
     *,
+    isolate_process_group: bool,
     idle_timeout: float | None = None,
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     stdin_text: str | None = None,
-    isolate_process_group: bool = False,
     interrupt_cleanup_cmd: list[str] | None = None,
     stdout_callback: Callable[[str], None] | None = None,
     stderr_callback: Callable[[str], None] | None = None,
@@ -911,7 +845,6 @@ def _run_capture_result_impl(
             process,
             readers,
             stream_queue,
-            capture_output=True,
             stdout_callback=stdout_callback,
             stderr_callback=stderr_callback,
             idle_timeout=idle_timeout,
@@ -946,7 +879,6 @@ def run_capture_result(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     stdin_text: str | None = None,
-    isolate_process_group: bool = False,
     interrupt_cleanup_cmd: list[str] | None = None,
     stdout_callback: Callable[[str], None] | None = None,
     stderr_callback: Callable[[str], None] | None = None,
@@ -959,9 +891,8 @@ def run_capture_result(
     nonzero exit, and idle-timeout — are represented in the returned
     :class:`ProcessCaptureResult`.
 
-    Parameters match :func:`run_capture` where applicable:
-    *idle_timeout* (seconds), *cwd*, *env*, *stdin_text*, *isolate_process_group*,
-    *interrupt_cleanup_cmd*, *stdout_callback*, *stderr_callback*.
+    *idle_timeout* (seconds) kills the child's process group when no output
+    arrives for that long. *stdout_callback*/*stderr_callback* stream decoded text.
 
     *stdout_to_file* tails an anonymous temporary file instead of a pipe,
     preventing pipe backpressure from failing a child's nonblocking writes.
@@ -972,7 +903,7 @@ def run_capture_result(
         cwd=cwd,
         env=env,
         stdin_text=stdin_text,
-        isolate_process_group=isolate_process_group,
+        isolate_process_group=True,
         interrupt_cleanup_cmd=interrupt_cleanup_cmd,
         stdout_callback=stdout_callback,
         stderr_callback=stderr_callback,

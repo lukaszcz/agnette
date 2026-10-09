@@ -949,7 +949,7 @@ def test_synthesized_enum_variant_round_trips_through_decode() -> None:
     some = choice_cls.Some(value=2)
 
     assert decode_boundary_value(some) == RecordValue(
-        nominal=getattr(choice_cls.Some, "_agl_nominal"),
+        nominal=choice_cls.Some._agl_descriptor.nominal,
         fields={"value": IntValue(2)},
     )
 
@@ -959,7 +959,7 @@ def test_encoding_an_enum_value_produces_the_matching_variant_class() -> None:
 
     encoded = encode_boundary_value(
         RecordValue(
-            nominal=getattr(getattr(choice_cls, "None"), "_agl_nominal"),
+            nominal=getattr(choice_cls, "None")._agl_descriptor.nominal,
             fields={},
         ),
         _NO_DESCRIPTORS,

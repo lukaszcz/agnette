@@ -12,8 +12,9 @@ from decimal import Decimal
 
 import pytest
 
-from agnette.agl.eval.conversions import AglCastConversion, run_recipe
+from agnette.agl.eval.conversions import AglCastConversion
 from agnette.agl.eval.conversions import decode_value as _decode
+from agnette.agl.eval.conversions import run_recipe as _run_recipe
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.contracts import (
     ArrayDecode,
@@ -78,6 +79,14 @@ from tests.agl.ir_harness import (
 )
 
 _EMPTY_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field_encodes={})
+
+
+def _no_defaults(nominal: NominalId, field_index: int) -> Value:
+    raise AssertionError("no field default expected")
+
+
+def run_recipe(recipe: ConversionRecipe, value: Value, descriptors: ValueDescriptors) -> Value:
+    return _run_recipe(recipe, value, descriptors, default_resolver=_no_defaults)
 
 
 def _lower(source: str):

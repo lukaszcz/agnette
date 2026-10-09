@@ -74,13 +74,13 @@ from agnette.agl.ir.nodes import (
     UseDefault,
 )
 from agnette.agl.ir.operations import (
+    AS_DECIMAL_OPERATION,
     ArithKind,
     ArithOp,
     CmpOp,
-    CompareKind,
+    Coercion,
     ContainsKind,
     IntToDecimal,
-    IterKind,
     ToJson,
 )
 from agnette.agl.ir.program import (
@@ -89,9 +89,10 @@ from agnette.agl.ir.program import (
     IrFunctionBody,
 )
 from agnette.agl.ir.validate import validate_ir
-from agnette.agl.lower import LinkImage, LoweredReplEntry, compile_coercion, lower_repl_program
+from agnette.agl.lower import LinkImage, lower_repl_program
+from agnette.agl.lower.coercions import compile_coercion as _compile_coercion
 from agnette.agl.lower.lowerer import InitializerOrigin, _Lowerer
-from agnette.agl.lower.repl import ReplPromotionPlan
+from agnette.agl.lower.repl import LoweredReplEntry, ReplPromotionPlan
 from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import build_repl_graph
@@ -110,6 +111,7 @@ from agnette.agl.semantics.types import (
     JsonType,
     RecordType,
     TextType,
+    Type,
     TypeVarType,
     UnitType,
 )
@@ -132,6 +134,11 @@ from tests.agl.ir_harness import _compiled_checked, compile_checked_module, lowe
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
 _REPO_STDLIB_ROOT = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
+
+
+def compile_coercion(source: Type, target: Type) -> Coercion | None:
+    return _compile_coercion(source, target, operation=AS_DECIMAL_OPERATION)
+
 
 # ---------------------------------------------------------------------------
 # Pipeline helper
@@ -194,7 +201,9 @@ def _repl_entry(
     checked_program = check_program(resolved, _caps(), entry_seed_env=seed_env)
     result = compile_program_matches(checked_program)
     assert isinstance(result.compiled, MatchCompiledProgram)
-    entry = lower_repl_program(result.compiled, image=image or LinkImage(), source_text=source)
+    entry = lower_repl_program(
+        result.compiled, image=image or LinkImage(), source_text=source, contract_payloads={}
+    )
     root_scope = resolved.modules[graph.entry_id].resolved.root_scope
     return entry, next_id, root_scope, checked_program.modules[graph.entry_id]
 
@@ -415,7 +424,9 @@ def _make_lowerer(checked: CheckedModule, source: str) -> "_Lowerer":
     normalized = normalize_newlines(source)
     link.sources[source_id] = SourceFile(display_name="<test>", normalized_text=normalized)
     compiled = compile_checked_module(checked)
-    return _Lowerer(compiled.checked, link, ENTRY_ID, source_id, source, compiled.sites)
+    return _Lowerer(
+        compiled.checked, link, ENTRY_ID, source_id, source, compiled.sites, contract_payloads={}
+    )
 
 
 def test_private_lowerer_requires_complete_match_site_mapping_argument() -> None:
@@ -714,7 +725,7 @@ class TestProgramSignatures:
         rg = resolve_program(mg)
         cg = check_program(rg, _caps())
 
-        prog = lower_program(_compiled_checked(cg))
+        prog = lower_program(_compiled_checked(cg), contract_payloads={})
 
         assert len(prog.program_signatures) == 1
         symbol = next(iter(prog.program_functions))
@@ -1340,7 +1351,7 @@ class TestBuiltinNominalsTable:
 
         prog = _lower("()")
         for name in ("ExecResult", "AgentRequest", "RangeError", "MaxIterationsExceeded"):
-            assert prog.builtin_nominals.nominal(name) == nominal_id_for(prog, name)
+            assert prog.builtin_nominals.resolve(name) == nominal_id_for(prog, name)
 
     def test_declared_builtin_type_resolves_to_the_declaration_identity(self) -> None:
         """A program's own ``builtin`` declaration is reflected in its table.
@@ -1358,14 +1369,14 @@ class TestBuiltinNominalsTable:
         typedef = checked.type_env.type_table.get(ENTRY_ID, "RangeError")
         assert typedef is not None
         prog = _lower(source, default_stdlib=False)
-        assert prog.builtin_nominals.nominal("RangeError") == NominalId(typedef.decl_node_id)
+        assert prog.builtin_nominals.resolve("RangeError") == NominalId(typedef.decl_node_id)
 
     def test_standard_option_member_uses_its_loaded_source_identity(self) -> None:
         from tests.agl.ir_harness import nominal_id_for
 
         prog = _lower("()")
         some = prog.builtin_nominals.resolve_standard_member("Option", "Some")
-        assert some.nominal == nominal_id_for(prog, "Option::Some")
+        assert some == nominal_id_for(prog, "Option::Some")
 
     def test_scoped_declared_builtin_type_resolves_to_its_own_declared_path(self) -> None:
         """A SCOPED ``builtin`` declaration's own path drives the table's answer.
@@ -1382,7 +1393,7 @@ class TestBuiltinNominalsTable:
 
         source = "scope A\n  builtin exception RangeError extends Exception\nend A\n\n()\n"
         prog = _lower(source, default_stdlib=False)
-        assert prog.builtin_nominals.nominal("RangeError") == nominal_id_for(prog, "A::RangeError")
+        assert prog.builtin_nominals.resolve("RangeError") == nominal_id_for(prog, "A::RangeError")
 
     def test_range_error_raised_at_runtime_carries_the_table_nominal(self) -> None:
         """A ``for`` loop with a non-positive step raises ``RangeError`` with the table's nominal.
@@ -1462,7 +1473,7 @@ class TestBuiltinNominalsTable:
     ) -> None:
         """Whatever a program declares, every host-minted identity is describable.
 
-        The host stamps ``builtin_nominals.nominal(name)`` on the values it
+        The host stamps ``builtin_nominals.resolve(name)`` on the values it
         mints and spells them with ``builtin_nominals.resolve(name)``.
         Both must agree with the linked program's own descriptor table, or a
         host-minted value would carry an identity the evaluator, the extern
@@ -1476,10 +1487,9 @@ class TestBuiltinNominalsTable:
 
         program = lower_inline_ir(source, default_stdlib=default_stdlib)
         for name in (*BUILTIN_PRELUDE_TYPES, *BUILTIN_EXCEPTIONS):
-            descriptor = program.nominals.get(program.builtin_nominals.nominal(name))
+            descriptor = program.nominals.get(program.builtin_nominals.resolve(name))
             assert descriptor is not None, f"no descriptor for host-minted {name!r}"
             assert descriptor.declared_name == name
-            assert descriptor.display_name == program.builtin_nominals.resolve(name).display_name
 
 
 # ---------------------------------------------------------------------------
@@ -1556,7 +1566,7 @@ let c = Color::Red
 
     def test_indexed_assign_lowers_to_ir_index_set(self) -> None:
         """IndexTarget assignment lowers to IrIndexSet with a container reference."""
-        from agnette.agl.ir import IrIndexSet, IrLoad
+        from agnette.agl.ir.nodes import IrIndexSet, IrLoad
 
         prog = _lower('var _d: dict[text, int] = {"a": 1}\n_d["a"] := 2\n()')
         entry = prog.modules[prog.entry_module]
@@ -2094,7 +2104,7 @@ let result = make(10).add(2)
             ),
             _caps(),
         )
-        program = lower_program(_compiled_checked(checked))
+        program = lower_program(_compiled_checked(checked), contract_payloads={})
         ((_, entry_function_id),) = program.program_functions.items()
         entry = program.functions[entry_function_id]
 
@@ -2370,7 +2380,7 @@ class TestLowerGraph:
         rg = resolve_program(mg)
         cg = check_program(rg, _caps())
 
-        prog = lower_program(_compiled_checked(cg))
+        prog = lower_program(_compiled_checked(cg), contract_payloads={})
 
         # The library, entry, and automatic standard-library modules must appear.
         assert set(prog.modules) == set(cg.modules)
@@ -2445,7 +2455,7 @@ class TestLowerGraph:
         )
         checked = check_program(resolve_program(graph), _caps())
         link = _LinkState()
-        program = lower_program(_compiled_checked(checked), _link=link)
+        program = lower_program(_compiled_checked(checked), _link=link, contract_payloads={})
 
         for mid, executable_module in program.modules.items():
             if mid != lib_mid:
@@ -2465,6 +2475,7 @@ class TestLowerGraph:
             _compiled_checked(checked),
             _link=link,
             _already_linked=frozenset({lib_mid}),
+            contract_payloads={},
         )
         assert link.initializer_origins[lib_mid] == sentinel
         assert relinked.modules[lib_mid].initializers == ()
@@ -2473,6 +2484,7 @@ class TestLowerGraph:
             _compiled_checked(checked),
             _link=link,
             _already_linked=frozenset({checked.entry_id}),
+            contract_payloads={},
         )
         assert entry_relinked.modules[checked.entry_id].initializers == ()
 
@@ -2526,7 +2538,7 @@ class TestLowerGraph:
         rg = resolve_program(mg)
         cg = check_program(rg, _caps())
 
-        prog = lower_program(_compiled_checked(cg))
+        prog = lower_program(_compiled_checked(cg), contract_payloads={})
 
         nominal_names = {desc.display_name for desc in prog.nominals.values()}
 
@@ -2657,8 +2669,8 @@ class TestHostOpLowering:
 
     def test_copy_lowers_to_ir_copy_value(self) -> None:
         """copy(x) lowers to IrCopyValue wrapping the argument expression."""
-        from agnette.agl.ir import CopyKind
         from agnette.agl.ir.nodes import IrCopyValue
+        from agnette.agl.ir.operations import CopyKind
 
         source = "let x = [1, 2]\nlet y = copy(x)\n()"
         prog = _lower(source)
@@ -2671,8 +2683,8 @@ class TestHostOpLowering:
 
     def test_shallow_copy_lowers_to_shallow_ir_copy_value(self) -> None:
         """shallow-copy(x) lowers to an IrCopyValue with the shallow kind."""
-        from agnette.agl.ir import CopyKind
         from agnette.agl.ir.nodes import IrCopyValue
+        from agnette.agl.ir.operations import CopyKind
 
         source = "let x = [1, 2]\nlet y = shallow-copy(x)\n()"
         prog = _lower(source)
@@ -2683,8 +2695,8 @@ class TestHostOpLowering:
 
     def test_copy_explicit_type_arg_inserts_scalar_coercion(self) -> None:
         """copy::[decimal](5) lowers the int argument through IrCoerce to decimal."""
-        from agnette.agl.ir import CopyKind
         from agnette.agl.ir.nodes import IrCoerce, IrCopyValue
+        from agnette.agl.ir.operations import CopyKind
 
         source = "let x = copy::[decimal](5)\n()"
         prog = _lower(source)
@@ -3076,39 +3088,20 @@ class TestBinaryOpKindSelection:
         assert arith.kind is ArithKind.DECIMAL
 
     def test_int_ordering_lowers_to_compare_lt_int(self) -> None:
-        """< on two ints → IrCompare with op=LT and kind=INT."""
+        """< on two ints → IrCompare with op=LT."""
         prog = _lower("let r = 1 < 2\n()")
         bind = _let_root_capture(prog.modules[prog.entry_module].initializers[0])
         cmp = bind.value
         assert isinstance(cmp, IrCompare)
         assert cmp.op is CmpOp.LT
-        assert cmp.kind is CompareKind.INT
 
-    def test_decimal_widening_in_ordering_lowers_to_compare_decimal(self) -> None:
-        """< with one decimal operand widens to kind=DECIMAL.
-
-        _lower_ordering selects CompareKind.DECIMAL when either side is decimal;
-        this asserts the widening decision that would be missed by an INT-only test.
-        """
-        prog = _lower("let r = 1.0 < 2\n()")
-        bind = _let_root_capture(prog.modules[prog.entry_module].initializers[0])
-        cmp = bind.value
-        assert isinstance(cmp, IrCompare)
-        assert cmp.op is CmpOp.LT
-        assert cmp.kind is CompareKind.DECIMAL
-
-    def test_equality_lowers_to_compare_eq_structural(self) -> None:
-        """== on ints → IrCompare with op=EQ and kind=STRUCTURAL.
-
-        _lower_equality always uses STRUCTURAL (wider than INT/DECIMAL) because
-        equality is defined over any comparable type, not just numerics.
-        """
+    def test_equality_lowers_to_compare_eq(self) -> None:
+        """== on ints → IrCompare with op=EQ."""
         prog = _lower("let r = 1 == 1\n()")
         bind = _let_root_capture(prog.modules[prog.entry_module].initializers[0])
         cmp = bind.value
         assert isinstance(cmp, IrCompare)
         assert cmp.op is CmpOp.EQ
-        assert cmp.kind is CompareKind.STRUCTURAL
 
     def test_in_array_lowers_to_contains_array(self) -> None:
         """'in' on an array → IrContains with kind=ARRAY."""
@@ -3509,7 +3502,6 @@ class TestLoopDesugar:
         first_branch = inner_if.branches[0]
         assert isinstance(first_branch.cond, IrCompare)
         assert first_branch.cond.op is CmpOp.EQ
-        assert first_branch.cond.kind is CompareKind.STRUCTURAL
         assert isinstance(first_branch.body, IrBreak)
         # Second branch (else): → IrRaise(MaxIterationsExceeded)
         else_branch = inner_if.branches[1]
@@ -3517,7 +3509,7 @@ class TestLoopDesugar:
         assert isinstance(else_branch.body, IrRaise)
         exc_node = else_branch.body.exc
         assert isinstance(exc_node, IrMakeException)
-        assert exc_node.nominal == prog.builtin_nominals.nominal("MaxIterationsExceeded")
+        assert exc_node.nominal == prog.builtin_nominals.resolve("MaxIterationsExceeded")
 
     def test_max_iterations_exception_field_order(self) -> None:
         """MaxIterationsExceeded IrMakeException has fields in declaration order."""
@@ -3662,15 +3654,12 @@ class TestLoopDesugar:
         count_bind = node.items[2]
         loop = node.items[3]
 
-        # __it bind: IrBind(IrIterInit(ARRAY, ...))
+        # __it bind: IrBind(IrIterInit(...))
         assert isinstance(it_bind, IrBind), (
             f"item 0 must be IrBind(__it), got {type(it_bind).__name__}"
         )
         assert isinstance(it_bind.value, IrIterInit), (
             f"__it value must be IrIterInit, got {type(it_bind.value).__name__}"
-        )
-        assert it_bind.value.kind is IterKind.ARRAY, (
-            f"__it kind must be ARRAY for array[int], got {it_bind.value.kind!r}"
         )
         # __n bind: IrBind(IrConstInt(5))
         assert isinstance(n_bind, IrBind), (
@@ -3742,56 +3731,6 @@ class TestLoopDesugar:
         assert item7.has_else is False
         assert isinstance(item7.branches[0].body, IrBreak), "item 7 branch body must be IrBreak"
 
-    def test_for_iter_kind_array(self) -> None:
-        """``for x in items`` over ``array[int]`` selects IterKind.ARRAY."""
-        source = (
-            "let items: array[int] = []\nvar n: int = 0\nfor x in items do\n  n := n + x\ndone\n"
-        )
-        node = _get_loop_ir(source)
-        assert isinstance(node, IrSequence), (
-            f"for over array: expected IrSequence, got {type(node).__name__}"
-        )
-        it_bind = node.items[0]
-        assert isinstance(it_bind, IrBind)
-        assert isinstance(it_bind.value, IrIterInit), (
-            f"expected IrIterInit, got {type(it_bind.value).__name__}"
-        )
-        assert it_bind.value.kind is IterKind.ARRAY, (
-            f"expected IterKind.ARRAY for array[int], got {it_bind.value.kind!r}"
-        )
-
-    def test_for_iter_kind_dict_keys(self) -> None:
-        """``for k in d`` over ``dict[text, int]`` selects IterKind.DICT_KEYS."""
-        source = "let d: dict[text, int] = {}\nvar n: int = 0\nfor k in d do\n  n := n + 1\ndone\n"
-        node = _get_loop_ir(source)
-        assert isinstance(node, IrSequence), (
-            f"for over dict: expected IrSequence, got {type(node).__name__}"
-        )
-        it_bind = node.items[0]
-        assert isinstance(it_bind, IrBind)
-        assert isinstance(it_bind.value, IrIterInit), (
-            f"expected IrIterInit, got {type(it_bind.value).__name__}"
-        )
-        assert it_bind.value.kind is IterKind.DICT_KEYS, (
-            f"expected IterKind.DICT_KEYS for dict[text, int], got {it_bind.value.kind!r}"
-        )
-
-    def test_for_iter_kind_text(self) -> None:
-        """``for ch in s`` over ``text`` selects IterKind.TEXT."""
-        source = 'let s: text = ""\nvar n: int = 0\nfor ch in s do\n  n := n + 1\ndone\n'
-        node = _get_loop_ir(source)
-        assert isinstance(node, IrSequence), (
-            f"for over text: expected IrSequence, got {type(node).__name__}"
-        )
-        it_bind = node.items[0]
-        assert isinstance(it_bind, IrBind)
-        assert isinstance(it_bind.value, IrIterInit), (
-            f"expected IrIterInit, got {type(it_bind.value).__name__}"
-        )
-        assert it_bind.value.kind is IterKind.TEXT, (
-            f"expected IterKind.TEXT for text, got {it_bind.value.kind!r}"
-        )
-
 
 # ---------------------------------------------------------------------------
 # Golden lowering: range-for desugar
@@ -3841,12 +3780,11 @@ class TestRangeForDesugar:
         guard_cond = guard_if.branches[0].cond
         assert isinstance(guard_cond, IrCompare)
         assert guard_cond.op is CmpOp.LE
-        assert guard_cond.kind is CompareKind.INT
         guard_body = guard_if.branches[0].body
         assert isinstance(guard_body, IrRaise)
         exc = guard_body.exc
         assert isinstance(exc, IrMakeException)
-        assert exc.nominal == prog.builtin_nominals.nominal("RangeError")
+        assert exc.nominal == prog.builtin_nominals.resolve("RangeError")
         fields_dict = dict(exc.fields)
         assert "message" in fields_dict
         assert isinstance(fields_dict["message"], IrConstText)
@@ -3870,7 +3808,6 @@ class TestRangeForDesugar:
         cond = item1.branches[0].cond
         assert isinstance(cond, IrCompare)
         assert cond.op is CmpOp.GT
-        assert cond.kind is CompareKind.INT
         assert isinstance(item1.branches[0].body, IrBreak)
 
     def test_to_default_step_body_item2_bind_then_advance(self) -> None:
@@ -3910,7 +3847,6 @@ class TestRangeForDesugar:
         cond = item1.branches[0].cond
         assert isinstance(cond, IrCompare)
         assert cond.op is CmpOp.LT
-        assert cond.kind is CompareKind.INT
         assert isinstance(item1.branches[0].body, IrBreak)
 
     def test_downto_default_step_body_item2_advance_sub(self) -> None:

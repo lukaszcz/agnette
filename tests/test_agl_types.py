@@ -6,7 +6,6 @@ both import cleanly without depending on the rest of the checker.
 Coverage:
 - UnitType / FunctionType: kind, repr, structural equality.
 - repr / kind: how every type spells itself and the kind tag it carries.
-- is_json_shaped: False for both types.
 - is_assignable: exact-only for both types (positive + negative).
 - comparable_types: False for unit/function; unchanged for scalars.
 - TypeEnvironment: prelude types (ExecResult, Agent) and RecursionError
@@ -49,7 +48,6 @@ from agnette.agl.semantics.types import (
     contains_type_var,
     free_type_vars,
     is_assignable,
-    is_json_shaped,
     is_scalar_json_shaped,
     iter_type,
     match_nominal_owner_template,
@@ -82,7 +80,7 @@ def inference_scans(monkeypatch: pytest.MonkeyPatch) -> list[Type]:
 def test_inference_variable_scans_reuse_immutable_types(
     inference_scans: list[Type], flexible: bool
 ) -> None:
-    leaf: Type = InferenceVarType(781_253) if flexible else IntType()
+    leaf: Type = InferenceVarType() if flexible else IntType()
     typ = RecordType("ClosureScan", type_args=(ArrayType(DictType(TextType(), leaf)),))
     for _ in range(32):
         assert contains_inference_var(typ) is flexible
@@ -97,7 +95,7 @@ def test_inference_variable_scans_reuse_immutable_types(
         (RecordType("Leaf"), False),
         (EnumType("Leaf"), False),
         (ExceptionType("Leaf"), False),
-        (InferenceVarType(781_254), True),
+        (InferenceVarType(), True),
     ],
 )
 def test_leaf_inference_checks_need_no_scan(
@@ -502,48 +500,6 @@ class TestTypeReprAndKind:
 
 
 # ---------------------------------------------------------------------------
-# is_json_shaped — new types must return False
-# ---------------------------------------------------------------------------
-
-
-class TestIsJsonShaped:
-    def test_unit_not_json_shaped(self) -> None:
-        assert is_json_shaped(UnitType()) is False
-
-    def test_function_not_json_shaped(self) -> None:
-        f = FunctionType(params=(IntType(),), result=TextType())
-        assert is_json_shaped(f) is False
-
-    def test_function_no_params_not_json_shaped(self) -> None:
-        assert is_json_shaped(FunctionType(params=(), result=UnitType())) is False
-
-    # Regression: existing types still work correctly.
-    def test_text_is_json_shaped(self) -> None:
-        assert is_json_shaped(TextType()) is True
-
-    def test_int_is_json_shaped(self) -> None:
-        assert is_json_shaped(IntType()) is True
-
-    def test_record_not_json_shaped(self) -> None:
-        r = RecordType(name="R")
-        assert is_json_shaped(r) is False
-
-    # Containers stay JSON-shaped when recursively so — is_json_shaped is the
-    # cast rule, unlike is_assignable which narrows to scalars (see
-    # TestIsScalarJsonShaped / TestIsAssignable).
-    def test_array_of_json_shaped_is_json_shaped(self) -> None:
-        assert is_json_shaped(ArrayType(elem=IntType())) is True
-
-    def test_dict_of_json_shaped_is_json_shaped(self) -> None:
-        assert is_json_shaped(DictType(key=TextType(), value=TextType())) is True
-
-    def test_dict_with_non_text_key_is_not_json_shaped(self) -> None:
-        # A native JSON object slot has no representation for a non-text key,
-        # even when the value is itself JSON-shaped.
-        assert is_json_shaped(DictType(key=IntType(), value=TextType())) is False
-
-
-# ---------------------------------------------------------------------------
 # is_scalar_json_shaped — the narrower rule an implicit coercion uses
 # ---------------------------------------------------------------------------
 
@@ -866,9 +822,6 @@ class TestTypeVarType:
         with pytest.raises(Exception):
             setattr(tv, "name", "U")
 
-    def test_not_json_shaped(self) -> None:
-        assert is_json_shaped(TypeVarType("T")) is False
-
     def test_not_comparable_left(self) -> None:
         assert comparable_types(TypeVarType("T"), IntType(), _EMPTY_TABLE, bounds={}) is False
 
@@ -908,36 +861,29 @@ class TestInferenceVarType:
         assert InferenceVarType() != InferenceVarType()
 
     def test_same_hint_allocates_distinct_identities(self) -> None:
-        first = InferenceVarType("T")
-        second = InferenceVarType("T")
+        first = InferenceVarType()
+        second = InferenceVarType()
 
         assert first != second
         assert len({first, second}) == 2
 
     def test_aliases_have_the_same_identity(self) -> None:
-        variable = InferenceVarType("T")
+        variable = InferenceVarType()
         alias = variable
 
         assert alias == variable
         assert hash(alias) == hash(variable)
 
-    def test_display_hint_does_not_determine_identity(self) -> None:
-        first = InferenceVarType("first")
-        second = InferenceVarType("second")
-
-        assert first != second
-
     def test_representation_is_private(self) -> None:
-        variable = InferenceVarType("T")
+        variable = InferenceVarType()
 
         assert variable.kind == "inferencevar"
         assert repr(variable) == "<inference-var>"
         assert "T" not in repr(variable)
 
     def test_is_not_a_source_or_rigid_type_variable(self) -> None:
-        variable = InferenceVarType("T")
+        variable = InferenceVarType()
 
-        assert is_json_shaped(variable) is False
         assert free_type_vars(variable) == frozenset()
         assert contains_type_var(variable) is False
         assert contains_inference_var(variable) is True
@@ -953,11 +899,11 @@ class TestInferenceVarType:
     @pytest.mark.parametrize(
         "typ",
         [
-            ArrayType(InferenceVarType("T")),
-            DictType(TextType(), InferenceVarType("T")),
-            FunctionType(params=(InferenceVarType("T"),), result=InferenceVarType("T")),
-            RecordType("Box", type_args=(InferenceVarType("T"),)),
-            EnumType("Option", type_args=(InferenceVarType("T"),)),
+            ArrayType(InferenceVarType()),
+            DictType(TextType(), InferenceVarType()),
+            FunctionType(params=(InferenceVarType(),), result=InferenceVarType()),
+            RecordType("Box", type_args=(InferenceVarType(),)),
+            EnumType("Option", type_args=(InferenceVarType(),)),
         ],
     )
     def test_can_nest_under_every_structural_or_nominal_constructor(self, typ: Type) -> None:
@@ -967,7 +913,7 @@ class TestInferenceVarType:
         assert free_type_vars(typ) == frozenset()
 
     def test_iter_type_visits_flexible_variables_in_nested_types(self) -> None:
-        variable = InferenceVarType("T")
+        variable = InferenceVarType()
         typ = FunctionType(
             params=(ArrayType(variable),),
             result=RecordType("Box", type_args=(DictType(TextType(), variable),)),
@@ -976,7 +922,7 @@ class TestInferenceVarType:
         assert tuple(item for item in iter_type(typ) if item == variable) == (variable, variable)
 
     def test_rigid_substitution_does_not_rewrite_flexible_variables(self) -> None:
-        variable = InferenceVarType("T")
+        variable = InferenceVarType()
         typ = FunctionType(
             params=(TypeVarType("T"), ArrayType(variable)),
             result=EnumType("Option", type_args=(variable, TypeVarType("U"))),
@@ -1001,7 +947,7 @@ class TestInferenceVarType:
                 kind="record",
                 name="Value",
                 module_id=ENTRY_ID,
-                fields=(("value", InferenceVarType("T")),),
+                fields=(("value", InferenceVarType()),),
                 decl_node_id=1,
             )
         )
@@ -1018,7 +964,7 @@ class TestInferenceVarType:
                     ("direct", TypeVarType("T")),
                     (
                         "next",
-                        RecordType("Box", type_args=(InferenceVarType("T"),), decl_id=1),
+                        RecordType("Box", type_args=(InferenceVarType(),), decl_id=1),
                     ),
                 ),
                 decl_node_id=1,
@@ -1325,9 +1271,6 @@ class TestHelpers:
 
 
 class TestCapabilityGates:
-    def test_typevar_not_json_shaped(self) -> None:
-        assert is_json_shaped(TypeVarType("T")) is False
-
     def test_typevar_not_comparable_left(self) -> None:
         assert comparable_types(TypeVarType("T"), IntType(), _EMPTY_TABLE, bounds={}) is False
 

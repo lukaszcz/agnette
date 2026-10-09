@@ -31,6 +31,7 @@ def _roots_for(tmp_path: Path, package: PackageInfo, *, loose: bool) -> RootSet:
     """Mount *package*, optionally also supplying its root as an ordinary root."""
     return assemble_roots(
         invocation_root=None,
+        stdlib_root=tmp_path / "absent-stdlib",
         lib_root=None,
         configured=[],
         cli=[str(package.root)] if loose else [],
@@ -110,6 +111,7 @@ class TestModuleTreeMounts:
         plain.mkdir()
         roots = assemble_roots(
             invocation_root=plain,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -191,6 +193,7 @@ class TestAssembleRoots:
         inv_root.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -205,6 +208,7 @@ class TestAssembleRoots:
         lib.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=lib,
             configured=[],
             cli=[],
@@ -240,6 +244,7 @@ class TestAssembleRoots:
 
         roots = assemble_roots(
             invocation_root=invocation_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -261,6 +266,7 @@ class TestAssembleRoots:
 
         roots = assemble_roots(
             invocation_root=invocation_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -276,6 +282,7 @@ class TestAssembleRoots:
         inv_root.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -293,6 +300,7 @@ class TestAssembleRoots:
         # raw path is relative, should resolve against origin
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[("mylib", origin)],
             cli=[],
@@ -309,6 +317,7 @@ class TestAssembleRoots:
         extra.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[(str(extra), origin)],
             cli=[],
@@ -323,6 +332,7 @@ class TestAssembleRoots:
         cli_lib.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=["cli_lib"],  # relative — resolves against cwd=tmp_path
@@ -337,6 +347,7 @@ class TestAssembleRoots:
         cli_lib.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[str(cli_lib)],
@@ -359,6 +370,7 @@ class TestAssembleRoots:
 
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=Path("~/.agm/lib"),
             configured=[],
             cli=[],
@@ -381,6 +393,7 @@ class TestAssembleRoots:
 
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[("~/agl-lib", tmp_path)],
             cli=[],
@@ -402,6 +415,7 @@ class TestAssembleRoots:
 
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[("~/absent-lib", tmp_path)],
             cli=["~/absent-cli-lib"],
@@ -416,6 +430,7 @@ class TestAssembleRoots:
         missing = tmp_path / "does_not_exist"
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=missing,
             configured=[],
             cli=[],
@@ -431,6 +446,7 @@ class TestAssembleRoots:
         # Pass same path as both lib_root and cli
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=inv_root,
             configured=[],
             cli=[str(inv_root)],
@@ -446,6 +462,7 @@ class TestAssembleRoots:
         link.symlink_to(real)
         rs = assemble_roots(
             invocation_root=real,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=link,
             configured=[],
             cli=[],
@@ -463,6 +480,7 @@ class TestAssembleRoots:
         child.mkdir()
         rs = assemble_roots(
             invocation_root=parent,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=child,
             configured=[],
             cli=[],
@@ -483,6 +501,7 @@ class TestAssembleRoots:
         lib_b.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[
                 ("mylib", origin_a),
@@ -523,6 +542,7 @@ class TestAssembleRoots:
         inv_root.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=mr_config.extra,
             cli=[],
@@ -559,6 +579,7 @@ class TestAssembleRoots:
         inv_root.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=mr_config.extra,
             cli=[],
@@ -573,6 +594,7 @@ class TestAssembleRoots:
         inv_root.mkdir()
         rs = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -589,6 +611,7 @@ class TestAssembleRoots:
         link.symlink_to(real)
         rs = assemble_roots(
             invocation_root=link,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -601,6 +624,7 @@ class TestAssembleRoots:
         inv_root.mkdir()
         result = assemble_roots(
             invocation_root=inv_root,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -612,6 +636,7 @@ class TestAssembleRoots:
         missing = tmp_path / "missing_inv"
         rs = assemble_roots(
             invocation_root=missing,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -660,6 +685,7 @@ class TestPackageModuleIdFor:
         (loose / "main.agl").write_text("")
         roots = assemble_roots(
             invocation_root=loose,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],
@@ -678,6 +704,7 @@ class TestPackageModuleIdFor:
         inner = PackageInfo(inner_root, load_manifest(inner_root / "package.toml"))
         roots = assemble_roots(
             invocation_root=None,
+            stdlib_root=tmp_path / "absent-stdlib",
             lib_root=None,
             configured=[],
             cli=[],

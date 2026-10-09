@@ -87,7 +87,8 @@ from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import ModuleGraph
 from agnette.agl.modules.roots import RootSet, assemble_roots
 from agnette.agl.pipeline import ArgumentPreflight, PreparedProgram, ProgramDiscovery, RunResult
-from agnette.agl.repl import EntryResult, ReplSession
+from agnette.agl.repl import ReplSession
+from agnette.agl.repl.entry import EntryResult
 from agnette.agl.runtime.arguments import ProgramArguments
 from agnette.agl.runtime.engine_config import restamp_engine_setting
 from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo

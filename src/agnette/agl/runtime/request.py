@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Literal
 
 from agnette.agent.spec import PermissionMode
 from agnette.agent.transport import AgentCallInfo, AgentOutputCallback
-from agnette.agl.ir.ids import Location
 
 if TYPE_CHECKING:
     from agnette.agent.spec import AgentSpec
@@ -31,11 +30,8 @@ _DEFAULT_VALIDATION_SUMMARY = "The response does not match the required output f
 class AgentCancelled(Exception):
     """Signal that a host agent call was interrupted."""
 
-    def __init__(self, callee: str, reason: str, *, span: Location | None = None) -> None:
-        super().__init__(f"Agent call to {callee!r} cancelled ({reason}).")
-        self.callee = callee
-        self.reason = reason
-        self.span = span
+    def __init__(self, callee: str) -> None:
+        super().__init__(f"Agent call to {callee!r} cancelled (interrupted).")
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +97,6 @@ class AgentRequest:
     attempt: int = 0
     previous_invalid_output: str | None = None
     validation_errors: list[ValidationError] = field(default_factory=list)
-    metadata: dict[str, object] = field(default_factory=dict)
     output_contract: "OutputContract | None" = None
     permission_mode: PermissionMode = PermissionMode.NONE
     sandbox: "SandboxLimits | None" = None

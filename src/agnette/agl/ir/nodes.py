@@ -35,11 +35,9 @@ from agnette.agl.ir.operations import (
     ArithOp,
     CmpOp,
     Coercion,
-    CompareKind,
     ContainsKind,
     CopyKind,
     IndexKind,
-    IterKind,
     MutableIndexKind,
     NumericKind,
 )
@@ -378,7 +376,6 @@ class IrCompare:
 
     location: Location
     op: CmpOp
-    kind: CompareKind
     lhs: "IrExpr"
     rhs: "IrExpr"
 
@@ -881,13 +878,11 @@ class IrContinue:
 class IrIterInit:
     """Initialize a loop iterator over a collection.
 
-    ``kind`` selects array / dict-keys / text iteration.
     ``collection`` evaluates to the collection to iterate.
     Yields an ``IteratorValue`` (internal; never user-visible).
     """
 
     location: Location
-    kind: "IterKind"
     collection: "IrExpr"
 
 

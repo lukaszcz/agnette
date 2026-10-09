@@ -37,7 +37,6 @@ from agnette.util.decimal import decimal_in_range, exact_decimal, int_in_range
 
 __all__ = [
     "AglArithmeticSignal",
-    "ArithmeticSignalKind",
     "arithmetic_message",
     "arithmetic_signal_raise",
     "checked_decimal",

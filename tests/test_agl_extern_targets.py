@@ -31,7 +31,7 @@ from agnette.agl.ir.nodes import (
     UseDefault,
 )
 from agnette.agl.ir.program import ExecutableProgram, ExternFunctionBody
-from agnette.agl.parser import parse_program
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.semantics.types import (
     ArrayType,
@@ -55,8 +55,13 @@ from agnette.agl.syntax.nodes import (
     VarRef,
 )
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck import AglTypeError, CheckedModule, FunctionSignature, check_program
-from agnette.agl.typecheck.env import OutputContractSpec
+from agnette.agl.typecheck.env import (
+    AglTypeError,
+    CheckedModule,
+    FunctionSignature,
+    OutputContractSpec,
+)
+from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
     base_caps,
     evaluate_ir_with_externs,

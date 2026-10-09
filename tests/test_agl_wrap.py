@@ -7,7 +7,8 @@ from dataclasses import replace
 import pytest
 
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.parser import parse_program_seeded, wrap_inline_program
+from agnette.agl.parser import parse_program_seeded
+from agnette.agl.parser.wrap import wrap_inline_program
 from agnette.agl.pipeline import PipelineDriver
 from agnette.agl.syntax import (
     AssignStmt,

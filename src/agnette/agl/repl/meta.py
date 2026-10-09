@@ -36,7 +36,6 @@ class MetaContext:
                       live, so ``:set echo on|off`` toggles it by mutation.
     ``echo_unit``   — whether a ``unit``-typed expression/binding entry also
                       echoes; off by default, toggled by ``:set echo-unit on|off``.
-    ``quit``        — set ``True`` by a handler to ask the loop to exit.
     ``theme``       — current highlight theme name; mutated by ``:theme`` so the
                       loop can update the ``PromptSession`` style live.
     """
@@ -44,7 +43,6 @@ class MetaContext:
     session: "ReplSession"
     echo: bool = True
     echo_unit: bool = False
-    quit: bool = False
     theme: str = "auto"
 
 
@@ -105,8 +103,7 @@ def _handle_help(arg: str, ctx: MetaContext) -> MetaOutcome:
 
 
 def _handle_quit(arg: str, ctx: MetaContext) -> MetaOutcome:
-    del arg
-    ctx.quit = True
+    del arg, ctx
     return MetaOutcome(text=None, quit=True)
 
 

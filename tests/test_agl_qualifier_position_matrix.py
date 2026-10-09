@@ -28,8 +28,8 @@ from agnette.agl.scope.symbols import (
     UnknownMemberError,
     UnknownQualifierError,
 )
-from agnette.agl.typecheck import AglTypeError
 from agnette.agl.typecheck.checker import EnumOwnerMismatchError
+from agnette.agl.typecheck.env import AglTypeError
 from tests.agl.qualifier_support import (
     Probe,
     Scenario,

@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING, Literal
 from agnette.agl.diagnostics import Diagnostic
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from agnette.agl.diagnostics import AglError
     from agnette.agl.ir.program import ValueDescriptors
     from agnette.agl.pipeline import RunError
@@ -80,10 +78,6 @@ class EntryResult:
         renderer keeps using ``diagnostics``.
     ``ok``
         ``True`` iff there are no error diagnostics AND no runtime error.
-    ``trace_path``
-        Path of the JSONL trace file the entry's records were appended to, or
-        ``None`` when tracing is disabled (no ``--trace-file``) or for an
-        entry that never reached evaluation (a type entry or a failure).
     ``installed``
         Names installed before a failed entry stopped. Empty for pre-execution
         failures and successful entries.
@@ -102,7 +96,6 @@ class EntryResult:
     warnings: list[Diagnostic]
     error: "RunError | None"
     ok: bool
-    trace_path: "Path | None" = None
     installed: tuple[str, ...] = ()
     quote_strings: bool = True
     type_display: str | None = None

@@ -21,15 +21,15 @@ from agnette.packages.activation import select_active_packages
 from agnette.packages.model import PackageInfo
 
 
-def is_installed_reference(file: str | None, *, code: str | None) -> bool:
+def is_installed_reference(file: str, *, code: str | None) -> bool:
     """Return whether *file* names an installed package program reference.
 
-    True exactly when no inline ``-c/--code`` source was given, *file* is
-    present, contains ``::``, and no on-disk file exists at that path. This is
+    True exactly when no inline ``-c/--code`` source was given, *file*
+    contains ``::``, and no on-disk file exists at that path. This is
     the single classification rule shared by execution, ``--help``, and shell
     completion.
     """
-    return code is None and file is not None and "::" in file and not Path(file).is_file()
+    return code is None and "::" in file and not Path(file).is_file()
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,9 +95,7 @@ def resolve_installed_reference(
     except ValueError as exc:
         return ExecTargetError(f"invalid installed program reference {reference!r}: {exc}")
     try:
-        packages = select_active_packages(
-            home=home, proj_dir=proj_dir, cwd=cwd, fallback_to_manifest_commands=True
-        )
+        packages = select_active_packages(home=home, proj_dir=proj_dir, cwd=cwd)
     except (OSError, ValueError) as exc:
         return ExecTargetError(f"cannot resolve active packages: {exc}")
     name = module_id.segments[0] if package_name is None else package_name

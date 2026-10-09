@@ -225,20 +225,20 @@ class TestSelectEntryProgram:
 
 
 # ---------------------------------------------------------------------------
-# discover_programs_for_target
+# ExecProgramDiscovery.programs
 # ---------------------------------------------------------------------------
 
 
-class TestDiscoverProgramsForTarget:
+class TestExecProgramDiscoveryPrograms:
     def test_a_readable_file_returns_its_discovered_programs(self, tmp_path: Path) -> None:
-        from agnette.agm.cli_support.program_discovery import discover_programs_for_target
+        from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
 
         source = tmp_path / "main.agl"
         source.write_text("program def main() -> unit = ()\n", encoding="utf-8")
 
-        programs, referenced = discover_programs_for_target(
-            file=str(source), code=None, module_paths=None, no_stdlib=True
-        )
+        programs, referenced = ExecProgramDiscovery(
+            code=None, requested_program=None, module_paths=None, no_stdlib=True
+        ).programs(str(source))
 
         assert tuple(program.name for program in programs) == ("main",)
         assert referenced is None
@@ -254,13 +254,14 @@ class TestDiscoverProgramsForTarget:
         tokens, so a token that names no readable file must degrade to no
         programs without writing anything a caller cannot suppress.
         """
-        from agnette.agm.cli_support.program_discovery import discover_programs_for_target
+        from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
 
         monkeypatch.chdir(tmp_path)
 
-        assert discover_programs_for_target(
-            file="World", code=None, module_paths=None, no_stdlib=True
-        ) == ((), None)
+        discovery = ExecProgramDiscovery(
+            code=None, requested_program=None, module_paths=None, no_stdlib=True
+        )
+        assert discovery.programs("World") == ((), None)
 
         captured = capsys.readouterr()
         assert captured.err == ""

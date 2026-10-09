@@ -191,7 +191,7 @@ def write_activation_index(
     doc["commands"] = commands_table
 
     try:
-        mkdir(path.parent, parents=True, exist_ok=True)
+        mkdir(path.parent)
         write_text_atomic(path, dumps_toml(doc))
     except OSError as exc:
         raise PackageActivationError(
@@ -248,7 +248,7 @@ def write_package_provenance(
     activation_table["shadow"] = active.shadow
     doc["activation"] = activation_table
     try:
-        mkdir(path.parent, parents=True, exist_ok=True)
+        mkdir(path.parent)
         write_text_atomic(path, dumps_toml(doc))
     except OSError as exc:
         raise PackageActivationError(f"cannot write package provenance {path}: {exc}") from exc
@@ -256,28 +256,12 @@ def write_package_provenance(
     return path
 
 
-def validate_activation_index(
-    index: ActivationIndex,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
-    transient_packages: Mapping[str, PackageInfo] | None = None,
-    packages: tuple[PackageInfo, ...] | None = None,
-) -> None:
-    """Ensure every activation resolves to matching packages with satisfied requirements.
-
-    ``transient_packages`` supplies validated package manifests for selections
-    that an install has planned but not yet written to the immutable store.
-    ``packages`` lets a caller that already resolved and verified the active
-    package set for ``index`` reuse it instead of re-resolving it here.
-    """
+def validate_activation_index(index: ActivationIndex, *, packages: tuple[PackageInfo, ...]) -> None:
+    """Ensure the commands are consistent and the resolved *packages* of *index* have
+    satisfied requirements."""
 
     _validate_commands(index)
-    _validate_requirements(
-        _resolved_index_packages(
-            index, packages, home=home, env=env, transient_packages=transient_packages
-        )
-    )
+    _validate_requirements(packages)
 
 
 def load_package_pins(
@@ -340,16 +324,12 @@ def select_active_packages(
     proj_dir: Path | None,
     cwd: Path,
     env: Mapping[str, str] | None = None,
-    index: ActivationIndex | None = None,
-    fallback_to_manifest_commands: bool = False,
 ) -> tuple[PackageInfo, ...]:
     """Return globally active packages with project pins overlaid and checked.
 
-    ``index`` lets a caller that already loaded the activation index reuse it
-    instead of reloading it here. ``fallback_to_manifest_commands`` is strict
-    by default; pass it for a read of activation state rather than an
-    operation that persists a decision based on the resolved command set —
-    see :func:`resolve_active_package`.
+    A read of activation state: an editable package whose source fails command
+    discovery falls back to its manifest's own commands — see
+    :func:`resolve_active_package`.
     """
 
     packages = _selected_active_packages(
@@ -358,8 +338,6 @@ def select_active_packages(
         cwd=cwd,
         excluded_names=set(),
         env=env,
-        index=index,
-        fallback_to_manifest_commands=fallback_to_manifest_commands,
     )
     _validate_requirements(packages)
     return packages
@@ -371,23 +349,18 @@ def effective_command_index(
     proj_dir: Path | None,
     cwd: Path,
     env: Mapping[str, str] | None = None,
-    index: ActivationIndex | None = None,
-    fallback_to_manifest_commands: bool = False,
 ) -> ActivationIndex:
     """Return selected-package commands with project pins applied.
 
     The persistent activation index caches commands for the global selection.
     A project pin changes that selection, so derive its command registry from
     the selected manifests and the persisted registration priority of each
-    selected immutable version. ``index`` lets a caller that already loaded
-    the activation index reuse it instead of reloading it here.
-    ``fallback_to_manifest_commands`` is strict by default; pass it for a read
-    of activation state rather than an operation that persists a decision
-    based on the resolved command set — see :func:`resolve_active_package`.
+    selected immutable version. A read of activation state: an editable
+    package whose source fails command discovery falls back to its manifest's
+    own commands — see :func:`resolve_active_package`.
     """
 
-    if index is None:
-        index = load_activation_index(home=home, env=env)
+    index = load_activation_index(home=home, env=env)
     pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     packages = _selected_active_packages(
         home=home,
@@ -397,7 +370,6 @@ def effective_command_index(
         env=env,
         index=index,
         pins=pins,
-        fallback_to_manifest_commands=fallback_to_manifest_commands,
     )
     _validate_requirements(packages)
     # Without pins the selection is exactly the index, so the cached command
@@ -448,14 +420,11 @@ def select_package_roots(
     cwd: Path,
     development_packages: Iterable[PackageInfo] = (),
     env: Mapping[str, str] | None = None,
-    index: ActivationIndex | None = None,
 ) -> tuple[PackageInfo, ...]:
     """Return development roots followed by non-conflicting active store roots.
 
     Development names are excluded before active or pinned store selections
     are resolved, so a valid development root shadows stale store state.
-    ``index`` lets a caller that already loaded the activation index reuse it
-    instead of reloading it here.
 
     This mounts module roots for running code (``agm exec``, ``agm check``,
     ``agm repl``); it never persists a decision, so like the command-registry
@@ -483,8 +452,6 @@ def select_package_roots(
         cwd=cwd,
         excluded_names=excluded_names,
         env=env,
-        index=index,
-        fallback_to_manifest_commands=True,
     )
     selected = (
         *development,
@@ -503,7 +470,6 @@ def _selected_active_packages(
     env: Mapping[str, str] | None,
     index: ActivationIndex | None = None,
     pins: Mapping[str, semver.Version] | None = None,
-    fallback_to_manifest_commands: bool = False,
 ) -> tuple[PackageInfo, ...]:
     """Load global selections with pins, excluding development names before resolution."""
 
@@ -520,36 +486,22 @@ def _selected_active_packages(
         ActivationIndex(selections),
         home=home,
         env=env,
-        fallback_to_manifest_commands=fallback_to_manifest_commands,
+        fallback_to_manifest_commands=True,
     )
 
 
 def validate_package_command_conflicts(
-    index: ActivationIndex,
-    manifest: PackageManifest,
-    *,
-    shadow: bool,
-    home: Path,
-    env: Mapping[str, str] | None = None,
-    transient_packages: Mapping[str, PackageInfo] | None = None,
-    packages: tuple[PackageInfo, ...] | None = None,
+    manifest: PackageManifest, *, packages: tuple[PackageInfo, ...]
 ) -> None:
-    """Reject a candidate's conflicts with every other active manifest.
+    """Reject a candidate's conflicts with every other resolved active manifest.
 
     The active command registry contains only each command's winner. Looking
     at manifests instead retains owners previously displaced by ``--shadow``
-    when their winner is updated. ``packages`` lets a caller that already
-    resolved and verified the active package set for ``index`` reuse it
-    instead of re-resolving it here.
+    when their winner is updated.
     """
 
-    if shadow:
-        return
-    resolved = _resolved_index_packages(
-        index, packages, home=home, env=env, transient_packages=transient_packages
-    )
     candidate_paths = set(expanded_commands(manifest))
-    for package in resolved:
+    for package in packages:
         if package.manifest.name == manifest.name:
             continue
         conflicts = sorted(candidate_paths.intersection(expanded_commands(package.manifest)))
@@ -640,23 +592,11 @@ def _reconciled_commands(
 
 
 def command_shadow_diagnostics(
-    index: ActivationIndex,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
-    transient_packages: Mapping[str, PackageInfo] | None = None,
-    packages: tuple[PackageInfo, ...] | None = None,
+    index: ActivationIndex, *, packages: tuple[PackageInfo, ...]
 ) -> dict[str, tuple[CommandShadow, ...]]:
-    """Return active winners and the package owners each one shadows.
+    """Return active winners and the owners each one shadows among resolved *packages*."""
 
-    ``packages`` lets a caller that already resolved and verified the active
-    package set for ``index`` reuse it instead of re-resolving it here.
-    """
-
-    resolved = _resolved_index_packages(
-        index, packages, home=home, env=env, transient_packages=transient_packages
-    )
-    by_path = _command_owners(resolved)
+    by_path = _command_owners(packages)
     diagnostics: dict[str, list[CommandShadow]] = {}
     for path_name, owners in by_path.items():
         if len(owners) < 2:

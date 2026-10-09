@@ -15,7 +15,7 @@ from agnette.config.general import (
     exec_config_from_merged,
     load_merged_config,
 )
-from tests._package_helpers import write_installed_package
+from tests._package_helpers import exec_args, write_installed_package
 
 
 class TestExecConfig:
@@ -318,7 +318,7 @@ class TestPackageEntryConfigRoute:
         home, _module = self._install(tmp_path)
         self._use_home(monkeypatch, home, tmp_path)
 
-        exec_engine.run_registered("tools/main::main", [])
+        exec_engine.run_registered("tools/main::main", args=exec_args())
 
         assert capsys.readouterr().out == "prod\n"
 
@@ -342,7 +342,7 @@ class TestPackageEntryConfigRoute:
         self._use_home(monkeypatch, home, tmp_path)
 
         exec_engine.run_registered(
-            "tools/main::main", [], package="tools", command_path="dev review"
+            "tools/main::main", args=exec_args(), package="tools", command_path="dev review"
         )
 
         assert capsys.readouterr().out == "cmd\n"
@@ -360,7 +360,7 @@ class TestPackageEntryConfigRoute:
         exec_engine.run(
             ExecArgs(file=str(module), strict_json=None, no_trace=False, trace_file=None)
         )
-        exec_engine.run_registered("tools/main::main", [])
+        exec_engine.run_registered("tools/main::main", args=exec_args())
 
         assert capsys.readouterr().out == "cmd\ncmd\n"
 

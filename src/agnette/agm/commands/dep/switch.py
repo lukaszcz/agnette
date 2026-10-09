@@ -78,7 +78,7 @@ def run(args: DepSwitchArgs) -> None:
         print(f"error: deps/{args.dep}/{args.branch} already exists", file=sys.stderr)
         raise SystemExit(1)
 
-    mkdir(target_dir.parent, parents=True, exist_ok=True)
+    mkdir(target_dir.parent)
     if not args.no_fetch:
         git_helpers.fetch(repo_path)
     if args.create_branch:

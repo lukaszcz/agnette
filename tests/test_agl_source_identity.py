@@ -26,7 +26,8 @@ from agnette.agl.diagnostics import (
     format_diagnostic,
     format_diagnostic_location,
 )
-from agnette.agl.parser import AglSyntaxError, parse_program, parse_program_seeded
+from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+from agnette.agl.parser.parser import parse_program
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
 
 # ---------------------------------------------------------------------------

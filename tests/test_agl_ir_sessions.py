@@ -55,11 +55,8 @@ _LOC = Location(source_id=_SRC_ID, start_offset=0, end_offset=1, start_line=1, s
 
 def _contract() -> ContractRequest:
     return TextContractRequest(
-        codec_name="text",
-        strict_json=None,
         target_type_label="text",
         structured_exec=False,
-        format_instructions="",
     )
 
 
@@ -240,7 +237,6 @@ def test_session_ask_lowers_a_formatted_strict_json_contract_with_retries() -> N
     assert retries.value == 2
     assert program.contracts == {
         answer.contract_id: JsonContractRequest(
-            codec_name="json",
             strict_json=True,
             json_schema='{"type": "integer"}',
             decode=ScalarDecode(kind=ScalarKind.INT),

@@ -17,7 +17,7 @@ from agnette.agl.ir.validate import InvalidIrError, validate_ir
 from agnette.agl.lower.program import lower_program
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue
-from agnette.agl.typecheck import AglTypeError
+from agnette.agl.typecheck.env import AglTypeError
 from tests.agl.ir_harness import (
     _checked,
     _compiled_checked,
@@ -202,7 +202,7 @@ def test_library_const_captured_by_library_function(
         },
         tmp_path,
     )
-    executable = lower_program(_compiled_checked(checked))
+    executable = lower_program(_compiled_checked(checked), contract_payloads={})
     (main_symbol,) = executable.program_functions
 
     IrInterpreter(executable).run(program_symbol=main_symbol)
@@ -221,7 +221,7 @@ def test_library_binding_initializers_follow_import_dependency_order(tmp_path: P
         tmp_path,
     )
 
-    executable = lower_program(_compiled_checked(checked))
+    executable = lower_program(_compiled_checked(checked), contract_payloads={})
 
     modules = list(executable.modules)
     dependency = ModuleId.from_path("dependency")
@@ -272,7 +272,7 @@ box
     modules = {"lib": "record Box[T]\n  value: T\ntype Alias[T] = Box[T]"}
     result = evaluate_ir_graph(entry_source, modules, tmp_path)
     checked = _checked(entry_source, modules, tmp_path)
-    program = lower_program(_compiled_checked(checked))
+    program = lower_program(_compiled_checked(checked), contract_payloads={})
 
     assert result["box"] == RecordValue(nominal_id_for(program, "Box"), {"value": IntValue(1)})
 
@@ -294,7 +294,7 @@ def test_scoped_linked_calls_use_function_handles_and_validate(tmp_path: Path) -
         "print(label(status))\n"
     )
     checked = _checked(entry, {"scoped_execution/workflow": workflow}, tmp_path)
-    executable = lower_program(_compiled_checked(checked))
+    executable = lower_program(_compiled_checked(checked), contract_payloads={})
 
     validate_ir(executable, deep=True)
     assert executable.synthetic_main_symbol is not None
@@ -384,7 +384,7 @@ let is-red = case c of
     c = r["c"]
     assert isinstance(c, RecordValue)
     checked = _checked(entry_source, modules, tmp_path)
-    program = lower_program(_compiled_checked(checked))
+    program = lower_program(_compiled_checked(checked), contract_payloads={})
     assert c.nominal == nominal_id_for(program, "Color::Red")
 
 
@@ -458,5 +458,5 @@ let is-running = case s of
     s = r["s"]
     assert isinstance(s, RecordValue)
     checked = _checked(entry_source, modules, tmp_path)
-    program = lower_program(_compiled_checked(checked))
+    program = lower_program(_compiled_checked(checked), contract_payloads={})
     assert s.nominal == nominal_id_for(program, "Status::Running")

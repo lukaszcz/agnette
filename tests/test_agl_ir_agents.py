@@ -645,7 +645,7 @@ prompt-text
     req = ir["req"]
     assert isinstance(req, RecordValue)
     program = lower_inline_ir(source, caps=agent_caps())
-    assert req.nominal == program.builtin_nominals.nominal("AgentRequest")
+    assert req.nominal == program.builtin_nominals.resolve("AgentRequest")
     descriptors = ValueDescriptors.from_program(program)
     assert isinstance(req.fields["agent"], RecordValue)
     assert _variant_name(req.fields["agent"], descriptors) == "AgentCommand"
@@ -860,7 +860,6 @@ def test_enum_bad_case_raises_agent_parse_error() -> None:
         ]
     }
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=json.dumps(schema, sort_keys=True),
         decode=decode,
@@ -985,7 +984,6 @@ def test_parse_contract_output_ambiguous_multi_value() -> None:
     from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"type": "integer"}),
         decode=ScalarDecode(ScalarKind.INT),
@@ -1005,7 +1003,6 @@ def test_parse_contract_output_lenient_no_json_found() -> None:
     from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"type": "integer"}),
         decode=ScalarDecode(ScalarKind.INT),
@@ -1023,7 +1020,6 @@ def test_parse_contract_output_strict_parse_failure() -> None:
     from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"type": "integer"}),
         decode=ScalarDecode(ScalarKind.INT),
@@ -1080,7 +1076,6 @@ def test_parse_agent_output_required_field_error() -> None:
         alias=None,
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=decode,
@@ -1132,7 +1127,6 @@ def test_parse_agent_output_additional_properties_error() -> None:
         alias=None,
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=decode,
@@ -1151,7 +1145,6 @@ def test_parse_agent_output_wrong_type_error() -> None:
     from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"type": "integer"}),
         decode=ScalarDecode(ScalarKind.INT),
@@ -1172,7 +1165,6 @@ def test_parse_agent_output_unknown_validator_fallback() -> None:
     # Use a "minimum" constraint that fails — falls through to default ValidationError.
     schema = _json.dumps({"type": "integer", "minimum": 100})
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=ScalarDecode(ScalarKind.INT),
@@ -1247,7 +1239,6 @@ def test_enum_instance_not_dict_bad_case() -> None:
         }
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=decode,
@@ -1310,7 +1301,6 @@ def test_enum_no_case_tag_bad_case() -> None:
         }
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=decode,
@@ -1345,7 +1335,6 @@ def test_enum_bad_case_no_decode_schema() -> None:
     )
     # decode=None: _find_enum_decode_at_path returns None.
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=None,
@@ -1382,7 +1371,6 @@ def test_find_enum_decode_at_path_through_array() -> None:
     )
     array_dec = ArrayDecode(elem=enum_dec)
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema="{}",
         decode=array_dec,
@@ -1429,7 +1417,6 @@ def test_find_enum_decode_at_path_through_dict() -> None:
     )
     dict_dec = DictDecode(DictKeyForm.OBJECT_TEXT, ScalarDecode(ScalarKind.TEXT), value=enum_dec)
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema="{}",
         decode=dict_dec,
@@ -1490,7 +1477,6 @@ def test_find_enum_decode_at_path_through_record() -> None:
         alias=None,
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema="{}",
         decode=rec_dec,
@@ -1535,7 +1521,6 @@ def test_find_enum_decode_at_path_enum_at_top_navigated_into() -> None:
         ),
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema="{}",
         decode=enum_dec,
@@ -1554,7 +1539,6 @@ def test_find_enum_decode_at_path_scalar_navigated_into() -> None:
     from agnette.agl.runtime.codec import _find_enum_decode_at_path
 
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema="{}",
         decode=ScalarDecode(ScalarKind.INT),
@@ -1596,7 +1580,6 @@ def test_find_enum_decode_at_path_end_at_scalar() -> None:
         alias=None,
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema="{}",
         decode=rec_dec,
@@ -1673,7 +1656,6 @@ def test_enum_known_case_with_additional_props_error() -> None:
         }
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=decode,
@@ -1702,7 +1684,6 @@ def test_validate_contract_request_json_decode_check_nominals() -> None:
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
     cid = ContractId(0)
     req = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"type": "integer"}),
         decode=ScalarDecode(ScalarKind.INT),
@@ -1787,7 +1768,6 @@ def test_validate_contract_request_recursive_decode_defs() -> None:
     )
     cid = ContractId(0)
     req = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"$ref": "#/$defs/Tree"}),
         decode=RefDecode("Tree"),
@@ -1855,7 +1835,6 @@ def test_validate_contract_request_recursive_decode_unknown_defs_key() -> None:
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
     cid = ContractId(0)
     req = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"$ref": "#/$defs/Tree"}),
         decode=RefDecode("Tree"),
@@ -1930,7 +1909,6 @@ def test_parse_lenient_json_parse_failure_after_repair() -> None:
     from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"type": "integer"}),
         decode=ScalarDecode(ScalarKind.INT),
@@ -1951,7 +1929,6 @@ def test_parse_value_conversion_failure() -> None:
 
     schema = _json.dumps({"type": "string"})
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=ScalarDecode(ScalarKind.INT),  # INT decode on a string value
@@ -1977,11 +1954,8 @@ def test_validate_ir_ask_deep_valid_contract() -> None:
     dummy_loc = Location(source_id=src_id, start_offset=0, end_offset=1, start_line=1, start_col=0)
     cid = ContractId(0)
     req = TextContractRequest(
-        codec_name="text",
-        strict_json=None,
         target_type_label="text",
         structured_exec=False,
-        format_instructions="",
     )
     node = IrAsk(
         location=dummy_loc,
@@ -2032,11 +2006,8 @@ def test_validate_ir_ask_request_deep_valid_contract() -> None:
         sources={src_id: SourceFile(display_name="<test>", normalized_text="test")},
         contracts={
             cid: TextContractRequest(
-                codec_name="text",
-                strict_json=None,
                 target_type_label="text",
                 structured_exec=False,
-                format_instructions="",
             )
         },
     )
@@ -2163,7 +2134,6 @@ def test_enum_required_field_loop_partial_coverage() -> None:
         }
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=decode,
@@ -2188,7 +2158,6 @@ def test_parse_lenient_extracted_json_fails_decode() -> None:
     from agnette.agl.runtime.codec import _parse_contract_output
 
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=_json.dumps({"type": "integer"}),
         decode=ScalarDecode(ScalarKind.INT),
@@ -2307,7 +2276,6 @@ def test_classify_enum_sub_error_type_only_fallback() -> None:
         }
     )
     contract = JsonContractRequest(
-        codec_name="json",
         strict_json=None,
         json_schema=schema,
         decode=decode,
