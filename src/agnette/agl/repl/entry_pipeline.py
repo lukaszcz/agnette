@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
     from agnette.agl.eval.ir_interpreter import IrInterpreter
     from agnette.agl.ir.builtin_vars import BuiltinVarKey
-    from agnette.agl.ir.contracts import ContractPayload
     from agnette.agl.ir.static_keys import StaticBindingKey
     from agnette.agl.matchcompile import MatchCompiledProgram
     from agnette.agl.modules.loader import LoadedModule, ModuleGraph
@@ -254,19 +253,6 @@ class EntryPipeline:
         if check_only:
             return self._ctx._build_check_only_result(orig_program, checked, warnings)
 
-        from agnette.agl.pipeline import _materialize_program_custom_contract_payloads
-
-        contract_payloads, contract_errors = _materialize_program_custom_contract_payloads(
-            checked_program,
-            host_env.codecs,
-        )
-        if contract_errors:
-            # Contract materialization reports plain diagnostics with no
-            # source span and no originating static error at all: unlike
-            # match compilation, there is no real ``AglError`` to stand in
-            # for ``failure``, which stays ``None``.
-            return self._ctx._fail(contract_errors, warnings)
-
         return self._evaluate_ir_program(
             text=text,
             orig_program=orig_program,
@@ -280,7 +266,6 @@ class EntryPipeline:
             module_adjacency=module_adjacency,
             entry_imports=entry_imports,
             entry_uses=entry_uses,
-            contract_payloads=contract_payloads,
             raw_param_values=raw_param_values,
             retired_member_scopes=retired_member_scopes,
         )
@@ -560,7 +545,6 @@ class EntryPipeline:
         module_adjacency: dict[ModuleId, tuple[ModuleId, ...]],
         entry_imports: tuple[ImportDecl, ...],
         entry_uses: tuple[ImportDecl | ScopeRegion, ...],
-        contract_payloads: Mapping[int, "ContractPayload"],
         raw_param_values: Mapping["StaticBindingKey", object],
         retired_member_scopes: "frozenset[ScopePath]",
     ) -> EntryResult:
@@ -574,7 +558,6 @@ class EntryPipeline:
         from agnette.agl.lower import lower_repl_program
         from agnette.agl.pipeline import _wire_extern_registry, exception_value_to_run_error
         from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
-        from agnette.agl.runtime.contract import materialize_ir_contracts
         from agnette.agl.runtime.request import AgentCancelled
         from agnette.agl.runtime.trace import TraceStore
         from agnette.agl.semantics.exceptions import AglRaise
@@ -607,7 +590,6 @@ class EntryPipeline:
                     compiled,
                     image=self._ctx._link_image,
                     source_text=text,
-                    contract_payloads=contract_payloads,
                 )
         except NestingTooDeepError as exc:
             self._ctx._link_image.restore_state(link_snapshot)
@@ -622,7 +604,6 @@ class EntryPipeline:
                 else Diagnostic(message=str(exc), line=1)
             )
             return self._ctx._fail([diagnostic], warnings)
-        host_contracts = materialize_ir_contracts(lowered.program, host_env.codecs)
         from agnette.agl.runtime.arguments import bind_param_values, diagnose_process_environment
 
         pending_raw_param_values = {
@@ -695,7 +676,6 @@ class EntryPipeline:
                 ),
                 trace=trace,
                 echo_agent_output=self._ctx._echo_agent_output,
-                host_contracts=host_contracts,
                 base_frame=self._ctx._ir_base_frame,
                 extern_registry=host_env.extern_registry,
                 host_reconfigurer=reconfigurer,

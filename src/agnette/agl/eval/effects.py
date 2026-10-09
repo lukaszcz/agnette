@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, ContextManager, Literal, NoReturn, Protocol, assert_never, cast
 
@@ -21,7 +21,6 @@ from agnette.agent.values import agent_spec_shape
 from agnette.agl.ir.builtin_nominals import resolve_standard_member_name, standard_member_name
 from agnette.agl.ir.contracts import (
     ContractRequest,
-    CustomContractRequest,
     JsonContractRequest,
     TextContractRequest,
     UnitContractRequest,
@@ -45,7 +44,6 @@ from agnette.agl.runtime.agents import (
 )
 from agnette.agl.runtime.agents import agent_value as encode_agent_value
 from agnette.agl.runtime.codec import ParseResult
-from agnette.agl.runtime.contract import OutputContract
 from agnette.agl.runtime.externs import ActiveCall, ExternRegistry, ExternRuntimeState
 from agnette.agl.runtime.option import none_value, option_text, some_value
 from agnette.agl.runtime.render import render_value
@@ -124,7 +122,6 @@ class EffectCtx(Protocol):
     _get_sandbox_context: "Callable[[], SandboxContext] | None"
     _resolve_agent_spec: "AgentSpecResolver | None"
     _strict_json: bool
-    _host_contracts: Mapping[ContractId, OutputContract]
     _extern_registry: ExternRegistry
     _extern_runtime_state: ExternRuntimeState
     _extern_span_resolver: Callable[
@@ -140,8 +137,7 @@ class EffectCtx(Protocol):
     def _parse_host_output(
         self,
         raw: str,
-        contract_id: ContractId,
-        contract: TextContractRequest | JsonContractRequest | CustomContractRequest,
+        contract: TextContractRequest | JsonContractRequest,
         *,
         effective_strict: bool,
     ) -> ParseResult: ...
@@ -161,10 +157,8 @@ def _decode_exec_streams(stdout: CapturedOutput, stderr: CapturedOutput) -> tupl
 
 
 def _contract_json_schema(contract: ContractRequest) -> str | None:
-    """Return *contract*'s canonical JSON Schema string, or ``None`` for a
-    codec that carries none (the text codec, or a custom codec whose
-    ``make_contract`` hook derived no schema)."""
-    if isinstance(contract, JsonContractRequest | CustomContractRequest):
+    """Return *contract*'s canonical JSON Schema string, or ``None`` for the text codec."""
+    if isinstance(contract, JsonContractRequest):
         return contract.json_schema
     return None
 
@@ -412,7 +406,7 @@ class EffectHandlers:
         permission_mode, sandbox = self._decode_sandbox(sandbox_expr)
         env = self._decode_environ(self._ctx._eval(env_expr))
 
-        output_contract, json_schema = self._contract_carriers(contract_id)
+        output_contract, json_schema = self._ask_contract(contract_id)
         return self._eval_agent_method_ask(
             agent=agent_val,
             prompt=prompt_text,
@@ -455,9 +449,7 @@ class EffectHandlers:
                     nominals=self._ctx._program.builtin_nominals,
                 )
             )
-        can_retry = isinstance(
-            self._ctx._program.contracts[contract_id], (JsonContractRequest, CustomContractRequest)
-        )
+        can_retry = isinstance(self._ctx._program.contracts[contract_id], JsonContractRequest)
         return 1 + retries if can_retry else 1
 
     def _decode_sandbox(self, sandbox_expr: IrExpr) -> tuple[PermissionMode, SandboxLimits | None]:
@@ -501,16 +493,16 @@ class EffectHandlers:
             ),
         )
 
-    def _contract_carriers(
+    def _ask_contract(
         self, contract_id: ContractId
-    ) -> tuple[OutputContract | None, object | None]:
-        """Return the output contract and decoded JSON schema carried by an ask."""
+    ) -> tuple[TextContractRequest | JsonContractRequest | None, object | None]:
+        """Return the non-unit contract request of an ask and its decoded JSON schema."""
         contract = self._ctx._program.contracts[contract_id]
         if isinstance(contract, UnitContractRequest):
             return None, None
         raw_schema = _contract_json_schema(contract)
         json_schema = None if raw_schema is None else cast(object, json.loads(raw_schema))
-        return self._ctx._host_contracts[contract_id], json_schema
+        return contract, json_schema
 
     _SESSION_TRANSPORT_MEMBERS = tuple(member.value for member in SessionTransport)
 
@@ -736,7 +728,7 @@ class EffectHandlers:
         contract_id: ContractId,
         max_attempts: int,
         node: IrAsk,
-        output_contract: OutputContract | None,
+        output_contract: TextContractRequest | JsonContractRequest | None,
         json_schema: object | None,
         permission_mode: PermissionMode,
         sandbox: SandboxLimits | None,
@@ -808,7 +800,7 @@ class EffectHandlers:
             self._ctx._eval(node.session) if session is None else session
         )
         contract = self._ctx._program.contracts[node.contract_id]
-        output_contract, json_schema = self._contract_carriers(node.contract_id)
+        output_contract, json_schema = self._ask_contract(node.contract_id)
         spec = self._decode_agent_spec(agent)
         env = self._ctx._session_host.snapshot(handle).env
         return self._eval_session_ask_attempts(
@@ -856,7 +848,7 @@ class EffectHandlers:
         contract_id: ContractId,
         max_attempts: int,
         node: IrAsk | IrSessionAsk,
-        output_contract: OutputContract | None,
+        output_contract: TextContractRequest | JsonContractRequest | None,
         dispatch: Callable[[AgentRequest], str],
         permission_mode: PermissionMode,
         sandbox: SandboxLimits | None,
@@ -892,9 +884,7 @@ class EffectHandlers:
                 request.output_callback("final", raw)
             if isinstance(contract, UnitContractRequest):
                 return UNIT_VALUE
-            result = self._ctx._parse_host_output(
-                raw, contract_id, contract, effective_strict=effective_strict
-            )
+            result = self._ctx._parse_host_output(raw, contract, effective_strict=effective_strict)
             self._ctx._trace.parse_result(
                 ok=result.ok,
                 raw=raw,
@@ -1325,7 +1315,7 @@ class EffectHandlers:
                 last_raw = self._decode_exec_stdout(cmd, rc2 if rc2 is not None else 0, stdout2)
 
             result = self._ctx._parse_host_output(
-                last_raw or "", contract_id, contract, effective_strict=effective_strict
+                last_raw or "", contract, effective_strict=effective_strict
             )
             self._ctx._trace.parse_result(
                 ok=result.ok,

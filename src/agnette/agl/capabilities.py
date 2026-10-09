@@ -12,7 +12,6 @@ Design
   strings the codec supports.  Built-in codecs: ``"text"`` (supports
   ``{"text"}``); ``"json"`` (supports
   ``{"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}``).
-  Hosts may register additional codecs via ``PipelineDriver``.
 
 The string type-kind identifiers used in ``codec_kinds`` match the names of
 the semantic ``Type`` subclasses in ``agnette.agl.semantics.types`` (lower-cased,

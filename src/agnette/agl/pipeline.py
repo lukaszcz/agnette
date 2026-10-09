@@ -1,7 +1,7 @@
 """PipelineDriver — top-of-stack orchestrator for the AgL execution pipeline.
 
 Drives the full ``parse → scope → typecheck → matchcompile → lower/link → IR eval`` pipeline:
-registers agents/codecs, validates host-supplied program arguments, materializes
+registers agents, validates host-supplied program arguments, materializes
 output contracts, and executes the program (or stops after static checking for
 ``agm check``). Structured outputs use the JSON codec with
 lenient-by-default recovery.
@@ -13,7 +13,6 @@ types).  This module is the top-of-stack host façade that depends on both
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, TypeVar, cast
@@ -38,7 +37,6 @@ from agnette.agl.eval.ir_interpreter import (
 from agnette.agl.ir.nodes import UseDefault
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.runtime.agents import AgentFn
-from agnette.agl.runtime.contract import materialize_ir_contracts
 from agnette.agl.runtime.types import (
     HostEnvironment,
     ParamBindingInfo,
@@ -55,7 +53,7 @@ if TYPE_CHECKING:
     from agnette.agl.attributes import ProgramOptionSpec
     from agnette.agl.capabilities import HostCapabilities
     from agnette.agl.ir.builtin_vars import BuiltinVarKey
-    from agnette.agl.ir.contracts import ContractPayload, ExceptionFieldEncode
+    from agnette.agl.ir.contracts import ExceptionFieldEncode
     from agnette.agl.ir.ids import NominalId, SourceId, SymbolId
     from agnette.agl.ir.program import (
         ExecutableProgram,
@@ -69,7 +67,6 @@ if TYPE_CHECKING:
     from agnette.agl.modules.loader import ModuleGraph
     from agnette.agl.modules.roots import RootSet
     from agnette.agl.runtime.arguments import ProgramArguments
-    from agnette.agl.runtime.codec import OutputCodec
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
@@ -81,7 +78,6 @@ if TYPE_CHECKING:
     from agnette.agl.syntax.nodes import FuncDef, Program, TypeAlias
     from agnette.agl.syntax.spans import SourceSpan
     from agnette.agl.syntax.types import TypeExpr
-    from agnette.agl.typecheck.env import OutputContractSpec
     from agnette.agl.typecheck.program import CheckedProgram
     from agnette.packages.model import PackageInfo
     from agnette.sandbox.prepare import SandboxContext
@@ -117,7 +113,6 @@ class _ExecutableProvenance:
 
     executable: "ExecutableProgram"
     prepared: "PreparedProgram"
-    capabilities: "HostCapabilities"
     selected_module: "ModuleId"
 
 
@@ -443,45 +438,12 @@ class PipelineDriver:
             else IrInterpreter.DEFAULT_MAX_CALL_DEPTH
         )
         self._extern_registry = extern_registry
-        # Extra codecs registered by the host (beyond the built-ins).
-        self._extra_codecs: dict[str, "OutputCodec"] = {}
-        # Cached assembled environment: invariant between registrations, so the
-        # REPL's per-entry ``host_environment()`` calls reuse one bundle.  Any
-        # ``register_*`` invalidates it.
+        # Cached assembled environment, so the REPL's per-entry ``host_environment()``
+        # calls reuse one bundle.  Reconfiguring the execution services invalidates it.
         self._host_env_cache: HostEnvironment | None = None
         # Only preflight exposes lowered executables for later resumption. Keep
-        # their source and capability provenance here rather than in typeless IR.
+        # their source provenance here rather than in typeless IR.
         self._executable_provenance: dict[int, _ExecutableProvenance] = {}
-
-    def register_codec(self, codec: "OutputCodec") -> None:
-        """Register a custom output codec.
-
-        The codec's ``name`` property is the registration key.  The built-in
-        codec names (``"text"`` and ``"json"``) are reserved and cannot be
-        overridden.  Duplicate registrations (same name, regardless of
-        implementation) are rejected.
-
-        The codec must expose ``supported_kinds: frozenset[str]``; those kinds
-        are surfaced in ``HostCapabilities.codec_kinds`` so the type-checker
-        can validate ``format`` options at a call site.
-
-        Raises ``ValueError`` for reserved or duplicate names.
-        """
-        from agnette.agl.runtime.codec import BUILTIN_CODEC_NAMES
-
-        name = codec.name
-        if name in BUILTIN_CODEC_NAMES:
-            raise ValueError(
-                f"Cannot register codec with reserved name {name!r}. "
-                f"Reserved codec names: {sorted(BUILTIN_CODEC_NAMES)}"
-            )
-        if name in self._extra_codecs:
-            raise ValueError(
-                f"A codec named {name!r} is already registered. "
-                "Duplicate codec registrations are not allowed."
-            )
-        self._extra_codecs[name] = codec
-        self._host_env_cache = None
 
     def configure_execution_services(
         self,
@@ -520,31 +482,28 @@ class PipelineDriver:
         self._host_env_cache = None
 
     def host_environment(self) -> HostEnvironment:
-        """Assemble the shared host environment from this runtime's registrations.
+        """Assemble the shared host environment from this runtime's services.
 
-        Returns the value dispatcher, derived ``HostCapabilities``, and merged
-        codec tables. The bundle is invariant between codec registrations, so it
-        is assembled once and cached.
+        Returns the value dispatcher and derived ``HostCapabilities``. The bundle
+        is assembled once and cached until the execution services are replaced.
         """
         if self._host_env_cache is not None:
             return self._host_env_cache
         self._host_env_cache = assemble_host_environment(
             agent_dispatcher=self._agent_dispatcher,
             session_host=self._session_host,
-            extra_codecs=self._extra_codecs,
             extern_registry=self._extern_registry,
             get_sandbox_context=self._get_sandbox_context,
             resolve_agent_spec=self._resolve_agent_spec,
         )
         return self._host_env_cache
 
-    def _reuse_cached_executable(
+    def _cached_executable_module(
         self,
         executable: "ExecutableProgram",
         resolved: "ResolvedProgram",
-        capabilities: "HostCapabilities",
-    ) -> "tuple[ExecutableProgram | None, ModuleId]":
-        """Return a preflight executable (``None`` once capabilities change) and its module."""
+    ) -> "ModuleId":
+        """Return the module a preflight *executable* was lowered for."""
         if self_validation_enabled() and (
             id(executable) not in self._executable_provenance
             or self._executable_provenance[id(executable)].prepared.resolved is not resolved
@@ -552,10 +511,7 @@ class PipelineDriver:
             raise ArtifactProvenanceError(
                 "Cached executable was not issued by this pipeline for the prepared source."
             )
-        provenance = self._executable_provenance[id(executable)]
-        if provenance.capabilities != capabilities:
-            return None, provenance.selected_module
-        return executable, provenance.selected_module
+        return self._executable_provenance[id(executable)].selected_module
 
     def _execute_ir(
         self,
@@ -567,7 +523,7 @@ class PipelineDriver:
     ) -> RunResult:
         """Run a freshly lowered ``executable`` through the shared pipeline tail.
 
-        Materializes host codec contracts, honours the ``check_only`` stop
+        Materializes output contracts, honours the ``check_only`` stop
         (no execution), then builds and runs the :class:`IrInterpreter`,
         mapping an uncaught ``AglRaise`` to a failing ``RunResult``. All
         return paths carry *warnings*.
@@ -586,7 +542,6 @@ class PipelineDriver:
         check_only = options.check_only
         program_symbol = options.program_symbol
         arguments = options.arguments
-        host_contracts = materialize_ir_contracts(executable, host_env.codecs)
 
         if options.select_default_program and program_symbol is None:
             entry_programs = tuple(
@@ -652,7 +607,7 @@ class PipelineDriver:
 
         # ----------------------------------------------------------------
         # [check_only] stop: the full static pipeline, program-argument
-        # validation, and contract materialization have all succeeded.  Stop
+        # validation, and lowering have all succeeded.  Stop
         # before executing any statement — no program output, no evaluation
         # side effects, no extern companion imports, and no trace is written.
         # ----------------------------------------------------------------
@@ -761,7 +716,6 @@ class PipelineDriver:
                 shell_exec_timeout=self._shell_exec_timeout,
                 trace=trace,
                 max_call_depth=self._default_call_depth_limit,
-                host_contracts=host_contracts,
                 extern_registry=host_env.extern_registry,
                 host_reconfigurer=reconfigurer,
                 builtin_host_settings=interpreter_builtin_settings,
@@ -1227,11 +1181,10 @@ class PipelineDriver:
         ``executable``
             When this driver has already lowered this exact program (via
             :meth:`preflight_arguments`), pass the executable here to run it as-is:
-            contract materialization and lowering are skipped, so a program is
-            lowered only once however many times a host resumes it. A changed
-            host capability set invalidates the executable and lowers afresh;
-            an executable from another source or driver is rejected. ``None``
-            lowers here, before the check-only stop or evaluation.
+            lowering is skipped, so a program is lowered only once however many
+            times a host resumes it. An executable from another source or driver
+            is rejected. ``None`` lowers here, before the check-only stop or
+            evaluation.
         """
         result, _executable = self._run_program(
             prepared,
@@ -1260,10 +1213,9 @@ class PipelineDriver:
         """Run the full static pipeline over *prepared*, with no execution.
 
         An intent-revealing façade over ``run_prepared(..., check_only=True)``:
-        drives typecheck, match compilation, custom-contract payload
-        materialization, and lowering, reporting every static failure
-        lowering catches (an invalid ``resource``/``resource-dir`` path, an
-        unmaterializable output contract), with no execution.
+        drives typecheck, match compilation, and lowering, reporting every
+        static failure lowering catches (an invalid ``resource``/``resource-dir``
+        path), with no execution.
         """
         return self.run_prepared(prepared, check_only=True)
 
@@ -1281,7 +1233,6 @@ class PipelineDriver:
         executable's cache provenance so a later ``run_prepared(executable=...)``
         call can validate and reuse it instead of lowering a second time.
         """
-        capabilities = self.host_environment().capabilities
         result, executable = self._run_program(
             prepared,
             RunOptions(check_only=True),
@@ -1292,7 +1243,6 @@ class PipelineDriver:
             self._executable_provenance[id(executable)] = _ExecutableProvenance(
                 executable=executable,
                 prepared=prepared,
-                capabilities=capabilities,
                 selected_module=program.module,
             )
         return result, executable
@@ -1431,9 +1381,7 @@ class PipelineDriver:
         capabilities = host_env.capabilities
         selected_module = None if selected_program is None else selected_program.module
         if executable is not None:
-            executable, selected_module = self._reuse_cached_executable(
-                executable, resolved, capabilities
-            )
+            selected_module = self._cached_executable_module(executable, resolved)
         if compiled is not None:
             if self_validation_enabled():
                 _check_program_artifact_provenance(resolved, compiled.checked)
@@ -1474,33 +1422,16 @@ class PipelineDriver:
                     None,
                 )
 
-        # An already lowered program carries its materialized contracts, so both
-        # steps are skipped for it: the program is lowered exactly once per host
-        # invocation, however many times the host resumes the pipeline.
-        contract_payloads: "Mapping[int, ContractPayload]" = {}
-        if executable is None:
-            contract_payloads, contract_errors = _materialize_program_custom_contract_payloads(
-                checked,
-                host_env.codecs,
-            )
-            if contract_errors:
-                return (
-                    RunResult(
-                        ok=False,
-                        diagnostics=contract_errors,
-                        error=None,
-                        warnings=list(warnings),
-                    ),
-                    None,
-                )
-
+        # An already lowered program is not lowered again: the program is lowered
+        # exactly once per host invocation, however many times the host resumes
+        # the pipeline.
         if executable is None:
             from agnette.agl.lower import lower_program
             from agnette.agl.syntax.resources import ResourceError
 
             try:
                 with frontend_recursion_boundary():
-                    executable = lower_program(compiled, contract_payloads=contract_payloads)
+                    executable = lower_program(compiled)
             except (NestingTooDeepError, ResourceError) as exc:
                 diagnostic = (
                     diagnostic_from_span(str(exc), exc.span)
@@ -1939,59 +1870,6 @@ def _run_matchcompile_program(
     return result.compiled, ()
 
 
-def _materialize_custom_contract_payloads(
-    specs: "Mapping[int, OutputContractSpec]",
-    codecs: "Mapping[str, OutputCodec]",
-    type_table: "TypeTable",
-) -> tuple[dict[int, "ContractPayload"], list[Diagnostic]]:
-    """Run custom codec contract hooks before lowering and keep only typeless data."""
-    from agnette.agl.ir.contracts import ContractPayload
-    from agnette.agl.runtime.codec import BUILTIN_CODEC_NAMES
-    from agnette.agl.runtime.contract import materialize_contract
-    from agnette.agl.semantics.types import UnitType
-
-    payloads: dict[int, ContractPayload] = {}
-    errors: list[Diagnostic] = []
-    for node_id, spec in specs.items():
-        if spec.codec_name in BUILTIN_CODEC_NAMES or isinstance(spec.target_type, UnitType):
-            continue
-        try:
-            contract = materialize_contract(spec, codecs, type_table)
-            json_schema = (
-                None
-                if contract.json_schema is None
-                else json.dumps(contract.json_schema, sort_keys=True)
-            )
-        except (TypeError, ValueError) as exc:
-            errors.append(Diagnostic(message=f"Contract error: {exc}", line=1))
-            continue
-        payloads[node_id] = ContractPayload(
-            json_schema=json_schema,
-            decode=contract.decode,
-            format_instructions=contract.format_instructions,
-            defs=contract.defs,
-        )
-    return payloads, errors
-
-
-def _materialize_program_custom_contract_payloads(
-    checked: "CheckedProgram",
-    codecs: "Mapping[str, OutputCodec]",
-) -> tuple[dict[int, "ContractPayload"], list[Diagnostic]]:
-    """Materialize custom contract payloads for every module in a checked program."""
-    payloads: dict[int, "ContractPayload"] = {}
-    errors: list[Diagnostic] = []
-    for checked_module in checked.modules.values():
-        module_payloads, module_errors = _materialize_custom_contract_payloads(
-            checked_module.contract_specs,
-            codecs,
-            checked_module.type_env.type_table,
-        )
-        payloads.update(module_payloads)
-        errors.extend(module_errors)
-    return payloads, errors
-
-
 def _extern_declaration_sort_key(pair: "tuple[ModuleId, str]") -> "tuple[tuple[str, ...], str]":
     """Sort key for deterministic ``(module_id, name)`` diagnostic ordering."""
     return (pair[0].segments, pair[1])
@@ -2173,41 +2051,29 @@ def assemble_host_environment(
     *,
     agent_dispatcher: AgentFn | None,
     session_host: "SessionHost | None",
-    extra_codecs: dict[str, "OutputCodec"],
     extern_registry: "ExternRegistry | None" = None,
     get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
     resolve_agent_spec: "AgentSpecResolver | None" = None,
 ) -> HostEnvironment:
-    """Assemble the shared host runtime environment from registrations.
+    """Assemble the shared host runtime environment.
 
-    Builds the merged codec table and the derived ``HostCapabilities`` exactly
-    as ``PipelineDriver.run`` does inline. Used by both ``run`` and
-    ``ReplSession`` so codec capabilities have one source of truth.
+    Derives ``HostCapabilities`` from the built-in codecs. Used by both ``run``
+    and ``ReplSession`` so codec capabilities have one source of truth.
     """
     from agnette.agl.capabilities import HostCapabilities
     from agnette.agl.runtime.codec import JsonCodec, TextCodec
     from agnette.agl.runtime.externs import ExternRegistry
 
-    text_codec = TextCodec()
-    json_codec = JsonCodec()
-
-    # Merge built-in codecs with any host-registered extras.
-    all_codecs: dict[str, "OutputCodec"] = {
-        text_codec.name: text_codec,
-        json_codec.name: json_codec,
-        **extra_codecs,
-    }
-
+    codecs = (TextCodec(), JsonCodec())
     capabilities = HostCapabilities(
         supports_shell_exec=True,
         supports_extern=True,
-        codec_kinds={name: codec.supported_kinds for name, codec in all_codecs.items()},
+        codec_kinds={codec.name: codec.supported_kinds for codec in codecs},
     )
     return HostEnvironment(
         agent_dispatcher=agent_dispatcher,
         session_host=session_host,
         capabilities=capabilities,
-        codecs=all_codecs,
         extern_registry=extern_registry if extern_registry is not None else ExternRegistry(),
         get_sandbox_context=get_sandbox_context,
         resolve_agent_spec=resolve_agent_spec,

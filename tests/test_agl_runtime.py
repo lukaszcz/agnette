@@ -39,10 +39,8 @@ from agnette.agl.ir.program import (
 )
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.pipeline import RunResult
-from agnette.agl.runtime.contract import OutputContract
 from agnette.agl.runtime.request import AgentRequest
 from agnette.agl.runtime.serialize import WalkTags
-from agnette.agl.semantics.types import Type
 from agnette.agl.semantics.values import ExceptionValue
 from agnette.agl.typecheck.env import AglTypeError
 from agnette.agm.commands import exec_program as exec_engine
@@ -56,7 +54,6 @@ from tests._agl_helpers import (
 if TYPE_CHECKING:
     from agnette.agl.ir.program import ExecutableProgram
     from agnette.agl.pipeline import PreparedProgram
-    from agnette.agl.runtime.codec import OutputCodec
     from agnette.agl.semantics.values import IrClosureValue, Value
 
 # ---------------------------------------------------------------------------
@@ -922,9 +919,8 @@ class TestNoDefaultAgent:
         assert result.ok is True
         assert len(requests) == 1
         contract = requests[0].output_contract
-        assert isinstance(contract, OutputContract)
-        assert contract.codec.name == "json"
-        assert contract.json_schema == {"type": "integer"}
+        assert contract is not None
+        assert '"type": "integer"' in contract.format_instructions
 
 
 class TestCheckOnly:
@@ -1087,12 +1083,12 @@ class TestWarningsThreadedOnFailurePaths:
 
 
 # ---------------------------------------------------------------------------
-# Capabilities built from registrations
+# Built-in codecs and removed renderer syntax
 # ---------------------------------------------------------------------------
 
 
-class TestCapabilitiesBuiltFromRegistrations:
-    """PipelineDriver.run builds HostCapabilities from codec/renderer registries."""
+class TestBuiltinCodecs:
+    """The built-in text and json codecs are always available to a driver."""
 
     def test_default_runtime_has_text_and_json_codecs(self) -> None:
         """Built-in text + json codecs are always present."""
@@ -1101,96 +1097,11 @@ class TestCapabilitiesBuiltFromRegistrations:
         rt = PipelineDriver(
             resolve_agent_spec=None, agent_dispatcher=lambda req: "ok", get_sandbox_context=None
         )
-        # A json-typed call passes typecheck → json codec is registered.
         tc, jc = TextCodec(), JsonCodec()
         assert tc.name == "text"
         assert jc.name == "json"
         result = run_inline_code(rt, 'ask "hi"')
         assert result.ok is True
-
-    def test_register_codec_before_run_extends_capabilities(self) -> None:
-        """A custom codec registered before run() makes its kinds available to typecheck."""
-        from agnette.agl.runtime.codec import ParseResult, TextCodec
-        from agnette.agl.runtime.contract import OutputContract
-        from agnette.agl.semantics.type_table import TypeTable
-        from agnette.agl.semantics.values import TextValue as TV
-
-        class FooCodec:
-            @property
-            def name(self) -> str:
-                return "foo"
-
-            @property
-            def supported_kinds(self) -> frozenset[str]:
-                return frozenset({"text"})
-
-            def make_contract(
-                self, type_ref: Type, type_table: TypeTable | None = None
-            ) -> OutputContract:
-                return OutputContract(
-                    target_type_label=repr(type_ref),
-                    codec=TextCodec(),
-                    strict_json=None,
-                    format_instructions="",
-                    json_schema=None,
-                )
-
-            def parse(
-                self,
-                raw: str,
-                *,
-                strict_json: bool = False,
-                schema: dict[str, object] | None = None,
-                decode: object | None = None,
-            ) -> ParseResult:
-                return ParseResult.success(TV(raw))
-
-        rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        rt.register_codec(FooCodec())
-        # The program just needs to run without capability errors.
-        result = run_inline_code(rt, "let x = 1\nx")
-        assert result.ok is True
-
-    def test_custom_codec_named_none_materializes_its_contract(self) -> None:
-        from agnette.agl.runtime.codec import TextCodec
-        from agnette.agl.semantics.type_table import TypeTable
-        from agnette.agl.semantics.types import TextType
-        from agnette.agl.semantics.values import TextValue
-
-        class NoneCodec(TextCodec):
-            @property
-            def name(self) -> str:
-                return "none"
-
-            def make_contract(
-                self, type_ref: Type, type_table: TypeTable | None = None
-            ) -> OutputContract:
-                assert isinstance(type_ref, TextType)
-                return OutputContract(
-                    target_type_label=repr(type_ref),
-                    codec=self,
-                    strict_json=None,
-                    format_instructions="Return a none-codec response.",
-                    json_schema=None,
-                )
-
-        requests: list[AgentRequest] = []
-
-        def agent(request: AgentRequest) -> str:
-            requests.append(request)
-            return "decoded"
-
-        rt = PipelineDriver(
-            resolve_agent_spec=None, agent_dispatcher=agent, get_sandbox_context=None
-        )
-        rt.register_codec(NoneCodec())
-        result = run_inline_code(rt, 'let answer: text = ask("prompt", format = "none")\nanswer')
-
-        assert result.ok
-        assert result.bindings["answer"] == TextValue("decoded")
-        assert len(requests) == 1
-        assert requests[0].output_contract is not None
-        assert requests[0].output_contract.format_instructions == "Return a none-codec response."
 
     def test_as_renderer_syntax_is_parse_error(self) -> None:
         """``%{x as name}`` is a syntax error (renderer syntax removed)."""
@@ -3117,63 +3028,6 @@ class TestConfigureExecutionServices:
         assert capsys.readouterr().out == "response\n"
 
 
-class TestRegisterCodecErrors:
-    """register_codec raises for reserved names and duplicates."""
-
-    def _make_codec(self, name: str) -> OutputCodec:
-        from agnette.agl.runtime.codec import OutputCodec, ParseResult, TextCodec
-        from agnette.agl.runtime.contract import OutputContract
-        from agnette.agl.semantics.type_table import TypeTable
-        from agnette.agl.semantics.values import TextValue
-
-        class _Codec(OutputCodec):
-            @property
-            def name(self) -> str:
-                return _name
-
-            @property
-            def supported_kinds(self) -> frozenset[str]:
-                return frozenset({"text"})
-
-            def make_contract(
-                self, type_ref: Type, type_table: TypeTable | None = None
-            ) -> OutputContract:
-                return OutputContract(
-                    target_type_label=repr(type_ref),
-                    codec=TextCodec(),
-                    strict_json=None,
-                    format_instructions="",
-                    json_schema=None,
-                )
-
-            def parse(
-                self,
-                raw: str,
-                *,
-                strict_json: bool = False,
-                schema: dict[str, object] | None = None,
-                decode: object | None = None,
-            ) -> ParseResult:
-                return ParseResult.success(TextValue(""))
-
-        _name = name
-        return _Codec()
-
-    def test_reserved_name_raises(self) -> None:
-        rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        codec = self._make_codec("text")  # "text" is a builtin codec name
-        with pytest.raises(ValueError, match="reserved"):
-            rt.register_codec(codec)
-
-    def test_duplicate_name_raises(self) -> None:
-        rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        codec1 = self._make_codec("mycodec")
-        codec2 = self._make_codec("mycodec")
-        rt.register_codec(codec1)
-        with pytest.raises(ValueError, match="already registered"):
-            rt.register_codec(codec2)
-
-
 class TestDefaultCallDepthLimit:
     """default_call_depth_limit constructor parameter and property."""
 
@@ -3729,32 +3583,6 @@ class TestRunPreparedEdgeCases:
             result = rt.run_prepared(prepared)
         assert result.ok is False
         assert any("tc fail" in d.message for d in result.diagnostics)
-
-    def test_run_prepared_custom_contract_error(self) -> None:
-        """run_prepared exits early when custom pre-lower materialization fails."""
-        from unittest.mock import patch
-
-        from agnette.agl.runtime.codec import TextCodec
-
-        class BadCodec(TextCodec):
-            @property
-            def name(self) -> str:
-                return "bad"
-
-        roots = agl_roots()
-        prepared = prepare_inline_code(
-            'let r = ask("hi", format = "bad")\nr', entry_path=None, roots=roots
-        )
-        rt = PipelineDriver(
-            resolve_agent_spec=None, agent_dispatcher=lambda req: "ok", get_sandbox_context=None
-        )
-        rt.register_codec(BadCodec())
-        with patch(
-            "agnette.agl.runtime.contract.materialize_contract", side_effect=ValueError("bad")
-        ):
-            result = rt.run_prepared(prepared)
-        assert result.ok is False
-        assert any("Contract error" in d.message for d in result.diagnostics)
 
     def test_run_prepared_with_precompiled_binds_program_arguments(
         self, tmp_path: pathlib.Path

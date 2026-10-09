@@ -5809,13 +5809,11 @@ class TestRecursiveTypesAcrossEntries:
         assert fresh.ok, fresh.diagnostics
 
     def test_ask_with_recursive_output_type_does_not_crash(self) -> None:
-        """The REPL's contract-preview path (make_contract) handles a recursive ask target.
+        """The REPL handles a recursive ask target.
 
-        Regression coverage for the graph-session contract-preview call
-        (``materialize_contract`` → ``JsonCodec.make_contract`` →
-        ``derive_schema``/``build_decode_schema``) with a recursive type: before
-        the decode side supported ``$defs``/``RefDecode``, ``build_decode_schema``
-        recursed forever on a finite recursive type and crashed lowering.
+        Regression coverage: before the decode side supported ``$defs``/``RefDecode``,
+        ``build_decode_schema`` recursed forever on a finite recursive type and
+        crashed lowering.
         """
         agent = CountingAgent(
             '{"$case": "Node", "value": 1, "left": {"$case": "Leaf"}, "right": {"$case": "Leaf"}}'
@@ -7085,49 +7083,8 @@ class TestWarnings:
 
 
 # ---------------------------------------------------------------------------
-# Registration / agents listing
-# ---------------------------------------------------------------------------
-
-
-class TestRegistrationAndAgents:
-    def test_register_codec_validation(self) -> None:
-        from agnette.agl.runtime.codec import JsonCodec
-
-        s = open_session()
-        with pytest.raises(ValueError):
-            s.register_codec(JsonCodec())  # reserved built-in name
-
-
-# ---------------------------------------------------------------------------
 # EntryResult shape
 # ---------------------------------------------------------------------------
-
-
-class TestContractError:
-    def test_contract_materialization_error_fails_cleanly(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import agnette.agl.runtime.contract as contract_mod
-
-        def bad_materialize(spec: object, codecs: object, type_table: object = None) -> object:
-            raise ValueError("bad contract")
-
-        monkeypatch.setattr(contract_mod, "materialize_contract", bad_materialize)
-        from agnette.agl.runtime.codec import TextCodec
-
-        class BadCodec(TextCodec):
-            @property
-            def name(self) -> str:
-                return "bad"
-
-        s = open_session(agent_dispatcher=CountingAgent("ok"))
-        s.register_codec(BadCodec())
-        r = s.eval_entry('let x = ask("hi", format = "bad")')
-        assert not r.ok
-        assert any("bad contract" in d.message for d in r.diagnostics)
-        assert r.failure is None
-        # Atomic: nothing promoted.
-        assert s.bindings() == []
 
 
 class TestEntryResultShape:
@@ -9431,36 +9388,6 @@ class TestImports:
         # Roots were assembled lazily.
         assert s._roots is not None
 
-    def test_contract_error_in_graph_mode(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # A ValueError from materialize_contract during program execution
-        # returns a failed entry with a "Contract error:" diagnostic.
-        import agnette.agl.runtime.contract as contract_mod
-
-        def bad_materialize(spec: object, codecs: object, type_table: object = None) -> object:
-            raise ValueError("bad contract")
-
-        monkeypatch.setattr(contract_mod, "materialize_contract", bad_materialize)
-        from agnette.agl.runtime.codec import TextCodec
-
-        class BadCodec(TextCodec):
-            @property
-            def name(self) -> str:
-                return "bad"
-
-        lib = tmp_path / "mylib.agl"
-        lib.write_text("def add(a: int, b: int) -> int = a + b\n")
-        s = repl_session_with_root(tmp_path)
-        # The custom-format ask produces a pre-lower contract materialization error.
-        s.register_codec(BadCodec())
-        r = s.eval_entry(
-            'import mylib\nlet helper = AgentCommand("helper")\n'
-            'ask("hi", agent = helper, format = "bad")'
-        )
-        assert not r.ok
-        assert any("bad contract" in d.message for d in r.diagnostics)
-
     def test_parse_error_in_imported_module_has_source_label(self, tmp_path: Path) -> None:
         # Regression: parse error in an imported module must surface
         # with source_label pointing to the module file, not a bare line-1 diagnostic
@@ -11140,39 +11067,6 @@ class TestSessionOpen:
             result.descriptors.nominals[result.value.nominal].display_name == "Agent::AgentCommand"
         )
         assert result.value.fields["command"] == TextValue("second-root")
-
-    def test_open_does_not_reuse_a_bootstrap_with_different_capabilities(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Changing host capabilities recompiles the static bootstrap image."""
-        import agnette.agl.modules.loader as loader_mod
-        from agnette.agl.runtime.codec import TextCodec
-
-        class ExtraCodec(TextCodec):
-            @property
-            def name(self) -> str:
-                return "bootstrap-extra"
-
-        stdlib = tmp_path / "stdlib"
-        copytree(Path(__file__).resolve().parent.parent / "packages" / "stdlib", stdlib)
-        original = loader_mod.build_repl_graph
-        new_module_counts: list[int] = []
-
-        def spy(*args: object, **kwargs: object) -> object:
-            result = original(*args, **kwargs)
-            _graph, _next_id, new_modules = result
-            new_module_counts.append(len(new_modules))
-            return result
-
-        monkeypatch.setattr(loader_mod, "build_repl_graph", spy)
-
-        assert ReplSession(stdlib_root=stdlib).open() == ()
-        changed_capabilities = ReplSession(stdlib_root=stdlib)
-        changed_capabilities.register_codec(ExtraCodec())
-        assert changed_capabilities.open() == ()
-
-        assert len(new_module_counts) == 2
-        assert all(count > 0 for count in new_module_counts)
 
     def test_open_reuses_a_bootstrap_regardless_of_engine_base_seeds(self, tmp_path: Path) -> None:
         """A typed engine seed does not touch the compiled module graph.

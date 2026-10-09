@@ -74,7 +74,7 @@ class EntryResult:
         rather than rendered text; ``None`` on success, for a runtime failure
         (``error``), and for a diagnostic with no single originating
         ``AglError`` (a lowering ``ResourceError``, a param/environment/
-        extern diagnostic, or a contract materialization error). The REPL
+        extern diagnostic). The REPL
         renderer keeps using ``diagnostics``.
     ``ok``
         ``True`` iff there are no error diagnostics AND no runtime error.

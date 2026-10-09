@@ -1671,9 +1671,7 @@ class TestUnparseableFeedback:
         rt = _agent_runtime(agent, strict_json=True)
         # Patch the IR output parser to return a failure with no details at all.
         bare_fail = ParseResult(ok=False, value=None, error_msg="", errors=())
-        with patch(
-            "agnette.agl.eval.ir_interpreter._parse_contract_output", return_value=bare_fail
-        ):
+        with patch("agnette.agl.eval.ir_interpreter.parse_contract_output", return_value=bare_fail):
             result = _run_inline(
                 rt,
                 'let impl = AgentCommand("impl")\n'

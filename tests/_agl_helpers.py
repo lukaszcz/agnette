@@ -72,7 +72,13 @@ from agnette.agl import PipelineDriver
 from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.builtin_vars import is_engine_builtin_var_key
-from agnette.agl.ir.contracts import DecodePlan, ExceptionFieldEncode
+from agnette.agl.ir.contracts import (
+    DecodePlan,
+    ExceptionFieldEncode,
+    JsonContractRequest,
+    ScalarDecode,
+    ScalarKind,
+)
 from agnette.agl.ir.ids import Location, NominalId
 from agnette.agl.ir.nodes import IrBind, IrConstInt, IrExpr, IrSequence
 from agnette.agl.ir.program import (
@@ -143,6 +149,18 @@ if TYPE_CHECKING:
 # ids (which start at 0) and from every reserved identity (<= -2, see
 # ir.reserved_nominals) so an ad-hoc type never collides with either.
 _decl_ids = itertools.count(900_000)
+
+
+def json_contract_request(format_instructions: str) -> JsonContractRequest:
+    """A ``json`` contract request whose only meaningful field is *format_instructions*."""
+    return JsonContractRequest(
+        strict_json=None,
+        json_schema="{}",
+        decode=ScalarDecode(ScalarKind.INT),
+        target_type_label="int",
+        structured_exec=False,
+        format_instructions=format_instructions,
+    )
 
 
 def derive_schema(typ: Type, type_table: TypeTable) -> dict[str, object]:

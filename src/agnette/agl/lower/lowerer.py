@@ -26,10 +26,8 @@ from agnette.agl.ir.builtin_nominals import (
 )
 from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import (
-    ContractPayload,
     ContractRequest,
     ConversionFailureMode,
-    CustomContractRequest,
     ExceptionFieldEncode,
     JsonContractRequest,
     TargetContractRequest,
@@ -637,7 +635,6 @@ class _Lowerer:
         *,
         has_std_env: bool = False,
         stable_ids: bool = False,
-        contract_payloads: Mapping[int, ContractPayload],
     ) -> None:
         self._checked = checked
         self._link = link
@@ -659,7 +656,6 @@ class _Lowerer:
         # and variant shapes for constructor lowering, nominal descriptors,
         # and contract/param schema derivation.
         self._type_table: TypeTable = checked.type_env.type_table
-        self._contract_payloads = contract_payloads
         self._return_expected_stack: list[Type] = []
         # The function whose body is being lowered, if any. A binding declared
         # there is owned by that function: it lives in a per-invocation call
@@ -814,9 +810,7 @@ class _Lowerer:
     def _contract_request_for_spec(self, node_id: int, *, structured_exec: bool) -> ContractRequest:
         """Build the typeless contract request for node *node_id*'s checked output contract.
 
-        A custom codec's request carries the payload the host materialized for
-        the node before lowering. A unit target maps to ``UnitContractRequest``
-        whatever the spec's codec name says.
+        A unit target maps to ``UnitContractRequest`` whatever the spec's codec name says.
         """
         spec = self._checked.contract_specs[node_id]
         target = spec.target_type
@@ -833,24 +827,7 @@ class _Lowerer:
                 format_instructions=build_format_instructions(schema),
                 defs=decode_plan.defs,
             )
-        if spec.codec_name == "text":
-            # "text" is a reserved codec name (see `BUILTIN_CODEC_NAMES`): a
-            # host codec can never register under it.
-            return TextContractRequest(
-                target_type_label=repr(target), structured_exec=structured_exec
-            )
-        payload = self._contract_payloads[node_id]
-        return CustomContractRequest(
-            codec_name=spec.codec_name,
-            strict_json=spec.strict_json,
-            json_schema=payload.json_schema,
-            decode=payload.decode,
-            target_type_label=repr(target),
-            structured_exec=structured_exec,
-            format_instructions=payload.format_instructions,
-            target_type=target,
-            defs=payload.defs,
-        )
+        return TextContractRequest(target_type_label=repr(target), structured_exec=structured_exec)
 
     def _alloc_target_contract(self, spec: OutputContractSpec) -> ContractId:
         """Register a type-directed extern's target contract, carrying its type tree."""

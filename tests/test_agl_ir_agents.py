@@ -808,7 +808,7 @@ def test_enum_bad_case_raises_agent_parse_error() -> None:
         VariantDecode,
     )
     from agnette.agl.ir.ids import NominalId
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -868,19 +868,19 @@ def test_enum_bad_case_raises_agent_parse_error() -> None:
         format_instructions="",
     )
     # Unknown $case.
-    result = _parse_contract_output('{"$case": "Unknown"}', contract, effective_strict=False)
+    result = parse_contract_output('{"$case": "Unknown"}', contract, effective_strict=False)
     assert not result.ok
     assert len(result.errors) == 1
     assert result.errors[0].category == "bad_case"
 
     # Missing $case (not a dict at all first, then missing).
-    result2 = _parse_contract_output('{"value": "hello"}', contract, effective_strict=False)
+    result2 = parse_contract_output('{"value": "hello"}', contract, effective_strict=False)
     assert not result2.ok
     assert len(result2.errors) == 1
     assert result2.errors[0].category == "bad_case"
 
     # Missing 'msg' field for Err variant.
-    result3 = _parse_contract_output('{"$case": "Err"}', contract, effective_strict=False)
+    result3 = parse_contract_output('{"$case": "Err"}', contract, effective_strict=False)
     assert not result3.ok
     assert len(result3.errors) == 1
     assert result3.errors[0].category == "missing_field"
@@ -974,14 +974,14 @@ prompt-text
 
 
 # ---------------------------------------------------------------------------
-# _parse_contract_output unit tests for uncovered branches
+# parse_contract_output unit tests for uncovered branches
 # ---------------------------------------------------------------------------
 
 
-def test_parse_contract_output_ambiguous_multi_value() -> None:
-    """_parse_contract_output: lenient mode with ambiguous multi-value → failure."""
+def testparse_contract_output_ambiguous_multi_value() -> None:
+    """parse_contract_output: lenient mode with ambiguous multi-value → failure."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     contract = JsonContractRequest(
         strict_json=None,
@@ -992,15 +992,15 @@ def test_parse_contract_output_ambiguous_multi_value() -> None:
         format_instructions="",
     )
     # Two bare JSON values → _extract_json_text returns _AMBIGUOUS_MULTI_VALUE.
-    result = _parse_contract_output("1 2", contract, effective_strict=False)
+    result = parse_contract_output("1 2", contract, effective_strict=False)
     assert not result.ok
     assert "Ambiguous" in result.error_msg or "multiple" in result.error_msg
 
 
-def test_parse_contract_output_lenient_no_json_found() -> None:
-    """_parse_contract_output: lenient mode with no JSON at all → failure."""
+def testparse_contract_output_lenient_no_json_found() -> None:
+    """parse_contract_output: lenient mode with no JSON at all → failure."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     contract = JsonContractRequest(
         strict_json=None,
@@ -1010,14 +1010,14 @@ def test_parse_contract_output_lenient_no_json_found() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    result = _parse_contract_output("no json here at all!@#$%", contract, effective_strict=False)
+    result = parse_contract_output("no json here at all!@#$%", contract, effective_strict=False)
     assert not result.ok
 
 
-def test_parse_contract_output_strict_parse_failure() -> None:
-    """_parse_contract_output: strict mode with invalid JSON → failure."""
+def testparse_contract_output_strict_parse_failure() -> None:
+    """parse_contract_output: strict mode with invalid JSON → failure."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     contract = JsonContractRequest(
         strict_json=None,
@@ -1027,7 +1027,7 @@ def test_parse_contract_output_strict_parse_failure() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    result = _parse_contract_output("not json!", contract, effective_strict=True)
+    result = parse_contract_output("not json!", contract, effective_strict=True)
     assert not result.ok
     assert "Strict JSON" in result.error_msg
 
@@ -1042,7 +1042,7 @@ def test_parse_agent_output_required_field_error() -> None:
         ScalarKind,
     )
     from agnette.agl.ir.ids import NominalId as IrNominalId
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     nom = IrNominalId(1)
     schema = _json.dumps(
@@ -1084,7 +1084,7 @@ def test_parse_agent_output_required_field_error() -> None:
         format_instructions="",
     )
     # Missing 'y' field.
-    result = _parse_contract_output('{"x": 1}', contract, effective_strict=False)
+    result = parse_contract_output('{"x": 1}', contract, effective_strict=False)
     assert not result.ok
     assert len(result.errors) >= 1
     assert any(e.category == "missing_field" for e in result.errors)
@@ -1100,7 +1100,7 @@ def test_parse_agent_output_additional_properties_error() -> None:
         ScalarKind,
     )
     from agnette.agl.ir.ids import NominalId
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     nom = NominalId(1)
     schema = _json.dumps(
@@ -1134,7 +1134,7 @@ def test_parse_agent_output_additional_properties_error() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    result = _parse_contract_output('{"x": 1, "extra": true}', contract, effective_strict=False)
+    result = parse_contract_output('{"x": 1, "extra": true}', contract, effective_strict=False)
     assert not result.ok
     assert any(e.category == "unknown_field" for e in result.errors)
 
@@ -1142,7 +1142,7 @@ def test_parse_agent_output_additional_properties_error() -> None:
 def test_parse_agent_output_wrong_type_error() -> None:
     """parse_agent_output: wrong JSON type (string vs integer) → wrong_type error."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     contract = JsonContractRequest(
         strict_json=None,
@@ -1152,7 +1152,7 @@ def test_parse_agent_output_wrong_type_error() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    result = _parse_contract_output('"not an int"', contract, effective_strict=False)
+    result = parse_contract_output('"not an int"', contract, effective_strict=False)
     assert not result.ok
     assert any(e.category == "wrong_type" for e in result.errors)
 
@@ -1160,7 +1160,7 @@ def test_parse_agent_output_wrong_type_error() -> None:
 def test_parse_agent_output_unknown_validator_fallback() -> None:
     """parse_agent_output: schema with minimum validator → wrong_type fallback."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     # Use a "minimum" constraint that fails — falls through to default ValidationError.
     schema = _json.dumps({"type": "integer", "minimum": 100})
@@ -1172,7 +1172,7 @@ def test_parse_agent_output_unknown_validator_fallback() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    result = _parse_contract_output("5", contract, effective_strict=False)
+    result = parse_contract_output("5", contract, effective_strict=False)
     assert not result.ok
     # The error should be categorized (wrong_type is our fallback for unknown validators)
     assert len(result.errors) >= 1
@@ -1193,7 +1193,7 @@ def test_enum_instance_not_dict_bad_case() -> None:
     """_classify_enum_failure: non-dict instance → bad_case error."""
     from agnette.agl.ir.contracts import EnumDecode, JsonContractRequest, VariantDecode
     from agnette.agl.ir.ids import NominalId
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     nominal = NominalId(1)
     decode = EnumDecode(
@@ -1247,7 +1247,7 @@ def test_enum_instance_not_dict_bad_case() -> None:
         format_instructions="",
     )
     # Pass a non-dict (string) → instance not dict path.
-    result = _parse_contract_output('"not-a-dict"', contract, effective_strict=False)
+    result = parse_contract_output('"not-a-dict"', contract, effective_strict=False)
     assert not result.ok
     assert any(e.category == "bad_case" for e in result.errors)
 
@@ -1308,10 +1308,10 @@ def test_enum_no_case_tag_bad_case() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     # Missing $case key entirely.
-    result = _parse_contract_output('{"value": 42}', contract, effective_strict=False)
+    result = parse_contract_output('{"value": 42}', contract, effective_strict=False)
     assert not result.ok
     assert any(e.category == "bad_case" for e in result.errors)
 
@@ -1319,7 +1319,7 @@ def test_enum_no_case_tag_bad_case() -> None:
 def test_enum_bad_case_no_decode_schema() -> None:
     """decode=None in ContractRequest → failure (no decode schema check before validation)."""
     from agnette.agl.ir.contracts import JsonContractRequest
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     schema = _json.dumps(
         {
@@ -1342,7 +1342,7 @@ def test_enum_bad_case_no_decode_schema() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    result = _parse_contract_output('{"$case": "Unknown"}', contract, effective_strict=False)
+    result = parse_contract_output('{"$case": "Unknown"}', contract, effective_strict=False)
     assert not result.ok  # decode=None → failure before schema validation
 
 
@@ -1663,10 +1663,10 @@ def test_enum_known_case_with_additional_props_error() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     # Ok with extra field → additionalProperties error.
-    result = _parse_contract_output('{"$case": "Ok", "extra": 1}', contract, effective_strict=False)
+    result = parse_contract_output('{"$case": "Ok", "extra": 1}', contract, effective_strict=False)
     assert not result.ok
     assert any(e.category == "unknown_field" for e in result.errors)
 
@@ -1904,9 +1904,9 @@ n
 
 
 def test_parse_lenient_json_parse_failure_after_repair() -> None:
-    """_parse_contract_output lenient: json_text found but json.loads fails → failure."""
+    """parse_contract_output lenient: json_text found but json.loads fails → failure."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     contract = JsonContractRequest(
         strict_json=None,
@@ -1917,15 +1917,15 @@ def test_parse_lenient_json_parse_failure_after_repair() -> None:
         format_instructions="",
     )
     # Strict mode parse failure.
-    result = _parse_contract_output("this is not json at all!!", contract, effective_strict=True)
+    result = parse_contract_output("this is not json at all!!", contract, effective_strict=True)
     assert not result.ok
     assert "Strict JSON" in result.error_msg
 
 
 def test_parse_value_conversion_failure() -> None:
-    """_parse_contract_output: schema valid but decode raises ValueError → failure."""
+    """parse_contract_output: schema valid but decode raises ValueError → failure."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     schema = _json.dumps({"type": "string"})
     contract = JsonContractRequest(
@@ -1936,7 +1936,7 @@ def test_parse_value_conversion_failure() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    result = _parse_contract_output('"not-a-number"', contract, effective_strict=False)
+    result = parse_contract_output('"not-a-number"', contract, effective_strict=False)
     # Either schema validation fails (wrong_type) or decode fails (value conversion)
     assert not result.ok
 
@@ -2141,21 +2141,21 @@ def test_enum_required_field_loop_partial_coverage() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     # Both 'a' present but 'b' is missing → required error with 2 items in list.
-    result = _parse_contract_output('{"$case": "Both", "a": 1}', contract, effective_strict=False)
+    result = parse_contract_output('{"$case": "Both", "a": 1}', contract, effective_strict=False)
     assert not result.ok
     # Should find 'b' as missing (loop iterates past '$case' and 'a').
     assert any(e.category in ("missing_field", "bad_case") for e in result.errors)
 
 
 def test_parse_lenient_extracted_json_fails_decode() -> None:
-    """_parse_contract_output lenient: extracted JSON text fails json.loads."""
+    """parse_contract_output lenient: extracted JSON text fails json.loads."""
     from unittest.mock import patch
 
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     contract = JsonContractRequest(
         strict_json=None,
@@ -2167,7 +2167,7 @@ def test_parse_lenient_extracted_json_fails_decode() -> None:
     )
     # Patch _extract_json_text in codec to return a non-ambiguous broken string.
     with patch("agnette.agl.runtime.codec._extract_json_text", return_value="{broken: !}"):
-        result = _parse_contract_output("irrelevant", contract, effective_strict=False)
+        result = parse_contract_output("irrelevant", contract, effective_strict=False)
     assert not result.ok
     assert "JSON parse failed" in result.error_msg
 
@@ -2283,12 +2283,12 @@ def test_classify_enum_sub_error_type_only_fallback() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    from agnette.agl.runtime.codec import _parse_contract_output
+    from agnette.agl.runtime.codec import parse_contract_output
 
     # Known case "Err" but wrong type for "msg" (integer): all fields present, no extra fields
     # → _classify_enum_failure falls through to the defensive bad_case fallback.
     raw = _json.dumps({"$case": "Err", "msg": 42})
-    result = _parse_contract_output(raw, contract, effective_strict=False)
+    result = parse_contract_output(raw, contract, effective_strict=False)
     assert not result.ok
     assert any(e.category == "bad_case" for e in result.errors)
 

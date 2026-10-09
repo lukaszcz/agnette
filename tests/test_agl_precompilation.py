@@ -7,14 +7,14 @@ import os
 import pickle
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from agnette.agl import lower
 from agnette.agl.artifact_cache import clear_retained_artifacts
-from agnette.agl.ir.contracts import ContractPayload, TypeNode, TypeTree
+from agnette.agl.ir.contracts import TypeNode, TypeTree
 from agnette.agl.ir.program import ExecutableProgram
 from agnette.agl.matchcompile import MatchCompiledProgram
 from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
@@ -383,12 +383,8 @@ def test_precompiled_extern_type_trees_round_trip(
     executables: list[ExecutableProgram] = []
     lower_program = lower.lower_program
 
-    def capture(
-        compiled: MatchCompiledProgram,
-        *,
-        contract_payloads: Mapping[int, ContractPayload],
-    ) -> ExecutableProgram:
-        executables.append(lower_program(compiled, contract_payloads=contract_payloads))
+    def capture(compiled: MatchCompiledProgram) -> ExecutableProgram:
+        executables.append(lower_program(compiled))
         return executables[-1]
 
     monkeypatch.setattr(lower, "lower_program", capture)

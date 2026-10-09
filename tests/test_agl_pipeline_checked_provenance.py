@@ -20,7 +20,6 @@ from agnette.agl.pipeline import (
     PreparedProgram,
 )
 from agnette.agl.runtime.arguments import ProgramArguments
-from agnette.agl.runtime.codec import TextCodec
 from tests._agl_helpers import agl_roots, prepare_inline_code
 
 
@@ -105,32 +104,4 @@ def test_run_resumes_the_executable_from_its_preflight(
 
     assert result.ok
     assert lower.call_count == 1
-    assert capsys.readouterr().out == "fresh\n"
-
-
-def test_run_relowers_a_preflight_executable_when_host_capabilities_change(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    class ExtraCodec(TextCodec):
-        @property
-        def name(self) -> str:
-            return "extra"
-
-    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    prepared = prepare_inline_code('print "fresh"')
-
-    with patch("agnette.agl.lower.lower_program", wraps=lower_program) as lower:
-        preflight = _preflight(runtime, prepared)
-        assert preflight.result.ok
-        assert preflight.executable is not None
-        runtime.register_codec(ExtraCodec())
-
-        result = runtime.run_prepared(
-            prepared,
-            executable=preflight.executable,
-            select_default_program=True,
-        )
-
-    assert result.ok
-    assert lower.call_count == 2
     assert capsys.readouterr().out == "fresh\n"

@@ -73,7 +73,6 @@ from agnette.agl.ir.contracts import (
     ArrayDecode,
     ArrayEncode,
     ContractRequest,
-    CustomContractRequest,
     DecodeConversionRecipe,
     DecodeSchema,
     DictDecode,
@@ -101,7 +100,6 @@ from agnette.agl.ir.contracts import (
 )
 from agnette.agl.ir.ids import (
     HOST_SOURCE_ID,
-    ContractId,
     FunctionId,
     Location,
     NominalId,
@@ -1778,8 +1776,8 @@ def _validate_program_tables(ctx: _Context) -> None:
             _validate_expr(value, ctx)
 
     # 6. contracts table — each ContractRequest must be consistent.
-    for cid, contract_req in program.contracts.items():
-        _validate_contract_request(cid, contract_req, ctx)
+    for contract_req in program.contracts.values():
+        _validate_contract_request(contract_req, ctx)
     for target_request in program.target_contracts.values():
         _check_type_tree(target_request.type_tree, ctx)
 
@@ -1796,27 +1794,15 @@ def _validate_program_param(param: IrProgramParam, ctx: _Context) -> None:
     _check_decode_nominals(param.external_decoder.decode, param.external_decoder.defs, ctx)
 
 
-def _validate_contract_request(
-    cid: ContractId,
-    req: ContractRequest,
-    ctx: _Context,
-) -> None:
+def _validate_contract_request(req: ContractRequest, ctx: _Context) -> None:
     """Validate a ContractRequest entry (deep tier).
 
     A ``UnitContractRequest`` or ``TextContractRequest`` carries no schema to
     check. A ``JsonContractRequest`` always carries ``decode`` (the type split
-    makes that state unrepresentable), so only its nominals need checking. A
-    ``CustomContractRequest``'s ``decode`` stays
-    genuinely optional (a host codec's ``make_contract`` may not derive one),
-    so its ``defs``/``decode`` pairing is still checked here.
+    makes that state unrepresentable), so only its nominals need checking.
     """
     if isinstance(req, JsonContractRequest):
         _check_decode_nominals(req.decode, req.defs, ctx)
-    elif isinstance(req, CustomContractRequest):
-        if req.defs and req.decode is None:
-            raise InvalidIrError(f"ContractRequest {cid!r} has defs but decode is None")
-        if req.decode is not None:
-            _check_decode_nominals(req.decode, req.defs, ctx)
 
 
 def _check_type_tree(tree: TypeTree, ctx: _Context) -> None:

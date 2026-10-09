@@ -11,7 +11,7 @@ import hashlib
 from collections.abc import Iterable, Mapping
 
 from agnette.agl.ir.builtin_vars import BuiltinVarKey, builtin_var_key
-from agnette.agl.ir.contracts import ContractPayload, ExceptionFieldEncode, ParamDecoder
+from agnette.agl.ir.contracts import ExceptionFieldEncode, ParamDecoder
 from agnette.agl.ir.ids import FunctionId, NominalId, SourceId, SymbolId
 from agnette.agl.ir.nodes import IrExpr
 from agnette.agl.ir.program import (
@@ -245,7 +245,6 @@ def lower_program(
     _link: _LinkState | None = None,
     _already_linked: frozenset[ModuleId] = frozenset(),
     _entry_source_text: str | None = None,
-    contract_payloads: Mapping[int, ContractPayload],
 ) -> ExecutableProgram:
     """Lower a whole-program match-compiled artifact to an
     :class:`~agnette.agl.ir.program.ExecutableProgram`.
@@ -331,7 +330,6 @@ def lower_program(
             checked.resource_roots[mid],
             has_std_env=STD_ENV_ID in checked.modules,
             stable_ids=_link is None,
-            contract_payloads=contract_payloads,
         )
         module_lowerers[mid] = lowerer
         lowerer.prealloc_static_symbols(cm.resolved.program.body)
@@ -369,7 +367,6 @@ def lower_program(
                 sorted(link.builtin_nominals.declared.items()),
                 sorted(link.builtin_nominals.members.items()),
                 sorted(link.builtin_nominals.standard_members.items()),
-                [(nid, contract_payloads.get(nid)) for nid in sorted(cm.contract_specs)],
             )
             key = hashlib.sha256(fingerprint + repr(context).encode()).digest()
         cached = module_cache.load(key) if key is not None else None

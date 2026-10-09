@@ -9,8 +9,8 @@ resolves record fields and enum member sets through it
 ``RecordType``/``EnumType`` handle's own embedded maps — the handle carries
 only its declaration identity.  The derived schema is used:
 
-1. Embedded in ``OutputContract.format_instructions`` (pretty-printed) so the
-   agent receives the precise shape, and as ``OutputContract.json_schema`` so
+1. Embedded in the contract's format instructions (pretty-printed) so the
+   agent receives the precise shape, and as the contract's JSON Schema so
    API-backed agents can request native structured output.
 2. For schema validation via the ``jsonschema`` library inside
    :class:`~agnette.agl.runtime.codec.JsonCodec`.

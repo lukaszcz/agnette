@@ -26,9 +26,7 @@ from agnette.agl.zones import ParamZone
 __all__ = [
     "ArrayDecode",
     "ArrayEncode",
-    "ContractPayload",
     "ContractRequest",
-    "CustomContractRequest",
     "ConversionFailureMode",
     "ConversionRecipe",
     "ConversionStrategy",
@@ -647,21 +645,6 @@ class TypeTree:
 
 
 @dataclass(frozen=True, slots=True)
-class ContractPayload:
-    """Typeless materialized-codec payload embedded in a contract request.
-
-    Hosts may materialize custom codecs while checker types are still available
-    and pass only these immutable runtime fields into lowering.  The payload itself holds
-    no checker ``Type`` or ``TypeTable``.
-    """
-
-    json_schema: str | None
-    decode: "DecodeSchema | None"
-    format_instructions: str
-    defs: "tuple[tuple[str, DecodeSchema], ...]" = ()
-
-
-@dataclass(frozen=True, slots=True)
 class UnitContractRequest:
     """A ``unit`` target: the evaluator discards the output without parsing it.
 
@@ -722,38 +705,10 @@ class JsonContractRequest:
     defs: "tuple[tuple[str, DecodeSchema], ...]" = ()
 
 
-@dataclass(frozen=True, slots=True)
-class CustomContractRequest:
-    """Contract descriptor for a host-registered custom codec.
-
-    ``json_schema``/``decode`` mirror whatever the codec's own
-    ``make_contract`` hook produced while checker types were still available
-    (see ``ContractPayload``): a custom codec may or may not derive a schema,
-    so unlike ``JsonContractRequest`` these stay optional. The evaluator never
-    parses output through this descriptor directly -- it dispatches to the
-    codec's own ``parse`` hook (see ``eval.ir_interpreter._call_custom_codec_parse``).
-    ``target_type`` is the opaque checker type passed to custom codecs whose
-    ``parse`` hook accepts a positional target type; runtime-neutral code
-    must not inspect it.
-    """
-
-    codec_name: str
-    strict_json: bool | None
-    json_schema: str | None
-    decode: "DecodeSchema | None"
-    target_type_label: str
-    structured_exec: bool
-    format_instructions: str
-    target_type: object
-    defs: "tuple[tuple[str, DecodeSchema], ...]" = ()
-
-
 #: Closed tagged-data describing one ask/exec output contract, one variant per
 #: codec shape. ``codec_name`` alone never determines which fields are present;
 #: match on the variant instead.
-type ContractRequest = (
-    UnitContractRequest | TextContractRequest | JsonContractRequest | CustomContractRequest
-)
+type ContractRequest = UnitContractRequest | TextContractRequest | JsonContractRequest
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,6 @@
 """Output codecs for the AgL runtime.
 
-``OutputCodec`` is a protocol that every codec must satisfy.  The built-in
-codecs are:
+The built-in codecs are:
 
 - ``TextCodec`` — passthrough for the ``text`` type.
 - ``JsonCodec`` — structured output with lenient-by-default JSON recovery:
@@ -17,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, cast
 
 import json_repair
 
@@ -43,21 +42,14 @@ from agnette.agl.runtime.convert import (
     resolve_decode,
 )
 from agnette.agl.runtime.request import ValidationError
-from agnette.agl.semantics.type_table import TypeTable
-from agnette.agl.semantics.types import Type
 from agnette.agl.semantics.values import TextValue, Value
-from agnette.agl.type_schema import build_format_instructions, derive_schema_and_decode
 
 if TYPE_CHECKING:
     from jsonschema import ValidationError as JsonschemaValidationError
 
-    from agnette.agl.runtime.contract import OutputContract
-
-DecodeDefsInput = Mapping[str, DecodeSchema] | tuple[tuple[str, DecodeSchema], ...]
-
 
 # ---------------------------------------------------------------------------
-# ParseResult — outcome of codec.parse()
+# ParseResult — outcome of parse_contract_output()
 # ---------------------------------------------------------------------------
 
 
@@ -115,68 +107,12 @@ class ParseResult:
 
 
 # ---------------------------------------------------------------------------
-# OutputCodec protocol
-# ---------------------------------------------------------------------------
-
-
-class OutputCodec(Protocol):
-    """Protocol for AgL output codecs.
-
-    Every codec exposes:
-    - ``name`` — the codec identifier (e.g. ``"text"``, ``"json"``).
-    - ``supported_kinds`` — frozenset of semantic type-kind strings this codec handles.
-      This is the authoritative source for ``HostCapabilities.codec_kinds``.
-    - ``make_contract(type_ref, type_table)`` — build an ``OutputContract``.
-      Runs at check time (or REPL contract-preview time), when a real checker
-      ``Type`` is in hand.  ``type_table`` resolves record/enum field/variant
-      shapes for *type_ref* (or one nested inside it).
-    - ``parse(raw, *, strict_json, schema, decode, defs)`` — parse a raw string.
-      Runs at execution time against the typeless contract data the lowerer
-      already compiled (``schema`` is the JSON Schema dict, ``decode`` the
-      typeless ``DecodeSchema`` walk, ``defs`` its ``$defs`` table for a
-      recursive target type — empty/absent for a non-recursive one); a codec
-      never sees a checker ``Type`` at parse time.
-    """
-
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def supported_kinds(self) -> frozenset[str]: ...
-
-    def make_contract(self, type_ref: Type, type_table: TypeTable) -> "OutputContract": ...
-
-    def parse(
-        self,
-        raw: str,
-        *,
-        strict_json: bool = False,
-        schema: dict[str, object] | None = None,
-        decode: DecodeSchema | None = None,
-        defs: DecodeDefsInput | None = None,
-    ) -> ParseResult: ...
-
-
-# ---------------------------------------------------------------------------
-# Built-in codec names
-# ---------------------------------------------------------------------------
-
-# The names of the built-in codecs (``TextCodec.name`` / ``JsonCodec.name``).
-# These are reserved: host-registered codecs cannot shadow them.
-BUILTIN_CODEC_NAMES: frozenset[str] = frozenset({"text", "json"})
-
-
-# ---------------------------------------------------------------------------
 # TextCodec — passthrough codec for the text type
 # ---------------------------------------------------------------------------
 
 
 class TextCodec:
-    """The built-in ``text`` codec: passthrough, no parsing needed.
-
-    For a ``text`` target, the raw agent response is returned as-is, wrapped
-    in a ``TextValue``.  ``strict_json`` and ``schema`` are ignored (inapplicable).
-    """
+    """The built-in ``text`` codec: the raw agent response is the value."""
 
     @property
     def name(self) -> str:
@@ -190,40 +126,6 @@ class TextCodec:
         avoiding a duplicated literal at the host-environment assembly site.
         """
         return frozenset({"text"})
-
-    def make_contract(self, type_ref: Type, type_table: TypeTable) -> "OutputContract":
-        """Build an ``OutputContract`` for *type_ref*.
-
-        For ``text`` targets ``format_instructions`` is left empty (absent):
-        a text target imposes no format on the agent's response, so there are
-        no instructions to relay.  ``decode`` is ``None``: a text target has
-        no schema-driven decode walk, since the raw string is the value.
-        *type_table* is accepted for protocol conformance but unused — a
-        ``text`` target never carries a nominal type.
-        """
-        from agnette.agl.runtime.contract import OutputContract
-
-        return OutputContract(
-            target_type_label=repr(type_ref),
-            codec=self,
-            strict_json=None,
-            format_instructions="",
-            json_schema=None,
-            decode=None,
-        )
-
-    def parse(
-        self,
-        raw: str,
-        *,
-        strict_json: bool = False,
-        schema: dict[str, object] | None = None,
-        decode: DecodeSchema | None = None,
-        defs: DecodeDefsInput | None = None,
-    ) -> ParseResult:
-        # Text codec: always succeeds; the raw string is the value.
-        # ``strict_json``/``schema``/``decode``/``defs`` are inapplicable for text targets.
-        return ParseResult.success(TextValue(raw))
 
 
 # ---------------------------------------------------------------------------
@@ -492,15 +394,6 @@ def extract_json_text(raw: str) -> str | None:
 def _path_sort_key(error: JsonschemaValidationError) -> str:
     """A stable, comparable sort key for a jsonschema error (by path)."""
     return "/".join(str(p) for p in error.path)
-
-
-def _coerce_decode_defs(defs: DecodeDefsInput | None) -> Mapping[str, DecodeSchema]:
-    """Normalize parse-time decode defs from either contract storage shape."""
-    if defs is None:
-        return _EMPTY_DEFS
-    if isinstance(defs, Mapping):
-        return defs
-    return dict(defs)
 
 
 def _find_enum_decode_at_path(
@@ -776,7 +669,7 @@ def _validate_and_decode_core(
     return ParseResult.success(value, normalized_raw=json_text)
 
 
-def _parse_contract_output(
+def parse_contract_output(
     raw: str,
     contract: "TextContractRequest | JsonContractRequest",
     *,
@@ -785,8 +678,7 @@ def _parse_contract_output(
 ) -> ParseResult:
     """Parse a raw agent/exec response per a built-in-codec ``ContractRequest``.
 
-    Handles the ``text`` passthrough and the ``json`` parse path. Called by
-    ``IrInterpreter._parse_host_output`` for the built-in codecs; a
+    Handles the ``text`` passthrough and the ``json`` parse path; a
     ``JsonContractRequest`` always carries its ``json_schema``/``decode``.
     *default_resolver*, when given, fills an omitted defaulted field.
     """
@@ -837,11 +729,8 @@ class JsonCodec:
 
     Schema validation is strict in both modes.
 
-    ``make_contract`` derives the JSON Schema and typeless decode walk once
-    from a real checker ``Type`` (compile time / REPL contract preview).
-    ``parse`` never derives them: it takes the schema dict and ``DecodeSchema``
-    explicitly, so execution-time parsing runs entirely off the typeless
-    contract data the lowerer already compiled — no checker ``Type`` involved.
+    Parsing runs off the typeless contract data the lowerer compiled; see
+    ``parse_contract_output``.
     """
 
     @property
@@ -858,75 +747,3 @@ class JsonCodec:
         read from here by the runtime).
         """
         return _JSON_CODEC_KINDS
-
-    def make_contract(self, type_ref: Type, type_table: TypeTable) -> "OutputContract":
-        """Build an ``OutputContract`` for *type_ref*.
-
-        Derives the JSON Schema, format instructions, and typeless decode
-        walk once, from the real checker ``Type``.  Compile time / REPL
-        contract-preview use only: execution-time parsing never calls this —
-        it uses the ``json_schema``/``decode`` the lowerer already compiled
-        into the IR contract request.
-
-        *type_table* resolves record/enum field/variant shapes.
-        """
-        from agnette.agl.runtime.contract import OutputContract
-
-        schema, decode_plan = derive_schema_and_decode(type_ref, type_table)
-        instructions = build_format_instructions(schema)
-        return OutputContract(
-            target_type_label=repr(type_ref),
-            codec=self,
-            strict_json=False,  # default; overridden per call-site
-            format_instructions=instructions,
-            json_schema=schema,
-            decode=decode_plan.root,
-            defs=decode_plan.defs,
-        )
-
-    def parse(
-        self,
-        raw: str,
-        *,
-        strict_json: bool = False,
-        schema: dict[str, object] | None = None,
-        decode: DecodeSchema | None = None,
-        defs: DecodeDefsInput | None = None,
-    ) -> ParseResult:
-        """Parse *raw* agent output into the typed ``Value`` described by *schema*/*decode*.
-
-        Lenient mode (``strict_json=False``, the default):
-          1. Attempt to extract/repair exactly one JSON text from *raw*.
-          2. Re-parse the repaired text strictly.
-          3. Validate against *schema*.
-          4. Convert to the appropriate typed ``Value`` per *decode*.
-
-        Strict mode (``strict_json=True``):
-          1. Strict parse of the stripped raw string — no repair, no fence
-             stripping.  Fails if there is any surrounding non-whitespace.
-          2. Validate and convert as in lenient mode.
-
-        *schema* and *decode* are the JSON Schema dict and typeless
-        ``DecodeSchema`` walk for the target type; the protocol types them as
-        optional for custom codecs, but a ``json`` contract always carries
-        both.  *defs* is *decode*'s ``$defs`` table for a recursive target
-        type; absent (or ``None``) for a non-recursive one.  This method never
-        derives them from a checker ``Type``.
-
-        Decimal exactness: ``json-repair`` always produces a
-        JSON *string* (not Python objects), which is then re-parsed
-        strictly.  Decimal values are never
-        routed through Python ``float``.
-
-        This method takes no ``default_resolver`` (the ``OutputCodec.parse``
-        protocol has none): a defaulted-but-omitted field always reports the
-        ordinary missing-field error here, even though the IR evaluator's own
-        built-in-codec path fills one (see ``_parse_contract_output``).
-        """
-        return _parse_json_core(
-            raw,
-            cast("dict[str, object]", schema),
-            cast(DecodeSchema, decode),
-            _coerce_decode_defs(defs),
-            strict=strict_json,
-        )

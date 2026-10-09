@@ -48,17 +48,6 @@ def _compiled(source: str) -> tuple[PreparedProgram, ProgramDiscovery]:
     return prepared, discovery
 
 
-def _change_capabilities(runtime: PipelineDriver) -> None:
-    from agnette.agl.runtime.codec import TextCodec
-
-    class ExtraCodec(TextCodec):
-        @property
-        def name(self) -> str:
-            return "extra"
-
-    runtime.register_codec(ExtraCodec())
-
-
 @pytest.mark.parametrize("check_only", [False, True])
 def test_single_run_rejects_cached_artifact_from_different_prepared_program(
     check_only: bool, capsys: pytest.CaptureFixture[str]
@@ -121,42 +110,6 @@ def test_program_run_rejects_cached_artifact_with_different_module_set(
         )
 
 
-def test_single_run_rechecks_cached_artifact_when_host_capabilities_change() -> None:
-    from agnette.agl.runtime.codec import TextCodec
-
-    class ExtraCodec(TextCodec):
-        @property
-        def name(self) -> str:
-            return "extra"
-
-    source = "let value = 1\nvalue"
-    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    prepared = prepare_inline_code(source)
-    discovery = runtime.discover_programs(prepared)
-    assert discovery.compiled is not None
-
-    runtime.register_codec(ExtraCodec())
-    result = runtime.run_prepared(prepared, compiled=discovery.compiled)
-
-    assert result.ok
-    assert result.diagnostics == []
-
-
-def test_program_run_rechecks_compiled_artifact_when_host_capabilities_change() -> None:
-    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    prepared = _prepare_graph("let value = 1\nvalue")
-    assert prepared.resolved is not None
-    compiled = compile_program_matches(
-        check_program(prepared.resolved, runtime.host_environment().capabilities)
-    ).compiled
-    assert isinstance(compiled, MatchCompiledProgram)
-    _change_capabilities(runtime)
-
-    run = runtime.run_prepared(prepared, check_only=True, compiled=compiled)
-
-    assert run.ok
-
-
 @pytest.mark.parametrize("check_only", [False, True])
 def test_program_run_rejects_cached_artifact_from_different_prepared_program(
     check_only: bool, capsys: pytest.CaptureFixture[str]
@@ -172,6 +125,23 @@ def test_program_run_rejects_cached_artifact_from_different_prepared_program(
         )
 
     assert capsys.readouterr().out == ""
+
+
+def test_program_run_rechecks_compiled_artifact_checked_under_other_capabilities() -> None:
+    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+    prepared = _prepare_graph("let value = 1\nvalue")
+    assert prepared.resolved is not None
+    foreign_capabilities = replace(
+        runtime.host_environment().capabilities, supports_shell_exec=False
+    )
+    compiled = compile_program_matches(
+        check_program(prepared.resolved, foreign_capabilities)
+    ).compiled
+    assert isinstance(compiled, MatchCompiledProgram)
+
+    run = runtime.run_prepared(prepared, check_only=True, compiled=compiled)
+
+    assert run.ok
 
 
 def test_production_path_reuses_cached_artifacts_without_verifying_provenance(

@@ -19,9 +19,8 @@ NOT allowed: ``agnette.agl.syntax``, ``agnette.agl.scope``, ``agnette.agl.typech
 from __future__ import annotations
 
 import decimal
-import inspect
 from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, ContextManager, Protocol, TypeVar, assert_never, cast
+from typing import TYPE_CHECKING, ContextManager, TypeVar, assert_never, cast
 
 from agnette.agl.eval.arith import (
     add,
@@ -41,11 +40,10 @@ from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.builtin_vars import BuiltinVarKey, builtin_var_key, is_engine_builtin_var_key
 from agnette.agl.ir.contracts import (
     ConversionFailureMode,
-    CustomContractRequest,
     JsonContractRequest,
     TextContractRequest,
 )
-from agnette.agl.ir.ids import ContractId, FunctionId, Location, NominalId, SymbolId
+from agnette.agl.ir.ids import FunctionId, Location, NominalId, SymbolId
 from agnette.agl.ir.nodes import (
     IrAnd,
     IrArith,
@@ -139,7 +137,7 @@ from agnette.agl.ir.program import (
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import STD_CONFIG_ID, STD_ENV_ID, ModuleId
 from agnette.agl.runtime.agents import AgentFn
-from agnette.agl.runtime.codec import ParseResult, _parse_contract_output
+from agnette.agl.runtime.codec import ParseResult, parse_contract_output
 from agnette.agl.runtime.convert import DefaultResolver
 from agnette.agl.runtime.engine_config import (
     EngineRangeError,
@@ -203,10 +201,8 @@ from agnette.util.recursion import raised_recursion_limit
 
 if TYPE_CHECKING:
     from agnette.agent.spec_defaults import AgentSpecResolver
-    from agnette.agl.runtime.contract import OutputContract
     from agnette.agl.runtime.host_settings import HostSettingsReconfigurer
     from agnette.agl.runtime.sessions import SessionHost
-    from agnette.agl.semantics.types import Type
     from agnette.sandbox.prepare import SandboxContext
 
 __all__ = [
@@ -242,56 +238,6 @@ class MissingBuiltinVarSeedError(HostConfigurationError):
             f"builtin var '{module_id.path_str()}::{scoped_name}' has no value: "
             "the host did not seed it and its declaration has no default"
         )
-
-
-class _FlexibleParse(Protocol):
-    def __call__(self, *args: object, **kwargs: object) -> ParseResult: ...
-
-
-def _call_custom_codec_parse(
-    host_contract: "OutputContract",
-    request: CustomContractRequest,
-    raw: str,
-    *,
-    effective_strict: bool,
-    schema: dict[str, object] | None,
-) -> ParseResult:
-    """Call a custom codec parse hook with its supported arguments.
-
-    Hooks accept raw text alone or with a positional target type; keyword
-    arguments are filtered to the inspected signature unless it accepts ``**kwargs``.
-
-    Never passes a ``default_resolver``: the ``OutputCodec.parse`` protocol
-    has no such parameter, so a third-party codec registered under a
-    non-builtin name cannot fill a defaulted-but-omitted field. Nothing
-    shipped registers one.
-    """
-    kwargs: dict[str, object] = {
-        "strict_json": effective_strict,
-        "schema": schema,
-        "decode": host_contract.decode,
-        "defs": dict(host_contract.defs),
-        "type_table": None,
-    }
-    parse = cast(_FlexibleParse, host_contract.codec.parse)
-    try:
-        params = inspect.signature(host_contract.codec.parse).parameters
-    except (TypeError, ValueError):
-        return parse(raw, **kwargs)
-
-    accepts_var_kw = any(param.kind.name == "VAR_KEYWORD" for param in params.values())
-    accepted_kwargs = {
-        name: value for name, value in kwargs.items() if accepts_var_kw or name in params
-    }
-    positional = [
-        param
-        for param in params.values()
-        if param.kind.name in {"POSITIONAL_ONLY", "POSITIONAL_OR_KEYWORD"}
-    ]
-    accepts_varargs = any(param.kind.name == "VAR_POSITIONAL" for param in params.values())
-    if accepts_varargs or len(positional) >= 2:
-        return parse(raw, cast("Type", request.target_type), **accepted_kwargs)
-    return parse(raw, **accepted_kwargs)
 
 
 # Engine-key defaults, built on first use.  The evaluator owns no default of its
@@ -453,7 +399,6 @@ class IrInterpreter:
         strict_json: bool = False,
         echo_agent_output: bool = False,
         shell_exec_timeout: float | None = None,
-        host_contracts: Mapping[ContractId, "OutputContract"] | None = None,
         base_frame: Frame | None = None,
         extern_registry: ExternRegistry | None = None,
         host_reconfigurer: "HostSettingsReconfigurer | None" = None,
@@ -604,9 +549,6 @@ class IrInterpreter:
         )
         if self._host_reconfigurer is not None:
             self._reconfigure_host_service(self._host_reconfigurer)
-        self._host_contracts: Mapping[ContractId, OutputContract] = (
-            host_contracts if host_contracts is not None else {}
-        )
         default_sandbox = self._builtin_host_settings.get("default-sandbox")
         if isinstance(default_sandbox, RecordValue):
             self._builtin_host_settings["default-sandbox"] = restamp_engine_setting(
@@ -629,25 +571,12 @@ class IrInterpreter:
     def _parse_host_output(
         self,
         raw: str,
-        contract_id: ContractId,
-        contract: TextContractRequest | JsonContractRequest | CustomContractRequest,
+        contract: TextContractRequest | JsonContractRequest,
         *,
         effective_strict: bool,
     ) -> ParseResult:
-        """Parse *raw* per contract *contract_id*, whose non-unit request is *contract*."""
-        if isinstance(contract, CustomContractRequest):
-            host_contract = self._host_contracts[contract_id]
-            schema = (
-                host_contract.json_schema if isinstance(host_contract.json_schema, dict) else None
-            )
-            return _call_custom_codec_parse(
-                host_contract,
-                contract,
-                raw,
-                effective_strict=effective_strict,
-                schema=schema,
-            )
-        return _parse_contract_output(
+        """Parse *raw* per the non-unit contract request *contract*."""
+        return parse_contract_output(
             raw,
             contract,
             effective_strict=effective_strict,

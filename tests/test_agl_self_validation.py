@@ -124,7 +124,7 @@ def test_graph_lowering_trusts_the_artifact_that_already_validated_itself(
 
     # ... and not re-checked by lowering, which never repeats the check.
     object.__setattr__(compiled, "sites_by_module", corrupt)
-    assert lower_program(compiled, contract_payloads={}).symbols
+    assert lower_program(compiled).symbols
 
 
 def test_repl_entry_lowering_trusts_the_artifact_that_already_validated_itself() -> None:
@@ -140,9 +140,7 @@ def test_repl_entry_lowering_trusts_the_artifact_that_already_validated_itself()
         MatchCompiledProgram(compiled.checked, {**compiled.sites_by_module, ENTRY_ID: corrupt})
 
     object.__setattr__(compiled, "sites_by_module", {**compiled.sites_by_module, ENTRY_ID: corrupt})
-    entry = lower_repl_program(
-        compiled, image=LinkImage(), source_text=source, contract_payloads={}
-    )
+    entry = lower_repl_program(compiled, image=LinkImage(), source_text=source)
     assert entry.program.symbols
 
 
@@ -160,7 +158,6 @@ def test_repl_entry_lowering_does_not_validate_ir_when_disabled(
         _compiled_inline_program(_SOURCE, default_stdlib=False),
         image=_broken_image(),
         source_text=_SOURCE,
-        contract_payloads={},
     )
 
     # Returned rather than rejected, even though the IR is structurally invalid.
@@ -176,7 +173,6 @@ def test_repl_entry_lowering_validates_ir_when_enabled() -> None:
             _compiled_inline_program(_SOURCE, default_stdlib=False),
             image=_broken_image(),
             source_text=_SOURCE,
-            contract_payloads={},
         )
 
 
@@ -201,7 +197,7 @@ def test_production_match_compilation_takes_the_unvalidated_path(
     program_result = compile_program_matches(check_program(resolve_program(graph), base_caps()))
     assert isinstance(program_result.compiled, MatchCompiledProgram)
 
-    lowered = lower_program(program_result.compiled, contract_payloads={})
+    lowered = lower_program(program_result.compiled)
     assert lowered.symbols
 
 
@@ -212,7 +208,6 @@ def test_lowering_does_not_validate_ir_when_disabled(
     program = lower_program(
         _compiled_inline_program(_SOURCE, default_stdlib=False),
         _link=_broken_link(),
-        contract_payloads={},
     )
 
     # Returned rather than rejected, even though the IR is structurally invalid.
@@ -227,7 +222,6 @@ def test_lowering_validates_ir_when_enabled() -> None:
         lower_program(
             _compiled_inline_program(_SOURCE, default_stdlib=False),
             _link=_broken_link(),
-            contract_payloads={},
         )
 
 

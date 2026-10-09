@@ -10,7 +10,7 @@ from agnette.agent.transport import AgentCallInfo, AgentOutputCallback
 
 if TYPE_CHECKING:
     from agnette.agent.spec import AgentSpec
-    from agnette.agl.runtime.contract import OutputContract
+    from agnette.agl.ir.contracts import JsonContractRequest, TextContractRequest
     from agnette.sandbox.request import SandboxLimits
 
 ValidationErrorCategory = Literal[
@@ -97,7 +97,7 @@ class AgentRequest:
     attempt: int = 0
     previous_invalid_output: str | None = None
     validation_errors: list[ValidationError] = field(default_factory=list)
-    output_contract: "OutputContract | None" = None
+    output_contract: "TextContractRequest | JsonContractRequest | None" = None
     permission_mode: PermissionMode = PermissionMode.NONE
     sandbox: "SandboxLimits | None" = None
     output_callback: AgentOutputCallback | None = field(default=None, repr=False, compare=False)

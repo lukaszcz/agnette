@@ -55,6 +55,7 @@ from agnette.agent.session.protocol import (
 from agnette.agent.session.service import SessionService
 from agnette.agent.spec import PermissionMode
 from agnette.agl.ir.builtin_vars import builtin_var_key
+from agnette.agl.ir.contracts import JsonContractRequest
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery
 from agnette.agl.semantics.values import IntValue, Value
@@ -93,6 +94,13 @@ builtin def Session::open(
 
 builtin def Session::default() -> Session
 """
+
+
+def _contract_schema(contract: Any) -> Any:
+    """The JSON Schema an agent receives for *contract*, or ``None`` for a text target."""
+    if not isinstance(contract, JsonContractRequest):
+        return None
+    return json.loads(contract.json_schema)
 
 
 def _load_json(path: Path) -> Any:
@@ -199,7 +207,7 @@ class ScriptedAgent:
     def __call__(self, request: Any) -> str:
         self.prompts.append(request.prompt)
         contract = request.output_contract
-        schema = contract.json_schema if contract is not None else None
+        schema = _contract_schema(contract)
         self.schemas.append(schema)
         self.prompt_events.append(
             _PromptEvent(request.prompt, schema, request.permission_mode.value, request.sandbox)
@@ -710,7 +718,7 @@ class _ScenarioSessionHost:
 
         content = self.ask(handle, request.prompt)
         service = self._service_for_handle(handle, "ask")
-        schema = None if request.output_contract is None else request.output_contract.json_schema
+        schema = _contract_schema(request.output_contract)
         # The underlying session ask (above) recorded a bare prompt event with
         # no schema/sandbox in hand; this call's full AgentRequest carries
         # both, so replace that entry with the complete observation in one

@@ -28,7 +28,6 @@ import pytest
 
 from agnette.agl import artifact_storage
 from agnette.agl.capabilities import HostCapabilities
-from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.ir.program import ValueDescriptors
 from agnette.agl.modules.errors import MissingExternCompanion
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
@@ -58,11 +57,6 @@ _CAPS = HostCapabilities(
         "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
     },
 )
-
-
-# Message of the contract diagnostic this module injects; owned by the test, so
-# asserting on it pins propagation rather than production wording.
-_INJECTED_CONTRACT_DIAGNOSTIC = "injected contract failure"
 
 
 def _roots(*paths: Path) -> RootSet:
@@ -1041,34 +1035,6 @@ class TestOrdering:
         # The type error is what was reported: nothing complains about the
         # extern module, whose companion was never imported.
         assert all("lib/mod" not in d.message for d in result.diagnostics)
-        assert not marker.exists()
-
-    def test_custom_contract_error_reported_before_any_companion_import(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        marker = tmp_path / "marker.txt"
-        write_module_file(tmp_path / "root", "lib/mod", "extern def f(x: int) -> int")
-        write_companion_file(
-            tmp_path / "root",
-            "lib/mod",
-            f"open({str(marker)!r}, 'w').write('imported')\ndef f(x):\n    return x\n",
-        )
-        monkeypatch.setattr(
-            "agnette.agl.pipeline._materialize_program_custom_contract_payloads",
-            lambda checked, codecs: (
-                {},
-                [Diagnostic(message=_INJECTED_CONTRACT_DIAGNOSTIC, line=1)],
-            ),
-        )
-        driver = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        prepared = prepare_inline_code(
-            "import lib/mod::*\nlib/mod::f(1)",
-            roots=_roots(tmp_path / "root"),
-            default_stdlib=False,
-        )
-        result = driver.run_prepared(prepared)
-        assert result.ok is False
-        assert any(d.message == _INJECTED_CONTRACT_DIAGNOSTIC for d in result.diagnostics)
         assert not marker.exists()
 
 

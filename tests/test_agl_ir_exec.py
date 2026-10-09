@@ -451,7 +451,7 @@ def test_t11_exec_empty_parse_failure_raises_agent_parse_error() -> None:
 
     with unittest.mock.patch("agnette.core.process.run_capture_result", return_value=ok_result):
         with unittest.mock.patch(
-            "agnette.agl.eval.ir_interpreter._parse_contract_output", return_value=empty_failure
+            "agnette.agl.eval.ir_interpreter.parse_contract_output", return_value=empty_failure
         ):
             with pytest.raises(AglRaise) as exc_info:
                 IrInterpreter(prog).run()

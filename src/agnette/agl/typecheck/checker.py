@@ -3526,7 +3526,7 @@ class _Checker:
         self._reject_unresolved_extern_types(targets, span)
         for target in targets:
             reject_unparseable_target(callee, target, span)
-            check_schema_compilable(self, target, "json", span, use="an extern target type")
+            check_schema_compilable(self, target, span, use="an extern target type")
         if targets:
             self._record_target_contract_specs(
                 node_id, tuple(OutputContractSpec(target, "json", True) for target in targets)

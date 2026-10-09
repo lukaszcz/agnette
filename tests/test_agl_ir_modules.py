@@ -202,7 +202,7 @@ def test_library_const_captured_by_library_function(
         },
         tmp_path,
     )
-    executable = lower_program(_compiled_checked(checked), contract_payloads={})
+    executable = lower_program(_compiled_checked(checked))
     (main_symbol,) = executable.program_functions
 
     IrInterpreter(executable).run(program_symbol=main_symbol)
@@ -221,7 +221,7 @@ def test_library_binding_initializers_follow_import_dependency_order(tmp_path: P
         tmp_path,
     )
 
-    executable = lower_program(_compiled_checked(checked), contract_payloads={})
+    executable = lower_program(_compiled_checked(checked))
 
     modules = list(executable.modules)
     dependency = ModuleId.from_path("dependency")
@@ -272,7 +272,7 @@ box
     modules = {"lib": "record Box[T]\n  value: T\ntype Alias[T] = Box[T]"}
     result = evaluate_ir_graph(entry_source, modules, tmp_path)
     checked = _checked(entry_source, modules, tmp_path)
-    program = lower_program(_compiled_checked(checked), contract_payloads={})
+    program = lower_program(_compiled_checked(checked))
 
     assert result["box"] == RecordValue(nominal_id_for(program, "Box"), {"value": IntValue(1)})
 
@@ -294,7 +294,7 @@ def test_scoped_linked_calls_use_function_handles_and_validate(tmp_path: Path) -
         "print(label(status))\n"
     )
     checked = _checked(entry, {"scoped_execution/workflow": workflow}, tmp_path)
-    executable = lower_program(_compiled_checked(checked), contract_payloads={})
+    executable = lower_program(_compiled_checked(checked))
 
     validate_ir(executable, deep=True)
     assert executable.synthetic_main_symbol is not None
@@ -384,7 +384,7 @@ let is-red = case c of
     c = r["c"]
     assert isinstance(c, RecordValue)
     checked = _checked(entry_source, modules, tmp_path)
-    program = lower_program(_compiled_checked(checked), contract_payloads={})
+    program = lower_program(_compiled_checked(checked))
     assert c.nominal == nominal_id_for(program, "Color::Red")
 
 
@@ -458,5 +458,5 @@ let is-running = case s of
     s = r["s"]
     assert isinstance(s, RecordValue)
     checked = _checked(entry_source, modules, tmp_path)
-    program = lower_program(_compiled_checked(checked), contract_payloads={})
+    program = lower_program(_compiled_checked(checked))
     assert s.nominal == nominal_id_for(program, "Status::Running")

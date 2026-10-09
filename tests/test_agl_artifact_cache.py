@@ -17,7 +17,6 @@ from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.loader import build_repl_graph, parse_entry_module
 from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
 from agnette.agl.pipeline import PipelineDriver
-from agnette.agl.runtime.codec import TextCodec
 from agnette.agl.scope.program import ResolvedProgram, resolve_program
 from agnette.agl.syntax.nodes import static_function_items, static_type_items
 from agnette.agl.typecheck.env import (
@@ -757,9 +756,7 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
     caps = base_caps()
     artifact_cache.clear_retained_artifacts()
     warm_checked = check_program(_resolved(), caps)  # populates the disk-backed "checked" entries
-    original_executable = lower_program(
-        compile_program_matches(warm_checked).compiled, contract_payloads={}
-    )
+    original_executable = lower_program(compile_program_matches(warm_checked).compiled)
 
     artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
 
@@ -780,9 +777,7 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
     monkeypatch.setattr(program_module, "retained_checked_modules", spied)
 
     rehydrated_checked = check_program(_resolved(), caps)
-    rehydrated_executable = lower_program(
-        compile_program_matches(rehydrated_checked).compiled, contract_payloads={}
-    )
+    rehydrated_executable = lower_program(compile_program_matches(rehydrated_checked).compiled)
 
     assert served_images, "expected check_program to serve at least one disk-rehydrated image"
     assert rehydrated_executable == original_executable
@@ -955,36 +950,6 @@ def test_the_image_is_bounded_and_evicts_the_least_recently_used() -> None:
     assert store.get(("b",), sources) is None
     assert store.get(("a",), sources) == "first"
     assert store.get(("c",), sources) == "third"
-
-
-def test_custom_response_formats_do_not_leak_between_hosts(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    class TaggedCodec(TextCodec):
-        @property
-        def name(self) -> str:
-            return "tagged"
-
-    extended = PipelineDriver(
-        resolve_agent_spec=None, agent_dispatcher=lambda request: "answer", get_sandbox_context=None
-    )
-    extended.register_codec(TaggedCodec())
-    source = 'let answer: text = ask("prompt", format = "tagged")\nprint(answer)'
-    assert run_inline_code(extended, source).ok
-    assert capsys.readouterr().out == "answer\n"
-
-    ordinary = PipelineDriver(
-        resolve_agent_spec=None,
-        agent_dispatcher=lambda _: pytest.fail("unsupported format dispatched"),
-        get_sandbox_context=None,
-    )
-    rejected = run_inline_code(ordinary, source)
-    assert not rejected.ok
-    assert rejected.diagnostics or rejected.error is not None
-    assert capsys.readouterr().out == ""
-
-    assert run_inline_code(extended, source).ok
-    assert capsys.readouterr().out == "answer\n"
 
 
 _HEADER_LIB_SRC = (

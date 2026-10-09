@@ -15,9 +15,8 @@ Module resolution, file reading (via ``core.fs``) and diagnostic rendering are s
 ``agm exec``; ``check`` skips ``exec``'s program discovery/selection/preflight.
 Lowering (rather than stopping at match compilation, as the REPL's internal
 check-only entry path does) is required here because some static errors — an invalid
-``resource``/``resource-dir`` path, an unmaterializable output contract —
-surface only during contract materialization and lowering, not during type
-checking. ``check_prepared`` reaches exactly that far and no further: it
+``resource``/``resource-dir`` path — surface only during lowering, not
+during type checking. ``check_prepared`` reaches exactly that far and no further: it
 never resolves or validates a program's arguments, so a required ``program
 def`` value parameter with no default is silently accepted, unlike under
 ``agm exec``.

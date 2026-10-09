@@ -48,7 +48,6 @@ if TYPE_CHECKING:
     from agnette.agl.modules.loader import LoadedModule
     from agnette.agl.modules.roots import RootSet
     from agnette.agl.runtime.agents import AgentFn
-    from agnette.agl.runtime.codec import OutputCodec
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.agl.runtime.types import ParamBindingInfo
@@ -264,7 +263,7 @@ class ReplSession:
     """Persistent incremental AgL evaluation session (UI-free core).
 
     Constructor parameters mirror ``PipelineDriver`` so a host can wire the same
-    value-driven agent dispatcher and codec backing.
+    value-driven agent dispatcher.
 
     Each entry is incrementally linked and executed against a persistent IR base
     frame. Completed effects survive a later runtime failure in the same entry.
@@ -468,10 +467,6 @@ class ReplSession:
         # session is one module, so each entry declares them too.
         self._accumulated_infix: dict[str, Fixity] = {}
         self._entry_pipeline = EntryPipeline(self)
-
-    def register_codec(self, codec: "OutputCodec") -> None:
-        """Register a custom output codec (shares ``PipelineDriver`` validation)."""
-        self._runtime.register_codec(codec)
 
     # ------------------------------------------------------------------
     # Module roots

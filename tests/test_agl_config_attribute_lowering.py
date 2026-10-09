@@ -124,7 +124,7 @@ class TestLoweringIntoTheExecutable:
         entry_checked = checked.modules[graph.entry_id]
         compiled = compile_program_matches(checked)
         assert isinstance(compiled.compiled, MatchCompiledProgram)
-        executable = lower_program(compiled.compiled, contract_payloads={})
+        executable = lower_program(compiled.compiled)
 
         node_id = _program_node_id(entry_checked, "main")
         symbol = executable.program_symbols[node_id]
@@ -146,7 +146,7 @@ class TestLoweringIntoTheExecutable:
         entry_checked = checked.modules[graph.entry_id]
         compiled = compile_program_matches(checked)
         assert isinstance(compiled.compiled, MatchCompiledProgram)
-        executable = lower_program(compiled.compiled, contract_payloads={})
+        executable = lower_program(compiled.compiled)
         node_id = _program_node_id(entry_checked, "main")
         symbol = executable.program_symbols[node_id]
         assert symbol not in executable.program_configs
@@ -362,7 +362,7 @@ class TestConfigAttributeCacheInvalidation:
             entry_checked = checked.modules[graph.entry_id]
             compiled = compile_program_matches(checked)
             assert isinstance(compiled.compiled, MatchCompiledProgram)
-            executable = lower_program(compiled.compiled, contract_payloads={})
+            executable = lower_program(compiled.compiled)
             node_id = _program_node_id(entry_checked, "main")
             symbol = executable.program_symbols[node_id]
             helper_id = next(mid for mid in graph.modules if mid != graph.entry_id)

@@ -213,16 +213,9 @@ def reject_unparseable_target(name: str, target_type: Type, span: SourceSpan) ->
 
 
 def check_schema_compilable(
-    ctx: BuiltinCheckCtx, target_type: Type, codec_name: str, span: SourceSpan, *, use: str
+    ctx: BuiltinCheckCtx, target_type: Type, span: SourceSpan, *, use: str
 ) -> None:
-    """Reject *target_type* if lowering will schema-compile it but cannot.
-
-    The lowerer derives schema/decode metadata only for the built-in JSON
-    codec, so custom codecs are responsible for their own output format and
-    parsing behavior.
-    """
-    if codec_name != "json":
-        return
+    """Reject *target_type* if lowering will schema-compile it but cannot."""
     message = ctx._env.type_table.no_finite_schema_message(target_type, use=use)
     if message is not None:
         raise AglTypeError(message, span=span)
@@ -1287,9 +1280,7 @@ class BuiltinCallChecker:
     ) -> OutputContractSpec:
         """Resolve the codec, validate the schema, and record the parsed output contract."""
         codec_name, effective_strict = self._resolve_codec(obligation)
-        check_schema_compilable(
-            self._ctx, obligation.target_type, codec_name, obligation.span, use=use
-        )
+        check_schema_compilable(self._ctx, obligation.target_type, obligation.span, use=use)
         spec = OutputContractSpec(obligation.target_type, codec_name, effective_strict)
         self._ctx._record_contract_spec(obligation.node_id, spec)
         self._warn_noop_parse_error_retries_on_text(obligation)
@@ -1339,7 +1330,7 @@ class BuiltinCallChecker:
             if kind in supported_kinds:
                 return codec_name
         raise AglTypeError(
-            f"No registered codec supports type '{target_type!r}'. "
+            f"No codec supports type '{target_type!r}'. "
             f"(Type kind '{kind}' is not handled by any available codec.)",
             span=span,
         )

@@ -22,7 +22,7 @@ Notable shapes:
 
 The IR (`agl/ir/`) is a runtime-neutral data model: identities and source locations, a closed family of expression nodes, and a program container holding modules, symbols, functions, entry symbols, sources, nominals, contracts, and host-backed binding identities.
 
-- `ask`/`exec` nodes reference contract requests in `contracts` (unit, text, JSON, or a host custom codec) with format instructions, JSON schema, and decode walk; only a custom-codec request carries an opaque checker type, for its `parse` hook.
+- `ask`/`exec` nodes reference contract requests in `contracts` (unit, text, or JSON) with format instructions, JSON schema, and decode walk; the evaluator parses agent and shell output from these alone.
 - `target_contracts` holds type-directed extern targets (label, JSON Schema, typeless `TypeTree`); `program_signatures` and `program_configs` hold host-facing program data.
 - Nominal descriptors are closed over every referenced record and exception `base` chain, so runtime conformance never needs the frontend.
 - Each program carries only the function and symbol descriptors of modules it actually links ([../repl.md](../repl.md#retained-library-image)).

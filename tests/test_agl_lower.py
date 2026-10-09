@@ -201,9 +201,7 @@ def _repl_entry(
     checked_program = check_program(resolved, _caps(), entry_seed_env=seed_env)
     result = compile_program_matches(checked_program)
     assert isinstance(result.compiled, MatchCompiledProgram)
-    entry = lower_repl_program(
-        result.compiled, image=image or LinkImage(), source_text=source, contract_payloads={}
-    )
+    entry = lower_repl_program(result.compiled, image=image or LinkImage(), source_text=source)
     root_scope = resolved.modules[graph.entry_id].resolved.root_scope
     return entry, next_id, root_scope, checked_program.modules[graph.entry_id]
 
@@ -424,9 +422,7 @@ def _make_lowerer(checked: CheckedModule, source: str) -> "_Lowerer":
     normalized = normalize_newlines(source)
     link.sources[source_id] = SourceFile(display_name="<test>", normalized_text=normalized)
     compiled = compile_checked_module(checked)
-    return _Lowerer(
-        compiled.checked, link, ENTRY_ID, source_id, source, compiled.sites, contract_payloads={}
-    )
+    return _Lowerer(compiled.checked, link, ENTRY_ID, source_id, source, compiled.sites)
 
 
 def test_private_lowerer_requires_complete_match_site_mapping_argument() -> None:
@@ -725,7 +721,7 @@ class TestProgramSignatures:
         rg = resolve_program(mg)
         cg = check_program(rg, _caps())
 
-        prog = lower_program(_compiled_checked(cg), contract_payloads={})
+        prog = lower_program(_compiled_checked(cg))
 
         assert len(prog.program_signatures) == 1
         symbol = next(iter(prog.program_functions))
@@ -2104,7 +2100,7 @@ let result = make(10).add(2)
             ),
             _caps(),
         )
-        program = lower_program(_compiled_checked(checked), contract_payloads={})
+        program = lower_program(_compiled_checked(checked))
         ((_, entry_function_id),) = program.program_functions.items()
         entry = program.functions[entry_function_id]
 
@@ -2380,7 +2376,7 @@ class TestLowerGraph:
         rg = resolve_program(mg)
         cg = check_program(rg, _caps())
 
-        prog = lower_program(_compiled_checked(cg), contract_payloads={})
+        prog = lower_program(_compiled_checked(cg))
 
         # The library, entry, and automatic standard-library modules must appear.
         assert set(prog.modules) == set(cg.modules)
@@ -2455,7 +2451,7 @@ class TestLowerGraph:
         )
         checked = check_program(resolve_program(graph), _caps())
         link = _LinkState()
-        program = lower_program(_compiled_checked(checked), _link=link, contract_payloads={})
+        program = lower_program(_compiled_checked(checked), _link=link)
 
         for mid, executable_module in program.modules.items():
             if mid != lib_mid:
@@ -2475,7 +2471,6 @@ class TestLowerGraph:
             _compiled_checked(checked),
             _link=link,
             _already_linked=frozenset({lib_mid}),
-            contract_payloads={},
         )
         assert link.initializer_origins[lib_mid] == sentinel
         assert relinked.modules[lib_mid].initializers == ()
@@ -2484,7 +2479,6 @@ class TestLowerGraph:
             _compiled_checked(checked),
             _link=link,
             _already_linked=frozenset({checked.entry_id}),
-            contract_payloads={},
         )
         assert entry_relinked.modules[checked.entry_id].initializers == ()
 
@@ -2538,7 +2532,7 @@ class TestLowerGraph:
         rg = resolve_program(mg)
         cg = check_program(rg, _caps())
 
-        prog = lower_program(_compiled_checked(cg), contract_payloads={})
+        prog = lower_program(_compiled_checked(cg))
 
         nominal_names = {desc.display_name for desc in prog.nominals.values()}
 

@@ -231,9 +231,8 @@ _EMPTY_DEFS: Mapping[str, DecodeSchema] = MappingProxyType({})
 #: ``semantics.type_table.RESERVED_FIELD_DEFAULT_VALUES``
 #: (``semantics.type_table.reserved_field_default``, wrapped by
 #: ``runtime.engine_config``'s own resolver) — no evaluator is reachable
-#: there. ``None`` (a compile-time contract preview, which decodes nothing):
-#: a defaulted-but-omitted field then reports the ordinary "missing field"
-#: error, same as an undefaulted one.
+#: there. ``None``: a defaulted-but-omitted field
+#: then reports the ordinary "missing field" error, same as an undefaulted one.
 DefaultResolver = Callable[[NominalId, int], Value]
 
 

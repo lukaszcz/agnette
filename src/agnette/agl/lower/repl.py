@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
-from agnette.agl.ir.contracts import ContractPayload
 from agnette.agl.ir.ids import SymbolId
 from agnette.agl.ir.program import ExecutableProgram, ValueDescriptors
 from agnette.agl.lower.lowerer import InitializerOrigin, _LinkState
@@ -434,7 +433,6 @@ def lower_repl_program(
     *,
     image: LinkImage,
     source_text: str,
-    contract_payloads: Mapping[int, ContractPayload],
 ) -> LoweredReplEntry:
     """Incrementally link a match-compiled module graph into a REPL image."""
     from agnette.agl.lower.program import lower_program
@@ -448,7 +446,6 @@ def lower_repl_program(
         _link=image._state,
         _already_linked=frozenset(image._linked_modules),
         _entry_source_text=source_text,
-        contract_payloads=contract_payloads,
     )
     checked = compiled.checked
     entry = checked.modules[checked.entry_id].resolved.program

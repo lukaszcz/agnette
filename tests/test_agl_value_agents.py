@@ -19,6 +19,7 @@ from agnette.agent.spec import (
 )
 from agnette.agl import PipelineDriver
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.contracts import TextContractRequest
 from agnette.agl.runtime.agents import agent_value as encode_agent_value
 from agnette.agl.runtime.agents import decode_agent_value, value_driven_agent_factory
 from agnette.agl.semantics.type_table import BUILTIN_PRELUDE_TYPE_DEFS, create_seeded_type_table
@@ -27,6 +28,7 @@ from agnette.config.context import ConfigContext
 from tests._agl_helpers import (
     agent_value,
     hermetic_get_sandbox_context,
+    json_contract_request,
     run_inline_code,
     session_sandbox_context,
     write_sandbox_home,
@@ -489,21 +491,13 @@ def test_composed_prompt_is_unchanged_when_no_output_contract(
 def test_composed_prompt_appends_format_instructions_after_the_prompt(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
-    from agnette.agl.runtime.codec import JsonCodec
-    from agnette.agl.runtime.contract import OutputContract
     from agnette.agl.runtime.request import AgentRequest, compose_agent_prompt
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
     )
     agent = AgentCommand(command="runner")
-    contract = OutputContract(
-        target_type_label="int",
-        codec=JsonCodec(),
-        strict_json=True,
-        format_instructions="Return only valid JSON matching the schema.",
-        json_schema=None,
-    )
+    contract = json_contract_request("Return only valid JSON matching the schema.")
 
     request = AgentRequest(agent=agent, prompt="Do X.", env={}, output_contract=contract)
     request.prompt = compose_agent_prompt(request)
@@ -519,21 +513,13 @@ def test_composed_prompt_omits_format_instructions_when_the_contract_has_none(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
     """An empty ``format_instructions`` (e.g. the text codec) adds nothing."""
-    from agnette.agl.runtime.codec import TextCodec
-    from agnette.agl.runtime.contract import OutputContract
     from agnette.agl.runtime.request import AgentRequest
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
     )
     agent = AgentCommand(command="runner")
-    contract = OutputContract(
-        target_type_label="text",
-        codec=TextCodec(),
-        strict_json=None,
-        format_instructions="",
-        json_schema=None,
-    )
+    contract = TextContractRequest(target_type_label="text", structured_exec=False)
 
     dispatch(AgentRequest(agent=agent, prompt="Do X.", env={}, output_contract=contract))
 
@@ -593,21 +579,13 @@ def test_composed_prompt_orders_format_instructions_before_retry_feedback(
     fake_agent_transport: FakeAgentTransport,
 ) -> None:
     """Ordering: prompt, then format_instructions, then the retry-feedback block."""
-    from agnette.agl.runtime.codec import JsonCodec
-    from agnette.agl.runtime.contract import OutputContract
     from agnette.agl.runtime.request import AgentRequest, compose_agent_prompt
 
     dispatch = value_driven_agent_factory(
         idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
     )
     agent = AgentCommand(command="runner")
-    contract = OutputContract(
-        target_type_label="int",
-        codec=JsonCodec(),
-        strict_json=True,
-        format_instructions="Return JSON.",
-        json_schema=None,
-    )
+    contract = json_contract_request("Return JSON.")
 
     request = AgentRequest(
         agent=agent,

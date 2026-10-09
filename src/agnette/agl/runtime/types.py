@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from agnette.agl.ir.static_keys import StaticBindingKey
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.runtime.agents import AgentFn
-    from agnette.agl.runtime.codec import OutputCodec
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.agl.semantics.types import Type as AglType
@@ -53,9 +52,6 @@ class HostEnvironment:
     ``capabilities``
         The ``HostCapabilities`` static catalog derived from codecs — consumed
         by the type checker.
-    ``codecs``
-        The merged ``name → OutputCodec`` table (built-ins + host extras),
-        used for contract materialization.
     ``extern_registry``
         The ``ExternRegistry`` used to import extern-def companion modules
         and resolve their callables.  Built empty; the pipeline populates it
@@ -65,7 +61,6 @@ class HostEnvironment:
     agent_dispatcher: "AgentFn | None"
     session_host: "SessionHost | None"
     capabilities: "HostCapabilities"
-    codecs: dict[str, "OutputCodec"]
     extern_registry: "ExternRegistry"
     get_sandbox_context: "Callable[[], SandboxContext] | None" = None
     resolve_agent_spec: "AgentSpecResolver | None" = None
