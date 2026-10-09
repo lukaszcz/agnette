@@ -54,7 +54,6 @@ from agnette.agl.typecheck.inference import ConstraintRole, InferenceEngine, Inf
 from agnette.util.graph import sccs
 
 if TYPE_CHECKING:
-    from agnette.agl.capabilities import HostCapabilities
     from agnette.agl.scope.symbols import (
         BindingRef,
         ConstructorRef,
@@ -142,7 +141,6 @@ class CandidateModule:
 
     resolved: "ModuleResolution"
     env: TypeEnvironment
-    capabilities: "HostCapabilities"
     module_id: ModuleId
     declaration_spans: Mapping[DeclarationKey, SourceSpan] = field(default_factory=dict)
 
@@ -165,14 +163,11 @@ class ModuleCandidateComponent:
         cls,
         resolved: "ModuleResolution",
         env: TypeEnvironment,
-        capabilities: "HostCapabilities",
         module_id: ModuleId,
     ) -> "ModuleCandidateComponent":
         """Build the synthetic component for one module checked in isolation."""
         declaration_spans = {key: ref.decl_span for key, ref in resolved.declarations.items()}
-        return cls(
-            (CandidateModule(resolved, env, capabilities, module_id, declaration_spans),), (env,)
-        )
+        return cls((CandidateModule(resolved, env, module_id, declaration_spans),), (env,))
 
     def discovery_targets(self) -> tuple[TypeEnvironment, ...]:
         """Return the import-SCC environments that need provisional signatures."""
@@ -489,7 +484,6 @@ def _seed_candidate_visible_bindings(
         checker = _Checker(
             env=module.env,
             resolved=module.resolved,
-            capabilities=module.capabilities,
             module_id=module.module_id,
             declaration_spans=module.declaration_spans,
         )
@@ -546,7 +540,6 @@ def _infer_function_component(
         checker = _Checker(
             env=module.env,
             resolved=module.resolved,
-            capabilities=module.capabilities,
             module_id=module.module_id,
             declaration_spans=module.declaration_spans,
         )
@@ -581,7 +574,6 @@ def _infer_function_component(
             checker = _Checker(
                 env=module.env,
                 resolved=module.resolved,
-                capabilities=module.capabilities,
                 module_id=module.module_id,
                 declaration_spans=module.declaration_spans,
             )

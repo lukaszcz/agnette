@@ -11,7 +11,6 @@ import pytest
 
 from agnette.agl.eval.indexing import AglIndexOutOfRange, AglMissingKey, index_get, index_set
 from agnette.agl.ir.operations import IndexKind
-from agnette.agl.ir.program import ExecutableProgram
 from agnette.agl.semantics.values import (
     ArrayValue,
     DecimalValue,
@@ -419,22 +418,6 @@ xss[0][1] := 99
 # ---------------------------------------------------------------------------
 
 
-def _lower(source: str) -> "ExecutableProgram":
-    """Parse → check → lower the source; return ExecutableProgram."""
-    from agnette.agl.capabilities import HostCapabilities
-
-    caps = HostCapabilities(
-        supports_shell_exec=True,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-    return lower_inline_ir(source, caps=caps)
-
-
 def test_golden_field_access_lowers_to_ir_field() -> None:
     """FieldAccess lowers to IrField with the correct field name.
 
@@ -452,7 +435,7 @@ let p = Point(x = 3, y = 4)
 let px = p.x
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -473,7 +456,7 @@ let xs = [10, 20, 30]
 let x = xs[1]
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -496,7 +479,7 @@ def test_golden_template_lowers_to_ir_render_template() -> None:
     )
 
     source = 'let x: text = "val: %{42}"\n()'
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -523,7 +506,7 @@ let point = Point(x = 1)
 point.x := 2
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     nominal = next(
         nominal for nominal, desc in prog.nominals.items() if desc.display_name == "Point"
     )
@@ -540,7 +523,7 @@ def test_golden_field_assign_coerces_rhs_to_declared_field_type() -> None:
     from agnette.agl.ir.nodes import IrCoerce, IrFieldSet
     from agnette.agl.ir.operations import IntToDecimal
 
-    prog = _lower(
+    prog = lower_inline_ir(
         """\
 record Point
   var x: decimal
@@ -564,7 +547,7 @@ var xs = [1, 2, 3]
 xs[0] := 99
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):

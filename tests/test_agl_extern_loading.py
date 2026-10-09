@@ -4,7 +4,6 @@ Covers everything upstream of the boundary walkers (``test_agl_extern_boundary.p
 - companion path derivation and existence verification in the module loader.
 - ``ExternRegistry`` companion import (once per canonical path) and callable
   resolution, including the misuse contract and failure diagnostics.
-- the ``supports_extern`` capability gate.
 - pipeline wiring: the registry is built/populated from a checked program's
   extern declarations before evaluation, with fail-fast diagnostics and
   static errors always surfacing before any companion import side effect.
@@ -27,7 +26,6 @@ from types import CodeType
 import pytest
 
 from agnette.agl import artifact_storage
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.program import ValueDescriptors
 from agnette.agl.modules.errors import MissingExternCompanion
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
@@ -49,22 +47,13 @@ from tests.agl.module_graph import load_graph
 
 _NO_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field_encodes={})
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    supports_extern=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
 
 def _roots(*paths: Path) -> RootSet:
     return RootSet(roots=frozenset(paths))
 
 
 def _build_checked(
-    tmp_path: Path, modules: dict[str, str], capabilities: HostCapabilities = _CAPS
+    tmp_path: Path, modules: dict[str, str]
 ) -> tuple[CheckedProgram, dict[ModuleId, Path | None]]:
     """Load + resolve + check a multi-module graph without lowering or running it.
 
@@ -82,7 +71,7 @@ def _build_checked(
         default_stdlib=False,
     )
     resolved = resolve_program(graph)
-    checked = check_program(resolved, capabilities)
+    checked = check_program(resolved)
     companion_paths = {mid: lm.companion_path for mid, lm in graph.modules.items()}
     return checked, companion_paths
 
@@ -844,47 +833,12 @@ class TestCompanionBytecodeCache:
 
 
 # ---------------------------------------------------------------------------
-# Pipeline wiring: capability gate, fail-fast diagnostics, ordering
+# Pipeline wiring: fail-fast diagnostics, ordering
 # ---------------------------------------------------------------------------
 
 
-class TestCapabilityGate:
-    def test_extern_program_rejected_when_capability_off(self, tmp_path: Path) -> None:
-        write_companion_file(tmp_path / "root", "lib/mod", "def f(x):\n    return x\n")
-        checked, companion_paths = _build_checked(
-            tmp_path,
-            {
-                "entry": "import lib/mod::*\nlib/mod::f(1)",
-                "lib/mod": "extern def f(x: int) -> int",
-            },
-        )
-        caps_off = HostCapabilities(supports_extern=False)
-        diagnostics = _wire_extern_registry(
-            checked=checked,
-            capabilities=caps_off,
-            registry=ExternRegistry(),
-            companion_paths=companion_paths,
-            packages=(),
-            descriptors=_NO_DESCRIPTORS,
-        )
-        assert len(diagnostics) == 1
-
-    def test_non_extern_program_unaffected_by_capability_off(self, tmp_path: Path) -> None:
-        checked, companion_paths = _build_checked(
-            tmp_path, {"entry": "def f(x: int) -> int = x\nf(1)"}
-        )
-        caps_off = HostCapabilities(supports_extern=False)
-        diagnostics = _wire_extern_registry(
-            checked=checked,
-            capabilities=caps_off,
-            registry=ExternRegistry(),
-            companion_paths=companion_paths,
-            packages=(),
-            descriptors=_NO_DESCRIPTORS,
-        )
-        assert diagnostics == []
-
-    def test_extern_program_accepted_when_capability_on(self, tmp_path: Path) -> None:
+class TestWiring:
+    def test_extern_program_with_companion_wires_cleanly(self, tmp_path: Path) -> None:
         write_companion_file(tmp_path / "root", "lib/mod", "def f(x):\n    return x\n")
         checked, companion_paths = _build_checked(
             tmp_path,
@@ -895,7 +849,6 @@ class TestCapabilityGate:
         )
         diagnostics = _wire_extern_registry(
             checked=checked,
-            capabilities=_CAPS,
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
@@ -916,7 +869,6 @@ class TestFailFastDiagnostics:
         )
         diagnostics = _wire_extern_registry(
             checked=checked,
-            capabilities=_CAPS,
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
@@ -937,7 +889,6 @@ class TestFailFastDiagnostics:
         )
         diagnostics = _wire_extern_registry(
             checked=checked,
-            capabilities=_CAPS,
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
@@ -965,7 +916,6 @@ class TestFailFastDiagnostics:
         registry = ExternRegistry()
         diagnostics = _wire_extern_registry(
             checked=checked,
-            capabilities=_CAPS,
             registry=registry,
             companion_paths=companion_paths,
             packages=(),
@@ -989,7 +939,6 @@ class TestFailFastDiagnostics:
         )
         diagnostics = _wire_extern_registry(
             checked=checked,
-            capabilities=_CAPS,
             registry=ExternRegistry(),
             companion_paths=companion_paths,
             packages=(),
@@ -1055,7 +1004,6 @@ class TestRegistryPopulatedViaPipeline:
 
         diagnostics = _wire_extern_registry(
             checked=discovery.checked,
-            capabilities=driver.host_environment().capabilities,
             registry=driver.host_environment().extern_registry,
             companion_paths=prepared.companion_paths,
             packages=prepared.roots.packages,

@@ -13,7 +13,7 @@ only its declaration identity.  The derived schema is used:
    agent receives the precise shape, and as the contract's JSON Schema so
    API-backed agents can request native structured output.
 2. For schema validation via the ``jsonschema`` library inside
-   :class:`~agnette.agl.runtime.codec.JsonCodec`.
+   :func:`~agnette.agl.runtime.codec.parse_contract_output`.
 
 The decode plan (a :class:`~agnette.agl.ir.contracts.DecodeSchema` root plus its
 ``$defs`` table) is used by the IR evaluator to reconstruct typed ``Value``

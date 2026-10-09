@@ -27,7 +27,6 @@ from agnette.agl.syntax.nodes import LetDecl
 from agnette.agl.typecheck.env import AglTypeError, CheckedModule
 from agnette.agl.typecheck.program import CheckedProgram
 from tests._agl_helpers import (
-    AGL_TEST_CAPS,
     check_agl_program,
     checked_module_items,
     checked_program_selection_key,
@@ -35,13 +34,9 @@ from tests._agl_helpers import (
 from tests.agl.module_graph import resolve_and_check_repl_entry
 
 
-def accept_type(source: str) -> CheckedModule:
-    return resolve_and_check_repl_entry(source, AGL_TEST_CAPS)
-
-
 def reject_type(source: str) -> AglTypeError | AglScopeError:
     try:
-        accept_type(source)
+        resolve_and_check_repl_entry(source)
     except (AglTypeError, AglScopeError) as exc:
         return exc
     raise AssertionError(f"expected {source!r} to be rejected")
@@ -75,12 +70,12 @@ _COLOR = 'enum Color\n  | Red\n  | Blue\ndef Color::label(self) -> text = "color
 
 
 def test_enum_method_is_callable_on_a_nullary_member() -> None:
-    checked = accept_type(_COLOR + "Color::Red.label()")
+    checked = resolve_and_check_repl_entry(_COLOR + "Color::Red.label()")
     assert _final_type(checked) == TextType()
 
 
 def test_stdlib_enum_method_is_callable_on_its_nullary_member() -> None:
-    checked = accept_type("import std/http\nhttp::Method::Get.render()")
+    checked = resolve_and_check_repl_entry("import std/http\nhttp::Method::Get.render()")
     assert _final_type(checked) == TextType()
 
 
@@ -104,12 +99,12 @@ def test_member_only_method_is_rejected_on_an_enum_typed_receiver() -> None:
 
 
 def test_bound_projection_of_an_enum_method_on_a_member_has_a_nullary_function_type() -> None:
-    checked = accept_type(_COLOR + "let f = Color::Blue.label\nf")
+    checked = resolve_and_check_repl_entry(_COLOR + "let f = Color::Blue.label\nf")
     assert _final_type(checked) == FunctionType((), TextType())
 
 
 def test_partial_application_of_an_enum_method_on_a_member() -> None:
-    checked = accept_type(
+    checked = resolve_and_check_repl_entry(
         _COLOR + 'def Color::tag(self, suffix: text) -> text = "color" ++ suffix\n'
         "let g: (text) -> text = Color::Blue.tag(?)\ng"
     )
@@ -117,7 +112,9 @@ def test_partial_application_of_an_enum_method_on_a_member() -> None:
 
 
 def test_leading_dot_enum_method_call_inside_map_over_members() -> None:
-    checked = accept_type(_COLOR + "let reds: array[Color::Red] = [Color::Red]\nreds.map(.label())")
+    checked = resolve_and_check_repl_entry(
+        _COLOR + "let reds: array[Color::Red] = [Color::Red]\nreds.map(.label())"
+    )
     assert _final_type(checked) == ArrayType(TextType())
 
 
@@ -139,17 +136,19 @@ _TREE = (
 
 
 def test_generic_member_widens_with_its_own_captured_type_argument() -> None:
-    checked = accept_type(_TREE + "Node(value = 1).describe()")
+    checked = resolve_and_check_repl_entry(_TREE + "Node(value = 1).describe()")
     assert _final_type(checked) == TextType()
 
 
 def test_phantom_enum_parameter_is_solved_by_a_method_argument() -> None:
-    checked = accept_type(_TREE + "Leaf.or-default(4)")
+    checked = resolve_and_check_repl_entry(_TREE + "Leaf.or-default(4)")
     assert _final_type(checked) == IntType()
 
 
 def test_phantom_enum_parameter_is_solved_by_the_expected_result_type() -> None:
-    checked = accept_type("let r: Result[int, text] = Ok(1).map(fn(x: int) => x * 2)\nr")
+    checked = resolve_and_check_repl_entry(
+        "let r: Result[int, text] = Ok(1).map(fn(x: int) => x * 2)\nr"
+    )
     result_type = _final_type(checked)
     assert isinstance(result_type, EnumType)
     assert result_type.name == "Result"
@@ -178,7 +177,7 @@ def test_generic_functions_rigid_type_variable_is_not_mistaken_for_a_phantom() -
 def test_generic_functions_rigid_type_variable_widens_normally_for_a_method_with_no_phantom() -> (
     None
 ):
-    checked = accept_type(
+    checked = resolve_and_check_repl_entry(
         _TREE + "def f[T](n: Tree::Node[T]) -> text = n.describe()\nf(Node(value = 1))"
     )
     assert _final_type(checked) == TextType()
@@ -222,7 +221,9 @@ def test_field_and_owning_enum_method_clash_on_assignment() -> None:
 
 
 def test_enum_typed_receiver_has_no_fields_so_the_method_is_selected_cleanly() -> None:
-    checked = accept_type(_SHAPE + 'let c = Circle(name = "c", r = 1)\nlet s: Shape = c\ns.name()')
+    checked = resolve_and_check_repl_entry(
+        _SHAPE + 'let c = Circle(name = "c", r = 1)\nlet s: Shape = c\ns.name()'
+    )
     assert _final_type(checked) == TextType()
 
 
@@ -245,7 +246,7 @@ def test_static_method_is_not_selectable_on_a_member_with_dot() -> None:
 
 
 def test_with_result_on_a_member_keeps_its_member_type_and_enum_methods() -> None:
-    checked = accept_type(
+    checked = resolve_and_check_repl_entry(
         'enum Color\n  | Red(shade: text)\n  | Blue\ndef Color::label(self) -> text = "color"\n'
         'let c = Red(shade = "dark")\nlet c2 = c with shade = "light"\nc2.label()'
     )
@@ -258,7 +259,7 @@ def test_with_result_on_a_member_keeps_its_member_type_and_enum_methods() -> Non
 
 
 def test_agent_ask_still_typechecks_on_a_member_through_the_general_path() -> None:
-    checked = accept_type('AgentCommand("reviewer").ask("Q")')
+    checked = resolve_and_check_repl_entry('AgentCommand("reviewer").ask("Q")')
     assert _final_type(checked) == TextType()
 
 

@@ -1247,13 +1247,11 @@ def _run_program(
         unittest.mock.patch("agnette.core.http.open_session", lambda: http_session),
     ):
         key = (default_stdlib, bool(scenario.get("inline_entry")))
-        capabilities = runtime.host_environment().capabilities
         cached = next(
             (
                 (prepared, discovery)
                 for prepared, discovery in (compilations or {}).get(key, [])
                 if discovery.compiled is not None
-                and discovery.compiled.capabilities == capabilities
             ),
             None,
         )

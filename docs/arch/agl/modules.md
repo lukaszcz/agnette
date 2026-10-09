@@ -29,7 +29,7 @@ The graph keeps full import/export adjacency (used to narrow a program's linked 
 Imported modules are precompiled on demand and reused in memory and across processes; entry modules are compiled afresh.
 
 - **Stages.** Parsed syntax, declaration metadata, export surfaces, resolution, type/function interfaces, checked bodies, match sites, and lowered module IR are retained per module.
-- **Validation.** `artifact_cache.py` validates each stage against the module's source and transitive dependencies; checked stages also against host capabilities.
+- **Validation.** `artifact_cache.py` validates each stage against the module's source and transitive dependencies.
 - **Identity.** `modules/parsed_module_cache.py` assigns content-addressed node namespaces, so unchanged declarations keep identity across processes. AST-only callers (package command discovery) parse through the same cache.
 - **Checked bodies** persist as their own declarations plus a journal of type-environment mutations, replayed on restore, never the whole-program environment.
 - **Lowered modules** (`lower/module.py`) persist bodies and linkable tables; linking reassembles them per invocation. Companion imports, configuration values, initializer evaluation, and runtime state stay per invocation.

@@ -140,7 +140,7 @@ class _InfoReference:
 
 # Bootstrap images retain complete frontend graphs, so keep only a small working
 # set per process. LRU preserves the images active projects are most likely to
-# reopen without allowing one-off roots or capability combinations to grow the
+# reopen without allowing one-off roots to grow the
 # resident cache indefinitely.
 BOOTSTRAP_CACHE_MAX_ENTRIES = 16
 _bootstrap_cache: OrderedDict[tuple[object, ...], _BootstrapSnapshot] = OrderedDict()
@@ -541,12 +541,11 @@ class ReplSession:
         """
         from agnette.agl.parser import parse_program_seeded
 
-        host_env = self._runtime.host_environment()
         try:
             roots = self._ensure_roots()
         except AglError as exc:
             return (exc.to_diagnostic(),)
-        cache_key = self._bootstrap_cache_key(roots, host_env.capabilities)
+        cache_key = self._bootstrap_cache_key(roots)
         with _bootstrap_cache_lock:
             if cache_key is not None:
                 cached = _bootstrap_cache.get(cache_key)
@@ -570,7 +569,6 @@ class ReplSession:
             try:
                 loaded = self._entry_pipeline.load_and_check_program(
                     pipeline_program=program,
-                    host_env=host_env,
                     next_start_id=next_start_id,
                 )
             except AglError as exc:
@@ -600,26 +598,21 @@ class ReplSession:
                     _bootstrap_cache.popitem(last=False)
             return ()
 
-    def _bootstrap_cache_key(
-        self, roots: "RootSet", capabilities: object
-    ) -> tuple[object, ...] | None:
+    def _bootstrap_cache_key(self, roots: "RootSet") -> tuple[object, ...] | None:
         """Return a cache key only for a pristine, default-stdlib session.
 
         A bootstrap cache is safe only before an entry can contribute session
-        state, and when both module roots and static host capabilities agree
-        — typed engine seeds never touch the compiled module graph, so they
-        do not disqualify reuse. A param-seed resolver does (so ``agm repl``,
-        which always passes one, never uses the cached image). The cached type environment is
+        state, and when module roots agree — typed engine seeds never touch
+        the compiled module graph, so they do not disqualify reuse. A param-seed
+        resolver does (so ``agm repl``, which always passes one, never uses the
+        cached image). The cached type environment is
         sealed; later entry checks seed from it without mutating it.
         """
-        from agnette.agl.capabilities import HostCapabilities
-
         if (
             not self._default_stdlib
             or self._param_seed_resolver is not None
             or self._next_node_id != 0
             or self._loaded_lib_modules
-            or not isinstance(capabilities, HostCapabilities)
         ):
             return None
         packages = tuple(
@@ -628,17 +621,7 @@ class ReplSession:
                 for package in roots.packages
             )
         )
-        codec_kinds = tuple(
-            sorted((name, tuple(sorted(kinds))) for name, kinds in capabilities.codec_kinds.items())
-        )
-        return (
-            roots.roots,
-            roots.stdlib_roots,
-            packages,
-            capabilities.supports_shell_exec,
-            capabilities.supports_extern,
-            codec_kinds,
-        )
+        return (roots.roots, roots.stdlib_roots, packages)
 
     @staticmethod
     def _bootstrap_loader_inputs_match(snapshot: _BootstrapSnapshot) -> bool:
@@ -789,10 +772,9 @@ class ReplSession:
             return None
         type_expr, next_node_id, spaced_qualifiers = parsed
         program, fresh_name, next_node_id = self._type_probe_program(type_expr, next_node_id)
-        host_env = self._runtime.host_environment()
         checked_program = _static_verdict(
             lambda: self._entry_pipeline.resolve_and_check_program(
-                program, next_node_id, host_env, spaced_qualifiers=spaced_qualifiers
+                program, next_node_id, spaced_qualifiers=spaced_qualifiers
             )[1]
         )
         if isinstance(checked_program, UnappliedGenericTypeError) and (
@@ -1565,7 +1547,6 @@ class ReplSession:
         from agnette.agl.parser import parse_program_seeded
         from agnette.agl.syntax.nodes import Binder, Declaration
 
-        host_env = self._runtime.host_environment()
         with spaced_qualifier_collector() as spaced_sink:
             program, next_node_id = parse_program_seeded(text, start_id=self._next_node_id)
         spaced_qualifiers = tuple(spaced_sink)
@@ -1575,7 +1556,7 @@ class ReplSession:
                 "':type' expects a single expression, not a binding, declaration, or statement."
             )
         resolved_program, checked_program = self._entry_pipeline.resolve_and_check_program(
-            program, next_node_id, host_env, spaced_qualifiers=spaced_qualifiers
+            program, next_node_id, spaced_qualifiers=spaced_qualifiers
         )
         checked = checked_program.modules[checked_program.entry_id]
         from agnette.agl.matchcompile import (

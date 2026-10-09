@@ -36,7 +36,6 @@ from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
     _checked_inline_program,
     _compiled_inline_program,
-    base_caps,
     make_inline_graph_from_files,
 )
 from tests.agl.match_reference import case_sites
@@ -107,7 +106,7 @@ def test_graph_lowering_trusts_the_artifact_that_already_validated_itself(
     graph = make_inline_graph_from_files(
         tmp_path, {"entry": "case true of | true => 1 | false => 2"}
     )
-    compiled = compile_program_matches(check_program(resolve_program(graph), base_caps())).compiled
+    compiled = compile_program_matches(check_program(resolve_program(graph))).compiled
     assert isinstance(compiled, MatchCompiledProgram)
     entry_cases = case_sites(compiled.sites_by_module[ENTRY_ID])
     (case_id,) = tuple(entry_cases)
@@ -194,7 +193,7 @@ def test_production_match_compilation_takes_the_unvalidated_path(
     assert rejected.issues != ()
 
     graph = make_inline_graph_from_files(tmp_path, {"entry": _MATCH_SOURCE})
-    program_result = compile_program_matches(check_program(resolve_program(graph), base_caps()))
+    program_result = compile_program_matches(check_program(resolve_program(graph)))
     assert isinstance(program_result.compiled, MatchCompiledProgram)
 
     lowered = lower_program(program_result.compiled)
@@ -241,7 +240,7 @@ def test_disabled_validation_skips_the_inference_region_leak_check(
     only, so disabling it does not stop the call from checking normally.
     """
     source = "def id[T](value: T) -> T = value\nlet result = id(1)\nresult"
-    checked = resolve_and_check_inline_entry(source, base_caps())
+    checked = resolve_and_check_inline_entry(source)
 
     assert checked.node_types
 
@@ -261,7 +260,7 @@ def test_disabled_validation_skips_the_extern_target_leak_check(
     source = "extern def id[T](value: T) -> T\nlet apply: (int) -> int = id\napply(1)"
     origin_path = tmp_path / "self_validation.agl"
     origin_path.with_suffix(".py").write_text("")
-    checked = resolve_and_check_inline_entry(source, base_caps(), origin_path=origin_path)
+    checked = resolve_and_check_inline_entry(source, origin_path=origin_path)
 
     assert_checked_module_closed(checked)
 
@@ -477,7 +476,7 @@ def test_closed_output_covers_explicit_builtin_targets() -> None:
     be walked by the closed-output boundary exactly like every other
     type-bearing side table.
     """
-    checked = resolve_and_check_inline_entry(_SOURCE, base_caps())
+    checked = resolve_and_check_inline_entry(_SOURCE)
     leaked = replace(checked, explicit_builtin_targets={-1: InferenceVarType()})
 
     with pytest.raises(AssertionError, match="inference variable leaked"):

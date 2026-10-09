@@ -56,7 +56,6 @@ from agnette.agl.typecheck.program import CheckedProgram, check_program
 from tests._agl_helpers import prepare_inline_code, run_inline_code
 from tests.agl.ir_harness import (
     MatchCompiledModule,
-    base_caps,
     make_graph_from_files,
     single_module_program,
 )
@@ -93,17 +92,13 @@ def _no_constructors(_module_id: ModuleId) -> ConstructorSpeller:
     return lambda decl, _case_node_id: decl[2]
 
 
-def _checked(source: str) -> CheckedModule:
-    return resolve_and_check_inline_entry(source, base_caps())
-
-
 def _compile_module_matches(checked: CheckedModule) -> MatchCompilationResult:
     """Match-compile one checked module as a single-module program."""
     return compile_program_matches(single_module_program(checked))
 
 
 def _compiled(source: str) -> MatchCompiledModule:
-    checked = _checked(source)
+    checked = resolve_and_check_inline_entry(source)
     result = _compile_module_matches(checked)
     assert result.compiled is not None
     return MatchCompiledModule(checked, result.compiled.sites_by_module[ENTRY_ID])
@@ -270,7 +265,7 @@ def test_empty_case_program_produces_valid_empty_artifact() -> None:
 
 
 def test_compiles_nested_cases_as_sealed_source_payloads() -> None:
-    checked = _checked(
+    checked = resolve_and_check_inline_entry(
         "case true of\n"
         "  | true =>\n"
         "      case false of\n"
@@ -316,7 +311,7 @@ def test_artifact_rejects_a_match_site_with_the_wrong_source_payload() -> None:
 
 
 def test_source_issues_are_all_sorted_adapted_and_prevent_artifact() -> None:
-    checked = _checked(
+    checked = resolve_and_check_inline_entry(
         "let _ = case true of\n  | true => 1\n  | true => 2\ncase false of\n  | false => 3\n"
     )
     result = _compile_module_matches(checked)
@@ -333,7 +328,7 @@ def test_source_issues_are_all_sorted_adapted_and_prevent_artifact() -> None:
 
 
 def test_program_match_compilation_orders_issues_by_source_location() -> None:
-    checked = _checked(
+    checked = resolve_and_check_inline_entry(
         "let _ = case true of\n  | true => 1\n  | true => 2\ncase false of\n  | false => 3\n"
     )
 
@@ -344,11 +339,13 @@ def test_program_match_compilation_orders_issues_by_source_location() -> None:
 
 
 def test_match_compilation_yields_an_artifact_or_issues_but_never_both(tmp_path: Path) -> None:
-    accepted = _compile_module_matches(_checked("case true of | true => 1 | false => 2"))
+    accepted = _compile_module_matches(
+        resolve_and_check_inline_entry("case true of | true => 1 | false => 2")
+    )
     assert accepted.compiled is not None
     assert accepted.issues == ()
 
-    rejected = _compile_module_matches(_checked("case true of | true => 1"))
+    rejected = _compile_module_matches(resolve_and_check_inline_entry("case true of | true => 1"))
     assert rejected.compiled is None
     assert rejected.issues != ()
 
@@ -357,7 +354,6 @@ def test_match_compilation_yields_an_artifact_or_issues_but_never_both(tmp_path:
             resolve_program(
                 make_graph_from_files(tmp_path / "ok", {"entry": "case true of | _ => 1"})
             ),
-            base_caps(),
         )
     )
     assert accepted_graph.compiled is not None
@@ -368,7 +364,6 @@ def test_match_compilation_yields_an_artifact_or_issues_but_never_both(tmp_path:
             resolve_program(
                 make_graph_from_files(tmp_path / "bad", {"entry": "case true of | true => 1"})
             ),
-            base_caps(),
         )
     )
     assert rejected_graph.compiled is None
@@ -390,7 +385,7 @@ def test_rejected_match_compilation_still_validates_the_cases_it_discards(
     monkeypatch.setattr(stage_module, "compile_match_site", corrupting_compile_case)
 
     with pytest.raises(MatchCompileInvariantError, match="reachable"):
-        _compile_module_matches(_checked("case true of | true => 1"))
+        _compile_module_matches(resolve_and_check_inline_entry("case true of | true => 1"))
 
 
 def test_graph_issues_are_aggregated_and_sorted_across_module_sources(tmp_path: Path) -> None:
@@ -405,7 +400,7 @@ def test_graph_issues_are_aggregated_and_sorted_across_module_sources(tmp_path: 
         },
     )
     resolved = resolve_program(graph)
-    checked = check_program(resolved, base_caps())
+    checked = check_program(resolved)
 
     result = compile_program_matches(checked)
 
@@ -476,11 +471,11 @@ def test_program_artifact_rejects_missing_extra_mismatched_and_cross_program_cas
     with pytest.raises(MatchCompileInvariantError, match="source provenance"):
         MatchCompiledModule(first.checked, {case_id: wrong_span})
 
-    second_checked = _checked("case true of | true => 1 | false => 2")
+    second_checked = resolve_and_check_inline_entry("case true of | true => 1 | false => 2")
     with pytest.raises(MatchCompileInvariantError, match="different checked"):
         MatchCompiledModule(second_checked, first.sites)
 
-    invalid_checked = _checked("case true of | true => 1")
+    invalid_checked = resolve_and_check_inline_entry("case true of | true => 1")
     invalid_case = _first_case(invalid_checked)
     invalid_compiled = compile_match_site(normalize_case(invalid_case, invalid_checked))
     with pytest.raises(MatchCompileInvariantError, match="contains issues"):
@@ -525,7 +520,7 @@ def test_program_artifact_rejects_compiled_case_semantic_corruption() -> None:
         with pytest.raises(MatchCompileInvariantError):
             MatchCompiledModule(compiled.checked, cases)
 
-    invalid_checked = _checked("case true of | true => 1")
+    invalid_checked = resolve_and_check_inline_entry("case true of | true => 1")
     invalid_case = _first_case(invalid_checked)
     invalid_compiled = compile_match_site(normalize_case(invalid_case, invalid_checked))
     stripped = replace(invalid_compiled, issues=())
@@ -638,7 +633,7 @@ def test_valid_shared_dag_passes_graph_semantic_replay_validation(tmp_path: Path
             )
         },
     )
-    checked = check_program(resolve_program(graph), base_caps())
+    checked = check_program(resolve_program(graph))
     result = compile_program_matches(checked)
     assert isinstance(result.compiled, MatchCompiledProgram)
     compiled = result.compiled
@@ -661,7 +656,7 @@ def test_graph_compiles_imported_cases_and_rejects_wrong_module_provenance(
             "lib": "def f(x: bool) -> int =\n  case x of | true => 1 | false => 2",
         },
     )
-    checked = check_program(resolve_program(graph), base_caps())
+    checked = check_program(resolve_program(graph))
     result = compile_program_matches(checked)
     assert isinstance(result.compiled, MatchCompiledProgram)
     compiled = result.compiled
@@ -694,7 +689,7 @@ def test_graph_artifact_rejects_compiled_case_semantic_corruption(tmp_path: Path
             )
         },
     )
-    checked = check_program(resolve_program(graph), base_caps())
+    checked = check_program(resolve_program(graph))
     result = compile_program_matches(checked)
     assert isinstance(result.compiled, MatchCompiledProgram)
     compiled = result.compiled
@@ -740,7 +735,7 @@ def test_graph_artifact_rejects_compiled_case_semantic_corruption(tmp_path: Path
         tmp_path / "invalid",
         {"entry": "case true of | true => 1"},
     )
-    invalid_checked = check_program(resolve_program(invalid_graph), base_caps())
+    invalid_checked = check_program(resolve_program(invalid_graph))
     invalid_owner = invalid_checked.modules[ENTRY_ID]
     invalid_case = _first_case(invalid_owner)
     invalid_compiled = compile_match_site(normalize_case(invalid_case, invalid_owner))
@@ -756,7 +751,7 @@ def test_graph_artifact_replays_source_semantics_against_every_decision_edge(
     tmp_path: Path,
 ) -> None:
     graph = make_graph_from_files(tmp_path, {"entry": _SEMANTIC_REPLAY_SOURCE})
-    checked = check_program(resolve_program(graph), base_caps())
+    checked = check_program(resolve_program(graph))
     result = compile_program_matches(checked)
     assert isinstance(result.compiled, MatchCompiledProgram)
     compiled = result.compiled
@@ -783,7 +778,7 @@ def test_graph_reports_error_from_unexecuted_imported_module(tmp_path: Path) -> 
             "lib": "def f(x: bool) -> int =\n  case x of | true => 1",
         },
     )
-    checked = check_program(resolve_program(graph), base_caps())
+    checked = check_program(resolve_program(graph))
     result = compile_program_matches(checked)
     assert result.compiled is None
     assert len(result.issues) == 1

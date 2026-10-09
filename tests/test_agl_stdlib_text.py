@@ -8,7 +8,6 @@ from typing import Protocol, cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.program import NominalDescriptor, NominalKind
 from agnette.agl.modules.ids import ModuleId
@@ -94,17 +93,13 @@ def test_text_companion_joins_text_values() -> None:
 
 
 def test_text_methods_are_ambient_but_interp_requires_an_import() -> None:
-    resolve_and_check_inline_entry('"value".trim()\n', HostCapabilities())
+    resolve_and_check_inline_entry('"value".trim()\n')
 
     with pytest.raises(AglScopeError):
-        resolve_and_check_inline_entry('interp("value", {})\n', HostCapabilities())
+        resolve_and_check_inline_entry('interp("value", {})\n')
 
-    resolve_and_check_inline_entry(
-        'import std/text\ntext::interp("value", {})\n', HostCapabilities()
-    )
-    resolve_and_check_inline_entry(
-        'import std/text\ntext::join(["a", "b"], ",")\n', HostCapabilities()
-    )
+    resolve_and_check_inline_entry('import std/text\ntext::interp("value", {})\n')
+    resolve_and_check_inline_entry('import std/text\ntext::join(["a", "b"], ",")\n')
 
     with pytest.raises(AglTypeError, match="text is immutable"):
-        resolve_and_check_inline_entry('var value = "x"\nvalue[0] := "y"\n', HostCapabilities())
+        resolve_and_check_inline_entry('var value = "x"\nvalue[0] := "y"\n')

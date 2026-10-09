@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintKind
 from agnette.agl.ir.reserved_nominals import (
     NO_DECL_ID,
@@ -88,20 +87,7 @@ from tests.agl.ir_harness import evaluate_ir_output, make_graph_from_files
 from tests.agl.module_graph import resolve_and_check_inline_entry
 from tests.agl.qualifier_support import span_text
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
 _LIB_ID = ModuleId.from_path("lib")
-
-
-def _check(src: str, *, default_stdlib: bool = True) -> CheckedModule:
-    """Resolve + check *src* as the entry of a real module graph."""
-    return resolve_and_check_inline_entry(src, _CAPS, default_stdlib=default_stdlib)
 
 
 def _selected_method(table: TypeTable, owner: Type, name: str) -> MethodDef | None:
@@ -336,7 +322,7 @@ def test_referenced_member_with_concrete_arguments_does_not_share_enum_membershi
 
 def test_mixed_referenced_members_with_concrete_arguments_raise_a_type_error() -> None:
     with pytest.raises(AglTypeError):
-        _check(
+        resolve_and_check_inline_entry(
             "record Box[T]\n"
             "  value: T\n"
             "enum E = ::Box[int]\n"
@@ -346,7 +332,7 @@ def test_mixed_referenced_members_with_concrete_arguments_raise_a_type_error() -
 
 
 def test_scoped_generic_enum_does_not_claim_the_root_type_or_constructor_namespace() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum A::Choice[T]\n"
         "  | hidden(value: T)\n"
         "enum Choice[T]\n"
@@ -360,7 +346,7 @@ def test_scoped_generic_enum_does_not_claim_the_root_type_or_constructor_namespa
 
 
 def test_type_references_inside_a_scope_use_the_nearest_scoped_type() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record T\n"
         "  value: text\n"
         "\n"
@@ -381,7 +367,7 @@ def _check_program(tmp_path: Path, modules: dict[str, str]):
     """Build and typecheck a multi-module graph; returns CheckedProgram."""
     graph = make_graph_from_files(tmp_path, modules)
     resolved_program = resolve_program(graph)
-    return check_program(resolved_program, _CAPS)
+    return check_program(resolved_program)
 
 
 def test_standalone_current_module_type_anchor_bypasses_nested_scope_during_lowering() -> None:
@@ -403,7 +389,7 @@ def test_standalone_current_module_type_anchor_bypasses_nested_scope_during_lowe
 
 
 def test_scoped_aliases_are_available_to_scoped_function_signatures() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "scope A\n"
         "  type Count = int\n"
         "  record Marker\n"
@@ -419,7 +405,7 @@ def test_scoped_aliases_are_available_to_scoped_function_signatures() -> None:
 def test_current_module_generic_type_anchor_rejects_unknown_root_type() -> None:
     source = "def f(value: ::A::Missing[int]) -> int = 0\nf(1)"
     with pytest.raises(UnknownQualifierError) as exc_info:
-        _check(source)
+        resolve_and_check_inline_entry(source)
     assert span_text(source, exc_info.value.span) == "::A::Missing"
 
 
@@ -443,7 +429,7 @@ def test_scoped_type_context_restores_after_a_type_error(tmp_path: Path) -> None
     source = "scope A\n  record Broken\n    value: Missing\nend A"
 
     with pytest.raises(AglTypeError):
-        _check(source)
+        resolve_and_check_inline_entry(source)
     with pytest.raises(AglTypeError):
         _check_program(tmp_path, {"entry": source})
 
@@ -461,7 +447,7 @@ def test_scoped_generic_type_applications_resolve_in_module_and_program_contexts
         "A::G::[int](value = 1)"
     )
 
-    assert _check(source).node_types
+    assert resolve_and_check_inline_entry(source).node_types
     assert _check_program(tmp_path, {"entry": source}).modules[ENTRY_ID].node_types
 
 
@@ -484,7 +470,9 @@ def _binding_value_type(checked: CheckedModule, name: str):
 
 
 def test_inline_enum_members_are_scoped_records_with_captured_parameters() -> None:
-    checked = _check("enum E[T, U]\n  | Leaf\n  | One(value: U)\n  | Both(left: T, right: U)\n()")
+    checked = resolve_and_check_inline_entry(
+        "enum E[T, U]\n  | Leaf\n  | One(value: U)\n  | Both(left: T, right: U)\n()"
+    )
 
     enum_type = checked.type_env.get_generic_type("E")
     assert enum_type is not None
@@ -513,7 +501,7 @@ def test_inline_enum_members_are_scoped_records_with_captured_parameters() -> No
 
 
 def test_inline_member_aliases_capture_only_resolved_parameters() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "type Ignore[T] = int\n"
         "enum E[T] | M(value: Ignore[T])\n"
         "let value: E::M = M(value = 1)\n"
@@ -531,7 +519,7 @@ def test_inline_member_aliases_capture_only_resolved_parameters() -> None:
 
 
 def test_forward_inline_member_uses_arity_after_alias_erasure() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record A\n"
         "  value: E::M\n"
         "type Ignore[T] = int\n"
@@ -546,7 +534,7 @@ def test_forward_inline_member_uses_arity_after_alias_erasure() -> None:
 
 def test_forward_inline_member_rejects_type_arguments_erased_by_alias() -> None:
     with pytest.raises(AglTypeError):
-        _check(
+        resolve_and_check_inline_entry(
             "record A\n"
             "  value: E::M[int]\ntype Ignore[T] = int\nenum E[T] | M(value: Ignore[T])\n()"
         )
@@ -1984,7 +1972,7 @@ class TestRecordMutableFields:
         assert dict(table.record_fields(handle)) == {"mutable": TextType(), "fixed": IntType()}
 
     def test_builder_registers_standalone_and_enum_member_mutability(self) -> None:
-        checked = _check(
+        checked = resolve_and_check_inline_entry(
             "record Standalone\n"
             "  var value: int\n"
             "  label: text\n"
@@ -2047,7 +2035,7 @@ class TestRecordMutableFields:
 
     def test_mutability_participates_in_builtin_shape_validation(self) -> None:
         with pytest.raises(AglTypeError):
-            _check(
+            resolve_and_check_inline_entry(
                 "builtin record ExecResult\n"
                 "  var stdout: text\n"
                 "  exit-code: int\n"
@@ -2742,7 +2730,9 @@ class TestEnvTypeHasMatchingTableDefSingleModule:
     shared table (the only place shapes live, since handles carry none)."""
 
     def test_non_generic_record(self) -> None:
-        checked = _check("record Point\n  x: int\n  y: int\nlet p = Point(x = 1, y = 2)\np")
+        checked = resolve_and_check_inline_entry(
+            "record Point\n  x: int\n  y: int\nlet p = Point(x = 1, y = 2)\np"
+        )
         point = checked.type_env.get_type("Point")
         assert isinstance(point, RecordType)
         table = checked.type_env.type_table
@@ -2752,7 +2742,9 @@ class TestEnvTypeHasMatchingTableDefSingleModule:
         assert dict(table.record_fields(point)) == {"x": IntType(), "y": IntType()}
 
     def test_generic_record(self) -> None:
-        checked = _check("record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb")
+        checked = resolve_and_check_inline_entry(
+            "record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb"
+        )
         box = _binding_value_type(checked, "b")
         assert isinstance(box, RecordType)
         table = checked.type_env.type_table
@@ -2762,7 +2754,9 @@ class TestEnvTypeHasMatchingTableDefSingleModule:
         assert dict(table.record_fields(box)) == {"value": IntType()}
 
     def test_non_generic_enum(self) -> None:
-        checked = _check("enum Color\n  | Red\n  | Green\n  | Blue\nlet c = Red\nc")
+        checked = resolve_and_check_inline_entry(
+            "enum Color\n  | Red\n  | Green\n  | Blue\nlet c = Red\nc"
+        )
         color = checked.type_env.get_type("Color")
         assert isinstance(color, EnumType)
         table = checked.type_env.type_table
@@ -2777,7 +2771,9 @@ class TestEnvTypeHasMatchingTableDefSingleModule:
         }
 
     def test_generic_enum(self) -> None:
-        checked = _check("enum Maybe[T]\n  | none\n  | just(value: T)\nlet m = just(value = 1)\nm")
+        checked = resolve_and_check_inline_entry(
+            "enum Maybe[T]\n  | none\n  | just(value: T)\nlet m = just(value = 1)\nm"
+        )
         member = _binding_value_type(checked, "m")
         assert isinstance(member, RecordType)
         table = checked.type_env.type_table
@@ -4750,7 +4746,7 @@ def _pair_def(name: str = "Pair") -> TypeDef:
 class TestInhabitationAnalysis:
     def test_referenced_uninhabitable_member_is_rejected_by_program_checking(self) -> None:
         with pytest.raises(AglTypeError):
-            _check("record Bad\n  next: Bad\nenum E = ::Bad | Good\n()")
+            resolve_and_check_inline_entry("record Bad\n  next: Bad\nenum E = ::Bad | Good\n()")
 
     def test_inline_member_requiring_itself_is_rejected_beside_an_inhabited_member(
         self,
@@ -4758,7 +4754,7 @@ class TestInhabitationAnalysis:
         # E is inhabited through B, but A's field needs another A: the member
         # is a record with no finite value, so it is rejected at its own span.
         with pytest.raises(AglTypeError) as info:
-            _check("enum E\n  | A(x: E::A)\n  | B\n()")
+            resolve_and_check_inline_entry("enum E\n  | A(x: E::A)\n  | B\n()")
         span = info.value.span
         assert span is not None
         assert span.start_line == 2
@@ -4776,7 +4772,7 @@ class TestInhabitationAnalysis:
         self, source: str, line: int
     ) -> None:
         with pytest.raises(AglTypeError) as info:
-            _check(source)
+            resolve_and_check_inline_entry(source)
         span = info.value.span
         assert span is not None
         assert span.start_line == line
@@ -4796,7 +4792,7 @@ class TestInhabitationAnalysis:
         # so the answer depends on which of 2^16 argument patterns are inhabited.
         source = "record Bad\n  b: Bad\n" + self._many_parameter_enum("Bad", 16) + "()"
         with pytest.raises(AglTypeError) as info:
-            _check(source)
+            resolve_and_check_inline_entry(source)
         span = info.value.span
         assert span is not None
         assert span.start_line == 1
@@ -4804,11 +4800,15 @@ class TestInhabitationAnalysis:
     def test_many_parameter_enum_with_a_long_inhabited_chain_argument_is_accepted(self) -> None:
         # The argument is inhabited only at the end of a declaration chain.
         chain = "".join(f"record L{i}\n  x: L{i + 1}\n" for i in range(12))
-        _check(self._many_parameter_enum("L0", 16) + chain + "record L12\n()")
+        resolve_and_check_inline_entry(
+            self._many_parameter_enum("L0", 16) + chain + "record L12\n()"
+        )
 
     def test_mutually_recursive_sum_guarded_by_arrays_is_accepted(self) -> None:
         # Both members settle only through the enum they are members of.
-        _check("enum A = ::B | ::C\nrecord B\n  x: array[A]\nrecord C\n  y: array[A]\n()")
+        resolve_and_check_inline_entry(
+            "enum A = ::B | ::C\nrecord B\n  x: array[A]\nrecord C\n  y: array[A]\n()"
+        )
 
     @staticmethod
     def _user_of_boxed_option_table() -> tuple[TypeTable, RecordType, TypeDef]:
@@ -6150,7 +6150,7 @@ class TestDeclarationIdentity:
         """A field-less declaration written as a program's very first item owns
         the lowest AST node id there is, and still carries a real declaration
         identity rather than the "no declaration identity" value."""
-        checked = _check("record R\nlet r = R()\n()")
+        checked = resolve_and_check_inline_entry("record R\nlet r = R()\n()")
         record_def = next(
             item
             for item in checked.resolved.program.body.items
@@ -6165,7 +6165,9 @@ class TestDeclarationIdentity:
         assert typedef.decl_node_id != NO_DECL_ID
 
     def test_record_handle_and_typedef_adopt_the_declaration_node_id(self) -> None:
-        checked = _check("record Point\n  x: int\n  y: int\nlet p = Point(x = 1, y = 2)\np")
+        checked = resolve_and_check_inline_entry(
+            "record Point\n  x: int\n  y: int\nlet p = Point(x = 1, y = 2)\np"
+        )
         record_def = next(
             item
             for item in checked.resolved.program.body.items
@@ -6179,7 +6181,9 @@ class TestDeclarationIdentity:
         assert typedef.decl_node_id == record_def.node_id
 
     def test_enum_handle_and_typedef_adopt_the_declaration_node_id(self) -> None:
-        checked = _check("enum Color\n  | Red\n  | Green\n  | Blue\nlet c = Red\nc")
+        checked = resolve_and_check_inline_entry(
+            "enum Color\n  | Red\n  | Green\n  | Blue\nlet c = Red\nc"
+        )
         enum_def = next(
             item
             for item in checked.resolved.program.body.items
@@ -6193,7 +6197,7 @@ class TestDeclarationIdentity:
         assert typedef.decl_node_id == enum_def.node_id
 
     def test_exception_handle_and_typedef_adopt_the_declaration_node_id(self) -> None:
-        checked = _check(
+        checked = resolve_and_check_inline_entry(
             'exception Boom extends Exception\n  code: int\nBoom(code = 5, message = "m")'
         )
         exception_def = next(
@@ -6211,7 +6215,7 @@ class TestDeclarationIdentity:
     def test_generic_record_instantiation_preserves_declaration_identity_across_arguments(
         self,
     ) -> None:
-        checked = _check(
+        checked = resolve_and_check_inline_entry(
             "record Box[T]\n  value: T\n"
             'let a: Box[int] = Box(value = 1)\nlet b: Box[text] = Box(value = "x")\n()'
         )
@@ -6226,7 +6230,9 @@ class TestDeclarationIdentity:
         """Applying a generic declaration's type arguments in an annotation
         instantiates its registered template, so the resolved handle names the
         declaration rather than losing its identity."""
-        checked = _check("record Box[T]\n  value: T\ndef unwrap(b: Box[int]) -> int = b.value\n()")
+        checked = resolve_and_check_inline_entry(
+            "record Box[T]\n  value: T\ndef unwrap(b: Box[int]) -> int = b.value\n()"
+        )
         record_def = next(
             item
             for item in checked.resolved.program.body.items

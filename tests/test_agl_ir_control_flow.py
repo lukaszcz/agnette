@@ -594,28 +594,12 @@ catch CastError =>
 # ---------------------------------------------------------------------------
 
 
-def _lower(source: str) -> object:
-    """Parse → check → lower; return ExecutableProgram."""
-    from agnette.agl.capabilities import HostCapabilities
-
-    caps = HostCapabilities(
-        supports_shell_exec=False,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-    return lower_inline_ir(source, caps=caps)
-
-
 def test_lower_if_no_else_shape() -> None:
     """Golden lowering: if without else has has_else=False."""
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "if true => ()\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     prog.modules[prog.entry_module]
     items = inline_main_items(prog)
@@ -634,7 +618,7 @@ def test_lower_if_with_else_shape() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = if true => 1 | else => 2\nr\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     prog.modules[prog.entry_module]
     items = inline_main_items(prog)
@@ -652,7 +636,7 @@ def test_lower_raise_shape() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = 'raise Abort(message = "boom")\n'
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     prog.modules[prog.entry_module]
     items = inline_main_items(prog)
@@ -668,7 +652,7 @@ def test_lower_return_shape() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "def f() -> int =\n  return 1\n  0\nf()\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     desc = next(
         descriptor
@@ -687,7 +671,7 @@ def test_lower_try_no_binding_shape() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Abort =>\n  2\nr\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     prog.modules[prog.entry_module]
     items = inline_main_items(prog)
@@ -706,7 +690,7 @@ def test_lower_try_with_binding_shape() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Abort as e =>\n  2\nr\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     prog.modules[prog.entry_module]
     items = inline_main_items(prog)
@@ -725,7 +709,7 @@ def test_lower_try_catchall_shape() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch _ =>\n  2\nr\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     prog.modules[prog.entry_module]
     items = inline_main_items(prog)
@@ -743,7 +727,7 @@ def test_lower_try_catch_of_the_hierarchy_root_lowers_to_catchall() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Exception =>\n  2\nr\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     items = inline_main_items(prog)
     ir_bind = let_root_capture(items[0])
@@ -759,7 +743,7 @@ def test_lower_try_catch_of_a_non_root_type_keeps_its_own_nominal() -> None:
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "let r = try\n  1\ncatch Abort =>\n  2\nr\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     items = inline_main_items(prog)
     ir_bind = let_root_capture(items[0])
@@ -776,7 +760,7 @@ def test_lower_try_catch_of_exception_declared_without_extends_keeps_its_own_nom
     from agnette.agl.ir.program import ExecutableProgram
 
     source = "exception Plain\n  note: text\nlet r = try\n  1\ncatch Plain =>\n  2\nr\n"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     assert isinstance(prog, ExecutableProgram)
     items = inline_main_items(prog)
     ir_bind = let_root_capture(items[0])

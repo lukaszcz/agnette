@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import (
     AglScopeError,
@@ -23,34 +22,22 @@ from tests._agl_helpers import strip_decl_ids
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
-
-def accept(source: str):
-    return resolve_and_check_inline_entry(source, _CAPS)
-
 
 def reject(source: str) -> None:
     with pytest.raises(AglTypeError):
-        accept(source)
+        resolve_and_check_inline_entry(source)
 
 
 def rejection(source: str) -> AglTypeError | AglScopeError:
     """Return the error scope or type checking rejects *source* with."""
     with pytest.raises((AglTypeError, AglScopeError)) as caught:
-        accept(source)
+        resolve_and_check_inline_entry(source)
     return caught.value
 
 
 def accept_graph(tmp_path: Path, modules: dict[str, str]) -> CheckedProgram:
     graph = make_graph_from_files(tmp_path, modules)
-    return check_program(resolve_program(graph), _CAPS)
+    return check_program(resolve_program(graph))
 
 
 def reject_graph(tmp_path: Path, modules: dict[str, str]) -> None:
@@ -74,7 +61,7 @@ def test_qualified_enum_constructor_pattern_rejects_arguments_on_a_non_generic_o
 
 
 def test_referenced_enum_member_aliases_match_in_patterns_and_is_tests() -> None:
-    accept(
+    resolve_and_check_inline_entry(
         "record R\n"
         "  value: int\n"
         "type Alias = R\n"
@@ -94,7 +81,7 @@ def test_applied_enum_owner_does_not_select_a_referenced_member() -> None:
         "let value: E[int] = R(value = 1)\n"
         "case value of | {pattern}(value) => value"
     )
-    accept(source.format(pattern="R"))
+    resolve_and_check_inline_entry(source.format(pattern="R"))
     reject(source.format(pattern="E[int]::R"))
 
 
@@ -114,7 +101,9 @@ def test_enum_alias_does_not_match_a_referenced_record_member() -> None:
 
 @pytest.mark.parametrize("pattern", ("U", "U()", "Unit0", "Unit0()"))
 def test_fieldless_record_alias_pattern_matches_bare_and_applied(pattern: str) -> None:
-    accept(f"record Unit0\ntype U = Unit0\nlet x = Unit0\ncase x of | {pattern} => 1")
+    resolve_and_check_inline_entry(
+        f"record Unit0\ntype U = Unit0\nlet x = Unit0\ncase x of | {pattern} => 1"
+    )
 
 
 @pytest.mark.parametrize("pattern", ("V", "V()"))
@@ -123,7 +112,9 @@ def test_record_alias_pattern_of_another_record_is_rejected_bare_and_applied(pat
 
 
 def test_simple_let_name_binds_even_when_it_matches_a_nullary_constructor() -> None:
-    checked = accept("enum Opt\n  | none\nlet value: Opt = none\nlet none = value\nnone\n")
+    checked = resolve_and_check_inline_entry(
+        "enum Opt\n  | none\nlet value: Opt = none\nlet none = value\nnone\n"
+    )
     let = checked.resolved.program.body.items[2]
     assert isinstance(let, LetDecl)
     assert let.name == "none"
@@ -224,7 +215,7 @@ def test_module_qualified_record_pattern_rejects_an_unrelated_enum_owner(
 
 
 def test_record_and_enum_constructor_spelling_collision_is_scrutinee_directed() -> None:
-    checked = accept(
+    checked = resolve_and_check_inline_entry(
         "record Token\n"
         "  value: int\n"
         "enum Signal\n"
@@ -277,7 +268,7 @@ def test_unqualified_pattern_selects_a_nominal_declared_in_the_same_scope() -> N
     path, not just the bare spelling: ``Bounds(low, high)`` inside
     ``scope Config`` selects ``Config::Bounds``.
     """
-    checked = accept(
+    checked = resolve_and_check_inline_entry(
         "scope Config\n"
         "  record Bounds\n"
         "    low: int\n"
@@ -318,7 +309,7 @@ def test_scoped_record_pattern_rejects_a_same_named_root_record() -> None:
 def test_bare_pattern_in_a_region_reaches_a_root_record_beside_its_scoped_variant() -> None:
     """A bare pattern's candidates are every step's: the root-typed scrutinee selects the root
     ``Point`` record over ``A``'s own ``E::Point`` variant."""
-    checked = accept(
+    checked = resolve_and_check_inline_entry(
         "record Point\n"
         "  x: int\n"
         "\n"
@@ -407,7 +398,7 @@ def test_a_pattern_name_referenced_where_its_outside_reading_is_ambiguous_is_rej
 
 def test_self_qualified_pattern_reaches_a_prelude_constructor() -> None:
     """``::AgentCommand`` names the prelude variant the current module can see."""
-    checked = accept(
+    checked = resolve_and_check_inline_entry(
         'let agent: Agent = AgentCommand(command = "x")\n'
         'case agent of | ::AgentCommand(command) => command | _ => ""\n'
     )

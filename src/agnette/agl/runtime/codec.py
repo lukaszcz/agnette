@@ -1,14 +1,8 @@
-"""Output codecs for the AgL runtime.
+"""Output parsing for the AgL runtime's built-in ``text`` and ``json`` formats.
 
-The built-in codecs are:
-
-- ``TextCodec`` — passthrough for the ``text`` type.
-- ``JsonCodec`` — structured output with lenient-by-default JSON recovery:
-  extracts exactly one JSON value from chatty output (fences/prose) using
-  ``json-repair``, then validates strictly via ``jsonschema``.
-
-Codec names (e.g. ``TextCodec.name == "text"``) are the values used in
-``HostCapabilities.codec_kinds`` and ``OutputContractSpec.codec_name``.
+``json`` is lenient by default: it extracts exactly one JSON value from chatty
+output (fences/prose) using ``json-repair``, then validates strictly via
+``jsonschema``.
 """
 
 from __future__ import annotations
@@ -104,28 +98,6 @@ class ParseResult:
             errors=errors,
             normalized_raw=normalized_raw,
         )
-
-
-# ---------------------------------------------------------------------------
-# TextCodec — passthrough codec for the text type
-# ---------------------------------------------------------------------------
-
-
-class TextCodec:
-    """The built-in ``text`` codec: the raw agent response is the value."""
-
-    @property
-    def name(self) -> str:
-        return "text"
-
-    @property
-    def supported_kinds(self) -> frozenset[str]:
-        """The set of type-kind strings this codec can handle.
-
-        Single source of truth for ``HostCapabilities.codec_kinds["text"]``,
-        avoiding a duplicated literal at the host-environment assembly site.
-        """
-        return frozenset({"text"})
 
 
 # ---------------------------------------------------------------------------
@@ -576,11 +548,10 @@ def _parse_json_core(
     strict: bool,
     default_resolver: DefaultResolver | None = None,
 ) -> ParseResult:
-    """Shared JSON parse core used by ``JsonCodec`` and the IR evaluator.
+    """JSON parse core of ``parse_contract_output``.
 
     Takes pre-compiled *schema_dict* (a JSON Schema dict) and *decode_schema*
-    (a typeless ``DecodeSchema``) so the IR evaluator can call it with values
-    already embedded in the ``ContractRequest`` without holding checker types.
+    (a typeless ``DecodeSchema``), as embedded in the ``ContractRequest``.
     *defs* is *decode_schema*'s ``$defs`` table for a recursive target type
     (empty for a non-recursive one). *default_resolver*, when given, fills an
     omitted defaulted field (see ``runtime.convert.decode_value``).
@@ -694,56 +665,3 @@ def parse_contract_output(
         strict=effective_strict,
         default_resolver=default_resolver,
     )
-
-
-# ---------------------------------------------------------------------------
-# Format instructions builder
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# JsonCodec structured-output codec
-# ---------------------------------------------------------------------------
-
-# The type kinds this codec handles (matches Type.kind property strings).
-_JSON_CODEC_KINDS: frozenset[str] = frozenset(
-    {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-)
-
-
-class JsonCodec:
-    """Built-in ``json`` codec for structured AgL outputs.
-
-    Parsing strategy:
-    - **Lenient** (default): extract exactly one JSON value from chatty output
-      (fences/prose), repair trivially malformed JSON via ``json-repair``
-      (which returns a repaired JSON *string*), then re-parse it strictly
-      (``parse_json_strict``) to preserve decimal exactness.
-      Validate against the derived JSON Schema.
-    - **Strict** (``strict_json=True``): parse exactly one bare JSON value
-      via ``parse_json_strict`` (surrounding whitespace permitted; nothing
-      else).  No fence stripping or repair.
-
-    Either way a non-finite number, or one no decimal can hold, is a
-    parse failure.
-
-    Schema validation is strict in both modes.
-
-    Parsing runs off the typeless contract data the lowerer compiled; see
-    ``parse_contract_output``.
-    """
-
-    @property
-    def name(self) -> str:
-        return "json"
-
-    @property
-    def supported_kinds(self) -> frozenset[str]:
-        """The set of type-kind strings this codec can handle.
-
-        Single source of truth for ``HostCapabilities.codec_kinds["json"]``,
-        avoiding a duplicated literal at the host-environment assembly site.
-        Matches ``_JSON_CODEC_KINDS`` (kept in this module as a local constant,
-        read from here by the runtime).
-        """
-        return _JSON_CODEC_KINDS

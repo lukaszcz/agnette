@@ -56,7 +56,6 @@ from agnette.agl.typecheck.env import TypeEnvironment
 from agnette.agl.typecheck.program import check_program
 from tests._timeouts import fail_if_slow
 from tests.agl.ir_harness import (
-    base_caps,
     evaluate_ir_graph,
     make_file_graph_from_files,
 )
@@ -98,7 +97,7 @@ def test_discarded_check_releases_its_type_environments(tmp_path: Path) -> None:
     )
     resolved = resolve_program(graph)
     existing = {id(obj) for obj in gc.get_objects() if isinstance(obj, TypeEnvironment)}
-    checked = check_program(resolved, base_caps())
+    checked = check_program(resolved)
     environments = [
         ref(obj)
         for obj in gc.get_objects()
@@ -813,7 +812,7 @@ class TestClashDeferred:
             ),
         }
 
-        check_program(resolve_program(_make_graph_from_files(tmp_path, files)), base_caps())
+        check_program(resolve_program(_make_graph_from_files(tmp_path, files)))
 
     def test_use_deduplicates_routes_to_same_reexport_origin(self, tmp_path: Path) -> None:
         graph = _make_graph_from_files(
@@ -1997,7 +1996,7 @@ class TestWildcardImports:
     def test_every_scope_a_use_target_spells_combines(
         self, tmp_path: Path, modules: dict[str, str]
     ) -> None:
-        check_program(resolve_program(_make_graph_from_files(tmp_path, modules)), base_caps())
+        check_program(resolve_program(_make_graph_from_files(tmp_path, modules)))
 
     def test_own_type_beats_a_same_named_import_route(self, tmp_path: Path) -> None:
         """``Color::Red`` is the own enum member, not the aliased route's ``Red``."""
@@ -2008,7 +2007,7 @@ class TestWildcardImports:
                 "lib": "def Red() -> int = 1",
             },
         )
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
     def test_route_supplies_a_path_a_same_named_own_type_lacks(self, tmp_path: Path) -> None:
         graph = _make_graph_from_files(
@@ -2018,7 +2017,7 @@ class TestWildcardImports:
                 "lib": "def make() -> int = 1",
             },
         )
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
     def test_own_root_anchor_misses_an_unknown_member_of_an_own_type(self, tmp_path: Path) -> None:
         graph = _make_graph_from_files(
@@ -3016,7 +3015,7 @@ class TestExceptionDefInGraph:
             },
         )
 
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
     def test_scoped_exception_suppresses_sibling_enum_variant_in_import_tail(
         self, tmp_path: Path
@@ -3031,7 +3030,7 @@ class TestExceptionDefInGraph:
             },
         )
 
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
     @pytest.mark.parametrize(
         "entry",
@@ -3189,9 +3188,7 @@ class TestReachableDeclarations:
         assert session.eval_entry("import metrics").ok
         program, next_node_id = parse_program_seeded("()", start_id=session._next_node_id)
 
-        _, checked = session._entry_pipeline.resolve_and_check_program(
-            program, next_node_id, session._runtime.host_environment()
-        )
+        _, checked = session._entry_pipeline.resolve_and_check_program(program, next_node_id)
         reachable = checked.modules[ENTRY_ID].resolved.reachable_declarations
 
         assert (ModuleId.from_path("metrics"), ("Point",), "norm") in reachable

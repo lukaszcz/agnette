@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.repl import ReplSession
 from agnette.agl.scope.symbols import ModuleResolution
@@ -60,7 +59,6 @@ class TestImportedModules:
 
         def counted(
             resolved: ModuleResolution,
-            capabilities: HostCapabilities,
             *,
             env: TypeEnvironment,
             module_id: ModuleId,
@@ -68,7 +66,7 @@ class TestImportedModules:
             nonlocal preparations
             if module_id == ModuleId(("tools",)):
                 preparations += 1
-            original(resolved, capabilities, env=env, module_id=module_id)
+            original(resolved, env=env, module_id=module_id)
 
         monkeypatch.setattr(typecheck_program, "prepare_module_headers", counted)
         session = _open_session(tmp_path)

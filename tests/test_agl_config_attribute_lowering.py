@@ -28,7 +28,7 @@ from agnette.agl.syntax.nodes import FuncDef, static_items
 from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import agl_roots
-from tests.agl.ir_harness import base_caps, make_file_graph_from_files
+from tests.agl.ir_harness import make_file_graph_from_files
 from tests.agl.module_graph import resolve_and_check_entry
 
 
@@ -56,7 +56,6 @@ class TestProgramConfigTargetsPublishedByTheChecker:
     def test_own_module_param_target(self) -> None:
         checked = resolve_and_check_entry(
             "@param let count: int = 1\n\n@config(count = 2)\nprogram def main() -> unit = ()\n",
-            base_caps(),
         )
         node_id = _program_node_id(checked, "main")
         (target,) = _config_targets(checked, node_id)
@@ -69,7 +68,6 @@ class TestProgramConfigTargetsPublishedByTheChecker:
             "end Logging\n\n"
             "@config(Logging::level = 2)\n"
             "program def main() -> unit = ()\n",
-            base_caps(),
         )
         node_id = _program_node_id(checked, "main")
         (target,) = _config_targets(checked, node_id)
@@ -78,7 +76,6 @@ class TestProgramConfigTargetsPublishedByTheChecker:
     def test_engine_setting_target(self) -> None:
         checked = resolve_and_check_entry(
             "import std/config\n\n@config(config::trace = true)\nprogram def main() -> unit = ()\n",
-            base_caps(),
         )
         node_id = _program_node_id(checked, "main")
         (target,) = _config_targets(checked, node_id)
@@ -95,7 +92,7 @@ class TestProgramConfigTargetsPublishedByTheChecker:
             },
         )
         resolved_program = resolve_program(graph)
-        checked = check_program(resolved_program, base_caps())
+        checked = check_program(resolved_program)
         entry_checked = checked.modules[graph.entry_id]
         helper_id = next(mid for mid in graph.modules if mid != graph.entry_id)
         node_id = _program_node_id(entry_checked, "main")
@@ -120,7 +117,7 @@ class TestLoweringIntoTheExecutable:
             },
         )
         resolved_program = resolve_program(graph)
-        checked = check_program(resolved_program, base_caps())
+        checked = check_program(resolved_program)
         entry_checked = checked.modules[graph.entry_id]
         compiled = compile_program_matches(checked)
         assert isinstance(compiled.compiled, MatchCompiledProgram)
@@ -142,7 +139,7 @@ class TestLoweringIntoTheExecutable:
     def test_a_program_def_without_config_has_no_entry(self, tmp_path: Path) -> None:
         graph = make_file_graph_from_files(tmp_path, {"entry": "program def main() -> unit = ()\n"})
         resolved_program = resolve_program(graph)
-        checked = check_program(resolved_program, base_caps())
+        checked = check_program(resolved_program)
         entry_checked = checked.modules[graph.entry_id]
         compiled = compile_program_matches(checked)
         assert isinstance(compiled.compiled, MatchCompiledProgram)
@@ -358,7 +355,7 @@ class TestConfigAttributeCacheInvalidation:
                 tmp_path, {"entry": entry_source, "helper": helper_source}
             )
             resolved_program = resolve_program(graph)
-            checked = check_program(resolved_program, base_caps())
+            checked = check_program(resolved_program)
             entry_checked = checked.modules[graph.entry_id]
             compiled = compile_program_matches(checked)
             assert isinstance(compiled.compiled, MatchCompiledProgram)

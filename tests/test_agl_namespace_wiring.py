@@ -24,7 +24,6 @@ from agnette.agl.scope.symbols import (
 from agnette.agl.typecheck.env import AglTypeError
 from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
-    base_caps,
     make_graph_from_files,
     make_inline_graph_from_files,
 )
@@ -87,7 +86,7 @@ def test_constructor_consumers_resolve_whole_use_aliases(tmp_path: Path, express
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_bare_renamed_constructor_must_belong_to_matched_enum(tmp_path: Path) -> None:
@@ -109,7 +108,7 @@ def test_bare_renamed_constructor_must_belong_to_matched_enum(tmp_path: Path) ->
     )
 
     with pytest.raises(AglTypeError):
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
 
 def test_bare_renamed_fieldful_constructor_must_use_a_constructor_pattern(
@@ -132,7 +131,7 @@ def test_bare_renamed_fieldful_constructor_must_use_a_constructor_pattern(
     )
 
     with pytest.raises(AglTypeError):
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
 
 def test_constructor_consumers_honor_use_tail_renames(tmp_path: Path) -> None:
@@ -154,7 +153,7 @@ def test_constructor_consumers_honor_use_tail_renames(tmp_path: Path) -> None:
         },
     )
 
-    checked = check_program(resolve_program(graph), base_caps())
+    checked = check_program(resolve_program(graph))
     constructors = tuple(checked.modules[graph.entry_id].resolved.constructor_refs.values())
     assert any(constructor.owner_name == "A" for constructor in constructors)
 
@@ -182,7 +181,7 @@ def test_ambiguous_whole_use_alias_constructor_qualifier_is_rejected(tmp_path: P
     )
 
     with pytest.raises(AmbiguousQualificationError):
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
 
 @pytest.mark.parametrize(
@@ -210,7 +209,7 @@ def test_constructor_consumers_honor_use_hiding(tmp_path: Path, expression: str)
     )
 
     with pytest.raises((AglScopeError, AglTypeError)):
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
 
 def test_use_contributions_keep_type_and_value_namespaces_separate(tmp_path: Path) -> None:
@@ -234,7 +233,7 @@ def test_use_contributions_keep_type_and_value_namespaces_separate(tmp_path: Pat
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_import_tails_keep_type_and_value_namespaces_separate(tmp_path: Path) -> None:
@@ -247,7 +246,7 @@ def test_import_tails_keep_type_and_value_namespaces_separate(tmp_path: Path) ->
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_root_use_value_ignores_same_named_imported_type(tmp_path: Path) -> None:
@@ -269,7 +268,7 @@ def test_root_use_value_ignores_same_named_imported_type(tmp_path: Path) -> None
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_imported_value_ignores_same_named_root_use_type(tmp_path: Path) -> None:
@@ -290,7 +289,7 @@ def test_imported_value_ignores_same_named_root_use_type(tmp_path: Path) -> None
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_inner_type_only_use_does_not_hide_root_imported_value(tmp_path: Path) -> None:
@@ -323,7 +322,7 @@ def test_inner_type_only_use_does_not_hide_root_imported_value(tmp_path: Path) -
         if ref.name == "x"
     ]
     assert {ref.module_id for ref in x_refs} == {ModuleId.from_path("values")}
-    check_program(resolved, base_caps())
+    check_program(resolved)
 
 
 def test_inner_type_only_use_preserves_outer_value_ambiguity(tmp_path: Path) -> None:
@@ -379,7 +378,7 @@ def test_type_use_lookup_continues_past_inner_value_contribution(tmp_path: Path)
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_constructor_lookup_continues_past_inner_value_contribution(tmp_path: Path) -> None:
@@ -410,7 +409,7 @@ def test_constructor_lookup_continues_past_inner_value_contribution(tmp_path: Pa
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_unbraced_single_member_use_tail_can_be_renamed(tmp_path: Path) -> None:
@@ -429,7 +428,7 @@ def test_unbraced_single_member_use_tail_can_be_renamed(tmp_path: Path) -> None:
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_whole_target_alias_preserves_an_empty_local_scope(tmp_path: Path) -> None:
@@ -440,7 +439,7 @@ def test_whole_target_alias_preserves_an_empty_local_scope(tmp_path: Path) -> No
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_local_use_can_expose_empty_nested_scope(tmp_path: Path) -> None:
@@ -462,7 +461,7 @@ def test_local_use_can_expose_empty_nested_scope(tmp_path: Path) -> None:
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_local_use_can_rename_empty_nested_scope(tmp_path: Path) -> None:
@@ -484,7 +483,7 @@ def test_local_use_can_rename_empty_nested_scope(tmp_path: Path) -> None:
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_single_member_alias_can_follow_local_scope_alias(tmp_path: Path) -> None:
@@ -504,7 +503,7 @@ def test_single_member_alias_can_follow_local_scope_alias(tmp_path: Path) -> Non
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_single_member_alias_can_follow_imported_scope_alias(tmp_path: Path) -> None:
@@ -516,7 +515,7 @@ def test_single_member_alias_can_follow_imported_scope_alias(tmp_path: Path) -> 
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_unbraced_ordered_binding_use_tail_can_be_renamed(tmp_path: Path) -> None:
@@ -529,7 +528,7 @@ def test_unbraced_ordered_binding_use_tail_can_be_renamed(tmp_path: Path) -> Non
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 @pytest.mark.parametrize(
@@ -548,7 +547,7 @@ def test_unbraced_imported_member_use_tail_can_be_renamed(tmp_path: Path, use_de
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_root_local_use_and_import_tail_collision_is_ambiguous(tmp_path: Path) -> None:
@@ -661,7 +660,7 @@ def test_qualified_constructor_pattern_use_and_import_routes_deduplicate_same_or
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_qualified_constructor_is_use_and_import_routes_deduplicate_same_origin(
@@ -678,7 +677,7 @@ def test_qualified_constructor_is_use_and_import_routes_deduplicate_same_origin(
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_nested_constructor_use_and_import_route_collision_is_ambiguous(
@@ -1054,7 +1053,6 @@ def test_ambiguous_record_constructor_repair_selects_it_where_written(
         resolve_program(
             make_graph_from_files(tmp_path / "repaired", {**modules, "entry": repaired})
         ),
-        base_caps(),
     )
 
 
@@ -1240,7 +1238,7 @@ def test_qualified_type_use_and_import_routes_deduplicate_same_origin(tmp_path: 
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_qualified_applied_type_routes_deduplicate_same_origin(tmp_path: Path) -> None:
@@ -1256,7 +1254,7 @@ def test_qualified_applied_type_routes_deduplicate_same_origin(tmp_path: Path) -
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_inner_use_shadows_root_import_and_use_contributions(tmp_path: Path) -> None:
@@ -1288,7 +1286,7 @@ def test_inner_use_shadows_root_import_and_use_contributions(tmp_path: Path) -> 
         if ref.name == "x"
     ]
     assert {ref.module_id for ref in x_refs} == {ModuleId.from_path("b")}
-    check_program(resolved, base_caps())
+    check_program(resolved)
 
 
 _BARE_TYPE_USES = [
@@ -1327,7 +1325,7 @@ def test_root_use_and_import_tail_type_routes_deduplicate_same_origin(
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 @pytest.mark.parametrize(("declaration", "type_use"), _BARE_TYPE_USES)
@@ -1348,7 +1346,7 @@ def test_regional_use_type_shadows_root_import_tail(
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_use_can_target_local_scope_exposed_by_an_earlier_use(tmp_path: Path) -> None:
@@ -1372,7 +1370,7 @@ def test_use_can_target_local_scope_exposed_by_an_earlier_use(tmp_path: Path) ->
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_use_can_target_type_scope_exposed_by_an_earlier_use(tmp_path: Path) -> None:
@@ -1430,7 +1428,7 @@ def test_use_combines_scopes_exposed_by_earlier_uses(tmp_path: Path) -> None:
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_use_can_target_imported_scope_exposed_by_an_earlier_use(tmp_path: Path) -> None:
@@ -1449,7 +1447,7 @@ def test_use_can_target_imported_scope_exposed_by_an_earlier_use(tmp_path: Path)
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_use_can_target_renamed_nested_imported_scope_exposed_by_an_earlier_use(
@@ -1478,7 +1476,7 @@ def test_use_can_target_renamed_nested_imported_scope_exposed_by_an_earlier_use(
         },
     )
 
-    check_program(resolve_program(graph), base_caps())
+    check_program(resolve_program(graph))
 
 
 def test_use_cannot_target_imported_scope_hidden_by_an_earlier_use(tmp_path: Path) -> None:
@@ -1521,7 +1519,6 @@ def test_use_combines_imported_scopes_exposed_by_earlier_uses(tmp_path: Path) ->
                 tmp_path, {"entry": header + "let x = left() + right()\n", **modules}
             )
         ),
-        base_caps(),
     )
     with pytest.raises(AmbiguousQualificationError) as excinfo:
         resolve_program(
@@ -1630,7 +1627,7 @@ def test_typecheck_routes_qualified_types_patterns_and_is_tests(tmp_path: Path) 
         },
     )
 
-    checked = check_program(resolve_program(graph), base_caps())
+    checked = check_program(resolve_program(graph))
 
     assert ModuleId.from_path("services/flags/config") in checked.modules
 
@@ -1654,7 +1651,7 @@ def test_type_anchors_select_module_routes_over_same_named_local_scopes(tmp_path
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 @pytest.mark.parametrize(("params", "applied"), [("", "A::T"), ("[V]", "A::T[int]")])
@@ -1681,7 +1678,7 @@ def test_own_scope_types_win_over_a_same_named_module_route(
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 def test_missing_member_under_own_scope_and_module_route_is_an_unknown_member(
@@ -1725,7 +1722,7 @@ def test_type_qualifier_beats_route_without_the_requested_member(tmp_path: Path)
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 @pytest.mark.parametrize(
@@ -1746,7 +1743,7 @@ def test_is_test_member_under_an_own_enum_wins_over_a_route_function(
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 def test_nonconstructible_tailed_import_is_not_a_constructor_owner(tmp_path: Path) -> None:
@@ -1827,7 +1824,7 @@ def test_own_enum_member_wins_over_a_same_named_route_injecting_its_member(
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 @pytest.mark.parametrize(
@@ -1884,7 +1881,7 @@ def test_qualified_import_tail_keeps_the_full_type_surface(tmp_path: Path) -> No
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 @pytest.mark.parametrize(
@@ -1906,7 +1903,7 @@ def test_qualified_import_tail_keeps_the_full_type_surface_during_prepasses(
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 def test_anchored_qualified_enum_variant_typechecks(tmp_path: Path) -> None:
@@ -1919,7 +1916,7 @@ def test_anchored_qualified_enum_variant_typechecks(tmp_path: Path) -> None:
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 def test_qualified_pattern_owner_naming_a_non_enum_type_is_rejected(tmp_path: Path) -> None:
@@ -1940,7 +1937,7 @@ def test_qualified_pattern_owner_naming_a_non_enum_type_is_rejected(tmp_path: Pa
     )
 
     with pytest.raises(AglTypeError):
-        check_program(resolve_program(graph), base_caps())
+        check_program(resolve_program(graph))
 
 
 def test_pattern_and_is_filter_type_module_routes_by_the_referenced_variant(tmp_path: Path) -> None:
@@ -1961,13 +1958,13 @@ def test_pattern_and_is_filter_type_module_routes_by_the_referenced_variant(tmp_
         },
     )
 
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id
 
 
 def _missing_witnesses(graph: ModuleGraph) -> list[str]:
     """The witnesses of *graph*'s non-exhaustive cases, spelled where written."""
     resolved = resolve_program(graph)
-    issues = compile_program_matches(check_program(resolved, base_caps())).issues
+    issues = compile_program_matches(check_program(resolved)).issues
     return [
         render_witness(issue.witness, resolved.speller(issue.module_id))
         for issue in issues
@@ -2122,7 +2119,7 @@ def test_wildcard_facade_use_hiding_keeps_a_variant_constructor_hidden(tmp_path:
             **modules,
         },
     )
-    checked = check_program(resolve_program(visible), base_caps())
+    checked = check_program(resolve_program(visible))
     # Hiding one variant leaves the rest of the enum reachable through the
     # facade: the case pattern still matches the facade module's ``E::B``.
     [matched] = checked.modules[visible.entry_id].pattern_constructor_refs.values()
@@ -2142,7 +2139,7 @@ def test_wildcard_facade_use_hiding_keeps_a_variant_constructor_hidden(tmp_path:
         },
     )
     with pytest.raises((AglScopeError, AglTypeError)):
-        check_program(resolve_program(hidden), base_caps())
+        check_program(resolve_program(hidden))
 
 
 # ---------------------------------------------------------------------------
@@ -2310,4 +2307,4 @@ def test_enum_variant_expansion_still_contributes_a_bare_constructor(
     even as a value -- so it has no counterpart here.
     """
     graph = make_graph_from_files(tmp_path, {"entry": entry, **modules})
-    assert check_program(resolve_program(graph), base_caps()).entry_id == graph.entry_id
+    assert check_program(resolve_program(graph)).entry_id == graph.entry_id

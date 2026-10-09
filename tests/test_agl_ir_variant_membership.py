@@ -19,23 +19,6 @@ from agnette.agl.semantics.values import BoolValue
 from tests._agl_helpers import let_root_capture, plan_less_exception_field_encodes
 from tests.agl.ir_harness import evaluate_ir, inline_main_items, lower_inline_ir
 
-
-def _lower(source: str) -> ExecutableProgram:
-    """Parse → check → lower the source; return ExecutableProgram."""
-    from agnette.agl.capabilities import HostCapabilities
-
-    caps = HostCapabilities(
-        supports_shell_exec=False,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-    return lower_inline_ir(source, caps=caps)
-
-
 # ---------------------------------------------------------------------------
 # IR evaluation tests — is / is not
 # ---------------------------------------------------------------------------
@@ -118,7 +101,7 @@ let c: Color = Color::Red()
 let r = c is not Blue
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):

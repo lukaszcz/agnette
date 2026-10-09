@@ -6,7 +6,6 @@ from collections.abc import Callable
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.semantics.type_table import TypeDef, TypeTable
 from agnette.agl.semantics.types import (
@@ -455,7 +454,6 @@ def test_mixed_provisional_literal_elements_report_a_type_error() -> None:
     with pytest.raises(AglTypeError, match="Array literal elements"):
         resolve_and_check_inline_entry(
             "def id[T](value: T) -> T = value\nlet values = [id(?), id(1)]\nvalues",
-            HostCapabilities(),
         )
 
 
@@ -467,7 +465,6 @@ def test_method_with_inferred_return_uses_receiver_header_type() -> None:
         "def Box::get[E](self) = self.value\n"
         "let box = Box(value = 1)\n"
         "Box::get(box)",
-        HostCapabilities(),
     )
 
     method = next(
@@ -486,7 +483,6 @@ def test_generic_lambda_widens_a_member_result_before_function_constraint() -> N
     checked = resolve_and_check_inline_entry(
         "def apply[U](f: (int) -> Result[U, text]) -> Result[U, text] = f(1)\n"
         "apply(fn(value: int) => Result::Ok(value = value))",
-        HostCapabilities(),
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -506,7 +502,6 @@ def test_generic_lambda_widens_an_enum_result_before_function_constraint() -> No
         "def use[T](f: () -> Wide[T]) -> Wide[T] = f()\n"
         "let narrow: Narrow[int] = Narrow::Some(value = 1)\n"
         "use(fn() => narrow)",
-        HostCapabilities(),
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -522,7 +517,6 @@ def test_generic_lambda_rejects_a_member_result_that_conflicts_with_prior_eviden
         resolve_and_check_inline_entry(
             "def apply[T](value: T, f: () -> Result[T, text]) -> Result[T, text] = f()\n"
             'apply("text", fn() => Result::Ok(value = 1))',
-            HostCapabilities(),
         )
 
 
@@ -531,7 +525,6 @@ def test_contextual_lambda_with_bottom_body_keeps_its_concrete_result_type() -> 
     checked = resolve_and_check_inline_entry(
         "def apply(f: (int) -> Result[int, text]) -> Result[int, text] = f(1)\n"
         'apply(fn(value: int) => raise Abort(message = "failed"))',
-        HostCapabilities(),
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -549,7 +542,6 @@ def test_bound_generic_method_pins_receiver_and_inferrs_own_type_parameter() -> 
         "def Box::map[T, U](self, f: (T) -> U) -> Box[U] = Box(value = f(self.value))\n"
         "let box = Box(value = 1)\n"
         'box.map(fn(value: int) -> text => "value")',
-        HostCapabilities(),
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -564,7 +556,6 @@ def test_bound_generic_method_accepts_explicit_own_type_parameter() -> None:
         "def Box::map[T, U](self, f: (T) -> U) -> Box[U] = Box(value = f(self.value))\n"
         "let box = Box(value = 1)\n"
         'box.map::[text](fn(value: int) -> text => "value")',
-        HostCapabilities(),
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -583,7 +574,6 @@ def test_qualified_generic_member_infers_without_shadowing_a_bare_builtin() -> N
         "let values = Codec::render(1)\n"
         "let text: text = render(1)\n"
         "values",
-        HostCapabilities(),
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -733,7 +723,7 @@ def test_conflicting_constructor_fields_cite_the_fields_they_constrain() -> None
     """A generic constructor's conflicting field arguments are attributed to their fields."""
     with pytest.raises(AglTypeError) as raised:
         resolve_and_check_inline_entry(
-            'record Dup[T]\n  a: T\n  b: T\n\nlet d = Dup(a = 1, b = "s")', HostCapabilities()
+            'record Dup[T]\n  a: T\n  b: T\n\nlet d = Dup(a = 1, b = "s")'
         )
 
     cause = raised.value.__cause__

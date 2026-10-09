@@ -51,7 +51,6 @@ from agnette.agl.typecheck.program import (
     check_program,
 )
 from tests._agl_helpers import (
-    AGL_TEST_CAPS,
     check_agl_graph,
     check_agl_program,
     checked_module_items,
@@ -64,20 +63,6 @@ from tests.agl.module_graph import resolve_and_check_inline_entry, resolve_and_c
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-
-
-def _check(
-    src: str, *, seed_env: TypeEnvironment | None = None, default_stdlib: bool = True
-) -> CheckedModule:
-    """Resolve + check *src* as the entry of a real module graph.
-
-    *seed_env* replays a prior entry's sealed environment first, the same way
-    an incremental REPL entry builds on earlier ones: declarations from *src*
-    land in a type table that already carries the seed's registered owners.
-    """
-    return resolve_and_check_inline_entry(
-        src, AGL_TEST_CAPS, seed_env=seed_env, default_stdlib=default_stdlib
-    )
 
 
 def _with_reversed_module_discovery_order(graph: ModuleGraph) -> ModuleGraph:
@@ -490,12 +475,12 @@ def test_single_module_program_infers_forward_and_mutual_returns(tmp_path: Path)
 def test_inline_entry_forward_var_read_stays_a_scope_error() -> None:
     """Unlike a static-root module, ``-c`` inline source keeps textual order."""
     with pytest.raises(AglScopeError):
-        _check("def read() = later\nvar later = 1\nread()")
+        resolve_and_check_inline_entry("def read() = later\nvar later = 1\nread()")
 
 
 def test_inline_entry_accepts_an_unannotated_narrow_var() -> None:
     """The narrow-var annotation requirement is static-root-only, not inline."""
-    checked = _check("var v = None\nv")
+    checked = resolve_and_check_inline_entry("var v = None\nv")
 
     assert isinstance(checked, CheckedModule)
 
@@ -524,7 +509,6 @@ def test_static_root_var_naming_a_single_enum_case_is_rejected(
 def test_candidate_seeding_defers_binding_that_calls_unannotated_orphan_method() -> None:
     checked = resolve_and_check_repl_entry(
         "let answer: int = Some(value = 1).answer()\ndef Option::answer[T](self) = 42\nanswer",
-        AGL_TEST_CAPS,
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -534,7 +518,6 @@ def test_candidate_seeding_defers_binding_that_calls_unannotated_orphan_method()
 def test_candidate_dependency_flows_through_top_level_binding_to_orphan_method() -> None:
     checked = resolve_and_check_repl_entry(
         "record R\n  value: int\nlet x = R(value = 0).m()\ndef f() = x\ndef R::m(self) = 1\nf()",
-        AGL_TEST_CAPS,
     )
 
     assert checked.function_signatures["f"].result == IntType()
@@ -549,7 +532,6 @@ def test_candidate_seeding_keeps_unrelated_same_named_field_binding() -> None:
         "let seed = Payload(answer = 42).answer\n"
         "def Option::answer[T](self) = seed\n"
         "Some(value = 1).answer()",
-        AGL_TEST_CAPS,
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -563,7 +545,6 @@ def test_candidate_seeding_defers_field_whose_receiver_uses_candidate_method() -
         "let seed = Some(value = Payload(answer = 42)).answer().answer\n"
         "def Option::answer[T](self) = self.unwrap()\n"
         "seed",
-        AGL_TEST_CAPS,
     )
 
     result = checked.resolved.program.body.items[-1]
@@ -574,7 +555,6 @@ def test_candidate_seeding_defers_invalid_same_named_field_receiver() -> None:
     with pytest.raises(AglTypeError):
         resolve_and_check_repl_entry(
             "let seed = (1 + true).answer\ndef Option::answer[T](self) = self.unwrap()\nseed",
-            AGL_TEST_CAPS,
         )
 
 
@@ -626,7 +606,7 @@ def test_builtin_header_has_standalone_program_signature_parity(tmp_path: Path) 
     """
     source = "builtin def print[T](value: T) -> unit\n()"
 
-    standalone = _check(source, default_stdlib=False)
+    standalone = resolve_and_check_inline_entry(source, default_stdlib=False)
     program = check_agl_program(tmp_path, {"entry": source}, default_stdlib=False)
 
     assert program.modules[ENTRY_ID].function_signatures == standalone.function_signatures
@@ -1258,7 +1238,7 @@ def test_later_module_alias_available_to_entry_type_body_via_open_import(
 
 
 def test_std_core_generic_member_type_resolves_to_an_inhabited_record() -> None:
-    checked = _check("record Holder\n  value: Option::Some[int]\n()")
+    checked = resolve_and_check_inline_entry("record Holder\n  value: Option::Some[int]\n()")
 
     holder = next(typ for typ in checked.type_env.type_table.entries() if typ.name == "Holder")
     fields = dict(checked.type_env.type_table.record_fields(holder.handle()))
@@ -1269,7 +1249,7 @@ def test_std_core_generic_member_type_resolves_to_an_inhabited_record() -> None:
 
 def test_owner_applied_inline_member_aliases_substitute_captured_parameters() -> None:
     """Aliases retain the inline member type specialized by its enum owner."""
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Source[T]\n"
         "  | Member(value: T)\n"
         "type Direct = Source[text]::Member\n"
@@ -1324,7 +1304,7 @@ def test_cross_module_owner_applied_inline_member_aliases_substitute_captured_pa
 def test_owner_applied_inline_member_rejects_a_second_type_application() -> None:
     """An applied owner makes its member concrete before a member application."""
     with pytest.raises(AglTypeError, match="type arguments"):
-        _check(
+        resolve_and_check_inline_entry(
             "enum Source[T]\n  | Member(value: T)\ntype Invalid[T] = Source[text]::Member[T]\n()"
         )
 
@@ -1338,9 +1318,13 @@ def test_owner_applied_inline_member_rejects_non_enum_owners_and_unknown_members
     every position.
     """
     with pytest.raises(AglScopeError):
-        _check("record Source[T]\n  value: T\ntype Invalid = Source[text]::Member\n()")
+        resolve_and_check_inline_entry(
+            "record Source[T]\n  value: T\ntype Invalid = Source[text]::Member\n()"
+        )
     with pytest.raises(AglScopeError):
-        _check("enum Source[T]\n  | Known(value: T)\ntype Invalid = Source[text]::Member\n()")
+        resolve_and_check_inline_entry(
+            "enum Source[T]\n  | Known(value: T)\ntype Invalid = Source[text]::Member\n()"
+        )
 
 
 def test_cross_module_owner_applied_inline_member_rejects_a_second_type_application(
@@ -1362,7 +1346,7 @@ def test_cross_module_owner_applied_inline_member_rejects_a_second_type_applicat
 
 
 def test_inline_member_records_resolve_in_local_type_positions() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "scope Forest\n"
         "  record Box[T]\n"
         "    value: T\n"
@@ -3303,8 +3287,8 @@ def test_unannotated_binding_pre_pass_type_matches_the_authoritative_check(
     }
     graph = _make_graph_from_files(tmp_path, modules, default_stdlib=True)
     resolved = resolve_program(graph)
-    prepared = _prepare_program(resolved, AGL_TEST_CAPS)
-    checked = check_program(resolved, AGL_TEST_CAPS)
+    prepared = _prepare_program(resolved)
+    checked = check_program(resolved)
 
     lib = checked.modules[ModuleId.from_path("lib")]
     pre_pass_env = prepared.module_envs[ModuleId.from_path("lib")]
@@ -4320,7 +4304,7 @@ def test_generic_arity_mismatch_has_span(tmp_path: Path) -> None:
     """
     src = "record Box[T]\n  value: T\nlet x: Box[int, text] = Box(value = 1)\nx"
     with pytest.raises(AglTypeError) as exc_info:
-        _check(src)
+        resolve_and_check_inline_entry(src)
     err = exc_info.value
     assert err.span is not None, (
         "AglTypeError for generic arity mismatch must carry a non-None span"
@@ -4350,19 +4334,18 @@ def test_generic_def_as_value_single_module(tmp_path: Path) -> None:
     """
     # generic def used as a value with expected type annotation
     src = "def id[T](x: T) -> T = x\nlet f: (int) -> int = id\nf(1)"
-    cp = _check(src)
+    cp = resolve_and_check_inline_entry(src)
     assert cp is not None
 
     # no expected type → error
     with pytest.raises(AglTypeError, match="infer"):
-        _check("def id[T](x: T) -> T = x\nlet f = id\nf")
+        resolve_and_check_inline_entry("def id[T](x: T) -> T = x\nlet f = id\nf")
 
     # The cross-module  case (lib::id as a value in entry) is tested at the
     # env level: verify that get_function_signature_by_node_id takes priority.
     # This is the path the fixed checker takes; before the fix it only
     # consulted the name-keyed table, which returns wrong/None cross-module.
     from agnette.agl.typecheck.env import FunctionSignature as FS
-    from agnette.agl.typecheck.env import TypeEnvironment
 
     env = TypeEnvironment()
     T = TypeVarType("T")
@@ -4836,7 +4819,7 @@ def test_unannotated_function_infers_result_through_a_member_call_in_either_sour
     candidate signature exists, since scope resolution alone (via ``VarRef``)
     never sees a member call's callee. Declaration order must not matter.
     """
-    checked = _check(source)
+    checked = resolve_and_check_inline_entry(source)
 
     assert checked.function_signatures["use"].result == IntType()
     box_type = checked.type_env.get_type("Box")
@@ -4848,7 +4831,7 @@ def test_unannotated_function_infers_result_through_a_member_call_in_either_sour
 
 def test_unannotated_methods_are_mutually_recursive_through_member_calls() -> None:
     """Two unannotated methods calling each other via ``.method()`` still close."""
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record Counter\n"
         "  n: int\n"
         "def Counter::is-even(self) =\n"
@@ -4870,7 +4853,7 @@ def test_unannotated_methods_are_mutually_recursive_through_member_calls() -> No
 
 def test_unannotated_method_infers_result_through_a_forward_referenced_function() -> None:
     """A method body calling a later unannotated free function must also see the edge."""
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record Box\n"
         "  n: int\n"
         "def Box::describe(self) = helper(self.n)\n"
@@ -4889,7 +4872,9 @@ def test_unannotated_method_infers_result_through_a_forward_referenced_function(
 def test_unannotated_method_with_no_concrete_return_evidence_is_still_rejected() -> None:
     """Widening the SCC for member calls must not accept a genuinely undecidable method."""
     with pytest.raises(AglTypeError):
-        _check('record Box\n  n: int\ndef Box::fail(self) = raise Abort(message = "boom")\n')
+        resolve_and_check_inline_entry(
+            'record Box\n  n: int\ndef Box::fail(self) = raise Abort(message = "boom")\n'
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -5101,7 +5086,7 @@ def test_sibling_exception_branches_may_reuse_a_method_name() -> None:
     shared 'Base''s descendant list, so declaring the same name on each is not
     a collision.
     """
-    _check(
+    resolve_and_check_inline_entry(
         "exception Base extends Exception\n"
         "  code: int\n"
         "exception BranchA extends Base\n"
@@ -5118,7 +5103,7 @@ def test_sibling_exception_branches_may_reuse_a_method_name() -> None:
 )
 def test_check_module_enforces_method_field_collisions(source: str, line: int) -> None:
     with pytest.raises(AglTypeError) as raised:
-        _check(source)
+        resolve_and_check_inline_entry(source)
 
     assert raised.value.span is not None and raised.value.span.start_line == line
     assert "label" in str(raised.value).lower()
@@ -5127,7 +5112,7 @@ def test_check_module_enforces_method_field_collisions(source: str, line: int) -
 
 def test_check_module_rejects_a_method_shadowing_a_builtin_exception_field() -> None:
     with pytest.raises(AglTypeError) as raised:
-        _check(
+        resolve_and_check_inline_entry(
             "exception Local extends Exception\n"
             "  code: int\n"
             'def Local::message(self) -> text = "local"\n'
@@ -5234,7 +5219,7 @@ def test_option_member_selects_a_visible_enum_orphan_over_an_unreachable_direct_
 
 def test_non_agent_record_does_not_gain_agent_methods_without_stdlib() -> None:
     with pytest.raises(AglTypeError):
-        _check('record Worker\nWorker().ask("hello")', default_stdlib=False)
+        resolve_and_check_inline_entry('record Worker\nWorker().ask("hello")', default_stdlib=False)
 
 
 def test_agent_member_call_is_rejected_when_its_ask_route_is_hidden(tmp_path: Path) -> None:
@@ -5310,7 +5295,7 @@ def test_same_level_visible_methods_are_ambiguous(tmp_path: Path) -> None:
 
 def test_same_module_exception_pair_is_rejected_at_declaration() -> None:
     with pytest.raises(AglTypeError) as raised:
-        _check(
+        resolve_and_check_inline_entry(
             "exception Base extends Exception\n"
             "  code: int\n"
             'def Base::describe(self) -> text = "base"\n'
@@ -5324,7 +5309,7 @@ def test_same_module_exception_pair_is_rejected_at_declaration() -> None:
 
 def test_same_module_exception_grandparent_pair_is_rejected_at_declaration() -> None:
     with pytest.raises(AglTypeError) as raised:
-        _check(
+        resolve_and_check_inline_entry(
             "exception Root extends Exception\n"
             "exception Mid extends Root\n"
             "exception Leaf extends Mid\n"
@@ -5338,7 +5323,7 @@ def test_same_module_exception_grandparent_pair_is_rejected_at_declaration() -> 
 
 def test_same_module_member_and_enum_method_pair_is_rejected_at_declaration() -> None:
     with pytest.raises(AglTypeError) as raised:
-        _check(
+        resolve_and_check_inline_entry(
             "enum Color\n"
             "  | Red\n"
             "  | Blue\n"
@@ -5351,7 +5336,7 @@ def test_same_module_member_and_enum_method_pair_is_rejected_at_declaration() ->
 
 def test_same_module_referenced_record_enum_pair_is_rejected_at_declaration() -> None:
     with pytest.raises(AglTypeError) as raised:
-        _check(
+        resolve_and_check_inline_entry(
             "record Saved\n"
             "  id: int\n"
             'def Saved::describe(self) -> text = "one"\n'
@@ -5365,7 +5350,7 @@ def test_same_module_referenced_record_enum_pair_is_rejected_at_declaration() ->
 
 def test_pair_rejection_reports_the_later_declaration_regardless_of_order() -> None:
     with pytest.raises(AglTypeError) as raised:
-        _check(
+        resolve_and_check_inline_entry(
             "enum Color\n"
             "  | Red\n"
             "  | Blue\n"
@@ -5400,7 +5385,7 @@ def test_cross_module_member_and_enum_method_pair_is_accepted_at_declaration(
 
 
 def test_enum_method_named_like_a_member_field_is_legal_to_declare() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         'enum Shape\n  | Circle(name: text)\ndef Shape::name(self) -> text = "shape"\n()'
     )
 
@@ -5409,7 +5394,7 @@ def test_enum_method_named_like_a_member_field_is_legal_to_declare() -> None:
 
 
 def test_unrelated_owners_with_the_same_method_name_are_not_a_pair() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record Meter\n"
         "  value: int\n"
         "enum Color\n"
@@ -5425,7 +5410,7 @@ def test_unrelated_owners_with_the_same_method_name_are_not_a_pair() -> None:
 
 
 def test_two_enums_each_owning_a_distinct_record_are_not_a_pair() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record First\n"
         "enum A = ::First\n"
         "record Second\n"
@@ -5678,7 +5663,7 @@ def test_unimported_orphan_method_does_not_clash_with_a_field(tmp_path: Path) ->
 
 
 def test_base_method_and_derived_field_clash_only_for_derived_static_type() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "exception Base extends Exception\n"
         "  code: int\n"
         'def Base::describe(self) -> text = "base"\n'
@@ -5692,7 +5677,7 @@ def test_base_method_and_derived_field_clash_only_for_derived_static_type() -> N
     assert checked.node_types[result.node_id] == TextType()
 
     with pytest.raises(AglTypeError) as raised:
-        _check(
+        resolve_and_check_inline_entry(
             "exception Base extends Exception\n"
             "  code: int\n"
             'def Base::describe(self) -> text = "base"\n'

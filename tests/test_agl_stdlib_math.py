@@ -9,7 +9,6 @@ from typing import Protocol, cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.program import NominalDescriptor, NominalKind
 from agnette.agl.modules.ids import ModuleId
@@ -56,16 +55,13 @@ def _math_companion() -> _MathCompanion:
 
 
 def test_scalar_methods_are_ambient_but_free_functions_require_an_import() -> None:
-    resolve_and_check_inline_entry(
-        "let _: int = (-3).abs()\nlet _: decimal = 1.25.round(1)\n", HostCapabilities()
-    )
+    resolve_and_check_inline_entry("let _: int = (-3).abs()\nlet _: decimal = 1.25.round(1)\n")
 
     with pytest.raises(AglScopeError):
-        resolve_and_check_inline_entry("sum([1, 2])\n", HostCapabilities())
+        resolve_and_check_inline_entry("sum([1, 2])\n")
 
     resolve_and_check_inline_entry(
         "import std/math\nlet _: int = math::sum([1, 2])\nlet _: decimal = math::pi + math::e\n",
-        HostCapabilities(),
     )
 
 
@@ -75,11 +71,10 @@ def test_scalar_method_types_keep_numeric_families_separate() -> None:
         "let _: array[int] = [2, 1].sort(fn(left: int, right: int) => left.compare(right))\n"
         "let _: array[decimal] = [2.0, 1.0].sort(\n"
         "  fn(left: decimal, right: decimal) => left.compare(right)\n)\n",
-        HostCapabilities(),
     )
 
     with pytest.raises(AglTypeError):
-        resolve_and_check_inline_entry("1.to-decimal().pow(2.0)\n", HostCapabilities())
+        resolve_and_check_inline_entry("1.to-decimal().pow(2.0)\n")
 
 
 def test_decimal_companion_uses_agl_context_for_rounding_and_roots() -> None:

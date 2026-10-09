@@ -10,7 +10,7 @@ class of its own. A companion importing after the redeclaration sees
 whichever declaration currently bears the name -- never a superseded one,
 and never one from an entry that failed before promotion.
 
-Companion loading mechanics, capability gating, and ``:reset`` are covered
+Companion loading mechanics and ``:reset`` are covered
 by ``TestExternRepl`` in ``test_agl_repl_session.py``; this module is scoped
 to what changes specifically around a nominal redeclaration.
 """

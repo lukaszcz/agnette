@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from agnette.agl import PipelineDriver
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.parsed_module_cache import clear_parsed_module_cache
 from agnette.agl.modules.roots import RootSet
@@ -43,14 +42,13 @@ from tests._agl_helpers import agl_roots, run_inline_code
 from tests.agl.module_graph import load_graph, resolve_and_check_inline_entry, resolve_inline_entry
 
 _ROOTS = agl_roots()
-_CAPS = HostCapabilities()
 _STD_DIR = Path(__file__).resolve().parents[1] / "packages" / "stdlib" / "src"
 _STD_OPTION = Path(__file__).resolve().parents[1] / "packages" / "stdlib" / "src" / "option.agl"
 _STD_OPTIONAL = Path(__file__).resolve().parents[1] / "packages" / "stdlib" / "src" / "optional.agl"
 
 
 def _check(source: str, *, default_stdlib: bool = True) -> None:
-    resolve_and_check_inline_entry(source, _CAPS, default_stdlib=default_stdlib)
+    resolve_and_check_inline_entry(source, default_stdlib=default_stdlib)
 
 
 def test_core_stdlib_is_bare_by_default() -> None:
@@ -97,7 +95,7 @@ def test_stdlib_ask_signature_is_context_inferred_with_optional_arguments() -> N
         "program def main() = ()\n", entry_path=None, roots=_ROOTS, default_stdlib=True
     )
     resolved = resolve_program(graph)
-    checked = check_program(resolved, _CAPS)
+    checked = check_program(resolved)
     std_agent = checked.modules[ModuleId.from_path("std/agent")]
 
     ask_sig = std_agent.function_signatures["ask"]
@@ -264,7 +262,7 @@ def test_std_option_declares_the_builtin_option_and_keeps_its_host_identity() ->
     }
     assert enums == {"Option"}
 
-    executable = lower_ir("program def main() -> unit = ()\n", caps=_CAPS)
+    executable = lower_ir("program def main() -> unit = ()\n")
     option = executable.builtin_nominals.resolve("Option")
     option_descriptor = executable.nominals[option]
     assert option_descriptor.module_id == ModuleId.from_path("std/option")
@@ -393,7 +391,7 @@ def test_std_core_source_builtin_shape_is_not_masked_by_seed(
     )
 
     with pytest.raises(AglTypeError):
-        check_program(resolve_program(graph), _CAPS)
+        check_program(resolve_program(graph))
 
 
 def test_builtin_option_shape_must_match() -> None:
@@ -541,7 +539,7 @@ def test_lowerer_skips_builtin_function_definitions() -> None:
     from tests.agl.ir_harness import lower_ir
 
     source = "builtin def print[T](value: T) -> unit\nprogram def main() = ()\n"
-    lower_ir(source, caps=_CAPS, default_stdlib=False)
+    lower_ir(source, default_stdlib=False)
 
 
 def test_copy_and_shallow_copy_source_declared_calls_are_classified() -> None:

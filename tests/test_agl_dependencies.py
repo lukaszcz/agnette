@@ -133,7 +133,6 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
             "typecheck",
             (
                 "agnette.agl.attributes",
-                "agnette.agl.capabilities",
                 "agnette.agl.constraints",
                 "agnette.agl.diagnostics",
                 "agnette.agl.ir.ids",
@@ -183,7 +182,6 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
             (
                 "agnette.agl.artifact_storage",
                 "agnette.agl.attributes",
-                "agnette.agl.capabilities",
                 "agnette.agl.diagnostics",
                 "agnette.agl.ir",
                 "agnette.agl.modules.ids",

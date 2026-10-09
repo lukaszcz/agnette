@@ -94,7 +94,7 @@ from agnette.agl.syntax.nodes import Block, FuncDef, Item, LetDecl, VarDecl
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.typecheck.program import check_program
-from tests.agl.ir_harness import base_caps, make_file_graph_from_files, make_inline_graph_from_files
+from tests.agl.ir_harness import make_file_graph_from_files, make_inline_graph_from_files
 
 if TYPE_CHECKING:
     from agnette.agl.modules.loader import ModuleGraph
@@ -204,18 +204,17 @@ def _graph_outcome(
         resolved = resolve_program(graph)
     except AglError as exc:
         return ("scope", type(exc), exc.span, None), exc
-    caps = base_caps()
     try:
-        checked_program = check_program(resolved, caps)
+        checked_program = check_program(resolved)
     except AglError as exc:
         return ("typecheck", type(exc), exc.span, None), exc
     # Offer imported sites exactly as PipelineDriver does; entries still compile afresh.
     retainable = retained_module_sources(graph)
-    match_result = compile_program_matches(checked_program, retained_match_sites(retainable, caps))
+    match_result = compile_program_matches(checked_program, retained_match_sites(retainable))
     if match_result.compiled is None:
         match_error = match_issue_error(match_result.issues[0], resolved.speller)
         return ("matchcompile", type(match_error), match_error.span, None), match_error
-    retain_match_sites(retainable, caps, cached_module_sites(match_result.compiled))
+    retain_match_sites(retainable, cached_module_sites(match_result.compiled))
     entry = checked_program.modules[checked_program.entry_id]
     identity = _rendered_identity(_entry_final_type(entry, wrapped), entry.type_env.type_table)
     return ("accepted", type(None), None, identity), None

@@ -19,7 +19,6 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.contracts import (
     ConversionFailureMode,
     ConversionStrategy,
@@ -145,22 +144,6 @@ def compile_coercion(source: Type, target: Type) -> Coercion | None:
 # ---------------------------------------------------------------------------
 
 
-def _caps() -> HostCapabilities:
-    return HostCapabilities(
-        supports_shell_exec=True,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-
-
-def _check(source: str, *, default_stdlib: bool = True) -> CheckedModule:
-    return resolve_and_check_inline_entry(source, _caps(), default_stdlib=default_stdlib)
-
-
 def _repl_entry(
     source: str,
     *,
@@ -198,7 +181,7 @@ def _repl_entry(
         graph,
         entry_repl_session_scope=parent_scope or ScopeNode(node_id=-1, parent=None, scope_path=()),
     )
-    checked_program = check_program(resolved, _caps(), entry_seed_env=seed_env)
+    checked_program = check_program(resolved, entry_seed_env=seed_env)
     result = compile_program_matches(checked_program)
     assert isinstance(result.compiled, MatchCompiledProgram)
     entry = lower_repl_program(result.compiled, image=image or LinkImage(), source_text=source)
@@ -268,7 +251,7 @@ def test_lower_repl_trailing_scope_region_has_no_expression_marker() -> None:
 
 def _lower(source: str, *, default_stdlib: bool = True) -> ExecutableProgram:
     """Parse → check → lower the source; return ExecutableProgram."""
-    checked = _check(source, default_stdlib=default_stdlib)
+    checked = resolve_and_check_inline_entry(source, default_stdlib=default_stdlib)
     return lower_compiled_module(compile_checked_module(checked), source_text=source)
 
 
@@ -433,7 +416,7 @@ def test_private_lowerer_requires_complete_match_site_mapping_argument() -> None
 
 def test_direct_lowerer_helper_passes_complete_compiled_match_site_mapping() -> None:
     source = "case true of | true => 1 | false => 2"
-    checked = _check(source)
+    checked = resolve_and_check_inline_entry(source)
     lowerer = _make_lowerer(checked, source)
     case = checked.resolved.program.body.items[0]
 
@@ -450,7 +433,7 @@ def test_capture_scan_captures_enclosing_field_assignment_receiver() -> None:
         "  let update = fn() -> unit => if true => box.value := 2 else => ()\n"
         "  ()"
     )
-    checked = _check(source)
+    checked = resolve_and_check_inline_entry(source)
     lowerer = _make_lowerer(checked, source)
     make_update = checked.resolved.program.body.items[1]
 
@@ -719,7 +702,7 @@ class TestProgramSignatures:
 
         mg = load_graph(entry_source, entry_path=None, roots=agl_roots(root))
         rg = resolve_program(mg)
-        cg = check_program(rg, _caps())
+        cg = check_program(rg)
 
         prog = lower_program(_compiled_checked(cg))
 
@@ -1120,7 +1103,7 @@ class TestBlockLowering:
         from agnette.agl.syntax.spans import SourceSpan
 
         src = "let _a: int = 1\n_a"
-        checked = _check(src)
+        checked = resolve_and_check_inline_entry(src)
         # Build a _Lowerer in the same state full lowering would, but stop
         # before running the top-level body so we can call lower_expr manually.
         lowerer = _make_lowerer(checked, src)
@@ -1361,7 +1344,7 @@ class TestBuiltinNominalsTable:
         table's answer, not a shared name.
         """
         source = "builtin exception RangeError extends Exception\n()\n"
-        checked = _check(source, default_stdlib=False)
+        checked = resolve_and_check_inline_entry(source, default_stdlib=False)
         typedef = checked.type_env.type_table.get(ENTRY_ID, "RangeError")
         assert typedef is not None
         prog = _lower(source, default_stdlib=False)
@@ -1646,7 +1629,7 @@ class TestIrFieldLowering:
         # Build a CheckedModule with a concrete record declaration — we only
         # need the resolved/type-table scaffolding, not the actual program body.
         source = "record Point\n  myfield: int\n()"
-        checked = _check(source)
+        checked = resolve_and_check_inline_entry(source)
 
         # A fresh node id has no constructor reference.
         fake_node_id = 99999
@@ -1683,7 +1666,7 @@ class TestIrFieldLowering:
         from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
 
         source = "()"
-        checked = _check(source)
+        checked = resolve_and_check_inline_entry(source)
         fake_node_id = 99999
         span = SourceSpan(
             start_line=1,
@@ -1720,7 +1703,7 @@ catch Exception as error =>
   error.message
 result
 """
-        checked = _check(source)
+        checked = resolve_and_check_inline_entry(source)
         (exception_decl_id,) = {
             t.decl_id for t in checked.node_types.values() if isinstance(t, ExceptionType)
         } - {
@@ -1903,7 +1886,7 @@ class TestScanCapturesLoopForIterWhileCond:
         # Minimal program with an outer var 'x' that is referenced so the
         # resolution table contains a BindingRef for it.
         source = "var x = 0\nvar _y = x\n()"
-        checked = _check(source)
+        checked = resolve_and_check_inline_entry(source)
 
         # Locate x's BindingRef via any checked reference to it.
         x_ref = next(ref for ref in checked.resolved.resolution.values() if ref.name == "x")
@@ -2097,8 +2080,7 @@ let result = make(10).add(2)
                     entry_path=None,
                     roots=agl_roots(tmp_path),
                 )
-            ),
-            _caps(),
+            )
         )
         program = lower_program(_compiled_checked(checked))
         ((_, entry_function_id),) = program.program_functions.items()
@@ -2374,7 +2356,7 @@ class TestLowerGraph:
             roots=agl_roots(root),
         )
         rg = resolve_program(mg)
-        cg = check_program(rg, _caps())
+        cg = check_program(rg)
 
         prog = lower_program(_compiled_checked(cg))
 
@@ -2449,7 +2431,7 @@ class TestLowerGraph:
             entry_path=None,
             roots=agl_roots(root),
         )
-        checked = check_program(resolve_program(graph), _caps())
+        checked = check_program(resolve_program(graph))
         link = _LinkState()
         program = lower_program(_compiled_checked(checked), _link=link)
 
@@ -2530,7 +2512,7 @@ class TestLowerGraph:
             roots=agl_roots(root),
         )
         rg = resolve_program(mg)
-        cg = check_program(rg, _caps())
+        cg = check_program(rg)
 
         prog = lower_program(_compiled_checked(cg))
 

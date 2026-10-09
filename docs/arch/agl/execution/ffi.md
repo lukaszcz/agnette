@@ -4,7 +4,7 @@ An `extern def` declares a function implemented in a Python *companion* beside i
 
 ## Loading
 
-- Companions import after static passes and before evaluation; `agm check` never imports them. A host capability gates the FFI ([../hosting.md](../hosting.md)).
+- Companions import after static passes and before evaluation; `agm check` never imports them.
 - Before import, the owning package's `[python]` requirements are checked; an unsatisfied one is a diagnostic pointing to its repair ([../../package-store.md](../../package-store.md)).
 - The registry reuses a companion while its path and file stamp are unchanged; bytecode is cached in the AgL artifact store ([../modules.md](../modules.md)), never beside the source.
 - The Python lookup name is scope's `extern_names` fact ([../frontend/scope.md](../frontend/scope.md)).

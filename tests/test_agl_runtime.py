@@ -8,7 +8,7 @@ Covers:
 - RunResult has .ok (bool), .diagnostics (list), .error (None for pre-exec failures)
 - AglError and SourceSpan
 - Token constants
-- Runtime additions: agent registration/fallback, capability derivation, param validation,
+- Runtime additions: agent registration/fallback, param validation,
   text-codec behavior, AgentCallError, empty-response valid case
 """
 
@@ -307,7 +307,7 @@ class TestRunBehavior:
 
 
 class TestFallbackAgent:
-    """Default-agent backing behavior for capability checking."""
+    """Default-agent backing behavior."""
 
     def test_ask_without_a_dispatcher_raises_at_runtime(self) -> None:
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
@@ -1061,8 +1061,8 @@ class TestWarningsThreadedOnFailurePaths:
         real_check = tc_mod.check_program
         warning = Diagnostic(message="a checker warning", line=1, severity="warning")
 
-        def check_with_warning(resolved: object, caps: object, **kwargs: object) -> object:
-            checked = real_check(resolved, caps, **kwargs)
+        def check_with_warning(resolved: object, **kwargs: object) -> object:
+            checked = real_check(resolved, **kwargs)
             return replace(checked, warnings=(*checked.warnings, warning))
 
         monkeypatch.setattr(tc_mod, "check_program", check_with_warning)
@@ -1083,25 +1083,12 @@ class TestWarningsThreadedOnFailurePaths:
 
 
 # ---------------------------------------------------------------------------
-# Built-in codecs and removed renderer syntax
+# Removed renderer syntax
 # ---------------------------------------------------------------------------
 
 
-class TestBuiltinCodecs:
-    """The built-in text and json codecs are always available to a driver."""
-
-    def test_default_runtime_has_text_and_json_codecs(self) -> None:
-        """Built-in text + json codecs are always present."""
-        from agnette.agl.runtime.codec import JsonCodec, TextCodec
-
-        rt = PipelineDriver(
-            resolve_agent_spec=None, agent_dispatcher=lambda req: "ok", get_sandbox_context=None
-        )
-        tc, jc = TextCodec(), JsonCodec()
-        assert tc.name == "text"
-        assert jc.name == "json"
-        result = run_inline_code(rt, 'ask "hi"')
-        assert result.ok is True
+class TestRemovedRendererSyntax:
+    """Renderer syntax in interpolation holes is rejected."""
 
     def test_as_renderer_syntax_is_parse_error(self) -> None:
         """``%{x as name}`` is a syntax error (renderer syntax removed)."""
@@ -2299,7 +2286,7 @@ class TestRuntimeErrorPaths:
         assert isinstance(result.raw, Decimal)
 
     def test_convert_host_value_array_type_parsed_via_json_codec(self) -> None:
-        # array/dict/record/enum params are now accepted via the JsonCodec.
+        # array/dict/record/enum params are now accepted via JSON.
         from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import ArrayType, TextType
         from agnette.agl.semantics.values import ArrayValue, TextValue
@@ -3562,8 +3549,7 @@ class TestRunPreparedEdgeCases:
         prepared = prepare_inline_code("let x = 1\nx")
         assert prepared.resolved is not None
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        env = rt.host_environment()
-        precomputed = check_program(prepared.resolved, env.capabilities)
+        precomputed = check_program(prepared.resolved)
         match_result = compile_program_matches(precomputed)
         assert isinstance(match_result.compiled, MatchCompiledProgram)
         result = rt.run_prepared(prepared, compiled=match_result.compiled)
@@ -3597,9 +3583,8 @@ class TestRunPreparedEdgeCases:
             "program def main(n: int) -> unit = print n", entry_path=None, roots=roots
         )
         rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        env = rt.host_environment()
         assert prepared.resolved is not None
-        checked = real_check_program(prepared.resolved, env.capabilities)
+        checked = real_check_program(prepared.resolved)
         match_result = compile_program_matches(checked)
         assert isinstance(match_result.compiled, MatchCompiledProgram)
 

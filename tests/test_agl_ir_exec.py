@@ -29,7 +29,6 @@ from tests.agl.ir_harness import (
     inline_main_items,
     lower_inline_ir,
     run_inline_ir_with_shell,
-    shell_caps,
     uncaught_error,
 )
 
@@ -141,7 +140,7 @@ def test_t3_structured_exec() -> None:
 
     assert isinstance(ir["r"], RecordValue)
     assert ir["r"].fields["exit-code"] == IntValue(1)
-    program = lower_inline_ir(source, caps=shell_caps())
+    program = lower_inline_ir(source)
     assert ir["r"].nominal == program.builtin_nominals.resolve("ExecResult")
 
 
@@ -347,7 +346,7 @@ def test_t10_golden_lowering() -> None:
     from agnette.agl.ir.nodes import IrBind, IrExec, IrSequence
 
     source = 'let result = exec("echo hi")\nresult'
-    executable = lower_inline_ir(source, caps=shell_caps())
+    executable = lower_inline_ir(source)
 
     # Check that the inline command's synthetic main contains an IrExec node.
     exec_nodes = [

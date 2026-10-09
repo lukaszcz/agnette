@@ -8,7 +8,6 @@ from typing import Protocol, cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
 from agnette.agl.modules.ids import ModuleId
@@ -150,13 +149,11 @@ def test_dict_companion_mutating_operations_update_boundary_views() -> None:
 def test_dict_methods_are_ambient_but_from_entries_requires_an_import() -> None:
     resolve_and_check_inline_entry(
         'let values = {"one": 1}\nvalues.get("one")\n',
-        HostCapabilities(),
     )
 
     with pytest.raises(AglScopeError):
-        resolve_and_check_inline_entry("from-entries([])\n", HostCapabilities())
+        resolve_and_check_inline_entry("from-entries([])\n")
 
     resolve_and_check_inline_entry(
         'import std/dict\ndict::from-entries([Pair(first = "one", second = 1)])\n',
-        HostCapabilities(),
     )

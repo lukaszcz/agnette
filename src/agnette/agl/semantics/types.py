@@ -39,10 +39,10 @@ Implicit coercion rules
 that never rebuild a structure. Use :func:`is_assignable` to check
 assignability with these coercions applied.
 
-Type-kind strings (for codec capability lookup)
-------------------------------------------------
+Type-kind strings (for format support lookup)
+---------------------------------------------
 Each ``Type`` exposes a ``kind`` property — a lower-cased string identifying
-the type's kind in the ``HostCapabilities.codec_kinds`` maps.  E.g.
+the type's kind in the type checker's ``CODEC_KINDS`` map.  E.g.
 ``TextType().kind == "text"``, ``RecordType(...).kind == "record"``.
 """
 

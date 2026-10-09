@@ -44,22 +44,6 @@ from tests.agl.ir_harness import evaluate_ir, inline_main_items, lower_inline_ir
 # ---------------------------------------------------------------------------
 
 
-def _lower(source: str) -> ExecutableProgram:
-    """Parse → check → lower the source; return ExecutableProgram."""
-    from agnette.agl.capabilities import HostCapabilities
-
-    caps = HostCapabilities(
-        supports_shell_exec=False,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-    return lower_inline_ir(source, caps=caps)
-
-
 def _nominal_id(source: str, display_name: str) -> NominalId:
     """NominalId a fresh lowering of *source* assigns to *display_name*.
 
@@ -480,7 +464,7 @@ record Point
 let p = Point(x = 3, y = 4)
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -504,7 +488,7 @@ enum Color | Red | Blue
 let c = Color::Red()
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -524,7 +508,7 @@ def test_golden_exception_lowers_to_ir_make_exception() -> None:
 let e = ArithmeticError(message = "oops", operation = "/")
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -550,7 +534,7 @@ record Score
 let s = Score(name = "Bob", value = 5)
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -575,7 +559,7 @@ record Pt
 let mk = Pt
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     prog.modules[prog.entry_module]
     found = False
     for node in inline_main_items(prog):
@@ -603,7 +587,7 @@ record Point
 let p = Point(x = 1, y = 2)
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     nominal_id = nominal_id_for(prog, "Point")
     assert nominal_id in prog.nominals, "Expected NominalId for Point in program.nominals"
     desc = prog.nominals[nominal_id]
@@ -618,7 +602,7 @@ def test_nominals_table_contains_user_enum() -> None:
 enum Color | Red | Blue(shade: int)
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     nominal_id = nominal_id_for(prog, "Color")
     assert nominal_id in prog.nominals
     desc = prog.nominals[nominal_id]
@@ -633,7 +617,7 @@ enum Color | Red | Blue(shade: int)
 def test_nominals_table_contains_builtin_exception_fields() -> None:
     """program.nominals includes ArithmeticError with its declared fields in order."""
     source = "()"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     nominal_id = nominal_id_for(prog, "ArithmeticError")
     assert nominal_id in prog.nominals
     desc = prog.nominals[nominal_id]
@@ -644,7 +628,7 @@ def test_nominals_table_contains_builtin_exception_fields() -> None:
 def test_nominals_table_contains_builtin_exceptions() -> None:
     """program.nominals includes all built-in exception descriptors."""
     source = "()"
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     builtin_names = [
         "IndexError",
         "KeyError",
@@ -670,7 +654,7 @@ record Foo
 enum Bar | A | B(n: int)
 ()
 """
-    prog = _lower(source)
+    prog = lower_inline_ir(source)
     for key, desc in prog.nominals.items():
         assert desc.nominal == key, (
             f"program.nominals key {key!r} disagrees with descriptor.nominal {desc.nominal!r}"

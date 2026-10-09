@@ -1,21 +1,20 @@
-"""Tests for the AgL JsonCodec, schema derivation, and wire-up.
+"""Tests for the AgL JSON output parsing, schema derivation, and wire-up.
 
 Covers (per the AgL DSL contract):
 1. Schema derivation (schema.py): every Type kind → JSON Schema dict.
-2. JsonCodec identity (name).
-3. Lenient default parsing: bare JSON, fenced ```json``` blocks, prose-wrapped,
+2. Lenient default parsing: bare JSON, fenced ```json``` blocks, prose-wrapped,
    trailing-comma / single-quote trivial repairs, extracted and re-parsed with
    parse_float=Decimal (decimal exactness).
-4. Strict mode (strict_json=True): rejects fences, prose, repairs; only bare
+3. Strict mode (strict_json=True): rejects fences, prose, repairs; only bare
    JSON with surrounding whitespace accepted.
-5. Schema validation errors → ParseResult.ok=False (missing/unknown field, wrong
+4. Schema validation errors → ParseResult.ok=False (missing/unknown field, wrong
    type, bad $case).
-6. Typed Value construction: RecordValue, ArrayValue, DictValue,
+5. Typed Value construction: RecordValue, ArrayValue, DictValue,
    scalars; int→decimal widening where the target type says decimal.
-7. Multiple JSON values / ambiguous output → failure.
-8. PipelineDriver wire-up: checker passes json/record/enum targets;
+6. Multiple JSON values / ambiguous output → failure.
+7. PipelineDriver wire-up: checker passes json/record/enum targets;
    format_instructions reach AgentRequest.
-9. decimal exactness end-to-end: 1.5 parsed from agent response stays Decimal("1.5").
+8. decimal exactness end-to-end: 1.5 parsed from agent response stays Decimal("1.5").
 
 """
 
@@ -32,7 +31,6 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from agnette.agl import PipelineDriver
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.contracts import (
     ArrayDecode,
     DecodeSchema,
@@ -57,9 +55,7 @@ from agnette.agl.ir.reserved_nominals import (
 from agnette.agl.modules.ids import ENTRY_ID, RESERVED_ID, ModuleId
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.runtime.codec import (
-    JsonCodec,
     ParseResult,
-    TextCodec,
     extract_json_text,
     parse_contract_output,
 )
@@ -131,7 +127,7 @@ def _sp() -> SourceSpan:
 def _ask_builtin_items() -> tuple[Item, ...]:
     """Real ``Agent``/``ask`` declarations, parsed once, for a bare ``ask(...)``.
 
-    ``_check_program_with_json`` builds a hand-crafted single-module program
+    ``_check_program_ast`` builds a hand-crafted single-module program
     that never imports ``std/prelude`` (see ``resolve_and_check_program_ast``),
     so a bare ``ask(...)`` call needs its own reachable declaration in the
     same program: a bare built-in call is classified only once it resolves to
@@ -275,8 +271,8 @@ def _ensure_expr_tail(body: tuple[Item, ...]) -> tuple[Item, ...]:
     return body
 
 
-def _check_program_with_json(body: tuple[Item, ...]) -> CheckedModule:
-    """Run *body* through real resolve + check with both text and json codecs.
+def _check_program_ast(body: tuple[Item, ...]) -> CheckedModule:
+    """Run *body* through real resolve + check.
 
     Uses ``resolve_and_check_program_ast``'s hand-built single-module graph:
     *body* is a hand-built tuple of AST ``Item`` nodes constructed directly
@@ -294,15 +290,7 @@ def _check_program_with_json(body: tuple[Item, ...]) -> CheckedModule:
         span=_sp(),
         node_id=_nid(),
     )
-    caps = HostCapabilities(
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-    return resolve_and_check_inline_program_ast(program, caps)
+    return resolve_and_check_inline_program_ast(program)
 
 
 class _Bindings(dict[str, object]):
@@ -312,7 +300,7 @@ class _Bindings(dict[str, object]):
         return self
 
 
-# The hand-built program in ``_check_program_with_json`` declares its own
+# The hand-built program in ``_check_program_ast`` declares its own
 # ``Agent`` enum (scoped to the entry module, not ``std/prelude``) and never loads
 # ``std/config``, so the bare ``ask(...)`` calls built by ``_ask_call`` have no
 # declared ``default-agent`` to read. ``_run_with_json_codec`` seeds one — its
@@ -343,7 +331,7 @@ def _run_with_json_codec(
     from agnette.agl.eval.ir_interpreter import IrInterpreter
     from tests.agl.ir_harness import compile_checked_module, lower_compiled_module
 
-    checked = _check_program_with_json(body)
+    checked = _check_program_ast(body)
     executable = lower_compiled_module(compile_checked_module(checked), source_text="<direct-ast>")
     bindings = _Bindings(
         IrInterpreter(
@@ -1670,16 +1658,6 @@ class TestRecursiveSchemaValidatorRoundtrip:
 
 
 # ---------------------------------------------------------------------------
-# 2. JsonCodec identity
-# ---------------------------------------------------------------------------
-
-
-class TestJsonCodecName:
-    def test_name_is_json(self) -> None:
-        assert JsonCodec().name == "json"
-
-
-# ---------------------------------------------------------------------------
 # 3. Lenient parsing (default)
 # ---------------------------------------------------------------------------
 
@@ -2485,12 +2463,12 @@ def _dict_ty(value: tast.TypeExpr) -> tast.DictT:
 
 
 class TestPipelineDriverWireUp:
-    """JsonCodec registered in runtime; checker passes json/record/enum targets.
+    """The checker passes json/record/enum targets.
 
     Note: typed agent-call bindings (let x: T = agent "...") are tested via the
     direct-AST helpers because the parser wraps agent calls in an 'access'
     tree node for non-text typed bindings.  PipelineDriver.run() tests cover the
-    static pipeline (codec_kinds) and the error reporting paths.
+    static pipeline (format validation) and the error reporting paths.
     """
 
     def test_json_target_type_accepted_via_direct_ast(self) -> None:
@@ -2677,28 +2655,6 @@ class TestPipelineDriverWireUp:
         assert isinstance(d, DecimalValue)
         assert d.value == Decimal("1.5")
         assert not isinstance(d.value, float)
-
-    def test_json_codec_supports_type_kinds_registered(self) -> None:
-        """HostCapabilities codec_kinds includes json codec kinds."""
-        from agnette.agl.capabilities import HostCapabilities
-        from agnette.agl.runtime.codec import JsonCodec, TextCodec
-
-        text_codec = TextCodec()
-        json_codec = JsonCodec()
-        kinds = {
-            text_codec.name: frozenset({"text"}),
-            json_codec.name: frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        }
-        caps = HostCapabilities(
-            codec_kinds=kinds,
-        )
-        # json kind must appear in some codec's supported kinds
-        all_supported = set().union(*caps.codec_kinds.values())
-        assert "json" in all_supported
-        assert "record" in all_supported
-        assert "enum" in all_supported
 
 
 # ---------------------------------------------------------------------------
@@ -2969,7 +2925,7 @@ class TestNormalizedRaw:
 
 
 class TestRecordEnumParams:
-    """Runtime.convert_param now accepts record/enum types via JsonCodec."""
+    """Runtime.convert_param now accepts record/enum types."""
 
     def test_record_program_argument_parsed_from_json_string(
         self, capsys: pytest.CaptureFixture[str]
@@ -2992,7 +2948,7 @@ program def main(issue: Issue) -> unit =
         assert "5" in out
 
     def test_enum_param_parsed_from_json_string(self) -> None:
-        """Enum can be parsed via JsonCodec from a JSON string."""
+        """Enum can be parsed from a JSON string."""
         typ, typedef = enum_type("Status", {"Done": {}, "Pending": {}})
         table = type_table_for(typedef)
         result = _parse_typed('"Done"', typ, strict_json=False, table=table)
@@ -3552,14 +3508,14 @@ class TestSchemaPrecomputedInParse:
 
 
 # ---------------------------------------------------------------------------
-# 19. supported_kinds property on codecs
+# 19. Text output parsing
 # ---------------------------------------------------------------------------
 
 
-class TestCodecSupportedKinds:
-    """Codecs expose supported_kinds; the runtime builds capabilities from them."""
+class TestTextParse:
+    """The ``text`` format passes the raw response through."""
 
-    def test_text_codec_parse_returns_the_raw_text(self) -> None:
+    def test_text_parse_returns_the_raw_text(self) -> None:
         result = parse_contract_output(
             "raw output",
             TextContractRequest(target_type_label="text", structured_exec=False),
@@ -3567,16 +3523,6 @@ class TestCodecSupportedKinds:
         )
         assert result.ok
         assert result.value == TextValue("raw output")
-
-    def test_text_codec_supported_kinds(self) -> None:
-        codec = TextCodec()
-        assert codec.supported_kinds == frozenset({"text"})
-
-    def test_json_codec_supported_kinds(self) -> None:
-        codec = JsonCodec()
-        assert codec.supported_kinds == frozenset(
-            {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-        )
 
 
 # ---------------------------------------------------------------------------

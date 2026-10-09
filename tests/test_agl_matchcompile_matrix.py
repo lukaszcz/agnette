@@ -10,7 +10,6 @@ from typing import cast
 import pytest
 
 import agnette.agl.matchcompile.matrix as matrix_module
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.matchcompile.compiler import compile_match_site
 from agnette.agl.matchcompile.diagnostics import (
@@ -60,18 +59,6 @@ from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.match_reference import matrix_action, reference_action
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
-
-def _check(source: str) -> CheckedModule:
-    return resolve_and_check_inline_entry(source, _CAPS)
-
 
 def _only_case(checked: CheckedModule | CheckedModule) -> Case:
     cases: list[Case] = []
@@ -88,7 +75,7 @@ def _only_case(checked: CheckedModule | CheckedModule) -> Case:
 def _pair_case() -> tuple[
     CheckedModule, Case, PatternMatrix, NominalConstructor, OccurrenceAllocator
 ]:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Pair\n"
         "  | pair(left: bool, right: bool)\n"
         "  | empty\n"
@@ -158,7 +145,7 @@ def test_specialization_and_default_are_exact_and_migrate_binders() -> None:
 
 
 def test_record_specialization_and_validation_use_field_bearing_nominal_machinery() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record Inner\n"
         "  value: bool\n"
         "record Outer\n"
@@ -206,7 +193,7 @@ def test_record_specialization_and_validation_use_field_bearing_nominal_machiner
 
 
 def test_record_compilation_validates_field_occurrences_and_reconstructs_witnesses() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record Box\n"
         "  value: int\n"
         "let subject = Box(value = 1)\n"
@@ -241,7 +228,7 @@ def test_path_decompositions_are_recorded_only_when_the_self_checks_run(
 
 
 def test_specialization_reuses_stable_children_and_allocates_sibling_ids_sequentially() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Choice\n"
         "  | first(value: bool)\n"
         "  | second(value: bool)\n"
@@ -270,7 +257,7 @@ def test_specialization_reuses_stable_children_and_allocates_sibling_ids_sequent
 
 
 def test_allocator_can_only_start_from_and_remains_bound_to_one_normalized_case() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Box\n"
         "  | box(value: bool)\n"
         "let subject = box(value = true)\n"
@@ -324,7 +311,7 @@ def test_paper_decomposition_partition_preserves_first_match_actions() -> None:
 
 
 def test_qba_prefers_longest_leading_constructor_prefix() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Pair\n  | pair(left: bool, right: bool)\n"
         "let subject: Pair = pair(left = false, right = false)\n"
         "case subject of\n"
@@ -344,7 +331,7 @@ def test_qba_prefers_longest_leading_constructor_prefix() -> None:
 
 
 def test_qba_prefers_fewer_runtime_semantic_branch_heads() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Pair\n  | pair(left: decimal, right: bool)\n"
         "let subject: Pair = pair(left = 1, right = false)\n"
         "case subject of\n"
@@ -367,7 +354,7 @@ def test_qba_prefers_fewer_runtime_semantic_branch_heads() -> None:
 
 
 def test_qba_prefers_lower_total_introduced_arity() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Box\n  | boxed(value: bool)\n"
         "enum Mark\n  | marked\n"
         "enum Pair\n  | pair(left: Box, right: Mark)\n"
@@ -389,7 +376,7 @@ def test_qba_prefers_lower_total_introduced_arity() -> None:
 
 def _two_bool_columns(source: str) -> PatternMatrix:
     """Specialize a single-variant enum subject into its two-column field matrix."""
-    checked = _check(source)
+    checked = resolve_and_check_inline_entry(source)
     normalized = normalize_case(_only_case(checked), checked)
     outer = matrix_from_normalized(normalized)
     head = head_constructors(outer, 0)[0]
@@ -513,7 +500,7 @@ def test_qba_selection_validates_its_matrix_once(monkeypatch: pytest.MonkeyPatch
 
 
 def test_head_constructors_preserve_first_observation_order_and_semantic_uniqueness() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "let left: decimal = 1\n"
         'let right: text = "x"\n'
         "case left of | 2 => 1 | 1 => 2 | 2.0 => 3 | _ => 4"
@@ -589,7 +576,7 @@ def test_matrix_operations_reject_malformed_boundaries_loudly() -> None:
 def test_matrix_rejects_manually_constructed_uninhabited_numeric_head(
     source: str, value: str
 ) -> None:
-    checked = _check(source)
+    checked = resolve_and_check_inline_entry(source)
     matrix = matrix_from_normalized(normalize_case(_only_case(checked), checked))
     row = matrix.rows[0]
     original = cast(ConstructorCell, row.cells[0])
@@ -634,7 +621,7 @@ def test_matrix_rejects_bad_constructor_children_and_occurrence_provenance() -> 
 
 
 def test_matrix_rejects_uninhabited_constructor_nested_in_enum_field() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Box\n"
         "  | box(value: int)\n"
         "let subject: Box = box(value = 1)\n"
@@ -767,7 +754,7 @@ def test_matrix_rejects_decomposition_availability_and_ownership_defects(
 
 
 def test_matrix_tracks_and_canonicalizes_valid_nested_decomposition_order() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Inner\n"
         "  | boxed(value: bool)\n"
         "enum Outer\n"
@@ -885,7 +872,9 @@ def test_same_runtime_constructor_key_must_have_identical_field_metadata() -> No
 
 
 def test_null_constructor_compatibility_and_nullary_specialization() -> None:
-    null_checked = _check("let value: json = null\ncase value of | null => 1 | _ => 2")
+    null_checked = resolve_and_check_inline_entry(
+        "let value: json = null\ncase value of | null => 1 | _ => 2"
+    )
     null_normalized = normalize_case(_only_case(null_checked), null_checked)
     null_matrix = matrix_from_normalized(null_normalized)
     null_head = head_constructors(null_matrix, 0)[0]
@@ -899,7 +888,9 @@ def test_null_constructor_compatibility_and_nullary_specialization() -> None:
         == ()
     )
 
-    bool_checked = _check("let value = true\ncase value of | true => 1 | _ => 2")
+    bool_checked = resolve_and_check_inline_entry(
+        "let value = true\ncase value of | true => 1 | _ => 2"
+    )
     bool_normalized = normalize_case(_only_case(bool_checked), bool_checked)
     bool_matrix = matrix_from_normalized(bool_normalized)
     bool_head = head_constructors(bool_matrix, 0)[0]
@@ -932,7 +923,7 @@ def test_specialization_rejects_same_key_with_different_metadata() -> None:
 def test_matrix_rejects_single_enum_head_that_disagrees_with_checked_signature(
     defect: str,
 ) -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Pair[T]\n"
         "  | pair(left: T, right: bool)\n"
         "  | empty\n"
@@ -1014,7 +1005,7 @@ def test_imported_generic_signature_is_canonical_during_matrix_specialization(
             ),
         },
     )
-    checked = check_program(resolve_program(graph), _CAPS).modules[ENTRY_ID]
+    checked = check_program(resolve_program(graph)).modules[ENTRY_ID]
     normalized = normalize_case(_only_case(checked), checked)
     matrix = matrix_from_normalized(normalized)
     head = head_constructors(matrix, 0)[0]
@@ -1032,7 +1023,7 @@ def _independent_box_columns() -> tuple[
     NominalConstructor,
     OccurrenceAllocator,
 ]:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Box\n"
         "  | boxed(value: bool)\n"
         "enum Pair\n"

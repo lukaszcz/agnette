@@ -764,23 +764,21 @@ def test_for_loop_with_while_guard() -> None:
 def test_for_loop_non_iterable_bool_raises_type_error() -> None:
     """for x in bool do body done — non-iterable type is a typecheck error."""
     from agnette.agl.typecheck.env import AglTypeError
-    from tests.agl.ir_harness import base_caps
     from tests.agl.module_graph import resolve_and_check_inline_entry
 
     source = "for x in true do\n  ()\ndone\n"
     with pytest.raises(AglTypeError):
-        resolve_and_check_inline_entry(source, base_caps())
+        resolve_and_check_inline_entry(source)
 
 
 def test_for_loop_int_collection_raises_type_error() -> None:
     """for x in int_expr do body done — int is not an iterable collection."""
     from agnette.agl.typecheck.env import AglTypeError
-    from tests.agl.ir_harness import base_caps
     from tests.agl.module_graph import resolve_and_check_inline_entry
 
     source = "for x in 42 do\n  ()\ndone\n"
     with pytest.raises(AglTypeError):
-        resolve_and_check_inline_entry(source, base_caps())
+        resolve_and_check_inline_entry(source)
 
 
 # ---------------------------------------------------------------------------

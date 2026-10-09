@@ -28,7 +28,7 @@ Tests assert behavior, never exact help, warning, or error text. The e2e harness
 
 ## Test Cost
 
-Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` enforces a per-test ceiling and `just test-budget` ranks tests to recalibrate it. Compiling modules dominates AgL cost, so fixtures reuse immutable compilation where roots and host capabilities agree and keep runtime state fresh. `just check` runs the static gates concurrently with the suite.
+Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` enforces a per-test ceiling and `just test-budget` ranks tests to recalibrate it. Compiling modules dominates AgL cost, so fixtures reuse immutable compilation where roots agree and keep runtime state fresh. `just check` runs the static gates concurrently with the suite.
 
 ## Editor Modes
 

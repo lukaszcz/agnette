@@ -27,7 +27,6 @@ from agnette.agl.semantics.exceptions import AglRaise
 from agnette.agl.semantics.values import BoolValue, DecimalValue, IntValue, TextValue
 from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
-    base_caps,
     evaluate_ir,
     lower_inline_ir,
     make_repl_graph_from_files,
@@ -598,7 +597,7 @@ def test_program_entry_use_default_reads_module_let(tmp_path: Path) -> None:
         "  result := x\n"
     )
     graph = make_repl_graph_from_files(tmp_path, {"entry": source})
-    checked = check_program(resolve_repl_graph(graph), base_caps())
+    checked = check_program(resolve_repl_graph(graph))
     compiled = compile_program_matches(checked)
     assert isinstance(compiled.compiled, MatchCompiledProgram)
     executable = lower_program(compiled.compiled, _entry_source_text=source)

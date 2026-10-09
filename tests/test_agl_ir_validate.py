@@ -540,15 +540,10 @@ class TestValidProgram:
         validate_ir(prog, deep=False)  # no exception
 
     def test_lowered_partial_application_program_passes_deep_validation(self) -> None:
-        from agnette.agl.capabilities import HostCapabilities
         from tests.agl.ir_harness import lower_inline_ir
 
         source = "def add(x: int, y: int) -> int = x + y\nlet add1 = add(1, ?)\nadd1(2)"
-        capabilities = HostCapabilities(
-            supports_shell_exec=True,
-            codec_kinds={},
-        )
-        program = lower_inline_ir(source, caps=capabilities)
+        program = lower_inline_ir(source)
 
         validate_ir(program, deep=True)
 

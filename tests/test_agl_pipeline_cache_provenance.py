@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
+from agnette.agl.matchcompile import MatchCompiledProgram
 from agnette.agl.modules.ids import STD_PRELUDE_ID
 from agnette.agl.pipeline import (
     ArtifactProvenanceError,
@@ -23,7 +23,6 @@ from agnette.agl.pipeline import (
     PreparedProgram,
     ProgramDiscovery,
 )
-from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import agl_roots, prepare_inline_code
 
 
@@ -125,23 +124,6 @@ def test_program_run_rejects_cached_artifact_from_different_prepared_program(
         )
 
     assert capsys.readouterr().out == ""
-
-
-def test_program_run_rechecks_compiled_artifact_checked_under_other_capabilities() -> None:
-    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    prepared = _prepare_graph("let value = 1\nvalue")
-    assert prepared.resolved is not None
-    foreign_capabilities = replace(
-        runtime.host_environment().capabilities, supports_shell_exec=False
-    )
-    compiled = compile_program_matches(
-        check_program(prepared.resolved, foreign_capabilities)
-    ).compiled
-    assert isinstance(compiled, MatchCompiledProgram)
-
-    run = runtime.run_prepared(prepared, check_only=True, compiled=compiled)
-
-    assert run.ok
 
 
 def test_production_path_reuses_cached_artifacts_without_verifying_provenance(

@@ -25,7 +25,7 @@ from agnette.agl.syntax.nodes import ImportDecl, ImportItem, QualifierChain, Qua
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
 from agnette.agl.typecheck.env import AglTypeError
 from agnette.agl.typecheck.program import check_program
-from tests.agl.ir_harness import base_caps, make_graph_from_files
+from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.module_graph import build_inline_entry_graph, resolve_inline_entry
 from tests.agl.qualifier_support import graph_verdict, inline_verdict
 
@@ -308,7 +308,7 @@ def test_a_one_liner_def_body_validates_its_qualifier_chains(
     else:
         resolved = resolve_program(graph)
         with pytest.raises(AglTypeError) as type_excinfo:
-            check_program(resolved, base_caps())
+            check_program(resolved)
         span = type_excinfo.value.span
 
     assert span is not None

@@ -610,8 +610,6 @@ def run(
         if cached_pipeline is not None
         and prepared is cached_pipeline.prepared
         and cached_pipeline.discovery.compiled is not None
-        and cached_pipeline.discovery.compiled.capabilities
-        == runtime.host_environment().capabilities
         else runtime.discover_programs(prepared)
     )
     for diag in discovery.warnings:

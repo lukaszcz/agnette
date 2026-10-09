@@ -45,7 +45,6 @@ from agnette.agl.typecheck.env import (
     TypeFact,
 )
 from tests._agl_helpers import dummy_span
-from tests.agl.ir_harness import base_caps
 from tests.agl.module_graph import check_resolved, resolve_and_check_entry, resolve_inline_entry
 
 # ---------------------------------------------------------------------------
@@ -95,7 +94,6 @@ def test_checked_module_seals_local_types_without_repeated_scans(
     monkeypatch.setattr(env_module, "contains_inference_var", scan)
     checked = _check_prepared_module(
         resolved,
-        base_caps(),
         env=env,
         prepare_headers=False,
         infer_candidates=False,
@@ -114,7 +112,7 @@ def test_program_validates_shared_declarations_once(monkeypatch: pytest.MonkeyPa
         original(env)
 
     monkeypatch.setattr(TypeEnvironment, "assert_shared_tables_closed", validate)
-    checked = resolve_and_check_entry("type Number = int", base_caps(), default_stdlib=False)
+    checked = resolve_and_check_entry("type Number = int", default_stdlib=False)
     assert checked.type_env.declared_type_template(ENTRY_ID, "Number") == TypeTemplate(IntType())
     assert validations == 1
 
@@ -129,7 +127,7 @@ def test_program_validates_sealed_local_state_once(monkeypatch: pytest.MonkeyPat
         original(env)
 
     monkeypatch.setattr(TypeEnvironment, "assert_closed", validate)
-    checked = resolve_and_check_entry("type Number = int", base_caps(), default_stdlib=False)
+    checked = resolve_and_check_entry("type Number = int", default_stdlib=False)
     assert checked.type_env.declared_type_template(ENTRY_ID, "Number") == TypeTemplate(IntType())
     assert validations == 1
 

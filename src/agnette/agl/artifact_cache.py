@@ -7,9 +7,9 @@ and the compiler version. Modules sharing a dependency closure share a persisted
 stage artifact. Restored stages anchor their provenance to the current compilation.
 
 Checked modules publish closed type and function interfaces for importers.
-Capabilities distinguish checked artifacts and IR; the lowerer adds its resource
-and contract context. Entry modules are never retained; non-entry cycle members may be retained
-against the exact entry source. Runtime state and companion callables are never cached here.
+The lowerer keys IR by its own resource and contract context. Entry modules are
+never retained; non-entry cycle members may be retained against the exact entry
+source. Runtime state and companion callables are never cached here.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from agnette.agl import artifact_serialization
 from agnette.agl.modules.ids import ModuleId
 
 if TYPE_CHECKING:
-    from agnette.agl.capabilities import HostCapabilities
     from agnette.agl.lower.module import LoweredModule
     from agnette.agl.matchcompile import CachedModuleSites
     from agnette.agl.modules.loader import LoadedModule, ModuleGraph
@@ -41,21 +40,6 @@ _CAPACITY = 1024
 # Everything a module's artifacts could have been derived from.
 Sources = tuple["LoadedModule", ...]
 
-# (module id, capability signature) for artifacts checked against capabilities,
-# and (module id,) for those derived from the modules alone.
-_Key = tuple[object, ...]
-
-
-def capability_signature(capabilities: HostCapabilities) -> tuple[object, ...]:
-    """Return a hashable stand-in for the capabilities a module was checked under."""
-    return (
-        capabilities.supports_shell_exec,
-        capabilities.supports_extern,
-        tuple(
-            sorted((name, tuple(sorted(kinds))) for name, kinds in capabilities.codec_kinds.items())
-        ),
-    )
-
 
 @dataclass(frozen=True, slots=True)
 class _Entry[V]:
@@ -65,7 +49,7 @@ class _Entry[V]:
     artifact: V
 
 
-class _ArtifactStore[V]:
+class _ArtifactStore[V, K]:
     """A bounded, least-recently-used store of one pass's artifacts.
 
     A store's memory form and its disk form need not coincide: the ``expected``
@@ -82,10 +66,10 @@ class _ArtifactStore[V]:
         # memory: a disk round trip would cost more than it saves.
         self.persist = persist
         self._capacity = capacity
-        self._entries: OrderedDict[_Key, _Entry[V]] = OrderedDict()
+        self._entries: OrderedDict[K, _Entry[V]] = OrderedDict()
         self._lock = threading.Lock()
 
-    def get(self, key: _Key, sources: Sources) -> V | None:
+    def get(self, key: K, sources: Sources) -> V | None:
         """Return the artifact retained under *key*, if *sources* are unchanged."""
         with self._lock:
             entry = self._entries.get(key)
@@ -94,7 +78,7 @@ class _ArtifactStore[V]:
             self._entries.move_to_end(key)
             return entry.artifact
 
-    def put(self, key: _Key, sources: Sources, artifact: V) -> None:
+    def put(self, key: K, sources: Sources, artifact: V) -> None:
         """Retain *artifact* under *key* for as long as *sources* stay identical."""
         with self._lock:
             self._entries[key] = _Entry(sources, artifact)
@@ -119,31 +103,33 @@ def _same_sources(retained: Sources, current: Sources) -> bool:
 RetainedSources = Mapping["ModuleId", Sources]
 
 
-_DECLARATIONS: _ArtifactStore["_ModuleTables"] = _ArtifactStore(persist=False)
-_EXPORTS: _ArtifactStore["_ModuleExports"] = _ArtifactStore(persist=False)
-_RESOLVED: _ArtifactStore["ResolvedModule"] = _ArtifactStore(kind="scope")
+_DECLARATIONS: _ArtifactStore["_ModuleTables", ModuleId] = _ArtifactStore(persist=False)
+_EXPORTS: _ArtifactStore["_ModuleExports", ModuleId] = _ArtifactStore(persist=False)
+_RESOLVED: _ArtifactStore["ResolvedModule", ModuleId] = _ArtifactStore(kind="scope")
 # Holds full CheckedModule objects for in-process reuse; a disk-served entry
 # is a data-only CheckedModuleImage until check_program rehydrates and retains
 # the full object (see retained_checked_modules / retain_checked_modules).
-_CHECKED: _ArtifactStore["CheckedModule | CheckedModuleImage"] = _ArtifactStore(kind="checked")
-_SITES: _ArtifactStore["CachedModuleSites"] = _ArtifactStore(kind="matches")
+_CHECKED: _ArtifactStore["CheckedModule | CheckedModuleImage", ModuleId] = _ArtifactStore(
+    kind="checked"
+)
+_SITES: _ArtifactStore["CachedModuleSites", ModuleId] = _ArtifactStore(kind="matches")
 # Header preparation replays onto an environment the current compilation built,
 # so its facts are only worth keeping while the objects they name are still
 # live in this process -- memory only.
-_HEADERS: _ArtifactStore["EnvironmentFacts"] = _ArtifactStore(persist=False)
+_HEADERS: _ArtifactStore["EnvironmentFacts", ModuleId] = _ArtifactStore(persist=False)
 
 
-_LOWERED: _ArtifactStore["LoweredModule"] = _ArtifactStore()
+_LOWERED: _ArtifactStore["LoweredModule", bytes] = _ArtifactStore()
 
 
 def retained_lowered_module(key: bytes) -> LoweredModule | None:
     """Return linked module data retained under its full compilation identity."""
-    return _LOWERED.get((key,), ())
+    return _LOWERED.get(key, ())
 
 
 def retain_lowered_module(key: bytes, module: LoweredModule) -> None:
     """Keep immutable module IR for subsequent compilations in this process."""
-    _LOWERED.put((key,), (), module)
+    _LOWERED.put(key, (), module)
 
 
 def retained_module_sources(graph: ModuleGraph) -> dict[ModuleId, Sources]:
@@ -166,42 +152,42 @@ def retained_module_sources(graph: ModuleGraph) -> dict[ModuleId, Sources]:
 
 def retained_module_declarations(module: LoadedModule) -> _ModuleTables | None:
     """Reuse immutable declaration metadata for the same loaded module."""
-    return _DECLARATIONS.get((module.module_id,), (module,))
+    return _DECLARATIONS.get(module.module_id, (module,))
 
 
 def retain_module_declarations(module: LoadedModule, tables: _ModuleTables) -> None:
     """Keep syntax-derived declaration metadata in memory only."""
-    _DECLARATIONS.put((module.module_id,), (module,), tables)
+    _DECLARATIONS.put(module.module_id, (module,), tables)
 
 
 def retained_module_exports(retainable: RetainedSources) -> dict[ModuleId, _ModuleExports]:
     """Reuse settled export surfaces against their complete source dependencies."""
     from agnette.agl.scope.program import _ModuleExports
 
-    return _served(_EXPORTS, retainable, (), _ModuleExports)
+    return _served(_EXPORTS, retainable, _ModuleExports)
 
 
 def retain_module_exports(
     retainable: RetainedSources, exports: Mapping[ModuleId, _ModuleExports]
 ) -> None:
     """Keep settled export surfaces, including withholding, in memory only."""
-    _retain(_EXPORTS, retainable, (), exports)
+    _retain(_EXPORTS, retainable, exports)
 
 
 def retained_resolved_modules(retainable: RetainedSources) -> dict[ModuleId, ResolvedModule]:
     from agnette.agl.scope.program import ResolvedModule
 
-    return _served(_RESOLVED, retainable, (), ResolvedModule)
+    return _served(_RESOLVED, retainable, ResolvedModule)
 
 
 def retain_resolved_modules(
     retainable: RetainedSources, modules: Mapping[ModuleId, ResolvedModule]
 ) -> None:
-    _retain(_RESOLVED, retainable, (), modules)
+    _retain(_RESOLVED, retainable, modules)
 
 
 def retained_checked_modules(
-    retainable: RetainedSources, capabilities: HostCapabilities
+    retainable: RetainedSources,
 ) -> dict[ModuleId, CheckedModule | CheckedModuleImage]:
     """Return the checked modules retained for these sources.
 
@@ -214,25 +200,23 @@ def retained_checked_modules(
     """
     from agnette.agl.typecheck.env import CheckedModule, CheckedModuleImage
 
-    signature = capability_signature(capabilities)
     # Disk holds only images; a full object in `served` came from memory.
-    served = _served(_CHECKED, retainable, (signature,), CheckedModuleImage)
+    served = _served(_CHECKED, retainable, CheckedModuleImage)
     for mid, module in served.items():
         # An image has no `resolved` to refresh: it is not yet a CheckedModule,
         # and rehydration always attaches the current compilation's resolved
         # module directly (see CheckedModuleImage.rehydrate).
         if not isinstance(module, CheckedModule):
             continue
-        resolved = _RESOLVED.get((mid,), retainable[mid])
+        resolved = _RESOLVED.get(mid, retainable[mid])
         if resolved is not None and module.resolved is not resolved.resolved:
             served[mid] = replace(module, resolved=resolved.resolved)
-            _CHECKED.put((mid, signature), retainable[mid], served[mid])
+            _CHECKED.put(mid, retainable[mid], served[mid])
     return served
 
 
 def retain_checked_modules(
     retainable: RetainedSources,
-    capabilities: HostCapabilities,
     modules: Mapping[ModuleId, CheckedModule],
 ) -> None:
     """Retain a compilation's checked modules for the next one.
@@ -248,67 +232,61 @@ def retain_checked_modules(
     _retain(
         _CHECKED,
         retainable,
-        (capability_signature(capabilities),),
         modules,
         disk_form=lambda mid: modules[mid].image(),
     )
 
 
 def retained_module_headers(
-    retainable: RetainedSources, capabilities: HostCapabilities
+    retainable: RetainedSources,
 ) -> dict[ModuleId, EnvironmentFacts]:
     """Return the prepared module headers retained for these sources.
 
     A module's headers — its resolved declaration bodies and function header
     registrations — are a function of the module, its import/export closure,
-    and the capabilities it was prepared under, the same three inputs its
-    checked artifact is keyed on. Replaying them onto a freshly prepared
+    the same inputs its checked artifact is keyed on. Replaying them onto a freshly prepared
     environment reproduces what preparing them again would have written,
     without resolving a single type expression twice.
     """
     from agnette.agl.typecheck.env import EnvironmentFacts
 
-    return _served(_HEADERS, retainable, (capability_signature(capabilities),), EnvironmentFacts)
+    return _served(_HEADERS, retainable, EnvironmentFacts)
 
 
 def retain_module_headers(
     retainable: RetainedSources,
-    capabilities: HostCapabilities,
     headers: Mapping[ModuleId, EnvironmentFacts],
 ) -> None:
-    _retain(_HEADERS, retainable, (capability_signature(capabilities),), headers)
+    _retain(_HEADERS, retainable, headers)
 
 
 def retained_match_sites(
-    retainable: RetainedSources, capabilities: HostCapabilities
+    retainable: RetainedSources,
 ) -> dict[ModuleId, CachedModuleSites]:
     from agnette.agl.matchcompile import CachedModuleSites
     from agnette.agl.typecheck.env import CheckedModule
 
-    signature = capability_signature(capabilities)
-    served = _served(_SITES, retainable, (signature,), CachedModuleSites)
+    served = _served(_SITES, retainable, CachedModuleSites)
     for mid, sites in served.items():
-        checked = _CHECKED.get((mid, signature), retainable[mid])
+        checked = _CHECKED.get(mid, retainable[mid])
         # A stale or bare-image `checked` just misses `compile_program_matches`'s
         # `cached.owner is checked_module` identity gate -- never a wrong reuse.
         if isinstance(checked, CheckedModule) and sites.owner is not checked:
             served[mid] = replace(sites, owner=checked)
-            _SITES.put((mid, signature), retainable[mid], served[mid])
+            _SITES.put(mid, retainable[mid], served[mid])
     return served
 
 
 def retain_match_sites(
     retainable: RetainedSources,
-    capabilities: HostCapabilities,
     sites: Mapping[ModuleId, CachedModuleSites],
 ) -> None:
-    _retain(_SITES, retainable, (capability_signature(capabilities),), sites)
+    _retain(_SITES, retainable, sites)
 
 
 def _served[V](
-    store: _ArtifactStore[V],
+    store: _ArtifactStore[V, ModuleId],
     retainable: RetainedSources,
-    discriminator: tuple[object, ...],
     expected: type[V],
 ) -> dict[ModuleId, V]:
     """Collect every artifact these modules still qualify for.
@@ -325,31 +303,30 @@ def _served[V](
     if store.persist:
         for group in _groups(retainable):
             sources = retainable[group[0]]
-            if all(store.get((mid, *discriminator), retainable[mid]) is not None for mid in group):
+            if all(store.get(mid, retainable[mid]) is not None for mid in group):
                 continue
             payload = artifact_serialization.load(
-                _disk_key(sources, discriminator),
+                _disk_key(sources),
                 store.kind,
-                _anchors(store.kind, sources, discriminator, retainable),
+                _anchors(store.kind, sources, retainable),
             )
             if isinstance(payload, dict):
                 artifacts = cast(dict[object, object], payload)
                 for mid in group:
                     artifact = artifacts.get(mid)
                     if isinstance(artifact, expected):
-                        store.put((mid, *discriminator), retainable[mid], artifact)
+                        store.put(mid, retainable[mid], artifact)
     served: dict[ModuleId, V] = {}
     for module_id, sources in retainable.items():
-        artifact = store.get((module_id, *discriminator), sources)
+        artifact = store.get(module_id, sources)
         if artifact is not None:
             served[module_id] = artifact
     return served
 
 
 def _retain[V](
-    store: _ArtifactStore[V],
+    store: _ArtifactStore[V, ModuleId],
     retainable: RetainedSources,
-    discriminator: tuple[object, ...],
     artifacts: Mapping[ModuleId, V],
     *,
     disk_form: Callable[[ModuleId], object] | None = None,
@@ -368,21 +345,19 @@ def _retain[V](
     for group in _groups(retainable):
         sources = retainable[group[0]]
         members = {mid: artifacts[mid] for mid in group if mid in artifacts}
-        changed = any(store.get((mid, *discriminator), sources) is None for mid in members)
+        changed = any(store.get(mid, sources) is None for mid in members)
         for mid, artifact in members.items():
-            store.put((mid, *discriminator), sources, artifact)
+            store.put(mid, sources, artifact)
         if changed and store.persist:
             artifact_serialization.save(
-                _disk_key(sources, discriminator),
+                _disk_key(sources),
                 store.kind,
                 {mid: (members[mid] if disk_form is None else disk_form(mid)) for mid in members},
-                _anchors(store.kind, sources, discriminator, retainable),
+                _anchors(store.kind, sources, retainable),
             )
 
 
-def _anchors(
-    kind: str, sources: Sources, discriminator: tuple[object, ...], retainable: RetainedSources
-) -> tuple[object, ...]:
+def _anchors(kind: str, sources: Sources, retainable: RetainedSources) -> tuple[object, ...]:
     """Return this stage's positional anchor table, indexed by persistent id.
 
     The layout cannot differ between a save and a later load of the same
@@ -407,11 +382,11 @@ def _anchors(
         if retained is None:
             continue
         if kind == "checked":
-            resolved = _RESOLVED.get((module.module_id,), retained)
+            resolved = _RESOLVED.get(module.module_id, retained)
             if resolved is not None:
                 anchors.append(resolved.resolved)
         elif kind == "matches":
-            checked = _CHECKED.get((module.module_id, *discriminator), retained)
+            checked = _CHECKED.get(module.module_id, retained)
             # A stale or bare-image `checked` just misses the same identity
             # gate `retained_match_sites` relies on -- never a wrong reuse.
             if isinstance(checked, CheckedModule):
@@ -426,13 +401,13 @@ def _groups(retainable: RetainedSources) -> tuple[tuple[ModuleId, ...], ...]:
     return tuple(tuple(group) for group in groups.values())
 
 
-_FINGERPRINTS: _ArtifactStore[bytes] = _ArtifactStore()
+_FINGERPRINTS: _ArtifactStore[bytes, ModuleId] = _ArtifactStore()
 
 
-def _disk_key(sources: Sources, discriminator: tuple[object, ...]) -> bytes:
+def _disk_key(sources: Sources, discriminator: tuple[object, ...] = ()) -> bytes:
     digest = hashlib.sha256(repr(discriminator).encode())
     for module in sources:
-        key = (module.module_id,)
+        key = module.module_id
         fingerprint = _FINGERPRINTS.get(key, (module,))
         if fingerprint is None:
             fingerprint = hashlib.sha256(repr(module).encode()).digest()
@@ -441,14 +416,9 @@ def _disk_key(sources: Sources, discriminator: tuple[object, ...]) -> bytes:
     return digest.digest()
 
 
-def module_fingerprints(
-    retainable: RetainedSources, capabilities: HostCapabilities
-) -> dict[ModuleId, bytes]:
+def module_fingerprints(retainable: RetainedSources) -> dict[ModuleId, bytes]:
     """Dependency identities used to validate independently lowered modules."""
-    return {
-        mid: _disk_key(sources, (mid, capability_signature(capabilities)))
-        for mid, sources in retainable.items()
-    }
+    return {mid: _disk_key(sources, (mid,)) for mid, sources in retainable.items()}
 
 
 def clear_retained_artifacts() -> None:

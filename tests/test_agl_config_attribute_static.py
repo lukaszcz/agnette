@@ -17,20 +17,20 @@ from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.typecheck.env import AglTypeError
 from agnette.agl.typecheck.program import check_program
-from tests.agl.ir_harness import base_caps, make_file_graph_from_files
+from tests.agl.ir_harness import make_file_graph_from_files
 from tests.agl.module_graph import resolve_and_check_entry
 
 
 def _check(source: str) -> None:
     """Resolve and type-check a single-module *source*, raising on any static error."""
-    resolve_and_check_entry(source, base_caps())
+    resolve_and_check_entry(source)
 
 
 def _check_multi(tmp_path: Path, modules: dict[str, str]) -> None:
     """Resolve and type-check a multi-module program, raising on any static error."""
     graph = make_file_graph_from_files(tmp_path, modules)
     resolved_program = resolve_program(graph)
-    check_program(resolved_program, base_caps())
+    check_program(resolved_program)
 
 
 class TestAcceptedConfigTargets:

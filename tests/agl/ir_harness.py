@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.nodes import IrBlock, IrConstUnit, IrExpr
 from agnette.agl.ir.program import ExecutableProgram, IrFunctionBody
@@ -51,7 +50,6 @@ _REPO_STDLIB_ROOT = Path(__file__).resolve().parents[2] / "packages" / "stdlib"
 def _checked_program(
     source: str,
     *,
-    caps: HostCapabilities | None = None,
     default_stdlib: bool = True,
     origin_path: Path | None = None,
 ) -> CheckedProgram:
@@ -68,13 +66,12 @@ def _checked_program(
         source, origin_path=origin_path, default_stdlib=default_stdlib
     )
     resolved_program = resolve_program(graph)
-    return check_program(resolved_program, caps or base_caps())
+    return check_program(resolved_program)
 
 
 def _checked_inline_program(
     source: str,
     *,
-    caps: HostCapabilities | None = None,
     default_stdlib: bool = True,
     origin_path: Path | None = None,
 ) -> CheckedProgram:
@@ -91,19 +88,16 @@ def _checked_inline_program(
         default_stdlib=default_stdlib,
         spaced_qualifiers=parsed.spaced_qualifiers,
     )
-    return check_program(resolve_program(graph), caps or base_caps())
+    return check_program(resolve_program(graph))
 
 
 def _compiled_program(
     source: str,
     *,
-    caps: HostCapabilities | None = None,
     default_stdlib: bool = True,
     origin_path: Path | None = None,
 ) -> MatchCompiledProgram:
-    checked = _checked_program(
-        source, caps=caps, default_stdlib=default_stdlib, origin_path=origin_path
-    )
+    checked = _checked_program(source, default_stdlib=default_stdlib, origin_path=origin_path)
     result = compile_program_matches(checked)
     assert isinstance(result.compiled, MatchCompiledProgram)
     return result.compiled
@@ -112,15 +106,12 @@ def _compiled_program(
 def _compiled_inline_program(
     source: str,
     *,
-    caps: HostCapabilities | None = None,
     default_stdlib: bool = True,
     origin_path: Path | None = None,
 ) -> MatchCompiledProgram:
     """Compile a statement-oriented test workflow as ``agm exec -c`` does."""
     result = compile_program_matches(
-        _checked_inline_program(
-            source, caps=caps, default_stdlib=default_stdlib, origin_path=origin_path
-        )
+        _checked_inline_program(source, default_stdlib=default_stdlib, origin_path=origin_path)
     )
     assert isinstance(result.compiled, MatchCompiledProgram)
     return result.compiled
@@ -234,26 +225,9 @@ def _roots(*paths: Path, include_stdlib: bool = True) -> RootSet:
     return agl_roots(*paths, include_stdlib=include_stdlib)
 
 
-def base_caps() -> HostCapabilities:
-    return HostCapabilities(
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        }
-    )
-
-
-def extern_caps() -> HostCapabilities:
-    base = base_caps()
-    return HostCapabilities(supports_extern=True, codec_kinds=base.codec_kinds)
-
-
 def lower_ir(
     source: str,
     *,
-    caps: HostCapabilities | None = None,
     default_stdlib: bool = True,
     origin_path: Path | None = None,
 ) -> ExecutableProgram:
@@ -267,23 +241,18 @@ def lower_ir(
     per-module ``lower_module``) is the pipeline production always runs, so
     this is what a source-level IR test should lower through too.
     """
-    compiled = _compiled_program(
-        source, caps=caps, default_stdlib=default_stdlib, origin_path=origin_path
-    )
+    compiled = _compiled_program(source, default_stdlib=default_stdlib, origin_path=origin_path)
     return lower_program(compiled, _entry_source_text=source)
 
 
 def lower_inline_ir(
     source: str,
     *,
-    caps: HostCapabilities | None = None,
     default_stdlib: bool = True,
     origin_path: Path | None = None,
 ) -> ExecutableProgram:
     return lower_program(
-        _compiled_inline_program(
-            source, caps=caps, default_stdlib=default_stdlib, origin_path=origin_path
-        ),
+        _compiled_inline_program(source, default_stdlib=default_stdlib, origin_path=origin_path),
         _entry_source_text=source,
     )
 
@@ -395,7 +364,7 @@ def _write_extern_entry(source: str, companion_source: str, tmp_path: Path) -> P
 def lower_extern_program(source: str, companion_source: str, tmp_path: Path) -> ExecutableProgram:
     """Lower an extern-declaring *source* at its real entry path without running it."""
     entry_path = _write_extern_entry(source, companion_source, tmp_path)
-    return lower_inline_ir(source, caps=extern_caps(), origin_path=entry_path)
+    return lower_inline_ir(source, origin_path=entry_path)
 
 
 def evaluate_ir_with_externs(
@@ -521,7 +490,7 @@ make_graph_from_files = make_inline_graph_from_files
 
 def _checked(entry_source: str, modules: dict[str, str], tmp_path: Path) -> CheckedProgram:
     graph = make_inline_graph_from_files(tmp_path, {"entry": entry_source, **modules})
-    return check_program(resolve_program(graph), base_caps())
+    return check_program(resolve_program(graph))
 
 
 def evaluate_ir_graph(
@@ -538,11 +507,6 @@ def evaluate_ir_graph_raises(
     """Run an inline entry importing *modules* that must end with an uncaught AgL exception."""
     roots = _roots(_write_module_root(tmp_path, modules))
     return uncaught_error(run_inline_ir(entry_source, roots=roots))
-
-
-def agent_caps() -> HostCapabilities:
-    base = base_caps()
-    return HostCapabilities(codec_kinds=base.codec_kinds)
 
 
 def _make_scripted_registry(
@@ -611,11 +575,6 @@ def evaluate_ir_raises_with_agents(
             source, agent_dispatcher=agent_dispatcher, process_environment=process_environment
         )
     )
-
-
-def shell_caps() -> HostCapabilities:
-    base = base_caps()
-    return HostCapabilities(supports_shell_exec=True, codec_kinds=base.codec_kinds)
 
 
 @dataclass(frozen=True, slots=True)

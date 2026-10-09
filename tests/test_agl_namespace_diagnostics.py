@@ -17,7 +17,7 @@ from agnette.agl.scope.symbols import (
     UnknownQualifierError,
 )
 from agnette.agl.typecheck.program import check_program
-from tests.agl.ir_harness import base_caps, make_repl_graph_from_files, resolve_repl_graph
+from tests.agl.ir_harness import make_repl_graph_from_files, resolve_repl_graph
 
 
 def _graph(tmp_path: Path, entry: str, modules: dict[str, str] | None = None) -> ModuleGraph:
@@ -197,7 +197,7 @@ def test_spaced_qualifier_repair_preserves_explicit_type_arguments(tmp_path: Pat
             {"app/config": module_source},
         )
     )
-    check_program(repaired, base_caps())
+    check_program(repaired)
 
 
 def test_spaced_slash_qualifier_near_miss_uses_the_full_route_despite_suffix_collision(
@@ -275,7 +275,7 @@ def test_spaced_qualifier_preserves_resolvable_juxtaposition(
     tmp_path: Path, entry: str, modules: dict[str, str]
 ) -> None:
     resolved = resolve_repl_graph(_graph(tmp_path, entry, modules))
-    check_program(resolved, base_caps())
+    check_program(resolved)
 
 
 @pytest.mark.parametrize(
@@ -302,7 +302,7 @@ def test_spaced_slash_qualifier_preserves_non_route_division_forms(
             {"app/config": "def x() -> int = 1"},
         )
     )
-    check_program(resolved, base_caps())
+    check_program(resolved)
 
 
 @pytest.mark.parametrize(
@@ -460,7 +460,7 @@ def test_qualified_type_errors_keep_unknown_route_and_missing_member_diagnostics
         ),
         {"remote/config": "def read() -> int = 1\nenum Flag | On"},
     )
-    assert check_program(resolve_repl_graph(reachable), base_caps()).entry_id == reachable.entry_id
+    assert check_program(resolve_repl_graph(reachable)).entry_id == reachable.entry_id
 
 
 def test_qualified_ambiguity_lists_sorted_candidates_and_repairs(tmp_path: Path) -> None:

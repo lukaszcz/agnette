@@ -104,7 +104,6 @@ def test_constructor_field_default_omitted_across_module_boundary(tmp_path: Path
     # lowering an omitted default is exercised at the unit level, not here.
     from agnette.agl import PipelineDriver
     from agnette.agl.typecheck.program import check_program
-    from tests.agl.ir_harness import base_caps
 
     library_root = tmp_path / "library"
     library_root.mkdir()
@@ -116,7 +115,7 @@ def test_constructor_field_default_omitted_across_module_boundary(tmp_path: Path
     )
     assert prepared.resolved is not None, prepared.diagnostics
 
-    checked = check_program(prepared.resolved, base_caps())
+    checked = check_program(prepared.resolved)
     entry_checked = checked.modules[prepared.resolved.entry_id]
     let_decl = entry_checked.resolved.program.body.items[2]
     point_type = entry_checked.node_types[let_decl.value.node_id]

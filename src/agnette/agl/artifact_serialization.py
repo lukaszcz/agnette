@@ -37,7 +37,6 @@ _DATA_LEAVES = frozenset(
     {
         "agnette.agl.modules.ids",
         "agnette.agl.modules.loader",
-        "agnette.agl.capabilities",
         "agnette.agl.constraints",
         "agnette.agl.diagnostics",
         "agnette.agl.attributes",

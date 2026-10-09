@@ -57,7 +57,6 @@ import dataclasses
 from collections.abc import Mapping
 from pathlib import Path
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.lexer import spaced_qualifier_collector
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import (
@@ -79,18 +78,6 @@ from agnette.agl.typecheck.env import CheckedModule, TypeEnvironment
 from agnette.agl.typecheck.program import check_program
 from agnette.util.text import normalize_newlines
 from tests._agl_helpers import agl_roots
-
-# A general-purpose capability set (default agent, shell exec, json/text
-# codecs) for a test that does not care which capabilities back its checked
-# module. Used as :func:`check_resolved`'s default so most hand-built-AST
-# tests never need to construct one themselves.
-_DEFAULT_CAPABILITIES = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
 
 _REPO_STDLIB_ROOT = Path(__file__).resolve().parents[2] / "packages" / "stdlib"
 
@@ -367,7 +354,6 @@ def resolve_repl_entry(
 
 def resolve_and_check_repl_entry(
     source: str,
-    capabilities: HostCapabilities,
     *,
     parent_scope: ScopeNode | None = None,
     seed_env: TypeEnvironment | None = None,
@@ -386,7 +372,7 @@ def resolve_and_check_repl_entry(
         graph,
         entry_repl_session_scope=parent_scope or ScopeNode(node_id=-1, parent=None, scope_path=()),
     )
-    checked_program = check_program(resolved_program, capabilities, entry_seed_env=seed_env)
+    checked_program = check_program(resolved_program, entry_seed_env=seed_env)
     checked = checked_program.modules[graph.entry_id]
     stripped_resolved = _without_synthetic_import(checked.resolved, import_node_id)
     return dataclasses.replace(checked, resolved=stripped_resolved)
@@ -394,7 +380,6 @@ def resolve_and_check_repl_entry(
 
 def resolve_and_check_inline_entry(
     source: str,
-    capabilities: HostCapabilities,
     *,
     parent_scope: ScopeNode | None = None,
     retained_type_owners: Mapping[ScopePath, TypeOwner] | None = None,
@@ -411,7 +396,7 @@ def resolve_and_check_inline_entry(
         entry_repl_session_type_paths=retained_type_owners,
         entry_repl_session_scope=parent_scope,
     )
-    checked_program = check_program(resolved_program, capabilities, entry_seed_env=seed_env)
+    checked_program = check_program(resolved_program, entry_seed_env=seed_env)
     checked = checked_program.modules[graph.entry_id]
     stripped_resolved = _without_synthetic_import(checked.resolved, import_node_id)
     source_view = dataclasses.replace(
@@ -422,7 +407,6 @@ def resolve_and_check_inline_entry(
 
 def resolve_and_check_entry(
     source: str,
-    capabilities: HostCapabilities,
     *,
     parent_scope: ScopeNode | None = None,
     retained_type_owners: Mapping[ScopePath, TypeOwner] | None = None,
@@ -439,9 +423,8 @@ def resolve_and_check_entry(
     both run with the injected ``std/prelude`` import present — that is the
     real graph production builds — and only the returned
     ``checked.resolved.program.body.items`` has that one synthetic item
-    removed, exactly as :func:`resolve_entry` does. *capabilities* and
-    *seed_env* forward to ``check_program``'s ``capabilities`` and
-    ``entry_seed_env``; the remaining parameters are as in
+    removed, exactly as :func:`resolve_entry` does. *seed_env* forwards to
+    ``check_program``'s ``entry_seed_env``; the remaining parameters are as in
     :func:`resolve_entry`, including the *default_stdlib* default and when
     to flip it off.
     """
@@ -453,7 +436,7 @@ def resolve_and_check_entry(
         entry_repl_session_type_paths=retained_type_owners,
         entry_repl_session_scope=parent_scope,
     )
-    checked_program = check_program(resolved_program, capabilities, entry_seed_env=seed_env)
+    checked_program = check_program(resolved_program, entry_seed_env=seed_env)
     checked = checked_program.modules[graph.entry_id]
     stripped_resolved = _without_synthetic_import(checked.resolved, import_node_id)
     return dataclasses.replace(checked, resolved=stripped_resolved)
@@ -461,7 +444,6 @@ def resolve_and_check_entry(
 
 def check_resolved(
     resolved: ModuleResolution,
-    capabilities: HostCapabilities | None = None,
     *,
     seed_env: TypeEnvironment | None = None,
 ) -> CheckedModule:
@@ -475,8 +457,7 @@ def check_resolved(
     re-checking it more than once) — there is no source text to hand to
     :func:`resolve_and_check_entry`. This calls ``_check_prepared_module``
     (sharing the program driver's body checker) directly: env setup,
-    then ``_check_prepared_module``. *capabilities* defaults to a
-    general-purpose capability set when omitted; *seed_env* seeds the
+    then ``_check_prepared_module``. *seed_env* seeds the
     environment before checking, mirroring ``resolve_and_check_entry``'s
     ``seed_env``.
 
@@ -488,12 +469,10 @@ def check_resolved(
     test exercising either validator needs a real module graph and belongs
     behind :func:`resolve_and_check_entry`, not this seam.
     """
-    if capabilities is None:
-        capabilities = _DEFAULT_CAPABILITIES
     env = TypeEnvironment(owner_declarations=resolved.owner_declarations)
     if seed_env is not None:
         env.seed_from(seed_env)
-    return _check_prepared_module(resolved, capabilities, env=env)
+    return _check_prepared_module(resolved, env=env)
 
 
 def _single_module_graph(program: Program, *, origin_path: Path | None) -> ModuleGraph:
@@ -588,7 +567,6 @@ def resolve_inline_program_ast(
 
 def resolve_and_check_inline_program_ast(
     program: Program,
-    capabilities: HostCapabilities,
     *,
     next_node_id: int = 1_000_000,
     origin_path: Path | None = None,
@@ -597,7 +575,7 @@ def resolve_and_check_inline_program_ast(
     """Type-check a test-only hand-built inline AST."""
     wrapped, _ = wrap_inline_program(program, next_node_id=next_node_id)
     graph = _single_module_graph(wrapped, origin_path=origin_path)
-    checked_program = check_program(resolve_program(graph), capabilities, entry_seed_env=seed_env)
+    checked_program = check_program(resolve_program(graph), entry_seed_env=seed_env)
     checked = checked_program.modules[graph.entry_id]
     return dataclasses.replace(
         checked, resolved=dataclasses.replace(checked.resolved, program=program)
@@ -606,7 +584,6 @@ def resolve_and_check_inline_program_ast(
 
 def resolve_and_check_program_ast(
     program: Program,
-    capabilities: HostCapabilities,
     *,
     origin_path: Path | None = None,
     seed_env: TypeEnvironment | None = None,
@@ -618,5 +595,5 @@ def resolve_and_check_program_ast(
     """
     graph = _single_module_graph(program, origin_path=origin_path)
     resolved_program = resolve_program(graph)
-    checked_program = check_program(resolved_program, capabilities, entry_seed_env=seed_env)
+    checked_program = check_program(resolved_program, entry_seed_env=seed_env)
     return checked_program.modules[graph.entry_id]

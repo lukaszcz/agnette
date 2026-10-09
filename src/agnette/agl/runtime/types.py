@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from agnette.agent.spec_defaults import AgentSpecResolver
     from agnette.agl.attributes import ProgramOptionSpec
-    from agnette.agl.capabilities import HostCapabilities
     from agnette.agl.ir.static_keys import StaticBindingKey
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.runtime.agents import AgentFn
@@ -49,9 +48,6 @@ class HostEnvironment:
         `agnette.agent.spec_defaults.configured_defaults_resolver`) to every
         decoded ``Agent`` spec before it is dispatched. ``None`` dispatches
         specs as decoded.
-    ``capabilities``
-        The ``HostCapabilities`` static catalog derived from codecs — consumed
-        by the type checker.
     ``extern_registry``
         The ``ExternRegistry`` used to import extern-def companion modules
         and resolve their callables.  Built empty; the pipeline populates it
@@ -60,7 +56,6 @@ class HostEnvironment:
 
     agent_dispatcher: "AgentFn | None"
     session_host: "SessionHost | None"
-    capabilities: "HostCapabilities"
     extern_registry: "ExternRegistry"
     get_sandbox_context: "Callable[[], SandboxContext] | None" = None
     resolve_agent_spec: "AgentSpecResolver | None" = None

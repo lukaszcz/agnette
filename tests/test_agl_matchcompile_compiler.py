@@ -13,7 +13,6 @@ from typing import cast
 import pytest
 
 import agnette.agl.matchcompile.compiler as compiler_module
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.matchcompile.compiler import (
     CompiledMatchSite,
@@ -72,14 +71,6 @@ from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.match_reference import enum_variant_members, reference_action
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
 
 def _by_own_name(decl: DeclKey, _case_node_id: int) -> str:
     """Name a constructor by its own name: these tests check which constructors are missing.
@@ -103,7 +94,7 @@ def _compiled_cases(
     them as many ``case`` sites in a single program and compiles each site
     independently, exactly as it would one matrix per program.
     """
-    checked = resolve_and_check_inline_entry(source, _CAPS)
+    checked = resolve_and_check_inline_entry(source)
     cases: list[Case] = []
 
     def collect(node: object) -> None:
@@ -163,7 +154,7 @@ def test_case_source_payload_selects_non_exhaustive_issue() -> None:
 
 def _compile_graph_case(tmp_path: Path, modules: dict[str, str]) -> CompiledMatchSite:
     graph = make_graph_from_files(tmp_path, modules)
-    checked = check_program(resolve_program(graph), _CAPS).modules[ENTRY_ID]
+    checked = check_program(resolve_program(graph)).modules[ENTRY_ID]
     cases: list[Case] = []
 
     def collect(node: object) -> None:

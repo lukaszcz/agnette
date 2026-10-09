@@ -2,10 +2,6 @@
 
 `PipelineDriver` (`agl/pipeline.py`) is the public entry point to AgL. It drives parse → scope → typecheck → match compile → lower/link → evaluate, assembles the host environment, and hands every artifact forward so a program compiles and lowers once however often a host resumes it. `agm exec`, registered commands (`commands/exec_program.py`), and `agm check` sit on it; the REPL drives the same passes incrementally ([repl.md](repl.md)), and package validation runs only module loading and scope. There is never a second pipeline: anything a host wants compiled is compiled with the program, and artifacts produced during CLI program discovery are handed to execution rather than recomputed.
 
-## Host Capabilities
-
-`HostCapabilities` (`agl/capabilities.py`) describes host features that affect checking (shell `exec`, externs, codec kinds). The checker sees descriptors, never implementations; cached artifacts are keyed by them.
-
 ## Programs, Entries, and Parameters
 
 - **Discovery.** `discover_programs` runs the static pipeline and reports each `program def`'s typed signature, `@doc`, and per-parameter CLI option specs, plus each program's source-reachable module closure and its static module parameters (`@param`). Scope validates attributes, so hosts build command lines from these specs alone ([cli.md](../cli.md)).
@@ -32,6 +28,6 @@ Compiler self-checks (checker closure, match artifacts, deep IR validation, FFI 
 ## Code Entry Points
 
 - `src/agnette/agl/pipeline.py` — `PipelineDriver`: preparation, discovery, preflight, execution.
-- `src/agnette/agl/capabilities.py`, `diagnostics.py`, `recursion.py`, `self_validation.py` — host-facing leaves.
+- `src/agnette/agl/diagnostics.py`, `recursion.py`, `self_validation.py` — host-facing leaves.
 - `src/agnette/agl/runtime/arguments.py`, `value_decode.py`, `engine_config.py` — argument binding, host-value decoding, engine settings.
 - `src/agnette/agm/commands/exec_program.py`, `check.py`, `repl.py` — the CLI hosts; `src/agnette/agm/cli_support/` — discovery, parameter routes, engine seeds.

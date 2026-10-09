@@ -64,7 +64,7 @@ A **program** is the entry module plus its transitive import and re-export depen
 | Host runtime services and FFI | `src/agnette/agl/runtime/` |
 | Module loading | `src/agnette/agl/modules/` |
 | REPL | `src/agnette/agl/repl/` |
-| Pipeline orchestrator and host leaves | `src/agnette/agl/pipeline.py`, `capabilities.py`, `diagnostics.py`, `type_schema.py`, `artifact_cache.py`, `artifact_storage.py`, `self_validation.py` |
+| Pipeline orchestrator and host leaves | `src/agnette/agl/pipeline.py`, `diagnostics.py`, `type_schema.py`, `artifact_cache.py`, `artifact_storage.py`, `self_validation.py` |
 
 ## Layering
 
@@ -81,7 +81,7 @@ A test enforces the import contract:
 - [frontend/index.md](frontend/index.md) — lexer, parser, AST, scope, typecheck, match compilation.
 - [execution/index.md](execution/index.md) — lowering, the IR, the evaluator, the host runtime, and the Python FFI.
 - [modules.md](modules.md) — the module system and the compilation caches.
-- [hosting.md](hosting.md) — the pipeline orchestrator, host capabilities, parameters, engine settings, diagnostics.
+- [hosting.md](hosting.md) — the pipeline orchestrator, parameters, engine settings, diagnostics.
 - [repl.md](repl.md) — the incremental REPL session and its front ends.
 
 The language is documented for users in `docs/agl/reference/`; the standard library's sources under `packages/stdlib/src/` are its own reference.

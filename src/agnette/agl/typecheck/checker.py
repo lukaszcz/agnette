@@ -1,8 +1,7 @@
 """Type-checking pass for AgL.
 
 ``_Checker`` performs a bidirectional type pass over one module's
-``ModuleResolution``, using the ``HostCapabilities`` to validate codec and
-renderer names, and produces a ``CheckedModule``; ``check_program`` drives one
+``ModuleResolution`` and produces a ``CheckedModule``; ``check_program`` drives one
 ``_Checker`` per module of a whole program (see ``typecheck/program.py``).
 
 Rules implemented
@@ -18,7 +17,7 @@ Rules implemented
 5.  ``print(expr)`` — accepts any value and yields ``unit``.
 6.  ``render(expr, pretty:, quote-strings:)`` — accepts any value and yields ``text``.
 7.  ``ask(prompt, ...)`` — default-session call with codec; ``Agent::ask`` selects a receiver.
-8.  ``exec(cmd, ...)`` — shell call; requires ``supports_shell_exec``.
+8.  ``exec(cmd, ...)`` — shell call.
 9.  Declared-name calls — checked against the full ``FunctionSignature``.
 10. Value calls — checked against the ``FunctionType``; named args disallowed.
 11. Lambdas — inferred or annotated return type.
@@ -46,7 +45,6 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Literal, Protocol, assert_never, cast
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintBounds, ConstraintKind, strongest_constraint
 from agnette.agl.diagnostics import (
     Diagnostic,
@@ -953,14 +951,12 @@ class _Checker:
         self,
         env: TypeEnvironment,
         resolved: ModuleResolution,
-        capabilities: HostCapabilities,
         module_id: ModuleId = ENTRY_ID,
         candidate_records: Mapping[int, FunctionSignatureRecord] | None = None,
         declaration_spans: Mapping[DeclarationKey, SourceSpan] | None = None,
     ) -> None:
         self._env = env
         self._resolved = resolved
-        self._caps = capabilities
         self._module_id = module_id
         self._declaration_scope_paths = {
             ref.decl_node_id: ref.scope_path for ref in resolved.declarations.values()
@@ -6892,7 +6888,6 @@ class _Checker:
 
 def prepare_module_headers(
     resolved: ModuleResolution,
-    capabilities: HostCapabilities,
     *,
     env: TypeEnvironment,
     module_id: ModuleId,
@@ -6906,7 +6901,6 @@ def prepare_module_headers(
     header_checker = _Checker(
         env=env,
         resolved=resolved,
-        capabilities=capabilities,
         module_id=module_id,
     )
     for item in static_items(resolved.program.body.items):
@@ -6916,7 +6910,6 @@ def prepare_module_headers(
 
 def _check_prepared_module(
     resolved: ModuleResolution,
-    capabilities: HostCapabilities,
     *,
     env: TypeEnvironment,
     module_id: ModuleId = ENTRY_ID,
@@ -6940,20 +6933,18 @@ def _check_prepared_module(
     if prepare_headers:
         prepare_module_headers(
             resolved,
-            capabilities,
             env=env,
             module_id=module_id,
         )
     if infer_candidates:
         inferred_records = infer_module_component_candidates(
-            ModuleCandidateComponent.singleton(resolved, env, capabilities, module_id)
+            ModuleCandidateComponent.singleton(resolved, env, module_id)
         )
         candidate_records = {record.declaration_node_id: record for record in inferred_records}
 
     checker = _Checker(
         env=env,
         resolved=resolved,
-        capabilities=capabilities,
         module_id=module_id,
         candidate_records=candidate_records,
         declaration_spans=declaration_spans,

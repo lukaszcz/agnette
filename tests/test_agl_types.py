@@ -21,7 +21,6 @@ from collections.abc import Iterator
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.semantics import types as types_module
 from agnette.agl.semantics.type_table import TypeDef, TypeTable, comparable_types, is_assignable_in
@@ -386,7 +385,6 @@ class TestFunctionType:
             "def Box::get[T](self) -> T = self.value\n"
             "let box = Box(value = 1)\n"
             "box.get",
-            HostCapabilities(),
         )
         member_access = checked.resolved.program.body.items[-1]
         assert checked.node_types[member_access.node_id] == FunctionType((), IntType())

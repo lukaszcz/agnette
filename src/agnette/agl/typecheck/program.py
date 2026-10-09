@@ -1,6 +1,6 @@
 """Program-level type-checking pass for the AgL module system.
 
-``check_program(resolved, capabilities)`` runs the full type-checking pass
+``check_program(resolved)`` runs the full type-checking pass
 over a :class:`~agnette.agl.scope.program.ResolvedProgram`, producing a
 :class:`CheckedProgram`.
 
@@ -95,7 +95,6 @@ from agnette.agl.artifact_cache import (
     retained_module_headers,
     retained_module_sources,
 )
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.diagnostics import CycleAlias, Diagnostic, alias_cycle_error
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.scope.program import ResolvedProgram
@@ -213,7 +212,6 @@ class CheckedProgram:
     warnings: tuple[Diagnostic, ...]
     import_sccs: tuple[tuple[ModuleId, ...], ...]
     resource_roots: Mapping[ModuleId, Path | None]
-    capabilities: HostCapabilities | None = None
     module_fingerprints: Mapping[ModuleId, bytes] = field(default_factory=dict)
 
 
@@ -858,7 +856,6 @@ def _constant_dependency_order(
 def _build_program_static_binding_table(
     resolved: ResolvedProgram,
     module_envs: Mapping[ModuleId, TypeEnvironment],
-    capabilities: HostCapabilities,
     cached_modules: Mapping[ModuleId, PublishedModuleSurface] | None = None,
 ) -> dict[int, Type]:
     """Resolve every exported static ``let``/``var`` binding for cross-module access.
@@ -916,7 +913,6 @@ def _build_program_static_binding_table(
                     checker = _Checker(
                         env=env,
                         resolved=module_resolved,
-                        capabilities=capabilities,
                         module_id=mid,
                     )
                 binding_type = checker.infer_static_initializer_type(item)
@@ -1136,7 +1132,6 @@ def _prepare_module_environment(
 
 def _prepare_headers(
     resolved: ResolvedProgram,
-    capabilities: HostCapabilities,
     module_envs: Mapping[ModuleId, TypeEnvironment],
     ordered_mids: tuple[ModuleId, ...],
     retainable: RetainedSources | None,
@@ -1146,8 +1141,8 @@ def _prepare_headers(
     Preparing one module's headers resolves every declaration body and every
     declared function header the module owns, then writes the results into its
     own environment and its methods into the program's shared type table. All
-    of it is a function of the module, its import/export closure, and the
-    capabilities -- exactly what *retainable* keys on -- so a retainable
+    of it is a function of the module and its import/export closure --
+    exactly what *retainable* keys on -- so a retainable
     module journals its writes and a later compilation replays that journal
     instead of resolving the same declarations again. The entry module, which
     has no stable identity across programs, is never retainable and is always
@@ -1160,7 +1155,7 @@ def _prepare_headers(
     registering a declaration would fail there rather than silently leave a
     memo-served compilation short of one.
     """
-    retained = retained_module_headers(retainable, capabilities) if retainable is not None else {}
+    retained = retained_module_headers(retainable) if retainable is not None else {}
     prepared: dict[ModuleId, EnvironmentFacts] = {}
     for mid in ordered_mids:
         env = module_envs[mid]
@@ -1173,14 +1168,13 @@ def _prepare_headers(
             env.begin_facts()
         prepare_module_headers(
             resolved.modules[mid].resolved,
-            capabilities,
             env=env,
             module_id=mid,
         )
         if journaled:
             prepared[mid] = env.end_facts()
     if retainable is not None and prepared:
-        retain_module_headers(retainable, capabilities, prepared)
+        retain_module_headers(retainable, prepared)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1205,7 +1199,6 @@ class _PreparedProgram:
 
 def _prepare_program(
     resolved: ResolvedProgram,
-    capabilities: HostCapabilities,
     entry_seed_env: TypeEnvironment | None = None,
     cached_checked_modules: Mapping[ModuleId, CheckedModule | CheckedModuleImage] | None = None,
     retainable: RetainedSources | None = None,
@@ -1297,7 +1290,7 @@ def _prepare_program(
     program_modules = {module_id: module.resolved for module_id, module in resolved.modules.items()}
     declaration_spans = _declaration_spans(resolved)
 
-    _prepare_headers(resolved, capabilities, module_envs, ordered_mids, retainable)
+    _prepare_headers(resolved, module_envs, ordered_mids, retainable)
 
     # Static let/var bindings and builtin vars need each module's headers
     # finalized (record/enum/exception bodies, constructor arities) so that a
@@ -1307,7 +1300,7 @@ def _prepare_program(
     # later body checks, so seed the completed binding tables into every
     # module for cross-module references only after computing them here.
     program_static_binding_table = _build_program_static_binding_table(
-        resolved, module_envs, capabilities, cached_modules=cached_checked_modules
+        resolved, module_envs, cached_modules=cached_checked_modules
     )
     program_builtin_var_table = _build_program_builtin_var_table(
         resolved, module_envs, shared_type_table
@@ -1385,7 +1378,6 @@ def _prepare_program(
             CandidateModule(
                 resolved.modules[mid].resolved,
                 module_envs[mid],
-                capabilities,
                 mid,
                 declaration_spans,
             )
@@ -1417,7 +1409,6 @@ def _prepare_program(
 
 def check_program(
     resolved: ResolvedProgram,
-    capabilities: HostCapabilities,
     entry_seed_env: TypeEnvironment | None = None,
     cached_checked_modules: Mapping[ModuleId, CheckedModule | CheckedModuleImage] | None = None,
     session_builtin_declarations: SessionBuiltinDeclarations | None = None,
@@ -1428,8 +1419,6 @@ def check_program(
     ----------
     resolved:
         Output of :func:`~agnette.agl.scope.program.resolve_program`.
-    capabilities:
-        Immutable host capability catalog (agents, codecs, renderers).
     entry_seed_env:
         When given, the entry module's ``TypeEnvironment`` is seeded from this
         environment before the program type table and function signatures are
@@ -1467,7 +1456,7 @@ def check_program(
     # this program; a caller-supplied image (a REPL session's) wins over it.
     retainable = retained_module_sources(resolved.graph)
     reusable: dict[ModuleId, CheckedModule | CheckedModuleImage] = dict(
-        retained_checked_modules(retainable, capabilities)
+        retained_checked_modules(retainable)
     )
     if cached_checked_modules is not None:
         # A REPL full object supersedes an artifact-cache image by design: if
@@ -1491,7 +1480,6 @@ def check_program(
 
     prepared = _prepare_program(
         resolved,
-        capabilities,
         entry_seed_env=entry_seed_env,
         cached_checked_modules=cached_checked_modules,
         # Imported headers cannot read the anonymous REPL entry's session
@@ -1535,7 +1523,6 @@ def check_program(
         env.begin_facts()
         cp = _check_prepared_module(
             rmod.resolved,
-            capabilities,
             env=env,
             module_id=mid,
             prepare_headers=False,
@@ -1575,15 +1562,12 @@ def check_program(
         warnings=tuple(
             warning for mid in presentation_order for warning in checked_modules[mid].warnings
         ),
-        capabilities=capabilities,
         import_sccs=resolved.import_sccs,
         resource_roots={mid: resolved.graph.resource_root_for(mid) for mid in presentation_order},
-        module_fingerprints=module_fingerprints(retainable, capabilities)
-        if entry_seed_env is None
-        else {},
+        module_fingerprints=module_fingerprints(retainable) if entry_seed_env is None else {},
     )
     if self_validation_enabled():
         assert_checked_program_closed(checked, frozenset(reused_modules), frozenset(sealed_modules))
     if entry_seed_env is None:
-        retain_checked_modules(retainable, capabilities, checked_modules)
+        retain_checked_modules(retainable, checked_modules)
     return checked

@@ -14,7 +14,6 @@ from agnette.agl.repl.session import ReplSession
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import AmbiguousConstructorError
 from agnette.agl.typecheck.program import check_program
-from tests._agl_helpers import AGL_TEST_CAPS
 from tests.agl.ir_harness import make_graph_from_files
 from tests.agl.qualifier_support import graph_verdict
 
@@ -59,7 +58,7 @@ def _graph(tmp_path: Path, entry: str) -> ModuleGraph:
 def _witnesses(graph: ModuleGraph) -> list[str]:
     """The rendered witness of each non-exhaustive ``case`` in *graph*, spelled where written."""
     resolved = resolve_program(graph)
-    issues = compile_program_matches(check_program(resolved, AGL_TEST_CAPS)).issues
+    issues = compile_program_matches(check_program(resolved)).issues
     return [
         render_witness(issue.witness, resolved.speller(issue.module_id))
         for issue in issues

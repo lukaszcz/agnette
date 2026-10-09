@@ -24,7 +24,6 @@ from typing import cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintKind
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.parser.parser import parse_program
@@ -164,18 +163,9 @@ from tests.agl.qualifier_support import span_text
 # ---------------------------------------------------------------------------
 
 
-def _capability_key(capabilities: HostCapabilities) -> tuple[object, ...]:
-    """Hashable identity of a capability catalog (``codec_kinds`` is a dict)."""
-    return (
-        capabilities.supports_shell_exec,
-        capabilities.supports_extern,
-        tuple(sorted(capabilities.codec_kinds.items())),
-    )
-
-
 @pytest.fixture(scope="module", autouse=True)
 def share_retained_checked_modules() -> Iterator[None]:
-    """Type-check the standard library once per capability catalog, not per test.
+    """Type-check the standard library once, not per test.
 
     Every helper in :mod:`tests.agl.module_graph` builds a real module graph
     over the process-cached ``std/*`` modules, so the entry differs from test to
@@ -185,34 +175,28 @@ def share_retained_checked_modules() -> Iterator[None]:
     ``cached_checked_modules`` parameter, the same seam the REPL uses for its
     bootstrap image, and honors a cached module only when its resolved
     ``Program`` is the very object the current graph holds; anything else is
-    re-checked normally.  Checking is capability-sensitive, so the shared
-    library is keyed by the capability catalog the test asked for.
+    re-checked normally.
 
     Nothing observable changes: the entry module is always checked afresh,
     against a whole-program declaration and signature context this call
     rebuilds either way.
     """
     real_check_program = module_graph.check_program
-    library_by_capabilities: dict[tuple[object, ...], dict[ModuleId, CheckedModule]] = {}
+    library: dict[ModuleId, CheckedModule] = {}
 
     def check_program_with_shared_library(
         resolved: ResolvedProgram,
-        capabilities: HostCapabilities,
         entry_seed_env: TypeEnvironment | None = None,
         cached_checked_modules: Mapping[ModuleId, CheckedModule | CheckedModuleImage] | None = None,
     ) -> CheckedProgram:
-        key = _capability_key(capabilities)
         checked = real_check_program(
             resolved,
-            capabilities,
             entry_seed_env=entry_seed_env,
             cached_checked_modules=(
-                cached_checked_modules
-                if cached_checked_modules is not None
-                else library_by_capabilities.get(key)
+                cached_checked_modules if cached_checked_modules is not None else library
             ),
         )
-        library_by_capabilities.setdefault(key, {}).update(
+        library.update(
             {mid: module for mid, module in checked.modules.items() if mid != checked.entry_id}
         )
         return checked
@@ -229,72 +213,17 @@ def share_retained_checked_modules() -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 
-def default_capabilities() -> HostCapabilities:
-    return HostCapabilities(
-        supports_shell_exec=True,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-
-
-def text_only_caps() -> HostCapabilities:
-    return HostCapabilities(
-        codec_kinds={"text": frozenset({"text"})},
-    )
-
-
-def no_agent_caps() -> HostCapabilities:
-    return HostCapabilities(
-        supports_shell_exec=True,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-
-
-def no_exec_caps() -> HostCapabilities:
-    return HostCapabilities(
-        supports_shell_exec=False,
-        codec_kinds={"text": frozenset({"text"})},
-    )
-
-
-def parse_resolve_check(
-    source: str, capabilities: HostCapabilities | None = None, *, default_stdlib: bool = True
-) -> CheckedModule:
-    if capabilities is None:
-        capabilities = default_capabilities()
-    return resolve_and_check_repl_entry(source, capabilities, default_stdlib=default_stdlib)
-
-
-def accept_type(
-    source: str, capabilities: HostCapabilities | None = None, *, default_stdlib: bool = True
-) -> CheckedModule:
-    return parse_resolve_check(source, capabilities, default_stdlib=default_stdlib)
-
-
-def reject_type(
-    source: str, capabilities: HostCapabilities | None = None, *, default_stdlib: bool = True
-) -> AglTypeError | AglScopeError:
+def reject_type(source: str, *, default_stdlib: bool = True) -> AglTypeError | AglScopeError:
     """Assert that the source is rejected during scope or type checking."""
     with pytest.raises((AglTypeError, AglScopeError)) as exc_info:
-        parse_resolve_check(source, capabilities, default_stdlib=default_stdlib)
+        resolve_and_check_repl_entry(source, default_stdlib=default_stdlib)
     return exc_info.value
 
 
-def reject_any(
-    source: str, capabilities: HostCapabilities | None = None, *, default_stdlib: bool = True
-) -> Exception:
+def reject_any(source: str, *, default_stdlib: bool = True) -> Exception:
     """Assert that the source is rejected with any kind of error."""
     with pytest.raises(Exception) as exc_info:
-        parse_resolve_check(source, capabilities, default_stdlib=default_stdlib)
+        resolve_and_check_repl_entry(source, default_stdlib=default_stdlib)
     return exc_info.value
 
 
@@ -316,8 +245,8 @@ def assert_builtin_call_type_parity(
     source: str, call_source: str
 ) -> tuple[CheckedModule, CheckedModule]:
     """Check that equivalent sugared and call forms select the same builtin behavior."""
-    sugared_checked = accept_type(source)
-    call_checked = accept_type(call_source)
+    sugared_checked = resolve_and_check_repl_entry(source)
+    call_checked = resolve_and_check_repl_entry(call_source)
 
     def selected_builtin_behavior(checked: CheckedModule) -> tuple[object, ...]:
         return tuple(
@@ -544,7 +473,7 @@ class TestComparableTypes:
         against an unresolved candidate type is wrongly rejected, in either
         operand order.
         """
-        accept_type(
+        resolve_and_check_repl_entry(
             "def f[T]{Eq T}(a: T, n: int) =\n"
             "  if n == 0 => true else => a == g(a, n - 1)\n"
             "def g[T]{Eq T}(a: T, n: int) =\n"
@@ -562,7 +491,7 @@ class TestComparableTypes:
         provisional type must defer until concrete evidence resolves it,
         consulting the real bound environment rather than rejecting outright.
         """
-        accept_type(
+        resolve_and_check_repl_entry(
             "def f[K]{Hashable K}(k: K, d: dict[K, int], n: int) =\n"
             "  if n == 0 => k in d else => g(k, d, n - 1)\n"
             "def g[K]{Hashable K}(k: K, d: dict[K, int], n: int) =\n"
@@ -617,16 +546,16 @@ class TestGenericEqualityOnTypeVariableBounds:
         reject_type("def g[T](xs: Option[T]) -> bool = xs == xs")
 
     def test_bare_type_variable_with_eq_bound_accepted(self) -> None:
-        accept_type("def f[T]{Eq T}(a: T, b: T) -> bool = a == b")
+        resolve_and_check_repl_entry("def f[T]{Eq T}(a: T, b: T) -> bool = a == b")
 
     def test_bare_type_variable_with_hashable_bound_accepted(self) -> None:
-        accept_type("def f[T]{Hashable T}(a: T, b: T) -> bool = a == b")
+        resolve_and_check_repl_entry("def f[T]{Hashable T}(a: T, b: T) -> bool = a == b")
 
     def test_array_of_bounded_generic_parameter_self_equality_accepted(self) -> None:
-        accept_type("def f[T]{Eq T}(xs: array[T]) -> bool = xs == xs")
+        resolve_and_check_repl_entry("def f[T]{Eq T}(xs: array[T]) -> bool = xs == xs")
 
     def test_option_of_bounded_generic_parameter_self_equality_accepted(self) -> None:
-        accept_type("def g[T]{Eq T}(xs: Option[T]) -> bool = xs == xs")
+        resolve_and_check_repl_entry("def g[T]{Eq T}(xs: Option[T]) -> bool = xs == xs")
 
     def test_literal_pattern_against_unbounded_type_variable_rejected(self) -> None:
         # A literal is always a concrete scalar, so it can never structurally
@@ -641,13 +570,15 @@ class TestGenericEqualityOnTypeVariableBounds:
         reject_type("def f(fs: array[(int) -> int], g: (int) -> int) -> bool = g in fs")
 
     def test_in_over_dict_with_bounded_key_accepted(self) -> None:
-        accept_type("def f[K, V]{Hashable K}(k: K, d: dict[K, V]) -> bool = k in d")
+        resolve_and_check_repl_entry(
+            "def f[K, V]{Hashable K}(k: K, d: dict[K, V]) -> bool = k in d"
+        )
 
     def test_in_over_dict_with_unbounded_key_rejected(self) -> None:
         reject_type("def f[K, V](k: K, d: dict[K, V]) -> bool = k in d")
 
     def test_bare_type_variable_with_eq_bound_accepts_not_equal(self) -> None:
-        accept_type("def f[T]{Eq T}(a: T, b: T) -> bool = a != b")
+        resolve_and_check_repl_entry("def f[T]{Eq T}(a: T, b: T) -> bool = a != b")
 
     def test_bare_type_variable_needs_a_bound_for_not_equal(self) -> None:
         reject_type("def f[T](a: T, b: T) -> bool = a != b")
@@ -662,13 +593,15 @@ class TestGenericEqualityOnTypeVariableBounds:
         assert isinstance(ne_error, AglTypeError)
 
     def test_lambda_closing_over_bounded_type_variable_accepted(self) -> None:
-        accept_type("def f[T]{Eq T}(a: T, b: T) -> bool = (fn(x: T, y: T) -> bool => x == y)(a, b)")
+        resolve_and_check_repl_entry(
+            "def f[T]{Eq T}(a: T, b: T) -> bool = (fn(x: T, y: T) -> bool => x == y)(a, b)"
+        )
 
     def test_lambda_closing_over_unbounded_type_variable_rejected(self) -> None:
         reject_type("def f[T](a: T, b: T) -> bool = (fn(x: T, y: T) -> bool => x == y)(a, b)")
 
     def test_bound_reaching_a_method_receiver_parameter_accepted(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             "record Box[T]\n  value: T\n"
             "def Box::same[T]{Eq T}(self, other: Box[T]) -> bool = self.value == other.value\n"
         )
@@ -1145,7 +1078,7 @@ class TestTypeEnvironment:
         from tests.agl.ir_harness import make_graph_from_files
 
         graph = make_graph_from_files(root, {"entry": entry, "lib": self._SCOPED_ENUM_LIB_SOURCE})
-        return check_program(resolve_program(graph), default_capabilities())
+        return check_program(resolve_program(graph))
 
     def test_renamed_scoped_enum_import_constructs_and_matches(self, tmp_path: Path) -> None:
         """Constructing and matching through the renamed scoped enum resolves."""
@@ -1167,7 +1100,7 @@ class TestCheckedOutputClosure:
 
     @staticmethod
     def _checked_with_all_type_bearing_side_tables() -> CheckedModule:
-        return accept_type(
+        return resolve_and_check_repl_entry(
             "def id[T](value: T) -> T = value\n"
             "let direct = id(1)\n"
             "let partial: (int) -> int = id(?)\n"
@@ -1297,7 +1230,9 @@ class TestAssignImmutability:
 
     def test_assign_to_slot_falling_back_to_outer_var_is_allowed(self) -> None:
         """A slot resolving to an enclosing ``var`` stays assignable."""
-        r = accept_type("var n = 0\nenum Flag\n  | on\ncase Flag::on of\n  | on =>\n    n := 2\n")
+        r = resolve_and_check_repl_entry(
+            "var n = 0\nenum Flag\n  | on\ncase Flag::on of\n  | on =>\n    n := 2\n"
+        )
         assert r.resolved.program is not None
 
 
@@ -1310,7 +1245,7 @@ class TestScopedBindingTypes:
     """
 
     def test_enum_declaration_preserves_a_standalone_record_in_its_scope(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "scope Color\n"
             "  record Meta\n"
             "    value: int\n"
@@ -1332,21 +1267,25 @@ class TestScopedBindingTypes:
         assert checked.node_types[checked.resolved.program.body.items[3].node_id] == IntType()
 
     def test_type_inferred_from_initializer(self) -> None:
-        r = accept_type("scope Config\n  let retries = 3\nend Config\n\nConfig::retries")
+        r = resolve_and_check_repl_entry(
+            "scope Config\n  let retries = 3\nend Config\n\nConfig::retries"
+        )
         region = r.resolved.program.body.items[0]
         assert isinstance(region, ScopeRegion)
         let_decl = next(item for item in region.items if isinstance(item, LetDecl))
         assert r.type_env.get_binding_type(let_decl.node_id) == IntType()
 
     def test_annotation_accepted_on_region_form(self) -> None:
-        r = accept_type("scope Config\n  var attempts: int = 0\nend Config\n\nConfig::attempts")
+        r = resolve_and_check_repl_entry(
+            "scope Config\n  var attempts: int = 0\nend Config\n\nConfig::attempts"
+        )
         region = r.resolved.program.body.items[0]
         assert isinstance(region, ScopeRegion)
         var_decl = next(item for item in region.items if isinstance(item, VarDecl))
         assert r.type_env.get_binding_type(var_decl.node_id) == IntType()
 
     def test_annotation_accepted_on_shorthand_form(self) -> None:
-        r = accept_type("var Config::attempts: int = 0\nConfig::attempts")
+        r = resolve_and_check_repl_entry("var Config::attempts: int = 0\nConfig::attempts")
         var_decl = next(item for item in r.resolved.program.body.items if isinstance(item, VarDecl))
         assert r.type_env.get_binding_type(var_decl.node_id) == IntType()
 
@@ -1365,7 +1304,7 @@ class TestScopedBindingTypes:
         assert "int" in d.message and "text" in d.message
 
     def test_visible_from_nested_region_qualified_path_and_after_open(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "use Config::*\n"
             "\n"
             "scope Config\n"
@@ -1391,7 +1330,7 @@ class TestScopedBindingTypes:
         ]
 
     def test_scoped_binding_holding_a_function_is_callable(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope Config\n"
             "  def helper() -> int = 5\n"
             "  let value-fn = helper\n"
@@ -1408,7 +1347,9 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_region_form_annotation_resolves_a_bare_sibling_record(self) -> None:
-        r = accept_type("scope A\n  record R\n    v: int\n  let x: R = R(v = 1)\nend A\n\nA::x.v")
+        r = resolve_and_check_repl_entry(
+            "scope A\n  record R\n    v: int\n  let x: R = R(v = 1)\nend A\n\nA::x.v"
+        )
         region = r.resolved.program.body.items[0]
         assert isinstance(region, ScopeRegion)
         let_decl = next(item for item in region.items if isinstance(item, LetDecl))
@@ -1418,7 +1359,9 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_region_form_var_annotation_resolves_a_bare_sibling_record(self) -> None:
-        r = accept_type("scope A\n  record R\n    v: int\n  var x: R = R(v = 1)\nend A\n\nA::x.v")
+        r = resolve_and_check_repl_entry(
+            "scope A\n  record R\n    v: int\n  var x: R = R(v = 1)\nend A\n\nA::x.v"
+        )
         region = r.resolved.program.body.items[0]
         assert isinstance(region, ScopeRegion)
         var_decl = next(item for item in region.items if isinstance(item, VarDecl))
@@ -1428,7 +1371,7 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_shorthand_form_annotation_resolves_a_bare_sibling_record(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n  record R\n    v: int\nend A\n\nlet A::x: R = A::R(v = 1)\nA::x.v"
         )
         decl = r.resolved.program.body.items[1]
@@ -1439,7 +1382,7 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[2].node_id] == IntType()
 
     def test_shorthand_form_var_annotation_resolves_a_bare_sibling_record(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n  record R\n    v: int\nend A\n\nvar A::x: R = A::R(v = 1)\nA::x.v"
         )
         decl = r.resolved.program.body.items[1]
@@ -1452,7 +1395,7 @@ class TestScopedBindingTypes:
     def test_shorthand_pattern_binder_annotation_resolves_a_bare_sibling_record(self) -> None:
         """The ``let A::r: R = A::R(v = 1)`` shorthand names both the binder and
         its own type with the same bare sibling spelling."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n  record R\n    v: int\nend A\n\nlet A::r: R = A::R(v = 1)\nA::r.v"
         )
         decl = r.resolved.program.body.items[1]
@@ -1464,7 +1407,7 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[2].node_id] == IntType()
 
     def test_region_form_annotation_resolves_a_generic_application(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  record Box[T]\n"
             "    value: T\n"
@@ -1483,7 +1426,7 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_region_form_annotation_resolves_a_function_type(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  record R\n"
             "    v: int\n"
@@ -1504,7 +1447,7 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_region_form_cast_target_resolves_a_bare_sibling_record(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  record R\n"
             "    v: int\n"
@@ -1523,7 +1466,7 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_region_form_exec_result_type_resolves_a_bare_sibling_record(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  record Out\n"
             "    value: int\n"
@@ -1542,7 +1485,9 @@ class TestScopedBindingTypes:
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_region_form_annotation_resolves_a_bare_sibling_type_alias(self) -> None:
-        r = accept_type("scope A\n  type Alias = int\n  let x: Alias = 3\nend A\n\nA::x")
+        r = resolve_and_check_repl_entry(
+            "scope A\n  type Alias = int\n  let x: Alias = 3\nend A\n\nA::x"
+        )
         region = r.resolved.program.body.items[0]
         assert isinstance(region, ScopeRegion)
         let_decl = next(item for item in region.items if isinstance(item, LetDecl))
@@ -1554,7 +1499,7 @@ class TestScopedBindingTypes:
         """A ``let`` local to a ``def`` body has no scope path of its own; its
         annotation must still resolve against the enclosing ``def``'s scope,
         not reset to the module root."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  record R\n"
             "    v: int\n"
@@ -1579,7 +1524,9 @@ class TestScopedBindingTypes:
         """Already enforced by the scope pass; pinned here so the collision is
         confirmed not to reach typechecking as an unresolved-reference crash."""
         with pytest.raises(AglScopeError):
-            parse_resolve_check("scope Config\n  def f() -> int = 0\n  let f = 1\nend Config\n\n()")
+            resolve_and_check_repl_entry(
+                "scope Config\n  def f() -> int = 0\n  let f = 1\nend Config\n\n()"
+            )
 
 
 class TestQualifiedGenericFunctionBuiltinCollisions:
@@ -1599,7 +1546,6 @@ class TestQualifiedGenericFunctionBuiltinCollisions:
         }
         checked = check_program(
             resolve_repl_graph(make_repl_graph_from_files(tmp_path, modules)),
-            default_capabilities(),
         ).modules[ENTRY_ID]
 
         values, text = checked.resolved.program.body.items[-3:-1]
@@ -1629,7 +1575,7 @@ class TestScopedBuiltinTypes:
         """A single scoped ``builtin record`` keeps its declared scope path
         as part of its nominal identity, the same path-keyed identity every
         other scoped type already has."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n"
             "def use(value: A::ExecResult) -> int = value.exit-code\n"
             'use(A::ExecResult(stdout = "a", exit-code = 1, stderr = "", timed-out = false))\n',
@@ -1641,7 +1587,7 @@ class TestScopedBuiltinTypes:
         assert handle.scope_path == ("A",)
 
     def test_scoped_builtin_enum_matches_at_its_own_path(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n  builtin\n  enum SessionTransport =\n    | Cli\n    | Rpc\nend A\n"
             "\n"
             "def classify(value: A::SessionTransport) -> text =\n"
@@ -1739,7 +1685,7 @@ class TestScopedBuiltinTypes:
         same declaration form ordinary scoped-type methods use, since the
         receiver resolves to the canonical nominal regardless of where the
         method itself is spelled."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n"
             "def A::ExecResult::describe(self) -> text = self.stdout\n"
             'A::ExecResult(stdout = "a", exit-code = 1, stderr = "", timed-out = false)'
@@ -1754,7 +1700,7 @@ class TestScopedBuiltinTypes:
     ) -> None:
         """The same method may instead be declared bare inside the region
         that declares its ``builtin`` receiver."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "scope A\n"
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}"
             "def ExecResult::describe(self) -> text = self.stdout\n"
@@ -1767,7 +1713,7 @@ class TestScopedBuiltinTypes:
         assert checked.node_types[result.node_id] == TextType()
 
     def test_scoped_builtin_exception_raises_and_catches_at_its_own_path(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  builtin exception RangeError extends Exception\n"
             "  def trigger() -> text =\n"
@@ -1849,7 +1795,7 @@ class TestScopedBuiltinTypes:
         same region: the subclass's resolved ``extends`` key carries the
         region's scope path, which must compare equal to the canonical
         (path-``()``) hierarchy once re-rooted."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  builtin\n"
             "  exception Exception\n"
@@ -1888,7 +1834,7 @@ class TestScopedBuiltinTypes:
         """A record field referencing another builtin type declared in the
         same region resolves under that region's scope path too, and must
         compare equal to the canonical shape once re-rooted."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  builtin\n"
             "  record OutputContract\n"
@@ -1914,7 +1860,7 @@ class TestScopedBuiltinTypes:
         declared in the same region: the resolved signature's result type
         carries that region's scope path and must validate against the
         canonical (path-``()``) signature once re-rooted."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}"
             "builtin def exec(command: text) -> ExecResult\nend A\n()\n",
             default_stdlib=False,
@@ -1922,7 +1868,7 @@ class TestScopedBuiltinTypes:
         assert r.resolved.program is not None
 
     def test_exec_value_uses_the_scoped_live_contract(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n"
             "let run: text -> A::ExecResult = exec\n"
             "run\n"
@@ -1939,7 +1885,7 @@ class TestScopedBuiltinTypes:
         )
 
     def test_builtin_agent_method_with_explicit_type_args_can_be_a_value(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             'let worker: Agent = AgentCommand("worker")\nlet f = worker.ask::[text]\nf\n'
         )
         result = checked.resolved.program.body.items[-1]
@@ -1953,7 +1899,7 @@ class TestScopedBuiltinTypes:
         The receiver belongs to ``A::Agent`` and must reroot to the canonical
         host signature.
         """
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  builtin enum Agent\n"
             "    | AgentCommand(command: text)\n"
@@ -2007,7 +1953,7 @@ class TestBuiltinDeclarationUniqueness:
     """
 
     def test_same_builtin_type_at_distinct_scoped_names_is_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n"
             f"scope B\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end B\n"
             "()\n",
@@ -2016,7 +1962,7 @@ class TestBuiltinDeclarationUniqueness:
         assert r.resolved.program is not None
 
     def test_same_builtin_function_at_distinct_scoped_names_is_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n  builtin def print[T](value: T) -> unit\nend A\n"
             "\n"
             "scope B\n  builtin def print[T](value: T) -> unit\nend B\n"
@@ -2028,7 +1974,7 @@ class TestBuiltinDeclarationUniqueness:
 
     def test_same_scoped_builtin_declaration_is_rejected(self) -> None:
         with pytest.raises(AglScopeError, match="already declared"):
-            parse_resolve_check(
+            resolve_and_check_repl_entry(
                 f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n"
                 f"scope A\nbuiltin record ExecResult\n{_EXEC_RESULT_FIELDS}end A\n"
                 "()\n",
@@ -2055,7 +2001,7 @@ class TestBuiltinTypeModuleIdentity:
         """
         from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
 
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             f"builtin record ExecResult\n{_EXEC_RESULT_FIELDS}()", default_stdlib=False
         )
         handle = checked.type_env.get_type("ExecResult")
@@ -2075,7 +2021,7 @@ class TestBuiltinTypeModuleIdentity:
         ``default_stdlib=False`` because ``std/prelude`` already declares root
         ``Exception``.
         """
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "builtin\n"
             "exception Exception\n"
             "  @arg-named message: text\n"
@@ -2155,7 +2101,7 @@ class TestCaughtExceptionShadowedByBuiltinRedeclaration:
         """The in-scope half: a ``catch`` clause inside the declaring region
         resolves the bare name to that region's own declaration -- exactly
         the identity the host mints there -- so it is unaffected."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  builtin\n"
             "  exception ExecError extends Exception\n"
@@ -2179,7 +2125,9 @@ class TestCaughtExceptionShadowedByBuiltinRedeclaration:
         """Guard against over-rejection: with no program-declared ``builtin``
         of the name at all, the standard declaration is not shadowed by
         anything, so an ordinary ``catch`` still matches it."""
-        r = accept_type("def f() -> int =\n  try\n    1\n  catch ExecError as e =>\n    2\nf()\n")
+        r = resolve_and_check_repl_entry(
+            "def f() -> int =\n  try\n    1\n  catch ExecError as e =>\n    2\nf()\n"
+        )
         func_def = r.resolved.program.body.items[0]
         assert isinstance(func_def, FuncDef)
         # The caught value has the standard declaration's own identity, at the
@@ -2194,7 +2142,7 @@ class TestCaughtExceptionShadowedByBuiltinRedeclaration:
         is raised only by the program itself, never by the host, so the
         host-minting rule does not apply to it even when its bare name
         collides with a built-in one."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  exception ExecError extends Exception\n"
             "    code: int\n"
@@ -2221,7 +2169,7 @@ class TestCaughtExceptionShadowedByBuiltinRedeclaration:
         program loaded with ``default_stdlib=False`` that declares its own
         whole exception hierarchy and never redeclares it a second time has
         nothing shadowing it either, so ``catch`` still matches normally."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "builtin\n"
             "exception Exception\n"
             "  @arg-named message: text\n"
@@ -2250,7 +2198,7 @@ class TestCaughtExceptionShadowedByBuiltinRedeclaration:
 def test_catch_names_a_bare_own_scoped_alias_reached_through_a_wildcard_use() -> None:
     """A bare ``catch`` name reached only through a wildcard ``use`` of its
     declaring scope still resolves to that scope's own exception alias."""
-    r = accept_type(
+    r = resolve_and_check_repl_entry(
         "use s::*\n"
         "\n"
         "scope s\n"
@@ -2320,7 +2268,7 @@ class TestBuiltinOptionShape:
         assert "Option" in err.to_diagnostic().message
 
     def test_builtin_option_canonical_shape_typechecks(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "builtin\nenum Option[T] =\n  | None\n  | Some(value: T)\n\n"
             "let x: Option[int] = Some(value = 1)\n"
             "case x of\n"
@@ -2351,7 +2299,7 @@ class TestFieldZonesAcrossDeclarationForms:
         from agnette.agl.ir.contracts import RecordDecode
         from tests._agl_helpers import build_decode_schema
 
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             '@name("Pt")\n'
             "record Point\n"
             "  @arg-pos x: int\n"
@@ -2382,7 +2330,7 @@ class TestFieldZonesAcrossDeclarationForms:
         from agnette.agl.ir.contracts import RecordDecode
         from tests._agl_helpers import build_decode_schema
 
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  @arg-pos first: T\n"
             "  @arg-named second: T\n"
@@ -2411,7 +2359,7 @@ class TestFieldZonesAcrossDeclarationForms:
         from agnette.agl.ir.contracts import EnumDecode
         from tests._agl_helpers import build_decode_schema
 
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Shape =\n"
             '  | @name("sq") @arg-pos Square(side: int)\n'
             "  | @arg-named Circle(radius: int)\n"
@@ -2440,7 +2388,7 @@ class TestFieldZonesAcrossDeclarationForms:
     def test_referenced_enum_member_zones_and_alias_come_from_its_own_record(self) -> None:
         from tests._agl_helpers import build_decode_schema
 
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             '@name("sq")\n'
             "record Square\n"
             "  @arg-pos side: int\n"
@@ -2464,7 +2412,7 @@ class TestFieldZonesAcrossDeclarationForms:
         assert variant.fields[0].zone == ParamZone.POSITIONAL_ONLY
 
     def test_generic_enum_member_zones_share_the_template(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Box[T] =\n  | Empty\n  | @arg-pos Full(value: T)\nlet b: Box[int] = Full(1)\nb\n",
             default_stdlib=False,
         )
@@ -2481,14 +2429,14 @@ class TestFieldZonesAcrossDeclarationForms:
 class TestBlockTyping:
     def test_block_last_expr_is_block_type(self) -> None:
         # A block's own type is its trailing expression's type.
-        r = accept_type("def f() -> int =\n  let x = 1\n  x\nf()")
+        r = resolve_and_check_repl_entry("def f() -> int =\n  let x = 1\n  x\nf()")
         func_def = r.resolved.program.body.items[0]
         assert isinstance(func_def, FuncDef)
         assert r.node_types[func_def.body.node_id] == IntType()
 
     @pytest.mark.parametrize("source", ("let x = 1", "var x = 1"), ids=("let", "var"))
     def test_block_ending_in_binder_yields_unit(self, source: str) -> None:
-        r = accept_type(f"def f() -> unit =\n  {source}\nf()")
+        r = resolve_and_check_repl_entry(f"def f() -> unit =\n  {source}\nf()")
         func_def = r.resolved.program.body.items[0]
         assert isinstance(func_def, FuncDef)
         assert r.node_types[func_def.body.node_id] == UnitType()
@@ -2498,17 +2446,17 @@ class TestBlockTyping:
         assert "unit" in str(err).lower()
 
     def test_non_final_bottom_expression_is_allowed(self) -> None:
-        r = accept_type('raise Abort(message = "x")\n()')
+        r = resolve_and_check_repl_entry('raise Abort(message = "x")\n()')
         assert r.resolved.program is not None
 
     def test_assign_at_end_is_valid(self) -> None:
         # AssignStmt at end is valid (it produces unit, not a LetDecl)
-        r = accept_type("var x = 1\nx := 2")
+        r = resolve_and_check_repl_entry("var x = 1\nx := 2")
         assert r.resolved.program is not None
 
     def test_funcdef_at_end_is_ok(self) -> None:
         # FuncDef at end is a declaration, not LetDecl/VarDecl — OK
-        r = accept_type("def f() -> int = 1")
+        r = resolve_and_check_repl_entry("def f() -> int = 1")
         assert r.resolved.program is not None
 
     def test_top_level_after_divergent_expression_is_still_checked(self) -> None:
@@ -2516,21 +2464,21 @@ class TestBlockTyping:
         assert "int" in str(err).lower()
 
     def test_unit_literal_valid(self) -> None:
-        r = accept_type("()")
+        r = resolve_and_check_repl_entry("()")
         assert r.resolved.program is not None
 
     def test_let_followed_by_expr(self) -> None:
-        r = accept_type("let x = 1\nlet y = 2\nx + y")
+        r = resolve_and_check_repl_entry("let x = 1\nlet y = 2\nx + y")
         assert r.node_types[r.resolved.program.body.items[2].node_id] == IntType()
 
     def test_binder_suite_takes_its_last_item_type(self) -> None:
-        r = accept_type("let x =\n  let t = 1\n  t + 1\nx")
+        r = resolve_and_check_repl_entry("let x =\n  let t = 1\n  t + 1\nx")
         let = r.resolved.program.body.items[0]
         assert isinstance(let, LetDecl)
         assert r.node_types[let.value.node_id] == IntType()
 
     def test_binder_suite_ending_in_a_binder_is_unit(self) -> None:
-        r = accept_type("let x: unit =\n  let t = 1\nx")
+        r = resolve_and_check_repl_entry("let x: unit =\n  let t = 1\nx")
         let = r.resolved.program.body.items[0]
         assert isinstance(let, LetDecl)
         assert r.node_types[let.value.node_id] == UnitType()
@@ -2541,7 +2489,7 @@ class TestBlockTyping:
 
     def test_binder_suite_names_do_not_escape(self) -> None:
         with pytest.raises(AglScopeError):
-            accept_type("let x =\n  let t = 1\n  t\nt")
+            resolve_and_check_repl_entry("let x =\n  let t = 1\n  t\nt")
 
 
 # ---------------------------------------------------------------------------
@@ -2551,14 +2499,14 @@ class TestBlockTyping:
 
 class TestUnitPropagation:
     def test_print_yields_unit(self) -> None:
-        r = accept_type("let u: unit = print(42)\nu")
+        r = resolve_and_check_repl_entry("let u: unit = print(42)\nu")
         prog = r.resolved.program
         let_decl = prog.body.items[0]
         assert isinstance(let_decl, LetDecl)
         assert r.type_env.get_binding_type(let_decl.node_id) == UnitType()
 
     def test_if_no_else_yields_unit(self) -> None:
-        r = accept_type("let u: unit = if true => ()\nu")
+        r = resolve_and_check_repl_entry("let u: unit = if true => ()\nu")
         let_decl = r.resolved.program.body.items[0]
         assert isinstance(let_decl, LetDecl)
         assert r.type_env.get_binding_type(let_decl.node_id) == UnitType()
@@ -2568,7 +2516,7 @@ class TestUnitPropagation:
         assert "unit" in str(err).lower()
 
     def test_unit_lit(self) -> None:
-        r = accept_type("let u: unit = ()\nu")
+        r = resolve_and_check_repl_entry("let u: unit = ()\nu")
         let_decl = r.resolved.program.body.items[0]
         assert isinstance(let_decl, LetDecl)
         assert r.type_env.get_binding_type(let_decl.node_id) == UnitType()
@@ -2576,7 +2524,7 @@ class TestUnitPropagation:
     def test_assign_is_valid_block_item(self) -> None:
         # An assignment in non-final position contributes unit, which is what
         # lets it sit between other statements.
-        r = accept_type("var x = 1\nx := 2\n()")
+        r = resolve_and_check_repl_entry("var x = 1\nx := 2\n()")
         assign = r.resolved.program.body.items[1]
         assert isinstance(assign, AssignStmt)
         assert r.node_types[assign.value.node_id] == IntType()
@@ -2585,7 +2533,7 @@ class TestUnitPropagation:
         reject_type('var x = 1\nx := "two"\n()')
 
     def test_non_final_ask_uses_unit_context(self) -> None:
-        r = accept_type('ask("notify")\n()')
+        r = resolve_and_check_repl_entry('ask("notify")\n()')
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         assert r.node_types[call.node_id] == UnitType()
@@ -2599,37 +2547,37 @@ class TestUnitPropagation:
 
 class TestLiterals:
     def test_int_literal(self) -> None:
-        r = accept_type("let x = 42\nx")
+        r = resolve_and_check_repl_entry("let x = 42\nx")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == IntType()
 
     def test_decimal_literal(self) -> None:
-        r = accept_type("let x = 3.14\nx")
+        r = resolve_and_check_repl_entry("let x = 3.14\nx")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == DecimalType()
 
     def test_bool_literal(self) -> None:
-        r = accept_type("let x = true\nx")
+        r = resolve_and_check_repl_entry("let x = true\nx")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == BoolType()
 
     def test_null_is_json(self) -> None:
-        r = accept_type("let x: json = null\nx")
+        r = resolve_and_check_repl_entry("let x: json = null\nx")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == JsonType()
 
     def test_string_is_text(self) -> None:
-        r = accept_type('let x = "hello"\nx')
+        r = resolve_and_check_repl_entry('let x = "hello"\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == TextType()
 
     def test_int_widens_to_decimal_annotation(self) -> None:
-        r = accept_type("let d: decimal = 3\nd")
+        r = resolve_and_check_repl_entry("let d: decimal = 3\nd")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == DecimalType()
@@ -2656,22 +2604,22 @@ class TestLiterals:
 
 class TestPrint:
     def test_print_int(self) -> None:
-        accept_type("print(42)")
+        resolve_and_check_repl_entry("print(42)")
 
     def test_print_text(self) -> None:
-        accept_type('print("hello")')
+        resolve_and_check_repl_entry('print("hello")')
 
     def test_print_bool(self) -> None:
-        accept_type("print(true)")
+        resolve_and_check_repl_entry("print(true)")
 
     def test_print_null(self) -> None:
-        accept_type("print(null)")
+        resolve_and_check_repl_entry("print(null)")
 
     def test_print_unit(self) -> None:
-        accept_type("print(())")
+        resolve_and_check_repl_entry("print(())")
 
     def test_print_function_accepted(self) -> None:
-        accept_type("let f = fn(x: int) -> int => x\nprint(f)")
+        resolve_and_check_repl_entry("let f = fn(x: int) -> int => x\nprint(f)")
 
     def test_print_wrong_arg_count(self) -> None:
         err = reject_type("print(1, 2)")
@@ -2687,7 +2635,7 @@ class TestPrint:
 
     def test_print_explicit_type_arg_widens_argument(self) -> None:
         """print::[decimal](5) is accepted — the argument's int is assignable to it."""
-        accept_type("print::[decimal](5)")
+        resolve_and_check_repl_entry("print::[decimal](5)")
 
     def test_print_explicit_type_arg_not_assignable_rejected(self) -> None:
         """print::[text](5) is rejected — int is not assignable to text."""
@@ -2702,13 +2650,13 @@ class TestPrint:
 
 class TestRenderBuiltin:
     def test_render_returns_text(self) -> None:
-        r = accept_type("let s: text = render([1, 2])\ns")
+        r = resolve_and_check_repl_entry("let s: text = render([1, 2])\ns")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == TextType()
 
     def test_render_accepts_options(self) -> None:
-        accept_type('render("hello", pretty = false, quote-strings = false)')
+        resolve_and_check_repl_entry('render("hello", pretty = false, quote-strings = false)')
 
     def test_render_wrong_arg_count_rejected(self) -> None:
         err = reject_type("render(1, 2)")
@@ -2726,7 +2674,7 @@ class TestRenderBuiltin:
 
     def test_render_explicit_type_arg_widens_argument(self) -> None:
         """render::[decimal](5) is accepted — the argument's int is assignable to it."""
-        accept_type("render::[decimal](5)")
+        resolve_and_check_repl_entry("render::[decimal](5)")
 
     def test_render_explicit_type_arg_not_assignable_rejected(self) -> None:
         """render::[text](5) is rejected — int is not assignable to text."""
@@ -2741,7 +2689,7 @@ class TestRenderBuiltin:
 
 class TestAsk:
     def test_ask_text_default(self) -> None:
-        r = accept_type('ask("hello")')
+        r = resolve_and_check_repl_entry('ask("hello")')
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         spec = r.contract_specs[call.node_id]
@@ -2751,7 +2699,7 @@ class TestAsk:
 
     def test_ask_with_annotation_int(self) -> None:
         # block must end with trailing expr
-        r = accept_type('let n: int = ask("Q")\nn')
+        r = resolve_and_check_repl_entry('let n: int = ask("Q")\nn')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         call = decl.value
@@ -2761,7 +2709,7 @@ class TestAsk:
         assert spec.codec_name == "json"
 
     def test_ask_with_unit_target_has_no_contract(self) -> None:
-        r = accept_type('let result: unit = ask("Q")\nresult')
+        r = resolve_and_check_repl_entry('let result: unit = ask("Q")\nresult')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert decl.value.node_id not in r.contract_specs
@@ -2769,30 +2717,22 @@ class TestAsk:
 
     @pytest.mark.parametrize("binder", ("let", "var"))
     def test_wildcard_binding_discards_any_rhs_without_a_type_binding(self, binder: str) -> None:
-        r = accept_type(f"{binder} _: text = 1")
+        r = resolve_and_check_repl_entry(f"{binder} _: text = 1")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, (LetDecl, VarDecl))
         assert r.type_env.get_binding_type(decl.node_id) is None
 
     def test_wildcard_binding_allows_bottom_rhs_without_inference(self) -> None:
-        r = accept_type('let _ = raise Abort(message = "x")')
+        r = resolve_and_check_repl_entry('let _ = raise Abort(message = "x")')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) is None
 
     def test_ask_with_explicit_agent(self) -> None:
-        r = accept_type('let reviewer = AgentCommand("reviewer")\nreviewer.ask("Q")')
+        r = resolve_and_check_repl_entry(
+            'let reviewer = AgentCommand("reviewer")\nreviewer.ask("Q")'
+        )
         assert r.node_types[r.resolved.program.body.items[1].node_id] == TextType()
-
-    def test_ask_default_agent_is_available_without_a_host_capability(self) -> None:
-        r = accept_type('ask("Q")', capabilities=no_agent_caps())
-        assert r.node_types[r.resolved.program.body.items[0].node_id] == TextType()
-
-    def test_ask_uses_contextual_result_type_without_a_host_capability(self) -> None:
-        r = accept_type('let n: int = ask("Q")\nn', capabilities=no_agent_caps())
-        decl = r.resolved.program.body.items[0]
-        assert isinstance(decl, LetDecl)
-        assert r.node_types[decl.value.node_id] == IntType()
 
     def test_ask_no_prompt_raises(self) -> None:
         err = reject_type("ask()")
@@ -2803,14 +2743,16 @@ class TestAsk:
         assert "field or method" in str(err).lower()
 
     def test_ask_with_json_codec(self) -> None:
-        r = accept_type('let n: int = ask("Q", format = "json")\nn')
+        r = resolve_and_check_repl_entry('let n: int = ask("Q", format = "json")\nn')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
         assert spec.codec_name == "json"
 
     def test_ask_strict_json_true(self) -> None:
-        r = accept_type('let n: int = ask("Q", format = "json", strict-json = true)\nn')
+        r = resolve_and_check_repl_entry(
+            'let n: int = ask("Q", format = "json", strict-json = true)\nn'
+        )
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
@@ -2859,7 +2801,7 @@ class TestAsk:
         assert "cbor" in str(err) or "codec" in str(err).lower()
 
     def test_ask_with_record_target_uses_json_codec(self) -> None:
-        r = accept_type('record R\n  x: int\nlet r: R = ask("Q")\nr')
+        r = resolve_and_check_repl_entry('record R\n  x: int\nlet r: R = ask("Q")\nr')
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
@@ -2874,16 +2816,12 @@ class TestAsk:
 
 class TestAskCodecOptions:
     """``ask``'s ``format``/``strict_json`` options and the codec they select
-    must agree with the target type and with the host's codec catalog.
+    must agree with the target type.
     """
 
-    def test_select_codec_no_match_raises(self) -> None:
-        # text-only caps can't serve a record target
-        err = reject_type(
-            'record R\n  x: int\nlet r: R = ask("Q")\nr',
-            capabilities=text_only_caps(),
-        )
-        assert "codec" in str(err).lower() or "No registered" in str(err)
+    def test_ask_target_without_a_codec_is_rejected(self) -> None:
+        err = reject_type('exception E\nlet e: E = ask("Q")\ne')
+        assert isinstance(err, AglTypeError)
 
     def test_validate_format_option_unsupported_kind(self) -> None:
         # Codec 'text' doesn't support 'int' kind
@@ -2891,7 +2829,9 @@ class TestAskCodecOptions:
         assert "text" in str(err) or "support" in str(err).lower()
 
     def test_ask_strict_json_false(self) -> None:
-        r = accept_type('let n: int = ask("Q", format = "json", strict-json = false)\nn')
+        r = resolve_and_check_repl_entry(
+            'let n: int = ask("Q", format = "json", strict-json = false)\nn'
+        )
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
@@ -2907,7 +2847,7 @@ class TestAskRequest:
     """``ask-request`` builds a first-attempt text request without dispatching."""
 
     def test_builds_a_text_contract(self) -> None:
-        r = accept_type('ask-request("Q")')
+        r = resolve_and_check_repl_entry('ask-request("Q")')
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         spec = r.contract_specs[call.node_id]
@@ -2915,7 +2855,7 @@ class TestAskRequest:
         assert spec.codec_name == "text"
 
     def test_returns_agent_request_type(self) -> None:
-        r = accept_type('let r: AgentRequest = ask-request("Q")\nr')
+        r = resolve_and_check_repl_entry('let r: AgentRequest = ask-request("Q")\nr')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         binding_type = r.type_env.get_binding_type(decl.node_id)
@@ -2924,10 +2864,14 @@ class TestAskRequest:
         assert binding_type == selected.handle()
 
     def test_accepts_agent_argument(self) -> None:
-        accept_type('let reviewer = AgentCommand("reviewer")\nask-request("Q", agent = reviewer)')
+        resolve_and_check_repl_entry(
+            'let reviewer = AgentCommand("reviewer")\nask-request("Q", agent = reviewer)'
+        )
 
     def test_accepts_agent_method(self) -> None:
-        accept_type('let reviewer = AgentCommand("reviewer")\nreviewer.ask-request("Q")')
+        resolve_and_check_repl_entry(
+            'let reviewer = AgentCommand("reviewer")\nreviewer.ask-request("Q")'
+        )
 
     def test_no_prompt_raises(self) -> None:
         err = reject_type("ask-request()")
@@ -2953,10 +2897,10 @@ class TestAskRequest:
         ),
     )
     def test_accepts_the_same_shaping_options_as_ask(self, call: str) -> None:
-        accept_type(call)
+        resolve_and_check_repl_entry(call)
 
     def test_type_argument_selects_the_requested_contract(self) -> None:
-        r = accept_type('ask-request::[int]("Q")')
+        r = resolve_and_check_repl_entry('ask-request::[int]("Q")')
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         spec = r.contract_specs[call.node_id]
@@ -2964,7 +2908,7 @@ class TestAskRequest:
         assert spec.codec_name == "json"
 
     def test_type_argument_leaves_the_result_type_alone(self) -> None:
-        r = accept_type('let r: AgentRequest = ask-request::[int]("Q")\nr')
+        r = resolve_and_check_repl_entry('let r: AgentRequest = ask-request::[int]("Q")\nr')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         selected = r.type_env.type_table.builtin_declaration("AgentRequest")
@@ -2972,22 +2916,15 @@ class TestAskRequest:
         assert r.type_env.get_binding_type(decl.node_id) == selected.handle()
 
     def test_typed_call_site_contract(self) -> None:
-        r = accept_type('ask-request::[int]("Q")')
+        r = resolve_and_check_repl_entry('ask-request::[int]("Q")')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == IntType()
 
     def test_call_site_contract(self) -> None:
-        r = accept_type('ask-request("Q")')
+        r = resolve_and_check_repl_entry('ask-request("Q")')
         assert len(r.contract_specs) == 1
         spec = r.contract_specs[_sole_contract_node_id(r)]
         assert spec.target_type == TextType()
         assert spec.codec_name == "text"
-
-    def test_does_not_require_default_agent(self) -> None:
-        # ask-request never dispatches, so it works without a default agent.
-        r = accept_type('ask-request("Q")', capabilities=no_agent_caps())
-        call = r.resolved.program.body.items[0]
-        assert isinstance(call, Call)
-        assert r.contract_specs[call.node_id].target_type == TextType()
 
     def test_resolves_agent_request_contract_exactly_once(self) -> None:
         """A single ``ask-request`` call site must not pay the ``AgentRequest``
@@ -3005,7 +2942,7 @@ class TestAskRequest:
             return original(self, span=span)
 
         with patch.object(BuiltinCallChecker, "_resolve_host_record_contract", counting):
-            r = accept_type('ask-request("Q")')
+            r = resolve_and_check_repl_entry('ask-request("Q")')
         assert r.resolved.program is not None
         assert len(calls) == 1
 
@@ -3046,7 +2983,9 @@ class TestBuiltinAgentMethodSelection:
     def test_non_call_use_of_a_builtin_method_is_typed_as_a_value(
         self, use: str, expected: Type
     ) -> None:
-        checked = accept_type('let worker: Agent = AgentCommand("worker")\n' + use + "\n")
+        checked = resolve_and_check_repl_entry(
+            'let worker: Agent = AgentCommand("worker")\n' + use + "\n"
+        )
         result = checked.resolved.program.body.items[-1]
         assert checked.node_types[result.node_id] == expected
 
@@ -3082,7 +3021,7 @@ class TestBuiltinAgentMethodSelection:
     ) -> None:
         # The trailing expression's type comes from the user's own signature,
         # including in the value and partial positions a built-in would refuse.
-        r = accept_type(_USER_ASK_METHODS + use + "\n")
+        r = resolve_and_check_repl_entry(_USER_ASK_METHODS + use + "\n")
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == expected
 
 
@@ -3092,24 +3031,16 @@ class TestBuiltinAgentMethodSelection:
 
 
 class TestExec:
-    def test_exec_rejected_without_shell_support(self) -> None:
-        err = reject_type('exec("ls")', capabilities=no_exec_caps())
-        assert "exec" in str(err).lower() or "shell" in str(err).lower()
-
-    def test_exec_value_rejected_without_shell_support(self) -> None:
-        err = reject_type("let run: text -> ExecResult = exec", capabilities=no_exec_caps())
-        assert "exec" in str(err).lower() or "shell" in str(err).lower()
-
     def test_exec_text_default(self) -> None:
         # exec without annotation → ExecResult (structured) form by default
-        r = accept_type('let x = exec("ls")\nx')
+        r = resolve_and_check_repl_entry('let x = exec("ls")\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
         assert spec.structured_exec is True
 
     def test_exec_with_text_annotation(self) -> None:
-        r = accept_type('let x: text = exec("ls")\nx')
+        r = resolve_and_check_repl_entry('let x: text = exec("ls")\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
@@ -3117,7 +3048,7 @@ class TestExec:
         assert spec.codec_name == "text"
 
     def test_non_final_exec_uses_non_structured_unit_contract(self) -> None:
-        r = accept_type('exec("ls")\n()')
+        r = resolve_and_check_repl_entry('exec("ls")\n()')
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         assert r.contract_specs[call.node_id] == OutputContractSpec(
@@ -3136,26 +3067,28 @@ class TestExec:
         assert "command" in str(err).lower() or "argument" in str(err).lower()
 
     def test_exec_with_format_json(self) -> None:
-        r = accept_type('let n: int = exec("ls", format = "json")\nn')
+        r = resolve_and_check_repl_entry('let n: int = exec("ls", format = "json")\nn')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
         assert spec.codec_name == "json"
 
     def test_exec_strict_json(self) -> None:
-        r = accept_type('let n: int = exec("ls", format = "json", strict-json = true)\nn')
+        r = resolve_and_check_repl_entry(
+            'let n: int = exec("ls", format = "json", strict-json = true)\nn'
+        )
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
         assert spec.strict_json is True
 
     def test_exec_parse_error_retries_text_warns(self) -> None:
-        r = accept_type('let x: text = exec("ls", parse-error-retries = 0)\nx')
+        r = resolve_and_check_repl_entry('let x: text = exec("ls", parse-error-retries = 0)\nx')
         assert len(r.warnings) == 1
         assert "parse-error-retries" in r.warnings[0].message
 
     def test_exec_accepts_zero_retries(self) -> None:
-        accept_type('let n: int = exec("ls", parse-error-retries = 0)\nn')
+        resolve_and_check_repl_entry('let n: int = exec("ls", parse-error-retries = 0)\nn')
 
     def test_exec_strict_json_without_json_raises(self) -> None:
         err = reject_type('let x: text = exec("ls", strict-json = true)\nx')
@@ -3317,10 +3250,9 @@ class TestVerbatimLiteralTypingParity:
         )
 
     def test_ask_payload_has_no_agent_slot(self) -> None:
-        accept_type("ask $ agent = reviewer", capabilities=no_agent_caps())
-        accept_type(
+        resolve_and_check_repl_entry("ask $ agent = reviewer")
+        resolve_and_check_repl_entry(
             'let reviewer = AgentCommand("reviewer")\nreviewer.ask("prompt")',
-            capabilities=no_agent_caps(),
         )
 
 
@@ -3331,7 +3263,7 @@ class TestVerbatimLiteralTypingParity:
 
 class TestFuncDef:
     def test_simple_funcdef(self) -> None:
-        r = accept_type("def f(x: int) -> int = x\nf")
+        r = resolve_and_check_repl_entry("def f(x: int) -> int = x\nf")
         f_ref = r.resolved.program.body.items[1]
         assert isinstance(f_ref, VarRef)
         assert r.node_types[f_ref.node_id] == FunctionType(params=(IntType(),), result=IntType())
@@ -3341,7 +3273,7 @@ class TestFuncDef:
         assert "mismatch" in str(err).lower() or "expected" in str(err).lower()
 
     def test_funcdef_without_return_type_inferred(self) -> None:
-        r = accept_type("def f(x: int) = x\nf")
+        r = resolve_and_check_repl_entry("def f(x: int) = x\nf")
         prog = r.resolved.program
         f_ref = prog.body.items[1]
         assert isinstance(f_ref, VarRef)
@@ -3349,7 +3281,7 @@ class TestFuncDef:
         assert t == FunctionType(params=(IntType(),), result=IntType())
 
     def test_funcdef_without_return_type_checks_default_param(self) -> None:
-        r = accept_type("def f(x: int = 1) = x\nf()")
+        r = resolve_and_check_repl_entry("def f(x: int = 1) = x\nf()")
         assert "f" in r.function_signatures
 
     def test_funcdef_without_return_type_body_always_raises(self) -> None:
@@ -3373,10 +3305,12 @@ class TestFuncDef:
         assert "annotation" in msg
 
     def test_annotated_polymorphically_recursive_generic_is_accepted(self) -> None:
-        accept_type("def depth[T](value: T) -> int = if true => 0 else => depth([value])\ndepth(0)")
+        resolve_and_check_repl_entry(
+            "def depth[T](value: T) -> int = if true => 0 else => depth([value])\ndepth(0)"
+        )
 
     def test_unannotated_uniformly_recursive_generic_infers_its_rigid_result(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum NonEmpty[T]\n"
             "  | Last(value: T)\n"
             "  | More(value: T, rest: NonEmpty[T])\n"
@@ -3391,7 +3325,7 @@ class TestFuncDef:
         assert_checked_module_closed(checked)
 
     def test_unannotated_uniformly_mutually_recursive_generics_infer_rigid_results(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum NonEmpty[T]\n"
             "  | Last(value: T)\n"
             "  | More(value: T, rest: NonEmpty[T])\n"
@@ -3410,7 +3344,7 @@ class TestFuncDef:
         assert checked.function_signatures["second"].result == TypeVarType("U")
 
     def test_uniform_generic_recursion_tracks_value_partial_and_explicit_occurrences(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum NonEmpty[T]\n"
             "  | Last(value: T)\n"
             "  | More(value: T, rest: NonEmpty[T])\n"
@@ -3485,7 +3419,7 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_acyclic_generic_dependencies_close_before_calls_and_values(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def direct(n: int) = identity(n)\n"
             "def value(n: int) = (let f: int -> int = identity; f(n))\n"
             "def partial(n: int) = identity(?)(n)\n"
@@ -3499,12 +3433,12 @@ class TestFuncDef:
         assert checked.function_signatures["identity"].result == TypeVarType("T")
 
     def test_unannotated_nonrecursive_generic_still_infers_its_result(self) -> None:
-        checked = accept_type("def identity[T](value: T) = value\nidentity(0)")
+        checked = resolve_and_check_repl_entry("def identity[T](value: T) = value\nidentity(0)")
 
         assert checked.function_signatures["identity"].result == TypeVarType("T")
 
     def test_unannotated_nonrecursive_generic_checks_default(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def identity[T](value: array[T], fallback: array[T] = []) = value\nidentity([0])"
         )
 
@@ -3525,7 +3459,7 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_unannotated_forward_reference_is_inferred_before_its_declaration(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def use-later(n: int) = later(n)\ndef later(n: int) = n + 1\nuse-later"
         )
 
@@ -3533,12 +3467,12 @@ class TestFuncDef:
         assert checked.function_signatures["later"].result == IntType()
 
     def test_candidate_inference_reads_simple_let_binding(self) -> None:
-        checked = accept_type("let value = 1\ndef capture() = value\ncapture()")
+        checked = resolve_and_check_repl_entry("let value = 1\ndef capture() = value\ncapture()")
 
         assert checked.function_signatures["capture"].result == IntType()
 
     def test_checked_simple_let_binding_identity_is_its_declaration_node(self) -> None:
-        checked = accept_type("let value = 1\nvalue")
+        checked = resolve_and_check_repl_entry("let value = 1\nvalue")
         declaration = checked.resolved.program.body.items[0]
         assert isinstance(declaration, LetDecl)
         binding = checked.resolved.root_scope.lookup("value")
@@ -3547,7 +3481,7 @@ class TestFuncDef:
         assert binding.decl_node_id == declaration.node_id
 
     def test_unannotated_first_class_forward_reference_is_inferred(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def use-later(n: int) =\n"
             "  let next = later\n"
             "  next(n)\n"
@@ -3559,7 +3493,7 @@ class TestFuncDef:
         assert checked.function_signatures["later"].result == IntType()
 
     def test_unannotated_mutual_recursion_infers_from_group_evidence(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def is-even(n: int) = if n == 0 => true else => is-odd(n - 1)\n"
             "def is-odd(n: int) = if n == 0 => false else => is-even(n - 1)\n"
             "is-even"
@@ -3569,7 +3503,7 @@ class TestFuncDef:
         assert checked.function_signatures["is-odd"].result == BoolType()
 
     def test_mutual_recursion_infers_dict_key_hashability_after_candidate_resolution(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def f(flag: bool) = if flag => {g(false): 1} else => {1: 2}\n"
             "def g(flag: bool) = if flag => f(false)[1] else => 1\n"
             "f"
@@ -3587,14 +3521,14 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_direct_recursive_function_infers_from_alternative_branch(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def countdown(n: int) = if n == 0 => 0 else => countdown(n - 1)\ncountdown"
         )
 
         assert checked.function_signatures["countdown"].result == IntType()
 
     def test_direct_recursive_function_infers_from_operator_operands(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def fib(n: int) = if n < 2 => n else => fib(n - 1) + fib(n - 2)\nfib"
         )
 
@@ -3603,7 +3537,7 @@ class TestFuncDef:
         assert not any(contains_inference_var(typ) for typ in checked.node_types.values())
 
     def test_direct_recursive_function_combines_return_operand_and_body_tail(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def countdown(n: int) =\n  if n == 0 => return 0\n  countdown(n - 1)\ncountdown"
         )
 
@@ -3620,14 +3554,16 @@ class TestFuncDef:
     def test_direct_recursive_operator_peer_supplies_candidate_evidence(
         self, operation: str, result: Type
     ) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             f"def recurse(n: int) = if n == 0 => recurse(n) {operation} else => recurse(n)\nrecurse"
         )
 
         assert checked.function_signatures["recurse"].result == result
 
     def test_direct_recursive_unary_operator_propagates_candidate(self) -> None:
-        checked = accept_type("def recurse(n: int) = if n == 0 => 0 else => -recurse(n)\nrecurse")
+        checked = resolve_and_check_repl_entry(
+            "def recurse(n: int) = if n == 0 => 0 else => -recurse(n)\nrecurse"
+        )
 
         assert checked.function_signatures["recurse"].result == IntType()
 
@@ -3645,7 +3581,7 @@ class TestFuncDef:
         )
 
     def test_literal_elements_made_concrete_by_earlier_elements_are_accepted(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             self._recursive_pair_literal(
                 'Pair(a = f(0), b = [1]), Pair(a = ["t"], b = []), Pair(a = f(1), b = [2])'
             )
@@ -3726,7 +3662,7 @@ class TestFuncDef:
         """A bool-typed position consuming a still-unresolved candidate result
         must defer like any other candidate operation, not reject the
         inference variable outright."""
-        checked = accept_type(source)
+        checked = resolve_and_check_repl_entry(source)
 
         assert checked.function_signatures["f"].result == BoolType()
 
@@ -3741,7 +3677,7 @@ class TestFuncDef:
         )
 
     def test_candidate_artifacts_are_discarded_before_authoritative_publication(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def recurse(n: int) =\n"
             '  if n == 0 => ask::[int]("number") else => recurse(n - 1)\n'
             "let value = recurse(0)\n"
@@ -4264,7 +4200,7 @@ class TestFuncDef:
     def test_direct_recursive_widening_evidence_is_source_order_independent(
         self, body: str
     ) -> None:
-        checked = accept_type(f"def recurse(n: int) =\n  {body}\nrecurse")
+        checked = resolve_and_check_repl_entry(f"def recurse(n: int) =\n  {body}\nrecurse")
 
         assert checked.function_signatures["recurse"].result == DecimalType()
 
@@ -4272,7 +4208,7 @@ class TestFuncDef:
     def test_direct_recursive_literal_evidence_is_source_order_independent(
         self, elements: str
     ) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             f"def recurse(n: int) = if n == 0 => recurse(n) else => {elements}\nrecurse"
         )
 
@@ -4305,7 +4241,7 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_direct_recursive_literal_discards_bottom_element_evidence(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             'def recurse(n: int) = if n == 0 => [raise Abort(message = "stop"), 1] '
             "else => recurse(n)\nrecurse"
         )
@@ -4330,14 +4266,14 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_direct_recursive_fixed_result_operations_defer_provisional_operands(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def recurse(n: int) = if n == 0 => recurse(n) == true else => false\nrecurse"
         )
 
         assert checked.function_signatures["recurse"].result == BoolType()
 
     def test_direct_recursive_division_uses_fixed_decimal_result(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def recurse(n: int) = if n == 0 => recurse(n) / 1 else => 1.5\nrecurse"
         )
 
@@ -4356,14 +4292,14 @@ class TestFuncDef:
     ) -> None:
         # A local annotation consuming the recursive result is a use-site, not
         # return evidence: it must not pin the result var, regardless of order.
-        checked = accept_type(f"def recurse(n: int) =\n{body}\nrecurse")
+        checked = resolve_and_check_repl_entry(f"def recurse(n: int) =\n{body}\nrecurse")
 
         assert checked.function_signatures["recurse"].result == IntType()
 
     def test_mutual_recursion_mixed_numeric_operands_are_accepted(self) -> None:
         # ``f + g`` where the operands resolve to int and decimal must not force
         # the two provisional results equal.
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def f(n: int) =\n"
             "  if n < 1 => 0\n"
             "  else =>\n"
@@ -4393,7 +4329,7 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_direct_recursive_membership_defers_provisional_operand(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def recurse(n: int) = if n == 0 => recurse(n) in [true] else => false\nrecurse"
         )
 
@@ -4442,7 +4378,7 @@ class TestFuncDef:
             "recurse"
         )
         if body in {"recurse(n) and true", "not recurse(n)"}:
-            checked = accept_type(source)
+            checked = resolve_and_check_repl_entry(source)
             assert checked.function_signatures["recurse"].result == BoolType()
         else:
             reject_type(source)
@@ -4467,7 +4403,7 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_direct_recursive_call_and_constructor_arguments_supply_expected_shapes(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Node\n"
             "  | base\n"
             "  | more(next: Node)\n"
@@ -4505,7 +4441,7 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_funcdef_with_default_param(self) -> None:
-        r = accept_type("def f(x: int, y: int = 0) -> int = x + y\nf(1)")
+        r = resolve_and_check_repl_entry("def f(x: int, y: int = 0) -> int = x + y\nf(1)")
         assert "f" in r.function_signatures
         sig = r.function_signatures["f"]
         assert sig.params[1].has_default is True  # y has a default
@@ -4515,11 +4451,11 @@ class TestFuncDef:
         assert "default" in str(err).lower() or "required" in str(err).lower()
 
     def test_funcdef_callable(self) -> None:
-        r = accept_type("def double(x: int) -> int = x * 2\ndouble(5)")
+        r = resolve_and_check_repl_entry("def double(x: int) -> int = x * 2\ndouble(5)")
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_funcdef_return_type_is_function_type(self) -> None:
-        r = accept_type("def f(x: int) -> int = x\nf")
+        r = resolve_and_check_repl_entry("def f(x: int) -> int = x\nf")
         prog = r.resolved.program
         f_ref = prog.body.items[1]
         assert isinstance(f_ref, VarRef)
@@ -4528,20 +4464,22 @@ class TestFuncDef:
 
     def test_funcdef_with_raise_body(self) -> None:
         # raise has BottomType, assignable to any declared return type
-        r = accept_type('def f(x: int) -> text = raise Abort(message = "err")\nf(1)')
+        r = resolve_and_check_repl_entry(
+            'def f(x: int) -> text = raise Abort(message = "err")\nf(1)'
+        )
         func_def = r.resolved.program.body.items[0]
         assert isinstance(func_def, FuncDef)
         assert isinstance(r.node_types[func_def.body.node_id], BottomType)
         assert r.node_types[r.resolved.program.body.items[1].node_id] == TextType()
 
     def test_funcdef_return_value_checked_against_annotation(self) -> None:
-        r = accept_type("def f(x: int) -> int =\n  return x\n  0\nf(1)")
+        r = resolve_and_check_repl_entry("def f(x: int) -> int =\n  return x\n  0\nf(1)")
         return_node = r.resolved.program.body.items[0].body.items[0]
         assert isinstance(return_node, Return)
         assert isinstance(r.node_types[return_node.node_id], BottomType)
 
     def test_funcdef_return_widening_checked_against_annotation(self) -> None:
-        r = accept_type("def f() -> decimal =\n  return 1\nf")
+        r = resolve_and_check_repl_entry("def f() -> decimal =\n  return 1\nf")
         f_ref = r.resolved.program.body.items[1]
         assert isinstance(f_ref, VarRef)
         assert r.node_types[f_ref.node_id] == FunctionType(params=(), result=DecimalType())
@@ -4572,13 +4510,13 @@ class TestFuncDef:
         assert "mismatch" in str(err).lower() or "expected" in str(err).lower()
 
     def test_bottom_plus_bottom_is_still_type_checked(self) -> None:
-        r = accept_type("def f() -> int = (return 1) + (return 2)\nf")
+        r = resolve_and_check_repl_entry("def f() -> int = (return 1) + (return 2)\nf")
         f_ref = r.resolved.program.body.items[1]
         assert isinstance(f_ref, VarRef)
         assert r.node_types[f_ref.node_id] == FunctionType(params=(), result=IntType())
 
     def test_bottom_right_in_operand_is_still_type_checked(self) -> None:
-        r = accept_type("def f() -> bool = 1 in (return true)\nf")
+        r = resolve_and_check_repl_entry("def f() -> bool = 1 in (return true)\nf")
         f_ref = r.resolved.program.body.items[1]
         assert isinstance(f_ref, VarRef)
         assert r.node_types[f_ref.node_id] == FunctionType(params=(), result=BoolType())
@@ -4592,7 +4530,9 @@ class TestFuncDef:
         assert "mismatch" in str(err).lower() or "expected" in str(err).lower()
 
     def test_funcdef_infers_return_and_tail_unification_with_widening(self) -> None:
-        r = accept_type("def f(flag: bool) =\n  if flag =>\n    return 1\n  1.5\nf")
+        r = resolve_and_check_repl_entry(
+            "def f(flag: bool) =\n  if flag =>\n    return 1\n  1.5\nf"
+        )
         f_ref = r.resolved.program.body.items[1]
         assert isinstance(f_ref, VarRef)
         assert r.node_types[f_ref.node_id] == FunctionType(
@@ -4605,7 +4545,7 @@ class TestFuncDef:
         assert "annotation" in str(err).lower()
 
     def test_funcdef_called_with_named_args(self) -> None:
-        r = accept_type("def f(x: int, y: int = 0) -> int = x + y\nf(1, y = 2)")
+        r = resolve_and_check_repl_entry("def f(x: int, y: int = 0) -> int = x + y\nf(1, y = 2)")
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_funcdef_missing_required_arg(self) -> None:
@@ -4633,12 +4573,12 @@ class TestFuncDef:
         assert "mismatch" in str(err).lower() or "expected" in str(err).lower()
 
     def test_funcdef_all_named_args(self) -> None:
-        r = accept_type("def f(x: int, y: int) -> int = x + y\nf(x = 1, y = 2)")
+        r = resolve_and_check_repl_entry("def f(x: int, y: int) -> int = x + y\nf(x = 1, y = 2)")
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_funcdef_defaulted_arg_omitted(self) -> None:
         # The defaulted trailing parameter may be left out entirely.
-        r = accept_type("def f(x: int, y: int = 0) -> int = x + y\nf(1)")
+        r = resolve_and_check_repl_entry("def f(x: int, y: int = 0) -> int = x + y\nf(1)")
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_funcdef_duplicate_named_arg_via_call(self) -> None:
@@ -4653,7 +4593,7 @@ class TestFuncDef:
         assert "print" in str(err) or "built-in" in str(err).lower()
 
     def test_funcdef_value_binding_type_is_function_type(self) -> None:
-        r = accept_type('def f(x: int) -> text = "hi"\nf')
+        r = resolve_and_check_repl_entry('def f(x: int) -> text = "hi"\nf')
         f_ref = r.resolved.program.body.items[1]
         assert isinstance(f_ref, VarRef)
         t = r.node_types[f_ref.node_id]
@@ -4700,7 +4640,7 @@ class TestFuncDef:
 
 class TestPartialDeclaredCalls:
     def _checked_call_value(self, source: str) -> tuple[CheckedModule, Call]:
-        checked = accept_type(source)
+        checked = resolve_and_check_repl_entry(source)
         decl = checked.resolved.program.body.items[-2]
         assert isinstance(decl, LetDecl)
         assert isinstance(decl.value, Call)
@@ -4755,7 +4695,9 @@ class TestPartialDeclaredCalls:
         )
 
     def test_generic_hole_type_from_expected_function_type(self) -> None:
-        checked = accept_type("def make[T](x: T) -> T = x\nlet g: (text) -> text = make(?)\ng")
+        checked = resolve_and_check_repl_entry(
+            "def make[T](x: T) -> T = x\nlet g: (text) -> text = make(?)\ng"
+        )
         decl = checked.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert isinstance(decl.value, Call)
@@ -4785,7 +4727,7 @@ class TestPartialDeclaredCalls:
         assert "not a generic function" in str(err)
 
     def test_partial_call_to_unannotated_later_function_is_inferred(self) -> None:
-        checked = accept_type("let g = f(?)\ndef f(x: int) = x\ng")
+        checked = resolve_and_check_repl_entry("let g = f(?)\ndef f(x: int) = x\ng")
 
         assert checked.function_signatures["f"].result == IntType()
 
@@ -4861,7 +4803,7 @@ class TestPartialConstructorAndValueCalls:
         raise AssertionError(f"no call-valued let named {name!r}")
 
     def test_record_constructor_numbered_named_holes_and_side_table(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             "  y: text\n"
@@ -4880,7 +4822,7 @@ class TestPartialConstructorAndValueCalls:
         )
 
     def test_enum_variant_and_exception_constructor_partials(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Status\n"
             "  | failed(reason: text)\n"
             "exception Boom extends Exception\n"
@@ -4904,7 +4846,7 @@ class TestPartialConstructorAndValueCalls:
         assert _partial_slots(checked.partial_calls[boom_call.node_id]) == (0, "arg")
 
     def test_generic_member_constructor_uses_a_matching_expected_enum_result(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Option[T]\n  | some(value: T)\nlet make: (int) -> Option[int] = some\nmake"
         )
 
@@ -4933,7 +4875,7 @@ class TestPartialConstructorAndValueCalls:
         )
 
     def test_generic_constructor_uses_expected_function_type_for_hole(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n  value: T\nlet make: (text) -> Box[text] = Box(value = ?)\nmake"
         )
         call = self._let_call(checked, "make")
@@ -4942,7 +4884,7 @@ class TestPartialConstructorAndValueCalls:
         )
 
     def test_generic_constructor_expected_type_with_non_hole_fields(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Pair[A, B]\n"
             "  left: A\n"
             "  right: B\n"
@@ -4956,7 +4898,7 @@ class TestPartialConstructorAndValueCalls:
         )
 
     def test_qualified_generic_constructor_partial(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: T)\n"
@@ -4972,7 +4914,7 @@ class TestPartialConstructorAndValueCalls:
         assert checked.partial_calls[call.node_id].callee_kind == "constructor"
 
     def test_generic_constructor_infers_from_non_hole_and_explicit_type_args(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Pair[T]\n"
             "  left: T\n"
             "  right: T\n"
@@ -5027,7 +4969,6 @@ class TestPartialConstructorAndValueCalls:
         }
         checked = check_program(
             resolve_program(make_file_graph_from_files(Path(tmp_path), modules)),
-            default_capabilities(),
         )
         entry = checked.modules[ENTRY_ID]
         main = next(
@@ -5082,7 +5023,6 @@ class TestPartialConstructorAndValueCalls:
         with pytest.raises(AglTypeError, match="type argument"):
             check_program(
                 resolve_program(make_graph_from_files(Path(tmp_path), modules)),
-                default_capabilities(),
             )
 
     def test_ambiguous_bare_owner_missing_member_is_rejected(self, tmp_path: object) -> None:
@@ -5105,11 +5045,10 @@ class TestPartialConstructorAndValueCalls:
         with pytest.raises(AglScopeError):
             check_program(
                 resolve_program(make_graph_from_files(Path(tmp_path), modules)),
-                default_capabilities(),
             )
 
     def test_value_calls_from_bindings_lambdas_and_partial_results(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def add(x: int, y: int) -> int = x + y\n"
             "def digits(x: int, y: int, z: int) -> int = x * 100 + y * 10 + z\n"
             "let add-value: (int, int) -> int = add\n"
@@ -5145,7 +5084,7 @@ class TestPartialConstructorAndValueCalls:
 
 class TestProvisionalFunctionValuesAndPartials:
     def test_provisional_function_value_call_uses_later_argument_evidence(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def maker[T]() -> T -> T = fn(value: T) => value\nlet result = maker()(1)\nresult"
         )
         result = checked.resolved.program.body.items[1]
@@ -5154,7 +5093,7 @@ class TestProvisionalFunctionValuesAndPartials:
         assert not contains_inference_var(checked.node_types[result.value.node_id])
 
     def test_nested_higher_order_provisional_values_are_fresh_per_occurrence(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def maker[T]() -> T -> T = fn(value: T) => value\n"
             "def choose[A, B](left: A -> A, right: B -> B, a: A, b: B) -> B = right(b)\n"
             'let result = choose(maker(), maker(), 1, "text")\n'
@@ -5165,7 +5104,7 @@ class TestProvisionalFunctionValuesAndPartials:
         assert checked.node_types[result.value.node_id] == TextType()
 
     def test_partial_declared_call_joins_fixed_holes_and_expected_shape(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def route[T](first: T, evidence: T, optional: int = 0, @arg-named tail: T)"
             " -> T = first\n"
             "let fill: (int, int) -> int = route(?, 1, tail = ?)\n"
@@ -5192,7 +5131,7 @@ class TestProvisionalFunctionValuesAndPartials:
         assert err.related
 
     def test_partial_function_value_uses_fixed_argument_to_solve_provisional_callee(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def maker[T]() -> (T, T) -> T = fn(left: T, right: T) => left\n"
             "let keep: (int) -> int = maker()(?, 1)\n"
             "keep"
@@ -5207,7 +5146,7 @@ class TestProvisionalFunctionValuesAndPartials:
         assert _partial_slots(checked.partial_calls[keep.value.node_id]) == (0, "arg")
 
     def test_partial_function_value_context_completes_provisional_result(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def maker[T]() -> T -> T = fn(value: T) => value\n"
             "let keep: (int) -> int = maker()(?)\n"
             "keep"
@@ -5234,7 +5173,7 @@ class TestProvisionalFunctionValuesAndPartials:
         assert err.related
 
     def test_concrete_evidence_before_or_after_provisional_value_is_equivalent(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def maker[T]() -> T -> T = fn(value: T) => value\n"
             "def value-first[T](value: T, transform: T -> T) -> T = transform(value)\n"
             "def function-first[T](transform: T -> T, value: T) -> T = transform(value)\n"
@@ -5252,14 +5191,14 @@ class TestProvisionalFunctionValuesAndPartials:
 
 class TestLambda:
     def test_lambda_with_return_type(self) -> None:
-        r = accept_type("fn(x: int) -> int => x")
+        r = resolve_and_check_repl_entry("fn(x: int) -> int => x")
         lam = r.resolved.program.body.items[0]
         assert isinstance(lam, Lambda)
         t = r.node_types[lam.node_id]
         assert t == FunctionType(params=(IntType(),), result=IntType())
 
     def test_lambda_without_return_type_inferred(self) -> None:
-        r = accept_type("fn(x: int) => x")
+        r = resolve_and_check_repl_entry("fn(x: int) => x")
         lam = r.resolved.program.body.items[0]
         assert isinstance(lam, Lambda)
         t = r.node_types[lam.node_id]
@@ -5272,7 +5211,7 @@ class TestLambda:
     def test_lambda_param_types_are_inferred_from_function_context(
         self, lambda_source: str
     ) -> None:
-        r = accept_type(f"let add: (int, int) -> int = {lambda_source}\nadd(2, 3)")
+        r = resolve_and_check_repl_entry(f"let add: (int, int) -> int = {lambda_source}\nadd(2, 3)")
         lam = r.resolved.program.body.items[0]
         assert isinstance(lam, LetDecl)
         assert isinstance(lam.value, Lambda)
@@ -5281,7 +5220,9 @@ class TestLambda:
         )
 
     def test_bare_unary_lambda_param_type_is_inferred(self) -> None:
-        r = accept_type("let increment: int -> int = fn value => value + 1\nincrement(2)")
+        r = resolve_and_check_repl_entry(
+            "let increment: int -> int = fn value => value + 1\nincrement(2)"
+        )
         binding = r.resolved.program.body.items[0]
         assert isinstance(binding, LetDecl)
         assert isinstance(binding.value, Lambda)
@@ -5290,7 +5231,7 @@ class TestLambda:
         )
 
     def test_contextual_lambda_is_checked_after_generic_sibling_evidence(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "def apply[T](function: T -> T, value: T) -> T = function(value)\n"
             "apply(fn item => item + 1, 2)"
         )
@@ -5323,14 +5264,14 @@ class TestLambda:
         assert "infer" in str(err).lower() or "return" in str(err).lower()
 
     def test_lambda_with_raise_and_annotation(self) -> None:
-        r = accept_type('fn() -> int => raise Abort(message = "x")')
+        r = resolve_and_check_repl_entry('fn() -> int => raise Abort(message = "x")')
         lam = r.resolved.program.body.items[0]
         assert isinstance(lam, Lambda)
         assert r.node_types[lam.node_id] == FunctionType(params=(), result=IntType())
         assert isinstance(r.node_types[lam.body.node_id], BottomType)
 
     def test_lambda_return_targets_inner_function(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'def outer() -> int =\n  let f = fn() -> text => return "inner"\n  1\nouter()'
         )
         outer = r.resolved.program.body.items[0]
@@ -5345,7 +5286,7 @@ class TestLambda:
         reject_type("def outer() -> int =\n  let f = fn() -> text => return 1\n  1\nouter()")
 
     def test_lambda_infers_return_type(self) -> None:
-        r = accept_type("fn(flag: bool) => if flag => (return 1) | else => 2")
+        r = resolve_and_check_repl_entry("fn(flag: bool) => if flag => (return 1) | else => 2")
         lam = r.resolved.program.body.items[0]
         assert isinstance(lam, Lambda)
         assert r.node_types[lam.node_id] == FunctionType(params=(BoolType(),), result=IntType())
@@ -5356,7 +5297,7 @@ class TestLambda:
         assert "annotation" in str(err).lower()
 
     def test_lambda_value_call(self) -> None:
-        r = accept_type("let f = fn(x: int) -> int => x\nf(42)")
+        r = resolve_and_check_repl_entry("let f = fn(x: int) -> int => x\nf(42)")
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_lambda_value_call_non_function_callee(self) -> None:
@@ -5375,14 +5316,14 @@ class TestLambda:
 
 class TestIf:
     def test_if_else_unifies(self) -> None:
-        r = accept_type("if true => 1 | else => 2")
+        r = resolve_and_check_repl_entry("if true => 1 | else => 2")
         if_node = r.resolved.program.body.items[0]
         assert isinstance(if_node, If)
         t = r.node_types[if_node.node_id]
         assert t == IntType()
 
     def test_if_without_else_yields_unit(self) -> None:
-        r = accept_type("if true => ()")
+        r = resolve_and_check_repl_entry("if true => ()")
         if_node = r.resolved.program.body.items[0]
         assert isinstance(if_node, If)
         t = r.node_types[if_node.node_id]
@@ -5397,20 +5338,20 @@ class TestIf:
         assert "incompatible" in str(err).lower() or "branches" in str(err).lower()
 
     def test_if_int_decimal_widening(self) -> None:
-        r = accept_type("if true => 1 | else => 2.5")
+        r = resolve_and_check_repl_entry("if true => 1 | else => 2.5")
         if_node = r.resolved.program.body.items[0]
         assert isinstance(if_node, If)
         t = r.node_types[if_node.node_id]
         assert t == DecimalType()
 
     def test_if_multiple_branches(self) -> None:
-        r = accept_type("if true => 1 | true => 2 | else => 3")
+        r = resolve_and_check_repl_entry("if true => 1 | true => 2 | else => 3")
         if_node = r.resolved.program.body.items[0]
         assert isinstance(if_node, If)
         assert r.node_types[if_node.node_id] == IntType()
 
     def test_if_annotation_context(self) -> None:
-        r = accept_type("let x: int = if true => 1 | else => 2\nx")
+        r = resolve_and_check_repl_entry("let x: int = if true => 1 | else => 2\nx")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == IntType()
@@ -5418,7 +5359,7 @@ class TestIf:
 
     def test_branch_decimal_int_widening(self) -> None:
         # if true => 2.5 | else => 2 → decimal (decimal+int branch unification widens to decimal)
-        r = accept_type("if true => 2.5 | true => 3 | else => 1.0")
+        r = resolve_and_check_repl_entry("if true => 2.5 | true => 3 | else => 1.0")
         if_node = r.resolved.program.body.items[0]
         assert isinstance(if_node, If)
         t = r.node_types[if_node.node_id]
@@ -5427,7 +5368,7 @@ class TestIf:
     def test_all_bottom_if_branches_yield_bottom(self) -> None:
         # Branch bodies that always raise unify to bottom; with no expected
         # type to coerce it, the ``if`` itself is bottom too.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "if true =>\n"
             '  let msg = "zero"\n'
             "  raise Abort(message = msg)\n"
@@ -5440,7 +5381,7 @@ class TestIf:
         assert isinstance(r.node_types[if_node.node_id], BottomType)
 
         # A declared return type coerces that bottom to itself.
-        typed = accept_type(
+        typed = resolve_and_check_repl_entry(
             "def f(x: int) -> int =\n"
             "  if x == 0 =>\n"
             '    raise Abort(message = "zero")\n'
@@ -5458,14 +5399,14 @@ class TestIf:
 
 class TestCase:
     def test_case_wildcard_branch(self) -> None:
-        r = accept_type('let x = 1\ncase x of | _ => "got it"')
+        r = resolve_and_check_repl_entry('let x = 1\ncase x of | _ => "got it"')
         case = r.resolved.program.body.items[1]
         assert isinstance(case, Case)
         assert r.node_types[case.node_id] == TextType()
         assert r.node_types[case.subject.node_id] == IntType()
 
     def test_case_var_pattern(self) -> None:
-        r = accept_type("let x = 1\ncase x of | _ as n => n")
+        r = resolve_and_check_repl_entry("let x = 1\ncase x of | _ as n => n")
         case = r.resolved.program.body.items[1]
         assert isinstance(case, Case)
         binder = case.branches[0].pattern
@@ -5474,13 +5415,13 @@ class TestCase:
         assert r.node_types[case.node_id] == IntType()
 
     def test_case_literal_pattern(self) -> None:
-        r = accept_type('let x = 1\ncase x of | 1 => "one" | _ => "other"')
+        r = resolve_and_check_repl_entry('let x = 1\ncase x of | 1 => "one" | _ => "other"')
         case = r.resolved.program.body.items[1]
         assert isinstance(case, Case)
         assert r.node_types[case.node_id] == TextType()
 
     def test_case_enum_constructor_pattern(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Status\n  | Pass\n  | Fail\nlet s: Status = Pass()\n"
             "case s of | Status::Pass => 1 | Status::Fail => 2"
         )
@@ -5492,7 +5433,7 @@ class TestCase:
         assert r.node_types[case.node_id] == IntType()
 
     def test_case_on_member_record_keeps_the_exact_record_type(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Status\n  | Pass\n  | Fail\nlet status = Pass()\ncase status of | Pass => 1"
         )
         case = checked.resolved.program.body.items[-1]
@@ -5506,7 +5447,7 @@ class TestCase:
         assert "incompatible" in str(err).lower() or "branches" in str(err).lower()
 
     def test_case_non_exhaustive_enum_is_not_checker_owned(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Status\n  | Pass\n  | Fail\nlet s = Pass()\ncase s of | Status::Pass => 1"
         )
         assert r.warnings == ()
@@ -5520,7 +5461,7 @@ class TestCase:
         assert "enum" in str(err).lower() or "constructor" in str(err).lower()
 
     def test_case_with_constructor_field_pattern(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Result\n  | Ok(value: int)\n  | Err(msg: text)\n"
             "let res: Result = Ok(value = 42)\n"
             "case res of | Result::Ok(value = _ as v) => v | Result::Err(msg = _ as m) => 0"
@@ -5534,7 +5475,7 @@ class TestCase:
         assert r.node_types[case.node_id] == IntType()
 
     def test_case_empty_branches_wildcard(self) -> None:
-        r = accept_type('let x = 1\ncase x of | _ => "ok"')
+        r = resolve_and_check_repl_entry('let x = 1\ncase x of | _ => "ok"')
         case = r.resolved.program.body.items[1]
         assert isinstance(case, Case)
         assert isinstance(case.branches[0].pattern, WildcardPattern)
@@ -5553,7 +5494,7 @@ class TestPatternTyping:
     """
 
     def test_as_pattern_binders_have_the_complete_subject_type(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n  x: int\n"
             "enum E\n  | A(value: int)\n  | B\n"
             "let e: E = A(1)\n"
@@ -5600,7 +5541,7 @@ class TestPatternTyping:
 
     def test_constructor_pattern_with_qualifier(self) -> None:
         # Exercises the qualifier check in constructor pattern matching.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum E\n  | A(x: int)\nlet e = A(x = 1)\ncase e of | E::A(x = _ as n) => n | _ => 0"
         )
         case = r.resolved.program.body.items[2]
@@ -5630,7 +5571,7 @@ class TestPatternTyping:
 
     def test_constructor_pattern_without_qualifier(self) -> None:
         # Exercises a constructor pattern without a qualifier.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum E\n  | A(x: int)\nlet e = A(x = 1)\ncase e of | A(x = _ as n) => n | _ => 0"
         )
         case = r.resolved.program.body.items[2]
@@ -5640,7 +5581,7 @@ class TestPatternTyping:
         assert r.node_types[case.node_id] == IntType()
 
     def test_constructor_pattern_with_self_qualified_owner(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum E\n  | A(x: int)\nlet e = A(x = 1)\ncase e of | ::E::A(x = _ as n) => n | _ => 0"
         )
         case = r.resolved.program.body.items[2]
@@ -5657,7 +5598,7 @@ class TestPatternTyping:
 
 class TestDo:
     def test_do_yields_unit(self) -> None:
-        r = accept_type("var i = 0\ndo\n  i := i + 1\nuntil i > 5")
+        r = resolve_and_check_repl_entry("var i = 0\ndo\n  i := i + 1\nuntil i > 5")
         do_node = r.resolved.program.body.items[1]
         assert isinstance(do_node, Loop)
         t = r.node_types[do_node.node_id]
@@ -5678,7 +5619,7 @@ class TestDo:
         assert "unit" in str(err).lower()
 
     def test_loop_body_binder_is_unit_and_visible_to_until(self) -> None:
-        r = accept_type("do\n  let finished = true\nuntil finished")
+        r = resolve_and_check_repl_entry("do\n  let finished = true\nuntil finished")
         do_node = r.resolved.program.body.items[0]
         assert isinstance(do_node, Loop)
         assert r.node_types[do_node.body.node_id] == UnitType()
@@ -5699,13 +5640,13 @@ class TestDo:
 
 class TestTryCatch:
     def test_try_catch_wildcard(self) -> None:
-        r = accept_type("try 1 catch _ => 2")
+        r = resolve_and_check_repl_entry("try 1 catch _ => 2")
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         assert r.node_types[try_node.node_id] == IntType()
 
     def test_try_catch_specific_exc_type(self) -> None:
-        r = accept_type("try 1 catch Exception as e => 0")
+        r = resolve_and_check_repl_entry("try 1 catch Exception as e => 0")
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         binder_type = r.type_env.get_binding_type(try_node.handlers[0].node_id)
@@ -5714,7 +5655,7 @@ class TestTryCatch:
         assert r.node_types[try_node.node_id] == IntType()
 
     def test_try_catch_binding_accesses_attempts(self) -> None:
-        r = accept_type("try 0 catch AgentParseError as e => e.attempts")
+        r = resolve_and_check_repl_entry("try 0 catch AgentParseError as e => e.attempts")
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         field = try_node.handlers[0].body
@@ -5734,7 +5675,7 @@ class TestTryCatch:
         assert "incompatible" in str(err).lower() or "branches" in str(err).lower()
 
     def test_try_unified_int_decimal(self) -> None:
-        r = accept_type("try 1 catch _ => 2.5")
+        r = resolve_and_check_repl_entry("try 1 catch _ => 2.5")
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         t = r.node_types[try_node.node_id]
@@ -5742,7 +5683,7 @@ class TestTryCatch:
 
     def test_try_wildcard_binding_accesses_message(self) -> None:
         # body is text so handler text=text is compatible
-        r = accept_type('try "hello" catch _ as e => e.message')
+        r = resolve_and_check_repl_entry('try "hello" catch _ as e => e.message')
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         field = try_node.handlers[0].body
@@ -5756,7 +5697,7 @@ class TestTryCatch:
     def test_try_catch_abort_binding(self) -> None:
         # A named handler binds the caught exception at its own type, not at
         # the base exception type a wildcard handler binds.
-        r = accept_type('try "x" catch Abort as e => e.message')
+        r = resolve_and_check_repl_entry('try "x" catch Abort as e => e.message')
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         binder_ref = try_node.handlers[0].body
@@ -5768,7 +5709,7 @@ class TestTryCatch:
 
     def test_catch_wildcard_binding_gets_base(self) -> None:
         # body and handler must unify; using text in both
-        r = accept_type('try "hello" catch _ as e => e.message')
+        r = resolve_and_check_repl_entry('try "hello" catch _ as e => e.message')
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         binder_ref = try_node.handlers[0].body
@@ -5827,26 +5768,26 @@ class TestCatchReachability:
 
     def test_most_specific_first_order_is_accepted(self) -> None:
         source = self._HIERARCHY + "try 1 catch Detailed => 2 catch Problem => 3 catch _ => 4"
-        r = accept_type(source)
+        r = resolve_and_check_repl_entry(source)
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
 
     def test_sibling_handlers_are_accepted(self) -> None:
         source = self._HIERARCHY + "try 1 catch Detailed => 2 catch Unrelated => 3"
-        r = accept_type(source)
+        r = resolve_and_check_repl_entry(source)
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
 
     def test_handler_for_exception_declared_without_extends_does_not_shadow_the_wildcard(
         self,
     ) -> None:
         source = self._HIERARCHY + "try 1 catch Plain => 2 catch _ => 3"
-        r = accept_type(source)
+        r = resolve_and_check_repl_entry(source)
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
 
     def test_handler_for_exception_declared_without_extends_does_not_shadow_a_sibling(
         self,
     ) -> None:
         source = self._HIERARCHY + "try 1 catch Plain => 2 catch Unrelated => 3"
-        r = accept_type(source)
+        r = resolve_and_check_repl_entry(source)
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
 
     def test_an_omitted_extends_resolves_against_a_cold_compilation(self) -> None:
@@ -5861,7 +5802,7 @@ class TestCatchReachability:
 
         artifact_cache.clear_retained_artifacts()
         source = self._HIERARCHY + "try 1 catch Plain => 2 catch _ => 3"
-        r = accept_type(source)
+        r = resolve_and_check_repl_entry(source)
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
         table = r.type_env.type_table
         plain = table.get(ENTRY_ID, "Plain")
@@ -5878,7 +5819,7 @@ class TestCatchReachability:
 
 class TestRaise:
     def test_raise_abort_ok(self) -> None:
-        r = accept_type('raise Abort(message = "error")')
+        r = resolve_and_check_repl_entry('raise Abort(message = "error")')
         raise_node = r.resolved.program.body.items[0]
         assert isinstance(raise_node, Raise)
         t = r.node_types[raise_node.node_id]
@@ -5890,14 +5831,14 @@ class TestRaise:
 
     def test_raise_bottom_assignable_to_any(self) -> None:
         # raise can be used where any type is expected (annotated binding)
-        r = accept_type('let x: int = raise Abort(message = "err")\nx')
+        r = resolve_and_check_repl_entry('let x: int = raise Abort(message = "err")\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert isinstance(r.node_types[decl.value.node_id], BottomType)
         assert r.type_env.get_binding_type(decl.node_id) == IntType()
 
     def test_raise_in_funcdef_body(self) -> None:
-        r = accept_type('def f() -> text = raise Abort(message = "err")\nf()')
+        r = resolve_and_check_repl_entry('def f() -> text = raise Abort(message = "err")\nf()')
         func_def = r.resolved.program.body.items[0]
         assert isinstance(func_def, FuncDef)
         assert isinstance(r.node_types[func_def.body.node_id], BottomType)
@@ -5922,45 +5863,45 @@ class TestRaise:
 
 class TestTemplate:
     def test_plain_template_is_text(self) -> None:
-        r = accept_type('let s = "hello world"\ns')
+        r = resolve_and_check_repl_entry('let s = "hello world"\ns')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == TextType()
         assert r.type_env.get_binding_type(decl.node_id) == TextType()
 
     def test_interpolated_template(self) -> None:
-        r = accept_type('let x = 42\nlet s = "%{x}"\ns')
+        r = resolve_and_check_repl_entry('let x = 42\nlet s = "%{x}"\ns')
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == TextType()
 
     def test_interpolated_function_accepted(self) -> None:
-        accept_type('let f = fn(x: int) -> int => x\n"%{f}"')
+        resolve_and_check_repl_entry('let f = fn(x: int) -> int => x\n"%{f}"')
 
     def test_interpolated_int_is_ok(self) -> None:
-        r = accept_type('let n = 1\n"n is %{n}"')
+        r = resolve_and_check_repl_entry('let n = 1\n"n is %{n}"')
         node = r.resolved.program.body.items[1]
         assert r.node_types[node.node_id] == TextType()
 
     def test_interpolated_null_is_ok(self) -> None:
-        r = accept_type('"%{null}"')
+        r = resolve_and_check_repl_entry('"%{null}"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == TextType()
 
     def test_interpolated_array_literal(self) -> None:
-        r = accept_type('"%{[1, 2, 3]}"')
+        r = resolve_and_check_repl_entry('"%{[1, 2, 3]}"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == TextType()
 
     def test_interpolated_dict_literal(self) -> None:
         # dict in template uses double-brace: %{{ key: val }}
-        r = accept_type('"%{{"a": 1}}"')
+        r = resolve_and_check_repl_entry('"%{{"a": 1}}"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == TextType()
 
     def test_interpolated_nested_json(self) -> None:
         # nested dict inside template interpolation
-        r = accept_type('let n = 42\n"%{{"a": n}}"')
+        r = resolve_and_check_repl_entry('let n = 42\n"%{{"a": n}}"')
         node = r.resolved.program.body.items[1]
         assert r.node_types[node.node_id] == TextType()
 
@@ -5970,19 +5911,19 @@ class TestTemplate:
 
     def test_template_empty_dict_in_template(self) -> None:
         # An empty dict inside a template needs annotation context
-        r = accept_type('let d: json = {}\n"%{d}"')
+        r = resolve_and_check_repl_entry('let d: json = {}\n"%{d}"')
         node = r.resolved.program.body.items[1]
         assert r.node_types[node.node_id] == TextType()
 
     def test_template_empty_array_in_dict_value(self) -> None:
         # Exercises empty-array in _check_template_literal_child
-        r = accept_type('"%{{ "a": []}}"')
+        r = resolve_and_check_repl_entry('"%{{ "a": []}}"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == TextType()
 
     def test_template_empty_dict_as_array_child(self) -> None:
         # Exercises empty-dict in _check_template_literal_child
-        r = accept_type('"%{[{}]}"')
+        r = resolve_and_check_repl_entry('"%{[{}]}"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == TextType()
 
@@ -5992,13 +5933,13 @@ class TestTemplate:
 
     def test_template_nested_array_in_array(self) -> None:
         # Exercises a non-empty ArrayLit as a child of a template array.
-        r = accept_type('"%{[1, [2, 3]]}"')
+        r = resolve_and_check_repl_entry('"%{[1, [2, 3]]}"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == TextType()
 
     def test_template_nested_dict_in_dict(self) -> None:
         # Exercises a non-empty DictLit as a child of a template dict.
-        r = accept_type('"%{{"a": {"b": 1}}}"')
+        r = resolve_and_check_repl_entry('"%{{"a": {"b": 1}}}"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == TextType()
 
@@ -6010,17 +5951,17 @@ class TestTemplate:
 
 class TestBinaryOps:
     def test_add_int(self) -> None:
-        r = accept_type("1 + 2")
+        r = resolve_and_check_repl_entry("1 + 2")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == IntType()
 
     def test_add_decimal(self) -> None:
-        r = accept_type("1.5 + 2.5")
+        r = resolve_and_check_repl_entry("1.5 + 2.5")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == DecimalType()
 
     def test_add_int_decimal_widens(self) -> None:
-        r = accept_type("1 + 2.5")
+        r = resolve_and_check_repl_entry("1 + 2.5")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == DecimalType()
 
@@ -6032,72 +5973,72 @@ class TestBinaryOps:
         assert "+" in str(err) or "numeric" in str(err).lower()
 
     def test_sub(self) -> None:
-        r = accept_type("5 - 3")
+        r = resolve_and_check_repl_entry("5 - 3")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == IntType()
 
     def test_mul(self) -> None:
-        r = accept_type("2 * 3")
+        r = resolve_and_check_repl_entry("2 * 3")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == IntType()
 
     def test_div_yields_decimal(self) -> None:
-        r = accept_type("5 / 2")
+        r = resolve_and_check_repl_entry("5 / 2")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == DecimalType()
 
     def test_eq_same_type(self) -> None:
-        r = accept_type("1 == 2")
+        r = resolve_and_check_repl_entry("1 == 2")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_neq_same_type(self) -> None:
-        r = accept_type('"a" != "b"')
+        r = resolve_and_check_repl_entry('"a" != "b"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_lt(self) -> None:
-        r = accept_type("1 < 2")
+        r = resolve_and_check_repl_entry("1 < 2")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_gt(self) -> None:
-        r = accept_type("2 > 1")
+        r = resolve_and_check_repl_entry("2 > 1")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_le(self) -> None:
-        r = accept_type("1 <= 2")
+        r = resolve_and_check_repl_entry("1 <= 2")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_ge(self) -> None:
-        r = accept_type("2 >= 1")
+        r = resolve_and_check_repl_entry("2 >= 1")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_and(self) -> None:
-        r = accept_type("true and false")
+        r = resolve_and_check_repl_entry("true and false")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_or(self) -> None:
-        r = accept_type("true or false")
+        r = resolve_and_check_repl_entry("true or false")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_in_text(self) -> None:
-        r = accept_type('"a" in "abc"')
+        r = resolve_and_check_repl_entry('"a" in "abc"')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_in_array(self) -> None:
-        r = accept_type("let xs: array[int] = [1, 2, 3]\n1 in xs")
+        r = resolve_and_check_repl_entry("let xs: array[int] = [1, 2, 3]\n1 in xs")
         node = r.resolved.program.body.items[1]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_in_array_uses_member_record_assignability_without_widening_containers(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             "enum Tree\n"
             "  | Leaf\n"
             "def contains(member: Tree::Leaf, members: array[Tree]) -> bool = member in members\n"
@@ -6119,7 +6060,7 @@ class TestBinaryOps:
         )
 
     def test_in_dict(self) -> None:
-        r = accept_type('let d: dict[text, int] = {"a": 1}\n"a" in d')
+        r = resolve_and_check_repl_entry('let d: dict[text, int] = {"a": 1}\n"a" in d')
         node = r.resolved.program.body.items[1]
         assert r.node_types[node.node_id] == BoolType()
 
@@ -6188,23 +6129,25 @@ class TestBinaryOps:
 
     # Still-accept: lists/records/dicts of equatable scalars must stay green.
     def test_eq_array_of_int_accepted(self) -> None:
-        accept_type("let xs: array[int] = [1, 2]\nlet ys: array[int] = [3]\nlet r = (xs == ys)\nr")
+        resolve_and_check_repl_entry(
+            "let xs: array[int] = [1, 2]\nlet ys: array[int] = [3]\nlet r = (xs == ys)\nr"
+        )
 
     def test_eq_dict_of_text_accepted(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             'let d1: dict[text, text] = {"a": "x"}\n'
             'let d2: dict[text, text] = {"b": "y"}\n'
             "let r = (d1 == d2)\nr"
         )
 
     def test_eq_json_accepted(self) -> None:
-        accept_type("let a: json = null\nlet b: json = null\nlet r = (a == b)\nr")
+        resolve_and_check_repl_entry("let a: json = null\nlet b: json = null\nlet r = (a == b)\nr")
 
     def test_eq_int_decimal_cross_accepted(self) -> None:
-        accept_type("let r = (1 == 1.0)\nr")
+        resolve_and_check_repl_entry("let r = (1 == 1.0)\nr")
 
     def test_eq_record_with_scalar_fields_accepted(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             "record Point\n  x: int\n  y: int\n"
             "let p1 = Point(x = 0, y = 0)\n"
             "let p2 = Point(x = 1, y = 1)\n"
@@ -6212,7 +6155,7 @@ class TestBinaryOps:
         )
 
     def test_mixed_numeric_literal_elements_widen_to_decimal(self) -> None:
-        checked = accept_type("def values() -> array[decimal] = [1, 2.0]\nvalues")
+        checked = resolve_and_check_repl_entry("def values() -> array[decimal] = [1, 2.0]\nvalues")
         assert checked.function_signatures["values"].result == ArrayType(DecimalType())
 
     def test_eq_distinct_enum_members_require_an_explicit_enum_slot(self) -> None:
@@ -6244,19 +6187,19 @@ class TestBinaryOps:
         assert "*" in str(err) or "numeric" in str(err).lower()
 
     def test_in_op_dict_right_operand(self) -> None:
-        r = accept_type('let d: dict[text, int] = {"k": 1}\n"k" in d')
+        r = resolve_and_check_repl_entry('let d: dict[text, int] = {"k": 1}\n"k" in d')
         node = r.resolved.program.body.items[1]
         assert r.node_types[node.node_id] == BoolType()
 
     def test_decimal_subtraction_yields_decimal(self) -> None:
         # Exercises _check_numeric_binop returning DecimalType for decimal subtraction.
-        r = accept_type("1.5 - 0.5")
+        r = resolve_and_check_repl_entry("1.5 - 0.5")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == DecimalType()
 
     def test_decimal_multiplication_yields_decimal(self) -> None:
         # Also exercises the decimal path in _check_numeric_binop.
-        r = accept_type("2.0 * 3.0")
+        r = resolve_and_check_repl_entry("2.0 * 3.0")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == DecimalType()
 
@@ -6268,7 +6211,7 @@ class TestBinaryOps:
 
 class TestUnaryOps:
     def test_not_bool(self) -> None:
-        r = accept_type("not true")
+        r = resolve_and_check_repl_entry("not true")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == BoolType()
 
@@ -6277,12 +6220,12 @@ class TestUnaryOps:
         assert "not" in str(err).lower() or "bool" in str(err).lower()
 
     def test_neg_int(self) -> None:
-        r = accept_type("-5")
+        r = resolve_and_check_repl_entry("-5")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == IntType()
 
     def test_neg_decimal(self) -> None:
-        r = accept_type("-3.14")
+        r = resolve_and_check_repl_entry("-3.14")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == DecimalType()
 
@@ -6334,59 +6277,59 @@ class TestOperatorValues:
         ],
     )
     def test_expected_function_type_specializes_operator(self, source: str, expected: Type) -> None:
-        assert _operator_ref_type(accept_type(source)) == expected
+        assert _operator_ref_type(resolve_and_check_repl_entry(source)) == expected
 
     def test_int_result_widens_to_expected_decimal(self) -> None:
-        checked = accept_type("let f: (int, int) -> decimal = (*)")
+        checked = resolve_and_check_repl_entry("let f: (int, int) -> decimal = (*)")
         assert _operator_ref_type(checked) == FunctionType((IntType(), IntType()), DecimalType())
 
     def test_higher_order_argument_takes_operand_types_from_the_call(self) -> None:
-        checked = accept_type("let total = [1, 2, 3].fold(0, (+))\ntotal")
+        checked = resolve_and_check_repl_entry("let total = [1, 2, 3].fold(0, (+))\ntotal")
         assert checked.node_types[checked.resolved.program.body.items[-1].node_id] == IntType()
         assert _operator_ref_type(checked) == FunctionType((IntType(), IntType()), IntType())
 
     def test_comparator_argument(self) -> None:
-        checked = accept_type("let sorted = [2, 1].sort((-))\nsorted")
+        checked = resolve_and_check_repl_entry("let sorted = [2, 1].sort((-))\nsorted")
         assert checked.node_types[checked.resolved.program.body.items[-1].node_id] == ArrayType(
             IntType()
         )
 
     def test_direct_call_infers_operands_from_arguments(self) -> None:
-        checked = accept_type("(*)(2, 1.5)")
+        checked = resolve_and_check_repl_entry("(*)(2, 1.5)")
         assert checked.node_types[checked.resolved.program.body.items[0].node_id] == DecimalType()
         assert _operator_ref_type(checked) == FunctionType(
             (IntType(), DecimalType()), DecimalType()
         )
 
     def test_direct_call_result_is_available_to_the_enclosing_operation(self) -> None:
-        checked = accept_type("(+)(1, 2) + 1.5")
+        checked = resolve_and_check_repl_entry("(+)(1, 2) + 1.5")
         assert checked.node_types[checked.resolved.program.body.items[0].node_id] == DecimalType()
 
     def test_nested_direct_calls_resolve_inside_out(self) -> None:
-        checked = accept_type("let f: (int) -> int = (+)(?, (*)(2, 3))\nf")
+        checked = resolve_and_check_repl_entry("let f: (int) -> int = (+)(?, (*)(2, 3))\nf")
         assert checked.node_types[checked.resolved.program.body.items[-1].node_id] == (
             FunctionType((IntType(),), IntType())
         )
 
     def test_partial_application_infers_remaining_operand(self) -> None:
-        checked = accept_type("let inc: (int) -> int = (+)(?, 1)\ninc")
+        checked = resolve_and_check_repl_entry("let inc: (int) -> int = (+)(?, 1)\ninc")
         assert _operator_ref_type(checked) == FunctionType((IntType(), IntType()), IntType())
 
     def test_later_generic_arguments_supply_operand_types(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def apply[A, B, C](f: (A, B) -> C, a: A, b: B) -> C = f(a, b)\napply((+), 1, 2.5)"
         )
         assert checked.node_types[checked.resolved.program.body.items[-1].node_id] == DecimalType()
 
     def test_operand_resolution_precedes_builtin_value_defaults(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def via[A, B](read: (text) -> A, combine: (B, B) -> A, b: B) -> A = combine(b, b)\n"
             "via(ask, (+), 1)"
         )
         assert checked.node_types[checked.resolved.program.body.items[-1].node_id] == IntType()
 
     def test_builtin_value_default_can_supply_operands(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def join[A, B](read: (text) -> A, combine: (A, A) -> B) -> B =\n"
             '  combine(read("x"), read("y"))\n'
             "join(ask, (<))"
@@ -6435,7 +6378,7 @@ class TestOperatorValues:
 
 class TestLeadingDotExpressions:
     def test_field_projection_uses_the_contextual_receiver(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum VerifyResult\n"
             "  | Complete(reason: text)\n"
             "  | Incomplete(reason: text)\n"
@@ -6460,7 +6403,7 @@ class TestLeadingDotExpressions:
         reject_type(source)
 
     def test_receiver_type_comes_from_annotated_function_context(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "let transform: (array[int]) -> array[text] = "
             '.map::[text](fn(value: int) => "%{value}")\n'
             "transform"
@@ -6494,7 +6437,9 @@ class TestLeadingDotExpressions:
 
 class TestFieldAccess:
     def test_record_field_access(self) -> None:
-        r = accept_type("record Point\n  x: int\n  y: int\nlet p = Point(x = 1, y = 2)\np.x")
+        r = resolve_and_check_repl_entry(
+            "record Point\n  x: int\n  y: int\nlet p = Point(x = 1, y = 2)\np.x"
+        )
         field = r.resolved.program.body.items[2]
         assert isinstance(field, FieldAccess)
         receiver_type = r.node_types[field.obj.node_id]
@@ -6508,7 +6453,7 @@ class TestFieldAccess:
 
     def test_exception_field_access(self) -> None:
         # catch Abort and access its message field
-        r = accept_type('try "x" catch Abort as e => e.message')
+        r = resolve_and_check_repl_entry('try "x" catch Abort as e => e.message')
         try_node = r.resolved.program.body.items[0]
         assert isinstance(try_node, Try)
         field = try_node.handlers[0].body
@@ -6532,7 +6477,7 @@ class TestFieldAccess:
         assert "ask $" in str(err)
 
     def test_member_record_selects_its_enums_method(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Signal\n"
             "  | ready\n"
             "def Signal::code(self) -> int = 1\n"
@@ -6543,7 +6488,7 @@ class TestFieldAccess:
         assert checked.node_types[result.node_id] == IntType()
 
     def test_methods_are_members_of_record_enum_and_exception_values(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             "def Point::radius(self) -> decimal = 1.0\n"
@@ -6562,7 +6507,7 @@ class TestFieldAccess:
         assert checked.node_types[result.node_id] == ArrayType(DecimalType())
 
     def test_exception_method_is_inherited_by_subtypes(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "exception Base extends Exception\n"
             "  code: int\n"
             "def Base::status(self) -> int = self.code\n"
@@ -6575,7 +6520,7 @@ class TestFieldAccess:
         assert checked.node_types[result.node_id] == IntType()
 
     def test_function_field_remains_callable_when_a_type_has_a_different_method(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Holder\n"
             "  apply: (int) -> int\n"
             'def Holder::describe(self) -> text = "method"\n'
@@ -6588,7 +6533,7 @@ class TestFieldAccess:
     def test_function_field_on_type_without_methods_is_callable_via_member_call_syntax(
         self,
     ) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Adder\n"
             "  op: (int, int) -> int\n"
             "let adder = Adder(op = fn(x: int, y: int) -> int => x + y)\n"
@@ -6626,7 +6571,7 @@ class TestFieldAccess:
         assert "type variable" in str(error).lower()
 
     def test_direct_generic_method_call_applies_own_explicit_type_args(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::map[T, U](self: Box[T], value: U) -> Box[U] = Box(value = value)\n"
@@ -6640,7 +6585,7 @@ class TestFieldAccess:
         )
 
     def test_generic_method_value_type_apply_specializes_own_type_args(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::map[T, U](self: Box[T], value: U) -> Box[U] = Box(value = value)\n"
@@ -6655,7 +6600,7 @@ class TestFieldAccess:
         )
 
     def test_generic_method_value_infers_own_type_args_from_expected_type(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::map[T, U](self: Box[T], value: U) -> Box[U] = Box(value = value)\n"
@@ -6709,7 +6654,7 @@ class TestFieldAccess:
         ``convert``'s ``U`` to the lambda's declared result type (``text``), not
         confuse it with ``map``'s own ``U``.
         """
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::map[T, U](self, f: (T) -> U) -> Box[U] = Box(value = f(self.value))\n"
@@ -6727,7 +6672,7 @@ class TestFieldAccess:
         Acceptance and the inferred result type must be identical for ``U`` and
         ``Z``: the capture bug made acceptance depend on that arbitrary choice.
         """
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::map[T, U](self, f: (T) -> U) -> Box[U] = Box(value = f(self.value))\n"
@@ -6743,7 +6688,7 @@ class TestFieldAccess:
         self,
     ) -> None:
         """The explicit ``::[…]`` branch must not capture a caller's variable either."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::map[T, U](self, f: (T) -> U) -> Box[U] = Box(value = f(self.value))\n"
@@ -6757,7 +6702,7 @@ class TestFieldAccess:
 
     def test_generic_method_qualified_and_member_spellings_agree(self) -> None:
         """``Box::map(b, g)`` and ``b.map(g)`` must specialize identically."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::map[T, U](self, f: (T) -> U) -> Box[U] = Box(value = f(self.value))\n"
@@ -6777,7 +6722,7 @@ class TestFieldAccess:
         )
 
     def test_member_selection_and_direct_call_are_published(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             "def Point::radius(self) -> int = self.x\n"
@@ -6804,7 +6749,7 @@ class TestFieldAccess:
 
     def test_member_call_omits_defaulted_parameter(self) -> None:
         """A member call may omit a trailing defaulted parameter, like ``Type::f(p)``."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             'def Point::add(self, n: int = 5, label: text = "d") -> text = '
@@ -6817,7 +6762,7 @@ class TestFieldAccess:
 
     def test_member_call_named_argument(self) -> None:
         """A member call accepts a named argument, like the qualified spelling does."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             'def Point::add(self, n: int = 5, label: text = "d") -> text = '
@@ -6830,7 +6775,7 @@ class TestFieldAccess:
 
     def test_member_call_named_argument_skips_earlier_default(self) -> None:
         """A named argument may bind a later parameter, leaving an earlier default in place."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             'def Point::add(self, n: int = 5, label: text = "d") -> text = '
@@ -6848,7 +6793,7 @@ class TestFieldAccess:
 
     def test_member_call_named_only_zone_parameter(self) -> None:
         """A named-only method parameter is reachable only by name from a member call."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             'def Point::describe(self, @arg-named label: text = "d")'
@@ -6872,7 +6817,7 @@ class TestFieldAccess:
 
     def test_generic_method_defaults_and_named_args_with_receiver_specialization(self) -> None:
         """Defaults/named args combine with receiver-type-argument substitution."""
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             'def Box::describe[T](self, label: text = "v") -> text = "%{label}=%{self.value}"\n'
@@ -6891,7 +6836,7 @@ class TestFieldAccess:
         still is) requires every parameter to be supplied — placeholder or not;
         it does not support skipping a trailing default.
         """
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             'def Point::add(self, n: int = 5, label: text = "d") -> text = '
@@ -6919,7 +6864,7 @@ class TestFieldAccess:
         err = reject_type('Option::Some(value = "x").map(fn(value: text) => "%{value}!")')
         assert "ambiguous" in str(err).lower()
 
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             'let some: Option[text] = Option::Some(value = "x")\n'
             'let result = some.map(fn(value: text) => "%{value}!")\nresult'
         )
@@ -6930,7 +6875,7 @@ class TestFieldAccess:
         assert result_type.type_args == (TextType(),)
 
     def test_option_member_satisfies_a_generic_option_argument(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def unwrap[T](value: Option[T]) -> T = value.unwrap()\nunwrap(Option::Some(value = 1))"
         )
 
@@ -6938,7 +6883,7 @@ class TestFieldAccess:
         assert checked.node_types[result.node_id] == IntType()
 
     def test_option_member_satisfies_a_callback_option_result(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def invoke(callback: (int) -> Option[int]) -> Option[int] = callback(1)\n"
             "invoke(fn(value: int) => Option::Some(value = value))"
         )
@@ -6963,7 +6908,7 @@ class TestFieldAccess:
         assert "ambiguous" in str(err).lower()
 
     def test_widened_bound_method_is_a_projectable_value(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Box[T]\n"
             "  | full(value: T)\n"
             'def Box::describe[T](self) -> text = "box"\n'
@@ -6975,7 +6920,7 @@ class TestFieldAccess:
         assert checked.node_types[result.node_id] == TextType()
 
     def test_leading_dot_widened_method_infers_the_receiver_type(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Box[T]\n"
             "  | full(value: T)\n"
             'def Box::describe[T](self) -> text = "box"\n'
@@ -6987,7 +6932,7 @@ class TestFieldAccess:
         assert checked.node_types[result.node_id] == TextType()
 
     def test_partial_application_of_a_widened_method(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Box[T]\n"
             "  | full(value: T)\n"
             "def Box::combine[T](self, other: Box[T]) -> bool = true\n"
@@ -7007,7 +6952,7 @@ class TestFieldAccess:
 
 class TestIsTest:
     def test_is_enum_variant_with_explicit_enum_binding(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n  | none\n  | some(value: T)\n"
             "let value: Option[int] = some(value = 1)\nvalue is Option::some"
         )
@@ -7019,7 +6964,7 @@ class TestIsTest:
         )
 
     def test_is_enum_variant_with_explicit_owner_type_arguments(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Option[T]\n  | none\n  | some(value: T)\n"
             "let value: Option[int] = some(value = 1)\nvalue is Option[int]::some"
         )
@@ -7027,7 +6972,7 @@ class TestIsTest:
         assert isinstance(checked.resolved.program.body.items[-1], IsTest)
 
     def test_is_not(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Status\n  | Pass\n  | Fail\nlet s: Status = Pass()\ns is not Status::Pass"
         )
         test = r.resolved.program.body.items[2]
@@ -7095,7 +7040,7 @@ class TestIsTest:
         assert "does not belong" in str(err)
 
     def test_is_test_self_qualified_enum_variant(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Status\n  | Pass\n  | Fail\nlet s: Status = Pass()\ns is ::Status::Pass"
         )
         test = r.resolved.program.body.items[2]
@@ -7106,13 +7051,15 @@ class TestIsTest:
         assert r.node_types[test.node_id] == BoolType()
 
     def test_current_module_qualified_variant_without_owner_is_valid_in_is_test(self) -> None:
-        r = accept_type("enum Status\n  | Pass\n  | Fail\nlet s: Status = Pass()\ns is ::Pass")
+        r = resolve_and_check_repl_entry(
+            "enum Status\n  | Pass\n  | Fail\nlet s: Status = Pass()\ns is ::Pass"
+        )
         test = r.resolved.program.body.items[2]
         assert isinstance(test, IsTest)
         assert r.node_types[test.node_id] == BoolType()
 
     def test_current_module_qualified_variant_without_owner_is_valid_in_pattern(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Status\n  | Pass\n  | Fail\nlet s: Status = Pass()\n"
             "case s of\n  | ::Pass => 1\n  | ::Fail => 0"
         )
@@ -7124,14 +7071,14 @@ class TestIsTest:
         assert r.node_types[case.node_id] == IntType()
 
     def test_is_test_simple(self) -> None:
-        r = accept_type("enum E\n  | A\n  | B\nlet e: E = A()\ne is E::A")
+        r = resolve_and_check_repl_entry("enum E\n  | A\n  | B\nlet e: E = A()\ne is E::A")
         test = r.resolved.program.body.items[2]
         assert isinstance(test, IsTest)
         assert r.node_types[test.node_id] == BoolType()
 
     def test_is_test_with_correct_qualifier(self) -> None:
         # Exercises the qualifier check path in is-test expressions.
-        r = accept_type("enum E\n  | A\n  | B\nlet e: E = E::A()\ne is E::A")
+        r = resolve_and_check_repl_entry("enum E\n  | A\n  | B\nlet e: E = E::A()\ne is E::A")
         test = r.resolved.program.body.items[2]
         assert isinstance(test, IsTest)
         assert r.node_types[test.node_id] == BoolType()
@@ -7141,7 +7088,7 @@ class TestIsTest:
 
     def test_is_test_scope_qualified_enum_member_record(self) -> None:
         """A scope-qualified enum member declared inside a plain (non-type) scope."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope Lib\n"
             "  record R\n"
             "    x: int\n"
@@ -7167,13 +7114,13 @@ class TestIsTest:
 
     def test_is_test_without_qualifier(self) -> None:
         # Exercises the is-test without a qualifier (no qualifier check is performed).
-        r = accept_type("enum E\n  | A\n  | B\nlet e: E = E::A()\ne is A")
+        r = resolve_and_check_repl_entry("enum E\n  | A\n  | B\nlet e: E = E::A()\ne is A")
         test = r.resolved.program.body.items[2]
         assert isinstance(test, IsTest)
         assert r.node_types[test.node_id] == BoolType()
 
     def test_is_test_uses_scrutinee_type_for_shared_variant_name(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Left\n  | Same\nenum Right\n  | Same\n"
             "let value: Left = Left::Same()\nvalue is Same"
         )
@@ -7203,7 +7150,7 @@ _EXCEPTION_IS_HIERARCHY = (
 
 class TestExceptionIsTest:
     def test_bare_same_type_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _EXCEPTION_IS_HIERARCHY
             + 'let d = Detailed(message = "m", code = 1, detail = "x")\nd is Detailed'
         )
@@ -7212,7 +7159,7 @@ class TestExceptionIsTest:
         assert r.node_types[test.node_id] == BoolType()
 
     def test_bare_ancestor_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _EXCEPTION_IS_HIERARCHY
             + 'let d = Detailed(message = "m", code = 1, detail = "x")\nd is Problem'
         )
@@ -7221,7 +7168,7 @@ class TestExceptionIsTest:
         assert r.node_types[test.node_id] == BoolType()
 
     def test_bare_descendant_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _EXCEPTION_IS_HIERARCHY
             + 'let p: Problem = Detailed(message = "m", code = 1, detail = "x")\np is Detailed'
         )
@@ -7230,7 +7177,7 @@ class TestExceptionIsTest:
         assert r.node_types[test.node_id] == BoolType()
 
     def test_bare_root_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _EXCEPTION_IS_HIERARCHY
             + 'let d = Detailed(message = "m", code = 1, detail = "x")\nd is Exception'
         )
@@ -7239,7 +7186,7 @@ class TestExceptionIsTest:
         assert r.node_types[test.node_id] == BoolType()
 
     def test_qualified_rhs_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope Lib\n"
             "  exception Base extends Exception\n"
             "    code: int\n"
@@ -7255,7 +7202,7 @@ class TestExceptionIsTest:
         assert r.node_types[test.node_id] == BoolType()
 
     def test_qualified_ancestor_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope Lib\n"
             "  exception Base extends Exception\n"
             "    code: int\n"
@@ -7322,7 +7269,7 @@ class TestExceptionIsTest:
         assert src[err.span.start_offset : err.span.end_offset] == "nosuch::Owner::X"
 
     def test_is_not_exception(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _EXCEPTION_IS_HIERARCHY
             + 'let d = Detailed(message = "m", code = 1, detail = "x")\nd is not Problem'
         )
@@ -7342,7 +7289,7 @@ class TestExceptionIsTest:
 
     def test_same_named_enum_member_candidate_is_filtered_out(self) -> None:
         """A bare RHS spelling shared with an enum member resolves to the exception."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Something\n"
             "  | Detailed\n"
             + _EXCEPTION_IS_HIERARCHY
@@ -7360,7 +7307,7 @@ class TestExceptionIsTest:
 
 class TestConstructors:
     def test_record_constructor(self) -> None:
-        r = accept_type("record Point\n  x: int\n  y: int\nPoint(x = 1, y = 2)")
+        r = resolve_and_check_repl_entry("record Point\n  x: int\n  y: int\nPoint(x = 1, y = 2)")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Point"
@@ -7387,13 +7334,13 @@ class TestConstructors:
         assert "mismatch" in str(err).lower() or "expected" in str(err).lower()
 
     def test_enum_variant_qualified(self) -> None:
-        r = accept_type("enum Status\n  | Pass\n  | Fail\nStatus::Pass()")
+        r = resolve_and_check_repl_entry("enum Status\n  | Pass\n  | Fail\nStatus::Pass()")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Pass"
 
     def test_enum_variant_unqualified_unique(self) -> None:
-        r = accept_type("enum Status\n  | Pass\n  | Fail\nPass()")
+        r = resolve_and_check_repl_entry("enum Status\n  | Pass\n  | Fail\nPass()")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Pass"
@@ -7408,7 +7355,7 @@ class TestConstructors:
         assert isinstance(err, AglScopeError)
 
     def test_exception_constructor(self) -> None:
-        r = accept_type('Abort(message = "error")')
+        r = resolve_and_check_repl_entry('Abort(message = "error")')
         constructed = r.node_types[r.resolved.program.body.items[0].node_id]
         assert isinstance(constructed, ExceptionType)
         assert constructed.name == "Abort"
@@ -7422,7 +7369,7 @@ class TestConstructors:
         assert "duplicate" in str(err).lower()
 
     def test_user_exception_may_declare_trace_id_field(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             "exception Tagged extends Exception\n"
             "  trace-id: int\n"
             'let tagged = Tagged(message = "marked", trace-id = 7)\n'
@@ -7446,7 +7393,9 @@ class TestConstructors:
 
     def test_enum_variant_with_fields(self) -> None:
         # enum variants can have named fields
-        r = accept_type("enum Result\n  | Ok(value: int)\n  | Err(msg: text)\nOk(value = 42)")
+        r = resolve_and_check_repl_entry(
+            "enum Result\n  | Ok(value: int)\n  | Err(msg: text)\nOk(value = 42)"
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Ok"
@@ -7464,30 +7413,34 @@ class TestConstructorFieldDefaults:
     """A defaulted field may be omitted from a constructor call."""
 
     def test_record_constructor_omits_defaulted_field(self) -> None:
-        r = accept_type("record Point\n  x: int\n  y: int = 0\nPoint(x = 1)")
+        r = resolve_and_check_repl_entry("record Point\n  x: int\n  y: int = 0\nPoint(x = 1)")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Point"
 
     def test_record_constructor_may_still_supply_the_defaulted_field(self) -> None:
-        r = accept_type("record Point\n  x: int\n  y: int = 0\nPoint(x = 1, y = 2)")
+        r = resolve_and_check_repl_entry(
+            "record Point\n  x: int\n  y: int = 0\nPoint(x = 1, y = 2)"
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
 
     def test_enum_member_constructor_omits_defaulted_field(self) -> None:
-        r = accept_type('enum Result\n  | Ok(value: int, label: text = "ok")\nOk(value = 1)')
+        r = resolve_and_check_repl_entry(
+            'enum Result\n  | Ok(value: int, label: text = "ok")\nOk(value = 1)'
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Ok"
 
     def test_exception_constructor_omits_defaulted_field(self) -> None:
-        r = accept_type('exception MyErr\n  code: int = 0\nMyErr(message = "e")')
+        r = resolve_and_check_repl_entry('exception MyErr\n  code: int = 0\nMyErr(message = "e")')
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, ExceptionType)
         assert constructed.name == "MyErr"
 
     def test_exception_constructor_omits_inherited_defaulted_field(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "exception Base extends Exception\n  code: int = 0\n"
             "exception Derived extends Base\n  reason: text\n"
             'Derived(message = "e", reason = "why")'
@@ -7497,7 +7450,9 @@ class TestConstructorFieldDefaults:
         assert constructed.name == "Derived"
 
     def test_generic_record_constructor_omits_optional_field_default(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\n  label: Option[T] = None\nBox(value = 1)")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\n  label: Option[T] = None\nBox(value = 1)"
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Box"
@@ -7521,7 +7476,7 @@ class TestConstructorFieldDefaults:
         # `bound_exprs[fname]`) must treat the missing key as "use the
         # default" the same way full application does, leaving the partial
         # function's signature with exactly one parameter.
-        r = accept_type("record Point\n  x: int\n  y: int = 0\nPoint(x = ?)")
+        r = resolve_and_check_repl_entry("record Point\n  x: int\n  y: int = 0\nPoint(x = ?)")
         point = r.type_env.get_type("Point")
         call = r.resolved.program.body.items[1]
         assert isinstance(call, Call)
@@ -7530,7 +7485,7 @@ class TestConstructorFieldDefaults:
     def test_with_update_over_a_record_with_a_defaulted_field(self) -> None:
         # A defaulted field is an ordinary field once a value exists: `with`
         # neither requires nor treats it specially.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Point\n  x: int\n  y: int = 0\nlet p = Point(x = 1, y = 2)\np with x = 9"
         )
         point = r.type_env.get_type("Point")
@@ -7542,7 +7497,7 @@ class TestConstructorFieldDefaults:
     ) -> None:
         # A pattern may name only the field it needs; a defaulted field is not
         # required to appear in the pattern any more than any other field is.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Point\n  x: int\n  y: int = 0\n"
             "let p = Point(x = 1, y = 2)\n"
             "case p of | Point(x = _ as n) => n"
@@ -7564,7 +7519,7 @@ class TestEnumMemberConstruction:
 
     def test_unqualified_ctor_with_enum_expected_type(self) -> None:
         # Exercises unqualified constructor disambiguation when an expected EnumType is present.
-        r = accept_type("enum E\n  | A\n  | B\nlet x: E = A()\nx")
+        r = resolve_and_check_repl_entry("enum E\n  | A\n  | B\nlet x: E = A()\nx")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         constructed = r.node_types[decl.value.node_id]
@@ -7590,7 +7545,7 @@ class TestExceptionFieldKindParity:
         # The two own fields carry different types, so the slot each positional
         # argument lands in is observable: reversing them has to be rejected.
         decl = "exception Boom extends Exception\n  @arg-pos code: text\n  count: int\n"
-        r = accept_type(decl + 'Boom("c", 6, message = "m")')
+        r = resolve_and_check_repl_entry(decl + 'Boom("c", 6, message = "m")')
         constructed = r.node_types[r.resolved.program.body.items[-1].node_id]
         assert isinstance(constructed, ExceptionType)
         assert constructed.name == "Boom"
@@ -7610,7 +7565,7 @@ class TestExceptionFieldKindParity:
         # parent's declared standard zone (not just the built-in root's
         # implicit NAMED_ONLY), so positional construction still reaches a
         # field marked two levels up the extends chain.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "exception Base extends Exception\n"
             "  @arg-std code: int\n"
             "exception Boom extends Base\n"
@@ -7636,7 +7591,7 @@ class TestExceptionFieldKindParity:
         # TypeTable.field_kinds mirrors exception_fields' base-chain flattening:
         # the built-in Exception root's own NAMED_ONLY "message" first, then
         # each level's own fields honoring their own declared zone.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "exception Base extends Exception\n"
             "  @arg-pos code: int\n"
             "exception Boom extends Base\n"
@@ -7663,7 +7618,7 @@ class TestConstructorRefDispatch:
     def test_bare_varref_nullary_variant(self) -> None:
         # Bare nullary variant as VarRef (no parentheses) → the reference is
         # itself the constructed value, matching the called form.
-        r = accept_type("enum Status\n  | Pass\n  | Fail\nlet s = Pass\ns")
+        r = resolve_and_check_repl_entry("enum Status\n  | Pass\n  | Fail\nlet s = Pass\ns")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert isinstance(decl.value, VarRef)
@@ -7671,14 +7626,14 @@ class TestConstructorRefDispatch:
         assert isinstance(bare_type, RecordType)
         assert bare_type.name == "Pass"
 
-        called = accept_type("enum Status\n  | Pass\n  | Fail\nlet s = Pass()\ns")
+        called = resolve_and_check_repl_entry("enum Status\n  | Pass\n  | Fail\nlet s = Pass()\ns")
         called_decl = called.resolved.program.body.items[1]
         assert isinstance(called_decl, LetDecl)
         assert bare_type == called.node_types[called_decl.value.node_id]
 
     def test_call_varref_record_constructor(self) -> None:
         # Record construction via Call(callee=VarRef)
-        call = accept_type("record Box\n  value: int\nBox(value = 1)")
+        call = resolve_and_check_repl_entry("record Box\n  value: int\nBox(value = 1)")
         node = call.resolved.program.body.items[1]
         assert isinstance(node, Call)
         assert isinstance(node.callee, VarRef)
@@ -7688,7 +7643,9 @@ class TestConstructorRefDispatch:
 
     def test_call_varref_enum_payload_variant(self) -> None:
         # Payload variant via Call(callee=VarRef)
-        r = accept_type("enum Option\n  | none\n  | some(value: int)\nsome(value = 1)")
+        r = resolve_and_check_repl_entry(
+            "enum Option\n  | none\n  | some(value: int)\nsome(value = 1)"
+        )
         node = r.resolved.program.body.items[1]
         assert isinstance(node, Call)
         assert isinstance(node.callee, VarRef)
@@ -7698,13 +7655,15 @@ class TestConstructorRefDispatch:
 
     def test_qualified_call_enum_variant(self) -> None:
         # Qualified construction: Option::some(value = 1)
-        r = accept_type("enum Option\n  | none\n  | some(value: int)\nOption::some(value = 1)")
+        r = resolve_and_check_repl_entry(
+            "enum Option\n  | none\n  | some(value: int)\nOption::some(value = 1)"
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "some"
 
     def test_type_apply_on_qualified_constructor_is_accepted(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Option[T]\n  | some(value: T)\nlet mk = Option::some::[int]\nmk"
         )
         mk_type = checked.node_types[checked.resolved.program.body.items[2].node_id]
@@ -7715,7 +7674,9 @@ class TestConstructorRefDispatch:
         assert mk_type.result.type_args == (IntType(),)
 
     def test_typed_call_on_qualified_constructor_is_accepted(self) -> None:
-        checked = accept_type("enum Option[T]\n  | some(value: T)\nOption::some::[int](value = 1)")
+        checked = resolve_and_check_repl_entry(
+            "enum Option[T]\n  | some(value: T)\nOption::some::[int](value = 1)"
+        )
         constructed = checked.node_types[checked.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "some"
@@ -7730,14 +7691,16 @@ class TestConstructorRefDispatch:
     def test_qualified_bare_nullary_variant(self) -> None:
         # Bare qualified constructor without parentheses: the VarRef itself is
         # the constructed value, matching the parenthesized call form.
-        r = accept_type("enum Status\n  | Pass\n  | Fail\nlet s = Status::Pass\ns")
+        r = resolve_and_check_repl_entry("enum Status\n  | Pass\n  | Fail\nlet s = Status::Pass\ns")
         binding = r.resolved.program.body.items[1]
         assert isinstance(binding, LetDecl)
         bare_type = r.type_env.get_binding_type(binding.node_id)
         assert isinstance(bare_type, RecordType)
         assert bare_type.name == "Pass"
 
-        called = accept_type("enum Status\n  | Pass\n  | Fail\nlet s = Status::Pass()\ns")
+        called = resolve_and_check_repl_entry(
+            "enum Status\n  | Pass\n  | Fail\nlet s = Status::Pass()\ns"
+        )
         called_binding = called.resolved.program.body.items[1]
         assert isinstance(called_binding, LetDecl)
         assert bare_type == called.type_env.get_binding_type(called_binding.node_id)
@@ -7748,7 +7711,7 @@ class TestConstructorRefDispatch:
         # type selects among same-spelled constructors, so no qualification is
         # required (regression: a shared spelling used to be rejected as an
         # ambiguous constructor before the scrutinee could disambiguate it).
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Color\n  | Red\n  | Blue\n"
             "enum Shade\n  | Red\n  | Green\n"
             "let c: Color = Color::Blue\n"
@@ -7799,7 +7762,7 @@ class TestConstructorRefDispatch:
         assert "ambiguous" in str(err).lower()
 
     def test_applied_variant_pattern_alias_is_disambiguated_by_enum_owner(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             "use S::{First::A as X, Second::B as X}\n"
             "\n"
             "scope S\n"
@@ -7865,7 +7828,7 @@ class TestConstructorRefDispatch:
             "    on\n"
             "  | packet(_) => 0"
         )
-        checked = resolve_and_check_inline_entry(source, default_capabilities())
+        checked = resolve_and_check_inline_entry(source)
         resolved = checked.resolved
         case = resolved.program.body.items[-1]
         assert isinstance(case, Case)
@@ -7898,7 +7861,7 @@ class TestConstructorRefDispatch:
             "    on[0]\n"
             "  | packet(_) => 0"
         )
-        checked = resolve_and_check_inline_entry(source, default_capabilities())
+        checked = resolve_and_check_inline_entry(source)
         resolved = checked.resolved
         case = resolved.program.body.items[-1]
         assert isinstance(case, Case)
@@ -7960,7 +7923,7 @@ class TestConstructorRefDispatch:
             "  | packet(_) => 0"
         )
         with pytest.raises(AglTypeError) as excinfo:
-            resolve_and_check_inline_entry(source, default_capabilities())
+            resolve_and_check_inline_entry(source)
 
         # The rejection names the actual binder kind, matching the wording the
         # scope pass uses for assignments it rejects itself.
@@ -7970,7 +7933,7 @@ class TestConstructorRefDispatch:
         from agnette.agl.typecheck.checker import _Checker
 
         resolved = resolve_inline_entry("enum Flag\n  | on\non")
-        checker = _Checker(TypeEnvironment(), resolved, default_capabilities())
+        checker = _Checker(TypeEnvironment(), resolved)
 
         assert checker._resolved is resolved
         assert not hasattr(checker, "_resolution_by_decl")
@@ -8000,7 +7963,7 @@ class TestConstructorRefDispatch:
             "      | packet(_) => 0\n"
             "  | packet(_) => 0"
         )
-        checked = resolve_and_check_inline_entry(source, default_capabilities())
+        checked = resolve_and_check_inline_entry(source)
         resolved = checked.resolved
         outer_var = resolved.program.body.items[2]
         assert isinstance(outer_var, VarDecl)
@@ -8029,7 +7992,7 @@ class TestConstructorRefDispatch:
             "  | box(_) => 0"
         )
 
-        assert resolve_and_check_inline_entry(source, default_capabilities())
+        assert resolve_and_check_inline_entry(source)
 
     @pytest.mark.parametrize(
         "declaration",
@@ -8044,7 +8007,6 @@ class TestConstructorRefDispatch:
                 f"record Box\n  v: int\n{declaration}\n"
                 "let box = Box(v = 1)\n"
                 "case box of | Other => 0",
-                default_capabilities(),
             )
 
     def test_missing_field_still_errors(self) -> None:
@@ -8091,7 +8053,9 @@ class TestConstructorRefDispatch:
         # Single-field enum variant with no markers → STANDARD zone → positional works.
         # Named "Item"/"Payload" (not "Option"/"Some") so the bare constructor is
         # unambiguous against std/option's Option::Some.
-        r = accept_type("enum Item\n  | Payload(value: int)\n  | Empty\nPayload(42)")
+        r = resolve_and_check_repl_entry(
+            "enum Item\n  | Payload(value: int)\n  | Empty\nPayload(42)"
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Payload"
@@ -8101,7 +8065,7 @@ class TestConstructorRefDispatch:
 
     def test_single_field_variant_named_still_works(self) -> None:
         # Single-field variant: named arg still works even though zone is STANDARD.
-        r = accept_type("enum Item\n  | Payload(value: int)\nPayload(value = 5)")
+        r = resolve_and_check_repl_entry("enum Item\n  | Payload(value: int)\nPayload(value = 5)")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Payload"
@@ -8109,7 +8073,7 @@ class TestConstructorRefDispatch:
     def test_standard_record_positional(self) -> None:
         # Standard-zone record fields accept positional args. Distinct field
         # types make the declaration order of the two slots observable.
-        r = accept_type('record P\n  x: text\n  y: int\nP("a", 2)')
+        r = resolve_and_check_repl_entry('record P\n  x: text\n  y: int\nP("a", 2)')
         assert _constructed_record_fields(r, r.resolved.program.body.items[1].node_id) == {
             "x": TextType(),
             "y": IntType(),
@@ -8119,7 +8083,7 @@ class TestConstructorRefDispatch:
     def test_standard_record_mixed_pos_named(self) -> None:
         # Standard-zone record fields: positional then named allowed. The lone positional
         # fills the first field, which its type has to match.
-        r = accept_type('record P\n  x: text\n  y: int\nP("a", y = 2)')
+        r = resolve_and_check_repl_entry('record P\n  x: text\n  y: int\nP("a", y = 2)')
         assert _constructed_record_fields(r, r.resolved.program.body.items[1].node_id) == {
             "x": TextType(),
             "y": IntType(),
@@ -8152,7 +8116,7 @@ class TestBareConstructorTypeApply:
     _OPT = "enum Option[T]\n  | none\n  | some(value: T)\n"
 
     def test_bare_payload_constructor_type_apply_is_function_value(self) -> None:
-        r = accept_type(self._OPT + "let f = some::[int]\nf")
+        r = resolve_and_check_repl_entry(self._OPT + "let f = some::[int]\nf")
         prog = r.resolved.program
         f_ref = prog.body.items[-1]
         assert isinstance(f_ref, VarRef)
@@ -8163,7 +8127,7 @@ class TestBareConstructorTypeApply:
         assert result_type.result.type_args == (IntType(),)
 
     def test_legacy_nullary_constructor_owner_type_apply_is_precise_member_value(self) -> None:
-        checked = accept_type(self._OPT + "let z = none::[int]\nz")
+        checked = resolve_and_check_repl_entry(self._OPT + "let z = none::[int]\nz")
         expr = checked.resolved.program.body.items[-1]
         assert isinstance(expr, VarRef)
         result_type = checked.node_types[expr.node_id]
@@ -8173,7 +8137,7 @@ class TestBareConstructorTypeApply:
 
     def test_bare_payload_constructor_callable(self) -> None:
         # `some::[int]` applied positionally yields its member record.
-        r = accept_type(self._OPT + "let v = (some::[int])(7)\nv")
+        r = resolve_and_check_repl_entry(self._OPT + "let v = (some::[int])(7)\nv")
         prog = r.resolved.program
         v_ref = prog.body.items[-1]
         assert isinstance(v_ref, VarRef)
@@ -8183,7 +8147,7 @@ class TestBareConstructorTypeApply:
         assert value_type.type_args == (IntType(),)
 
     def test_legacy_nullary_constructor_owner_type_apply_widens_to_enum_context(self) -> None:
-        checked = accept_type(self._OPT + "let z: Option[int] = none::[int]\nz")
+        checked = resolve_and_check_repl_entry(self._OPT + "let z: Option[int] = none::[int]\nz")
         binding = checked.resolved.program.body.items[-2]
         assert isinstance(binding, LetDecl)
         binding_type = checked.type_env.get_binding_type(binding.node_id)
@@ -8193,7 +8157,7 @@ class TestBareConstructorTypeApply:
     def test_owner_apply_on_a_record_selects_only_its_own_constructor(self) -> None:
         """A record owner's only inline member is its own constructor spelling."""
         box = "record Box[T]\n  value: T\nrecord Box::In\n  x: int\n"
-        accept_type(box + "Box[int]::Box(value = 1)")
+        resolve_and_check_repl_entry(box + "Box[int]::Box(value = 1)")
         error = reject_type(box + "Box[int]::In(x = 1)")
         assert isinstance(error, TypeArgumentsError)
 
@@ -8204,7 +8168,7 @@ class TestBareConstructorTypeApply:
         assert span_text(source, error.span) == "Missing[int]::Bar"
 
     def test_owner_apply_substitutes_only_the_selected_member_parameters(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Outcome[T, E]\n"
             "  | ok(value: T)\n"
             "  | err(error: E)\n"
@@ -8221,7 +8185,7 @@ class TestBareConstructorTypeApply:
         assert function_type.result.type_args == (IntType(),)
 
     def test_legacy_member_owner_type_apply_substitutes_captured_parameters(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Outcome[T, E]\n"
             "  | ok(value: T)\n"
             "  | err(error: E)\n"
@@ -8250,7 +8214,7 @@ class TestBareConstructorTypeApply:
         assert "requires 1 type argument" in str(err).lower()
 
     def test_qualified_payload_constructor_type_apply(self) -> None:
-        r = accept_type(self._OPT + "let f = Option[int]::some\nf")
+        r = resolve_and_check_repl_entry(self._OPT + "let f = Option[int]::some\nf")
         prog = r.resolved.program
         f_ref = prog.body.items[-1]
         assert isinstance(f_ref, VarRef)
@@ -8261,7 +8225,7 @@ class TestBareConstructorTypeApply:
         assert result_type.result.type_args == (IntType(),)
 
     def test_qualified_nullary_constructor_owner_apply_is_accepted(self) -> None:
-        checked = accept_type(self._OPT + "let z = Option[int]::none\nz")
+        checked = resolve_and_check_repl_entry(self._OPT + "let z = Option[int]::none\nz")
         expr = checked.resolved.program.body.items[-1]
         assert isinstance(expr, VarRef)
         result_type = checked.node_types[expr.node_id]
@@ -8269,7 +8233,7 @@ class TestBareConstructorTypeApply:
         assert result_type.name == "none"
 
     def test_qualified_payload_constructor_callable(self) -> None:
-        r = accept_type(self._OPT + "let v = (Option[int]::some)(7)\nv")
+        r = resolve_and_check_repl_entry(self._OPT + "let v = (Option[int]::some)(7)\nv")
         decl = r.resolved.program.body.items[-2]
         assert isinstance(decl, LetDecl)
         constructed = r.node_types[decl.value.node_id]
@@ -8295,7 +8259,9 @@ class TestBareConstructorTypeApply:
 
     def test_generic_record_constructor_type_apply(self) -> None:
         # A generic record constructor as a value with explicit type args.
-        r = accept_type("record Box[T]\n  value: T\nlet f = Box::[int]\nlet v = f(9)\nf")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet f = Box::[int]\nlet v = f(9)\nf"
+        )
         prog = r.resolved.program
         f_ref = prog.body.items[-1]
         assert isinstance(f_ref, VarRef)
@@ -8311,17 +8277,17 @@ class TestBareConstructorTypeApply:
 
 class TestArrayLiterals:
     def test_array_int(self) -> None:
-        r = accept_type("[1, 2, 3]")
+        r = resolve_and_check_repl_entry("[1, 2, 3]")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == ArrayType(elem=IntType())
 
     def test_array_text(self) -> None:
-        r = accept_type('["a", "b"]')
+        r = resolve_and_check_repl_entry('["a", "b"]')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == ArrayType(elem=TextType())
 
     def test_array_empty_with_annotation(self) -> None:
-        r = accept_type("let xs: array[int] = []\nxs")
+        r = resolve_and_check_repl_entry("let xs: array[int] = []\nxs")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == ArrayType(elem=IntType())
@@ -8343,7 +8309,7 @@ class TestArrayLiterals:
         assert "as json" in str(err).lower()
 
     def test_array_int_decimal_widening(self) -> None:
-        r = accept_type("[1, 2.5]")
+        r = resolve_and_check_repl_entry("[1, 2.5]")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == ArrayType(elem=DecimalType())
 
@@ -8351,7 +8317,7 @@ class TestArrayLiterals:
         # A literal directly in an expected-json position is typed as json
         # itself, not array[json] — an implicit coercion never rebuilds a
         # structure, so the literal must not need a further boundary cast.
-        r = accept_type("let xs: json = [1, 2, 3]\nxs")
+        r = resolve_and_check_repl_entry("let xs: json = [1, 2, 3]\nxs")
         node = r.resolved.program.body.items[0]
         assert isinstance(node, LetDecl)
         assert r.node_types[node.value.node_id] == JsonType()
@@ -8360,7 +8326,7 @@ class TestArrayLiterals:
         # Elements with no common type still each check individually against
         # json (mirroring the plain-unify path's homogeneity requirement,
         # which does not apply here).
-        r = accept_type('let xs: json = [1, "two", true, null]\nxs')
+        r = resolve_and_check_repl_entry('let xs: json = [1, "two", true, null]\nxs')
         node = r.resolved.program.body.items[0]
         assert isinstance(node, LetDecl)
         assert r.node_types[node.value.node_id] == JsonType()
@@ -8378,7 +8344,7 @@ class TestArrayLiterals:
     def test_array_decimal_then_int_widening(self) -> None:
         # Exercises array element type unification: decimal followed by int widens to decimal.
         # is_assignable(decimal,int)=False but is_assignable(int,decimal)=True, so type widens.
-        r = accept_type("[2.5, 1]")
+        r = resolve_and_check_repl_entry("[2.5, 1]")
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == ArrayType(elem=DecimalType())
 
@@ -8390,12 +8356,12 @@ class TestArrayLiterals:
 
 class TestDictLiterals:
     def test_dict_text_int(self) -> None:
-        r = accept_type('{"a": 1, "b": 2}')
+        r = resolve_and_check_repl_entry('{"a": 1, "b": 2}')
         node = r.resolved.program.body.items[0]
         assert r.node_types[node.node_id] == DictType(key=TextType(), value=IntType())
 
     def test_dict_empty_with_annotation(self) -> None:
-        r = accept_type("let d: dict[text, int] = {}\nd")
+        r = resolve_and_check_repl_entry("let d: dict[text, int] = {}\nd")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == DictType(
@@ -8415,13 +8381,15 @@ class TestDictLiterals:
         assert "inconsistent" in str(err).lower() or "type" in str(err).lower()
 
     def test_dict_in_json_context(self) -> None:
-        r = accept_type('let d: json = {"a": 1}\nd')
+        r = resolve_and_check_repl_entry('let d: json = {"a": 1}\nd')
         node = r.resolved.program.body.items[0]
         assert isinstance(node, LetDecl)
         assert r.node_types[node.value.node_id] == JsonType()
 
     def test_heterogeneous_dict_in_json_context(self) -> None:
-        r = accept_type('let d: json = {"n": 1, "s": "x", "flag": true, "nothing": null}\nd')
+        r = resolve_and_check_repl_entry(
+            'let d: json = {"n": 1, "s": "x", "flag": true, "nothing": null}\nd'
+        )
         node = r.resolved.program.body.items[0]
         assert isinstance(node, LetDecl)
         assert r.node_types[node.value.node_id] == JsonType()
@@ -8430,7 +8398,7 @@ class TestDictLiterals:
         # A container literal nested inside another json-typed literal is
         # itself typed as json directly (recursively), so no cast is needed
         # at any nesting depth for a fresh literal.
-        r = accept_type('let d: json = {"tags": [1, "two"], "inner": {"x": 1}}\nd')
+        r = resolve_and_check_repl_entry('let d: json = {"tags": [1, "two"], "inner": {"x": 1}}\nd')
         node = r.resolved.program.body.items[0]
         assert isinstance(node, LetDecl)
         assert r.node_types[node.value.node_id] == JsonType()
@@ -8498,7 +8466,7 @@ class TestProvisionalContainerLiterals:
         )
 
     def test_empty_literals_are_solved_by_sibling_arguments(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def choose[T](left: T, right: T) -> T = right\n"
             "let xs = choose([], [1])\n"
             'let values = choose({}, {"answer": 1})\n'
@@ -8512,7 +8480,7 @@ class TestProvisionalContainerLiterals:
         self._assert_finalized(checked)
 
     def test_empty_literals_are_solved_by_enclosing_results_and_constructor_fields(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Bundle[T]\n"
             "  values: array[T]\n"
             "  metadata: dict[text, T]\n"
@@ -8535,7 +8503,9 @@ class TestProvisionalContainerLiterals:
         self._assert_finalized(checked)
 
     def test_empty_literals_are_solved_by_expected_container_types(self) -> None:
-        checked = accept_type("let xs: array[int] = []\nlet values: dict[text, int] = {}\nvalues")
+        checked = resolve_and_check_repl_entry(
+            "let xs: array[int] = []\nlet values: dict[text, int] = {}\nvalues"
+        )
         xs, values = checked.resolved.program.body.items[:2]
         assert isinstance(xs, LetDecl)
         assert isinstance(values, LetDecl)
@@ -8544,7 +8514,7 @@ class TestProvisionalContainerLiterals:
         self._assert_finalized(checked)
 
     def test_empty_literals_are_solved_by_branch_common_types(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "let choose-empty: bool = true\n"
             "let xs = if choose-empty => [] else => [1]\n"
             'let values = if choose-empty => {} else => {"answer": 1}\n'
@@ -8595,7 +8565,7 @@ class TestProvisionalContainerLiterals:
         assert hint not in str(error).lower()
 
     def test_expected_enum_context_subsumes_mixed_members(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: T)\n"
@@ -8647,7 +8617,7 @@ class TestProvisionalContainerLiterals:
         assert "cannot infer return type" in str(error).lower()
 
     def test_explicit_return_accepts_an_enum_and_its_member(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Choice\n"
             "  | yes\n"
             "  | no\n"
@@ -8701,7 +8671,7 @@ class TestProvisionalContainerLiterals:
         assert "inconsistent" in str(error).lower() or "incompatible" in str(error).lower()
 
     def test_concrete_container_and_branch_widening_is_unchanged(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "let choose-decimal: bool = true\n"
             "let xs = [1, 2.5]\n"
             "let value = if choose-decimal => 1 else => 2.5\n"
@@ -8721,7 +8691,7 @@ class TestProvisionalContainerLiterals:
 
 class TestTypeDeclarations:
     def test_enum_def(self) -> None:
-        r = accept_type("enum Color\n  | Red\n  | Blue\nRed()")
+        r = resolve_and_check_repl_entry("enum Color\n  | Red\n  | Blue\nRed()")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Red"
@@ -8729,7 +8699,7 @@ class TestTypeDeclarations:
         assert sorted(members) == ["Blue", "Red"]
 
     def test_type_alias(self) -> None:
-        r = accept_type("type MyInt = int\nlet x: MyInt = 42\nx")
+        r = resolve_and_check_repl_entry("type MyInt = int\nlet x: MyInt = 42\nx")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == IntType()
@@ -8739,14 +8709,14 @@ class TestTypeDeclarations:
         # A parameterized alias body may reference its own type parameter, and
         # applying it substitutes the argument (regression: the type-builder
         # previously registered aliases with 0 params and dropped body type vars).
-        r = accept_type("type Wrap[A] = array[A]\nlet w: Wrap[int] = [1, 2]\nw")
+        r = resolve_and_check_repl_entry("type Wrap[A] = array[A]\nlet w: Wrap[int] = [1, 2]\nw")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == ArrayType(elem=IntType())
         reject_type('type Wrap[A] = array[A]\nlet w: Wrap[int] = ["a"]\nw')
 
     def test_parameterized_alias_unused_params(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'type Loose[A, B] = dict[text, json]\nlet p: Loose[int, text] = {"a": 1}\np'
         )
         decl = r.resolved.program.body.items[1]
@@ -8756,7 +8726,7 @@ class TestTypeDeclarations:
         )
 
     def test_parameterized_alias_to_generic_enum_constructs_variant(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | some(value: T)\n"
             "type Maybe[T] = Option[T]\n"
@@ -8819,7 +8789,9 @@ class TestTypeDeclarations:
     def test_enum_recursion_with_base_case_is_accepted(self) -> None:
         # Nil is a base-case variant, so List is inhabited despite Cons
         # referencing List itself.
-        r = accept_type("enum List\n  | Cons(value: int, rest: List)\n  | Nil\nNil()")
+        r = resolve_and_check_repl_entry(
+            "enum List\n  | Cons(value: int, rest: List)\n  | Nil\nNil()"
+        )
         assert r.resolved.program is not None
 
     def test_record_duplicate_field_raises(self) -> None:
@@ -8855,7 +8827,7 @@ class TestTypeDeclarations:
         assert "as json" in str(err).lower()
 
     def test_record_field_types(self) -> None:
-        r = accept_type("record P\n  x: int\n  y: decimal\nP(x = 1, y = 2.5)")
+        r = resolve_and_check_repl_entry("record P\n  x: int\n  y: decimal\nP(x = 1, y = 2.5)")
         fields = _constructed_record_fields(r, r.resolved.program.body.items[1].node_id)
         assert fields == {"x": IntType(), "y": DecimalType()}
 
@@ -8889,7 +8861,9 @@ class TestFieldAnnotationTypes:
 
     def test_alias_to_record_field(self) -> None:
         # Exercises alias->record resolution in _ensure_referenced_type_built
-        r = accept_type("record R\n  x: int\ntype MyR = R\nlet r: MyR = R(x = 1)\nr")
+        r = resolve_and_check_repl_entry(
+            "record R\n  x: int\ntype MyR = R\nlet r: MyR = R(x = 1)\nr"
+        )
         decl = r.resolved.program.body.items[2]
         assert isinstance(decl, LetDecl)
         binding_type = r.type_env.get_binding_type(decl.node_id)
@@ -8898,7 +8872,9 @@ class TestFieldAnnotationTypes:
 
     def test_field_array_of_record(self) -> None:
         # Exercises ArrayT path in _ensure_referenced_type_built
-        r = accept_type("record R\n  x: int\nrecord S\n  items: array[R]\nS(items = [])")
+        r = resolve_and_check_repl_entry(
+            "record R\n  x: int\nrecord S\n  items: array[R]\nS(items = [])"
+        )
         fields = _constructed_record_fields(r, r.resolved.program.body.items[2].node_id)
         items_type = fields["items"]
         assert isinstance(items_type, ArrayType)
@@ -8907,25 +8883,27 @@ class TestFieldAnnotationTypes:
 
     def test_alias_field_in_record(self) -> None:
         # Exercises lines 314-316: alias in _ensure_referenced_type_built
-        r = accept_type("type N = int\nrecord R\n  x: N\nR(x = 1)")
+        r = resolve_and_check_repl_entry("type N = int\nrecord R\n  x: N\nR(x = 1)")
         fields = _constructed_record_fields(r, r.resolved.program.body.items[2].node_id)
         assert fields == {"x": IntType()}
 
     def test_array_field_of_aliased_type(self) -> None:
         # Exercises line 321: ArrayT in _ensure_referenced_type_built
-        r = accept_type("type N = int\nrecord R\n  xs: array[N]\nR(xs = [])")
+        r = resolve_and_check_repl_entry("type N = int\nrecord R\n  xs: array[N]\nR(xs = [])")
         fields = _constructed_record_fields(r, r.resolved.program.body.items[2].node_id)
         assert fields == {"xs": ArrayType(elem=IntType())}
 
     def test_dict_field_of_aliased_type(self) -> None:
         # Exercises line 323: DictT in _ensure_referenced_type_built
-        r = accept_type("type N = int\nrecord R\n  d: dict[text, N]\nR(d = {})")
+        r = resolve_and_check_repl_entry("type N = int\nrecord R\n  d: dict[text, N]\nR(d = {})")
         fields = _constructed_record_fields(r, r.resolved.program.body.items[2].node_id)
         assert fields == {"d": DictType(key=TextType(), value=IntType())}
 
     def test_two_records_same_enum_field(self) -> None:
         # Exercises line 246: _ensure_built_enum called twice returns early
-        r = accept_type("enum E\n  | A\nrecord R1\n  e: E\nrecord R2\n  e: E\nR1(e = A())")
+        r = resolve_and_check_repl_entry(
+            "enum E\n  | A\nrecord R1\n  e: E\nrecord R2\n  e: E\nR1(e = A())"
+        )
         fields = _constructed_record_fields(r, r.resolved.program.body.items[3].node_id)
         enum_field = fields["e"]
         assert isinstance(enum_field, EnumType)
@@ -8935,7 +8913,7 @@ class TestFieldAnnotationTypes:
     def test_record_field_of_builtin_record_type(self) -> None:
         # Exercises 314->exit: NameT("ExecResult") is in env but not in _record_defs
         # (it's a built-in type, not user-declared)
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'record Wrapper\n  result: ExecResult\nlet x = exec("ls")\nWrapper(result = x)'
         )
         fields = _constructed_record_fields(r, r.resolved.program.body.items[2].node_id)
@@ -8951,7 +8929,7 @@ class TestFieldAnnotationTypes:
 
 class TestVarAssign:
     def test_assign_updates_var(self) -> None:
-        r = accept_type("var x: int = 0\nx := 42\nx")
+        r = resolve_and_check_repl_entry("var x: int = 0\nx := 42\nx")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, VarDecl)
         assert r.type_env.get_binding_type(decl.node_id) == IntType()
@@ -8973,7 +8951,7 @@ class TestVarAssign:
     def test_var_with_annotation_allows_bottom(self) -> None:
         # The bottom initializer coerces to the annotation, so the binding is
         # int rather than bottom.
-        r = accept_type('var x: int = raise Abort(message = "e")\nx')
+        r = resolve_and_check_repl_entry('var x: int = raise Abort(message = "e")\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, VarDecl)
         assert r.type_env.get_binding_type(decl.node_id) == IntType()
@@ -8987,33 +8965,33 @@ class TestVarAssign:
 
 class TestParseErrorRetries:
     def test_zero_retries(self) -> None:
-        accept_type('let n: int = ask("Q", parse-error-retries = 0)\nn')
+        resolve_and_check_repl_entry('let n: int = ask("Q", parse-error-retries = 0)\nn')
 
     def test_positive_retries(self) -> None:
-        accept_type('let n: int = ask("Q", parse-error-retries = 5)\nn')
+        resolve_and_check_repl_entry('let n: int = ask("Q", parse-error-retries = 5)\nn')
 
     def test_non_int_raises(self) -> None:
         reject_type('let n: int = ask("Q", parse-error-retries = "bad")\nn')
 
     def test_text_target_warns(self) -> None:
-        r = accept_type('ask("Q", parse-error-retries = 0)')
+        r = resolve_and_check_repl_entry('ask("Q", parse-error-retries = 0)')
         assert len(r.warnings) == 1
         assert "parse-error-retries" in r.warnings[0].message
 
     def test_accepts_a_computed_count(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             'let k = 2\nlet count = k + 1\nlet n: int = ask("Q", parse-error-retries = count)\nn'
         )
 
     def test_accepts_a_count_returned_by_a_function(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             "def count-for(k: int) -> int = k\n"
             'let n: int = ask("Q", parse-error-retries = count-for(3))\n'
             "n"
         )
 
     def test_accepts_a_computed_count_on_exec(self) -> None:
-        accept_type('let n: int = exec("echo 1", parse-error-retries = 1 + 1)\nn')
+        resolve_and_check_repl_entry('let n: int = exec("echo 1", parse-error-retries = 1 + 1)\nn')
 
 
 # ---------------------------------------------------------------------------
@@ -9086,7 +9064,7 @@ _ASK_REQUEST_NO_STDLIB_DECL_TC = (
 
 class TestHostContractBuiltinIdentity:
     def test_scoped_agent_does_not_affect_ask_request(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             f"scope A\nbuiltin enum Agent\n{_AGENT_VARIANTS_TC}end A\n"
             'let g = A::Agent::AgentCommand("x")\n'
             'ask-request("hi")\n'
@@ -9104,7 +9082,7 @@ class TestHostContractBuiltinIdentity:
         assert request.scope_path == ()
 
     def test_unrelated_type_does_not_affect_ask_request(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             f"scope A\nbuiltin enum Agent\n{_AGENT_VARIANTS_TC}end A\n"
             "enum NotAgent\n  | X\n"
             'ask-request("hi")\n'
@@ -9115,7 +9093,7 @@ class TestHostContractBuiltinIdentity:
         assert request.scope_path == ()
 
     def test_scoped_agent_request_result_type_names_the_scoped_declaration(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record AgentRequest\n{_AGENT_REQUEST_FIELDS_TC}"
             'def make() -> A::AgentRequest = ask-request("hi")\n'
             "end A\n()\n"
@@ -9129,7 +9107,7 @@ class TestHostContractBuiltinIdentity:
         assert produced.scope_path == ("A",)
 
     def test_ask_request_value_uses_the_scoped_live_contract(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             f"scope A\nbuiltin record AgentRequest\n{_AGENT_REQUEST_FIELDS_TC}end A\n"
             "let build: text -> A::AgentRequest = ask-request\n"
             "build\n"
@@ -9187,7 +9165,7 @@ class TestHostContractBuiltinIdentity:
         own sibling ``Agent``/``AgentRequest`` types validates once re-rooted
         onto the canonical (root) contract -- the ask-request analogue of
         ``test_scoped_builtin_def_signature_naming_a_scoped_sibling_type_typechecks``."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             f"builtin enum Agent\n{_AGENT_VARIANTS_TC}"
             f"builtin record AgentRequest\n{_AGENT_REQUEST_FIELDS_TC}"
@@ -9254,7 +9232,7 @@ class TestHostContractBuiltinIdentity:
         ``ask-request``, ``ask`` returns the agent's own answer rather than a
         host-minted record carrying the agent, so a scoped ``Agent`` receiver
         creates no field whose value could disagree with its static type."""
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             "import std/env::{Environ, environ}\n"
             "scope A\n"
             f"builtin enum Agent\n{_AGENT_VARIANTS_TC}"
@@ -9282,7 +9260,7 @@ class TestHostContractBuiltinIdentity:
     def test_canonical_agent_receiver_still_accepted(self) -> None:
         """Regression: the ordinary receiver form, with nothing redeclared,
         is unaffected."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'let agent: Agent = AgentCommand("echo")\nlet r: text = agent.ask("hi")\n()\n'
         )
         receiver_decl, answer_decl = r.resolved.program.body.items[:2]
@@ -9320,7 +9298,7 @@ class TestHostContractBuiltinIdentity:
         """Regression: a ``builtin exception`` whose fields are all scalar
         carries no identity requirement of its own and is still catchable at
         its own scoped declaration."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  builtin exception RangeError extends Exception\n"
             "  def trigger(stride: int) -> unit =\n"
@@ -9344,7 +9322,7 @@ class TestHostContractBuiltinIdentity:
         with nothing shadowing ``Agent`` keeps the standard identity in its
         own ``agent`` field, so it stays catchable and its field stays
         readable."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             "  builtin exception AgentCallError extends Exception\n"
             "    agent: Agent\n    cause: text\n    metadata: json\n"
@@ -9370,7 +9348,7 @@ class TestHostContractBuiltinIdentity:
         """Regression: an ordinary (non-``builtin``) exception is never
         host-minted, so a field of it may name any declaration the program
         likes -- the requirement is on host contracts only."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "scope A\n"
             f"builtin enum Agent\n{_AGENT_VARIANTS_TC}"
             "@arg-named\nexception MyError extends Exception\n"
@@ -9401,10 +9379,9 @@ class TestHostContractBuiltinIdentity:
 
 class TestSeedEnv:
     def test_seed_env_shares_types(self) -> None:
-        r1 = accept_type("let x: int = 1\nx")
+        r1 = resolve_and_check_repl_entry("let x: int = 1\nx")
         r2 = resolve_and_check_inline_entry(
             "x",
-            default_capabilities(),
             parent_scope=r1.resolved.root_scope,
             seed_env=r1.type_env,
         )
@@ -9412,11 +9389,10 @@ class TestSeedEnv:
         assert r2.node_types[r2.resolved.program.body.items[0].node_id] == IntType()
 
     def test_seed_env_shares_function_signatures(self) -> None:
-        r1 = accept_type("def f(x: int) -> int = x\nf(1)")
+        r1 = resolve_and_check_repl_entry("def f(x: int) -> int = x\nf(1)")
         assert "f" in r1.function_signatures
         r2 = resolve_and_check_inline_entry(
             "f(2)",
-            default_capabilities(),
             parent_scope=r1.resolved.root_scope,
             seed_env=r1.type_env,
         )
@@ -9428,7 +9404,7 @@ class TestSeedEnv:
         # chained via seed_env): a recursive type declared in the first entry is
         # constructed and pattern-matched in a later one, re-validating the
         # accumulated table cheaply (idempotently) each time.
-        r1 = accept_type(
+        r1 = resolve_and_check_repl_entry(
             "enum Tree\n  | Leaf\n  | Node(value: int, left: Tree, right: Tree)\n"
             "Node(value = 1, left = Leaf(), right = Leaf())"
         )
@@ -9437,7 +9413,6 @@ class TestSeedEnv:
             "case node of\n"
             "  | Leaf() => 0\n"
             "  | Node(value, left, right) => value",
-            default_capabilities(),
             parent_scope=r1.resolved.root_scope,
             retained_type_owners=r1.resolved.type_owners,
             seed_env=r1.type_env,
@@ -9477,15 +9452,14 @@ def test_nullary_candidate_defers_duplicate_pattern_binder_until_typecheck_selec
 ) -> None:
     """A bare nullary variant is selected rather than treated as a duplicate binder."""
     if candidate_source == "local":
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Mark\n  | mark\n"
             + _nullary_duplicate_pattern_source("mark", "Mark", "mark()", bare_first=bare_first)
         )
     else:
-        prior = accept_type("enum Mark\n  | mark\nmark()")
+        prior = resolve_and_check_repl_entry("enum Mark\n  | mark\nmark()")
         checked = resolve_and_check_inline_entry(
             _nullary_duplicate_pattern_source("mark", "Mark", "mark()", bare_first=bare_first),
-            default_capabilities(),
             parent_scope=prior.resolved.root_scope,
             retained_type_owners=prior.resolved.type_owners,
             seed_env=prior.type_env,
@@ -9523,32 +9497,32 @@ class TestNodeIdAssignment:
 
 class TestCheckedModule:
     def test_node_types_populated(self) -> None:
-        r = accept_type("let x = 42\nx")
+        r = resolve_and_check_repl_entry("let x = 42\nx")
         assert len(r.node_types) > 0
 
     def test_contract_specs_populated_for_ask(self) -> None:
-        r = accept_type('ask("hello")')
+        r = resolve_and_check_repl_entry('ask("hello")')
         assert len(r.contract_specs) == 1
 
     def test_warnings_empty_when_no_issues(self) -> None:
-        r = accept_type("let x = 1\nx")
+        r = resolve_and_check_repl_entry("let x = 1\nx")
         assert len(r.warnings) == 0
 
     def test_function_signatures_populated(self) -> None:
-        r = accept_type("def f(x: int) -> int = x\nf(1)")
+        r = resolve_and_check_repl_entry("def f(x: int) -> int = x\nf(1)")
         assert "f" in r.function_signatures
 
     def test_type_env_accessible(self) -> None:
-        r = accept_type("let x = 1\nx")
+        r = resolve_and_check_repl_entry("let x = 1\nx")
         assert r.type_env is not None
         assert isinstance(r.type_env, TypeEnvironment)
 
     def test_resolved_accessible(self) -> None:
-        r = accept_type("let x = 1\nx")
+        r = resolve_and_check_repl_entry("let x = 1\nx")
         assert r.resolved is not None
 
     def test_function_signature_ordering_valid(self) -> None:
-        r = accept_type('def f(x: int, y: text = "ok") -> int = x\nf(1)')
+        r = resolve_and_check_repl_entry('def f(x: int, y: text = "ok") -> int = x\nf(1)')
         sig = r.function_signatures["f"]
         assert sig.params[0].has_default is False  # x: not defaulted
         assert sig.params[1].has_default is True  # y: has default
@@ -9765,7 +9739,7 @@ class TestIndexTypechecking:
             self._check_items((decl, cast(Item, non_container)), {obj.node_id: ref})
 
     def test_parsed_indexed_assignment_accepts_var_array(self) -> None:
-        result = accept_type("var xs = [1]\nxs[0] := 2\nxs")
+        result = resolve_and_check_repl_entry("var xs = [1]\nxs[0] := 2\nxs")
         program = result.resolved.program
         assert program is not None
         final_expr = program.body.items[2]
@@ -9773,7 +9747,7 @@ class TestIndexTypechecking:
         assert result.node_types[final_expr.node_id] == ArrayType(elem=IntType())
 
     def test_parsed_chained_indexed_assignment_records_intermediate_target_type(self) -> None:
-        result = accept_type("var matrix = [[1, 2]]\nmatrix[0][1] := 3\nmatrix")
+        result = resolve_and_check_repl_entry("var matrix = [[1, 2]]\nmatrix[0][1] := 3\nmatrix")
         program = result.resolved.program
         assert program is not None
 
@@ -9828,7 +9802,7 @@ class TestIndexTypechecking:
             self._check_items((dict_decl, dict_assign), {dict_obj.node_id: dict_ref})
 
     def test_parsed_indexed_assignment_accepts_record_field_root(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             "record Box\n  items: array[int]\nlet b = Box(items = [1, 2])\nb.items[0] := 3\nb.items"
         )
         program = result.resolved.program
@@ -9840,7 +9814,7 @@ class TestIndexTypechecking:
     def test_parsed_indexed_assignment_accepts_temporary_root(self) -> None:
         # Any array/dict-typed expression is a legal root, even an ephemeral
         # literal that is discarded immediately after the mutation.
-        result = accept_type("[1][0] := 3\n()")
+        result = resolve_and_check_repl_entry("[1][0] := 3\n()")
         program = result.resolved.program
         assert program is not None
         assign = program.body.items[0]
@@ -9849,7 +9823,7 @@ class TestIndexTypechecking:
         assert result.node_types[assign.target.obj.node_id] == ArrayType(elem=IntType())
 
     def test_parsed_indexed_assignment_accepts_let_array(self) -> None:
-        result = accept_type("let xs: array[int] = [1]\nxs[0] := 2\nxs")
+        result = resolve_and_check_repl_entry("let xs: array[int] = [1]\nxs[0] := 2\nxs")
         program = result.resolved.program
         assert program is not None
         final_expr = program.body.items[-1]
@@ -9857,7 +9831,9 @@ class TestIndexTypechecking:
         assert result.node_types[final_expr.node_id] == ArrayType(elem=IntType())
 
     def test_parsed_indexed_assignment_accepts_function_arg(self) -> None:
-        result = accept_type("def f(xs: array[int]) -> array[int] =\n  xs[0] := 2\n  xs\nf([1])")
+        result = resolve_and_check_repl_entry(
+            "def f(xs: array[int]) -> array[int] =\n  xs[0] := 2\n  xs\nf([1])"
+        )
         program = result.resolved.program
         assert program is not None
         func_def = program.body.items[0]
@@ -9897,7 +9873,7 @@ class TestIndexTypechecking:
         assert "mk" in message
 
     def test_parsed_field_assignment_accepts_mutable_record_field(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box\n"
             "  var value: int\n"
             "def update(box: Box) -> unit =\n"
@@ -9914,7 +9890,7 @@ class TestIndexTypechecking:
         assert checked.node_types[update.body.node_id] == UnitType()
 
     def test_field_assignment_accepts_enum_member_and_member_to_enum_value(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Linked\n"
             "  | Nil\n"
             "  | Cell(var next: Linked)\n"
@@ -9955,7 +9931,7 @@ class TestIndexTypechecking:
 
 class TestQualifiedCalls:
     def test_user_method_named_resource_uses_declared_signature(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record P\ndef P::resource(self) -> P = self\nlet value = P::resource(P())\nvalue"
         )
 
@@ -9976,9 +9952,7 @@ class TestQualifiedCalls:
 class TestRootBindingInitializers:
     def test_root_initializer_must_be_constant(self) -> None:
         with pytest.raises(AglTypeError):
-            resolve_and_check_entry(
-                "def value() -> int = 1\nlet root = value()", default_capabilities()
-            )
+            resolve_and_check_entry("def value() -> int = 1\nlet root = value()")
 
     @pytest.mark.parametrize("method_name", ("resource", "resource-dir"))
     def test_root_initializer_rejects_ordinary_method_named_like_resource_builtin(
@@ -9993,12 +9967,11 @@ class TestRootBindingInitializers:
         )
 
         with pytest.raises(AglTypeError):
-            resolve_and_check_entry(source, default_capabilities())
+            resolve_and_check_entry(source)
 
     def test_root_constructor_initializer_is_constant(self) -> None:
         checked = resolve_and_check_entry(
             "record Settings\n  value: int\nlet settings = Settings(value = 1)",
-            default_capabilities(),
         )
 
         decl = checked.resolved.program.body.items[1]
@@ -10013,7 +9986,6 @@ class TestRootBindingInitializers:
             "program def main() -> unit =\n"
             "  let root = value()\n"
             "  print root",
-            default_capabilities(),
         )
 
         # The same call that is rejected as a root initializer is an ordinary
@@ -10044,7 +10016,9 @@ class TestProgramFunctionDefinitions:
         reject_type(source)
 
     def test_program_func_def_accepts_value_parameters(self) -> None:
-        checked = accept_type('program def main(value: int, label: text = "x") -> unit = ()')
+        checked = resolve_and_check_repl_entry(
+            'program def main(value: int, label: text = "x") -> unit = ()'
+        )
 
         sig = checked.function_signatures["main"]
         assert [p.name for p in sig.params] == ["value", "label"]
@@ -10061,7 +10035,7 @@ class TestProgramFunctionDefinitions:
         assert "method" in str(err)
 
     def test_program_func_def_infers_unit_result(self) -> None:
-        checked = accept_type("program def main() = ()")
+        checked = resolve_and_check_repl_entry("program def main() = ()")
 
         assert checked.function_signatures["main"].result == UnitType()
 
@@ -10073,7 +10047,7 @@ class TestProgramParameterValidation:
     """Program-parameter host-decodability and name-reservation rules."""
 
     def test_decodable_parameters_typecheck(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Options\n"
             "  count: int\n"
             "\n"
@@ -10097,12 +10071,16 @@ class TestProgramParameterValidation:
         assert "engine setting name" in str(err).lower()
 
     def test_engine_key_name_is_accepted_for_a_positional_only_parameter(self) -> None:
-        checked = accept_type("program def main(@arg-pos timeout: text) -> unit = ()")
+        checked = resolve_and_check_repl_entry(
+            "program def main(@arg-pos timeout: text) -> unit = ()"
+        )
         sig = checked.function_signatures["main"]
         assert [(p.name, p.kind) for p in sig.params] == [("timeout", ParamZone.POSITIONAL_ONLY)]
 
     def test_opt_name_replaces_the_declared_name_in_the_engine_namespace(self) -> None:
-        checked = accept_type('program def main(@opt-name("mode") strict-json: text) -> unit = ()')
+        checked = resolve_and_check_repl_entry(
+            'program def main(@opt-name("mode") strict-json: text) -> unit = ()'
+        )
 
         assert checked.function_signatures["main"].params[0].name == "strict-json"
 
@@ -10200,7 +10178,7 @@ class TestCallDispatchScopeAware:
         # 'classify' is a top-level def(a, b) -> text; inside wrap() a let
         # shadows it with a 1-param fn.  classify(5) in the inner scope must
         # type-check as a value call (1 positional arg, no named args).
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'def classify(a: int, b: int) -> text = "hi"\n'
             "def wrap() -> int =\n"
             "  let classify: (int) -> int = fn(y: int) -> int => y\n"
@@ -10238,18 +10216,20 @@ class TestCallDispatchScopeAware:
 
     def test_top_level_def_named_arg_still_works(self) -> None:
         # The top-level def must still accept named/defaulted args.
-        r = accept_type("def add(x: int, y: int = 0) -> int = x + y\nadd(1, y = 2)")
+        r = resolve_and_check_repl_entry(
+            "def add(x: int, y: int = 0) -> int = x + y\nadd(1, y = 2)"
+        )
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_top_level_def_default_omission_still_works(self) -> None:
         # Omitting a defaulted argument at a top-level def call site still works.
-        r = accept_type("def add(x: int, y: int = 0) -> int = x + y\nadd(3)")
+        r = resolve_and_check_repl_entry("def add(x: int, y: int = 0) -> int = x + y\nadd(3)")
         assert r.node_types[r.resolved.program.body.items[1].node_id] == IntType()
 
     def test_param_binding_callee_is_value_call(self) -> None:
         # A function parameter whose type is a function type must be treated as
         # a value call — positional only, named args rejected.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "def apply(f: (int) -> int, x: int) -> int = f(x)\napply(fn(n: int) => n, 7)"
         )
         # The parameter-bound callee is called as a value: the inner call and
@@ -10268,7 +10248,7 @@ class TestCallDispatchScopeAware:
 
     def test_field_access_callee_is_value_call(self) -> None:
         # A field that holds a function value must be treated as a value call.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Wrapper\n"
             "  fn-field: (int) -> int\n"
             "let w = Wrapper(fn-field = fn(x: int) -> int => x)\n"
@@ -10304,7 +10284,7 @@ class TestAskUnknownArgs:
 
     def test_ask_valid_named_arg_combinations_still_accepted(self) -> None:
         # All supported parse options work on an explicit Agent receiver.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'let a = AgentCommand("a")\nlet n: int = a.ask("Q", format = "json",'
             " strict-json = true, parse-error-retries = 0)\nn"
         )
@@ -10315,16 +10295,22 @@ class TestAskSandboxArgument:
     """``sandbox`` is accepted on every ask-like call except a session-routed ``ask``."""
 
     def test_ask_accepts_disabled(self) -> None:
-        accept_type('ask("Q", agent = AgentCommand("a"), sandbox = AgentSandbox::Disabled)')
+        resolve_and_check_repl_entry(
+            'ask("Q", agent = AgentCommand("a"), sandbox = AgentSandbox::Disabled)'
+        )
 
     def test_ask_accepts_native(self) -> None:
-        accept_type('ask("Q", agent = AgentCommand("a"), sandbox = AgentSandbox::Native)')
+        resolve_and_check_repl_entry(
+            'ask("Q", agent = AgentCommand("a"), sandbox = AgentSandbox::Native)'
+        )
 
     def test_ask_accepts_bare_sandbox_all_defaults(self) -> None:
-        accept_type('ask("Q", agent = AgentCommand("a"), sandbox = Sandbox)')
+        resolve_and_check_repl_entry('ask("Q", agent = AgentCommand("a"), sandbox = Sandbox)')
 
     def test_ask_accepts_bare_sandbox_with_fields(self) -> None:
-        accept_type('ask("Q", agent = AgentCommand("a"), sandbox = Sandbox(memory = Some("8G")))')
+        resolve_and_check_repl_entry(
+            'ask("Q", agent = AgentCommand("a"), sandbox = Sandbox(memory = Some("8G")))'
+        )
 
     def test_ask_rejects_a_qualified_sandbox_member(self) -> None:
         # ``AgentSandbox::Sandbox`` is a scope error: ``Sandbox`` is a
@@ -10340,13 +10326,15 @@ class TestAskSandboxArgument:
     def test_ask_request_accepts_sandbox(self) -> None:
         # ask-request never routes through a session, so it accepts sandbox
         # even without an explicit agent.
-        accept_type('ask-request("Q", sandbox = AgentSandbox::Native)')
+        resolve_and_check_repl_entry('ask-request("Q", sandbox = AgentSandbox::Native)')
 
     def test_agent_receiver_ask_accepts_sandbox(self) -> None:
-        accept_type('let a = AgentCommand("a")\na.ask("Q", sandbox = Sandbox)')
+        resolve_and_check_repl_entry('let a = AgentCommand("a")\na.ask("Q", sandbox = Sandbox)')
 
     def test_agent_receiver_ask_request_accepts_sandbox(self) -> None:
-        accept_type('let a = AgentCommand("a")\na.ask-request("Q", sandbox = AgentSandbox::Native)')
+        resolve_and_check_repl_entry(
+            'let a = AgentCommand("a")\na.ask-request("Q", sandbox = AgentSandbox::Native)'
+        )
 
     def test_bare_ask_without_agent_rejects_an_explicit_sandbox(self) -> None:
         # No explicit ``agent`` -> dispatches through the default session at
@@ -10358,7 +10346,9 @@ class TestAskSandboxArgument:
     def test_bare_ask_with_explicit_agent_accepts_sandbox(self) -> None:
         # An explicit ``agent`` routes directly to the agent, not the default
         # session, so ``sandbox`` is meaningful here.
-        accept_type('ask("Q", agent = AgentCommand("a"), sandbox = AgentSandbox::Native)')
+        resolve_and_check_repl_entry(
+            'ask("Q", agent = AgentCommand("a"), sandbox = AgentSandbox::Native)'
+        )
 
 
 class TestAskEnvArgument:
@@ -10368,10 +10358,12 @@ class TestAskEnvArgument:
     _IMPORT = "import std/env::Environ\n"
 
     def test_ask_accepts_ambient_environ(self) -> None:
-        accept_type(self._IMPORT + 'ask("Q", agent = AgentCommand("a"), env = std/env::environ)')
+        resolve_and_check_repl_entry(
+            self._IMPORT + 'ask("Q", agent = AgentCommand("a"), env = std/env::environ)'
+        )
 
     def test_ask_accepts_extended_environ(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             self._IMPORT + 'ask("Q", agent = AgentCommand("a"), '
             'env = std/env::environ.extended({"A": "B"}))'
         )
@@ -10390,7 +10382,9 @@ class TestAskEnvArgument:
         assert "env" in str(err)
 
     def test_agent_receiver_ask_accepts_env(self) -> None:
-        accept_type(self._IMPORT + 'let a = AgentCommand("a")\na.ask("Q", env = std/env::environ)')
+        resolve_and_check_repl_entry(
+            self._IMPORT + 'let a = AgentCommand("a")\na.ask("Q", env = std/env::environ)'
+        )
 
     def test_agent_receiver_ask_request_rejects_env(self) -> None:
         err = reject_type(
@@ -10408,7 +10402,9 @@ class TestAskEnvArgument:
     def test_bare_ask_with_explicit_agent_accepts_env(self) -> None:
         # An explicit ``agent`` routes directly to the agent, not the default
         # session, so ``env`` is meaningful here.
-        accept_type(self._IMPORT + 'ask("Q", agent = AgentCommand("a"), env = std/env::environ)')
+        resolve_and_check_repl_entry(
+            self._IMPORT + 'ask("Q", agent = AgentCommand("a"), env = std/env::environ)'
+        )
 
     def test_session_ask_rejects_an_explicit_env(self) -> None:
         # A session's environment is fixed once, at open; a per-ask override
@@ -10420,7 +10416,7 @@ class TestAskEnvArgument:
         assert "env" in str(err).lower()
 
     def test_session_open_accepts_env(self) -> None:
-        accept_type(
+        resolve_and_check_repl_entry(
             self._IMPORT
             + 'let s = Session::open(agent = AgentCommand("a"), env = std/env::environ)\n'
             "()"
@@ -10445,7 +10441,7 @@ class TestExecUnknownArgs:
 
     def test_exec_valid_named_arg_combinations_still_accepted(self) -> None:
         # format, strict_json, parse_error_retries are valid for exec.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'let n: int = exec("ls", format = "json", strict-json = true,'
             " parse-error-retries = 0)\nn"
         )
@@ -10454,10 +10450,10 @@ class TestExecUnknownArgs:
 
 class TestExecSandbox:
     def test_exec_accepts_an_absent_sandbox(self) -> None:
-        accept_type('exec("ls", sandbox = None)')
+        resolve_and_check_repl_entry('exec("ls", sandbox = None)')
 
     def test_exec_accepts_a_sandbox_option(self) -> None:
-        accept_type('exec("ls", sandbox = Some(Sandbox()))')
+        resolve_and_check_repl_entry('exec("ls", sandbox = Some(Sandbox()))')
 
     def test_exec_rejects_a_bare_sandbox_record(self) -> None:
         # ``exec``'s ``sandbox`` is ``Option[Sandbox]``, never a bare
@@ -10477,7 +10473,7 @@ class TestExecSandbox:
 
 class TestExecStructured:
     def test_exec_no_annotation_sets_structured_exec(self) -> None:
-        r = accept_type('exec("ls")')
+        r = resolve_and_check_repl_entry('exec("ls")')
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         spec = r.contract_specs[call.node_id]
@@ -10485,14 +10481,14 @@ class TestExecStructured:
         assert spec.strict_json is None
 
     def test_exec_exec_result_annotation_sets_structured_exec(self) -> None:
-        r = accept_type('let x: ExecResult = exec("ls")\nx')
+        r = resolve_and_check_repl_entry('let x: ExecResult = exec("ls")\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
         assert spec.structured_exec is True
 
     def test_exec_text_annotation_not_structured(self) -> None:
-        r = accept_type('let x: text = exec("ls")\nx')
+        r = resolve_and_check_repl_entry('let x: text = exec("ls")\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
@@ -10511,7 +10507,7 @@ class TestExecStructured:
         assert "ExecResult" in str(err) or "parse-error-retries" in str(err).lower()
 
     def test_exec_parsed_form_has_no_structured_exec(self) -> None:
-        r = accept_type('let n: int = exec("ls", format = "json")\nn')
+        r = resolve_and_check_repl_entry('let n: int = exec("ls", format = "json")\nn')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         spec = r.contract_specs[decl.value.node_id]
@@ -10519,7 +10515,7 @@ class TestExecStructured:
         assert spec.codec_name == "json"
 
     def test_exec_result_contract_spec(self) -> None:
-        r = accept_type('exec("ls")')
+        r = resolve_and_check_repl_entry('exec("ls")')
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         spec = r.contract_specs[call.node_id]
@@ -10555,7 +10551,7 @@ def _method_header(
 
 class TestMethodHeaders:
     def test_plain_owner_builds_positional_only_receiver(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Point\n"
             "  x: int\n"
             "def Point::radius(self) -> int = self.x\n"
@@ -10573,7 +10569,7 @@ class TestMethodHeaders:
         assert receiver == ParamSpec("self", RecordType("Point"), ParamZone.POSITIONAL_ONLY, False)
 
     def test_generic_owner_builds_receiver_from_leading_method_slot(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def Box::get[E](self: Box[E]) -> E = self.value\n"
@@ -10622,7 +10618,7 @@ class TestMethodHeaders:
         assert "__method_type_slot" not in message
 
     def test_repeating_wildcard_receiver_slots_remain_nonbinding(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Outcome[A, B]\n"
             "  | value(v: A)\n"
             "def Outcome::tag[_, _](self) -> int = 1\n"
@@ -10692,7 +10688,7 @@ class TestValueCallErrors:
 
     def test_field_access_function_callee_value_call(self) -> None:
         # A record field holding a function value can be called as a value call.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box\n"
             "  compute: (int) -> int\n"
             "let b = Box(compute = fn(n: int) -> int => n * 2)\n"
@@ -10823,13 +10819,17 @@ class TestResolveTypeExprTypeVars:
         assert result == TypeVarType("T")
 
     def test_declared_type_resolves_beside_type_vars(self) -> None:
-        checked = accept_type("record MyRec\n  x: int\ndef f[T](r: MyRec, t: T) -> MyRec = r")
+        checked = resolve_and_check_repl_entry(
+            "record MyRec\n  x: int\ndef f[T](r: MyRec, t: T) -> MyRec = r"
+        )
         result = checked.function_signatures["f"].params[0].type
         assert isinstance(result, RecordType)
         assert result.name == "MyRec"
 
     def test_applied_generic_record_instantiates_its_fields(self) -> None:
-        checked = accept_type("record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb")
+        checked = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb"
+        )
         result = checked.node_types[checked.resolved.program.body.items[-1].node_id]
         assert isinstance(result, RecordType)
         assert result.type_args == (IntType(),)
@@ -10855,12 +10855,14 @@ class TestResolveTypeExprTypeVars:
 
     def test_bare_generic_name_rejected(self) -> None:
         with pytest.raises(UnappliedGenericTypeError) as exc_info:
-            accept_type("record Box[T]\n  value: T\ndef f(b: Box) -> int = 1")
+            resolve_and_check_repl_entry("record Box[T]\n  value: T\ndef f(b: Box) -> int = 1")
         assert exc_info.value.display_name == "Box"
         assert exc_info.value.generic_def.type_params == ("T",)
 
     def test_parameterized_alias_applied(self) -> None:
-        checked = accept_type("type Wrapper[T] = array[T]\nlet w: Wrapper[int] = [1]\nw")
+        checked = resolve_and_check_repl_entry(
+            "type Wrapper[T] = array[T]\nlet w: Wrapper[int] = [1]\nw"
+        )
         result = checked.node_types[checked.resolved.program.body.items[-1].node_id]
         assert result == ArrayType(IntType())
 
@@ -10917,7 +10919,7 @@ class TestGenericFunctionInferenceRegions:
         )
 
     def test_direct_call_accepts_fresh_generic_function_argument(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def app[T](f: T -> T, x: T) -> T = f(x)\n"
             "def id[T](x: T) -> T = x\n"
             "let n = app(id, 0)\n"
@@ -10929,7 +10931,7 @@ class TestGenericFunctionInferenceRegions:
         self._assert_finalized(checked)
 
     def test_declared_call_accepts_generic_argument_for_concrete_slot(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def use[A](f: (int) -> int, seed: A) -> A = seed\n"
             "def id[B](value: B) -> B = value\n"
             "use(id, 0)"
@@ -10938,7 +10940,7 @@ class TestGenericFunctionInferenceRegions:
         self._assert_finalized(checked)
 
     def test_value_call_accepts_generic_argument_for_concrete_slot(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def id[T](value: T) -> T = value\n"
             "let use: ((int) -> int) -> int = fn(f: (int) -> int) -> int => f(0)\n"
             "use(id)"
@@ -10947,7 +10949,7 @@ class TestGenericFunctionInferenceRegions:
         self._assert_finalized(checked)
 
     def test_generic_function_arguments_are_order_independent_and_named(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def app[T](f: T -> T, x: T) -> T = f(x)\n"
             "def app-reversed[T](x: T, f: T -> T) -> T = f(x)\n"
             "def id[T](x: T) -> T = x\n"
@@ -10962,7 +10964,7 @@ class TestGenericFunctionInferenceRegions:
         self._assert_finalized(checked)
 
     def test_nested_generic_occurrences_are_fresh(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Duo[A, B]\n"
             "  first: A\n"
             "  second: B\n"
@@ -10985,7 +10987,7 @@ class TestGenericFunctionInferenceRegions:
         self._assert_finalized(checked)
 
     def test_generic_body_can_solve_a_fresh_occurrence_to_a_rigid_variable(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def id[T](x: T) -> T = x\n"
             "def relay[U](value: U, f: U -> U) -> U = f(value)\n"
             "def preserve[V](value: V) -> V = relay(value, id)\n"
@@ -10995,7 +10997,9 @@ class TestGenericFunctionInferenceRegions:
         self._assert_finalized(checked)
 
     def test_argument_evidence_precedes_contextual_coercion(self) -> None:
-        checked = accept_type("def id[T](x: T) -> T = x\nlet d: decimal = id(1)\nd")
+        checked = resolve_and_check_repl_entry(
+            "def id[T](x: T) -> T = x\nlet d: decimal = id(1)\nd"
+        )
         binding = checked.resolved.program.body.items[1]
         assert isinstance(binding, LetDecl)
         assert checked.node_types[binding.value.node_id] == IntType()
@@ -11009,7 +11013,7 @@ class TestGenericFunctionInferenceRegions:
         )
 
     def test_context_completes_empty_collection_arguments_after_their_shape_is_known(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def id[T](value: T) -> T = value\n"
             "let xs: array[int] = id([])\n"
             "let values: dict[text, int] = id({})\n"
@@ -11024,14 +11028,14 @@ class TestGenericFunctionInferenceRegions:
         self._assert_finalized(checked)
 
     def test_bottom_requires_context_but_can_be_completed_by_it(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             'def id[T](x: T) -> T = x\nlet n: int = id(raise Abort(message = "stop"))\nn'
         )
         self._assert_finalized(checked)
         reject_type('def id[T](x: T) -> T = x\nid(raise Abort(message = "stop"))')
 
     def test_bottom_does_not_prevent_sibling_evidence_from_solving_a_generic_call(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def choose[T](left: T, right: T) -> T = right\n"
             'let result = choose(raise Abort(message = "stop"), 0)\n'
             "result"
@@ -11051,7 +11055,7 @@ class TestGenericFunctionInferenceRegions:
         assert error.related[0][1].start_line == 2
 
     def test_direct_call_parameter_types_are_finalized(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def app[T](f: T -> T, x: T) -> T = f(x)\ndef id[T](x: T) -> T = x\napp(id, 0)\n"
         )
         call = checked.resolved.program.body.items[-1]
@@ -11082,48 +11086,52 @@ class TestGenerics:
     # ------------------------------------------------------------------
 
     def test_generic_id_def_accepted(self) -> None:
-        accept_type("def id[T](x: T) -> T = x\nid(1)")
+        resolve_and_check_repl_entry("def id[T](x: T) -> T = x\nid(1)")
 
     def test_generic_const_def_accepted(self) -> None:
-        accept_type("def const[A, B](a: A, b: B) -> A = a\nconst(1, true)")
+        resolve_and_check_repl_entry("def const[A, B](a: A, b: B) -> A = a\nconst(1, true)")
 
     def test_generic_first_container_index_allowed(self) -> None:
         # array[T] indexing yields T — indexing on a container of T is fine
-        accept_type("def first[T](xs: array[T]) -> T = xs[0]\nfirst([1, 2, 3])")
+        resolve_and_check_repl_entry("def first[T](xs: array[T]) -> T = xs[0]\nfirst([1, 2, 3])")
 
     def test_generic_wrap_def_accepted(self) -> None:
-        accept_type("def wrap[T](x: T) -> array[T] = [x]\nwrap(1)")
+        resolve_and_check_repl_entry("def wrap[T](x: T) -> array[T] = [x]\nwrap(1)")
 
     # ------------------------------------------------------------------
     # Type argument inference
     # ------------------------------------------------------------------
 
     def test_inference_arg_driven(self) -> None:
-        r = accept_type("def id[T](x: T) -> T = x\nlet n = id(1)\nn")
+        r = resolve_and_check_repl_entry("def id[T](x: T) -> T = x\nlet n = id(1)\nn")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == IntType()
 
     def test_inference_result_only_from_expected(self) -> None:
         # T only appears in the result; context provides the binding
-        r = accept_type("def empty[T]() -> array[T] = []\nlet xs: array[int] = empty()\nxs")
+        r = resolve_and_check_repl_entry(
+            "def empty[T]() -> array[T] = []\nlet xs: array[int] = empty()\nxs"
+        )
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == ArrayType(elem=IntType())
 
     def test_inference_context_doesnt_override_arg(self) -> None:
         # let x: decimal = id(1) infers T=int, then coerces int → decimal
-        r = accept_type("def id[T](x: T) -> T = x\nlet x: decimal = id(1)\nx")
+        r = resolve_and_check_repl_entry("def id[T](x: T) -> T = x\nlet x: decimal = id(1)\nx")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == DecimalType()
 
     def test_explicit_type_args_single(self) -> None:
-        r = accept_type("def id[T](x: T) -> T = x\nid::[int](1)")
+        r = resolve_and_check_repl_entry("def id[T](x: T) -> T = x\nid::[int](1)")
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
 
     def test_explicit_type_args_multi(self) -> None:
-        r = accept_type('def const[A, B](a: A, b: B) -> A = a\nconst::[int, text](1, "x")')
+        r = resolve_and_check_repl_entry(
+            'def const[A, B](a: A, b: B) -> A = a\nconst::[int, text](1, "x")'
+        )
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
 
     @pytest.mark.parametrize(
@@ -11150,7 +11158,7 @@ class TestGenerics:
         assert "receiver" in str(reject_any(source)).lower()
 
     def test_method_receiver_wildcard_slot_is_filled_by_the_receiver(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n  value: T\ndef Box::size[_](self) -> int = 1\nBox(value = 1).size()"
         )
 
@@ -11158,14 +11166,14 @@ class TestGenerics:
         assert checked.node_types[result.node_id] == IntType()
 
     def test_explicit_type_args_function_value(self) -> None:
-        r = accept_type("def f[T](x: T) -> T = x\nf::[int]")
+        r = resolve_and_check_repl_entry("def f[T](x: T) -> T = x\nf::[int]")
         prog = r.resolved.program
         expr = prog.body.items[1]
         assert isinstance(expr, TypeApply)
         assert r.node_types[expr.node_id] == FunctionType(params=(IntType(),), result=IntType())
 
     def test_explicit_type_args_function_value_can_be_bound(self) -> None:
-        r = accept_type("def f[T](x: T) -> T = x\nlet g = f::[int]\ng(1)")
+        r = resolve_and_check_repl_entry("def f[T](x: T) -> T = x\nlet g = f::[int]\ng(1)")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.type_env.get_binding_type(decl.node_id) == FunctionType(
@@ -11190,7 +11198,9 @@ class TestGenerics:
         assert "not a generic function" in str(err)
 
     def test_explicit_type_args_forward_function_value_uses_closed_signature(self) -> None:
-        checked = accept_type("let g: int -> int = f::[int]\ndef f[T](x: T) = x\ng(1)")
+        checked = resolve_and_check_repl_entry(
+            "let g: int -> int = f::[int]\ndef f[T](x: T) = x\ng(1)"
+        )
 
         assert checked.function_signatures["f"].result == TypeVarType("T")
 
@@ -11248,10 +11258,10 @@ class TestGenerics:
         assert "type variable" in str(err).lower() or "abstract" in str(err).lower()
 
     def test_d2_print_on_T_accepted(self) -> None:
-        accept_type("def show[T](x: T) -> unit = print(x)")
+        resolve_and_check_repl_entry("def show[T](x: T) -> unit = print(x)")
 
     def test_d2_interpolation_on_T_accepted(self) -> None:
-        accept_type('def show[T](x: T) -> text = "%{x}"')
+        resolve_and_check_repl_entry('def show[T](x: T) -> text = "%{x}"')
 
     def test_d2_field_access_on_T_rejected(self) -> None:
         err = reject_type("def get[T](x: T) -> int = x.field")
@@ -11278,21 +11288,23 @@ class TestGenerics:
         reject_type("def contains[T](x: T, xs: array[T]) -> bool = x in xs")
 
     def test_in_over_array_of_eq_bounded_type_variable_accepted(self) -> None:
-        accept_type("def contains[T]{Eq T}(x: T, xs: array[T]) -> bool = x in xs")
+        resolve_and_check_repl_entry("def contains[T]{Eq T}(x: T, xs: array[T]) -> bool = x in xs")
 
     def test_in_over_array_of_hashable_bounded_type_variable_accepted(self) -> None:
-        accept_type("def contains[T]{Hashable T}(x: T, xs: array[T]) -> bool = x in xs")
+        resolve_and_check_repl_entry(
+            "def contains[T]{Hashable T}(x: T, xs: array[T]) -> bool = x in xs"
+        )
 
     def test_d2_container_of_T_index_allowed(self) -> None:
         # xs: array[T]; xs[0] yields T — container index is fine
-        accept_type("def first[T](xs: array[T]) -> T = xs[0]\nfirst([1])")
+        resolve_and_check_repl_entry("def first[T](xs: array[T]) -> T = xs[0]\nfirst([1])")
 
     # ------------------------------------------------------------------
     # Generic def used as a value
     # ------------------------------------------------------------------
 
     def test_d5_generic_def_as_value_with_expected(self) -> None:
-        r = accept_type("def id[T](x: T) -> T = x\nlet f: (int) -> int = id\nf(1)")
+        r = resolve_and_check_repl_entry("def id[T](x: T) -> T = x\nlet f: (int) -> int = id\nf(1)")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == FunctionType(
@@ -11309,7 +11321,7 @@ class TestGenerics:
         )
 
     def test_d5_generic_def_still_callable(self) -> None:
-        accept_type("def id[T](x: T) -> T = x\nid(42)")
+        resolve_and_check_repl_entry("def id[T](x: T) -> T = x\nid(42)")
 
     # ------------------------------------------------------------------
     # Agent/exec target may not contain a type variable
@@ -11320,7 +11332,7 @@ class TestGenerics:
         assert "type variable" in str(err).lower() or "cannot" in str(err).lower()
 
     def test_d3_ask_explicit_concrete_target_accepted(self) -> None:
-        r = accept_type('let n: int = ask::[int]("Q")\nn')
+        r = resolve_and_check_repl_entry('let n: int = ask::[int]("Q")\nn')
         assert r.resolved.program is not None
 
     def test_d3_ask_explicit_too_many_args_error(self) -> None:
@@ -11332,14 +11344,14 @@ class TestGenerics:
         assert "type argument" in str(err).lower()
 
     def test_d3_ask_value_defaults_after_unconstrained_generic_context(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def identity[T](value: T) -> T = value\nlet query = identity(ask)\nquery"
         )
         result = checked.resolved.program.body.items[-1]
         assert checked.node_types[result.node_id] == FunctionType((TextType(),), TextType())
 
     def test_d3_exec_value_defaults_after_unconstrained_generic_context(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def identity[T](value: T) -> T = value\nlet run = identity(exec)\nrun"
         )
         result = checked.resolved.program.body.items[-1]
@@ -11351,7 +11363,7 @@ class TestGenerics:
 
     @pytest.mark.parametrize("body", ("ask", "exec"))
     def test_d3_builtin_defaults_contribute_function_return_evidence(self, body: str) -> None:
-        checked = accept_type(f"def operation() = {body}\noperation")
+        checked = resolve_and_check_repl_entry(f"def operation() = {body}\noperation")
         result = checked.resolved.program.body.items[-1]
         expected_result: Type = TextType()
         if body == "exec":
@@ -11363,7 +11375,7 @@ class TestGenerics:
         )
 
     def test_d3_bound_builtin_default_contributes_function_return_evidence(self) -> None:
-        checked = accept_type("def operation(agent: Agent) = agent.ask\noperation")
+        checked = resolve_and_check_repl_entry("def operation(agent: Agent) = agent.ask\noperation")
         result = checked.resolved.program.body.items[-1]
         agent = checked.type_env.type_table.builtin_declaration("Agent")
         assert agent is not None
@@ -11372,13 +11384,17 @@ class TestGenerics:
         )
 
     def test_d3_computed_builtin_callee_uses_call_result_context(self) -> None:
-        checked = accept_type('let answer: int = (if true => ask else => ask)("Question")\nanswer')
+        checked = resolve_and_check_repl_entry(
+            'let answer: int = (if true => ask else => ask)("Question")\nanswer'
+        )
         result = checked.resolved.program.body.items[-1]
         assert checked.node_types[result.node_id] == IntType()
 
     @pytest.mark.parametrize("builtin", ("ask", "exec"))
     def test_d3_builtin_value_uses_later_array_element_context(self, builtin: str) -> None:
-        checked = accept_type(f"let values = [{builtin}, fn(prompt: text) -> int => 0]\nvalues")
+        checked = resolve_and_check_repl_entry(
+            f"let values = [{builtin}, fn(prompt: text) -> int => 0]\nvalues"
+        )
         result = checked.resolved.program.body.items[-1]
         assert checked.node_types[result.node_id] == ArrayType(
             FunctionType((TextType(),), IntType())
@@ -11388,14 +11404,14 @@ class TestGenerics:
         reject_type("let values = [ask, exec]\nvalues")
 
     def test_d3_ask_value_uses_later_generic_context(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def identity[T](value: T) -> T = value\nlet query: text -> int = identity(ask)\nquery"
         )
         result = checked.resolved.program.body.items[-1]
         assert checked.node_types[result.node_id] == FunctionType((TextType(),), IntType())
 
     def test_d3_exec_value_uses_later_generic_context(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def identity[T](value: T) -> T = value\nlet run: text -> int = identity(exec)\nrun"
         )
         result = checked.resolved.program.body.items[-1]
@@ -11406,7 +11422,7 @@ class TestGenerics:
         assert "type variable" in str(err).lower() or "cannot" in str(err).lower()
 
     def test_d3_exec_explicit_concrete_target_accepted(self) -> None:
-        r = accept_type('let x: text = exec::[text]("ls")\nx')
+        r = resolve_and_check_repl_entry('let x: text = exec::[text]("ls")\nx')
         assert r.resolved.program is not None
 
     def test_d3_exec_too_many_type_args_error(self) -> None:
@@ -11437,18 +11453,18 @@ class TestGenerics:
 
     def test_d3_ask_contextual_concrete_generic_instance_accepted(self) -> None:
         # A concrete generic instance (no free type var) is a valid ask target.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'enum Option[T]\n  | none\n  | some(value: T)\nlet x: Option[int] = ask("Q")\nx'
         )
         assert r.resolved.program is not None
 
     def test_d3_non_type_var_cases_unaffected(self) -> None:
         # Concrete targets (non-generic context) are unaffected
-        accept_type('let n: int = ask("Q")\nn')
-        accept_type('let x: text = exec("ls")\nx')
+        resolve_and_check_repl_entry('let n: int = ask("Q")\nn')
+        resolve_and_check_repl_entry('let x: text = exec("ls")\nx')
 
     def test_later_solved_ask_and_exec_targets_materialize_concrete_contracts(self) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             "def select[T](first: T, second: T, third: T) -> T = first\n"
             'let value = select(ask("ask"), exec("exec"), 1)\n'
             "value"
@@ -11460,7 +11476,7 @@ class TestGenerics:
     def test_deferred_builtin_contracts_inside_generic_constructor_materialize_concrete_types(
         self,
     ) -> None:
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             "record Bundle\n"
             "  answer: int\n"
             "  request: AgentRequest\n"
@@ -11493,7 +11509,7 @@ class TestGenerics:
         from agnette.agl.typecheck.checker import _Checker, _InferenceRegion
         from agnette.agl.typecheck.inference import InferenceEngine
 
-        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
+        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"))
         engine = InferenceEngine()
         checker._inference_region = _InferenceRegion(engine, {}, {}, [])
         unresolved = engine.fresh()
@@ -11563,12 +11579,14 @@ class TestGenerics:
 
     def test_dict_type_argument_is_inferred(self) -> None:
         # dict[text, T] parameter infers T from a dict[text, int] value.
-        r = accept_type('def first-val[T](d: dict[text, T]) -> T = d["k"]\nfirst-val({"k": 1})')
+        r = resolve_and_check_repl_entry(
+            'def first-val[T](d: dict[text, T]) -> T = d["k"]\nfirst-val({"k": 1})'
+        )
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == IntType()
 
     def test_function_type_argument_is_inferred(self) -> None:
         # A (T) -> T parameter infers T from a concrete function value.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "def apply[T](f: (T) -> T, x: T) -> T = f(x)\n"
             "def inc(n: int) -> int = n + 1\n"
             "apply(inc, 1)"
@@ -11588,7 +11606,7 @@ class TestGenerics:
 
     def test_dict_type_argument_is_completed_from_expected_type(self) -> None:
         # empty[T]() -> dict[text, T]: T inferred from expected dict[text, text]
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "def empty-dict[T]() -> dict[text, T] = {}\nlet d: dict[text, text] = empty-dict()\nd"
         )
         decl = r.resolved.program.body.items[1]
@@ -11610,7 +11628,7 @@ class TestGenerics:
     # ------------------------------------------------------------------
 
     def test_generic_named_arg_call_accepted(self) -> None:
-        r = accept_type("def f[T](x: T, y: T) -> T = x\nf(x = 1, y = 2)")
+        r = resolve_and_check_repl_entry("def f[T](x: T, y: T) -> T = x\nf(x = 1, y = 2)")
         assert r.resolved.program is not None
 
     def test_generic_named_arg_call_error_unknown(self) -> None:
@@ -11647,7 +11665,7 @@ class TestGenerics:
     def test_generic_call_with_defaulted_param_omitted(self) -> None:
         # Covers the bound_expr-is-None branch in the new inference loop
         # (a defaulted param is omitted at the call site).
-        r = accept_type('def f[T](x: T, y: int = 5) -> T = x\nf("hello")')
+        r = resolve_and_check_repl_entry('def f[T](x: T, y: int = 5) -> T = x\nf("hello")')
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == TextType()
 
     # ------------------------------------------------------------------
@@ -11668,7 +11686,7 @@ class TestGenerics:
 
     def test_concrete_parameter_in_generic_def(self) -> None:
         # The concrete first parameter agrees while the second infers T.
-        r = accept_type('def f[T](x: int, y: T) -> T = y\nf(1, "hi")')
+        r = resolve_and_check_repl_entry('def f[T](x: int, y: T) -> T = y\nf(1, "hi")')
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == TextType()
 
     def test_generic_function_arity_mismatch_rejected(self) -> None:
@@ -11704,17 +11722,19 @@ class TestGenericTypeDecl:
     """Tests for generic record and enum type declarations."""
 
     def test_generic_record_accepted(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 42)\nb")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 42)\nb"
+        )
         assert r.resolved.program is not None
 
     def test_generic_enum_accepted(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n  | none\n  | some(value: T)\nlet x: Option[int] = some(value = 1)\nx"
         )
         assert r.resolved.program is not None
 
     def test_generic_record_two_type_params(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Pair[A, B]\n"
             "  first: A\n"
             "  second: B\n"
@@ -11731,7 +11751,7 @@ class TestGenericTypeDecl:
         }
 
     def test_generic_enum_two_type_params(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Either[L, R]\n"
             "  | left(value: L)\n"
             "  | right(value: R)\n"
@@ -11747,7 +11767,7 @@ class TestGenericTypeDecl:
         assert r.type_env.type_table.record_fields(members["right"]) == {"value": TextType()}
 
     def test_generic_record_with_concrete_field(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Tagged[T]\n"
             "  label: text\n"
             "  value: T\n"
@@ -11765,7 +11785,9 @@ class TestGenericTypeDecl:
         }
 
     def test_generic_type_registers_in_env(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb"
+        )
         gdef = r.type_env.get_generic_type("Box")
         assert gdef is not None
         assert gdef.type_params == ("T",)
@@ -11787,14 +11809,14 @@ class TestGenericConstructorInference:
     """Tests for type-argument inference on generic constructors."""
 
     def test_record_constructor_inferred_from_field(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\nBox(value = 42)")
+        r = resolve_and_check_repl_entry("record Box[T]\n  value: T\nBox(value = 42)")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "Box"
         assert constructed.type_args == (IntType(),)
 
     def test_constructor_accepts_generic_argument_for_concrete_field(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Wrap[T]\n"
             "  transform: (int) -> int\n"
             "  value: T\n"
@@ -11808,7 +11830,9 @@ class TestGenericConstructorInference:
     def test_record_constructor_inferred_from_annotation(self) -> None:
         # The field cannot fix 'T' (the array literal is empty), so the
         # annotation is the only source of the type argument.
-        r = accept_type("record Box[T]\n  value: array[T]\nlet b: Box[int] = Box(value = [])\nb")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: array[T]\nlet b: Box[int] = Box(value = [])\nb"
+        )
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         constructed = r.node_types[decl.value.node_id]
@@ -11820,7 +11844,9 @@ class TestGenericConstructorInference:
         assert "infer" in str(err).lower() or "type argument" in str(err).lower()
 
     def test_enum_payload_variant_inferred_from_field(self) -> None:
-        r = accept_type("enum Option[T]\n  | none\n  | some(value: T)\nsome(value = 1)")
+        r = resolve_and_check_repl_entry(
+            "enum Option[T]\n  | none\n  | some(value: T)\nsome(value = 1)"
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "some"
@@ -11829,7 +11855,7 @@ class TestGenericConstructorInference:
     def test_enum_payload_variant_inferred_from_annotation(self) -> None:
         # The payload cannot fix 'T' (the array literal is empty), so the
         # annotation is the only source of the type argument.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: array[T])\n"
@@ -11848,7 +11874,7 @@ class TestGenericConstructorInference:
     def test_nullary_variant_inferred_from_annotation(self) -> None:
         # The nullary member carries no type argument of its own; the
         # annotation is what widens it to a parameterized ``Option[int]``.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n  | none\n  | some(value: T)\nlet x: Option[int] = none()\nx"
         )
         decl = r.resolved.program.body.items[1]
@@ -11861,7 +11887,9 @@ class TestGenericConstructorInference:
         assert binding_type.type_args == (IntType(),)
 
         # Without the annotation the binding stays at the bare member type.
-        bare = accept_type("enum Option[T]\n  | none\n  | some(value: T)\nlet x = none()\nx")
+        bare = resolve_and_check_repl_entry(
+            "enum Option[T]\n  | none\n  | some(value: T)\nlet x = none()\nx"
+        )
         bare_decl = bare.resolved.program.body.items[1]
         assert isinstance(bare_decl, LetDecl)
         bare_binding = bare.type_env.get_binding_type(bare_decl.node_id)
@@ -11869,7 +11897,7 @@ class TestGenericConstructorInference:
         assert bare_binding.name == "none"
 
     def test_record_inferred_from_array_element_context(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "let bs: array[Box[int]] = [Box(value = 1), Box(value = 2)]\nbs"
@@ -11883,7 +11911,7 @@ class TestGenericConstructorInference:
         assert array_type.elem.type_args == (IntType(),)
 
     def test_qualified_variant_inferred(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: T)\n"
@@ -11897,7 +11925,7 @@ class TestGenericConstructorInference:
         assert constructed.type_args == (IntType(),)
 
     def test_two_type_params_inferred_from_fields(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'record Pair[A, B]\n  first: A\n  second: B\nPair(first = 1, second = "hi")'
         )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
@@ -11907,7 +11935,7 @@ class TestGenericConstructorInference:
     def test_inferred_type_matches_result(self) -> None:
         # Box(value = 1) infers T=int; assert the binding's type_args is (IntType(),)
         # to lock down "no stale T / no concrete leak".
-        r = accept_type("record Box[T]\n  value: T\nlet b = Box(value = 1)\nb")
+        r = resolve_and_check_repl_entry("record Box[T]\n  value: T\nlet b = Box(value = 1)\nb")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         binding = r.type_env.get_binding_type(decl.node_id)
@@ -11915,13 +11943,15 @@ class TestGenericConstructorInference:
         assert binding.type_args == (IntType(),)
 
     def test_nullary_member_without_type_param_is_concrete(self) -> None:
-        checked = accept_type("enum Option[T]\n  | none\n  | some(value: T)\nnone()")
+        checked = resolve_and_check_repl_entry(
+            "enum Option[T]\n  | none\n  | some(value: T)\nnone()"
+        )
         expr = checked.resolved.program.body.items[-1]
         assert isinstance(expr, Call)
         assert isinstance(checked.node_types[expr.node_id], RecordType)
 
     def test_generic_constructor_values_use_later_sibling_evidence(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "enum Option[T]\n"
@@ -11951,7 +11981,7 @@ class TestGenericConstructorInference:
         )
 
     def test_generic_constructor_partial_uses_later_sibling_evidence(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Pair[T]\n"
             "  left: T\n"
             "  right: T\n"
@@ -11972,7 +12002,7 @@ class TestGenericConstructorInference:
         assert checked.partial_calls[constructor_call.node_id].callee_kind == "constructor"
 
     def test_generic_constructor_preserves_enclosing_rigid_type_variable(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def wrap[T](value: T) -> Box[T] = Box(value = value)\n"
@@ -11988,7 +12018,7 @@ class TestGenericConstructorInference:
         assert err.related
 
     def test_generic_constructor_freshens_same_spelled_declarations(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Left[T]\n"
             "  value: T\n"
             "record Right[T]\n"
@@ -12013,7 +12043,7 @@ class TestGenericConstructorInference:
             return original(table, handle)
 
         monkeypatch.setattr(TypeTable, "record_fields", guarded)
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def use[T](factory: (T) -> Box[T], value: T) -> Box[T] = factory(value)\n"
@@ -12027,7 +12057,7 @@ class TestGenericConstructorInference:
         from agnette.agl.typecheck.checker import _Checker, _InferenceRegion
         from agnette.agl.typecheck.inference import InferenceEngine
 
-        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
+        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"))
         engine = InferenceEngine()
         checker._inference_region = _InferenceRegion(engine, {}, {}, [])
         flexible_owner = RecordType("Box", type_args=(engine.fresh(),))
@@ -12039,20 +12069,22 @@ class TestGenericConstructorExplicit:
     """Tests for explicit type arguments on generic constructors."""
 
     def test_record_explicit_type_arg(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\nBox::[int](value = 42)")
+        r = resolve_and_check_repl_entry("record Box[T]\n  value: T\nBox::[int](value = 42)")
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.type_args == (IntType(),)
 
     def test_enum_variant_explicit_type_arg(self) -> None:
-        r = accept_type("enum Option[T]\n  | none\n  | some(value: T)\nsome::[int](value = 1)")
+        r = resolve_and_check_repl_entry(
+            "enum Option[T]\n  | none\n  | some(value: T)\nsome::[int](value = 1)"
+        )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
         assert isinstance(constructed, RecordType)
         assert constructed.name == "some"
         assert constructed.type_args == (IntType(),)
 
     def test_qualified_enum_variant_explicit_type_arg(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n  | none\n  | some(value: T)\nOption[int]::some(value = 1)"
         )
         constructed = r.node_types[r.resolved.program.body.items[1].node_id]
@@ -12061,7 +12093,7 @@ class TestGenericConstructorExplicit:
         assert constructed.type_args == (IntType(),)
 
     def test_two_type_params_explicit(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Pair[A, B]\n"
             "  first: A\n"
             "  second: B\n"
@@ -12076,7 +12108,9 @@ class TestGenericConstructorExplicit:
         assert "type argument" in str(err).lower()
 
     def test_nullary_member_owner_type_args_are_accepted_in_direct_call(self) -> None:
-        checked = accept_type("enum Option[T]\n  | none\n  | some(value: T)\nnone::[int]()")
+        checked = resolve_and_check_repl_entry(
+            "enum Option[T]\n  | none\n  | some(value: T)\nnone::[int]()"
+        )
         call = checked.resolved.program.body.items[-1]
         assert isinstance(call, Call)
         assert isinstance(checked.node_types[call.node_id], RecordType)
@@ -12146,7 +12180,9 @@ class TestGenericInvariance:
         )
 
     def test_box_int_assignable_to_box_int(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 1)\nb"
+        )
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         binding_type = r.type_env.get_binding_type(decl.node_id)
@@ -12159,7 +12195,9 @@ class TestGenericFieldAccess:
     """Tests for field access on generic record instances."""
 
     def test_field_access_on_generic_record(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 42)\nb.value")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 42)\nb.value"
+        )
         field = r.resolved.program.body.items[2]
         assert isinstance(field, FieldAccess)
         receiver_type = r.node_types[field.obj.node_id]
@@ -12168,7 +12206,7 @@ class TestGenericFieldAccess:
         assert r.node_types[field.node_id] == IntType()
 
     def test_field_type_is_instantiated(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n  value: T\nlet b: Box[int] = Box(value = 42)\nlet v: int = b.value\nv"
         )
         decl = r.resolved.program.body.items[2]
@@ -12185,7 +12223,7 @@ class TestGenericFieldAccess:
         assert "mismatch" in str(err).lower() or "expected" in str(err).lower()
 
     def test_two_param_field_access(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Pair[A, B]\n"
             "  first: A\n"
             "  second: B\n"
@@ -12205,7 +12243,7 @@ class TestGenericPatterns:
     """Tests for pattern matching on generic enum instances."""
 
     def test_case_on_generic_enum(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: T)\n"
@@ -12219,7 +12257,7 @@ class TestGenericPatterns:
         assert r.node_types[case_expr.node_id] == IntType()
 
     def test_pattern_field_type_is_instantiated(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: T)\n"
@@ -12246,7 +12284,9 @@ class TestGenericConstructorAsValue:
     """Tests for generic constructors used as values (not in direct call position)."""
 
     def test_payload_constructor_as_value_with_annotation(self) -> None:
-        r = accept_type("record Box[T]\n  value: T\nlet mk: (int) -> Box[int] = Box\nmk")
+        r = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet mk: (int) -> Box[int] = Box\nmk"
+        )
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         ctor_type = r.node_types[decl.value.node_id]
@@ -12256,7 +12296,7 @@ class TestGenericConstructorAsValue:
         assert ctor_type.result.type_args == (IntType(),)
 
     def test_nullary_variant_as_value_with_annotation(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n  | none\n  | some(value: T)\nlet x: Option[int] = none\nx"
         )
         decl = r.resolved.program.body.items[1]
@@ -12303,7 +12343,7 @@ class TestNonGenericConstructorAsValue:
     """Non-generic constructor with fields used in value position."""
 
     def test_record_ctor_with_fields_as_value_is_function_type(self) -> None:
-        r = accept_type("record Box\n  item: int\nlet make = Box\nmake")
+        r = resolve_and_check_repl_entry("record Box\n  item: int\nlet make = Box\nmake")
         prog = r.resolved.program
         assert prog is not None
         make_ref = prog.body.items[-1]
@@ -12315,7 +12355,7 @@ class TestNonGenericConstructorAsValue:
         assert t.result.name == "Box"
 
     def test_record_ctor_value_called_positionally(self) -> None:
-        r = accept_type("record Box\n  item: int\nlet make = Box\nmake(5)")
+        r = resolve_and_check_repl_entry("record Box\n  item: int\nlet make = Box\nmake(5)")
         call = r.node_types[r.resolved.program.body.items[-1].node_id]
         assert isinstance(call, RecordType)
         assert call.name == "Box"
@@ -12336,7 +12376,7 @@ class TestNonGenericConstructorAsValue:
         assert "argument" in str(err).lower() or "too many" in str(err).lower()
 
     def test_enum_payload_variant_as_value_is_function_type(self) -> None:
-        r = accept_type("enum E\n  | Nope\n  | Wrap(value: int)\nlet w = Wrap\nw")
+        r = resolve_and_check_repl_entry("enum E\n  | Nope\n  | Wrap(value: int)\nlet w = Wrap\nw")
         prog = r.resolved.program
         assert prog is not None
         w_ref = prog.body.items[-1]
@@ -12348,7 +12388,9 @@ class TestNonGenericConstructorAsValue:
         assert t.result.name == "Wrap"
 
     def test_qualified_enum_payload_variant_as_value_is_function_type(self) -> None:
-        r = accept_type("enum E\n  | Nope\n  | Wrap(value: int)\nlet w = E::Wrap\nw")
+        r = resolve_and_check_repl_entry(
+            "enum E\n  | Nope\n  | Wrap(value: int)\nlet w = E::Wrap\nw"
+        )
         prog = r.resolved.program
         assert prog is not None
         w_ref = prog.body.items[-1]
@@ -12360,7 +12402,7 @@ class TestNonGenericConstructorAsValue:
         assert t.result.name == "Wrap"
 
     def test_nullary_variant_as_value_stays_nominal(self) -> None:
-        r = accept_type("enum E\n  | Nope\n  | Wrap(value: int)\nlet n = Nope\nn")
+        r = resolve_and_check_repl_entry("enum E\n  | Nope\n  | Wrap(value: int)\nlet n = Nope\nn")
         prog = r.resolved.program
         assert prog is not None
         n_ref = prog.body.items[-1]
@@ -12396,7 +12438,7 @@ class TestGenericEnumQualifiersAndTypeVarScoping:
     def test_qualified_pattern_on_generic_enum(self) -> None:
         # Previously: "'Option' is not a known enum type." — the qualifier was
         # resolved as a concrete type, which rejects bare generic names.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             self._OPTION
             + "let o: Option[int] = some(value = 5)\n"
             + "case o of\n"
@@ -12412,7 +12454,7 @@ class TestGenericEnumQualifiersAndTypeVarScoping:
 
     def test_qualified_pattern_generic_enum_binds_instantiated_field(self) -> None:
         # The bound payload is instantiated from the scrutinee's type args.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             self._OPTION
             + "let o: Option[int] = some(value = 5)\n"
             + "case o of\n"
@@ -12426,7 +12468,7 @@ class TestGenericEnumQualifiersAndTypeVarScoping:
         assert r.type_env.get_binding_type(pattern.positional[0].node_id) == IntType()
 
     def test_qualified_is_test_on_generic_enum(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             self._OPTION
             + "let o: Option[int] = some(value = 5)\n"
             + "if o is Option::some => print 1\n"
@@ -12464,7 +12506,7 @@ class TestGenericEnumQualifiersAndTypeVarScoping:
     def test_type_var_lambda_annotation_in_generic_def_body(self) -> None:
         # A lambda inside a generic def may annotate its params/return with the
         # def's rigid type variables. Previously: "Unknown type 'A'".
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "def idf[A](x: A) -> A =\n"
             "  let g: (A) -> A = fn(y: A) -> A => y\n"
             "  g(x)\n"
@@ -12482,7 +12524,7 @@ class TestGenericEnumQualifiersAndTypeVarScoping:
 
     def test_type_var_let_annotation_in_generic_def_body(self) -> None:
         # A `let` annotation in a generic def body may reference a type variable.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "def mk[A](x: A) -> array[A] =\n"
             "  let single: array[A] = [x]\n  single\nlet r = mk(3)\nr"
         )
@@ -12495,7 +12537,7 @@ class TestGenericEnumQualifiersAndTypeVarScoping:
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == ArrayType(elem=IntType())
 
     def test_type_var_lambda_return_type_in_generic_def(self) -> None:
-        r = accept_type('def pickfn[A]() -> (A) -> A = fn(y: A) -> A => y\n"ok"')
+        r = resolve_and_check_repl_entry('def pickfn[A]() -> (A) -> A = fn(y: A) -> A => y\n"ok"')
         signature = r.function_signatures["pickfn"]
         assert signature.type_params == ("A",)
         assert signature.result == FunctionType(params=(TypeVarType("A"),), result=TypeVarType("A"))
@@ -12511,7 +12553,7 @@ class TestGenericCoverageEdgeCases:
 
     def test_generic_field_type_references_generic_record(self) -> None:
         """AppliedT branch (record path) in _ensure_referenced_type_built."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "record Wrapper\n"
@@ -12525,7 +12567,7 @@ class TestGenericCoverageEdgeCases:
 
     def test_generic_field_type_references_generic_enum(self) -> None:
         """AppliedT branch (enum path) in _ensure_referenced_type_built."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: T)\n"
@@ -12545,7 +12587,7 @@ class TestGenericCoverageEdgeCases:
 
     def test_generic_local_alias_constructor_as_value(self) -> None:
         """A generic local alias preserves its target constructor signature."""
-        result = accept_type(
+        result = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "type Alias[X] = Box[X]\n"
@@ -12561,7 +12603,7 @@ class TestGenericCoverageEdgeCases:
         assert factory_type.result.type_args == (IntType(),)
 
     def test_nullary_member_as_value_is_concrete(self) -> None:
-        checked = accept_type("enum Option[T]\n  | none\n  | some(value: T)\nnone")
+        checked = resolve_and_check_repl_entry("enum Option[T]\n  | none\n  | some(value: T)\nnone")
         expr = checked.resolved.program.body.items[-1]
         assert isinstance(expr, VarRef)
         assert isinstance(checked.node_types[expr.node_id], RecordType)
@@ -12592,7 +12634,7 @@ class TestNestedGenericInference:
 
     def test_def_call_unwrap_infers_u_from_box(self) -> None:
         # def-call path: unwrap(b = Box(value = 1)) must infer U=int without annotation.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def unwrap[U](b: Box[U]) -> U = b.value\n"
@@ -12616,7 +12658,7 @@ class TestNestedGenericInference:
     def test_constructor_holder_infers_u_from_nested_box(self) -> None:
         # constructor path: Holder(inner = Box(value = 1)) infers U=int.
         # Assert the binding's type_args is (IntType(),).
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "record Holder[U]\n"
@@ -12631,7 +12673,7 @@ class TestNestedGenericInference:
 
     def test_constructor_holder_use_as_int_works(self) -> None:
         # Inferred Holder[int] — accessing inner.value as int must succeed.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "record Holder[U]\n"
@@ -12688,14 +12730,14 @@ class TestGenericRecursiveTypes:
     def test_generic_record_indirect_via_array_is_accepted(self) -> None:
         # children: array[Tree[T]] is guarded: the empty array is always a
         # value regardless of the element type.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Tree[T]\n  value: T\n  children: array[Tree[T]]\nTree(value = 1, children = [])"
         )
         assert r.resolved.program is not None
 
     def test_generic_record_indirect_via_dict_is_accepted(self) -> None:
         # dict[text, Tree[T]] is guarded the same way as array.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Tree[T]\n"
             "  value: T\n"
             "  children: dict[text, Tree[T]]\n"
@@ -12706,14 +12748,14 @@ class TestGenericRecursiveTypes:
     def test_generic_wrapper_around_type_var_is_accepted(self) -> None:
         # Box[T] needs only the caller-provided T value; substituting the
         # wrapper's type variable must not recurse forever in inhabitation.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n  value: T\nrecord Wrap[T]\n  box: Box[T]\nWrap(box = Box(value = 1))"
         )
         assert r.resolved.program is not None
 
     def test_generic_enum_direct_recursion_with_base_case_is_accepted(self) -> None:
         # enum L[T] | nil | cons(tail: L[T]): nil is a base-case variant.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum L[T]\n  | nil\n  | cons(head: T, tail: L[T])\nlet xs: L[int] = nil()\nxs"
         )
         assert r.resolved.program is not None
@@ -12755,7 +12797,9 @@ class TestGenericRecursiveTypes:
     def test_phantom_generic_argument_self_reference_is_accepted(self) -> None:
         # Phantom[T] does not use T in its value shape, so Phantom[A] does not
         # require an A value and the record has a finite value.
-        r = accept_type("record Phantom[T]\nrecord A\n  child: Phantom[A]\nA(child = Phantom())")
+        r = resolve_and_check_repl_entry(
+            "record Phantom[T]\nrecord A\n  child: Phantom[A]\nA(child = Phantom())"
+        )
         assert r.resolved.program is not None
 
     @pytest.mark.parametrize(
@@ -12765,7 +12809,7 @@ class TestGenericRecursiveTypes:
     def test_nested_instantiation_of_one_generic_record_is_accepted(self, field_type: str) -> None:
         # A generic record applied to itself is not recursion: every level
         # bottoms out at a primitive argument.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n  value: T\nrecord Pair[A, B]\n  first: A\n  second: B\n"
             f"record W\n  v: {field_type}\n()"
         )
@@ -12784,7 +12828,7 @@ class TestGenericRecursiveTypes:
     ) -> None:
         # The record's own type is only one argument of the enum reference; the
         # enum reaches a base case at the other argument, or through an array.
-        r = accept_type(f"{declarations}()")
+        r = resolve_and_check_repl_entry(f"{declarations}()")
         assert r.resolved.program is not None
 
 
@@ -12811,20 +12855,20 @@ class TestExceptionRecursiveTypes:
     def test_exception_self_field_via_array_is_accepted(self) -> None:
         # exception E extends Exception (kids: array[E]): array-guarded
         # recursion through its own field.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             'exception E extends Exception\n  kids: array[E]\nE(message = "m", kids = [])'
         )
         assert r.resolved.program is not None
 
     def test_exception_declared_without_extends_breaks_a_field_cycle(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "exception Root\nexception Holder extends Root\n  root: Root\n"
             'Holder(message = "h", root = Root(message = "r"))'
         )
         assert r.resolved.program is not None
 
     def test_child_of_exception_declared_without_extends_inherits_message(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "exception Root\n"
             "  detail: text\n"
             "exception Good extends Root\n"
@@ -12837,7 +12881,7 @@ class TestExceptionRecursiveTypes:
         # A field whose type is a built-in exception (not a user ExceptionDef)
         # must not be treated as a self-recursive re-entry: it is a plain,
         # non-recursive nominal type reference.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record R\n  e: CastError\n"
             'R(e = CastError(message = "m", '
             'source-type = "text", target-type = "int", raw = "x"))'
@@ -12865,11 +12909,11 @@ class TestInhabitationMatrix:
         assert "uninhabitable" in str(err).lower()
 
     def test_array_guarded_record_is_accepted(self) -> None:
-        r = accept_type("record R\n  children: array[R]\nR(children = [])")
+        r = resolve_and_check_repl_entry("record R\n  children: array[R]\nR(children = [])")
         assert r.resolved.program is not None
 
     def test_dict_guarded_record_is_accepted(self) -> None:
-        r = accept_type("record R\n  children: dict[text, R]\nR(children = {})")
+        r = resolve_and_check_repl_entry("record R\n  children: dict[text, R]\nR(children = {})")
         assert r.resolved.program is not None
 
     def test_bare_mutual_record_pair_is_rejected(self) -> None:
@@ -12880,7 +12924,7 @@ class TestInhabitationMatrix:
         # A's only field is Choice (an enum); Choice's Skip variant is a base
         # case that does not need a B, so A is inhabited via Skip even though
         # its other variant carries a genuine B round-trip.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record A\n  choice: Choice\n"
             "enum Choice\n  | Skip\n  | Take(b: B)\n"
             "record B\n  a: A\n"
@@ -12897,7 +12941,7 @@ class TestInhabitationMatrix:
     def test_generic_recursive_enum_with_base_case_is_accepted(self) -> None:
         # enum Expr[T] | Lit(value: T) | Add(lhs: Expr[T], rhs: Expr[T]):
         # Lit is the base case (its only field is the type parameter itself).
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Expr[T]\n"
             "  | Lit(value: T)\n"
             "  | Add(lhs: Expr[T], rhs: Expr[T])\n"
@@ -12917,7 +12961,7 @@ class TestGenericAbstractInstanceAccess:
 
     def test_field_access_in_generic_def_yields_type_var(self) -> None:
         # def unbox[U](b: Box[U]) -> U = b.value; field access on Box[U] yields U.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "record Box[T]\n"
             "  value: T\n"
             "def unbox[U](b: Box[U]) -> U = b.value\n"
@@ -12949,7 +12993,7 @@ class TestGenericAbstractInstanceAccess:
 
     def test_case_on_generic_enum_in_def_binds_type_var(self) -> None:
         # A generic def that extracts a value from Option[U] via case.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "enum Option[T]\n"
             "  | none\n"
             "  | some(value: T)\n"
@@ -12995,28 +13039,28 @@ class TestCast:
 
     def test_int_as_text_total_render(self) -> None:
         """int as text yields text."""
-        r = accept_type("let s: text = 1 as text\ns")
+        r = resolve_and_check_repl_entry("let s: text = 1 as text\ns")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == TextType()
 
     def test_text_as_json_total_json(self) -> None:
         """text as json yields json."""
-        r = accept_type('let j: json = "hello" as json\nj')
+        r = resolve_and_check_repl_entry('let j: json = "hello" as json\nj')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == JsonType()
 
     def test_text_as_int_fallible_yields_int(self) -> None:
         """text as int yields int type."""
-        r = accept_type('let x: int = "42" as int\nx')
+        r = resolve_and_check_repl_entry('let x: int = "42" as int\nx')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == IntType()
 
     def test_decimal_as_int_fallible(self) -> None:
         """decimal as int is fallible, yields int."""
-        r = accept_type("let d = 3.5\nlet x: int = d as int\nx")
+        r = resolve_and_check_repl_entry("let d = 3.5\nlet x: int = d as int\nx")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert isinstance(decl.value, Cast)
@@ -13024,19 +13068,19 @@ class TestCast:
 
     def test_int_as_decimal_noop(self) -> None:
         """int as decimal is a no-op widen."""
-        r = accept_type("let d: decimal = 1 as decimal\nd")
+        r = resolve_and_check_repl_entry("let d: decimal = 1 as decimal\nd")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == DecimalType()
 
     def test_as_question_yields_option(self) -> None:
-        r = accept_type('let o: Option[int] = "42" as? int\no')
+        r = resolve_and_check_repl_entry('let o: Option[int] = "42" as? int\no')
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert repr(r.node_types[decl.value.node_id]) == "std/option::Option[int]"
 
     def test_as_question_on_total_cast_yields_option(self) -> None:
-        r = accept_type("let o: Option[text] = 1 as? text\no")
+        r = resolve_and_check_repl_entry("let o: Option[text] = 1 as? text\no")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert repr(r.node_types[decl.value.node_id]) == "std/option::Option[text]"
@@ -13054,7 +13098,7 @@ class TestCast:
     def test_record_as_json_accepted(self) -> None:
         """record as json is now TOTAL_JSON (explicit nominal→json cast)."""
 
-        r = accept_type("record R\n  x: int\nlet r = R(x = 1)\nr as json")
+        r = resolve_and_check_repl_entry("record R\n  x: int\nlet r = R(x = 1)\nr as json")
         assert r
         spec = next(iter(r.cast_specs.values()))
         assert spec.kind == CastKind.TOTAL_JSON
@@ -13075,13 +13119,15 @@ class TestCast:
         assert "bool" in str(err).lower()
 
     def test_as_question_result_matches_as_an_option(self) -> None:
-        r = accept_type('case "42" as? int of\n  | Some(value) => value\n  | None => 0')
+        r = resolve_and_check_repl_entry(
+            'case "42" as? int of\n  | Some(value) => value\n  | None => 0'
+        )
         test = r.resolved.program.body.items[0]
         assert r.node_types[test.node_id] == IntType()
 
     def test_json_to_text_render(self) -> None:
         """json as text yields text (TOTAL_RENDER —  completeness)."""
-        r = accept_type("let j: json = 42\nlet s: text = j as text\ns")
+        r = resolve_and_check_repl_entry("let j: json = 42\nlet s: text = j as text\ns")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert isinstance(decl.value, Cast)
@@ -13089,14 +13135,14 @@ class TestCast:
 
     def test_json_as_text_let_binding(self) -> None:
         """json as text typechecks: let s: text = (1 as json) as text."""
-        r = accept_type("let s: text = (1 as json) as text\ns")
+        r = resolve_and_check_repl_entry("let s: text = (1 as json) as text\ns")
         decl = r.resolved.program.body.items[0]
         assert isinstance(decl, LetDecl)
         assert r.node_types[decl.value.node_id] == TextType()
 
     def test_chained_cast_int_to_json_to_text(self) -> None:
         """Chained x as json as text resolves to text ( example)."""
-        r = accept_type("let x: int = 1\nlet s: text = x as json as text\ns")
+        r = resolve_and_check_repl_entry("let x: int = 1\nlet s: text = x as json as text\ns")
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert isinstance(decl.value, Cast)
@@ -13104,7 +13150,9 @@ class TestCast:
 
     def test_json_to_array_fallible(self) -> None:
         """json as array[int] yields array[int]."""
-        r = accept_type("let j: json = 42\nlet xs: array[int] = j as array[int]\nxs")
+        r = resolve_and_check_repl_entry(
+            "let j: json = 42\nlet xs: array[int] = j as array[int]\nxs"
+        )
         decl = r.resolved.program.body.items[1]
         assert isinstance(decl, LetDecl)
         assert isinstance(decl.value, Cast)
@@ -13113,7 +13161,7 @@ class TestCast:
     def test_cast_spec_stored(self) -> None:
         """CastSpec is stored in CheckedModule.cast_specs."""
 
-        r = accept_type("1 as text")
+        r = resolve_and_check_repl_entry("1 as text")
         assert len(r.cast_specs) == 1
         spec = next(iter(r.cast_specs.values()))
         assert spec.kind == CastKind.TOTAL_RENDER
@@ -13121,20 +13169,20 @@ class TestCast:
     def test_as_question_spec_stored(self) -> None:
         """as? CastSpec is stored with same kind as as."""
 
-        r = accept_type('"hello" as? int')
+        r = resolve_and_check_repl_entry('"hello" as? int')
         assert len(r.cast_specs) == 1
         spec = next(iter(r.cast_specs.values()))
         assert spec.kind == CastKind.FALLIBLE
 
     def test_raise_operand_can_be_cast(self) -> None:
         """A cast preserves the universal assignability of bottom."""
-        r = accept_type('(raise Abort(message = "x")) as text')
+        r = resolve_and_check_repl_entry('(raise Abort(message = "x")) as text')
         cast = r.resolved.program.body.items[0]
         assert isinstance(cast, Cast)
         assert r.node_types[cast.node_id] == TextType()
 
     def test_enum_with_subset_of_constructors_is_assignable_to_wider_enum(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Narrow[T]\n"
             "  | Some(value: T)\n"
             "  | None\n"
@@ -13149,7 +13197,7 @@ class TestCast:
 
     def test_explicit_enum_widening_is_a_total_noop(self) -> None:
 
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Narrow | Shared\n"
             "enum Wide = Narrow::Shared | Extra\n"
             "let narrow: Narrow = Shared\n"
@@ -13159,7 +13207,7 @@ class TestCast:
         assert spec.kind is CastKind.TOTAL_NOOP
 
     def test_enum_widening_infers_target_type_arguments(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Narrow[T]\n"
             "  | Some(value: T)\n"
             "  | None\n"
@@ -13208,7 +13256,7 @@ class TestCast:
         assert "type mismatch" in str(err).lower()
 
     def test_enums_with_common_constructor_can_be_cast(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Left | Shared | LeftOnly\n"
             "enum Right = Left::Shared | RightOnly\n"
             "let left: Left = Shared\n"
@@ -13219,7 +13267,7 @@ class TestCast:
         assert repr(checked.node_types[cast.node_id]) == "Right"
 
     def test_generic_enums_can_be_cast_through_an_exact_shared_constructor(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "enum Narrow[T]\n"
             "  | Some(value: T)\n"
             "  | None\n"
@@ -13253,7 +13301,7 @@ _EXCEPTION_HIERARCHY = (
 
 class TestExceptionCast:
     def test_upcast_to_immediate_ancestor_is_total_noop(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             _EXCEPTION_HIERARCHY
             + 'let d = Detailed(message = "m", code = 1, detail = "x")\nd as Problem'
         )
@@ -13264,7 +13312,7 @@ class TestExceptionCast:
         assert spec.kind == CastKind.IDENTITY_UPCAST
 
     def test_upcast_to_root_is_total_noop(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             _EXCEPTION_HIERARCHY
             + 'let d = Detailed(message = "m", code = 1, detail = "x")\nd as Exception'
         )
@@ -13275,7 +13323,7 @@ class TestExceptionCast:
         assert spec.kind == CastKind.IDENTITY_UPCAST
 
     def test_downcast_yields_target_type(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             _EXCEPTION_HIERARCHY
             + 'let p: Problem = Detailed(message = "m", code = 1, detail = "x")\np as Detailed'
         )
@@ -13286,7 +13334,7 @@ class TestExceptionCast:
         assert spec.kind == CastKind.NOMINAL_DOWNCAST
 
     def test_as_question_downcast_yields_option(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _EXCEPTION_HIERARCHY
             + 'let p: Problem = Detailed(message = "m", code = 1, detail = "x")\np as? Detailed'
         )
@@ -13295,7 +13343,7 @@ class TestExceptionCast:
         assert repr(r.node_types[test.node_id]) == "std/option::Option[Detailed]"
 
     def test_same_exception_cast_is_total_noop(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             _EXCEPTION_HIERARCHY
             + 'let p: Problem = Detailed(message = "m", code = 1, detail = "x")\np as Problem'
         )
@@ -13403,7 +13451,7 @@ class TestNoFiniteSchemaUseSites:
         # directly rather than through a program parameter.
         from agnette.agl.typecheck.checker import _Checker
 
-        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), default_capabilities())
+        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"))
         fn_type = FunctionType(params=(), result=IntType())
         assert checker._type_is_wire_serializable(DictType(key=TextType(), value=IntType()))
         assert not checker._type_is_wire_serializable(DictType(key=fn_type, value=IntType()))
@@ -13472,21 +13520,21 @@ class TestNoFiniteSchemaUseSites:
         # A FALLIBLE cast to a plain scalar target (no record/enum anywhere
         # in it) never has a schema to derive, so it stays legal —
         # no_finite_schema_message must be a safe no-op here.
-        r = accept_type('let raw: text = "42"\nraw as int')
+        r = resolve_and_check_repl_entry('let raw: text = "42"\nraw as int')
         assert r.resolved.program is not None
 
     def test_cast_growing_type_as_render_source_is_legal(self) -> None:
         # TOTAL_RENDER never derives a schema — only a FALLIBLE cast to a
         # record/enum TARGET does — so a growing type stays legal as a cast
         # SOURCE.
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _GROWING_TYPE_SRC
             + "let p: Perfect[int] = Single(value = 1)\nlet t: text = p as text\nt"
         )
         assert r.resolved.program is not None
 
     def test_cast_growing_type_as_json_source_is_legal(self) -> None:
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             _GROWING_TYPE_SRC
             + "let p: Perfect[int] = Single(value = 1)\nlet j: json = p as json\nj"
         )
@@ -13495,21 +13543,21 @@ class TestNoFiniteSchemaUseSites:
     def test_ask_finite_recursive_type_accepted(self) -> None:
         # `check` alone must accept a finite recursive output type — lowering
         # (the decode side) is not exercised here at all.
-        r = accept_type(_TREE_SRC + 'ask::[Tree]("Q")')
+        r = resolve_and_check_repl_entry(_TREE_SRC + 'ask::[Tree]("Q")')
         call = r.resolved.program.body.items[-1]
         assert isinstance(call, Call)
         assert strip_decl_ids(r.contract_specs[call.node_id].target_type) == EnumType(name="Tree")
 
     def test_exec_finite_recursive_type_accepted(self) -> None:
-        r = accept_type(_TREE_SRC + 'exec::[Tree]("cmd")')
+        r = resolve_and_check_repl_entry(_TREE_SRC + 'exec::[Tree]("cmd")')
         assert r.resolved.program is not None
 
     def test_cast_finite_recursive_type_accepted(self) -> None:
-        r = accept_type(_TREE_SRC + 'let raw: text = "{}"\nraw as Tree')
+        r = resolve_and_check_repl_entry(_TREE_SRC + 'let raw: text = "{}"\nraw as Tree')
         assert r.resolved.program is not None
 
     def test_program_parameter_finite_recursive_type_accepted(self) -> None:
-        r = accept_type(_TREE_SRC + "program def main(t: Tree) -> unit = ()")
+        r = resolve_and_check_repl_entry(_TREE_SRC + "program def main(t: Tree) -> unit = ()")
         assert r.resolved.program is not None
 
     @pytest.mark.parametrize(
@@ -13526,7 +13574,7 @@ class TestNoFiniteSchemaUseSites:
     ) -> None:
         # R's T parameter never affects its wire shape, so recursively
         # mentioning R[array[T]] still closes to one schema definition.
-        assert accept_type(_PHANTOM_GROWING_TYPE_SRC + use_site)
+        assert resolve_and_check_repl_entry(_PHANTOM_GROWING_TYPE_SRC + use_site)
 
 
 class TestCopyAndShallowCopyCall:
@@ -13535,7 +13583,7 @@ class TestCopyAndShallowCopyCall:
     @pytest.mark.parametrize("name", ["copy", "shallow-copy"])
     def test_infers_argument_type(self, name: str) -> None:
         """copy(x)/shallow-copy(x) yield exactly x's own checked type."""
-        r = accept_type(f"let xs: array[int] = [1, 2]\n{name}(xs)")
+        r = resolve_and_check_repl_entry(f"let xs: array[int] = [1, 2]\n{name}(xs)")
         call = r.resolved.program.body.items[1]
         assert isinstance(call, Call)
         assert r.node_types[call.node_id] == ArrayType(elem=IntType())
@@ -13543,7 +13591,7 @@ class TestCopyAndShallowCopyCall:
     @pytest.mark.parametrize("name", ["copy", "shallow-copy"])
     def test_explicit_type_arg_widens_result(self, name: str) -> None:
         """copy::[decimal](5) yields decimal — the argument's int is assignable to it."""
-        r = accept_type(f"{name}::[decimal](5)")
+        r = resolve_and_check_repl_entry(f"{name}::[decimal](5)")
         call = r.resolved.program.body.items[0]
         assert isinstance(call, Call)
         assert r.node_types[call.node_id] == DecimalType()
@@ -13574,7 +13622,7 @@ class TestCopyAndShallowCopyCall:
 
     def test_copy_is_identity_typed_through_generic_function(self) -> None:
         """copy composes with a user generic function: T flows through unchanged."""
-        r = accept_type(
+        r = resolve_and_check_repl_entry(
             "def id[T](x: T) -> T = x\nlet xs: array[int] = [1, 2]\nlet ys = id(copy(xs))\nys"
         )
         ys_decl = r.resolved.program.body.items[2]
@@ -13598,23 +13646,23 @@ class TestImportDeclTypecheck:
 
     def test_import_decl_does_not_raise(self) -> None:
         """A bare import declaration type-checks as unit."""
-        r = accept_type("import std/prelude::*\n1")
+        r = resolve_and_check_repl_entry("import std/prelude::*\n1")
         assert r  # no exception
 
     def test_import_with_alias_does_not_raise(self) -> None:
-        r = accept_type("import std/prelude as f\n1")
+        r = resolve_and_check_repl_entry("import std/prelude as f\n1")
         assert r
 
     def test_import_wildcard_does_not_raise(self) -> None:
-        r = accept_type("import std/*\n1")
+        r = resolve_and_check_repl_entry("import std/*\n1")
         assert r
 
     def test_import_using_does_not_raise(self) -> None:
-        r = accept_type("import std/prelude::{ExecResult}\n1")
+        r = resolve_and_check_repl_entry("import std/prelude::{ExecResult}\n1")
         assert r
 
     def test_import_hiding_does_not_raise(self) -> None:
-        r = accept_type("import std/prelude hiding ExecResult\n1")
+        r = resolve_and_check_repl_entry("import std/prelude hiding ExecResult\n1")
         assert r
 
 
@@ -13623,7 +13671,9 @@ class TestSelfRefTypeInSingleModule:
 
     def test_self_ref_own_record_type_accepted(self) -> None:
         """'::MyRecord' in a single-module program resolves to the local record type."""
-        r = accept_type("record MyRecord\n  x: int\ndef f() -> ::MyRecord = MyRecord(x = 1)\nf()")
+        r = resolve_and_check_repl_entry(
+            "record MyRecord\n  x: int\ndef f() -> ::MyRecord = MyRecord(x = 1)\nf()"
+        )
         # accept_type returns CheckedModule; just checking it doesn't raise
         assert r is not None
 
@@ -13737,7 +13787,9 @@ class TestGenericNominalModuleId:
 
         # For the entry module the module_id is ENTRY_ID; verify the template
         # also has ENTRY_ID (consistency check: it's at least not wrong).
-        cp = parse_resolve_check("record Box[T]\n  value: T\nlet x: Box[int] = Box(value = 1)\nx")
+        cp = resolve_and_check_repl_entry(
+            "record Box[T]\n  value: T\nlet x: Box[int] = Box(value = 1)\nx"
+        )
         gdef = cp.type_env.get_generic_type("Box")
         assert gdef is not None
         assert isinstance(gdef, GenericTypeDef)
@@ -13758,7 +13810,9 @@ class TestFieldAssignmentSyntaxChecks:
         # The local is named differently from every field, so the argument can
         # only reach ``x`` positionally; giving the two fields different types
         # makes which field it reached observable.
-        r = accept_type('record R\n  x: text\n  y: int\nlet v = "a"\nlet r = R(v, y = 1)\nr')
+        r = resolve_and_check_repl_entry(
+            'record R\n  x: text\n  y: int\nlet v = "a"\nlet r = R(v, y = 1)\nr'
+        )
         decl = r.resolved.program.body.items[2]
         assert isinstance(decl, LetDecl)
         assert _constructed_record_fields(r, decl.value.node_id) == {
@@ -13770,7 +13824,7 @@ class TestFieldAssignmentSyntaxChecks:
         reject_type("record R\n  x: text\n  y: int\nlet v = 1\nlet r = R(v, y = 1)\nr")
 
     def test_positional_enum_arg_binds_standard_field(self) -> None:
-        r = accept_type('enum E\n  | A(x: text)\nlet v = "s"\nlet e = A(v)\ne')
+        r = resolve_and_check_repl_entry('enum E\n  | A(x: text)\nlet v = "s"\nlet e = A(v)\ne')
         decl = r.resolved.program.body.items[2]
         assert isinstance(decl, LetDecl)
         constructed = r.node_types[decl.value.node_id]
@@ -13789,7 +13843,7 @@ class TestFieldAssignmentSyntaxChecks:
         from agnette.agl.parser.errors import AglSyntaxError
 
         with pytest.raises(AglSyntaxError):
-            accept_type(
+            resolve_and_check_repl_entry(
                 "record R\n  x: int\n"
                 "enum E\n  | B(x: int, r: R)\n"
                 "let x = 1\n"
@@ -13807,7 +13861,7 @@ class TestFieldAssignmentSyntaxChecks:
     def test_eq_eq_and_neq_on_structured_value_typecheck_to_bool(self) -> None:
         """Both '==' and '!=' on a structured (record) value yield bool."""
         src = "record P\n  n: int\nlet a = P(n = 1)\nlet b = P(n = 2)\nlet equal = a == b\na != b"
-        r = accept_type(src)
+        r = resolve_and_check_repl_entry(src)
         # item 0 is the RecordDef; the bindings are items 1-3; the final
         # inequality is item 4.
         items = r.resolved.program.body.items
@@ -13836,14 +13890,14 @@ class TestGenericNamedOnlyShorthandInference:
     def test_named_only_shorthands_in_order_accepted(self) -> None:
         """g(1, z, w) — in-order shorthands (already worked before fix)."""
         src = self._DEF + 'let z: text = "hi"\nlet w = 0\ng(1, z, w)'
-        r = accept_type(src)
+        r = resolve_and_check_repl_entry(src)
         # T comes from ``z`` and is the call's result type.
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == TextType()
 
     def test_named_only_shorthand_and_named_arg_out_of_order_accepted(self) -> None:
         """g(1, w, z = myv) — shorthand w + named z, out of declaration order."""
         src = self._DEF + 'let myv: text = "hi"\nlet w = 0\ng(1, w, z = myv)'
-        r = accept_type(src)
+        r = resolve_and_check_repl_entry(src)
         # The shorthand is matched by name, not position, so T is still z's
         # type even though ``w`` was written first.
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == TextType()
@@ -13851,7 +13905,7 @@ class TestGenericNamedOnlyShorthandInference:
     def test_named_only_two_shorthands_out_of_order_accepted(self) -> None:
         """g(1, w, z) — two shorthands, out of declaration order."""
         src = self._DEF + 'let z: text = "hi"\nlet w = 0\ng(1, w, z)'
-        r = accept_type(src)
+        r = resolve_and_check_repl_entry(src)
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == TextType()
 
 
@@ -13872,12 +13926,12 @@ class TestLambdaRequiredAfterDefaulted:
 
     def test_lambda_valid_defaulted_after_required_accepted(self) -> None:
         """fn(x: int, y: int = 5) -> int => x + y is fine (required before default)."""
-        r = accept_type("fn(x: int, y: int = 5) -> int => x + y")
+        r = resolve_and_check_repl_entry("fn(x: int, y: int = 5) -> int => x + y")
         assert r.resolved.program is not None
 
     def test_lambda_named_only_any_default_order_accepted(self) -> None:
         """Named-only params are order-free: a defaulted one may precede a required one."""
-        r = accept_type("fn(@arg-named x: int = 0, @arg-named y: int) -> int => y")
+        r = resolve_and_check_repl_entry("fn(@arg-named x: int = 0, @arg-named y: int) -> int => y")
         assert r.resolved.program is not None
 
 
@@ -13892,7 +13946,7 @@ class TestLambdaRequiredAfterDefaulted:
 )
 def test_agent_is_an_ordinary_declaration_name(source: str, expected_name: str | None) -> None:
     """`agent` is legal for records, enums, aliases, and functions."""
-    checked = accept_type(source)
+    checked = resolve_and_check_repl_entry(source)
     # The declaration named ``agent`` is what the trailing expression uses, not
     # the built-in ``Agent`` enum.
     trailing = checked.node_types[checked.resolved.program.body.items[-1].node_id]
@@ -13921,7 +13975,7 @@ def test_param_is_an_ordinary_identifier(source: str, expected_type: Type | None
     resolves `param` to the value it was bound to, so the checker still
     assigns the expected type to the expression that uses it.
     """
-    checked = accept_type(source)
+    checked = resolve_and_check_repl_entry(source)
     last = checked.resolved.program.body.items[-1]
     node = last.body if isinstance(last, FuncDef) else last
     assert node is not None
@@ -13935,7 +13989,7 @@ def test_param_is_an_ordinary_identifier(source: str, expected_type: Type | None
 
 class TestSessionPreludeTypes:
     def test_session_prelude_types_are_visible_with_their_declared_members(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "def transport-name(transport: SessionTransport) -> text =\n"
             "  case transport of\n"
             '    | Cli => "cli"\n'
@@ -13985,7 +14039,7 @@ class TestSessionPreludeTypes:
         reject_type(source)
 
     def test_session_transport_and_stats_remain_json_serializable(self) -> None:
-        checked = accept_type(
+        checked = resolve_and_check_repl_entry(
             "program def main(transport: SessionTransport, stats: SessionStats) -> unit =\n"
             "  let transport-json: json = Cli as json\n"
             "  let stats-json: json = SessionStats(input-tokens = 1, output-tokens = 2, "
@@ -14014,13 +14068,13 @@ class TestSessionPreludeTypes:
         self, source: str, default_stdlib: bool
     ) -> None:
         with pytest.raises((AglScopeError, AglTypeError)) as exc_info:
-            parse_resolve_check(source, default_stdlib=default_stdlib)
+            resolve_and_check_repl_entry(source, default_stdlib=default_stdlib)
         assert "session" in str(exc_info.value).lower()
 
 
 def test_agent_enum_is_a_json_serializable_program_parameter_type() -> None:
     """Agent values are ordinary enum data at the JSON parameter boundary."""
-    checked = accept_type("program def main(selected: Agent) -> unit = ()")
+    checked = resolve_and_check_repl_entry("program def main(selected: Agent) -> unit = ()")
     program_def = checked.resolved.program.body.items[0]
     assert isinstance(program_def, FuncDef)
     binding_type = checked.type_env.get_binding_type(program_def.params[0].node_id)
@@ -14036,7 +14090,7 @@ class TestGenericDictKeyParamDeferral:
 
     def test_own_type_param_key_instantiated_at_text_is_json_convertible(self) -> None:
         source = 'record Box[K]\n  d: dict[K, int]\nlet b: Box[text] = Box(d = {"a": 1})\nb as json'
-        accept_type(source)
+        resolve_and_check_repl_entry(source)
 
     def test_own_type_param_key_instantiated_at_a_non_hashable_type_rejected_as_json(self) -> None:
         err = reject_type(
@@ -14052,7 +14106,7 @@ class TestGenericDictKeyParamDeferral:
             "let b = j as Box[text]\n"
             "b"
         )
-        accept_type(source)
+        resolve_and_check_repl_entry(source)
 
     def test_own_type_param_key_instantiated_at_int_accepted_from_json_cast(self) -> None:
         source = (
@@ -14062,7 +14116,7 @@ class TestGenericDictKeyParamDeferral:
             "let b = j as Box[int]\n"
             "b"
         )
-        accept_type(source)
+        resolve_and_check_repl_entry(source)
 
     def test_own_type_param_key_instantiated_at_array_rejected_from_json_cast(self) -> None:
         err = reject_type(
@@ -14086,7 +14140,7 @@ class TestGenericDictKeyParamDeferral:
             'let o: Outer[text] = Outer(b = Box(d = {"a": 1}))\n'
             "o as json"
         )
-        accept_type(source)
+        resolve_and_check_repl_entry(source)
 
     def test_own_type_param_key_transitive_through_nominal_argument_at_int(self) -> None:
         source = (
@@ -14097,7 +14151,7 @@ class TestGenericDictKeyParamDeferral:
             "let o: Outer[int] = Outer(b = Box(d = {1: 1}))\n"
             "o as json"
         )
-        accept_type(source)
+        resolve_and_check_repl_entry(source)
 
     def test_own_type_param_key_transitive_through_nominal_argument_rejected(self) -> None:
         source = (
@@ -14123,58 +14177,60 @@ class TestBuiltinCallInGenericSlot:
     """
 
     def test_pipe_into_print_exec(self) -> None:
-        r = accept_type('print <| exec "echo hi"')
+        r = resolve_and_check_repl_entry('print <| exec "echo hi"')
         node_id = _sole_contract_node_id(r)
         assert r.contract_specs[node_id].target_type == _expected_type(r, "ExecResult")
         assert r.contract_specs[node_id].structured_exec is True
 
     def test_pipe_into_print_ask(self) -> None:
-        r = accept_type('print <| ask "hi"')
+        r = resolve_and_check_repl_entry('print <| ask "hi"')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == TextType()
 
     def test_forward_pipe_exec_into_print(self) -> None:
-        r = accept_type('exec "echo hi" |> print')
+        r = resolve_and_check_repl_entry('exec "echo hi" |> print')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == _expected_type(
             r, "ExecResult"
         )
 
     def test_generic_function_argument_exec(self) -> None:
-        r = accept_type('def id[A](x: A) -> A = x\nid(exec "echo hi")')
+        r = resolve_and_check_repl_entry('def id[A](x: A) -> A = x\nid(exec "echo hi")')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == _expected_type(
             r, "ExecResult"
         )
 
     def test_generic_function_argument_ask(self) -> None:
-        r = accept_type('def id[A](x: A) -> A = x\nid(ask "hi")')
+        r = resolve_and_check_repl_entry('def id[A](x: A) -> A = x\nid(ask "hi")')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == TextType()
 
     def test_constructor_argument_exec(self) -> None:
-        r = accept_type('Some(exec "echo hi")')
+        r = resolve_and_check_repl_entry('Some(exec "echo hi")')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == _expected_type(
             r, "ExecResult"
         )
 
     def test_annotated_binder_through_generic_still_infers_annotation(self) -> None:
         """A concrete binder annotation still wins over the builtin default (no regression)."""
-        r = accept_type('def id[A](x: A) -> A = x\nlet x: text = id(exec "echo hi")\nx')
+        r = resolve_and_check_repl_entry(
+            'def id[A](x: A) -> A = x\nlet x: text = id(exec "echo hi")\nx'
+        )
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == TextType()
 
     def test_higher_order_apply_print_exec(self) -> None:
         src = 'def apply[A, B](f: (A) -> B, x: A) -> B = f(x)\napply(print, exec "echo hi")'
-        r = accept_type(src)
+        r = resolve_and_check_repl_entry(src)
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == _expected_type(
             r, "ExecResult"
         )
 
     def test_dollar_verbatim_exec_in_generic_slot(self) -> None:
-        r = accept_type("print <| exec $ echo hi")
+        r = resolve_and_check_repl_entry("print <| exec $ echo hi")
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == _expected_type(
             r, "ExecResult"
         )
 
     def test_dollar_verbatim_session_ask_in_generic_slot(self) -> None:
         src = "let s = Session::default()\nprint <| s.ask $ hi"
-        r = accept_type(src)
+        r = resolve_and_check_repl_entry(src)
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == TextType()
 
     def test_conflicting_defaults_on_shared_generic_slot_is_a_type_error(self) -> None:
@@ -14191,12 +14247,12 @@ class TestBuiltinCallInGenericSlot:
 
     def test_sibling_argument_overrides_default(self) -> None:
         """A sibling argument sharing the generic slot pins the type before defaults apply."""
-        r = accept_type('def f[A](a: A, b: A) -> A = a\nf(exec "echo 1", 2)')
+        r = resolve_and_check_repl_entry('def f[A](a: A, b: A) -> A = a\nf(exec "echo 1", 2)')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == IntType()
 
     def test_two_defaults_agreeing_on_a_shared_generic_slot_is_not_a_conflict(self) -> None:
         """Two ``ask`` calls sharing one generic slot both default to ``text`` — no conflict."""
-        r = accept_type('def f[A](a: A, b: A) -> unit = ()\nf(ask "x", ask "y")')
+        r = resolve_and_check_repl_entry('def f[A](a: A, b: A) -> unit = ()\nf(ask "x", ask "y")')
         assert len(r.contract_specs) == 2
         assert {spec.target_type for spec in r.contract_specs.values()} == {TextType()}
 
@@ -14207,22 +14263,24 @@ class TestBuiltinCallInGenericSlot:
             'def g(n: int) = if n == 0 => id(exec "x") else => g(n - 1)\n'
             "g(0)"
         )
-        r = accept_type(src)
+        r = resolve_and_check_repl_entry(src)
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == _expected_type(
             r, "ExecResult"
         )
 
     def test_explicit_type_argument_through_generic_slot(self) -> None:
         """An explicit ``::[T]`` on the builtin call itself overrides the generic default."""
-        r = accept_type('def id[A](x: A) -> A = x\nid(exec::[int] "echo 1")')
+        r = resolve_and_check_repl_entry('def id[A](x: A) -> A = x\nid(exec::[int] "echo 1")')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == IntType()
 
     def test_ask_in_lambda_passed_to_generic_defaults_to_text(self) -> None:
-        r = accept_type('def apply[A](f: () -> A) -> A = f()\napply(fn () => ask "x")')
+        r = resolve_and_check_repl_entry(
+            'def apply[A](f: () -> A) -> A = f()\napply(fn () => ask "x")'
+        )
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == TextType()
 
     def test_receiver_ask_in_generic_slot_defaults_to_text(self) -> None:
-        r = accept_type('let r = AgentCommand("worker")\nprint <| r.ask("hi")')
+        r = resolve_and_check_repl_entry('let r = AgentCommand("worker")\nprint <| r.ask("hi")')
         assert r.contract_specs[_sole_contract_node_id(r)].target_type == TextType()
 
     def test_if_branches_with_conflicting_defaults_in_generic_slot_is_a_type_error(self) -> None:

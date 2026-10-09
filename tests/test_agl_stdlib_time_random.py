@@ -19,7 +19,7 @@ from agnette.agl.runtime.boundary import AglArrayView, AglException
 from agnette.agl.runtime.externs import ExternRegistry
 from agnette.agl.semantics.values import ArrayValue, IntValue, TextValue
 from tests._agl_helpers import option_nominal_descriptors
-from tests.agl.ir_harness import extern_caps, lower_ir
+from tests.agl.ir_harness import lower_ir
 
 _STDLIB_ROOT = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
 _TIME_MODULE = ModuleId(("std", "time"))
@@ -186,7 +186,7 @@ def test_random_state_is_isolated_between_concurrent_real_interpreters(tmp_path:
         "def report(seed, first, second):\n"
         "    results[seed] = (first, second)\n"
     )
-    executable = lower_ir(entry_path.read_text(), caps=extern_caps(), origin_path=entry_path)
+    executable = lower_ir(entry_path.read_text(), origin_path=entry_path)
     registry = ExternRegistry()
     registry.set_nominals(executable.nominals)
     registry.load_companion(_RANDOM_MODULE, _STDLIB_ROOT / "src" / "random.py")

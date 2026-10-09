@@ -53,11 +53,6 @@ class MatchCompiledProgram:
     sites_by_module: Mapping[ModuleId, Mapping[int, CompiledMatchSite]]
     reused_modules: frozenset[ModuleId] = frozenset()
 
-    @property
-    def capabilities(self) -> object | None:
-        """Capabilities are inseparable from the checked program artifact."""
-        return self.checked.capabilities
-
     def __post_init__(self) -> None:
         object.__setattr__(self, "sites_by_module", _immutable_module_sites(self.sites_by_module))
         if self_validation_enabled():

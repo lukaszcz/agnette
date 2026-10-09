@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from agnette.agl import artifact_cache, artifact_storage
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintKind
 from agnette.agl.lower.program import lower_program
 from agnette.agl.matchcompile import compile_program_matches
@@ -29,7 +28,6 @@ from agnette.agl.typecheck.env import (
 from agnette.agl.typecheck.program import _prepare_program, check_program
 from tests._agl_helpers import agl_roots, run_inline_code
 from tests.agl.ir_harness import (
-    base_caps,
     make_file_graph_from_files,
     make_inline_graph_from_files,
     write_module_file,
@@ -116,7 +114,7 @@ def _library_witnesses(root: Path, library: str) -> list[str]:
     }
     graph = make_file_graph_from_files(root, modules)
     resolved = resolve_program(graph)
-    issues = compile_program_matches(check_program(resolved, base_caps())).issues
+    issues = compile_program_matches(check_program(resolved)).issues
     return [
         render_witness(issue.witness, resolved.speller(issue.module_id))
         for issue in issues
@@ -134,9 +132,9 @@ def test_a_witness_of_a_cached_module_is_spelled_as_when_it_was_first_resolved(
     served: list[CheckedModule | CheckedModuleImage | None] = []
 
     def spied(
-        retainable: artifact_cache.RetainedSources, capabilities: HostCapabilities
+        retainable: artifact_cache.RetainedSources,
     ) -> dict[ModuleId, CheckedModule | CheckedModuleImage]:
-        cached = lookup(retainable, capabilities)
+        cached = lookup(retainable)
         served.append(cached.get(ModuleId.from_path("lib")))
         return cached
 
@@ -407,13 +405,12 @@ def test_config_attribute_program_config_targets_round_trip_through_the_checked_
         },
     )
     resolved_program = resolve_program(graph)
-    caps = base_caps()
     retainable = artifact_cache.retained_module_sources(graph)
-    checked = check_program(resolved_program, caps)
-    artifact_cache.retain_checked_modules(retainable, caps, checked.modules)
+    checked = check_program(resolved_program)
+    artifact_cache.retain_checked_modules(retainable, checked.modules)
     artifact_cache.clear_retained_artifacts()
 
-    restored = artifact_cache.retained_checked_modules(retainable, caps)
+    restored = artifact_cache.retained_checked_modules(retainable)
 
     helper_id = next(mid for mid in graph.modules if mid != graph.entry_id)
     original = checked.modules[helper_id].program_config_targets
@@ -433,13 +430,12 @@ def test_constraint_block_bounds_round_trip_through_the_checked_cache(tmp_path: 
         },
     )
     resolved_program = resolve_program(graph)
-    caps = base_caps()
     retainable = artifact_cache.retained_module_sources(graph)
-    checked = check_program(resolved_program, caps)
-    artifact_cache.retain_checked_modules(retainable, caps, checked.modules)
+    checked = check_program(resolved_program)
+    artifact_cache.retain_checked_modules(retainable, checked.modules)
     artifact_cache.clear_retained_artifacts()
 
-    restored = artifact_cache.retained_checked_modules(retainable, caps)
+    restored = artifact_cache.retained_checked_modules(retainable)
 
     helper_id = next(mid for mid in graph.modules if mid != graph.entry_id)
     original = checked.modules[helper_id].function_signatures["same"].bounds
@@ -459,9 +455,9 @@ def test_a_params_flip_invalidates_a_warm_checked_module_cache(tmp_path: Path) -
         )
         resolved_program = resolve_program(graph)
         retainable = artifact_cache.retained_module_sources(graph)
-        cached = artifact_cache.retained_checked_modules(retainable, base_caps())
-        checked = check_program(resolved_program, base_caps(), cached_checked_modules=cached)
-        artifact_cache.retain_checked_modules(retainable, base_caps(), checked.modules)
+        cached = artifact_cache.retained_checked_modules(retainable)
+        checked = check_program(resolved_program, cached_checked_modules=cached)
+        artifact_cache.retain_checked_modules(retainable, checked.modules)
 
     _round_trip("@param let value: int = 1\n")
 
@@ -494,14 +490,11 @@ def _persisted_checked_entry_size(
         default_stdlib=False,
         source_text="import library::*\ngreet()",
     )
-    caps = base_caps()
     resolved = resolve_program(graph)
-    check_program(resolved, caps)
+    check_program(resolved)
     library_id = next(mid for mid in graph.modules if mid.path_str() == "library")
     retainable = artifact_cache.retained_module_sources(graph)
-    key = artifact_cache._disk_key(
-        retainable[library_id], (artifact_cache.capability_signature(caps),)
-    )
+    key = artifact_cache._disk_key(retainable[library_id])
     path, _identity = artifact_storage.artifact_entry(key, "checked")
     return path.stat().st_size
 
@@ -583,14 +576,13 @@ def test_rehydration_onto_a_cached_preparation_matches_a_cache_free_compile(
         },
         default_stdlib=False,
     )
-    caps = base_caps()
     resolved = resolve_program(graph)
-    checked = check_program(resolved, caps)
+    checked = check_program(resolved)
     lib_id = next(mid for mid in resolved.modules if mid.path_str() == "lib")
     cm = checked.modules[lib_id]
     image = cm.image()
 
-    prepared = _prepare_program(resolved, caps, cached_checked_modules={lib_id: image})
+    prepared = _prepare_program(resolved, cached_checked_modules={lib_id: image})
     rehydrated = image.rehydrate(resolved.modules[lib_id], prepared.module_envs[lib_id])
 
     for item in static_function_items(cm.resolved.program.body.items):
@@ -704,14 +696,13 @@ def test_prepared_environments_match_cache_free_across_every_module(tmp_path: Pa
         },
         default_stdlib=False,
     )
-    caps = base_caps()
     resolved = resolve_program(graph)
-    checked = check_program(resolved, caps)
+    checked = check_program(resolved)
     callee_id = next(mid for mid in resolved.modules if mid.path_str() == "lib_candidate_callee")
     image = checked.modules[callee_id].image()
 
-    fresh = _prepare_program(resolved, caps)
-    cached = _prepare_program(resolved, caps, cached_checked_modules={callee_id: image})
+    fresh = _prepare_program(resolved)
+    cached = _prepare_program(resolved, cached_checked_modules={callee_id: image})
 
     ignored_attrs = {"_import_env", "_scope_nodes"}
     diffs: list[str] = []
@@ -753,9 +744,8 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
         graph = make_inline_graph_from_files(tmp_path, modules, default_stdlib=False)
         return resolve_program(graph)
 
-    caps = base_caps()
     artifact_cache.clear_retained_artifacts()
-    warm_checked = check_program(_resolved(), caps)  # populates the disk-backed "checked" entries
+    warm_checked = check_program(_resolved())  # populates the disk-backed "checked" entries
     original_executable = lower_program(compile_program_matches(warm_checked).compiled)
 
     artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
@@ -766,9 +756,9 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
     served_images: list[ModuleId] = []
 
     def spied(
-        retainable: artifact_cache.RetainedSources, capabilities: HostCapabilities
+        retainable: artifact_cache.RetainedSources,
     ) -> dict[ModuleId, CheckedModule | CheckedModuleImage]:
-        served = original_served(retainable, capabilities)
+        served = original_served(retainable)
         served_images.extend(
             mid for mid, module in served.items() if isinstance(module, CheckedModuleImage)
         )
@@ -776,7 +766,7 @@ def test_check_program_lowers_identically_after_rehydrating_disk_checked_images(
 
     monkeypatch.setattr(program_module, "retained_checked_modules", spied)
 
-    rehydrated_checked = check_program(_resolved(), caps)
+    rehydrated_checked = check_program(_resolved())
     rehydrated_executable = lower_program(compile_program_matches(rehydrated_checked).compiled)
 
     assert served_images, "expected check_program to serve at least one disk-rehydrated image"
@@ -814,9 +804,8 @@ def test_a_corrupted_binding_replay_fails_a_rehydrated_module_via_env_assert_clo
         )
         return resolve_program(graph)
 
-    caps = base_caps()
     artifact_cache.clear_retained_artifacts()
-    check_program(_resolved(), caps)  # populates the disk-backed "checked" entry
+    check_program(_resolved())  # populates the disk-backed "checked" entry
 
     artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
 
@@ -829,7 +818,7 @@ def test_a_corrupted_binding_replay_fails_a_rehydrated_module_via_env_assert_clo
     monkeypatch.setattr(TypeEnvironment, "replay", broken_replay)
 
     with pytest.raises(AssertionError):
-        check_program(_resolved(), caps)
+        check_program(_resolved())
 
 
 def test_a_corrupted_node_types_entry_fails_a_rehydrated_module_via_output_closed(
@@ -861,18 +850,17 @@ def test_a_corrupted_node_types_entry_fails_a_rehydrated_module_via_output_close
         )
         return resolve_program(graph)
 
-    caps = base_caps()
     artifact_cache.clear_retained_artifacts()
-    check_program(_resolved(), caps)  # populates the disk-backed "checked" entry
+    check_program(_resolved())  # populates the disk-backed "checked" entry
 
     artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
 
     original = program_module.retained_checked_modules
 
     def corrupted(
-        retainable: artifact_cache.RetainedSources, capabilities: HostCapabilities
+        retainable: artifact_cache.RetainedSources,
     ) -> dict[ModuleId, CheckedModule | CheckedModuleImage]:
-        served = original(retainable, capabilities)
+        served = original(retainable)
         return {
             mid: (
                 replace(module, node_types={**module.node_types, -1: InferenceVarType()})
@@ -885,7 +873,7 @@ def test_a_corrupted_node_types_entry_fails_a_rehydrated_module_via_output_close
     monkeypatch.setattr(program_module, "retained_checked_modules", corrupted)
 
     with pytest.raises(AssertionError):
-        check_program(_resolved(), caps)
+        check_program(_resolved())
 
 
 def test_an_in_memory_reused_module_skips_closure_validation(
@@ -916,16 +904,15 @@ def test_an_in_memory_reused_module_skips_closure_validation(
         {"entry": "import lib::*\nvalue()", "lib": "def value() -> int = 1\n"},
         default_stdlib=False,
     )
-    caps = base_caps()
     resolved = resolve_program(graph)
-    checked = check_program(resolved, caps)
+    checked = check_program(resolved)
     lib_id = next(mid for mid in resolved.modules if mid.path_str() == "lib")
     assert lib_id in calls
     calls.clear()
 
     # Same `resolved` object, same in-memory `CheckedModule`: the identity gate
     # in `check_program`'s reuse filter accepts it without rechecking its body.
-    second = check_program(resolved, caps)
+    second = check_program(resolved)
 
     assert lib_id not in calls
     # Trusted, not just present: reuse must be the identical object, not a
@@ -997,13 +984,12 @@ def test_replayed_module_headers_reproduce_a_from_source_preparation(
         {"entry": _HEADER_ENTRY_SRC, "lib_headers": _HEADER_LIB_SRC},
         default_stdlib=False,
     )
-    caps = base_caps()
     resolved = resolve_program(graph)
     retainable = artifact_cache.retained_module_sources(resolved.graph)
     lib_id = next(mid for mid in resolved.modules if mid.path_str() == "lib_headers")
 
-    from_source = _prepare_program(resolved, caps)
-    _prepare_program(resolved, caps, retainable=retainable)
+    from_source = _prepare_program(resolved)
+    _prepare_program(resolved, retainable=retainable)
 
     served: list[dict[ModuleId, EnvironmentFacts]] = []
     lookup = artifact_cache.retained_module_headers
@@ -1011,7 +997,7 @@ def test_replayed_module_headers_reproduce_a_from_source_preparation(
         "agnette.agl.typecheck.program.retained_module_headers",
         lambda *args: served.append(lookup(*args)) or served[-1],
     )
-    replayed = _prepare_program(resolved, caps, retainable=retainable)
+    replayed = _prepare_program(resolved, retainable=retainable)
 
     assert served == [{lib_id: served[0][lib_id]}], "the library's headers were not served"
     assert served[0][lib_id].entries, "an empty journal would make the comparison vacuous"
@@ -1042,13 +1028,12 @@ def test_persisted_match_sites_are_not_served_without_their_checked_module(
         default_stdlib=False,
     )
     resolved = resolve_program(graph)
-    caps = base_caps()
     artifact_cache.clear_retained_artifacts()
-    compiled = compile_program_matches(check_program(resolved, caps)).compiled
+    compiled = compile_program_matches(check_program(resolved)).compiled
     assert compiled is not None
     retainable = artifact_cache.retained_module_sources(resolved.graph)
-    artifact_cache.retain_match_sites(retainable, caps, cached_module_sites(compiled))
+    artifact_cache.retain_match_sites(retainable, cached_module_sites(compiled))
 
     artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
 
-    assert artifact_cache.retained_match_sites(retainable, caps) == {}
+    assert artifact_cache.retained_match_sites(retainable) == {}

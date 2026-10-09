@@ -6,7 +6,6 @@ import pytest
 
 import agnette.agl.matchcompile.compiler as compiler_module
 import agnette.agl.matchcompile.matrix as matrix_module
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.matchcompile.compiler import compile_match_site, validate_decision_dag
 from agnette.agl.matchcompile.matrix import (
     OccurrenceAllocator,
@@ -22,17 +21,9 @@ from agnette.agl.syntax.visitor import walk
 from agnette.agl.typecheck.env import CheckedModule
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
 
 def _normalized(source: str) -> tuple[CheckedModule, Case]:
-    checked = resolve_and_check_inline_entry(source, _CAPS)
+    checked = resolve_and_check_inline_entry(source)
     cases: list[Case] = []
 
     def collect(node: object) -> None:

@@ -1,9 +1,8 @@
-"""Cached pipeline artifacts retain prepared-source and host capability provenance.
+"""Cached pipeline artifacts retain prepared-source provenance.
 
 Source provenance of frontend artifacts and of lowered executables is an
 internal invariant, re-verified only under AgL's self-validation (enabled
-suite-wide). Capability changes invalidate either cache on the production path
-and rerun the affected passes.
+suite-wide).
 """
 
 from __future__ import annotations

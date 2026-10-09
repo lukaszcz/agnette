@@ -6,7 +6,6 @@ from decimal import Decimal
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.contracts import (
     ArrayDecode,
     DecodeSchema,
@@ -29,7 +28,6 @@ from agnette.agl.semantics.type_table import create_seeded_type_table
 from agnette.agl.semantics.types import BoolType, DecimalType, IntType, JsonType, TextType, Type
 from agnette.agl.semantics.values import DictValue, IntValue, RecordValue
 from agnette.agl.type_schema import build_param_decoder, derive_schema_and_decode
-from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.value_syntax.reader import read_value
 from tests._agl_helpers import build_decode_schema, record_type, type_table_for
 from tests.agl.module_graph import resolve_and_check_repl_entry
@@ -39,25 +37,9 @@ from tests.agl.module_graph import resolve_and_check_repl_entry
 # ---------------------------------------------------------------------------
 
 
-def _capabilities() -> HostCapabilities:
-    return HostCapabilities(
-        supports_shell_exec=True,
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        },
-    )
-
-
-def _typecheck(source: str) -> CheckedModule:
-    return resolve_and_check_repl_entry(source, _capabilities())
-
-
 def _last_expr_plan(source: str) -> tuple[DecodeSchema, dict[str, DecodeSchema]]:
     """Build a decode schema for the type of *source*'s trailing expression."""
-    checked = _typecheck(source)
+    checked = resolve_and_check_repl_entry(source)
     last = checked.resolved.program.body.items[-1]
     typ = checked.node_types[last.node_id]
     plan = build_decode_schema(typ, checked.type_env.type_table)

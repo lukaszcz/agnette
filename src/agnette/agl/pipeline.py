@@ -51,7 +51,6 @@ if TYPE_CHECKING:
 
     from agnette.agent.spec_defaults import AgentSpecResolver
     from agnette.agl.attributes import ProgramOptionSpec
-    from agnette.agl.capabilities import HostCapabilities
     from agnette.agl.ir.builtin_vars import BuiltinVarKey
     from agnette.agl.ir.contracts import ExceptionFieldEncode
     from agnette.agl.ir.ids import NominalId, SourceId, SymbolId
@@ -484,15 +483,19 @@ class PipelineDriver:
     def host_environment(self) -> HostEnvironment:
         """Assemble the shared host environment from this runtime's services.
 
-        Returns the value dispatcher and derived ``HostCapabilities``. The bundle
+        Returns the value dispatcher, sessions and extern registry. The bundle
         is assembled once and cached until the execution services are replaced.
         """
         if self._host_env_cache is not None:
             return self._host_env_cache
-        self._host_env_cache = assemble_host_environment(
+        from agnette.agl.runtime.externs import ExternRegistry
+
+        self._host_env_cache = HostEnvironment(
             agent_dispatcher=self._agent_dispatcher,
             session_host=self._session_host,
-            extern_registry=self._extern_registry,
+            extern_registry=(
+                self._extern_registry if self._extern_registry is not None else ExternRegistry()
+            ),
             get_sandbox_context=self._get_sandbox_context,
             resolve_agent_spec=self._resolve_agent_spec,
         )
@@ -1027,8 +1030,7 @@ class PipelineDriver:
                 warnings=prepared.warnings,
             )
 
-        capabilities = self.host_environment().capabilities
-        checked, tc_diagnostics = _run_typecheck_program(prepared.resolved, capabilities)
+        checked, tc_diagnostics = _run_typecheck_program(prepared.resolved)
         all_warnings_list: list[Diagnostic] = list(prepared.warnings)
         if checked is not None:
             _append_checker_warnings(all_warnings_list, checked)
@@ -1043,9 +1045,7 @@ class PipelineDriver:
                 warnings=all_warnings,
             )
 
-        compiled, match_diagnostics = _run_matchcompile_program(
-            checked, prepared.resolved, capabilities
-        )
+        compiled, match_diagnostics = _run_matchcompile_program(checked, prepared.resolved)
         if compiled is None:
             return ProgramDiscovery(
                 programs=(),
@@ -1094,7 +1094,6 @@ class PipelineDriver:
         self,
         *,
         checked: "CheckedProgram",
-        capabilities: "HostCapabilities",
         host_env: HostEnvironment,
         prepared: PreparedProgram,
         module_ids: "set[ModuleId]",
@@ -1109,7 +1108,6 @@ class PipelineDriver:
         """
         extern_diagnostics = _wire_extern_registry(
             checked=checked,
-            capabilities=capabilities,
             registry=host_env.extern_registry,
             companion_paths=prepared.companion_paths,
             packages=prepared.roots.packages,
@@ -1378,15 +1376,12 @@ class PipelineDriver:
         resolved = prepared.resolved
 
         host_env = self.host_environment()
-        capabilities = host_env.capabilities
         selected_module = None if selected_program is None else selected_program.module
         if executable is not None:
             selected_module = self._cached_executable_module(executable, resolved)
         if compiled is not None:
             if self_validation_enabled():
                 _check_program_artifact_provenance(resolved, compiled.checked)
-            if compiled.capabilities != capabilities:
-                compiled = None
 
         # Reuse a supplied match-compiled program rather than repeating its
         # typecheck and match-compilation passes.
@@ -1395,7 +1390,7 @@ class PipelineDriver:
         if compiled is not None:
             checked = compiled.checked
         else:
-            checked, tc_diagnostics = _run_typecheck_program(resolved, capabilities)
+            checked, tc_diagnostics = _run_typecheck_program(resolved)
         if checked is None:
             return (
                 RunResult(
@@ -1410,7 +1405,7 @@ class PipelineDriver:
         _append_checker_warnings(warnings, checked)
 
         if compiled is None:
-            compiled, match_diagnostics = _run_matchcompile_program(checked, resolved, capabilities)
+            compiled, match_diagnostics = _run_matchcompile_program(checked, resolved)
             if compiled is None:
                 return (
                     RunResult(
@@ -1453,7 +1448,7 @@ class PipelineDriver:
 
         if not options.check_only:
             # Extern (Python FFI) companions: import and resolve every declared
-            # extern up front, gated by capability — fail-fast, before evaluation,
+            # extern up front — fail-fast, before evaluation,
             # and after every static pass (so a static error elsewhere is reported
             # instead, with no companion import side effect). The check-only stop
             # happens before this host-side import step to preserve its
@@ -1462,7 +1457,6 @@ class PipelineDriver:
 
             run_failure = self._wire_externs_or_fail(
                 checked=checked,
-                capabilities=capabilities,
                 host_env=host_env,
                 prepared=prepared,
                 module_ids=set(executable.modules),
@@ -1832,14 +1826,13 @@ def _check_program_artifact_provenance(
 
 def _run_typecheck_program(
     resolved: "ResolvedProgram",
-    capabilities: "HostCapabilities",
 ) -> "tuple[CheckedProgram | None, tuple[Diagnostic, ...]]":
     """Run the program typecheck pass without raising."""
     from agnette.agl.typecheck.program import check_program
 
     try:
         with frontend_recursion_boundary():
-            checked = check_program(resolved, capabilities)
+            checked = check_program(resolved)
     except AglError as exc:
         return None, (exc.to_diagnostic(),)
     return checked, ()
@@ -1848,7 +1841,6 @@ def _run_typecheck_program(
 def _run_matchcompile_program(
     checked: "CheckedProgram",
     resolved: "ResolvedProgram",
-    capabilities: "HostCapabilities",
 ) -> "tuple[MatchCompiledProgram | None, tuple[Diagnostic, ...]]":
     """Run program-level match compilation without raising.
 
@@ -1863,10 +1855,10 @@ def _run_matchcompile_program(
     )
 
     retainable = retained_module_sources(resolved.graph)
-    result = compile_program_matches(checked, retained_match_sites(retainable, capabilities))
+    result = compile_program_matches(checked, retained_match_sites(retainable))
     if result.compiled is None:
         return None, diagnostics_from_match_issues(result.issues, resolved.speller)
-    retain_match_sites(retainable, capabilities, cached_module_sites(result.compiled))
+    retain_match_sites(retainable, cached_module_sites(result.compiled))
     return result.compiled, ()
 
 
@@ -1910,7 +1902,6 @@ def _extern_declarations(
 def _wire_extern_registry(
     *,
     checked: "CheckedProgram",
-    capabilities: "HostCapabilities",
     registry: "ExternRegistry",
     companion_paths: "Mapping[ModuleId, Path | None]",
     packages: "tuple[PackageInfo, ...]",
@@ -1919,15 +1910,12 @@ def _wire_extern_registry(
 ) -> list[Diagnostic]:
     """Import every companion and resolve every declared extern, up front.
 
-    Returns diagnostics — a single capability-gate diagnostic when the host
-    disables ``supports_extern`` and the program declares any extern, one per
-    mounted package in *packages* whose Python requirements do not hold when
-    one of its companions is about to be imported (that companion is then not
-    imported; one already imported at its current version stays usable), or
-    one per companion that fails to import or resolve — collected before any
-    evaluation.  Returns ``[]``
-    immediately when the program declares no extern, regardless of the
-    capability (non-extern programs are never affected).  Mutates *registry*
+    Returns diagnostics — one per mounted package in *packages* whose Python
+    requirements do not hold when one of its companions is about to be imported
+    (that companion is then not imported; one already imported at its current
+    version stays usable), or one per companion that fails to import or resolve
+    — collected before any evaluation.  Returns ``[]`` immediately when the
+    program declares no extern.  Mutates *registry*
     in place, so a ``PipelineDriver`` that reuses the same ``HostEnvironment``
     across multiple runs (e.g. the REPL) imports each companion only once.
     """
@@ -1935,22 +1923,10 @@ def _wire_extern_registry(
 
     # A companion path is recorded (non-``None``) exactly for extern-declaring
     # modules, so this cheap check short-circuits the common no-extern program
-    # before the full declared-function walk in ``_extern_declarations`` — and,
-    # equivalently, gates the capability diagnostic without that walk.
+    # before the full declared-function walk in ``_extern_declarations``.
     included_modules = set(companion_paths) if module_ids is None else module_ids
     if not any(companion_paths.get(mid) is not None for mid in included_modules):
         return []
-    if not capabilities.supports_extern:
-        return [
-            Diagnostic(
-                message=(
-                    "program declares one or more extern definitions, but this "
-                    "host does not support the Python FFI (supports_extern is "
-                    "disabled)"
-                ),
-                line=1,
-            )
-        ]
     declarations = _extern_declarations(checked, module_ids)
     registry.set_nominals(
         dict(descriptors.nominals),
@@ -2045,39 +2021,6 @@ def _requirement_repair(package: "PackageInfo") -> str:
     if is_active_package(package, home=current_config_context().home):
         return "run `agm pkg sync` to install them"
     return f"install the package with `agm pkg install [--editable] {package.root}`"
-
-
-def assemble_host_environment(
-    *,
-    agent_dispatcher: AgentFn | None,
-    session_host: "SessionHost | None",
-    extern_registry: "ExternRegistry | None" = None,
-    get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
-    resolve_agent_spec: "AgentSpecResolver | None" = None,
-) -> HostEnvironment:
-    """Assemble the shared host runtime environment.
-
-    Derives ``HostCapabilities`` from the built-in codecs. Used by both ``run``
-    and ``ReplSession`` so codec capabilities have one source of truth.
-    """
-    from agnette.agl.capabilities import HostCapabilities
-    from agnette.agl.runtime.codec import JsonCodec, TextCodec
-    from agnette.agl.runtime.externs import ExternRegistry
-
-    codecs = (TextCodec(), JsonCodec())
-    capabilities = HostCapabilities(
-        supports_shell_exec=True,
-        supports_extern=True,
-        codec_kinds={codec.name: codec.supported_kinds for codec in codecs},
-    )
-    return HostEnvironment(
-        agent_dispatcher=agent_dispatcher,
-        session_host=session_host,
-        capabilities=capabilities,
-        extern_registry=extern_registry if extern_registry is not None else ExternRegistry(),
-        get_sandbox_context=get_sandbox_context,
-        resolve_agent_spec=resolve_agent_spec,
-    )
 
 
 def exception_value_to_run_error(

@@ -9,17 +9,10 @@ import pytest
 import semver
 
 from agnette.agl import PipelineDriver
-from agnette.agl.capabilities import HostCapabilities
-from agnette.agl.ir.program import ValueDescriptors
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.pipeline import _wire_extern_registry
-from agnette.agl.runtime.externs import ExternRegistry
-from agnette.agl.scope.program import resolve_program
-from agnette.agl.typecheck.program import check_program
 from agnette.packages.manifest import PackageManifest
 from agnette.packages.model import PackageInfo
 from tests._agl_helpers import agl_roots
-from tests.agl.module_graph import load_graph
 
 _STDLIB = Path(__file__).resolve().parent.parent / "packages" / "stdlib"
 
@@ -334,28 +327,6 @@ program def main() -> unit =
     assert result.error.type_name == "FsError"
     assert result.error.fields["path"] == "blocker/sub/b.txt"
     assert (tmp_path / "source.txt").is_file()
-
-
-def test_fs_externs_honor_the_existing_extern_capability_gate() -> None:
-    graph = load_graph(
-        'import std/fs\nprogram def main() -> unit =\n  let _ = fs::exists("file")\n',
-        entry_path=None,
-        roots=agl_roots(),
-    )
-    checked = check_program(resolve_program(graph), HostCapabilities(supports_extern=False))
-
-    diagnostics = _wire_extern_registry(
-        checked=checked,
-        capabilities=HostCapabilities(supports_extern=False),
-        registry=ExternRegistry(),
-        companion_paths={
-            module_id: module.companion_path for module_id, module in graph.modules.items()
-        },
-        packages=(),
-        descriptors=ValueDescriptors(nominals={}, functions={}, exception_field_encodes={}),
-    )
-
-    assert len(diagnostics) == 1
 
 
 def test_packaged_program_reads_a_resource_through_std_fs_in_a_temp_package(

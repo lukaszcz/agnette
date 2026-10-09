@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from agnette.agl import PipelineDriver
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.pipeline import RunResult
 from agnette.agl.scope.symbols import AglScopeError
 from tests._agl_helpers import run_inline_code
@@ -27,7 +26,6 @@ def test_data_layer_types_are_visible_through_the_import() -> None:
         "import std/http\n"
         "let _: http::Headers = http::headers({})\n"
         "let _: http::Method = http::Method::Get\n",
-        HostCapabilities(),
     )
 
 
@@ -40,7 +38,6 @@ def test_method_render_and_other_are_visible_through_the_import() -> None:
         'let other: http::Method = http::Method::Other("PROPFIND")\n'
         "let _: text = get.render()\n"
         "let _: text = other.render()\n",
-        HostCapabilities(),
     )
 
 
@@ -64,14 +61,12 @@ def test_every_http_error_subtype_type_checks_with_its_declared_fields() -> None
         'let response = http::Response(200, http::headers({}), "", "https://x", verb, {}, 0.0)\n'
         'let _ = http::HttpStatusError(url = "https://x", method = verb,\n'
         '  response = response, message = "m")\n',
-        HostCapabilities(),
     )
 
 
 def test_timeout_is_a_param_and_settable_across_the_import_boundary() -> None:
     resolve_and_check_inline_entry(
         "import std/http\nhttp::timeout := None\nlet _: Option[text] = http::timeout\n",
-        HostCapabilities(),
     )
 
 
@@ -79,9 +74,7 @@ def test_lower_name_is_hidden_behind_headers_internals() -> None:
     """``lower-name`` lives in the ``HeadersInternals`` scope, not the public
     surface, so an importer cannot reach it as ``http::lower-name``."""
     with pytest.raises(AglScopeError):
-        resolve_and_check_inline_entry(
-            'import std/http\nlet _ = http::lower-name("X")\n', HostCapabilities()
-        )
+        resolve_and_check_inline_entry('import std/http\nlet _ = http::lower-name("X")\n')
 
 
 # ---------------------------------------------------------------------------
@@ -869,9 +862,7 @@ program def main() -> unit =
 
 
 def test_client_type_and_constructor_are_visible_through_the_import() -> None:
-    resolve_and_check_inline_entry(
-        "import std/http\nlet _: http::Client = http::client()\n", HostCapabilities()
-    )
+    resolve_and_check_inline_entry("import std/http\nlet _: http::Client = http::client()\n")
 
 
 def test_client_normalises_headers_at_construction(

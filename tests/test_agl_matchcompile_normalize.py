@@ -9,7 +9,6 @@ from typing import cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.matchcompile.model import (
     BinderAssignment,
@@ -56,24 +55,11 @@ from agnette.agl.semantics.values import DecimalValue, RecordValue, TextValue
 from agnette.agl.syntax.nodes import AsPattern, Case, ConstructorPattern
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
-from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.typecheck.program import check_program
 from tests._agl_helpers import next_decl_id, strip_decl_ids
 from tests.agl.ir_harness import evaluate_ir_output, make_graph_from_files
 from tests.agl.match_reference import reference_action
 from tests.agl.module_graph import resolve_and_check_inline_entry
-
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
-
-def _check(source: str) -> CheckedModule:
-    return resolve_and_check_inline_entry(source, _CAPS)
 
 
 def _only_case(program: object) -> Case:
@@ -113,7 +99,7 @@ def _stripped_signature(signature: ClosedSignature) -> ClosedSignature:
 
 
 def test_signatures_are_closed_for_boolean_and_enum_in_declaration_order() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Result[T]\n"
         "  | Empty\n"
         "  | Value(item: T, note: text)\n"
@@ -146,7 +132,7 @@ def test_signatures_are_closed_for_boolean_and_enum_in_declaration_order() -> No
 
 
 def test_record_signature_and_pattern_normalization_use_canonical_nominal_identity() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "record Inner[T]\n"
         "  value: T\n"
         "record Outer[T]\n"
@@ -332,7 +318,7 @@ def test_scoped_record_signature_cache_invalidates_on_its_own_redeclaration() ->
 
 
 def test_bottom_has_an_empty_closed_signature_and_no_inhabiting_patterns() -> None:
-    checked = _check("()")
+    checked = resolve_and_check_inline_entry("()")
 
     assert signature_for_type(BottomType(), checked.type_env.type_table) == ClosedSignature(())
     assert not pattern_cell_inhabits_type(
@@ -345,7 +331,9 @@ def test_bottom_has_an_empty_closed_signature_and_no_inhabiting_patterns() -> No
 
 
 def test_normalize_case_preserves_priority_actions_and_binder_provenance() -> None:
-    checked = _check("let value = 1\ncase value of | 0 => 10 | _ as captured => captured")
+    checked = resolve_and_check_inline_entry(
+        "let value = 1\ncase value of | 0 => 10 | _ as captured => captured"
+    )
     case = _only_case(checked.resolved.program)
 
     normalized = normalize_case(case, checked)
@@ -373,7 +361,7 @@ def test_normalize_case_preserves_priority_actions_and_binder_provenance() -> No
 
 
 def test_as_patterns_preserve_all_current_occurrence_binders() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum E\n  | A(value: int)\n  | B\nlet value: E = A(1)\n"
         "case value of | A(value = _ as inner) as whole as same => inner | B => 0"
     )
@@ -388,7 +376,9 @@ def test_as_patterns_preserve_all_current_occurrence_binders() -> None:
 
 
 def test_numeric_literals_share_runtime_equality_canonical_form() -> None:
-    checked = _check("let value: decimal = 1\ncase value of | 1 => 10 | 1.0 => 20 | _ => 30")
+    checked = resolve_and_check_inline_entry(
+        "let value: decimal = 1\ncase value of | 1 => 10 | 1.0 => 20 | _ => 30"
+    )
     normalized = normalize_case(_only_case(checked.resolved.program), checked)
 
     first = normalized.rows[0].cells[0]
@@ -402,7 +392,9 @@ def test_numeric_literals_share_runtime_equality_canonical_form() -> None:
 
 
 def test_fractional_decimal_arm_is_omitted_for_int_but_integral_decimal_is_retained() -> None:
-    checked = _check("let value: int = 1\ncase value of | 1.5 => 15 | 1.0 => 10 | _ => 0")
+    checked = resolve_and_check_inline_entry(
+        "let value: int = 1\ncase value of | 1.5 => 15 | 1.0 => 10 | _ => 0"
+    )
     case = _only_case(checked.resolved.program)
 
     normalized = normalize_case(case, checked)
@@ -420,7 +412,7 @@ def test_fractional_decimal_arm_is_omitted_for_int_but_integral_decimal_is_retai
 
 
 def test_nested_uninhabited_constructor_omits_only_its_source_row() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Box\n"
         "  | box(value: int)\n"
         "let subject: Box = box(value = 1)\n"
@@ -471,7 +463,9 @@ def test_non_data_and_generic_types_have_no_inhabiting_constructors() -> None:
 
 
 def test_boolean_literals_normalize_to_boolean_constructors() -> None:
-    checked = _check("let value = true\ncase value of | false => 0 | true => 1")
+    checked = resolve_and_check_inline_entry(
+        "let value = true\ncase value of | false => 0 | true => 1"
+    )
     normalized = normalize_case(_only_case(checked.resolved.program), checked)
 
     constructors = []
@@ -483,7 +477,7 @@ def test_boolean_literals_normalize_to_boolean_constructors() -> None:
 
 
 def test_constructor_normalization_expands_omitted_generic_fields_in_declaration_order() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Item[T]\n"
         "  | Made(first: T, second: text, third: int)\n"
         'let value: Item[int] = Made(first = 1, second = "x", third = 3)\n'
@@ -518,7 +512,7 @@ def test_constructor_normalization_expands_omitted_generic_fields_in_declaration
 
 
 def test_bare_nullary_variant_uses_resolver_classification() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Choice\n  | none\n  | some(value: int)\n"
         "let value: Choice = none\n"
         "case value of | none => 0 | some(_) => 1"
@@ -548,7 +542,7 @@ def test_imported_generic_enum_normalizes_from_checked_metadata(tmp_path: Path) 
             ),
         },
     )
-    checked = check_program(resolve_program(graph), _CAPS)
+    checked = check_program(resolve_program(graph))
     checked = checked.modules[ENTRY_ID]
     case = _only_case(checked.resolved.program)
 
@@ -574,14 +568,18 @@ def test_imported_generic_enum_normalizes_from_checked_metadata(tmp_path: Path) 
 
 
 def test_text_and_null_literals_retain_distinct_typed_canonical_keys() -> None:
-    text_checked = _check('let value = "x"\ncase value of | "x" => 1 | _ => 0')
+    text_checked = resolve_and_check_inline_entry(
+        'let value = "x"\ncase value of | "x" => 1 | _ => 0'
+    )
     text_cell = (
         normalize_case(_only_case(text_checked.resolved.program), text_checked).rows[0].cells[0]
     )
     assert isinstance(text_cell, ConstructorCell)
     assert text_cell.constructor == LiteralConstructor(LiteralKind.TEXT, "x")
 
-    null_checked = _check("let value: json = null\ncase value of | null => 1 | _ => 0")
+    null_checked = resolve_and_check_inline_entry(
+        "let value: json = null\ncase value of | null => 1 | _ => 0"
+    )
     null_cell = (
         normalize_case(_only_case(null_checked.resolved.program), null_checked).rows[0].cells[0]
     )
@@ -590,7 +588,7 @@ def test_text_and_null_literals_retain_distinct_typed_canonical_keys() -> None:
 
 
 def test_model_rejects_invalid_occurrences_cells_and_normalized_matrices() -> None:
-    checked = _check("let value = 1\ncase value of | 1 => 1 | _ => 0")
+    checked = resolve_and_check_inline_entry("let value = 1\ncase value of | 1 => 1 | _ => 0")
     normalized = normalize_case(_only_case(checked.resolved.program), checked)
     source_cell = normalized.rows[0].cells[0]
     assert isinstance(source_cell, ConstructorCell)
@@ -631,7 +629,9 @@ def test_model_rejects_invalid_occurrences_cells_and_normalized_matrices() -> No
 
 
 def test_decision_model_carries_occurrence_and_binder_identities() -> None:
-    checked = _check("let value = 1\ncase value of | _ as captured => captured")
+    checked = resolve_and_check_inline_entry(
+        "let value = 1\ncase value of | _ as captured => captured"
+    )
     normalized = normalize_case(_only_case(checked.resolved.program), checked)
     cell = normalized.rows[0].cells[0]
     assert isinstance(cell, WildcardCell)
@@ -665,7 +665,7 @@ def test_decision_model_carries_occurrence_and_binder_identities() -> None:
 
 
 def test_renamed_constructor_normalizes_to_its_canonical_member() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "use S::{E::some as X}\n"
         "\n"
         "scope S\n"
@@ -687,7 +687,7 @@ def test_renamed_constructor_normalizes_to_its_canonical_member() -> None:
 
 
 def test_bare_alias_of_a_member_normalizes_to_the_member_it_names() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Color | Red | Blue\n"
         "type X = Color::Red\n"
         "record Box\n  color: Color\n"
@@ -717,7 +717,7 @@ def test_bare_alias_of_a_member_matches_that_member() -> None:
 
 
 def test_source_reference_matcher_preserves_priority_and_partial_constructor_fields() -> None:
-    checked = _check(
+    checked = resolve_and_check_inline_entry(
         "enum Choice\n  | absent\n  | present(value: decimal, note: text)\n"
         'let value: Choice = present(value = 1.0, note = "x")\n'
         "case value of\n"

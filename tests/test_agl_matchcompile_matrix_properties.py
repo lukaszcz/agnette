@@ -7,7 +7,6 @@ from typing import cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.matchcompile.compiler import compile_match_site, validate_compiled_case
 from agnette.agl.matchcompile.matrix import (
@@ -51,19 +50,11 @@ from tests.agl.match_reference import (
 )
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
 
 def _matrix(
     source: str,
 ) -> tuple[CheckedModule, Case, PatternMatrix, OccurrenceAllocator]:
-    checked = resolve_and_check_inline_entry(source, _CAPS)
+    checked = resolve_and_check_inline_entry(source)
     cases: list[Case] = []
 
     def collect(node: object) -> None:

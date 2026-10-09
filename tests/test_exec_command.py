@@ -486,7 +486,6 @@ class TestExecArgsParsing:
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import agnette.agl.pipeline as pipeline
-        from agnette.agl.capabilities import HostCapabilities
         from agnette.agl.diagnostics import Diagnostic
         from agnette.agl.scope.program import ResolvedProgram
         from agnette.agl.typecheck.program import CheckedProgram
@@ -497,11 +496,11 @@ class TestExecArgsParsing:
         typechecks = 0
 
         def counting_typecheck(
-            resolved: ResolvedProgram, capabilities: HostCapabilities
+            resolved: ResolvedProgram,
         ) -> tuple[CheckedProgram | None, tuple[Diagnostic, ...]]:
             nonlocal typechecks
             typechecks += 1
-            return real_typecheck(resolved, capabilities)
+            return real_typecheck(resolved)
 
         monkeypatch.setattr(pipeline, "_run_typecheck_program", counting_typecheck)
 
@@ -2225,7 +2224,7 @@ class TestExecFFI:
 
 
 class TestJsonProgramArgumentsCLI:
-    """A ``program def``'s structured (record/array/decimal) arguments via JsonCodec."""
+    """A ``program def``'s structured (record/array/decimal) arguments via JSON."""
 
     def test_record_argument_parsed_from_json_string(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

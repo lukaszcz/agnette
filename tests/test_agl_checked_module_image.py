@@ -19,7 +19,6 @@ import pytest
 
 from agnette.agl import artifact_serialization
 from agnette.agl.artifact_cache import clear_retained_artifacts
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.lower.program import lower_program
 from agnette.agl.matchcompile import compile_program_matches
 from agnette.agl.modules.ids import ModuleId
@@ -46,8 +45,6 @@ from agnette.agl.typecheck.env import (
 from agnette.agl.typecheck.function_inference import FunctionSignatureRecord
 from agnette.agl.typecheck.program import CheckedProgram, _prepare_program, check_program
 from tests.agl.ir_harness import (
-    base_caps,
-    extern_caps,
     make_file_graph_from_files,
     write_companion_file,
 )
@@ -201,7 +198,6 @@ _MODULES = {
 class _Compiled:
     resolved: ResolvedProgram
     checked: CheckedProgram
-    caps: HostCapabilities
 
 
 @pytest.fixture(scope="module")
@@ -209,12 +205,11 @@ def compiled(tmp_path_factory: pytest.TempPathFactory) -> _Compiled:
     """Compile the fixture program fresh, with no retained-artifact reuse."""
     tmp_path = tmp_path_factory.mktemp("checked_module_image")
     write_companion_file(tmp_path / "root", "lib_extern", _EXTERN_COMPANION_SRC)
-    caps = dataclasses.replace(extern_caps(), supports_shell_exec=True)
     clear_retained_artifacts()
     graph = make_file_graph_from_files(tmp_path, _MODULES, default_stdlib=True)
     resolved = resolve_program(graph)
-    checked = check_program(resolved, caps)
-    return _Compiled(resolved=resolved, checked=checked, caps=caps)
+    checked = check_program(resolved)
+    return _Compiled(resolved=resolved, checked=checked)
 
 
 @pytest.fixture(scope="module")
@@ -225,7 +220,7 @@ def rehydrated(compiled: _Compiled) -> dict[ModuleId, CheckedModule]:
     environment is exactly what a cache-free compilation would have prepared
     -- the seam :meth:`CheckedModuleImage.rehydrate` is meant to be used from.
     """
-    prepared = _prepare_program(compiled.resolved, compiled.caps)
+    prepared = _prepare_program(compiled.resolved)
     result: dict[ModuleId, CheckedModule] = {}
     for mid, rmod in compiled.resolved.modules.items():
         if mid == compiled.resolved.entry_id:
@@ -482,6 +477,6 @@ class TestJournalNeverStartsOutsideProgramChecking:
         seed_env = TypeEnvironment()
         seed_env.seal()
         resolve_and_check_repl_entry(
-            "def value() -> int = 1", base_caps(), seed_env=seed_env, default_stdlib=False
+            "def value() -> int = 1", seed_env=seed_env, default_stdlib=False
         )
         assert seed_env.own_facts() == EnvironmentFacts()

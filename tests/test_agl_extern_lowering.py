@@ -4,21 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.nodes import IrBind, IrMakeClosure
 from agnette.agl.ir.program import ExternFunctionBody
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import ArgumentPreflight, PipelineDriver
 from agnette.agl.runtime.arguments import ProgramArguments
-
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    supports_extern=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
 
 
 def _compile(source: str, companion: str, tmp_path: Path) -> ArgumentPreflight:

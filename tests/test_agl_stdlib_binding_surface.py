@@ -22,7 +22,7 @@ from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.syntax.nodes import Item, LetDecl, ScopeRegion, VarDecl, exported_binding_name
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._agl_helpers import REPO_STDLIB_ROOT
-from tests.agl.module_graph import _DEFAULT_CAPABILITIES, resolve_and_check_inline_entry
+from tests.agl.module_graph import resolve_and_check_inline_entry
 
 STDLIB_MODULES_DIR = REPO_STDLIB_ROOT / MODULE_TREE_DIRNAME
 
@@ -98,4 +98,4 @@ def test_prelude_does_not_re_export_any_stdlib_module_level_binding(name: str) -
     through ``std/prelude``, confirmed against the real resolver rather than
     by reading ``prelude.agl``'s export lines."""
     with pytest.raises(AglScopeError):
-        resolve_and_check_inline_entry(name, _DEFAULT_CAPABILITIES)
+        resolve_and_check_inline_entry(name)

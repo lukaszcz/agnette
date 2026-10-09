@@ -8,7 +8,6 @@ from typing import Protocol, cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.program import NominalDescriptor, NominalKind
 from agnette.agl.modules.ids import ModuleId
@@ -68,31 +67,27 @@ def _array_companion() -> _ArrayCompanion:
 def test_array_methods_are_ambient_but_free_functions_require_an_import() -> None:
     resolve_and_check_inline_entry(
         "let values = [1, 2]\nvalues.map(fn(value: int) => value + 1)\n",
-        HostCapabilities(),
     )
 
     with pytest.raises(AglScopeError):
-        resolve_and_check_inline_entry("range(1, 2)\n", HostCapabilities())
+        resolve_and_check_inline_entry("range(1, 2)\n")
 
-    resolve_and_check_inline_entry("import std/array\narray::range(1, 2)\n", HostCapabilities())
+    resolve_and_check_inline_entry("import std/array\narray::range(1, 2)\n")
 
     with pytest.raises(AglScopeError):
         resolve_and_check_inline_entry(
             "import std/array\narray::join([1, 2], fn(left: int, right: int) => left + right)\n",
-            HostCapabilities(),
         )
 
 
 def test_map_in_place_preserves_the_receiver_element_type() -> None:
     resolve_and_check_inline_entry(
         "let values = [1, 2]\nvalues.map!(fn(value: int) => value + 1)\n",
-        HostCapabilities(),
     )
 
     with pytest.raises(AglTypeError):
         resolve_and_check_inline_entry(
             "let values = [1, 2]\nvalues.map!(fn(value: int) => value as text)\n",
-            HostCapabilities(),
         )
 
 

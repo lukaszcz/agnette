@@ -14,7 +14,6 @@ from decimal import Decimal
 import pytest
 
 from agnette.agl.attributes import ProgramOptionSpec
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.contracts import ParamDecoder
@@ -87,18 +86,7 @@ def _option_type(inner: AglType) -> EnumType:
 
 def _record_point_type() -> "tuple[AglType, TypeTable]":
     """A real typechecked ``record Point\\n  x: int`` type, for value-syntax decode tests."""
-    checked = resolve_and_check_repl_entry(
-        "record Point\n  x: int\nlet p: Point = Point(x = 1)\np",
-        HostCapabilities(
-            supports_shell_exec=True,
-            codec_kinds={
-                "text": frozenset({"text"}),
-                "json": frozenset(
-                    {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-                ),
-            },
-        ),
-    )
+    checked = resolve_and_check_repl_entry("record Point\n  x: int\nlet p: Point = Point(x = 1)\np")
     last = checked.resolved.program.body.items[-1]
     return checked.node_types[last.node_id], checked.type_env.type_table
 

@@ -69,7 +69,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agnette.agl import PipelineDriver
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.builtin_vars import is_engine_builtin_var_key
 from agnette.agl.ir.contracts import (
@@ -189,27 +188,15 @@ def dummy_span() -> SourceSpan:
     return SourceSpan(1, 1, 1, 1, 0, 0, UNKNOWN_SOURCE)
 
 
-#: Capability catalog for AgL program/module typechecking tests: shell exec
-#: plus every codec kind a member/enum/exception method-resolution test needs
-#: to check.
-AGL_TEST_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
-
 def check_agl_graph(graph: ModuleGraph) -> CheckedProgram:
-    """Resolve and typecheck a loaded multi-module graph with :data:`AGL_TEST_CAPS`."""
-    return check_program(resolve_program(graph), AGL_TEST_CAPS)
+    """Resolve and typecheck a loaded multi-module graph."""
+    return check_program(resolve_program(graph))
 
 
 def check_agl_program(
     tmp_path: Path, modules: dict[str, str], *, default_stdlib: bool = True
 ) -> CheckedProgram:
-    """Build and typecheck a multi-module graph with :data:`AGL_TEST_CAPS`."""
+    """Build and typecheck a multi-module graph."""
     from tests.agl.ir_harness import make_graph_from_files
 
     graph = make_graph_from_files(tmp_path, modules, default_stdlib=default_stdlib)

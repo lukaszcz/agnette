@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import AglScopeError, AmbiguousConstructorError
 from agnette.agl.typecheck.env import AglTypeError
@@ -16,7 +15,7 @@ from tests.agl.module_graph import resolve_and_check_inline_entry, resolve_inlin
 
 
 def _check(source: str) -> None:
-    resolve_and_check_inline_entry(source, HostCapabilities())
+    resolve_and_check_inline_entry(source)
 
 
 def _reject_scope(source: str) -> None:
@@ -184,7 +183,7 @@ def test_cross_module_and_builtin_fields_use_field_directed_classification(tmp_p
             ),
         },
     )
-    check_program(resolve_program(graph), HostCapabilities())
+    check_program(resolve_program(graph))
     _check(
         "enum Holder\n  | holder(agent: Agent)\n"
         'let item = holder(AgentCommand(command = "x"))\n'

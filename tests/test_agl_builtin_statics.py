@@ -7,35 +7,22 @@ from pathlib import Path
 import pytest
 
 from agnette.agl import PipelineDriver
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.scope.symbols import AglScopeError, AmbiguousQualificationError, UnknownMemberError
 from agnette.agl.syntax.nodes import Call, LetDecl
-from agnette.agl.typecheck.env import AglTypeError, CheckedModule
+from agnette.agl.typecheck.env import AglTypeError
 from agnette.agl.typecheck.program import check_program
 from tests.agl.module_graph import resolve_and_check_repl_entry
-
-_CAPABILITIES = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
-
-def _check(source: str) -> CheckedModule:
-    return resolve_and_check_repl_entry(source, _CAPABILITIES)
 
 
 def _reject(source: str) -> str:
     with pytest.raises((AglScopeError, AglTypeError)) as raised:
-        _check(source)
+        resolve_and_check_repl_entry(source)
     return str(raised.value)
 
 
 def test_session_statics_type_as_session_with_defaults_and_named_arguments() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         'let agent = Agent::AgentCommand(command = "agent")\n'
         "let default-transport = Session::open(agent)\n"
         'let named-transport = Session::open(agent, name = "named")\n'
@@ -94,7 +81,7 @@ def test_session_unknown_static_raises_unknown_member() -> None:
     owner, so an unrecognized static on it is a missing member, not an
     unresolvable qualifier."""
     with pytest.raises(UnknownMemberError):
-        _check("Session::bogus()")
+        resolve_and_check_repl_entry("Session::bogus()")
 
 
 def test_ambiguous_static_owner_call_raises_ambiguity_not_unknown_static() -> None:
@@ -102,7 +89,7 @@ def test_ambiguous_static_owner_call_raises_ambiguity_not_unknown_static() -> No
     raises the ambiguity itself rather than being reinterpreted as an
     unrecognized built-in static."""
     with pytest.raises(AmbiguousQualificationError) as excinfo:
-        _check(
+        resolve_and_check_repl_entry(
             "use A::*\n"
             "use B::*\n"
             "\n"
@@ -118,7 +105,9 @@ def test_ambiguous_static_owner_call_raises_ambiguity_not_unknown_static() -> No
 
 @pytest.mark.parametrize("call", ["Session::ping()", "::Session::ping()"])
 def test_user_scope_named_session_can_call_its_own_members(call: str) -> None:
-    checked = _check("scope Session\n  def ping() -> int = 1\nend Session\n" + call)
+    checked = resolve_and_check_repl_entry(
+        "scope Session\n  def ping() -> int = 1\nend Session\n" + call
+    )
 
     assert checked.node_types[checked.resolved.program.body.items[-1].node_id].kind == "int"
 
@@ -137,7 +126,7 @@ def test_non_prelude_type_cannot_use_builtin_static_syntax() -> None:
 def test_nested_user_session_does_not_shadow_prelude_session_static(
     session_declaration: str, local_constructor: str, local_kind: str
 ) -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         f"scope User\n{session_declaration}\nend User\n"
         "let default-session = Session::default()\n"
         f"{local_constructor}"
@@ -179,7 +168,7 @@ def test_replacement_std_core_scope_is_not_the_session_static_owner(tmp_path: Pa
     entry = prepared.resolved.modules[prepared.resolved.entry_id].resolved
     assert entry.builtin_static_calls == {}
     with pytest.raises(AglTypeError, match="Unknown builtin"):
-        check_program(prepared.resolved, driver.host_environment().capabilities)
+        check_program(prepared.resolved)
 
 
 def test_prelude_session_constructor_spelling_is_rejected_as_an_unknown_static(
@@ -211,7 +200,7 @@ def test_builtin_static_cannot_be_partially_applied() -> None:
 
 
 def test_builtin_statics_can_be_called_through_values() -> None:
-    _check(
+    resolve_and_check_repl_entry(
         "let open-session: Agent -> Session = Session::open\n"
         "let current-session: () -> Session = Session::default\n"
         'let session = open-session(AgentCommand("worker"))\n'
@@ -221,13 +210,13 @@ def test_builtin_statics_can_be_called_through_values() -> None:
 
 
 def test_static_names_remain_ordinary_identifiers() -> None:
-    checked = _check("let open = 1\nlet default = 2\nopen + default")
+    checked = resolve_and_check_repl_entry("let open = 1\nlet default = 2\nopen + default")
     result = checked.resolved.program.body.items[-1]
     assert checked.node_types[result.node_id].kind == "int"
 
 
 def test_enum_constructor_resolution_remains_available() -> None:
-    checked = _check("SessionTransport::Cli")
+    checked = resolve_and_check_repl_entry("SessionTransport::Cli")
     result = checked.resolved.program.body.items[-1]
     transport = checked.type_env.type_table.builtin_declaration("SessionTransport")
     assert transport is not None

@@ -63,7 +63,6 @@ from agnette.agl.typecheck.env import (
 )
 from agnette.agl.typecheck.program import check_program
 from tests.agl.ir_harness import (
-    base_caps,
     evaluate_ir_with_externs,
     lower_extern_program,
     make_graph_from_files,
@@ -78,9 +77,7 @@ _TEAM = "enum Team =\n  | Billing\n  | Technical\n"
 
 
 def _check(source: str) -> CheckedModule:
-    return resolve_and_check_inline_program_ast(
-        parse_program(source), base_caps(), origin_path=_PATH
-    )
+    return resolve_and_check_inline_program_ast(parse_program(source), origin_path=_PATH)
 
 
 def _reject(source: str) -> AglTypeError:
@@ -188,7 +185,6 @@ class TestTargetParameterMarker:
         imports = "".join(f"import std/{path.stem}\n" for path in sorted(stdlib.glob("*.agl")))
         checked = check_program(
             resolve_program(make_graph_from_files(tmp_path, {"entry": imports + "()"})),
-            base_caps(),
         )
         externs = [
             (module_id, item)
@@ -265,7 +261,6 @@ class TestDirectCallResolution:
                     },
                 )
             ),
-            base_caps(),
         )
         entry = checked.modules[checked.entry_id]
         assert _targets(entry, _let_call(entry, "answer")) == (IntType(),)
@@ -349,7 +344,6 @@ class TestReferenceResolution:
                     },
                 )
             ),
-            base_caps(),
         )
         entry = checked.modules[checked.entry_id]
         assert _targets(entry, _let_reference(entry, "f")) == (target,)

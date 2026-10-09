@@ -14,7 +14,6 @@ from enum import StrEnum
 from typing import Protocol, cast
 from weakref import proxy
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.constraints import ConstraintBounds
 from agnette.agl.diagnostics import Diagnostic, diagnostic_from_span
 from agnette.agl.ir.reserved_nominals import reserved_nominal_id
@@ -60,6 +59,12 @@ from agnette.agl.typecheck.env import (
 )
 from agnette.agl.typecheck.inference import InferenceEngine
 from agnette.agl.zones import ParamZone
+
+#: Format name -> the ``Type.kind`` strings that format can encode and decode.
+CODEC_KINDS: Mapping[str, frozenset[str]] = {
+    "text": frozenset({"text"}),
+    "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
+}
 
 # ---------------------------------------------------------------------------
 # Deferred built-in obligations
@@ -132,7 +137,6 @@ class BuiltinCheckCtx(Protocol):
     """The minimal _Checker surface the built-in call checker needs."""
 
     _env: TypeEnvironment
-    _caps: HostCapabilities
 
     def _record_contract_spec(self, node_id: int, spec: OutputContractSpec) -> None: ...
 
@@ -306,8 +310,6 @@ class BuiltinCallChecker:
             )
             return
         if kind is BuiltinKind.EXEC:
-            if not self._ctx._caps.supports_shell_exec:
-                raise AglTypeError("The host does not support 'exec' (shell) calls.", span=span)
             self._ctx._register_builtin_obligation(
                 PendingBuiltinObligation(
                     node_id=node_id,
@@ -939,9 +941,6 @@ class BuiltinCallChecker:
     # --- exec ---
 
     def check_exec(self, node: CompleteCall, *, expected: Type | None) -> Type:
-        if not self._ctx._caps.supports_shell_exec:
-            raise AglTypeError("The host does not support 'exec' (shell) calls.", span=node.span)
-
         # Explicit type argument overrides context.
         explicit = self._resolve_explicit_target(node, "exec")
         target_type: Type = (
@@ -1326,7 +1325,7 @@ class BuiltinCallChecker:
 
     def _select_codec(self, target_type: Type, span: SourceSpan) -> str:
         kind = target_type.kind
-        for codec_name, supported_kinds in self._ctx._caps.codec_kinds.items():
+        for codec_name, supported_kinds in CODEC_KINDS.items():
             if kind in supported_kinds:
                 return codec_name
         raise AglTypeError(
@@ -1336,13 +1335,13 @@ class BuiltinCallChecker:
         )
 
     def _validate_format_option(self, format_name: str, target_type: Type, span: SourceSpan) -> str:
-        if format_name not in self._ctx._caps.codec_kinds:
-            known = sorted(self._ctx._caps.codec_kinds)
+        if format_name not in CODEC_KINDS:
+            known = sorted(CODEC_KINDS)
             raise AglTypeError(
                 f"Unknown codec '{format_name}' in 'format' option. Known codecs: {known}.",
                 span=span,
             )
-        supported_kinds = self._ctx._caps.codec_kinds[format_name]
+        supported_kinds = CODEC_KINDS[format_name]
         if target_type.kind not in supported_kinds:
             raise AglTypeError(
                 f"Codec '{format_name}' does not support target type '{target_type!r}'. "

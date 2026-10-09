@@ -21,7 +21,6 @@ from typing import cast
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.program import resolve_program
@@ -46,13 +45,6 @@ from tests.agl.module_graph import (
 
 _PATH = Path("/virtual/extern_typecheck.agl")
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
 
 # ``check_extern``/``resolve_program_ast`` build a hand-crafted single-module
 # graph that never imports ``std/prelude`` (see
@@ -79,7 +71,7 @@ _ASK_BUILTIN_SOURCE = (
 )
 
 
-def check_extern(source: str, capabilities: HostCapabilities | None = None) -> CheckedModule:
+def check_extern(source: str) -> CheckedModule:
     """Parse + resolve (file-backed) + check *source*, returning the CheckedModule.
 
     Uses ``resolve_and_check_program_ast``'s hand-built single-module graph
@@ -91,15 +83,13 @@ def check_extern(source: str, capabilities: HostCapabilities | None = None) -> C
     enforces. Building a real loaded graph here would hit that loader check
     first and mask the one this class means to test.
     """
-    return resolve_and_check_inline_program_ast(
-        parse_program(source), capabilities or _CAPS, origin_path=_PATH
-    )
+    return resolve_and_check_inline_program_ast(parse_program(source), origin_path=_PATH)
 
 
-def reject_extern(source: str, capabilities: HostCapabilities | None = None) -> AglTypeError:
+def reject_extern(source: str) -> AglTypeError:
     """Assert that *source* is rejected with an ``AglTypeError``."""
     with pytest.raises(AglTypeError) as exc_info:
-        check_extern(source, capabilities)
+        check_extern(source)
     return exc_info.value
 
 
@@ -113,7 +103,7 @@ def check_extern_graph(tmp_path: Path, modules: dict[str, str]) -> CheckedProgra
     """Build and typecheck a multi-module graph; returns the ``CheckedProgram``."""
     graph = make_graph_from_files(tmp_path, modules)
     resolved = resolve_program(graph)
-    return check_program(resolved, _CAPS)
+    return check_program(resolved)
 
 
 # ---------------------------------------------------------------------------
@@ -507,7 +497,7 @@ class TestExternProvenanceFinalization:
             env,
             attributes=resolved.attributes,
         ).collect(resolved.program)
-        checker = _Checker(env, resolved, _CAPS)
+        checker = _Checker(env, resolved)
         definitions = [item for item in resolved.program.body.items if isinstance(item, FuncDef)]
         for definition in definitions:
             checker._preregister_funcdef(definition)
@@ -563,7 +553,7 @@ class TestExternProvenanceFinalization:
         from agnette.agl.typecheck.env import TypeEnvironment
         from agnette.agl.typecheck.inference import InferenceEngine
 
-        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), _CAPS)
+        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"))
         target = _ExternTarget("id", IntType(), 1, ENTRY_ID)
         checker._extern_expr_targets[10] = (target,)
         checker._extern_binding_targets[11] = (target,)
@@ -592,7 +582,7 @@ class TestExternProvenanceFinalization:
         from agnette.agl.typecheck.env import TypeEnvironment
         from agnette.agl.typecheck.inference import InferenceEngine
 
-        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"), _CAPS)
+        checker = _Checker(TypeEnvironment(), resolve_inline_entry("()"))
         unresolved = InferenceEngine().fresh()
         with pytest.raises(AglTypeError, match="concrete target"):
             checker._finalize_extern_call_obligation(

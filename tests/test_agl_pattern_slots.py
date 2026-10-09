@@ -14,7 +14,6 @@ from contextlib import redirect_stdout
 import pytest
 
 from agnette.agl import PipelineDriver
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope import ModuleResolution
 from agnette.agl.scope.symbols import AglScopeError, AmbiguousConstructorError, BinderKind
@@ -240,7 +239,6 @@ def test_ambiguous_slot_assignment_is_diagnosed_at_the_target() -> None:
             "case item of\n"
             "  | wrap(Red) =>\n"
             "    Red := Color::Blue\n",
-            HostCapabilities(),
         )
 
     diagnostic = exc_info.value.to_diagnostic()
@@ -256,7 +254,7 @@ def test_a_reference_reading_an_enclosing_slot_that_names_two_constructors_is_re
         "    case w of\n    | W(c = Red) => Red\n    | _ => p.c\n  | _ => p.c\n"
     )
     with pytest.raises(AmbiguousConstructorError) as raised:
-        resolve_and_check_inline_entry(entry, HostCapabilities())
+        resolve_and_check_inline_entry(entry)
     error = raised.value
     assert error.span is not None
     assert error.span.start_offset == entry.index("=> Red") + len("=> ")
@@ -270,7 +268,6 @@ def test_a_reference_reading_an_enclosing_slot_a_pattern_binds_is_accepted() -> 
         "record Pair\n  c: Color\nrecord W\n  c: Color\n"
         "def f(p: Pair, w: W) -> Color =\n  case p of\n  | Pair(c = _ as Red) =>\n"
         "    case w of\n    | W(c = Red) => Red\n    | _ => Color::Blue\n",
-        HostCapabilities(),
     )
 
 
@@ -292,7 +289,6 @@ def test_typecheck_diagnoses_duplicate_binders_that_could_have_been_variants(
             "  | packet(value: int, other: int)\n"
             "let item = packet(1, 2)\n"
             f"case item of | {pattern} => value",
-            HostCapabilities(),
         )
 
 
@@ -332,7 +328,6 @@ def test_accessors_dereference_a_slot_selected_as_a_binder() -> None:
         "  | packet(value: int)\n"
         "let item = packet(1)\n"
         "case item of | packet(value) => value",
-        HostCapabilities(),
     )
     reference = _slot_reference(checked.resolved)
 
@@ -350,7 +345,6 @@ def test_accessors_dereference_a_slot_selected_as_a_constructor() -> None:
         "  | packet(flag: Flag)\n"
         "let item = packet(on())\n"
         "case item of | packet(on) => on",
-        HostCapabilities(),
     )
     reference = _slot_reference(checked.resolved)
 
@@ -371,7 +365,6 @@ def test_accessors_dereference_a_nested_slot_to_the_enclosing_binding() -> None:
         "case item of\n"
         "  | packet(on) =>\n"
         "    case item of | packet(on) => on",
-        HostCapabilities(),
     )
     reference = _slot_reference(checked.resolved)
 
@@ -382,9 +375,7 @@ def test_accessors_dereference_a_nested_slot_to_the_enclosing_binding() -> None:
 
 
 def test_accessors_pass_through_references_that_are_not_slots() -> None:
-    checked = resolve_and_check_inline_entry(
-        "enum Flag\n  | on\nlet value = 1\nlet _ = value\non", HostCapabilities()
-    )
+    checked = resolve_and_check_inline_entry("enum Flag\n  | on\nlet value = 1\nlet _ = value\non")
     value_id, value = next(
         (node_id, ref)
         for node_id, ref in checked.resolved.resolution.items()
@@ -418,9 +409,9 @@ def test_checking_leaves_scope_output_untouched_and_stays_repeatable() -> None:
     before_constructor_refs = dict(resolved.constructor_refs)
 
     with pytest.raises(AglTypeError) as first:
-        check_resolved(resolved, HostCapabilities())
+        check_resolved(resolved)
     with pytest.raises(AglTypeError) as second:
-        check_resolved(resolved, HostCapabilities())
+        check_resolved(resolved)
 
     assert str(first.value) == str(second.value)
     assert resolved.resolution == before_resolution

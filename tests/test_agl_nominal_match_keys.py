@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 import agnette.agl.matchcompile.compiler as compiler_module
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.matchcompile.model import (
     ClosedSignature,
     NominalConstructor,
@@ -20,19 +19,10 @@ from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
 from tests.agl.module_graph import resolve_and_check_inline_entry
 
-_CAPS = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
 
 def test_record_and_enum_member_signatures_use_nominal_record_constructors() -> None:
     checked = resolve_and_check_inline_entry(
         "record R\n  x: int\nenum E\n  | A(x: int)\nlet e: E = A(x = 1)\ncase e of | A(x = _) => 0",
-        _CAPS,
     )
     cases: list[Case] = []
     walk(

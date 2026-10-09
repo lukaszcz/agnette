@@ -95,7 +95,6 @@ class EntryPipeline:
         self,
         *,
         pipeline_program: Program,
-        host_env: HostEnvironment,
         next_start_id: int,
         spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
     ) -> LoadedCheckedProgram:
@@ -134,7 +133,6 @@ class EntryPipeline:
             resolved_program = self._resolve_program(graph)
             checked_program = check_program(
                 resolved_program,
-                host_env.capabilities,
                 entry_seed_env=self._ctx._type_env,
                 cached_checked_modules=self._ctx._retained_checked_modules,
                 session_builtin_declarations=self._ctx._session_builtin_declarations,
@@ -191,7 +189,6 @@ class EntryPipeline:
         try:
             loaded = self.load_and_check_program(
                 pipeline_program=pipeline_program,
-                host_env=host_env,
                 next_start_id=next_start_id,
                 spaced_qualifiers=spaced_qualifiers,
             )
@@ -274,7 +271,6 @@ class EntryPipeline:
         self,
         program: Program,
         next_start_id: int,
-        host_env: HostEnvironment,
         *,
         spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
     ) -> tuple[ResolvedProgram, CheckedProgram]:
@@ -294,7 +290,6 @@ class EntryPipeline:
         )
         checked_program = check_program(
             resolved_program,
-            host_env.capabilities,
             entry_seed_env=self._ctx._type_env,
             cached_checked_modules=self._ctx._retained_checked_modules,
             session_builtin_declarations=self._ctx._session_builtin_declarations,
@@ -632,7 +627,6 @@ class EntryPipeline:
             decoded_param_seeds_by_module.setdefault(key[0], {})[key] = seed
         extern_diagnostics = _wire_extern_registry(
             checked=checked_program,
-            capabilities=host_env.capabilities,
             registry=host_env.extern_registry,
             companion_paths=companion_paths,
             packages=self._ctx._ensure_roots().packages,

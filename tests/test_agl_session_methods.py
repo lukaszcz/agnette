@@ -4,33 +4,20 @@ from __future__ import annotations
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.semantics.types import TextType
 from agnette.agl.syntax.nodes import Call, LetDecl
-from agnette.agl.typecheck.env import AglTypeError, CheckedModule
+from agnette.agl.typecheck.env import AglTypeError
 from tests.agl.module_graph import resolve_and_check_repl_entry
-
-_CAPABILITIES = HostCapabilities(
-    supports_shell_exec=True,
-    codec_kinds={
-        "text": frozenset({"text"}),
-        "json": frozenset({"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}),
-    },
-)
-
-
-def _check(source: str) -> CheckedModule:
-    return resolve_and_check_repl_entry(source, _CAPABILITIES)
 
 
 def _reject(source: str) -> AglTypeError:
     with pytest.raises(AglTypeError) as raised:
-        _check(source)
+        resolve_and_check_repl_entry(source)
     return raised.value
 
 
 def test_session_methods_typecheck_with_declared_result_types() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         "let session = Session::default()\n"
         'session.compact(instructions = "retain decisions")\n'
         "session.reset()\n"
@@ -54,7 +41,7 @@ def test_session_methods_typecheck_with_declared_result_types() -> None:
 
 
 def test_session_ask_infers_targets_like_agent_ask() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         "let session = Session::default()\n"
         'let text-response = session.ask("summarize")\n'
         'let count: int = session.ask("count")\n'
@@ -105,7 +92,7 @@ def test_session_values_cannot_be_forged_through_record_update() -> None:
 
 
 def test_session_ask_records_parse_options_and_output_contract_metadata() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         "let session = Session::default()\n"
         'let count: int = session.ask("count", format = "json", strict-json = true, '
         "parse-error-retries = 2)\n"
@@ -130,7 +117,7 @@ def test_session_ask_records_parse_options_and_output_contract_metadata() -> Non
 
 
 def test_session_ask_infers_a_generic_target_from_a_sibling_argument() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         "def choose[T](value: T, fallback: T) -> T = value\n"
         "let session = Session::default()\n"
         'let count = choose(session.ask("count"), 7)\n'
@@ -172,7 +159,7 @@ def test_session_methods_reject_wrong_arities_and_types(source: str) -> None:
 
 
 def test_session_dollar_literal_ask_uses_session_ask_typechecking() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         "let session = Session::default()\n"
         "let count: int = session.ask $ count the completed tasks\n"
         "count"
@@ -185,7 +172,7 @@ def test_session_dollar_literal_ask_uses_session_ask_typechecking() -> None:
 
 
 def test_agent_builtin_ask_keeps_its_existing_dispatch() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         'let agent = AgentCommand("worker")\nlet response: text = agent.ask("summarize")\nresponse'
     )
 
@@ -200,7 +187,7 @@ def test_non_session_receivers_do_not_gain_session_methods() -> None:
 
 
 def test_nested_session_constructor_and_regular_method_remain_user_defined() -> None:
-    checked = _check(
+    checked = resolve_and_check_repl_entry(
         "scope User\n"
         "  record Session\n"
         "  def Session::ask(self, prompt: text) -> text = prompt\n"

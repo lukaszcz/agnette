@@ -23,7 +23,6 @@ from agnette.agl.semantics.values import (
 from agnette.agl.zones import ParamZone
 from tests._agl_helpers import run_inline_code
 from tests.agl.ir_harness import (
-    agent_caps,
     evaluate_ir,
     evaluate_ir_raises_with_agents,
     evaluate_ir_with_agents,
@@ -377,7 +376,7 @@ status
         scripts={"checker": ['{"$case": "Ok"}']},
     )
     assert isinstance(ir["status"], RecordValue)
-    program = lower_inline_ir(source, caps=agent_caps())
+    program = lower_inline_ir(source)
     descriptors = ValueDescriptors.from_program(program)
     assert descriptors.nominals[ir["status"].nominal].display_name == "Status::Ok"
 
@@ -644,7 +643,7 @@ prompt-text
 
     req = ir["req"]
     assert isinstance(req, RecordValue)
-    program = lower_inline_ir(source, caps=agent_caps())
+    program = lower_inline_ir(source)
     assert req.nominal == program.builtin_nominals.resolve("AgentRequest")
     descriptors = ValueDescriptors.from_program(program)
     assert isinstance(req.fields["agent"], RecordValue)
@@ -672,7 +671,7 @@ req
 
     req = ir["req"]
     assert isinstance(req, RecordValue)
-    program = lower_inline_ir(source, caps=agent_caps())
+    program = lower_inline_ir(source)
     descriptors = ValueDescriptors.from_program(program)
     target = req.fields["target-type"]
     assert isinstance(target, RecordValue)
@@ -907,7 +906,7 @@ s
         scripts={"checker": ['{"$case": "Bad"}', '{"$case": "Ok"}']},
     )
     assert isinstance(ir["s"], RecordValue)
-    program = lower_inline_ir(source, caps=agent_caps())
+    program = lower_inline_ir(source)
     descriptors = ValueDescriptors.from_program(program)
     assert descriptors.nominals[ir["s"].nominal].display_name == "Status::Ok"
 
@@ -2029,7 +2028,7 @@ target
         scripts={"a": []},
     )
     assert isinstance(ir["target"], RecordValue)
-    program = lower_inline_ir(source, caps=agent_caps())
+    program = lower_inline_ir(source)
     descriptors = ValueDescriptors.from_program(program)
     assert descriptors.nominals[ir["target"].nominal].display_name == "Option::Some"
     assert ir["target"].fields["value"] == TextValue("text")

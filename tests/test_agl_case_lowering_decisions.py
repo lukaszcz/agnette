@@ -7,7 +7,6 @@ from dataclasses import replace
 
 import pytest
 
-from agnette.agl.capabilities import HostCapabilities
 from agnette.agl.ir.nodes import (
     IrBind,
     IrCase,
@@ -38,15 +37,7 @@ from tests.agl.module_graph import resolve_and_check_inline_entry
 
 
 def _lower(source: str) -> ExecutableProgram:
-    capabilities = HostCapabilities(
-        codec_kinds={
-            "text": frozenset({"text"}),
-            "json": frozenset(
-                {"json", "record", "enum", "array", "dict", "int", "decimal", "bool"}
-            ),
-        }
-    )
-    checked = resolve_and_check_inline_entry(source, capabilities)
+    checked = resolve_and_check_inline_entry(source)
     compiled = compile_checked_module(checked)
     return lower_compiled_module(compiled, source_text=source)
 
@@ -94,7 +85,7 @@ def test_lowering_accepts_a_record_nominal_switch(self_validation_disabled: None
         "record Box\n  value: int\nlet value = Box(value = 1)\n"
         "case value of | Box(value = _) => 1\n"
     )
-    checked = resolve_and_check_inline_entry(source, HostCapabilities())
+    checked = resolve_and_check_inline_entry(source)
     compiled = compile_checked_module(checked)
     case_id, compiled_case = next(iter(case_sites(compiled.sites).items()))
     root = compiled_case.root
