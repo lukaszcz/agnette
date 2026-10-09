@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from agnette.agl import PipelineDriver
-from agnette.agl.diagnostics import AglTypeError
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.parser import AglSyntaxError
 from agnette.agl.parser.parser import parse_program
@@ -428,11 +427,39 @@ def test_import_and_export_clauses_accept_path_atoms(source: str, kind: type[obj
     assert atoms == expected
 
 
-def test_use_rejects_operator_alias_for_scope_route() -> None:
-    with pytest.raises(AglTypeError):
+@pytest.mark.parametrize(
+    "use",
+    ("use Point as >>", "use ::Point as >>", "use Outer::Point as >>"),
+    ids=("bare", "current-module", "nested"),
+)
+def test_use_rejects_operator_alias_for_scope_route(use: str) -> None:
+    with pytest.raises(AglScopeError):
         resolve_inline_entry(
-            "use Point as >>\n\nscope Point\n  def distance() -> int = 1\nend Point"
+            f"{use}\n\nscope Outer\n  scope Point\n    def distance() -> int = 1\n"
+            "  end Point\nend Outer\n"
+            "\n"
+            "scope Point\n  def distance() -> int = 1\nend Point"
         )
+
+
+@pytest.mark.parametrize(
+    "use",
+    ("use Outer::{Point as <&>}", "use ::Outer::{Point as <&>}", "use Outer::{Point as >>}"),
+    ids=("bare", "current-module", "operator-run"),
+)
+def test_use_rejects_braced_operator_rename_of_a_scope(use: str) -> None:
+    with pytest.raises(AglScopeError):
+        resolve_inline_entry(
+            f"{use}\n\nscope Outer\n  scope Point\n    def distance() -> int = 1\n"
+            "  end Point\nend Outer"
+        )
+
+
+def test_use_accepts_braced_operator_rename_of_a_member() -> None:
+    resolve_inline_entry(
+        "use Outer::{plus as <+>, Point as <&>}\n\nscope Outer\n"
+        "  def plus(a: int, b: int) -> int = a\n  record Point\n    x: int\nend Outer"
+    )
 
 
 @pytest.mark.parametrize(

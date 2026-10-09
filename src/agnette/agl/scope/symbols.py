@@ -40,6 +40,7 @@ from agnette.agl.modules.ids import (
     spell_declaration,
     spell_scope_path,
 )
+from agnette.agl.operator_names import is_operator_name
 from agnette.agl.semantics.external_names import ExternalName
 from agnette.agl.semantics.types import ExceptionType, RecordType, TypeVarType
 from agnette.agl.syntax.nodes import (
@@ -1198,6 +1199,31 @@ class AglScopeError(AglError):
     (first-error abort policy).  Carries an optional ``SourceSpan`` for
     precise source location.
     """
+
+
+def reject_unreadable_binding_name(
+    name: str,
+    span: SourceSpan,
+    *,
+    unreadable_value: Callable[[], bool],
+    is_qualifier: Callable[[], bool],
+) -> None:
+    """Reject an import or ``use`` binding *name* that nothing could ever read.
+
+    A value cannot take a built-in call name (the bare spelling always means
+    the built-in) and a scope or module cannot take an operator name (a
+    qualifier is an identifier). The conditions are lazy: they are read only
+    for a name the rule covers.
+    """
+    if name in BUILTIN_CALL_NAMES and unreadable_value():
+        raise AglScopeError(
+            f"'{name}' is a built-in name: a value bound as '{name}' can never be read.",
+            span=span,
+        )
+    if is_operator_name(name) and is_qualifier():
+        raise AglScopeError(
+            f"A scope or module alias must be an identifier, not '{name}'", span=span
+        )
 
 
 class NoVisibleConstructorError(AglScopeError):

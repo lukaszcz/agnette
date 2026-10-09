@@ -8,13 +8,17 @@ filtering a surface.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TypeAlias
 
 from agnette.agl.modules.ids import ModuleId, spell_declaration
-from agnette.agl.scope.symbols import MissRepair, UnknownMemberError
+from agnette.agl.scope.symbols import (
+    MissRepair,
+    UnknownMemberError,
+    reject_unreadable_binding_name,
+)
 from agnette.agl.scope.symbols import import_item_path as _item_path
 from agnette.agl.scope.symbols import to_bare_atom as _atom
 from agnette.agl.scope.symbols import to_bare_path as _path
@@ -349,11 +353,14 @@ def validate_import_items(
     exports: Mapping[ModuleId, Mapping[NameAtom, QName]],
     scope_exports: Mapping[ModuleId, Mapping[NameAtom, ScopeOrigins]],
     aliases: Collection[QName],
+    unreadable_value: Callable[[QName], bool] = lambda _qname: False,
 ) -> None:
     """Reject the first ``hiding`` or tail item of *decls* naming nothing its module exports.
 
     An item beneath one of the exported *aliases* names a path beneath the
-    alias's target, which scope reads.
+    alias's target, which scope reads. A tail item may not bind a value of
+    *unreadable_value* (every value but a ``builtin def``) or a scope under
+    a name it could never be read as (:func:`reject_unreadable_binding_name`).
     """
     for decl in decls:
         for module in target_modules(targets[decl.node_id]):
@@ -369,6 +376,21 @@ def validate_import_items(
                         spell_declaration(module, prefix),
                         span=decl.span,
                         repair=MissRepair.NOT_EXPORTED,
+                    )
+            for item in decl.tail or ():
+                path = _item_path(item)
+                bound = item.rename or (path[0] if len(path) == 1 else None)
+                if bound is not None:
+                    declared = module_exports.get(_atom(path))
+                    reject_unreadable_binding_name(
+                        bound,
+                        decl.span,
+                        unreadable_value=lambda: (
+                            declared is not None and unreadable_value(declared)
+                        ),
+                        is_qualifier=lambda: (
+                            declared is None and _atom(path) in scope_exports[module]
+                        ),
                     )
 
 

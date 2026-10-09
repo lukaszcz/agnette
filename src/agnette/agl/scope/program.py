@@ -1277,10 +1277,33 @@ def resolve_program(
             spaced_qualifiers=loaded.spaced_qualifiers,
         )
 
+    def unreadable_value(qname: QName) -> bool:
+        """Whether *qname* is a value other than a ``builtin def``; a constructing alias is one."""
+        info = decl_info.get(qname)
+        alias = all_public_types.get(qname)
+        if isinstance(alias, TypeAlias):
+            return type_owners.alias_constructor(alias, qname) is not None
+        if qname in cross_module_constructor_refs:
+            return True
+        return (
+            info is not None
+            and not info.is_method
+            and (
+                (info.kind is BinderKind.function_binding and not info.is_builtin)
+                or info.kind
+                in (BinderKind.let_binding, BinderKind.var_binding, BinderKind.builtin_var_binding)
+            )
+        )
+
     def validate_imports(mid: ModuleId) -> None:
         """Reject an import item of *mid* naming nothing, over the exports as they now stand."""
         validate_import_items(
-            graph.modules[mid].imports, all_targets, export_maps, scope_export_maps, alias_origins
+            graph.modules[mid].imports,
+            all_targets,
+            export_maps,
+            scope_export_maps,
+            alias_origins,
+            unreadable_value,
         )
 
     def reexport(members: tuple[ModuleId, ...], *, validate: bool) -> None:

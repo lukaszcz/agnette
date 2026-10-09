@@ -73,7 +73,7 @@ A test enforces the import contract:
 - The IR's data modules and the vocabulary leaves are the foundation; `semantics` builds on them; `syntax` is an AST-only leaf.
 - `typecheck` reaches only scope's output and lower layers; `matchcompile` imports nothing downstream.
 - The IR depends only on its own data, the engine-key catalog, and the vocabulary leaves; the evaluator imports no frontend module directly; the runtime is eval-free; the pipeline sits on top.
-- Vocabulary leaves below every pass: `value_syntax/` (literal rules and the value-syntax reader), `keywords.py`, `zones.py`, `attributes.py` (built-in attribute catalog), `modules/ids.py`, `constraints.py` (`Eq`/`Hashable` kinds). They let scope, typecheck, and the IR share names without importing each other.
+- Vocabulary leaves below every pass: `value_syntax/` (literal rules and the value-syntax reader), `keywords.py`, `operator_names.py` (operator spelling), `zones.py`, `attributes.py` (built-in attribute catalog), `modules/ids.py`, `constraints.py` (`Eq`/`Hashable` kinds). They let scope, typecheck, and the IR share names without importing each other.
 - `artifact_storage.py` is the disk-cache envelope shared by the module cache, artifact serialization, and companion bytecode.
 
 ## What To Read Next

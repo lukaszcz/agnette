@@ -35,6 +35,7 @@ from agnette.agl.scope.lookup import (
     lookup_steps,
 )
 from agnette.agl.scope.symbols import (
+    BinderKind,
     ContributionLayer,
     DeclarationKey,
     MissRepair,
@@ -45,6 +46,7 @@ from agnette.agl.scope.symbols import (
     UnknownQualifierError,
     atom_under_prefix,
     contribution_origin,
+    reject_unreadable_binding_name,
 )
 from agnette.agl.scope.symbols import declaration_qname as _key_qname
 from agnette.agl.scope.symbols import import_item_path as _item_path
@@ -295,14 +297,37 @@ class UseReader:
             return False
         found = self._renamed.get(decl.node_id)
         if found is None:
-            target = _use_target(decl)
-            kinds = (LookupKind.VALUE, LookupKind.TYPE) if len(target) > 1 else (LookupKind.TYPE,)
             with self._reading_use(decl):
-                found = any(self._use_path_reached(site, decl, target, kind) for kind in kinds) or (
-                    len(target) > 1 and self._pending_at(site, decl, target)
-                )
+                found = self._names_declaration(site, decl, _use_target(decl))
             self._renamed[decl.node_id] = found
         return found
+
+    def _names_declaration(
+        self, site: ScopePath, decl: UseDecl, names: ScopePath, owners_within: int | None = None
+    ) -> bool:
+        """Whether *names*, spelled beneath *decl*'s anchor in region *site*, is a declaration.
+
+        A value or a type; a lone name can only be a type.
+        """
+        kinds = (LookupKind.VALUE, LookupKind.TYPE) if len(names) > 1 else (LookupKind.TYPE,)
+        return any(
+            self._use_path_reached(site, decl, names, kind, owners_within) for kind in kinds
+        ) or (len(names) > 1 and self._pending_at(site, decl, names))
+
+    def _binds_unreadable_value(
+        self, site: ScopePath, decl: UseDecl, names: ScopePath, owners_within: int | None = None
+    ) -> bool:
+        """Whether *names* reaches a value other than a ``builtin def``."""
+        return any(
+            candidate.target.ref is None
+            or not (
+                candidate.target.ref.kind is BinderKind.function_binding
+                and candidate.target.ref.is_builtin
+            )
+            for candidate in self._use_path_reached(
+                site, decl, names, LookupKind.VALUE, owners_within
+            )
+        ) or self._pending_at(site, decl, names)
 
     def type_renames(self, site: ScopePath, decl: UseDecl) -> tuple[str, ...]:
         """The names *decl*, written in region *site*, renames a type as.
@@ -562,9 +587,19 @@ class UseReader:
         """
         target = _use_target(decl)
         with self._reading_use(decl):
-            if not self._use_renames(site, decl) and not self._names_qualifier(site, decl, target):
+            renames = self._use_renames(site, decl)
+            if not renames and not self._names_qualifier(site, decl, target):
                 raise self._hidden(site, decl, target) or UnknownQualifierError(
                     _use_target_spelling(decl), span=decl.span, repair=MissRepair.IMPORT_MODULE
+                )
+            if decl.alias is not None:
+                reject_unreadable_binding_name(
+                    decl.alias,
+                    decl.span,
+                    unreadable_value=lambda: (
+                        renames and self._binds_unreadable_value(site, decl, target)
+                    ),
+                    is_qualifier=lambda: not renames,
                 )
             for item in (*(decl.tail or ()), *decl.hidden):
                 item_path = _item_path(item)
@@ -576,4 +611,20 @@ class UseReader:
                 ):
                     raise self._hidden(site, decl, path, len(target)) or UnknownMemberError(
                         _use_target_spelling(decl, item_path), span=decl.span
+                    )
+            for item in decl.tail or ():
+                item_path = _item_path(item)
+                path = (*target, *item_path)
+                bound = item.rename or (item_path[0] if len(item_path) == 1 else None)
+                if bound is not None:
+                    reject_unreadable_binding_name(
+                        bound,
+                        decl.span,
+                        unreadable_value=lambda: self._binds_unreadable_value(
+                            site, decl, path, len(target)
+                        ),
+                        is_qualifier=lambda: (
+                            item.rename is not None
+                            and not self._names_declaration(site, decl, path, len(target))
+                        ),
                     )

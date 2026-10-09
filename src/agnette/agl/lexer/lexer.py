@@ -238,6 +238,7 @@ def _is_as(token: Token) -> bool:
 
 # Token types that can spell one selected member of a ``use`` header.
 _MEMBER_TYPES = frozenset({NAME, OP_NAME})
+_USE_HEADER_END_TYPES = _MEMBER_TYPES | {STAR, "RBRACE"}
 
 
 def _is_use_declaration(tokens: list[Token], index: int) -> bool:
@@ -287,7 +288,7 @@ def _is_use_declaration(tokens: list[Token], index: int) -> bool:
     current_module = header[0].type == DCOLON
     if current_module and sum(token.type == DCOLON for token in header) == 1:
         return any(_is_as(token) for token in header)
-    return header[-1].type in {NAME, STAR, "RBRACE"}
+    return header[-1].type in _USE_HEADER_END_TYPES
 
 
 def _promote_soft_keywords(tokens: list[Token]) -> list[Token]:

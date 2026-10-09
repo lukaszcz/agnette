@@ -2686,7 +2686,7 @@ class AstBuilder(Transformer):
         """Collect an unresolved named use target with a trailing alias."""
         return (
             _typed_tokens(args, "MODQUAL"),
-            _required_token(args, "NAME"),
+            _find_name_token(args),
             next(a for a in args if type(a) is str),
             None,
         )
@@ -2694,7 +2694,7 @@ class AstBuilder(Transformer):
     def use_path_single(self, meta: Meta, args: _Args) -> _UseTarget:
         """Build a single-member use tail after its unresolved target path."""
         prefixes = _typed_tokens(args, "MODQUAL")
-        target = _required_token(args, "NAME")
+        target = _find_name_token(args)
         atom = _SelectedAtom(
             path=_ScopePath(((str(target), token_span(target, self._source)),)),
             rename=None,

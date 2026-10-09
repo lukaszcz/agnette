@@ -123,6 +123,7 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
                 "agnette.agl.artifact_cache",
                 "agnette.agl.infix",
                 "agnette.agl.modules",
+                "agnette.agl.operator_names",
                 "agnette.agl.scope",
                 "agnette.agl.semantics",
                 "agnette.agl.syntax",

@@ -126,6 +126,14 @@ _SCENARIOS: dict[str, Scenario] = {
             "use-rename": accepted(
                 "use ops::{<+> as <&>}\n1 <&> 2 <&> 3", _pair("ops::L", _L_INT, _INT)
             ),
+            "unbraced-use": accepted("use ops::<+>\n1 <+> 2 <+> 3", _pair("ops::L", _L_INT, _INT)),
+            "unbraced-use-operator-rename": accepted(
+                "use ops::<+> as <&>\n1 <&> 2 <&> 3", _pair("ops::L", _L_INT, _INT)
+            ),
+            "unbraced-use-name-rename": accepted(
+                "use ops::<+> as plus\nplus(1, 2)", _pair("ops::L", _INT, _INT)
+            ),
+            "unbraced-use-hiding": rejected("use ops::* hiding <+>\n1 <+> 2", AglScopeError, "<+>"),
         },
     ),
     "region-scoped-import": Scenario(
@@ -209,10 +217,28 @@ _SCENARIOS: dict[str, Scenario] = {
                 "U::h()",
                 _pair("P", _INT, _t("P", _INT, _INT)),
             ),
+            "used-unbraced": accepted(
+                "scope U\n  use S::<+>\n  def h() -> P[int, P[int, int]] = 1 <+> 2 <+> 3\nend U\n"
+                "\n"
+                "U::h()",
+                _pair("P", _INT, _t("P", _INT, _INT)),
+            ),
             "member-body": accepted(
                 "def S::g() -> P[int, P[int, int]] = 1 <+> 2 <+> 3\nS::g()",
                 _pair("P", _INT, _t("P", _INT, _INT)),
             ),
+        },
+    ),
+    "unbraced-use-members": Scenario(
+        header=("import m",),
+        modules={
+            "m": "def x(a: int, b: int) -> int = a\ndef y() -> int = 1\n"
+            "def <+>(a: int, b: int) -> int = b\n"
+        },
+        probes={
+            "rename-to-operator": accepted("use m::x as <&>\n(<&>)(1, 2)", _INT),
+            "hiding-list": rejected("use m::* hiding y, <+>\n(<+>)(1, 2)", AglScopeError, "<+>"),
+            "hiding-list-keeps-rest": accepted("use m::* hiding y, <+>\nx(1, 2)", _INT),
         },
     ),
     "standalone": Scenario(

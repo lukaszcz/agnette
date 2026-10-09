@@ -3062,7 +3062,19 @@ class TestModuleSystemLexer:
     def test_incomplete_use_headers_remain_identifier_expressions(self, source: str) -> None:
         assert tok(source)[0] == ("NAME", "use")
 
-    @pytest.mark.parametrize("source", ("use S::{x,}", "use S::>> as add"))
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "use S::{x,}",
+            "use S::>> as add",
+            "use S::<+>",
+            "use S::x as <+>",
+            "use S::<+> as <&>",
+            "use S::* hiding <+>",
+            "use S::* hiding x, <+>",
+            "use ::S::<+>",
+        ),
+    )
     def test_complete_use_header_recognizer_handles_tail_edges(self, source: str) -> None:
         assert tok(source)[0] == ("USE", "use")
 

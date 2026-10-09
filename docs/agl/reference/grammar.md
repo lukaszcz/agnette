@@ -77,7 +77,7 @@ use_decl    ::= "use" use_target ("::" use_tail | "as" NAME) [hiding_clause]
 export_decl ::= "export" module_path ["/*"] ["::" braces] [hiding_clause]
 
 tail          ::= "*" | braces | path_atom ["as" ref_name]
-use_tail      ::= "*" | braces | (NAME "::")* NAME ["as" NAME]
+use_tail      ::= "*" | braces | (NAME "::")* ref_name ["as" ref_name]
 braces        ::= "{" brace_item ("," brace_item)* ","? "}"
 brace_item    ::= path_atom ["as" ref_name]
 use_target    ::= "/" qualifier_path | "::" scope_path | qualifier_path
@@ -90,10 +90,9 @@ path_atom     ::= (NAME "::")* name
 
 An import alias and a tail are exclusive. Braces cannot be empty or nested,
 and cannot be combined with `hiding`. `hiding` follows a plain import, an
-import glob, a module wildcard import, or a use glob. Outside braces, a `use`
-alias, selection, and rename are `NAME`s; an operator name, selected or as a
-rename, needs braces (`use S::{<+>}`, `use S::{plus as <+>}`). Semantics:
-[Modules](modules.md).
+import glob, a module wildcard import, or a use glob. A scope or module alias
+is a `NAME`; a selected member and a rename may be operator names
+(`use S::<+>`, `use S::x as <+>`). Semantics: [Modules](modules.md).
 
 <!-- agl-check: fragment -->
 ```agl
@@ -107,6 +106,7 @@ import foo/bar/* as A
 export foo/bar::{x as X, y}
 export foo/bar/* hiding internal
 use Point::{distance as d}
+use Point::<+>
 use ::Scope::*
 ```
 

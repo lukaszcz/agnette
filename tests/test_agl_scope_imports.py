@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agnette.agl.modules.ids import ModuleId
@@ -17,9 +19,11 @@ from agnette.agl.scope.imports import (
     qualifier_members,
     validate_import_items,
 )
+from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import AglScopeError
 from agnette.agl.syntax.nodes import ImportDecl, ImportItem
 from tests._agl_helpers import dummy_span
+from tests.agl.ir_harness import make_inline_graph_from_files
 
 _next_node_id = 0
 
@@ -224,3 +228,138 @@ def test_hiding_and_tail_atoms_must_name_public_members() -> None:
                 {module: {}},
                 (),
             )
+
+
+_LIB = """\
+def f() -> int = 1
+def print() -> int = 2
+record Rec
+  n: int
+
+scope S
+  def g() -> int = 3
+  def print() -> int = 4
+
+  scope Inner
+    def h() -> int = 5
+  end Inner
+
+end S
+"""
+
+_TYPES_LIB = "type print = int\ntype Alias = int\nrecord Rec\n  n: int\n"
+_CONSTRUCTING_ALIAS_LIB = "record Box\n  n: int\n\ntype print = Box\ntype P = Box\n"
+
+
+def _resolve(tmp_path: Path, entry: str, lib: str = _LIB, *, stdlib: bool = False) -> None:
+    resolve_program(
+        make_inline_graph_from_files(tmp_path, {"entry": entry, "lib": lib}, default_stdlib=stdlib)
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "import lib::{f as exec}\n()",
+        "import lib::f as print\n()",
+        "import lib::{Rec as exec}\n()",
+        "import lib::{S::g as render}\n()",
+        "import lib::{print}\n()",
+        "import lib::print\n()",
+        "import lib::{Rec, print}\n()",
+        "import lib\nuse lib::{f as exec}\n()",
+        "import lib\nuse lib::f as exec\n()",
+        "import lib\nuse lib::S::g as exec\n()",
+        "import lib\nuse lib::S::{g as ask}\n()",
+        "import lib\nuse lib::{Rec as copy}\n()",
+        "import lib\nuse lib::{print}\n()",
+        "import lib\nuse lib::print\n()",
+        "import lib\nuse lib::S::{print}\n()",
+        "import lib\n\nscope T\n  import lib::{f as exec}\n\nend T\n\n()",
+    ],
+)
+def test_rename_or_selection_to_an_unreadable_built_in_name_is_rejected(
+    tmp_path: Path, entry: str
+) -> None:
+    with pytest.raises(AglScopeError):
+        _resolve(tmp_path, entry)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "import lib::*\n()",
+        "import lib\nuse lib::*\n()",
+        "import lib::* hiding print\n()",
+        "import lib as print\n()",
+        "import lib\nuse lib as print\n()",
+        "import lib::{S as print}\n()",
+        "import lib::{S::print}\n()",
+        "import lib::{f}\n()",
+        "import lib\nuse lib::{S::print}\n()",
+        "import lib\nuse lib::{f as g}\n()",
+    ],
+)
+def test_built_in_name_uses_that_can_never_be_read_bare_stay_legal_when_none_is(
+    tmp_path: Path, entry: str
+) -> None:
+    _resolve(tmp_path, entry)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "import lib::{print}\n()",
+        "import lib::{Alias as exec}\n()",
+        "import lib::{print as exec}\n()",
+        "import lib\nuse lib::{print}\n()",
+        "import lib\nuse lib::{Alias as print}\n()",
+        "import lib\nuse lib::Alias as print\n()",
+    ],
+)
+def test_type_only_members_may_take_built_in_names(tmp_path: Path, entry: str) -> None:
+    _resolve(tmp_path, entry, _TYPES_LIB)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "import lib::{P as exec}\n()",
+        "import lib::P as exec\n()",
+        "import lib::{print}\n()",
+        "import lib::print\n()",
+        "import lib\nuse lib::{P as print}\n()",
+        "import lib\nuse lib::P as print\n()",
+        "import lib\nuse lib::{print}\n()",
+        "import lib\nuse lib::print\n()",
+    ],
+)
+def test_constructing_alias_may_not_take_a_built_in_name(tmp_path: Path, entry: str) -> None:
+    with pytest.raises(AglScopeError):
+        _resolve(tmp_path, entry, _CONSTRUCTING_ALIAS_LIB)
+
+
+def test_built_in_definitions_are_still_reached_through_the_prelude(tmp_path: Path) -> None:
+    _resolve(tmp_path, "print(1)\nlet s = render(1)\n()", stdlib=True)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "import lib::{S as <&>}\n()",
+        "import lib::{S::Inner as <&>}\n()",
+        "import lib\nuse lib::{S as <&>}\n()",
+        "import lib\nuse lib::S::{Inner as <&>}\n()",
+    ],
+)
+def test_scope_may_not_be_renamed_to_an_operator(tmp_path: Path, entry: str) -> None:
+    with pytest.raises(AglScopeError):
+        _resolve(tmp_path, entry)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    ["import lib::{f as <+>}\n()", "import lib\nuse lib::{Rec as <&>}\n()"],
+)
+def test_members_may_be_renamed_to_an_operator(tmp_path: Path, entry: str) -> None:
+    _resolve(tmp_path, entry)

@@ -122,7 +122,16 @@ names a type, and a whole-target alias when it names a scope:
   nothing may be declared beneath the new name
   ([Type aliases](types.md#type-aliases)).
 - `use Scope as Alias` and `use library as Alias` contribute every member
-  beneath `Alias`.
+  beneath `Alias`, in a braced tail too (`use library::{Scope as Alias}`);
+  an alias of a scope or module must be an identifier. A selected member and
+  a rename of a value, function, type, or record may be operator names
+  (`use library::<+> as <&>`).
+
+A rename of an import or `use` item may not take a built-in call name
+([Keywords](lexical-structure.md#keywords)), and a bare selection may not
+bring in a function, constructor, or binding named like one, since the bare
+spelling always means the built-in; a type, scope, or module may take such a
+name, as may an item selected beneath a scope path.
 
 A renamed spelling is another name for the same declaration, so reaching a
 declaration through a rename and directly is no ambiguity. `hiding` is valid

@@ -907,8 +907,8 @@ use_decl : USE MODPATH use_suffix hiding_clause?
 use_suffix : use_alias                    -> use_suffix_alias
            | DCOLON use_path_tail
 use_anchored_suffix : use_path_tail
-use_path_tail : MODQUAL* NAME use_alias   -> use_path_alias
-              | MODQUAL* NAME             -> use_path_single
+use_path_tail : MODQUAL* name use_alias   -> use_path_alias
+              | MODQUAL* name             -> use_path_single
               | MODQUAL* STAR             -> use_path_glob
               | MODQUAL* braces           -> use_path_braces
 export_decl : EXPORT MODPATH WILDCARD? export_tail_clause? hiding_clause?

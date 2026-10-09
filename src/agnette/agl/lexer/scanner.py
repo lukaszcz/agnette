@@ -32,7 +32,6 @@ original bytes.  Offsets are 0-based and end-exclusive; lines and columns are
 from __future__ import annotations
 
 import re
-import unicodedata
 from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass
 
@@ -89,6 +88,7 @@ from agnette.agl.lexer.tokens import (
     VERBATIM_END,
     VERBATIM_START,
 )
+from agnette.agl.operator_names import is_operator_name_char
 from agnette.agl.value_syntax import lexical
 from agnette.agl.value_syntax.errors import ValueSyntaxError
 from agnette.util.ident import is_identifier_start
@@ -158,21 +158,6 @@ _RESERVED_OPERATOR_NAMES: dict[str, str] = {
     "?": PLACEHOLDER,
     **_SINGLE_OPS,
 }
-
-# Operator names are Unicode punctuation/symbol runs, minus AgL's structural
-# delimiters. Exact reserved spellings such as "=", "==", "->", and "|" are
-# retyped via _RESERVED_OPERATOR_NAMES after maximal munch.
-_OPERATOR_NAME_EXCLUDED_CHARS: frozenset[str] = frozenset(
-    ("(", ")", "[", "]", "{", "}", ":", ",", ".", ";", '"', "'", "@", "#", "_")
-)
-
-
-def _is_operator_name_char(ch: str) -> bool:
-    """Return True when *ch* can participate in a standalone operator name."""
-    if ch == "" or ch.isspace() or ch in _OPERATOR_NAME_EXCLUDED_CHARS:
-        return False
-    return unicodedata.category(ch)[0] in ("P", "S")
-
 
 # ---------------------------------------------------------------------------
 # Triple-quoted template segments (typed union)
@@ -1150,8 +1135,8 @@ class _Scanner:
             yield from self._scan_verbatim(start_pos, start_line, start_col)
             return
 
-        if _is_operator_name_char(ch):
-            while not self._at_end() and _is_operator_name_char(self._peek()):
+        if is_operator_name_char(ch):
+            while not self._at_end() and is_operator_name_char(self._peek()):
                 self._advance()
             value = self._src[start_pos : self._pos]
             reserved_type = _RESERVED_OPERATOR_NAMES.get(value)
