@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agent.runner import command_targets_session_id
+from agnette.agent.runner import cleanup_temp_files, command_targets_session_id
 from agnette.agent.session.cli_adapters import AgentCommandSessionBackend, open_cli_session
 from agnette.agent.session.protocol import (
     BackendSettings,
@@ -301,6 +301,24 @@ def test_ask_preserves_failed_process_diagnostics(
     assert error.call_info.exit_code == returncode
 
 
+def _fail_cleanup(monkeypatch: pytest.MonkeyPatch) -> list[list[Path]]:
+    """Make prompt cleanup raise after removing the files; return the recorded calls."""
+    calls: list[list[Path]] = []
+
+    def failing_cleanup(temp_files: list[Path]) -> None:
+        calls.append(temp_files)
+        cleanup_temp_files(temp_files)
+        raise OSError("cleanup failed")
+
+    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    return calls
+
+
+def _assert_cleaned(calls: list[list[Path]]) -> None:
+    assert calls
+    assert not any(path.exists() for paths in calls for path in paths)
+
+
 def test_ask_preserves_failed_process_diagnostics_when_cleanup_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -314,11 +332,8 @@ def test_ask_preserves_failed_process_diagnostics_when_cleanup_fails(
             spawn_error=None,
         )
 
-    def failing_cleanup(temp_files: list[Path]) -> None:
-        raise OSError("cleanup failed")
-
     monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
-    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    cleanup_calls = _fail_cleanup(monkeypatch)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(SessionAskError) as raised:
@@ -327,6 +342,7 @@ def test_ask_preserves_failed_process_diagnostics_when_cleanup_fails(
     assert raised.value.cause == "nonzero_exit"
     assert raised.value.exit_code == 2
     assert raised.value.stderr_tail == "runner failure"
+    _assert_cleaned(cleanup_calls)
 
 
 def test_ask_reports_protocol_failure_for_undecodable_stdout_on_an_otherwise_successful_run(
@@ -379,60 +395,47 @@ def test_ask_undecodable_stderr_tail_gives_empty_text(monkeypatch: pytest.Monkey
 def test_ask_preserves_an_interpolation_failure_when_cleanup_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cleanup_calls: list[list[Path]] = []
-
-    def failing_cleanup(temp_files: list[Path]) -> None:
-        cleanup_calls.append(temp_files)
-        raise OSError("cleanup failed")
-
     monkeypatch.delenv("AGM_SESSION_TEST_MISSING", raising=False)
-    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    cleanup_calls = _fail_cleanup(monkeypatch)
     backend = _open("runner --session=%{SESSION_ID} --option=%{AGM_SESSION_TEST_MISSING}")
 
     with pytest.raises(SessionAskError) as raised:
         backend.ask(SessionAskRequest(prompt="question"))
 
     assert raised.value.cause == "interpolation_failure"
-    assert cleanup_calls
+    _assert_cleaned(cleanup_calls)
 
 
 def test_ask_cleans_up_after_an_interrupt_without_masking_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cleanup_calls: list[list[Path]] = []
-
     def interrupted_run_capture_result(argv: list[str], **kwargs: object) -> ProcessCaptureResult:
         raise KeyboardInterrupt
 
-    def failing_cleanup(temp_files: list[Path]) -> None:
-        cleanup_calls.append(temp_files)
-        raise OSError("cleanup failed")
-
     monkeypatch.setattr("agnette.agent.runner.run_capture_result", interrupted_run_capture_result)
-    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    cleanup_calls = _fail_cleanup(monkeypatch)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(KeyboardInterrupt):
         backend.ask(SessionAskRequest(prompt="question"))
 
-    assert cleanup_calls
+    _assert_cleaned(cleanup_calls)
 
 
 def test_ask_surfaces_cleanup_failure_after_a_successful_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def failing_cleanup(temp_files: list[Path]) -> None:
-        raise OSError("cleanup failed")
-
     def fake_run_capture_result(argv: list[str], **kwargs: object) -> ProcessCaptureResult:
         return _capture_result()
 
     monkeypatch.setattr("agnette.agent.runner.run_capture_result", fake_run_capture_result)
-    monkeypatch.setattr("agnette.agent.session.cli_adapters.cleanup_temp_files", failing_cleanup)
+    cleanup_calls = _fail_cleanup(monkeypatch)
     backend = _open("runner --session %{SESSION_ID}")
 
     with pytest.raises(OSError, match="cleanup failed"):
         backend.ask(SessionAskRequest(prompt="question"))
+
+    _assert_cleaned(cleanup_calls)
 
 
 def test_reset_mints_a_new_underlying_id(
