@@ -1,6 +1,6 @@
 # AgL Python FFI
 
-An `extern def` declares a function implemented in a Python *companion* beside its module with a `.py` suffix. `runtime/externs.py` owns companion loading, the registry, dispatch, and interpreter-scoped state; `runtime/boundary.py` owns value conversion, nominal class synthesis, live views, and callable proxies. The evaluator hands each extern call to the registry.
+An `extern def` declares a function implemented in a Python *companion* beside its module with a `.py` suffix. `runtime/externs.py` owns companion loading, the registry, dispatch, interpreter-scoped state, the call window, and callable proxies; `runtime/boundary.py` owns value conversion, nominal class synthesis, and live views. The evaluator hands each extern call to the registry.
 
 ## Loading
 
@@ -27,7 +27,7 @@ Companion globals are registry-scoped; `runtime.state` reaches a per-host-sessio
 
 ## Code Entry Points
 
-- `src/agnette/agl/runtime/externs.py` — registry, loading, dispatch, state activation.
-- `src/agnette/agl/runtime/boundary.py` — conversion, class synthesis, views, proxies, the exception carrier.
+- `src/agnette/agl/runtime/externs.py` — registry, loading, dispatch, state activation, callable proxies.
+- `src/agnette/agl/runtime/boundary.py` — conversion, class synthesis, views, the exception carrier.
 - `src/agnette/agl/runtime/type_contracts.py` — `agl.TypeContract`.
 - `packages/stdlib/src/*.py` — the standard library's companions.

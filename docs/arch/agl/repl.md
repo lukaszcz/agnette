@@ -13,7 +13,7 @@
 
 ## Retained Library Image
 
-Every entry compiles a whole program, but library modules are compiled once: the session reuses each module's checked artifacts while the graph holds the same AST object, and fresh default-stdlib sessions start from a cached checked bootstrap image. Lowering allocates into a persistent `LinkImage` (`lower/repl.py`); allocations of modules a failed entry left incomplete are kept for reuse but never linked ([execution/lowering.md](execution/lowering.md#the-ir)).
+Every entry compiles a whole program, but library modules are compiled once: the session reuses each module's checked artifacts while the graph holds the same AST object; a fresh default-stdlib session without a parameter-seed resolver (so never `agm repl` itself) starts from a cached checked bootstrap image. Lowering allocates into a persistent `LinkImage` (`lower/repl.py`); allocations of modules a failed entry left incomplete are kept for reuse but never linked ([execution/lowering.md](execution/lowering.md#the-ir)).
 
 ## Front-End Seam
 

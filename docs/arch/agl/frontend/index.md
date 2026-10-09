@@ -6,7 +6,7 @@ The frontend turns source text into a resolved, type-checked, match-compiled pro
 
 Each pass wraps its input artifact rather than mutating it: parse → AST (raw user-operator chains retained); scope → resolved program (chains grouped); typecheck → checked program; match compilation → the artifact lowering consumes. AST nodes stay frozen and shared; pass conclusions live in side tables keyed by node id.
 
-All passes report through one diagnostic channel (`agl/diagnostics.py`); scope and typecheck diagnostics carry a phase tag. `agl/recursion.py` turns stack exhaustion on over-deep source into an ordinary diagnostic ([hosting.md](../hosting.md)).
+All passes report through one diagnostic channel (`agl/diagnostics.py`). `agl/recursion.py` turns stack exhaustion on over-deep source into an ordinary diagnostic ([hosting.md](../hosting.md)).
 
 ## What To Read Next
 

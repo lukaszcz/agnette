@@ -22,7 +22,7 @@ The AST records source structure faithfully so later passes never reconstruct sp
 - A partial-application placeholder is a call argument, never an expression; a leading-dot chain becomes a marked unary lambda over a hygienic receiver.
 - Attributes are held verbatim; the AST never imports the attribute catalog (`agl/attributes.py`), and meaning is assigned by scope ([scope.md](scope.md#attribute-recognition)).
 
-Inline-source hosts (`agm exec -c`, the REPL) parse through `PipelineDriver.parse_entry(inline_code=True)`, whose purely syntactic wrapper (`parser/wrap.py`) keeps bindings at the module root and moves executable items into a synthetic entry.
+Inline-source hosts (`agm exec -c`, the REPL) parse through `PipelineDriver.parse_entry(inline_code=True)`, whose purely syntactic wrapper (`parser/wrap.py`) keeps declarations, path-bearing and `@param` bindings, and the plain bindings they read at the module root, moving everything else into a synthetic entry.
 
 ## Code Entry Points
 
