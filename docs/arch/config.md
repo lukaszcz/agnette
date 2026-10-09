@@ -4,19 +4,19 @@ AgM is configured through layered TOML files resolved relative to a *config cont
 
 ## Config Context
 
-The project directory comes from an environment variable, else from walking up from the invocation directory to a recognizable project layout ([workspaces.md](workspaces.md)), so a command behaves the same from any workspace. `context.py` also memoizes reads repeated within one invocation (activation index, package pins, active package set), keyed by content stamps of their inputs.
+The project directory comes from walking up from the invocation directory to a recognizable project layout, else from `PROJ_DIR` ([workspaces.md](workspaces.md)), so a command behaves the same from any workspace. `context.py` also memoizes reads repeated within one invocation (activation index, package pins, active package set), keyed by content stamps of their inputs.
 
 ## AgM Home and the Standard Library
 
-One AgM home holds config, sandbox settings, the AgL global library, and the package store: `AGM_HOME`, else a populated `<install-prefix>/.agm`, else `~/.agm`. Setup copies the templates from the repository's `config/` into it.
+One AgM home holds config, sandbox settings, the AgL global library, and the package store: `AGM_HOME`, else a populated `<install-prefix>/.agm`, else `~/.agm`. `just install` copies the templates from the repository's `config/` into it.
 
 The standard library resolves from `AGM_STDLIB` (unchecked override), then a development `std` checkout containing the invocation's anchor, then the active managed `std` store package, then the shipped tree located by `agnette.stdlib_locator` ([package-store.md](package-store.md)).
 
 ## Layering and Precedence
 
-General configuration merges from least to most specific: install prefix, AgM home, project config directory, workspace `.agm/config.toml`. Tables merge by key. Path-valued settings resolve relative to their defining file and interpolate `%{VAR}` *leniently* — an unresolved hole stays verbatim, so an irrelevant section never prevents loading.
+General configuration merges from least to most specific: install prefix, AgM home, project config directory, then the invocation directory's `.agm/config.toml`. Tables merge by key. Path-valued settings resolve relative to their defining file (else the invocation directory when that path does not exist) and interpolate `%{VAR}` *leniently* — an unresolved hole stays verbatim, so an irrelevant section never prevents loading.
 
-Sections are consumed by specific features: `[run]`, `[exec]`, `[agent]` ([agents.md](agents.md)), `[modules]`, `[packages]` (per-invocation version pins). The `agm config` group copies project config into a workspace, prints its environment, and creates missing files.
+Sections are consumed by specific features: `[run]`, `[exec]`, `[repl]`, `[agent]` ([agents.md](agents.md)), `[modules]`, `[packages]` (exact package-version pins), `[deps]` (workspace dependency branches). The `agm config` group copies project config into a workspace, prints its environment, and creates missing files.
 
 ## AgL Settings
 
@@ -30,11 +30,11 @@ A **program route** is the selected program's qualified config table; a **module
 
 - `config/engine_keys.py` is the pure catalog of engine settings (kind, default, path-ness, validity rule); CLI flags, the checker, IR validation, and the evaluator all derive from it. `cli_support/engine_seeds.py` resolves the CLI-over-config tiers once per run.
 - `config/qualified_keys.py` routes a table to a module by path suffix (ambiguous suffixes are errors) and keeps layer provenance. A package-registered program is also addressed by its command path (`[dev.review]`), with each path prefix as a lower-specificity inherited group table. AgM's own section names are excluded from module routing.
-- `cli_support/param_config.py` resolves module parameters and the program route; [agl/hosting.md](agl/hosting.md) describes how hosts seed the resolved values.
+- `cli_support/param_config.py` resolves module parameters across both routes; `commands/exec_program.py` resolves program arguments and engine settings from the program route; [agl/hosting.md](agl/hosting.md) describes how hosts seed the resolved values.
 
 ## Sandbox Configuration
 
-Sandbox settings have their own discovery and merge chain across the same scopes, shared by `agm run` and AgL sandboxed calls ([sandbox.md](sandbox.md)).
+Sandbox settings are per-command JSON profiles discovered in the AgM home, the project config directory, and the invocation directory's `.sandbox/`, merged across them, and shared by `agm run` and AgL sandboxed calls ([sandbox.md](sandbox.md)).
 
 ## Code Entry Points
 

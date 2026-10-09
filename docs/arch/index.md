@@ -15,8 +15,8 @@ Start here for the system shape, then read only the subsystem documents relevant
 ## Architecture and Design Decisions
 
 - **The command tree is the directory tree.** `src/agnette/agm/commands/` mirrors the CLI hierarchy one-to-one; finding a command is a path lookup.
-- **Commands orchestrate; primitives do.** Manager-specific behavior lives in `agnette.agm`'s project and tmux services; shared behavior lives in `agnette`'s core, utilities, VCS, configuration, agents, packages, and sandboxing — never in commands.
-- **Configuration is layered TOML.** Install, home, project, and workspace scopes merge; AgL source writes and CLI flags override file layers where relevant.
+- **Commands orchestrate; primitives do.** Manager-specific behavior lives in `agnette.agm`'s project and tmux services; shared behavior lives in `agnette`'s core, utilities, VCS, configuration, agents, packages, and sandboxing — never in commands. Configuration is the exception to strict layering: it uses `agnette.agm.project.layout` for project discovery and config paths.
+- **Configuration is layered TOML.** Install, home, project, and invocation-directory scopes merge; AgL source writes and CLI flags override file layers where relevant.
 - **The filesystem is the project model.** A project is a directory layout plus git worktrees and dependency checkouts, detected from disk with no separate database.
 - **Agent calls share one host boundary.** AgL dispatches typed agent values through shared subprocess and session services.
 - **AgL is firewalled, not isolated.** Both packages share one service layer. Import layering and the lazy `agnette.agl` façade let lower domains use AgL leaves without loading the execution stack; static passes depend on the AST, not the parser. The Python companion API is `agl`, separate from the implementation namespace.
@@ -41,6 +41,6 @@ Start here for the system shape, then read only the subsystem documents relevant
 - `src/agnette/core/`, `src/agnette/util/` — primitives and pure helpers.
 - `src/agnette/config/`, `src/agnette/stdlib_locator.py` — configuration; shipped stdlib location.
 - `src/agnette/agent/`, `src/agnette/vcs/`, `src/agnette/packages/`, `src/agnette/sandbox/` — agents, git, packages, sandboxing.
-- `src/agnette/agl/` — AgL implementation and host runtime; `packages/stdlib/src/` — the AgL standard library and its Python companions; `packages/sysone/` — the `sysone/jev` package.
+- `src/agnette/agl/` — AgL implementation and host runtime; `packages/stdlib/src/` — the AgL standard library and its Python companions; `packages/sysone/` — the `sysone/jev` package; `packages/devel/` — the development-workflow package.
 - `src/agnette/version.py` — release version, kept in lockstep with package and project metadata.
 - `tests/`, `docs/`, `config/` (templates, editor modes), `stubs/` (typing stubs), `tools/` (repository tooling).

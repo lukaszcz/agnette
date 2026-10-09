@@ -1,12 +1,12 @@
 # AgL Host Runtime
 
-The runtime package is the eval-free services layer: agent dispatch and session bridging, codecs, parameter conversion, host-environment types, rendering, serialization, tracing, and the Python FFI registry. It imports neither the evaluator nor the pipeline, and builds on the shared agent and core layers.
+The runtime package is the eval-free services layer: agent dispatch and session bridging, codecs, parameter conversion, host-environment types, rendering, serialization, tracing, and the Python FFI registry. It imports neither the evaluator nor the pipeline (`contract.py`/`codec.py` also host the check-time contract path over checker types), and builds on the shared agent and core layers.
 
 ## Agents and Sessions
 
-- `runtime/agents.py` decodes an `Agent` value into a host spec exactly once; `AgentRequest` and session values carry the decoded spec ([../../agents.md](../../agents.md)).
-- `runtime/sessions.py` bridges AgL `Session` values to the shared session service and supplies a dispatcher-backed fallback host when no service is present.
-- `runtime/sandbox_values.py` decodes every `sandbox` operand into a closed host mode and is the one place it becomes a permission mode plus `SandboxLimits` ([../../sandbox.md](../../sandbox.md)). A session's sandbox is fixed at open.
+- `runtime/agents.py` converts between `Agent` values and host specs; effects decode once per call, so host requests and the session table carry the spec while AgL `Session`/`AgentRequest` values keep the `Agent` value ([../../agents.md](../../agents.md)).
+- `runtime/sessions.py` defines the session-host protocol the evaluator drives (implemented by the shared service's `AglSessionHost`) and supplies a dispatcher-backed fallback host when no service is present.
+- `runtime/sandbox_values.py` decodes agent `sandbox` operands into a closed host mode (the one place it becomes a permission mode plus `SandboxLimits`) and `exec` operands into optional `SandboxLimits` ([../../sandbox.md](../../sandbox.md)). A session's sandbox is fixed at open.
 - With echo or tracing on, requests carry an output callback; backends separate progress (`intermediate_output`) from final content, which follows the normal decode path.
 
 ## Codecs
@@ -27,7 +27,7 @@ The runtime package is the eval-free services layer: agent dispatch and session 
 
 ## Code Entry Points
 
-- `src/agnette/agl/runtime/agents.py`, `sessions.py`, `request.py`, `sandbox_values.py`, `host_agents.py` — agent dispatch, sessions, requests, sandbox operands.
+- `src/agnette/agl/runtime/agents.py`, `sessions.py`, `request.py`, `sandbox_values.py` — agent dispatch, sessions, requests, sandbox operands; `arguments.py` — program-argument binding; `host_agents.py` — companion agent services.
 - `src/agnette/agl/runtime/codec.py`, `contract.py`, `convert.py`, `value_decode.py`, `engine_config.py` — codecs, contracts, conversion, host-value decoding, engine settings.
 - `src/agnette/agl/runtime/render.py`, `serialize.py` — rendering and JSON serialization.
 - `src/agnette/agl/runtime/trace.py`, `host_settings.py`, `types.py`, `option.py` — tracing, live settings, host types, `Option` construction.

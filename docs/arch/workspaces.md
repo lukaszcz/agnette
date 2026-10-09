@@ -4,7 +4,7 @@ AgM's project-management layer turns a directory tree into an agent-oriented pro
 
 ## Project Layout
 
-A project has fixed roles — repository, branch worktrees, config directory, dependencies, notes — in one of two layouts: **embedded** (under `.agm/` in the project root) or **split** (sibling directories). `project/layout.py` detects the layout and resolves role paths; current-project discovery walks up from the invocation directory, skipping the AgM home. `agm init` creates either layout.
+A project has fixed roles — repository, branch worktrees, config directory, dependencies, notes — in one of two layouts: **embedded** (under `.agm/` in the project root) or **split** (sibling directories). `project/layout.py` detects the layout and resolves role paths; current-project discovery walks up from the invocation directory (skipping the AgM home), then falls back to `$PROJ_DIR`. `agm init` creates either layout.
 
 ## Workspaces and Worktrees
 
@@ -12,7 +12,7 @@ A *workspace* is the main repository or a linked worktree in the project's workt
 
 ## Dependencies
 
-Dependencies are sibling repositories under the deps directory, managed by `agm dep`. Each contributes `_DIR` environment variables for its checked-out branch, so a workspace's environment reflects the active dependency branches. Branch dependency configs inherit from the main config.
+Dependencies are sibling repositories under the deps directory, managed by `agm dep`. Each dependency directory holds a main checkout plus per-branch checkouts; a workspace's config `[deps]` table selects one per dependency, exported as `<NAME>_DIR`, and `dep switch` rewrites it. A new branch's dependency config inherits from its parent workspace's (main by default).
 
 ## Sync
 
@@ -24,7 +24,7 @@ A workspace's environment chains the dependency environment, config-directory do
 
 ## Git and Tmux
 
-All git work goes through `vcs/git.py`, with an explicit environment per call. Workspace sessions are tmux sessions with a filtered environment and tiled layout, uniquely named per workspace and targeted by tmux IDs and exact names; all tmux calls go through the module's wrappers.
+Shared git helpers live in `vcs/git.py`, each optionally taking the caller's environment; config-directory commits, `init`, and `dep new` build their git commands directly. Workspace sessions are tmux sessions running the workspace shell in a grid layout (`tmux/layout.py`), uniquely named per workspace and targeted by tmux IDs and exact names.
 
 ## Code Entry Points
 
@@ -33,4 +33,4 @@ All git work goes through `vcs/git.py`, with an explicit environment per call. W
 - `src/agnette/agm/project/workspace_env.py`, `workspace_shell.py`, `workspace_setup.py` — environment, shell wrapper, setup scripts.
 - `src/agnette/agm/project/dependency_env.py`, `dependency_checkout.py`, `config_git.py` — dependency environment, checkout discovery, config-directory git.
 - `src/agnette/vcs/git.py` — shared git integration; `src/agnette/agm/tmux/` — tmux sessions and layout.
-- `src/agnette/agm/commands/init.py`, `workspace/`, `worktree/`, `dep/`, `sync/`, `tmux/` — the management commands.
+- `src/agnette/agm/commands/init.py`, `workspace/`, `worktree/`, `dep/`, `sync/`, `tmux/`, `config/` — the management commands (`config env` is what the workspace shell evaluates).

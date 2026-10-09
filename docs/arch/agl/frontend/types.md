@@ -14,7 +14,7 @@ Record, enum, and exception types are handles: identity is the declaration (`dec
 
 ## Whole-Table Analyses
 
-Recursive types make some questions global; `semantics/analyses.py` answers them over the whole table as cached fixpoints:
+Recursive types make some questions global; `semantics/analyses.py` answers them over the whole table as cached declaration-graph analyses:
 
 - **Inhabitation** — a declaration that can never produce a finite value is rejected.
 - **Data properties** — `Eq`, `Hashable`, JSON convertibility, and extern keyability share one parameterised fixpoint; key-sensitive properties propagate through declarations' key parameters.
@@ -24,9 +24,9 @@ Recursive types make some questions global; `semantics/analyses.py` answers them
 
 The checker selects the concrete behavior the evaluator relies on and publishes it in checked-program side tables, so lowering never re-infers:
 
-- **Member selection** — one field/method rule for selection and assignment targets; method candidates form one level per owner; `method_selections` is consumed by lowering unchanged.
+- **Member selection** — one field/method rule for selection and assignment targets; method candidates form one flat level — a record's own plus its owning enums', an exception's own plus its ancestors'; `method_selections` is consumed by lowering unchanged.
 - **Built-ins** — dispatched from scope's classification; `ask`/`exec` take result types from context, with documented defaults applied only after the inference region closes. Output contracts (schema and format metadata) are computed here.
-- **Casts and parsing** — a table of permitted source/target pairs, each total or fallible; exception casts and `catch` use `extends` ancestry; `as json` becomes a static encode plan.
+- **Casts and parsing** — one classification (`cast_classification`, beside the type table) gives each source/target pair a cast kind: total, nominal up/downcast, fallible, or a static error; exception casts and `catch` use `extends` ancestry; `as json` becomes a static encode plan.
 - **Generics** — rank-1: rigid at the definition, freshly instantiated per use inside a solver region (`typecheck/inference.py`), erased after checking. Constraint bounds are checked as deferred obligations; one structural predicate decides `Eq`/`Hashable`.
 - **Functions** — declared headers go through `function_inference.py`; unannotated results are inferred per import SCC, then every body is rechecked against the complete signature table, and only the recheck publishes artifacts.
 - **Module-level bindings** — a program-wide pre-pass (`typecheck/program.py`) types every static-root module's exported bindings, after headers and before function inference, ordering same-module constants by dependency (`typecheck/constant_bindings.py`).

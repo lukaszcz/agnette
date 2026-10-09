@@ -1,6 +1,6 @@
 # AgL REPL
 
-`agm repl` evaluates one entry at a time on the same pipeline and runtime as `agm exec`. This document covers what makes it incremental.
+`agm repl` evaluates one entry at a time with the same passes and runtime as `agm exec`. This document covers what makes it incremental.
 
 ## Incremental Sessions
 
@@ -17,7 +17,7 @@ Every entry compiles a whole program, but library modules are compiled once: the
 
 ## Front-End Seam
 
-The loop body exists once in the UI-free `repl/loop.py`, parameterized by a reader and writer. `repl/console.py` (the only prompt_toolkit importer) drives the real lexer for highlighting and completion; `repl/plain_console.py` serves pipes, `TERM=dumb`, and `--plain`. The Emacs integration runs the plain REPL under `comint-mode` with its own font-lock.
+The loop body exists once in the UI-free `repl/loop.py`, parameterized by a reader and writer. `repl/console.py` and its style table `repl/themes.py` are the only prompt_toolkit importers; the console highlights with the real lexer and completes from live session state; `repl/plain_console.py` serves pipes, `TERM=dumb`, and `--plain`. The Emacs integration runs the plain REPL under `comint-mode` with its own font-lock.
 
 ## Introspection and Rendering
 
@@ -29,7 +29,7 @@ Entry results carry the compiled program's `ValueDescriptors`, so `repl/render.p
 
 ## Code Entry Points
 
-- `src/agnette/agl/repl/session.py` — the incremental session; `entry_pipeline.py` — the entry pipeline over `PipelineDriver`.
+- `src/agnette/agl/repl/session.py` — the incremental session; `entry_pipeline.py` — the incremental entry pipeline, reusing `PipelineDriver`'s host environment and helpers.
 - `src/agnette/agl/repl/loop.py`, `console.py`, `plain_console.py` — the shared loop and front ends; `meta.py`, `render.py`, `themes.py` — meta-commands, rendering, themes.
 - `src/agnette/agl/lower/repl.py` — incremental linking.
 - `src/agnette/agm/commands/repl.py` — the CLI host.

@@ -1,6 +1,6 @@
 # AgL Python FFI
 
-An `extern def` declares a function implemented in a Python *companion* beside its module with a `.py` suffix. `runtime/externs.py` owns companion loading, the registry, dispatch, interpreter-scoped state, the call window, and callable proxies; `runtime/boundary.py` owns value conversion, nominal class synthesis, and live views. The evaluator hands each extern call to the registry.
+An `extern def` declares a function implemented in a Python *companion* beside its module with a `.py` suffix. `runtime/externs.py` owns companion loading, the registry, dispatch, host-session-scoped state, the call window, and callable proxies; `runtime/boundary.py` owns value conversion, nominal class synthesis, and live views. The evaluator hands each extern call to the registry.
 
 ## Loading
 
@@ -11,19 +11,19 @@ An `extern def` declares a function implemented in a Python *companion* beside i
 
 ## Companion State and Tracing
 
-Companion globals are registry-scoped; `runtime.state` reaches a per-host-session bag activated around each call, so concurrent interpreters never share state. Values registered with `close` are closed deterministically when the bag closes (run end, or REPL reset/exit). `runtime.trace` writes to the run's trace store ([runtime.md](runtime.md)), attributed to the nearest call site outside the extern's own package. The call window also scopes host agent services (`runtime/host_agents.py`). Companions reach the network only through `core.http` ([../../core.md](../../core.md)).
+Companion globals are registry-scoped; `runtime.state` reaches a per-host-session bag activated around each call, so concurrent interpreters never share state. Values registered with `close` are closed deterministically when the bag closes (except those kept under `debug`) (run end, or REPL reset/exit). `runtime.trace` writes to the run's trace store ([runtime.md](runtime.md)), attributed to the nearest call site outside the extern's own package. The call window also scopes host agent services (`runtime/host_agents.py`). Standard-library companions reach the network only through `core.http` ([../../core.md](../../core.md)).
 
 ## Value Boundary
 
 - **Value-directed conversion.** Arrays, dicts, and records with `var` fields cross as live views that write through; immutable records and exceptions cross as snapshots. `json` payloads cross uncopied and unchecked.
-- **Nominal classes.** One Python class is synthesized per nominal identity, carrying its descriptor, so decoding needs no call-scoped state. Classes and helpers are exposed through the temporary `agl` module during companion import; a companion's module must import every nominal its companion addresses.
+- **Nominal classes.** One Python class is synthesized per nominal identity, carrying its descriptor, so decoding needs no call-scoped state. Classes and helpers are exposed through the temporary `agl` module during companion import; it exposes the linked program's named nominals, so a companion can rely only on those its module (transitively) imports.
 - **Target contracts.** A type-directed extern's leading contract operands arrive as immutable `agl.TypeContract` objects (`runtime/type_contracts.py`) built from the IR's `target_contracts`. Extern dict keys must be `Hashable` statically.
 
 ## Callables and Exceptions
 
 - AgL function values cross as callable proxies valid only on the owning interpreter thread during the extern call.
 - AgL raises cross companion frames in the `AglException` carrier, keeping their span; other Python `Exception`s become catchable `ExternError`; `BaseException`s propagate.
-- Return values are trusted: the declared signature, valid Unicode text, and finite JSON-shaped payloads are companion obligations. Only out-of-range or non-finite decimals are rejected (`BoundaryViolation`).
+- Return values are trusted: the declared signature, valid Unicode text, and finite JSON-shaped payloads are companion obligations. A Python value with no boundary representation, or an out-of-range or non-finite decimal, is rejected as `ExternError`.
 
 ## Code Entry Points
 

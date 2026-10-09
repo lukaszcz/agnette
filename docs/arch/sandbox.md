@@ -5,7 +5,7 @@ Commands run inside a sandbox with an explicit filesystem/network policy and opt
 ## Preparation Library
 
 - `request.py` is the leaf data layer. `SandboxLimits` is the command-independent shape an AgL `Sandbox` value decodes to; `SandboxSpec` adds the profile name; `SandboxRequest` separates the command's `cwd` from `config_cwd`, where sandbox configuration resolves.
-- `prepare.py:prepare()` turns a request into a `PreparedSandboxCommand` (resource-limit prefix, optional PTY relay, backend wrapper); `close()` removes its temporary artifacts. `resolve_limits()` is the one place memory/swap limits resolve (`[run.<name>]` → `[run]` → built-in floor). The library never prints or exits; it raises typed errors.
+- `prepare.py:prepare()` turns a request into a `PreparedSandboxCommand` (resource-limit prefix, optional PTY relay, backend wrapper); `close()` removes its temporary artifacts. `resolve_limits()` is the one place memory/swap limits resolve (explicit value → `[run.<name>]` → `[run]` → built-in default). Preparation never prints or exits; it raises typed errors.
 - `SandboxContext` bundles ambient inputs (home, project, cwd, run config) for non-CLI callers; a per-call working directory never changes where configuration resolves. `SandboxRun` pairs limits with a context; the profile binds later from the real argv. A host builds one lazy context (`lazy_sandbox_context`) and shares it across the agent factory, session host, and execution services, so sandbox config loads at most once per invocation.
 - Interactive agent chats use the PTY relay; captured calls do not. Sandboxed Codex runs have its host daemon disabled.
 
@@ -15,7 +15,7 @@ Commands run inside a sandbox with an explicit filesystem/network policy and opt
 
 ## Settings Resolution
 
-Settings merge across the install/home/project/workspace scopes. A per-command file is selected by profile name, falling back to a default; sections merge by key, lists append, later deny lists subtract from earlier allow lists.
+Settings files are looked up in the AgM home's `sandbox/`, the project's `config/sandbox/`, and `.sandbox/` under the configuration cwd. A per-command file is selected by profile name, falling back to a default; sections merge by key, lists append, later deny lists subtract from earlier allow lists.
 
 ## `agm run`
 

@@ -1,13 +1,13 @@
 # AgL Evaluator
 
-The evaluator interprets the linked program and never imports the frontend. `run()` initializes modules in link order, then invokes the host-selected entry symbol with pre-evaluated arguments under a pinned decimal context and a recursion boundary; it never selects an entry or decodes host values itself. Host seeds replace a static binding's initializer. Frames hold `let` and parameters directly and `var` bindings in shared cells. The evaluator trusts the IR: it performs no runtime shape checks against static invariants ([lowering.md](lowering.md#the-ir)).
+The evaluator interprets the linked program and imports no frontend module directly (the runtime's check-time contract path loads the checker transitively). `run()` initializes modules in link order, then invokes the host-selected entry symbol with pre-evaluated arguments under a pinned decimal context and a recursion boundary; it never selects an entry or decodes host values itself. Host seeds replace a static binding's initializer. Frames hold `let` and parameters directly and `var` bindings in shared cells. The evaluator trusts the IR: it performs no runtime shape checks against static invariants ([lowering.md](lowering.md#the-ir)).
 
 ## Values and Aliasing
 
 - Arrays, dicts, and records are shared by reference, so in-place updates are visible through every alias; text and exceptions are immutable. An enum-typed slot holds the member record directly.
-- Cycles are possible: rendering and JSON encoding raise catchable `CyclicValueError`; equality and `copy` terminate (`semantics/copying.py`).
+- Cycles are possible: rendering and JSON encoding raise catchable `CyclicValueError`; equality (`semantics/values.py`) and `copy` (`semantics/copying.py`) terminate.
 - `DictValue` encapsulates its storage, with a fast representation for `text` keys and a canonical-token representation for other hashable keys.
-- Iterators see mutations ahead of the cursor but cannot be extended past their entry-time length.
+- Array iterators see element mutations ahead of the cursor but never run past the entry-time length; dict iteration snapshots its keys.
 
 ## Control Flow
 
@@ -18,7 +18,7 @@ The evaluator interprets the linked program and never imports the frontend. `run
 Effects dispatch through `eval/effects.py`, which composes prompts and records requests and responses for tracing:
 
 - **Agents.** An explicit-agent `ask` opens an ephemeral session spanning its parse-retry loop; a free `ask` uses the default session; session nodes drive persistent handles ([runtime.md](runtime.md)).
-- **Shell.** `exec` returns `ExecResult` or decodes stdout per its contract; spawn failures, timeouts, and sandbox-preparation failures raise `ExecError`. A `sandbox` operand routes through the shared sandbox library ([../../sandbox.md](../../sandbox.md)).
+- **Shell.** `exec` returns `ExecResult` for any exit code or decodes stdout per its contract; spawn failures, timeouts, sandbox-preparation failures and, for other targets, non-zero exits and exhausted parse retries raise `ExecError`. A `sandbox` operand routes through the shared sandbox library ([../../sandbox.md](../../sandbox.md)).
 - **Conversions.** Casts and value parsing execute pre-resolved recipes and parse strictly, raising `CastError`/`ValueParseError`; agent and `exec` output use the configurable strict/lenient codec. Casts and `is` share one nominal conformance check.
 - **Host-minted values** (built-in exceptions, `ExecResult`, `AgentRequest`, `Option` members) take identity from the program's builtin nominal table, so they behave like source-constructed values.
 - **Externs** delegate to the FFI registry ([ffi.md](ffi.md)).

@@ -1,6 +1,6 @@
 # AgL Language Implementation
 
-AgL (Agnette Language) is the statically typed workflow DSL run by AgM; agent and shell calls are ordinary typed expressions. The implementation is a compiler frontend, a typeless execution layer, and a host runtime, driven by one pipeline orchestrator shared by `agm exec`, `agm repl`, `agm check`, package validation, and registered package commands.
+AgL (Agnette Language) is the statically typed workflow DSL run by AgM; agent and shell calls are ordinary typed expressions. The implementation is a compiler frontend, a typeless execution layer, and a host runtime. `PipelineDriver` drives `agm exec`, `agm check`, and registered package commands; the REPL reuses its passes incrementally, and package validation stops after scope.
 
 ## Compilation Pipeline
 
@@ -70,10 +70,10 @@ A **program** is the entry module plus its transitive import and re-export depen
 
 A test enforces the import contract:
 
-- `semantics` is the foundation; `syntax` is an AST-only leaf.
+- The IR's data modules and the vocabulary leaves are the foundation; `semantics` builds on them; `syntax` is an AST-only leaf.
 - `typecheck` reaches only scope's output and lower layers; `matchcompile` imports nothing downstream.
-- The IR depends only on its own data, the engine-key catalog, and the vocabulary leaves; the evaluator never imports the frontend; the runtime is eval-free; the pipeline sits on top.
-- Vocabulary leaves below every pass: `value_syntax/` (literal rules and the value-syntax reader), `zones.py`, `attributes.py` (built-in attribute catalog), `modules/ids.py`, `constraints.py` (`Eq`/`Hashable` kinds). They let scope, typecheck, and the IR share names without importing each other.
+- The IR depends only on its own data, the engine-key catalog, and the vocabulary leaves; the evaluator imports no frontend module directly; the runtime is eval-free; the pipeline sits on top.
+- Vocabulary leaves below every pass: `value_syntax/` (literal rules and the value-syntax reader), `keywords.py`, `zones.py`, `attributes.py` (built-in attribute catalog), `modules/ids.py`, `constraints.py` (`Eq`/`Hashable` kinds). They let scope, typecheck, and the IR share names without importing each other.
 - `artifact_storage.py` is the disk-cache envelope shared by the module cache, artifact serialization, and companion bytecode.
 
 ## What To Read Next

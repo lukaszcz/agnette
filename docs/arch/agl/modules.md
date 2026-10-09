@@ -4,7 +4,7 @@ AgL programs are file-based module graphs. A module is addressed by a slash path
 
 ## Roots and Visibility
 
-- **Loose roots** — the invocation directory, the global library in the AgM home, `[modules]` config, and CLI module paths — resolve any path beneath them; loose modules import freely.
+- **Loose roots** — a loose entry file's directory (or the working directory for inline source and the REPL), the global library in the AgM home, `[modules]` config, and CLI module paths — resolve any path beneath them; loose modules import freely.
 - **Packages** are not roots: each selected package, and the standard library as `std`, mounts its `src/` tree under its name. Package modules may import only their own tree, `std`, and declared dependencies ([packages.md](../packages.md)).
 - A path must resolve to exactly one `.agl` file across all roots.
 - An entry file owned by a package keeps that package's module id; an unowned entry (inline, REPL, loose file) is anonymous and cannot be imported.
@@ -32,7 +32,7 @@ Imported modules are precompiled on demand and reused in memory and across proce
 - **Validation.** `artifact_cache.py` validates each stage against the module's source and transitive dependencies; checked stages also against host capabilities.
 - **Identity.** `modules/parsed_module_cache.py` assigns content-addressed node namespaces, so unchanged declarations keep identity across processes. AST-only callers (package command discovery) parse through the same cache.
 - **Checked bodies** persist as their own declarations plus a journal of type-environment mutations, replayed on restore, never the whole-program environment.
-- **Lowered modules** (`lower/module.py`) persist bodies and linkable tables; linking reassembles them per invocation. Companions, config, initializers, and runtime state are never cached.
+- **Lowered modules** (`lower/module.py`) persist bodies and linkable tables; linking reassembles them per invocation. Companion imports, configuration values, initializer evaluation, and runtime state stay per invocation.
 - **Storage.** `artifact_storage.py` owns the versioned on-disk slot under `$XDG_CACHE_HOME/agm/agl`, compiler-digest validation, and atomic writes. Any unusable entry falls back to ordinary compilation.
 
 ## Code Entry Points

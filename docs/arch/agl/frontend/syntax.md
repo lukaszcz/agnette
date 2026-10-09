@@ -4,8 +4,8 @@ A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}` hol
 
 ## Shared Lexical Leaves
 
-- **Literal scanning** — escape, number, identifier, and environment-hole rules live in `agl/value_syntax/lexical.py`, shared by the lexer and the host value-syntax reader, which also spells values back as literals so runtime rendering and constant folding cannot diverge. All template forms share one hole scanner and one `template` grammar rule.
-- **Keywords** — `keywords.py` is the single inventory of reserved and soft keywords (soft keywords are ordinary names outside their promotion window). The lexer, grammar, REPL highlighter, and editor modes derive from it.
+- **Literal scanning** — escape, number, identifier, and environment-hole rules live in `agl/value_syntax/lexical.py`, shared by the lexer and the host value-syntax reader; it also spells values back as literals so runtime rendering and constant folding cannot diverge. All template forms share one hole scanner and one `template` grammar rule.
+- **Keywords** — `keywords.py` is the single inventory of reserved and soft keywords (soft keywords are ordinary names outside their promotion window). The lexer (including the grammar-terminal remap) and the REPL highlighter import it; the grammar's literals and the editor modes in `config/` mirror it by hand.
 - **Operator position** — `lexer/operators.py` is the one inventory of operand-closing/opening tokens; layout line-continuation and operator-word promotion both query it, so they cannot disagree.
 
 ## Constant Folding
@@ -22,7 +22,7 @@ The AST records source structure faithfully so later passes never reconstruct sp
 - A partial-application placeholder is a call argument, never an expression; a leading-dot chain becomes a marked unary lambda over a hygienic receiver.
 - Attributes are held verbatim; the AST never imports the attribute catalog (`agl/attributes.py`), and meaning is assigned by scope ([scope.md](scope.md#attribute-recognition)).
 
-Inline-source hosts (`agm exec -c`, the REPL) parse through `PipelineDriver.parse_entry(inline_code=True)`, whose purely syntactic wrapper (`parser/wrap.py`) keeps declarations, path-bearing and `@param` bindings, and the plain bindings they read at the module root, moving everything else into a synthetic entry.
+Inline `agm exec -c` sources parse through `PipelineDriver.parse_entry(inline_code=True)`: unless the source declares a `program def`, a purely syntactic wrapper (`parser/wrap.py`) keeps declarations, path-bearing and `@param` bindings, and the plain bindings they read at the module root, moving everything else into a synthetic entry. REPL entries are not wrapped; their root keeps executable items.
 
 ## Code Entry Points
 

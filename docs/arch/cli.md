@@ -6,7 +6,7 @@ AgM's entry point is a Typer application that defines the command tree, parses a
 
 A root app plus one sub-app per command group. `src/agnette/agm/commands/` mirrors the tree (`agm pkg check` → `commands/pkg/check.py`); the Typer wiring stays in `cli.py`. Handlers are imported at dispatch, so unrelated command domains do not add to startup.
 
-When no built-in command matches, a lazy fallback (`cli_dispatch.py`) derives the package command index from the selected package manifests, resolves the longest registered path, and shows group help or runs the program through the same host as `agm exec` ([packages.md](packages.md)). Built-in commands never load that index or AgL.
+When no built-in command matches, a lazy fallback (`cli_dispatch.py`) loads the package command index (the activation index's cached registry, re-derived from manifests under project pins or editable packages), resolves the longest registered path, and shows group help or runs the program through the same host as `agm exec` ([packages.md](packages.md)). Resolving a built-in command never loads that index or AgL; only the command overview and `agm help` read the index, without compiling programs.
 
 ## Argument Handling
 

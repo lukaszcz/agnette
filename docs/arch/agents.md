@@ -5,7 +5,7 @@ AgL runs native agents and custom commands through a shared subprocess and sessi
 ## Agent Specs and the Runner
 
 - An agent is an immutable host *spec* (`agent/spec.py`): one per native kind, each building its own argv, plus a verbatim custom command. AgL's `Agent` enum decodes into this catalog.
-- Each spec owns its permission-mode flag table (`PermissionMode`: native, unrestricted, none), so no other module edits agent flags.
+- `agent/spec.py` holds each native CLI's permission-mode flag table (`PermissionMode`: native, unrestricted, none); the only other argv edit is sandbox preparation's `--no-daemon` for Codex.
 - The runner (`agent/runner.py`) delivers rendered prompts (placeholder, `@<path>` argument, or stdin), prepares the sandbox from a `SandboxRun` ([sandbox.md](sandbox.md)), captures output, and enforces an idle timeout. Results keep streams undecoded until their text is needed. Arguments interpolate `%{name}` holes through `util/interp.py`.
 - Interactive chats are ordinary stdlib externs reusing spec-owned interactive argv builders; they inherit the terminal, with no capture or idle timeout.
 
@@ -19,14 +19,14 @@ Empty native fields (Pi provider, model, effort) are filled when an agent is *us
 
 ## Dispatch and Sessions
 
-Every AgL `ask` dispatches through a session: a one-shot call opens an ephemeral session. `agl/runtime/agents.py:value_driven_agent_factory` turns a decoded `AgentRequest` (which carries the call's evaluated environment) into a sandboxed run, sharing the host's sandbox context.
+Every AgL `ask` dispatches through a session: a one-shot call opens an ephemeral session. Production hosts back sessions with `SessionService`, so asks run through its CLI adapters or Pi RPC; `agl/runtime/agents.py:value_driven_agent_factory` is the dispatcher only for hosts without a session service. A decoded `AgentRequest` carries the call's evaluated environment.
 
 `SessionService` (`agent/session/service.py`) gives one backend-neutral lifecycle for continuing conversations: opaque handles, backend instances, and release of every owned process at the command or interpreter boundary. Permission mode, sandbox limits, and environment are fixed when a session opens, with no per-ask override. Two backend families implement it:
 
 - **CLI adapters** map the lifecycle to each agent CLI's create/continue/compact/fork flags, preparing a fresh sandboxed command per prompt.
 - **Pi RPC** owns one persistent streaming JSONL child process (`agent/session/rpc.py`).
 
-A handle reports whether later prompts continue the conversation, which decides whether the evaluator sends a short corrective follow-up or a full prompt. Each spec names its default transport. AgL reaches the service through `agl/runtime/sessions.py`.
+A handle reports whether later prompts continue the conversation, which decides whether the evaluator sends a short corrective follow-up or a full prompt. Each spec names its default transport. `agl/runtime/sessions.py` defines the firewall-safe host protocol; `AglSessionHost` (`agent/session/service.py`) adapts the service to it.
 
 ## Code Entry Points
 
