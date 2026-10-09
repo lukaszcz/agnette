@@ -957,7 +957,7 @@ def _scripted_agent_name(agent: Any) -> str:
             return shlex.split(agent.command)[0]
         except ValueError:
             return agent.command
-    if isinstance(agent, AgentPi):
+    if isinstance(agent, AgentPi) and agent.provider:
         return agent.provider
     return "ask"
 

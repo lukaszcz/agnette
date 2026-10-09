@@ -24,7 +24,8 @@
         "prompts": [
           {
             "agent": {
-              "$case": "AgentClaude",
+              "$case": "AgentPi",
+              "provider": "",
               "model": "",
               "thinking": ""
             },
@@ -45,7 +46,8 @@
           },
           {
             "agent": {
-              "$case": "AgentClaude",
+              "$case": "AgentPi",
+              "provider": "",
               "model": "",
               "thinking": ""
             },
@@ -58,7 +60,8 @@
           },
           {
             "agent": {
-              "$case": "AgentClaude",
+              "$case": "AgentPi",
+              "provider": "",
               "model": "",
               "thinking": ""
             },
@@ -89,7 +92,7 @@
         ]
       },
       "expect": {
-        "stdout": "Guide summary\nExplicit pass\ndollar Agent::AgentClaude(model = \"\", thinking = \"\") 1 Review\ncall Agent::AgentClaude(model = \"\", thinking = \"\") 1 Review\n",
+        "stdout": "Guide summary\nExplicit pass\ndollar Agent::AgentPi(provider = \"\", model = \"\", thinking = \"\") 1 Review\ncall Agent::AgentPi(provider = \"\", model = \"\", thinking = \"\") 1 Review\n",
         "calls": {
           "ask": 3,
           "reviewer": 1
@@ -97,7 +100,8 @@
         "prompts": [
           {
             "agent": {
-              "$case": "AgentClaude",
+              "$case": "AgentPi",
+              "provider": "",
               "model": "",
               "thinking": ""
             },
@@ -114,7 +118,8 @@
           },
           {
             "agent": {
-              "$case": "AgentClaude",
+              "$case": "AgentPi",
+              "provider": "",
               "model": "",
               "thinking": ""
             },
@@ -127,7 +132,8 @@
           },
           {
             "agent": {
-              "$case": "AgentClaude",
+              "$case": "AgentPi",
+              "provider": "",
               "model": "",
               "thinking": ""
             },

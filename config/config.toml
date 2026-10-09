@@ -13,7 +13,7 @@ alias = "codex --yolo --no-daemon"
 # Uncomment and adjust as needed; all fields are optional.
 #
 # [exec]
-# default-agent = "claude/sonnet:medium" # native agent shorthand or custom command (default: claude)
+# default-agent = "claude/sonnet:medium" # native agent shorthand or custom command (default: pi)
 # default-sandbox = "Native"    # AgentSandbox: bare member or Sandbox(...) call (default: Sandbox)
 # strict-json = false           # require bare JSON from agents (default: lenient recovery)
 # max-call-depth = 256          # recursion call-depth limit (default: 256)

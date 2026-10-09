@@ -135,7 +135,7 @@ def test_chat_uses_current_defaults_without_opening_a_persistent_session(
 
     monkeypatch.setattr(process, "run_foreground_ignoring_signals", foreground)
     resolver = configured_defaults_resolver(
-        {"agent": {"claude": {"model": "sonnet", "effort": "high"}}}
+        {"agent": {"pi": {"provider": "anthropic", "model": "sonnet", "effort": "high"}}}
     )
     result = PipelineDriver(resolve_agent_spec=resolver, get_sandbox_context=None).run(
         "import std/config\n"
@@ -151,7 +151,7 @@ def test_chat_uses_current_defaults_without_opening_a_persistent_session(
 
     assert result.ok, result
     assert commands == [
-        ["claude", "--model", "sonnet", "--effort", "high", "--permission-mode", "auto", "--", ""],
+        ["pi", "--provider", "anthropic", "--model", "sonnet", "--thinking", "high", "--", ""],
         ["codex", "--", "second"],
     ]
     assert capsys.readouterr().out == "resumed\n"

@@ -398,7 +398,7 @@ key:
 | --- | -------- | ---------------- |
 | `trace` | `bool` | `false` |
 | `strict-json` | `bool` | `false` (lenient recovery) |
-| `default-agent` | `Agent` | `AgentClaude()` (model and effort from `[agent]`, else the CLI's own) |
+| `default-agent` | `Agent` | `AgentPi()` (provider, model, and effort from `[agent]`, else the CLI's own) |
 | `default-sandbox` | `AgentSandbox` | `Sandbox` (every field defaulted) |
 | `trace-file` | `Option[path]` | `None` |
 | `timeout` | `Option[text]` | `None` |

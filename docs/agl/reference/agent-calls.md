@@ -198,7 +198,7 @@ Free `ask` uses `Session::default`, which lazily opens one session and snapshots
 the current `std/config::default-agent` when it is first used. Every later free
 `ask` in that run or REPL session uses the same conversation and agent; a later
 `default-agent` write does not switch it. The standard library supplies a
-default, `AgentClaude()`; CLI `--default-agent` and `[exec] default-agent` seeds override it, and a
+default, `AgentPi()`; CLI `--default-agent` and `[exec] default-agent` seeds override it, and a
 source write takes effect before that snapshot is created:
 
 ```agl

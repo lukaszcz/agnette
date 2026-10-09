@@ -463,7 +463,7 @@ class TestAgentRequest:
         assert received[0].prompt == "Hello world"
 
     def test_request_agent_value_for_default(self) -> None:
-        from agnette.agent.spec import AgentClaude
+        from agnette.agent.spec import AgentPi
 
         received: list[AgentRequest] = []
 
@@ -475,7 +475,7 @@ class TestAgentRequest:
             resolve_agent_spec=None, agent_dispatcher=agent, get_sandbox_context=None
         )
         run_inline_code(rt, 'ask "Hi"')
-        assert isinstance(received[0].agent, AgentClaude)
+        assert isinstance(received[0].agent, AgentPi)
 
     def test_request_agent_value_for_named(self) -> None:
         from agnette.agent.spec import AgentCommand

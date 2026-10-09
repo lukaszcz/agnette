@@ -11049,9 +11049,7 @@ class TestSessionOpen:
         copytree(source_stdlib, second_root)
         config = second_root / MODULE_TREE_DIRNAME / "config.agl"
         config.write_text(
-            config.read_text(encoding="utf-8").replace(
-                "AgentClaude()", 'AgentCommand("second-root")'
-            ),
+            config.read_text(encoding="utf-8").replace("AgentPi()", 'AgentCommand("second-root")'),
             encoding="utf-8",
         )
 
@@ -11103,7 +11101,8 @@ class TestSessionOpen:
         default_display = default_result.descriptors.nominals[
             default_result.value.nominal
         ].display_name
-        assert default_display.rsplit("::", maxsplit=1)[-1] == "AgentClaude"
+        assert default_display.rsplit("::", maxsplit=1)[-1] == "AgentPi"
+        assert default_result.value.fields["provider"] == TextValue("")
         assert default_result.value.fields["model"] == TextValue("")
         assert default_result.value.fields["thinking"] == TextValue("")
 

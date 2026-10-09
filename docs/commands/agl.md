@@ -346,8 +346,8 @@ response capture, parsing, or retry. Launch failures and nonzero exits raise `Ag
 `AgentCodex(model = "", thinking = "")`, and `AgentPi(provider = "", model = "", thinking = "")`
 each build their own argv; select one with an `Agent` value or `default-agent`. An empty field
 passes no flag unless a configured [agent default](#agent-defaults) applies. The built-in
-`default-agent` is `AgentClaude()`, so `[agent]` chooses its model and effort; with none set, the
-Claude CLI's own defaults apply.
+`default-agent` is `AgentPi()`, so `[agent]` chooses its provider, model, and effort; with none set,
+the Pi CLI's own defaults apply.
 
 ### Agent defaults
 
@@ -391,10 +391,10 @@ effort = "high"
 effort = ""
 ```
 
-With this config, `AgentClaude()` — the built-in `default-agent`, or `--default-agent claude` —
+With this config, `AgentClaude()` — `--default-agent claude` —
 passes `--model opus --effort high`: the model comes from `[agent.claude]`, then the effort from
 `[agent.claude.opus]`. `AgentClaude("sonnet")` gets `--effort medium`, `claude:low` runs
-`opus` at `low`, and `AgentPi()` runs provider `anthropic`, model `claude-sonnet-4-5`, effort
+`opus` at `low`, and `AgentPi()` — the built-in `default-agent` — runs provider `anthropic`, model `claude-sonnet-4-5`, effort
 `high`.
 
 A table that sets a key, even to `""`, ends that key's lookup: `effort = ""` restores the agent

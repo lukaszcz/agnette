@@ -191,32 +191,39 @@ _BUILTIN_DEFAULT_ASK = (
 _OPUS_DEFAULT = '[agent.claude]\nmodel = "opus"\n[agent.claude.opus]\neffort = "high"\n'
 
 
+_SONNET_DEFAULT = (
+    '[agent.pi]\nprovider = "anthropic"\n[agent.pi.anthropic]\nmodel = "sonnet"\n'
+    '[agent.pi.anthropic.sonnet]\neffort = "high"\n'
+)
+
+
 @pytest.mark.parametrize(
-    ("config", "model", "effort"),
+    ("config", "expected"),
     [
-        (_OPUS_DEFAULT, ["opus"], ["high"]),
-        ('[agent.claude]\neffort = "low"\n', [], ["low"]),
-        (None, [], []),
+        (
+            _SONNET_DEFAULT,
+            ["--provider", "anthropic", "--model", "sonnet", "--thinking", "high"],
+        ),
+        ('[agent.pi]\neffort = "low"\n', ["--thinking", "low"]),
+        (None, []),
     ],
-    ids=["model-and-effort", "effort-only", "unconfigured"],
+    ids=["provider-model-and-effort", "effort-only", "unconfigured"],
 )
 def test_a_plain_ask_on_the_builtin_default_agent_takes_the_configured_defaults(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    fake_agent_transport: FakeAgentTransport,
-    config: str | None,
-    model: list[str],
-    effort: list[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str | None, expected: list[str]
 ) -> None:
-    fake_agent_transport.queue(fake_agent_transport.success("done"))
+    stub = RpcStub(tmp_path, monkeypatch)
 
     result = _exec(tmp_path, monkeypatch, _BUILTIN_DEFAULT_ASK, home_config=config)
 
     assert result.exit_code == 0, result.output
-    [(_prompt, argv)] = fake_agent_transport.calls
-    assert argv[0] == "claude"
-    assert _flag_values(argv, "--model") == model
-    assert _flag_values(argv, "--effort") == effort
+    [start] = stub.records("starts.jsonl")
+    argv = start["argv"]
+    assert isinstance(argv, list)
+    assert argv[:2] == ["--mode", "rpc"]
+    assert argv[len(argv) - len(expected) :] == expected
+    for flag in ("--provider", "--model", "--thinking"):
+        assert (flag in argv) == (flag in expected)
 
 
 def _ask_with(agent: str) -> str:

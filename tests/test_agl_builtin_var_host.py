@@ -25,6 +25,7 @@ from agnette.agm.commands import exec_program as exec_engine
 from agnette.config.context import ConfigContext
 from tests._agl_helpers import write_file_program
 from tests.conftest import FakeAgentTransport
+from tests.test_agent_rpc import RpcStub
 
 _STDLIB = Path(__file__).resolve().parent.parent / "packages" / "stdlib"
 
@@ -167,17 +168,20 @@ class TestDefaultAgentReconfiguration:
         assert len(fake_agent_transport.calls[0][1]) == 2
 
     def test_no_default_agent_write_uses_the_stdlib_default_agent(
-        self, tmp_path: Path, fake_agent_transport: FakeAgentTransport
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The stdlib initializer supplies the default AgentClaude value."""
+        """The stdlib initializer supplies the default AgentPi value (RPC session)."""
+        stub = RpcStub(tmp_path, monkeypatch)
         agl_file = tmp_path / "prog.agl"
-        write_file_program(agl_file, 'ask("hi")\n')
+        write_file_program(
+            agl_file,
+            'import std/config\nstd/config::default-sandbox := AgentSandbox::Disabled\nask("hi")\n',
+        )
 
         exec_command.run(_exec_args(agl_file))
 
-        argv = fake_agent_transport.calls[0][1]
-        assert argv[:2] == ["claude", "-p"]
-        assert "--session-id" in argv
+        [start] = stub.records("starts.jsonl")
+        assert start["argv"][:2] == ["--mode", "rpc"]
 
     def test_default_agent_write_does_not_change_explicit_agent_values(
         self, tmp_path: Path, fake_agent_transport: FakeAgentTransport

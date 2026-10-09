@@ -66,7 +66,7 @@ def test_default_agent_initializer_and_qualified_write_are_visible() -> None:
     result = _run(
         "import std/config\n"
         "let initial = std/config::default-agent\n"
-        "let initial-is-claude = initial is Agent::AgentClaude\n"
+        "let initial-is-pi = initial is Agent::AgentPi\n"
         'std/config::default-agent := AgentCommand("command")\n'
         "let updated = std/config::default-agent\n"
         "let updated-is-command = updated is Agent::AgentCommand\n"
@@ -76,8 +76,8 @@ def test_default_agent_initializer_and_qualified_write_are_visible() -> None:
     assert result.ok
     _assert_shape(
         result.bindings["initial"],
-        result.bindings["initial-is-claude"],
-        agent_value("AgentClaude", model="", thinking=""),
+        result.bindings["initial-is-pi"],
+        agent_value("AgentPi", provider="", model="", thinking=""),
     )
     _assert_shape(
         result.bindings["updated"],
@@ -151,7 +151,7 @@ def test_exec_uses_stdlib_default_agent_when_no_host_seed(
         is None
     )
 
-    assert "AgentClaude" in capsys.readouterr().out
+    assert "AgentPi" in capsys.readouterr().out
 
 
 def test_host_seed_overrides_initializer_until_source_write() -> None:
@@ -351,7 +351,7 @@ def test_exec_config_runner_key_leaves_the_default_agent_unset(
     )
 
     rendered = capsys.readouterr().out
-    assert "AgentClaude" in rendered
+    assert "AgentPi" in rendered
     assert "AgentCommand" not in rendered
 
 

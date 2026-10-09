@@ -241,7 +241,7 @@ class TestDefaultsAndSeeding:
 
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
-        assert _variant(result.value, result.descriptors) == "AgentClaude"
+        assert _variant(result.value, result.descriptors) == "AgentPi"
 
     def test_host_timeout_seed_round_trips_without_disabling_live_timeout(self) -> None:
         s = _session(stdlib_root=_STDLIB_ROOT, shell_exec_timeout=0.0000001)
