@@ -1256,22 +1256,7 @@ class _Lowerer:
 
         fn_type = cast(FunctionType, self._node_type(node_id))
 
-        # Build IR params; lower param defaults.
-        #
-        # Unlike funcdef params, lambda param defaults are NOT type-checked
-        # by the checker (``_check_lambda`` skips defaults), so their
-        # ``node_type`` entries are absent.  Use ``lower_expr`` directly, as
-        # ``_node_type`` has no entry for them.  The default expression
-        # is still required to be type-compatible (guaranteed by the checker
-        # when the funcdef path is taken; for lambdas the type annotation on
-        # the param already pins the type).
-        ir_params: list[IrFunctionParam] = []
-        for param, psym in zip(params, param_syms):
-            if param.default is not None:
-                default_ir: IrExpr | None = self.lower_expr(param.default)
-            else:
-                default_ir = None
-            ir_params.append(IrFunctionParam(symbol=psym, default=default_ir))
+        ir_params = [IrFunctionParam(symbol=psym, default=None) for psym in param_syms]
 
         # Result coercion is baked into the lowered body; the evaluator applies none.
         with self._return_context(fn_type.result), self._function_body(fn_id):

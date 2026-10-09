@@ -3329,26 +3329,14 @@ class _Resolver(ModuleSources):
             self._resolve_expr_or_block(clause.body)
 
     def _resolve_lambda(self, node: Lambda) -> None:
-        """Resolve a ``fn(params) => body`` lambda.
-
-        Defaults are resolved in the ENCLOSING scope (lambda is not in scope
-        inside its own body — non-self-recursive).  Then a child scope is
-        opened for the params + body.
-        """
-        # Defaults are resolved in the current (enclosing) scope.
+        """Resolve a ``fn(params) => body`` lambda; it is not in scope inside its own body."""
         self._resolve_params_and_body(node)
 
     def _resolve_params_and_body(self, node: FuncDef | Lambda) -> None:
-        """Resolve param defaults (enclosing scope), then params + body in a child scope.
+        """Resolve defaults (``def`` only, enclosing scope), then params + body in a child scope.
 
-        Shared by ``def`` and ``fn`` — both evaluate defaults in their definition
-        scope and bind params into a fresh child scope for the body.
-
-        ``_in_loop`` is reset to ``False`` for the entire method so that neither
-        a ``break``/``continue`` in a parameter default nor one in the body can
-        cross the function boundary into an outer loop.  Defaults are still
-        resolved in the enclosing scope (only ``_in_loop`` changes, not the
-        scope stack), so they can reference outer bindings but not the params.
+        ``_in_loop`` is reset so that neither a ``break``/``continue`` in a
+        default nor one in the body can cross the function boundary.
         """
         with self._resolution_flags_ctx(in_loop=False, in_function=False):
             for param in node.params:

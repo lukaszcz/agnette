@@ -80,6 +80,7 @@ class AttributeTarget(enum.Enum):
     PARAM_BINDING = "param_binding"
     BUILTIN_VAR = "builtin_var"
     PARAMETER = "parameter"
+    LAMBDA_PARAMETER = "lambda_parameter"
     FIELD = "field"
     PROGRAM_PARAMETER = "program_parameter"
 

@@ -928,7 +928,7 @@ class AttributeFacts:
     table here rather than another field on every layer between.
 
     ``param_zones``
-        The zone of every parameter and field, keyed by ``Param.node_id``, as
+        The zone of every ``def`` parameter and field, keyed by ``Param.node_id``, as
         the declaration's ``@arg-*`` attributes resolved it. Typecheck builds
         every ``ParamSpec`` and constructor field list from this table; the
         AST itself carries no zone.

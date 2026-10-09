@@ -140,6 +140,7 @@ _TARGET_LABEL: Mapping[AttributeTarget, str] = {
     AttributeTarget.PARAM_BINDING: "parameter binding",
     AttributeTarget.BUILTIN_VAR: "builtin var",
     AttributeTarget.PARAMETER: "parameter",
+    AttributeTarget.LAMBDA_PARAMETER: "lambda parameter",
     AttributeTarget.FIELD: "field",
     AttributeTarget.PROGRAM_PARAMETER: "program parameter",
 }
@@ -259,7 +260,8 @@ class _Recognizer:
                 owner_name=node.name,
             )
         elif isinstance(node, Lambda):
-            self._entries(node.params, None, target=AttributeTarget.PARAMETER)
+            for param in node.params:
+                self._check(param.attributes, AttributeTarget.LAMBDA_PARAMETER, param.node_id)
         elif isinstance(node, (RecordDef, ExceptionDef, VariantDef)):
             recognized = self._check(node.attributes, _FIELD_OWNERS[type(node)], node.node_id)
             self._entries(node.fields, _zone_attribute(recognized), target=AttributeTarget.FIELD)

@@ -27,7 +27,6 @@ from agnette.agl.syntax.nodes import (
     EnumDef,
     ExceptionDef,
     FuncDef,
-    Lambda,
     LetDecl,
     Param,
     RecordDef,
@@ -82,19 +81,6 @@ def _zones(resolution: ModuleResolution, owner_name: str) -> dict[str, ParamZone
         entry.name: resolution.attributes.param_zones[entry.node_id]
         for entry in _entries(resolution, owner_name)
     }
-
-
-def _lambda_zones(resolution: ModuleResolution) -> dict[str, ParamZone]:
-    """Return the resolved zones of the single lambda in the program."""
-    lambdas: list[Lambda] = []
-
-    def visit(node: object) -> None:
-        if isinstance(node, Lambda):
-            lambdas.append(node)
-
-    walk(resolution.program, visit)
-    assert len(lambdas) == 1
-    return {p.name: resolution.attributes.param_zones[p.node_id] for p in lambdas[0].params}
 
 
 def _option(resolution: ModuleResolution, owner_name: str, param_name: str) -> ProgramOptionSpec:
@@ -191,15 +177,6 @@ class TestParameterZones:
 
         assert _zones(resolution, "f") == {"a": NAMED_ONLY}
 
-    def test_a_lambda_parameter_carries_its_own_zone(self) -> None:
-        resolution = resolve_entry(
-            "def f() -> int =\n"
-            "  let g = fn(a: int, @arg-named b: int) -> int => a + b\n"
-            "  g(1, b = 2)\n"
-        )
-
-        assert _lambda_zones(resolution) == {"a": STANDARD, "b": NAMED_ONLY}
-
 
 class TestFieldZones:
     """Record, exception and enum-member field lists follow the same rules."""
@@ -251,6 +228,14 @@ class TestAttributeDiagnostics:
         enums = [item for item in resolution.program.body.items if isinstance(item, EnumDef)]
         assert [enum.name for enum in enums] == ["Shape"]
         assert resolution.attributes.docs[enums[0].node_id] == "shapes"
+
+    @pytest.mark.parametrize("zone", ["arg-pos", "arg-std", "arg-named"])
+    def test_a_zone_attribute_on_a_lambda_parameter_is_rejected(self, zone: str) -> None:
+        with pytest.raises(AglScopeError):
+            resolve_entry(f"def f() -> int =\n  let g = fn(@{zone} a: int) => a\n  g(1)\n")
+
+    def test_a_doc_attribute_on_a_lambda_parameter_is_admitted(self) -> None:
+        resolve_entry('def f() -> int =\n  let g = fn(@doc("d") a: int) => a\n  g(1)\n')
 
     def test_a_zone_attribute_on_an_enum_declaration_is_rejected(self) -> None:
         with pytest.raises(AglScopeError, match="arg-named"):

@@ -429,17 +429,3 @@ def test_two_lambdas_independent_capture() -> None:
     ir = evaluate_ir(source)
     assert ir["ra"] == IntValue(11)
     assert ir["rb"] == IntValue(21)
-
-
-def test_lambda_with_default_param() -> None:
-    """Lambda with a default parameter: lowerer lowers the default coerced.
-
-    This exercises the ``param.default is not None`` branch in ``_lower_lambda``
-    (lowerer.py lines 584-587).  The checker requires exact arity for value calls
-    (FunctionType erases defaults), so we call with all args explicitly — the
-    lowered default still ends up in the FunctionDescriptor and is lowered via
-    lower_coerced.
-    """
-    source = "let add = fn(x: int, y: int = 10) -> int => x + y\nlet r = add(5, 3)\n()"
-    ir = evaluate_ir(source)
-    assert ir["r"] == IntValue(8)

@@ -722,7 +722,7 @@ def validate_required_after_defaulted(
     """Reject a required positional-fillable parameter after a defaulted one.
 
     *entry_desc* names what *params* are in the diagnostic — ``"Parameter"``
-    for a function/lambda parameter list, ``"Field"`` for a record/enum-member/
+    for a function parameter list, ``"Field"`` for a record/enum-member/
     exception field list.
     """
     seen_pos_default = False

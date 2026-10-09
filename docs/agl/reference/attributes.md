@@ -69,7 +69,7 @@ that same binding in an expression reads whatever value the host bound.
 | Attribute | Argument | Allowed on | Effect |
 | --------- | -------- | ---------- | ------ |
 | `@doc("…")` | prose | every defining declaration | Describes the declaration; hosts show it in help, and enum-member prose annotates derived JSON Schema. |
-| `@arg-pos` | none | parameter, field, or their declaring `def`, `record`, `exception`, or enum member | Positional-only zone. |
+| `@arg-pos` | none | `def` parameter, field, or their declaring `def`, `record`, `exception`, or enum member | Positional-only zone. |
 | `@arg-std` | none | same | Standard zone (positional or named). |
 | `@arg-named` | none | same | Named-only zone. |
 | `@extern-name("…")` | Python identifier | `extern def` | Names the companion function. |
@@ -87,10 +87,11 @@ that same binding in an expression reads whatever value the host bound.
 ## Zone attributes
 
 `@arg-pos` (positional-only), `@arg-std` (positional or named), and
-`@arg-named` (named-only) are mutually exclusive. In front of a parameter or
-field they zone that entry; in front of the declaration they set the zone of
-every entry that names none. Zones, their default per declaration form, and
-their ordering rule: [parameters](functions.md#parameters) and
+`@arg-named` (named-only) are mutually exclusive. In front of a `def`
+parameter or field they zone that entry; in front of the declaration they set
+the zone of every entry that names none. A lambda parameter takes no zone
+attribute. Zones, their default per declaration form, and their ordering rule:
+[parameters](functions.md#parameters) and
 [record fields](types.md#field-zones); zones in patterns:
 [Pattern matching](pattern-matching.md).
 

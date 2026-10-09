@@ -1786,6 +1786,14 @@ class TestAttributes:
         assert isinstance(lam, Lambda)
         assert [attribute_names(param) for param in lam.params] == [["doc"]]
 
+    @pytest.mark.parametrize(
+        "source",
+        ["let g = fn(a: int = 1) => a", "let g = f(fn(a: int = 1) => a)"],
+    )
+    def test_lambda_parameter_default_is_a_syntax_error(self, source: str) -> None:
+        with pytest.raises(AglSyntaxError):
+            parse(source)
+
     @pytest.mark.parametrize(("keyword", "node_type"), _BINDER_CASES)
     def test_binder_attribute_at_the_top_level(self, keyword: str, node_type: type[object]) -> None:
         decl = first(parse(f'@doc("b")\n{keyword} y = 1'))

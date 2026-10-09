@@ -4273,7 +4273,6 @@ class _Checker:
     # --- Lambda ---
 
     def _check_lambda(self, node: Lambda, *, expected: Type | None) -> Type:
-        validate_required_after_defaulted(node.params, self._resolved.attributes.param_zones)
         omitted = tuple(index for index, param in enumerate(node.params) if param.type_expr is None)
         if expected is not None and (node.implicit_self or omitted):
             expected = self._active_inference_engine().zonk(expected)

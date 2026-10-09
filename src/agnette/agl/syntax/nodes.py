@@ -449,7 +449,7 @@ class Call(CallFields["CallArg"]):
 class Param:
     """A function/lambda parameter or a record/enum-variant/exception field.
 
-    ``default`` is meaningful for every zone: a ``def``/``builtin def``/lambda
+    ``default`` is meaningful for every zone: a ``def``/``builtin def``
     parameter's default may be any expression, while a field's default (record,
     enum-variant, or exception) must be a constant expression (checked
     separately; see ``syntax/constants.py::is_constant_expression``) since it
@@ -457,6 +457,7 @@ class Param:
     when a method omits its leading ``self`` annotation or a lambda parameter
     takes its type from context. ``mutable`` marks a record, enum-variant, or
     exception field; function and lambda parameters always leave it ``False``.
+    A lambda parameter never has a default.
     ``attributes`` holds the attribute prefix the source wrote in front of the
     parameter or field, verbatim.
     """

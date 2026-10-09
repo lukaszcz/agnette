@@ -13909,32 +13909,6 @@ class TestGenericNamedOnlyShorthandInference:
         assert r.node_types[r.resolved.program.body.items[-1].node_id] == TextType()
 
 
-# ---------------------------------------------------------------------------
-# Regression: lambda required-after-defaulted check
-# ---------------------------------------------------------------------------
-
-
-class TestLambdaRequiredAfterDefaulted:
-    """Regression tests: the required-after-defaulted check
-    must apply to lambdas, not just def declarations.
-    """
-
-    def test_lambda_required_after_defaulted_rejected(self) -> None:
-        """fn(x: int = 5, y: int) -> int => x + y must be rejected."""
-        err = reject_type("fn(x: int = 5, y: int) -> int => x + y")
-        assert "default" in str(err).lower() or "required" in str(err).lower()
-
-    def test_lambda_valid_defaulted_after_required_accepted(self) -> None:
-        """fn(x: int, y: int = 5) -> int => x + y is fine (required before default)."""
-        r = resolve_and_check_repl_entry("fn(x: int, y: int = 5) -> int => x + y")
-        assert r.resolved.program is not None
-
-    def test_lambda_named_only_any_default_order_accepted(self) -> None:
-        """Named-only params are order-free: a defaulted one may precede a required one."""
-        r = resolve_and_check_repl_entry("fn(@arg-named x: int = 0, @arg-named y: int) -> int => y")
-        assert r.resolved.program is not None
-
-
 @pytest.mark.parametrize(
     ("source", "expected_name"),
     [

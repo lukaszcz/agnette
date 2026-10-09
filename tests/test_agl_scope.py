@@ -2234,11 +2234,6 @@ class TestLambdaScoping:
         assert isinstance(call, Call)
         assert call.node_id not in r.builtin_calls
 
-    def test_lambda_default_in_enclosing_scope(self) -> None:
-        """Default expressions in a lambda are resolved in the enclosing scope."""
-        r = parse_and_resolve("let base = 5\nlet f = fn(x: int = base) => x\nf()")
-        assert _ref(r, "base").kind == BinderKind.let_binding
-
     def test_return_allowed_in_lambda_body(self) -> None:
         parse_and_resolve("let f = fn(x: int) => return x\nf(1)")
 

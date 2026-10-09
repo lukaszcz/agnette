@@ -213,10 +213,9 @@ every parameter that does not name one itself. Without one, parameters of a
 `def`, `extern def`, or `builtin def` are standard (the special built-ins
 above excepted), a method receiver `self` is positional-only, and parameters
 of a `program def` are named-only (its CLI projection is described in [Host
-environment](host-environment.md#program-arguments)). A lambda accepts zone
-attributes and parameter defaults, but they have no effect: a lambda is only
-called as a function value, positionally with every argument, so
-`fn(x: int = 4) => x` called as `f()` is an arity error.
+environment](host-environment.md#program-arguments)). A lambda parameter
+takes no zone attribute and no default (both are static errors): a lambda is
+called only as a function value, positionally with every argument.
 
 ```agl
 def f(@arg-pos x: int, y: int) -> int = x + y                    # x pos-only, y standard

@@ -1,0 +1,2 @@
+program def main() -> unit =
+  print([1, 2].map(fn(x: int = 0) => x + 1))

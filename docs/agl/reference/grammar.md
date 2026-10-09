@@ -493,8 +493,10 @@ uses `::`. A `return` followed by a newline is a bare `return`.
 ## Lambda expressions
 
 ```ebnf
-lambda_expr   ::= "fn" lambda_params ("->" type_expr)? "=>" expr
-lambda_params ::= field_name | "(" param_list? ")"
+lambda_expr       ::= "fn" lambda_params ("->" type_expr)? "=>" expr
+lambda_params     ::= field_name | "(" lambda_param_list? ")"
+lambda_param_list ::= lambda_param ("," lambda_param)* ","?
+lambda_param      ::= attributes? field_name [":" type_expr]
 ```
 
 A bare parameter form declares exactly one parameter; zero or several use
