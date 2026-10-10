@@ -8,8 +8,8 @@ Public API
   more input could complete the construct; :class:`UnterminatedTripleQuotedStringError`
   narrows it to an unclosed triple-quoted string.
 - :func:`tokenize` — strict token iterator for tests and tooling.
-- :func:`tokenize_recover` — tokens plus scanner diagnostics; rejected spans
-  carry the recovery-only ``ERROR`` token type.
+- :func:`tokenize_recover` — tokens plus diagnostics from every lexer stage;
+  rejected scanner spans carry recovery-only error or incomplete-tail tokens.
 - :func:`lex_comment_spans` — offsets of the ``#`` comments the scan skipped
   (comments carry no token, so highlighters read them from here).
 - :func:`spaced_qualifier_collector` — collects lexical advisories for
@@ -63,14 +63,22 @@ def tokenize(source: str) -> Iterator[Token]:
 
 
 def tokenize_recover(source: str) -> tuple[list[Token], list[LexError]]:
-    """Return tokens and scanner diagnostics without rejecting malformed literals.
+    """Return tokens and diagnostics without rejecting malformed or incomplete input.
 
     Strict-accepted sources retain exactly the strict token stream order, values,
     and positions. Spans index normalized source; skipped trivia, trimmed literal
     margins, and synthetic layout positions are not a literal source partition.
     Consumers sort spans, clip overlaps, and fill unclaimed slices separately.
-    Layout, module-path and incomplete-input errors still raise.
+    Layout and clinging-slash diagnostics flag spans without replacing tokens.
+    ``STRING_TAIL`` / ``VERBATIM_TAIL`` identify incomplete literals from their
+    opening delimiter to EOF, including tails with Unicode errors. Recursion
+    exhaustion flags the abandoned construct through EOF without dropping earlier
+    diagnostics. Abandoned constructs receive zero-width closers
+    so subsequent CODE lines retain their layout. Diagnostics follow strict encounter order
+    (Unicode preflight, scanner/layout with lookahead, then module passes).
     """
     scanner = _Scanner(source, recover=True)
-    tokens = apply_module_passes(list(layout(scanner.scan())), source)
+    tokens = apply_module_passes(
+        list(layout(scanner.scan(), errors=scanner.errors)), source, errors=scanner.errors
+    )
     return tokens, scanner.errors

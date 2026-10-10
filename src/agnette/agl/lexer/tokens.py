@@ -76,6 +76,9 @@ DEDENT = "_DEDENT"
 
 # Recovery-only token; never passed to the parser.
 ERROR = "ERROR"
+# Recovery-only incomplete literals: delimiter start through end of input.
+STRING_TAIL = "STRING_TAIL"
+VERBATIM_TAIL = "VERBATIM_TAIL"
 
 # ---------------------------------------------------------------------------
 # Template / interpolation tokens (synthetic)
@@ -138,6 +141,15 @@ SEMICOLON = "SEMICOLON"  # ;
 
 # Equality operator token for "==".
 EQ_EQ = "EQ_EQ"  # ==
+
+# Delimiters that suppress layout; recovery uses the same pairs to unwind it.
+LAYOUT_DELIMITERS = {
+    LPAR: RPAR,
+    LSQB: RSQB,
+    LBRACE: RBRACE,
+    TEMPLATE_START: TEMPLATE_END,
+    INTERP_START: INTERP_END,
+}
 
 # Synthetic token: the "[" that opens a loop bound, i.e. the first "[" after the
 # "do" keyword.  Retagging it ``DO_LSQB`` lets the grammar distinguish the

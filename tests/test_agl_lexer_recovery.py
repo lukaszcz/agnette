@@ -7,8 +7,6 @@ intervals, including zero-width template closers, own no source characters.
 Strict tokens deliberately retain their original spans, not a literal partition.
 """
 
-from pathlib import Path
-
 import pytest
 from lark.lexer import Token
 
@@ -21,6 +19,7 @@ from agnette.agl.lexer import (
 )
 from agnette.agl.lexer.tokens import ERROR
 from agnette.util.text import normalize_newlines
+from tests._agl_corpus import lexical_corpus
 
 REJECTED = [
     '"bad\\q"\nlater',  # escape conversion
@@ -146,24 +145,91 @@ def test_surrogate_insertion_at_eof(source: str) -> None:
     assert_source_coverage(source, tokens)
 
 
-def test_accepted_source_corpus() -> None:
-    root = Path(__file__).resolve().parents[1]
-    for directory in [root / "tests/agl", root / "packages/stdlib/src"]:
-        for path in directory.rglob("*.agl"):
-            try:
-                source = path.read_text()
-                strict = list(tokenize(source))
-            except (UnicodeDecodeError, LexError):
-                continue
-            tokens, errors = tokenize_recover(source)
-            assert not errors, path
-            assert positions(tokens) == positions(strict), path
+@pytest.mark.parametrize("case", lexical_corpus(), ids=lambda case: case[0])
+def test_source_corpus(case: tuple[str, str]) -> None:
+    _, source = case
+    try:
+        strict = list(tokenize(source))
+    except LexError as error:
+        tokens, errors = tokenize_recover(source)
+        assert type(errors[0]) is type(error)
+        assert str(errors[0]) == str(error)
+        assert errors[0].span == error.span
+    else:
+        tokens, errors = tokenize_recover(source)
+        assert not errors
+        assert positions(tokens) == positions(strict)
+    assert_source_coverage(source, tokens)
 
 
-@pytest.mark.parametrize("source", ['"""unfinished', "$", "$   "])
-def test_incomplete_input_remains_strict(source: str) -> None:
-    with pytest.raises(IncompleteInputError):
-        tokenize_recover(source)
+@pytest.mark.parametrize(
+    ("source", "start", "kind"),
+    [
+        ('"""unfinished', 0, "STRING_TAIL"),
+        ("'''unfinished", 0, "STRING_TAIL"),
+        ('x\n    """\ntext', 6, "STRING_TAIL"),
+        ("$", 0, "VERBATIM_TAIL"),
+        ("$   ", 0, "VERBATIM_TAIL"),
+        ("x\n    $   ", 6, "VERBATIM_TAIL"),
+        ("\"%{'''unfinished", 3, "STRING_TAIL"),
+        ("$ %{'''unfinished", 4, "STRING_TAIL"),
+        ("$\n    %{'''unfinished", 8, "STRING_TAIL"),
+        ("\"\"\"%{'''unfinished", 5, "STRING_TAIL"),
+    ],
+)
+def test_incomplete_input_has_recognizable_tail(source: str, start: int, kind: str) -> None:
+    with pytest.raises(IncompleteInputError) as strict:
+        list(tokenize(source))
+    tokens, errors = tokenize_recover(source)
+    assert len(errors) == 1
+    assert type(errors[0]) is type(strict.value)
+    assert str(errors[0]) == str(strict.value)
+    assert errors[0].span == strict.value.span
+    tail = next(t for t in tokens if t.type == kind)
+    assert (tail.type, tail.start_pos, tail.end_pos) == (kind, start, len(source))
+    assert str(tail) == source[start:]
+    assert_source_coverage(source, tokens)
+    assert lex_comment_spans("# before\n" + source) == [(0, 8)]
+
+
+@pytest.mark.parametrize(
+    "wrapper", ["{}", '"""%{{{}}}"""', "$ %{{{}}}", "$\n    %{{{}}}\n    buffered later"]
+)
+def test_recursion_failure_abandons_construct_and_keeps_diagnostics(wrapper: str) -> None:
+    nested = '"%{' * 200 + "1" + '}"' * 200
+    construct = wrapper.format(nested)
+    with pytest.raises(RecursionError):
+        list(tokenize(construct))
+    source = "# before\n\x01\n" + construct + "\n# uncertain tail"
+    tokens, errors = tokenize_recover(source)
+    assert len(errors) == 2
+    assert errors[0].span.start_offset == source.index("\x01")
+    error = errors[1]
+    abandoned = next(
+        token for token in tokens if token.type == ERROR and token.end_pos == len(source)
+    )
+    assert abandoned.start_pos == source.index(construct)
+    assert abandoned.start_pos < error.span.start_offset <= error.span.end_offset <= len(source)
+    assert error.span.start_offset < source.index("1", abandoned.start_pos)
+    assert str(abandoned) == source[abandoned.start_pos :]
+    assert_source_coverage(source, tokens)
+    assert lex_comment_spans(source)[0] == (0, 8)
+
+
+@pytest.mark.parametrize(
+    ("source", "kind"),
+    [('"""unfinished\ud800', "STRING_TAIL"), ("$ \ud800", "VERBATIM_TAIL")],
+)
+def test_surrogate_in_incomplete_literal_preserves_tail(source: str, kind: str) -> None:
+    with pytest.raises(LexError) as strict:
+        list(tokenize(source))
+    tokens, errors = tokenize_recover(source)
+    assert len(errors) == 2
+    assert errors[0].span == strict.value.span
+    assert isinstance(errors[1], IncompleteInputError)
+    tail = next(token for token in tokens if token.type == kind)
+    assert (tail.start_pos, tail.end_pos, str(tail)) == (0, len(source), source)
+    assert_source_coverage(source, tokens)
 
 
 def test_unexpected_character_inside_interpolation_skips_only_it() -> None:
@@ -247,8 +313,7 @@ def test_bad_payload_margin_resynchronizes_at_block_dedent(source: str) -> None:
 def test_bad_payload_margin_at_eof() -> None:
     tokens, errors = tokenize_recover("$\n    first\n  bad")
     assert len(errors) == 1
-    assert len(tokens) == 1
-    assert tokens[0].type == ERROR
+    assert sum(t.type == ERROR for t in tokens) == 1
 
 
 @pytest.mark.parametrize("source", ["$\nimport foo/bar", "$\n    text %{x\nimport foo/bar"])
@@ -317,4 +382,77 @@ def test_surrogates_in_all_scanner_modes(source: str) -> None:
     assert errors[0].span == strict.value.span
     assert any(t.type == ERROR for t in tokens)
     assert str(tokens[-1]) == "later"
+    assert_source_coverage(source, tokens)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "x\n    y\n  z # comment\nnext",
+        "x\n    y\n        z\n      bad # comment\n    sibling\nnext",
+        "a/ b # comment\nnext",
+        "a /b # comment\nnext",
+        "a/b # comment\nnext",
+        "a/ # comment\nnext",
+        "/a # comment\nnext",
+        "x\n    y\n  z\n\x01",  # layout fails before the later scan error
+        "x\n    y\n  z \x01",  # scanner fails during layout's two-token lookahead
+        'x\n    y\n  z\n"""open',
+        "a/ b\n\x01",  # scanner failure precedes module passes
+        "a/ b\nx\n    y\n  z",  # layout failure precedes module passes
+        "x\n    y\n  z\n\ud800",  # Unicode preflight precedes layout
+        "x\n    y\n  z ($ text)",  # deferred scanner error occurs at EOF
+        'x\n    y\n  "good%{\x01}"',  # literal prefixes settle layout before errors
+        'x\n    y\n  "%{x\n',
+        "x\n    y\n  \"%{'''open",
+        "x\n    y\n  $ %{\x01}",
+        'x\n    y\n  "unfinished',  # failure occurs during the lookahead instead
+        'x\n    y\n  "good\\q"',
+    ],
+)
+def test_cross_stage_recovery_preserves_strict_first_error(source: str) -> None:
+    with pytest.raises(LexError) as strict:
+        list(tokenize(source))
+    tokens, errors = tokenize_recover(source)
+    assert type(errors[0]) is type(strict.value)
+    assert str(errors[0]) == str(strict.value)
+    assert errors[0].span == strict.value.span
+    assert_source_coverage(source, tokens)
+    comments = lex_comment_spans(source)
+    assert [source[start:end] for start, end in comments] == (
+        ["# comment"] if "# comment" in source else []
+    )
+    if source.endswith("next"):
+        assert str(tokens[-1]) == "next"
+
+
+def test_misaligned_dedent_snaps_to_enclosing_level() -> None:
+    source = "x\n    y\n        z\n      bad\n    sibling\nnext"
+    tokens, errors = tokenize_recover(source)
+    assert len(errors) == 1
+    # Treat six columns as the enclosing four-column block, not a new level.
+    assert sum(t.type == "_INDENT" for t in tokens) == 2
+    assert sum(t.type == "_DEDENT" for t in tokens) == 2
+    assert [str(t) for t in tokens if t.type == "NAME"] == ["x", "y", "z", "bad", "sibling", "next"]
+
+
+def test_clinging_slashes_keep_tokens_and_flag_each_slash() -> None:
+    source = "a/ b\nc /d\nlater # comment"
+    tokens, errors = tokenize_recover(source)
+    slashes = [t for t in tokens if t.type == "SLASH"]
+    assert len(slashes) == len(errors) == 2
+    assert [(e.span.start_offset, e.span.end_offset) for e in errors] == [
+        (t.start_pos, t.end_pos) for t in slashes
+    ]
+    assert str(tokens[-1]) == "later"
+    assert_source_coverage(source, tokens)
+
+
+def test_multiple_errors_across_all_stages_and_incomplete_tail() -> None:
+    source = '\x01\nx\n    y\n  z\na/ b\nc /d\n# comment\n"""unfinished'
+    tokens, errors = tokenize_recover(source)
+    assert len(errors) == 5
+    assert isinstance(errors[2], IncompleteInputError)
+    assert any(t.type == "STRING_TAIL" for t in tokens)
+    assert lex_comment_spans(source) == [(source.index("#"), source.index("#") + 9)]
     assert_source_coverage(source, tokens)

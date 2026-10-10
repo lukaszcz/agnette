@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass
+from typing import cast
 
 from lark.lexer import Token
 
@@ -63,6 +64,7 @@ from agnette.agl.lexer.tokens import (
     INT,
     INTERP_END,
     INTERP_START,
+    LAYOUT_DELIMITERS,
     LBRACE,
     LE,
     LPAR,
@@ -84,11 +86,13 @@ from agnette.agl.lexer.tokens import (
     SLASH,
     STAR,
     STRING_FRAGMENT,
+    STRING_TAIL,
     TEMPLATE_END,
     TEMPLATE_START,
     THIN_ARROW,
     VERBATIM_END,
     VERBATIM_START,
+    VERBATIM_TAIL,
 )
 from agnette.agl.operator_names import is_operator_name_char
 from agnette.agl.value_syntax import lexical
@@ -246,6 +250,8 @@ class _Scanner:
         # because an unclosed bracket earlier in the file produces the same
         # depth without the payload being bracketed at all.
         self._deferred_bracket_error: LexError | None = None
+        # Innermost incomplete literal's kind and delimiter position.
+        self._incomplete_tail: tuple[str, int, int, int] | None = None
 
     @property
     def tab_warnings(self) -> list[Diagnostic]:
@@ -475,10 +481,15 @@ class _Scanner:
             self._advance()
         yield self._make_token(TEMPLATE_START, quote, start_pos, start_line, start_col)
 
-        if triple:
-            yield from self._scan_triple_template(quote)
-        else:
-            yield from self._scan_single_template(quote)
+        try:
+            if triple:
+                yield from self._scan_triple_template(quote)
+            else:
+                yield from self._scan_single_template(quote)
+        except IncompleteInputError:
+            if self._incomplete_tail is None:
+                self._incomplete_tail = STRING_TAIL, start_pos, start_line, start_col
+            raise
 
     def _scan_single_template(self, quote: str = '"') -> Iterator[Token]:
         """Scan the body of a single-line template delimited by *quote*, yielding tokens."""
@@ -882,11 +893,11 @@ class _Scanner:
             fragment = emit_fragment()
             if fragment is not None:
                 yield fragment
-        except LexError:
-            if self._recover and self._pos > saved_state[0]:
-                # A nested multiline hole can fail beyond the collected payload.
-                # Keep the later cursor: recovery skips the failing line or the
-                # remaining block, never resuming CODE before the diagnostic.
+        except (LexError, RecursionError) as error:
+            if self._recover and (isinstance(error, RecursionError) or self._pos > saved_state[0]):
+                # Recursion recovery needs the actual failing cursor and consumes
+                # through EOF. Lexical recovery keeps only a later cursor, never
+                # resuming CODE before a nested multiline hole's diagnostic.
                 saved_state = self._pos, self._line, self._col, self._line_start_pos
             raise
         finally:
@@ -1090,7 +1101,12 @@ class _Scanner:
             )
             return
 
-        yield from self._scan_payload(opener=(start_pos, start_line, start_col))
+        try:
+            yield from self._scan_payload(opener=(start_pos, start_line, start_col))
+        except IncompleteInputError:
+            if self._incomplete_tail is None:
+                self._incomplete_tail = VERBATIM_TAIL, start_pos, start_line, start_col
+            raise
 
     # ------------------------------------------------------------------
     # Code token scanning
@@ -1248,19 +1264,38 @@ class _Scanner:
         self.errors.append(error)
 
     def _recover_code_token(self) -> Iterator[Token]:
-        """Buffer one construct so a rejected template cannot leave open delimiters."""
+        """Keep strict prefixes, then close abandoned delimiters for layout recovery."""
         start = self._pos, self._line, self._col
         bracket_depth = self._bracket_depth
         ch = self._peek()
+        closers: list[str] = []
         try:
-            tokens: list[Token] = []
             for token in self._scan_one_code_token():
-                tokens.append(token)
+                if token.type in LAYOUT_DELIMITERS:
+                    closers.append(LAYOUT_DELIMITERS[token.type])
+                elif token.type in LAYOUT_DELIMITERS.values() and closers:
+                    closers.pop()
+                yield token
                 # Match the strict outer consumer before the nested scanner resumes.
-                # Replay below must not track these tokens a second time.
                 self._track_code_token(token)
-        except IncompleteInputError:
-            raise
+        except RecursionError:
+            self._record_recovery_error(
+                LexError(
+                    "Interpolation nesting exceeds the scanner's recursion capacity",
+                    span=self._span_here(),
+                )
+            )
+            self._bracket_depth = bracket_depth
+            # The unwound mode stack cannot establish a safe CODE boundary.
+            # Keep the prefix and flag the remaining construct through EOF.
+            while not self._at_end():
+                self._advance(in_string=True)
+            yield self._make_token(ERROR, self._src[start[0] : self._pos], *start)
+        except IncompleteInputError as error:
+            self._record_recovery_error(error)
+            # The innermost literal owns the tail, even inside a buffered hole.
+            kind, pos, line, col = cast(tuple[str, int, int, int], self._incomplete_tail)
+            yield self._make_token(kind, self._src[pos : self._pos], pos, line, col)
         except LexError as error:
             self._record_recovery_error(error)
             self._bracket_depth = bracket_depth
@@ -1270,14 +1305,16 @@ class _Scanner:
                 while not self._at_end() and self._peek() != "\n":
                     self._advance(in_string=True)
             yield self._make_token(ERROR, self._src[start[0] : self._pos], *start)
-            if ch == "$" and self._line > start[1] and not self._at_end() and self._peek() != "\n":
-                # Block collection already consumed the separating newline.
-                # A zero-width signal keeps the next item at its own layout level.
-                yield self._make_token(
-                    NEWLINE, str(self._col - 1), self._pos, self._line, self._col
-                )
         else:
-            yield from tokens
+            return
+        # Zero-width closers unwind only the aborted construct's layout depth;
+        # the surrounding CODE brackets retain their strict behavior.
+        for kind in reversed(closers):
+            yield self._make_token(kind, "", self._pos, self._line, self._col)
+        if ch == "$" and self._line > start[1] and not self._at_end() and self._peek() != "\n":
+            # Block collection already consumed the separating newline. Emit
+            # its signal after closing holes so layout sees the next CODE item.
+            yield self._make_token(NEWLINE, str(self._col - 1), self._pos, self._line, self._col)
 
     def _scan_recover(self) -> Iterator[Token]:
         """Scan with Unicode preflight and deferred diagnostics kept recoverable."""
@@ -1308,7 +1345,29 @@ class _Scanner:
         # comments/literals; their original spans are restored as errors below.
         if surrogate_tokens:
             self._src = "".join(" " if 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in original)
-        tokens = list(self._scan_code())
+        preflight_errors = list(self.errors)
+        # Buffer tokens for surrogate/deferred flags, but replay diagnostics at
+        # the token where strict scanning would fail. Layout's lookahead then
+        # sees scan errors before its own diagnostic, exactly as in strict mode.
+        events: dict[int, list[LexError]] = {}
+        recorded = len(self.errors)
+        tokens: list[Token] = []
+        for token in self._scan_code():
+            if token.type in {STRING_TAIL, VERBATIM_TAIL}:
+                token = Token(
+                    token.type,
+                    original[token.start_pos : token.end_pos],
+                    start_pos=token.start_pos,
+                    line=token.line,
+                    column=token.column,
+                    end_line=token.end_line,
+                    end_column=token.end_column,
+                    end_pos=token.end_pos,
+                )
+            if recorded < len(self.errors):
+                events[id(token)] = self.errors[recorded:]
+                recorded = len(self.errors)
+            tokens.append(token)
         deferred = self._deferred_bracket_error
         if deferred is not None and self._bracket_depth == 0 and deferred not in self.errors:
             self.errors.append(deferred)
@@ -1324,9 +1383,10 @@ class _Scanner:
             for token in tokens:
                 span = token_span(token)
                 if span.start_offset <= bad_offset < span.end_offset:
-                    # A literal fragment containing invalid Unicode is invalid
-                    # as a whole; avoid overlapping an extra ERROR token with it.
-                    token.type = ERROR
+                    # Tails keep their literal identity; Unicode diagnostics
+                    # already flag the invalid characters they contain.
+                    if token.type not in {STRING_TAIL, VERBATIM_TAIL}:
+                        token.type = ERROR
                     covered = True
             if not covered:
                 insertion = next(
@@ -1338,9 +1398,14 @@ class _Scanner:
                     len(tokens),
                 )
                 tokens.insert(insertion, bad)
+        completion_errors = self.errors[recorded:]
+        self.errors[:] = preflight_errors
         self._src = original
         # Payload holes can rewind source positions; layout needs scanner order.
-        yield from tokens
+        for token in tokens:
+            self.errors.extend(events.get(id(token), ()))
+            yield token
+        self.errors.extend(completion_errors)
 
     def _scan_code(self) -> Iterator[Token]:
         """Yield every CODE-mode token, leaving deferred diagnostics to ``scan``."""
@@ -1477,13 +1542,10 @@ def lex_comment_spans(source: str) -> list[tuple[int, int]]:
     source and are end-exclusive; the span runs from the ``#`` to the end of
     its line.
 
-    Scanner recovery keeps collecting after malformed input. Incomplete input
-    ends collection rather than propagating.
+    Scanner recovery keeps collecting after malformed input; incomplete
+    literals consume the remaining input as a tail.
     """
     scanner = _Scanner(source, recover=True)
-    try:
-        for _ in scanner.scan():
-            pass
-    except LexError:
+    for _ in scanner.scan():
         pass
     return scanner.comment_spans

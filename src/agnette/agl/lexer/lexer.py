@@ -672,7 +672,9 @@ def _reaches_a_spaced_dcolon(tokens: list[Token], slash_index: int) -> bool:
     return False
 
 
-def _reject_clinging_slash(tokens: list[Token]) -> list[Token]:
+def _reject_clinging_slash(
+    tokens: list[Token], *, errors: list[LexError] | None = None
+) -> list[Token]:
     """Reject a division slash that clings to an operand on either side.
 
     Division is written with whitespace on both sides, matching ``+``, ``-``
@@ -698,18 +700,24 @@ def _reject_clinging_slash(tokens: list[Token]) -> list[Token]:
             and tok.end_pos == next_tok.start_pos
         )
         if tight_left or tight_right:
-            raise LexError(
+            error = LexError(
                 "'/' is a module path separator here; write ' / ' with spaces to divide",
                 span=token_span(tok),
             )
+            if errors is None:
+                raise error
+            # Preserve the slash and its neighbors; flag only its own span.
+            errors.append(error)
     return tokens
 
 
-def apply_module_passes(tokens: list[Token], source: str) -> list[Token]:
-    """Apply soft-keyword promotion, import path merging, and module-qualifier merging."""
+def apply_module_passes(
+    tokens: list[Token], source: str, *, errors: list[LexError] | None = None
+) -> list[Token]:
+    """Promote header words and merge paths; optionally record invalid slash spans."""
     promoted = _promote_soft_keywords(tokens)
     merged = _merge_modqual(_promote_hiding(_merge_modpath(promoted)), source)
-    return _reject_clinging_slash(merged)
+    return _reject_clinging_slash(merged, errors=errors)
 
 
 def unclosed_scope_path(source: str) -> str:
