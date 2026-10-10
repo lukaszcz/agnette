@@ -8,9 +8,9 @@ prefix := default_prefix
 default:
     @just --list
 
-# Create the virtualenv with the locked project and dev dependencies
+# Refresh the locked project and dev dependencies, repairing moved-venv launchers
 setup:
-    uv sync --locked --python 3.14 --group dev
+    uv sync --locked --python 3.14 --group dev --reinstall
 
 # Build the Markdown documentation into site/
 docs-build:
