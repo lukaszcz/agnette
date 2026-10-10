@@ -3,8 +3,8 @@
 Agnette (Agentic Notation & Execution Toolkit) provides CLI agent management facilities
 and a complete agent workflow DSL:
 
-- **AgM (Agnette Manager)** — the CLI agent project manager: workspaces, git worktrees,
-  dependencies, tmux sessions, setup scripts, and sandboxed commands.
+- **AgM (Agnette Manager)** — the CLI agent project manager: workspaces, dependencies,
+  git worktrees, tmux sessions, setup scripts, and sandboxed commands.
 - **AgL (Agnette Language)** — the statically typed workflow DSL for orchestrating agents
   and shell commands, run with `agm exec` or interactively with `agm repl`.
 
