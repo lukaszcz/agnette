@@ -7,8 +7,9 @@ Public API
 - :class:`IncompleteInputError` — a :class:`LexError` subtype raised only when
   more input could complete the construct; :class:`UnterminatedTripleQuotedStringError`
   narrows it to an unclosed triple-quoted string.
-- :func:`tokenize` — convenience helper: tokenize a source string and return
-  the full token list (useful for tests and diagnostics).
+- :func:`tokenize` — strict token iterator for tests and tooling.
+- :func:`tokenize_recover` — tokens plus scanner diagnostics; rejected spans
+  carry the recovery-only ``ERROR`` token type.
 - :func:`lex_comment_spans` — offsets of the ``#`` comments the scan skipped
   (comments carry no token, so highlighters read them from here).
 - :func:`spaced_qualifier_collector` — collects lexical advisories for
@@ -36,7 +37,7 @@ from agnette.agl.lexer.lexer import (
     token_collector,
     unclosed_scope_path,
 )
-from agnette.agl.lexer.scanner import lex_comment_spans, scan
+from agnette.agl.lexer.scanner import _Scanner, lex_comment_spans, scan
 
 __all__ = [
     "IncompleteInputError",
@@ -48,6 +49,7 @@ __all__ = [
     "token_collector",
     "unclosed_scope_path",
     "tokenize",
+    "tokenize_recover",
 ]
 
 
@@ -58,3 +60,17 @@ def tokenize(source: str) -> Iterator[Token]:
     Lark parser uses :class:`AglLexer` directly.
     """
     return iter(apply_module_passes(list(layout(scan(source))), source))
+
+
+def tokenize_recover(source: str) -> tuple[list[Token], list[LexError]]:
+    """Return tokens and scanner diagnostics without rejecting malformed literals.
+
+    Strict-accepted sources retain exactly the strict token stream order, values,
+    and positions. Spans index normalized source; skipped trivia, trimmed literal
+    margins, and synthetic layout positions are not a literal source partition.
+    Consumers sort spans, clip overlaps, and fill unclaimed slices separately.
+    Layout, module-path and incomplete-input errors still raise.
+    """
+    scanner = _Scanner(source, recover=True)
+    tokens = apply_module_passes(list(layout(scanner.scan())), source)
+    return tokens, scanner.errors

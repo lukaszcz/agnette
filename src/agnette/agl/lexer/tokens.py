@@ -74,6 +74,9 @@ NEWLINE = "_NEWLINE"
 INDENT = "_INDENT"
 DEDENT = "_DEDENT"
 
+# Recovery-only token; never passed to the parser.
+ERROR = "ERROR"
+
 # ---------------------------------------------------------------------------
 # Template / interpolation tokens (synthetic)
 # ---------------------------------------------------------------------------

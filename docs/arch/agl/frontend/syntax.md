@@ -1,6 +1,6 @@
 # AgL Syntax: Lexer, Parser, and AST
 
-A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}` holes, `${NAME}` environment holes, `$` verbatim literals), and the tight slash-path and `::` qualifier syntax. A Lark LALR grammar recognizes the token stream, and the AST builder constructs frozen dataclass nodes with stable ids. Comments produce no tokens; their spans are a side channel for highlighters.
+A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}` holes, `${NAME}` environment holes, `$` verbatim literals), and the tight slash-path and `::` qualifier syntax. A Lark LALR grammar recognizes the token stream, and the AST builder constructs frozen dataclass nodes with stable ids. Comments produce no tokens; their spans are a side channel for highlighters. `lexer.tokenize_recover` returns tokens plus scanner diagnostics, marking rejected spans with `ERROR`; accepted input preserves the strict stream, and parser lexing stays strict. Source-span ordering and partitioning belong to consumers, not scanning. Comment collection uses scanner recovery.
 
 ## Shared Lexical Leaves
 
