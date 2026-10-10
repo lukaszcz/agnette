@@ -156,7 +156,7 @@ install-agm *args:
     uv export --locked --no-dev --no-emit-project --no-hashes --format requirements.txt > "$constraints_file"; \
     install_prefix="$(just install-prefix {{args}})"; \
     if [[ -n "$install_prefix" ]]; then export UV_TOOL_BIN_DIR="$install_prefix/bin"; fi; \
-    uv tool install --python 3.14 --reinstall --constraints "$constraints_file" "{{justfile_directory()}}"
+    uv tool install --python 3.14 --reinstall --force --constraints "$constraints_file" "{{justfile_directory()}}"
 
 # Print the install prefix: the first non-option argument, if any
 [private]

@@ -43,7 +43,8 @@ just install --force        # replace differing config files, keeping <file>.bak
 config files and sandbox templates into the AgM home, refreshes the managed standard
 library, reinstalls the repository packages under `packages/`, syncs their Python
 requirements, and installs the AgL editor modes (Micro, and Emacs when available — see
-[config/emacs/README.md](config/emacs/README.md)).
+[config/emacs/README.md](config/emacs/README.md)). It replaces any existing `agm` executable;
+`--force` controls replacement of differing config files only.
 
 The AgM home is `$AGM_HOME`, else a populated `.agm` beside the executable, else
 `$HOME/.agm`. A prefix install puts `agm` in `<prefix>/bin` (add it to `PATH`) and the
