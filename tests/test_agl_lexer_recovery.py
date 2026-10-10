@@ -126,6 +126,20 @@ def test_strict_accepted_tokens_are_identical(source: str) -> None:
     assert_source_coverage(source, tokens)
 
 
+@pytest.mark.parametrize(
+    "source",
+    ['"bad\\q" le', '"bad\\q trailing\\', '"bad\\q trailing\\\nlater'],
+)
+def test_malformed_string_recovery_retains_real_quote_closers(source: str) -> None:
+    with pytest.raises(LexError) as strict:
+        list(tokenize(source))
+    tokens, errors = tokenize_recover(source)
+    assert errors[0].span == strict.value.span
+    real_closers = [t for t in tokens if t.type == "TEMPLATE_END" and t.end_pos > t.start_pos]
+    assert bool(real_closers) == source.startswith('"bad\\q"')
+    assert_source_coverage(source, tokens)
+
+
 def test_surrogate_insertion_preserves_multiline_payload_order() -> None:
     source = '# \ud800\n$ %{"""\nhi"""}\nlater'
     strict = list(tokenize(source.replace("\ud800", " ")))

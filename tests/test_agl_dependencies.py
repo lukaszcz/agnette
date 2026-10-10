@@ -281,6 +281,7 @@ def test_shared_primitives_do_not_import_manager_or_language(package: str) -> No
         ("artifact_storage.py", ()),
         ("keywords.py", ("agnette.util.ident",)),
         ("constraints.py", ()),
+        ("highlight/categories.py", ()),
     ],
 )
 def test_shared_leaves_sit_below_every_pass(leaf: str, allowed: tuple[str, ...]) -> None:
@@ -353,6 +354,52 @@ def test_execution_packages_do_not_import_the_inference_engine(package: str) -> 
         or module.startswith("agnette.agl.typecheck.inference.")
     ]
 
+    assert violations == []
+
+
+def test_highlighting_dependency_fences() -> None:
+    """Keep highlighting above the frontend and optional adapters above its pure tiers."""
+    highlight = AGL_ROOT / "highlight"
+    assert highlight.is_dir()
+    violations = [
+        f"{path.relative_to(AGL_ROOT)} imports {module}"
+        for path in AGL_ROOT.rglob("*.py")
+        if path.relative_to(AGL_ROOT).parts[0] not in {"highlight", "repl"}
+        for module in _agnette_imports_of_file(path)
+        if _is_allowed(module, ("agnette.agl.highlight",))
+    ]
+    for path in AGL_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            for module in _imported_modules(path, node):
+                forbidden = path.is_relative_to(highlight) and _is_allowed(
+                    module, ("agnette.agl.repl", "prompt_toolkit")
+                )
+                adapter = path in {highlight / "pygments_lexer.py", highlight / "markdown_ext.py"}
+                if forbidden or (
+                    not adapter and _is_allowed(module, ("pygments", "markdown", "pymdownx"))
+                ):
+                    violations.append(f"{path.relative_to(AGL_ROOT)} imports {module}")
+    assert violations == []
+
+
+def test_lexical_highlighting_depends_only_on_recognition_and_vocabulary() -> None:
+    allowed = (
+        "agnette.agl.highlight.categories",
+        "agnette.agl.keywords",
+        "agnette.agl.lexer",
+        "agnette.agl.scope.symbols",
+        "agnette.agl.syntax",
+        "agnette.agl.value_syntax",
+        "agnette.util.text",
+    )
+    violations = [
+        module
+        for module in _agnette_imports_of_file(AGL_ROOT / "highlight/lexical.py")
+        if not _is_allowed(module, allowed)
+    ]
     assert violations == []
 
 

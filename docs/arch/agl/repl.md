@@ -17,7 +17,7 @@ Every entry compiles a whole program, but library modules are compiled once: the
 
 ## Front-End Seam
 
-The loop body exists once in the UI-free `repl/loop.py`, parameterized by a reader and writer. `repl/console.py` and its style table `repl/themes.py` are the only prompt_toolkit importers; the console highlights with the real lexer and completes from live session state; `repl/plain_console.py` serves pipes, `TERM=dumb`, and `--plain`. The Emacs integration runs the plain REPL under `comint-mode` with its own font-lock.
+The loop body exists once in the UI-free `repl/loop.py`, parameterized by a reader and writer. `repl/console.py` and its style table `repl/themes.py` are the only prompt_toolkit importers; the console maps shared [highlighting](../highlighting.md) categories to styles, clips legacy spans to their starting lines, and supplies live type/constructor names; completion combines live session state with the scanner's raw-quote compatibility check; `repl/plain_console.py` serves pipes, `TERM=dumb`, and `--plain`. The Emacs integration runs the plain REPL under `comint-mode` with its own font-lock.
 
 ## Introspection and Rendering
 

@@ -31,6 +31,7 @@ Start here for the system shape, then read only the subsystem documents relevant
 - [sandbox.md](sandbox.md) — sandbox preparation, `agm run`, the SRT backend.
 - [agents.md](agents.md) — agent specs, defaults, and sessions.
 - [agl/index.md](agl/index.md) — start here for any AgL task.
+- [highlighting.md](highlighting.md) — shared AgL categories, lexical spans, front-end layering.
 - [testing.md](testing.md) — test strategy and quality gates.
 
 ## Code Entry Points

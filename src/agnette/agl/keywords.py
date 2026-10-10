@@ -16,8 +16,8 @@ members the way any other spelling does.
 Every syntax-highlighting definition mirrors both inventories and must be
 updated alongside them: `config/micro/agl.yaml` (Micro), `config/emacs/agl-mode.el`
 (`agl-keywords`, `agl-soft-keywords`, and the other keyword-inventory constants
-near the top of that file), and the REPL prompt highlighter in
-`agnette.agl.repl.console`.
+near the top of that file), and the shared lexical highlighter in
+`agnette.agl.highlight.lexical`.
 """
 
 from __future__ import annotations

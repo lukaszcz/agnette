@@ -66,6 +66,7 @@ nav:
       - tmux sessions: commands/tmux.md
   - Architecture:
       - Overview: arch/index.md
+      - AgL highlighting: arch/highlighting.md
       - AgM:
           - CLI and command dispatch: arch/cli.md
           - Core primitives: arch/core.md

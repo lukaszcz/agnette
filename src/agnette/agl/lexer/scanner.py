@@ -217,10 +217,11 @@ class _BlockLine:
 class _Scanner:
     """Stateful scanner: processes ``source`` from left to right."""
 
-    def __init__(self, source: str, *, recover: bool = False) -> None:
-        # Universal-newline normalization: CRLF and lone CR both become LF.
-        # All offsets henceforth refer to this normalized text.
-        self._src = normalize_newlines(source)
+    def __init__(self, source: str, *, recover: bool = False, raw_quotes: bool = False) -> None:
+        # Raw quotes are the REPL's legacy completion policy, not AgL syntax.
+        # Reuse delimiter recognition but retain raw newlines and escape pairs.
+        self._raw_quotes = raw_quotes
+        self._src = source if raw_quotes else normalize_newlines(source)
         self._recover = recover
         self.errors: list[LexError] = []
         self._pos = 0
@@ -435,8 +436,13 @@ class _Scanner:
         Delegates the escape rule to :mod:`agnette.agl.value_syntax.lexical`, then
         replays `_advance` over the consumed characters so line/column
         tracking and TAB advisories apply. Raises :class:`LexError` for
-        unknown or malformed escapes.
+        unknown or malformed escapes. Raw-quote compatibility consumes opaque pairs.
         """
+        if self._raw_quotes:
+            pair = self._advance(in_string=True)
+            if not self._at_end():
+                pair += self._advance(in_string=True)
+            return pair
         backslash_offset = self._pos
         try:
             decoded, end_offset = lexical.decode_escape(self._src, backslash_offset)
@@ -519,7 +525,7 @@ class _Scanner:
                 self._advance()
                 yield self._make_token(TEMPLATE_END, quote, quote_pos, quote_line, quote_col)
                 return
-            if ch == "\n":
+            if ch == "\n" and not self._raw_quotes:
                 span = SourceSpan(
                     self._line, self._col, self._line, self._col, self._pos, self._pos
                 )
@@ -553,6 +559,8 @@ class _Scanner:
 
     def _template_interpolation(self) -> Iterator[Token] | None:
         """Recognize either template hole without advancing the cursor."""
+        if self._raw_quotes:
+            return None
         if self._src.startswith(INTERP_OPEN, self._pos):
             return self._scan_interpolation()
         name = lexical.environment_hole_name(self._src, self._pos)
@@ -1299,12 +1307,31 @@ class _Scanner:
         except LexError as error:
             self._record_recovery_error(error)
             self._bracket_depth = bracket_depth
+            literal_end: Token | None = None
             if ch in {'"', "'"} or (ch == "$" and self._pos <= error.span.end_offset):
-                # Abandon a malformed literal through its failing line; replay
-                # retains a later block dedent if collection already reached it.
+                # Abandon through the failing line, retaining any real closing
+                # quote for recovery consumers. Zero-width closers below carry
+                # layout only, not evidence that a literal was actually closed.
+                delimiter = ch * 3 if self._src.startswith(ch * 3, start[0]) else ch
                 while not self._at_end() and self._peek() != "\n":
-                    self._advance(in_string=True)
+                    if (
+                        ch in {'"', "'"}
+                        and literal_end is None
+                        and self._src.startswith(delimiter, self._pos)
+                    ):
+                        closing = self._pos, self._line, self._col
+                        for _ in delimiter:
+                            self._advance(in_string=True)
+                        literal_end = self._make_token(TEMPLATE_END, ch, *closing)
+                    elif self._peek() == "\\":
+                        self._advance(in_string=True)
+                        if not self._at_end() and self._peek() != "\n":
+                            self._advance(in_string=True)
+                    else:
+                        self._advance(in_string=True)
             yield self._make_token(ERROR, self._src[start[0] : self._pos], *start)
+            if literal_end is not None:
+                yield literal_end
         else:
             return
         # Zero-width closers unwind only the aborted construct's layout depth;
@@ -1411,6 +1438,11 @@ class _Scanner:
         """Yield every CODE-mode token, leaving deferred diagnostics to ``scan``."""
         while not self._at_end():
             ch = self._peek()
+
+            # Completion historically ignores all syntax except quotes/comments.
+            if self._raw_quotes and ch not in {'"', "'", "#"}:
+                self._advance(in_string=True)
+                continue
 
             # Horizontal whitespace — skip
             if ch in (" ", "\t"):
@@ -1531,6 +1563,24 @@ def _apply_triple_dedent(
 def scan(source: str) -> Iterator[Token]:
     """Yield raw tokens from *source* (code mode, with ``_NEWLINE`` signals)."""
     return _Scanner(source).scan()
+
+
+def lex_open_quote_start(source: str) -> int | None:
+    """Recognize an open raw quote for legacy completion using recovery scanning.
+
+    Quotes in `$` text still count; holes are literal, escape pairs are opaque,
+    and comments apply only outside quotes. Offsets index the unnormalized input.
+    This compatibility policy does not alter strict/recovery AgL tokenization.
+    """
+    opening: int | None = None
+    for token in _Scanner(source, recover=True, raw_quotes=True).scan():
+        if token.type == TEMPLATE_START:
+            opening = token.start_pos
+        elif token.type == TEMPLATE_END:
+            span = token_span(token)
+            if span.end_offset > span.start_offset:
+                opening = None
+    return opening
 
 
 def lex_comment_spans(source: str) -> list[tuple[int, int]]:

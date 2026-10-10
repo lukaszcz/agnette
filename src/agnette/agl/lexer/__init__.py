@@ -12,6 +12,8 @@ Public API
   rejected scanner spans carry recovery-only error or incomplete-tail tokens.
 - :func:`lex_comment_spans` — offsets of the ``#`` comments the scan skipped
   (comments carry no token, so highlighters read them from here).
+- :func:`lex_open_quote_start` — recovery scanner recognition under the REPL's
+  legacy raw-quote completion policy; not AgL string semantics.
 - :func:`spaced_qualifier_collector` — collects lexical advisories for
   qualifier runs broken by whitespace before ``::``.
 - :func:`token_collector` — the lexer's single materialized token pass, for a
@@ -37,13 +39,14 @@ from agnette.agl.lexer.lexer import (
     token_collector,
     unclosed_scope_path,
 )
-from agnette.agl.lexer.scanner import _Scanner, lex_comment_spans, scan
+from agnette.agl.lexer.scanner import _Scanner, lex_comment_spans, lex_open_quote_start, scan
 
 __all__ = [
     "IncompleteInputError",
     "LexError",
     "UnterminatedTripleQuotedStringError",
     "lex_comment_spans",
+    "lex_open_quote_start",
     "spaced_qualifier_collector",
     "tab_warning_collector",
     "token_collector",
