@@ -838,11 +838,18 @@ def restyle_markdown(source: str, path: Path, *, fields: bool) -> tuple[str, lis
         opening = index
         index += 1
         body: list[str] = []
-        while index < len(lines) and metadata.body_line(lines[index]).strip() != metadata.delimiter:
+        closed = False
+        while index < len(lines):
+            content = metadata.container.content(lines[index])
+            if content is None:
+                break
+            if metadata.closes(content):
+                closed = True
+                break
             body.append(lines[index])
             index += 1
-        if index >= len(lines):
-            break
+        if not closed:
+            continue
         block = "\n".join(metadata.body_line(line) for line in body)
         styled, found = restyle(block, fields=fields)
         if found:

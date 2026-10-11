@@ -19,7 +19,13 @@ extra_css:
 markdown_extensions:
   - toc:
       permalink: true
-  - pymdownx.superfences
+  - agl_highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: agl
+          class: agl
+          validator: !!python/name:agnette.agl.highlight.markdown_ext.validator
+          format: !!python/name:agnette.agl.highlight.markdown_ext.formatter
 
 exclude_docs: |
   AGENTS.md

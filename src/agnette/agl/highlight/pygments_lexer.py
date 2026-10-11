@@ -1,6 +1,7 @@
 """Optional Pygments adapter over the exact AgL highlighting tiers."""
 
 from collections.abc import Iterator
+from contextvars import ContextVar
 
 from pygments.lexer import Lexer
 from pygments.token import (
@@ -50,9 +51,7 @@ _TOKENS: dict[Category, _TokenType] = {
 }
 
 
-def _default_context() -> str:
-    """Ambient-context seam for document formatters; explicit options take precedence."""
-    return ""
+document_context: ContextVar[str] = ContextVar("agl_highlight_context", default="")
 
 
 class AglLexer(Lexer):
@@ -65,7 +64,7 @@ class AglLexer(Lexer):
 
     def __init__(self, **options: object) -> None:
         super().__init__(**options)
-        self.context = HiddenContext(str(options.get("context", _default_context())))
+        self.context = HiddenContext(str(options.get("context", document_context.get())))
         self.semantic = get_bool_opt(options, "semantic", True)
 
     def get_tokens_unprocessed(self, text: str) -> Iterator[tuple[int, _TokenType, str]]:

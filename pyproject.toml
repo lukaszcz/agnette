@@ -35,6 +35,9 @@ agm = "agnette.agm.cli:main"
 [project.entry-points."pygments.lexers"]
 agl = "agnette.agl.highlight.pygments_lexer:AglLexer"
 
+[project.entry-points."markdown.extensions"]
+agl_highlight = "agnette.agl.highlight.markdown_ext:AglHighlightExtension"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/agnette"]
 

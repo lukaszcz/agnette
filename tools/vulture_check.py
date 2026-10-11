@@ -36,6 +36,9 @@ EXTERNALLY_USED = (
     "filenames",
     "mimetypes",
     "get_tokens_unprocessed",
+    # Python-Markdown entry point and extension hook
+    "AglHighlightExtension",
+    "extendMarkdown",
     # lazy module exports and protocol members
     "__getattr__",
     "__lt__",

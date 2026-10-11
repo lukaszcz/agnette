@@ -70,12 +70,14 @@ def _discover_snippets(directory: Path = _REFERENCE_DIR) -> list[Snippet]:
             fence_line = index + 1
             body: list[str] = []
             index += 1
-            while (
-                index < len(lines)
-                and metadata.body_line(lines[index]).strip() != metadata.delimiter
-            ):
-                body.append(metadata.body_line(lines[index]))
+            while index < len(lines):
+                content = metadata.container.content(lines[index])
+                if content is None:
+                    break
                 index += 1
+                if metadata.closes(content):
+                    break
+                body.append(content)
             snippets.append(
                 Snippet(
                     path=path,
@@ -86,7 +88,6 @@ def _discover_snippets(directory: Path = _REFERENCE_DIR) -> list[Snippet]:
                     ),
                 )
             )
-            index += 1
     return snippets
 
 
@@ -94,7 +95,8 @@ _SNIPPETS = _discover_snippets()
 
 
 @pytest.mark.parametrize("prefix", ["", "    ", "> ", "  > >   "])
-def test_document_context_is_compiled(tmp_path: Path, prefix: str) -> None:
+@pytest.mark.parametrize("header", ["agl", "{.agl}", ".agl"])
+def test_document_context_is_compiled(tmp_path: Path, prefix: str, header: str) -> None:
     """Hidden declarations participate in the same static check as the body."""
     document = tmp_path / "example.md"
     document.write_text(
@@ -103,13 +105,13 @@ def test_document_context_is_compiled(tmp_path: Path, prefix: str) -> None:
             for line in [
                 "<!-- agl-context: record Point -->",
                 "<!-- agl-context:   x: int -->",
-                "```agl",
+                "```" + header,
                 "let p = Point(x = 1)",
                 "```",
                 "",
                 "<!-- agl-context: let x = 1 -->",
                 "<!-- agl-check: error -->",
-                "```agl",
+                "```" + header,
                 'let n: int = "wrong"',
                 "```",
             ]

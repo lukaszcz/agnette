@@ -35,15 +35,27 @@ category-to-style mappings.
 text and filling gaps with `Text`. `AglLexer` accepts hidden `context` source and a
 `semantic` toggle (default on). The `pygments.lexers` entry point `agl` discovers it;
 the optional `highlight` extra supplies dependencies for the docs and dev groups.
-MkDocs highlights `agl` fences through superfences; `docs/stylesheets/agl.css`
-distinguishes type, constant, interpolation, and error tokens using Material's palette.
+`markdown_ext.py` registers `agl_highlight` via `markdown.extensions`. Its early
+preprocessor consumes adjacent context markers using `fence_metadata`, preserving
+check markers and list anchors, and skipping fenced bodies/HTML comments. It probes
+SuperFences' configured header-validation pipeline before modifying text; rejected
+or uninjectable headers retain authored markers. A superfences validator passes
+decoded context to a delegating formatter; the adapter's `ContextVar` supplies
+the lexer default, with explicit options taking precedence and fence-local reset.
+`mkdocs.yml` enables the extension and routes every `agl` fence through these custom
+callbacks, retaining default HTML, highlighting options, and container handling.
+`docs/stylesheets/agl.css` distinguishes type, constant, interpolation, and error
+tokens using Material's palette; `tests/test_agl_highlight_markdown.py` covers rendering.
 
 ## Document Context
 
 `context.fence_metadata` is the shared parser for adjacent `agl-check`/`agl-context`
-comments, including list indentation and blockquotes, for backtick/tilde fences
-with optional whitespace before `agl`. `FenceMetadata.body_line` normalizes
-container prefixes, including blank/nested quotes, for both consumers. The snippet
+comments for backtick/tilde fences with plain or attribute-style AgL headers.
+Attribute-language recognition follows Markdown's permissive lexical semantics
+without importing UI dependencies; option validation belongs to the adapter.
+`MarkdownContainer` shares list/blockquote detection, continuation prefixes, and
+body boundaries; consumers never extend an unclosed fence beyond its container.
+`FenceMetadata` shares closing-fence recognition and option injection. The snippet
 compile guard prepends hidden context; `tools/agl_style.py` checks only displayed
 fence bodies.
 

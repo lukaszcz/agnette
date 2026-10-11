@@ -7,8 +7,10 @@
 ## Fence metadata
 
 Reference `agl` fences must statically compile by default. Put metadata comments
-on consecutive lines directly before the fence, with the same Markdown indentation
-and blockquote prefix; blank lines or unrelated comments break adjacency.
+on consecutive lines directly before the fence, in the same Markdown container;
+blank lines or unrelated comments break adjacency. A list marker may start the
+metadata block; later comments and the fence use its continuation indentation.
+Plain `agl` and attribute-style `{.agl}` fence headers share these rules.
 
 - `<!-- agl-check: fragment -->` marks an incomplete example; `error` marks an
   intentional static rejection. Both must fail compilation; never use `skip`.
