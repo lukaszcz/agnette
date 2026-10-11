@@ -984,6 +984,38 @@ def test_an_in_memory_reused_module_skips_closure_validation(
     assert second.modules[lib_id] is checked.modules[lib_id]
 
 
+def test_source_sets_retain_the_objects_named_by_precomputed_identities(tmp_path: Path) -> None:
+    graph = make_file_graph_from_files(
+        tmp_path, {"entry": "import helper\n()", "helper": "()"}, default_stdlib=False
+    )
+    modules = tuple(graph.modules.values())
+    sources = artifact_cache.Sources(modules)
+    assert sources.identities == tuple(id(module) for module in modules)
+    assert all(left is right for left, right in zip(sources, modules, strict=True))
+
+
+@pytest.mark.parametrize("change", ["equal-replacement", "order", "length"])
+def test_artifact_source_identity_includes_each_object_and_its_position(
+    tmp_path: Path, change: str
+) -> None:
+    graph = make_file_graph_from_files(
+        tmp_path, {"entry": "import helper\n()", "helper": "()"}, default_stdlib=False
+    )
+    modules = tuple(graph.modules.values())
+    sources = artifact_cache.Sources(modules)
+    store: artifact_cache._ArtifactStore[str, str] = artifact_cache._ArtifactStore()
+    store.put("artifact", sources, "retained")
+    assert store.get("artifact", artifact_cache.Sources(modules)) == "retained"
+    if change == "equal-replacement":
+        changed = (replace(modules[0]), *modules[1:])
+    elif change == "order":
+        changed = tuple(reversed(modules))
+    else:
+        changed = modules[:-1]
+    assert store.get("artifact", artifact_cache.Sources(changed)) is None
+    assert store.get("artifact", sources) == "retained"
+
+
 def test_the_image_is_bounded_and_evicts_the_least_recently_used() -> None:
     """Retention is capped, so a long-lived process cannot grow without limit.
 
@@ -991,7 +1023,7 @@ def test_the_image_is_bounded_and_evicts_the_least_recently_used() -> None:
     compilations would mean building hundreds of distinct standard libraries.
     """
     store: artifact_cache._ArtifactStore[str] = artifact_cache._ArtifactStore(capacity=2)
-    sources: artifact_cache.Sources = ()
+    sources = artifact_cache.Sources()
     store.put(("a",), sources, "first")
     store.put(("b",), sources, "second")
     assert store.get(("a",), sources) == "first"

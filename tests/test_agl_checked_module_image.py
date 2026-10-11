@@ -398,8 +398,56 @@ class TestImageFieldsAreNonVacuous:
             )
 
 
+@env_module._pickles_by_name
+@dataclasses.dataclass(frozen=True, slots=True)
+class _EmptyRecord(env_module._Record):
+    pass
+
+
+@env_module._pickles_by_name
+@dataclasses.dataclass(frozen=True, slots=True)
+class _SingleRecord(env_module._Record):
+    value: object
+
+
+@env_module._pickles_by_name
+@dataclasses.dataclass(frozen=True, slots=True)
+class _PairRecord(env_module._Record):
+    value: object
+    other: object
+
+
 class TestRecordsPickleByName:
     """Every record this module persists restores through its field names."""
+
+    @pytest.mark.parametrize(
+        "record",
+        [_EmptyRecord(), _SingleRecord((1, 2)), _PairRecord((1, 2), "old")],
+    )
+    def test_field_reader_keeps_order_and_reads_current_object(
+        self, record: env_module._Record
+    ) -> None:
+        names = record.__match_args__
+        read = env_module._member_getter(names)
+        expected = tuple(getattr(record, name) for name in names)
+        assert read(record) == record.__getstate__() == expected
+        restored = type(record).__new__(type(record))
+        restored.__setstate__(expected)
+        assert restored == record
+        for name in names:
+            object.__setattr__(record, name, "updated")
+        assert read(record) == record.__getstate__() == ("updated",) * len(names)
+        assert read(restored) == restored.__getstate__() == expected
+
+    def test_retained_reader_survives_cache_churn(self) -> None:
+        record = _SingleRecord("old")
+        read = env_module._member_getter(record.__match_args__)
+        for count in range(1, 130):
+            names = ("value",) * count
+            assert env_module._member_values(record, names) == ("old",) * count
+        object.__setattr__(record, "value", "new")
+        assert read(record) == record.__getstate__() == ("new",)
+        assert env_module._member_values(record, record.__match_args__) == ("new",)
 
     def test_every_record_declares_its_fields_as_match_args(self) -> None:
         """``__match_args__`` is the state both pickling and ``image`` read.

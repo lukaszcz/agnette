@@ -13,13 +13,34 @@ from lark.lexer import Token
 from agnette.agl.lexer import (
     IncompleteInputError,
     LexError,
+    _tokenize_recover,
     lex_comment_spans,
     tokenize,
     tokenize_recover,
 )
 from agnette.agl.lexer.tokens import ERROR
 from agnette.util.text import normalize_newlines
-from tests._agl_corpus import lexical_corpus
+from tests._agl_corpus import lexical_corpus, lexical_corpus_batches
+
+
+def test_recovery_result_retains_public_tokens_diagnostics_and_comments() -> None:
+    cases = (
+        *lexical_corpus(),
+        *(("rejected", source) for source in REJECTED),
+        *(
+            ("comments", newline.join(["# before", '"bad\\q" # after', "$ # literal", "# end"]))
+            for newline in ("\n", "\r\n", "\r")
+        ),
+    )
+    for name, source in cases:
+        result = _tokenize_recover(source)
+        tokens, errors = tokenize_recover(source)
+        assert positions(result.tokens) == positions(tokens), name
+        assert [(type(e), str(e), e.span) for e in result.errors] == [
+            (type(e), str(e), e.span) for e in errors
+        ], name
+        assert result.comments == lex_comment_spans(source), name
+
 
 REJECTED = [
     '"bad\\q"\nlater',  # escape conversion
@@ -159,21 +180,21 @@ def test_surrogate_insertion_at_eof(source: str) -> None:
     assert_source_coverage(source, tokens)
 
 
-@pytest.mark.parametrize("case", lexical_corpus(), ids=lambda case: case[0])
-def test_source_corpus(case: tuple[str, str]) -> None:
-    _, source = case
-    try:
-        strict = list(tokenize(source))
-    except LexError as error:
-        tokens, errors = tokenize_recover(source)
-        assert type(errors[0]) is type(error)
-        assert str(errors[0]) == str(error)
-        assert errors[0].span == error.span
-    else:
-        tokens, errors = tokenize_recover(source)
-        assert not errors
-        assert positions(tokens) == positions(strict)
-    assert_source_coverage(source, tokens)
+@pytest.mark.parametrize("cases", lexical_corpus_batches(), ids=lambda cases: cases[0][0])
+def test_source_corpus(cases: tuple[tuple[str, str], ...]) -> None:
+    for name, source in cases:
+        try:
+            strict = list(tokenize(source))
+        except LexError as error:
+            tokens, errors = tokenize_recover(source)
+            assert type(errors[0]) is type(error), name
+            assert str(errors[0]) == str(error), name
+            assert errors[0].span == error.span, name
+        else:
+            tokens, errors = tokenize_recover(source)
+            assert not errors, name
+            assert positions(tokens) == positions(strict), name
+        assert_source_coverage(source, tokens)
 
 
 @pytest.mark.parametrize(

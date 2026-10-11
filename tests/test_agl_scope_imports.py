@@ -9,11 +9,13 @@ import pytest
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.scope.imports import (
     ImportEnv,
+    ImportWay,
     ModuleContribution,
     NameAtom,
     QName,
     RouteSurface,
     SingleTarget,
+    _RouteAccumulator,
     build_import_env,
     qualifier_member_ways,
     qualifier_members,
@@ -84,6 +86,28 @@ def test_alias_route_without_members_is_not_a_use_target() -> None:
     assert qualifier_members(env, ("text",), anchored=False) == ()
 
 
+def test_equal_route_surfaces_share_a_sorted_snapshot_not_mutable_inputs() -> None:
+    module = _module("tools/text")
+    members = _exports("tools/text", "z-last", "a-first")
+    route_members = dict(members)
+    subset = {"z-last": members["z-last"]}
+    contribution = ModuleContribution(
+        module,
+        members,
+        True,
+        frozenset({"full", "subset"}),
+        routes={"full": RouteSurface(route_members), "subset": RouteSurface(subset)},
+    )
+    assert list(contribution.members) == ["a-first", "z-last"]
+    assert contribution.routes["full"].members is contribution.members
+    assert contribution.routes["subset"].members == subset
+    members.clear()
+    route_members.clear()
+    subset.clear()
+    assert list(contribution.routes["full"].members) == ["a-first", "z-last"]
+    assert list(contribution.routes["subset"].members) == ["z-last"]
+
+
 def test_plain_import_contributes_the_full_qualified_surface_without_bare_names() -> None:
     decl = _decl("tools/text")
     module = _module("tools/text")
@@ -103,6 +127,54 @@ def test_wildcard_tail_exposes_a_member_path_beneath_its_bare_owner() -> None:
     env = _build([decl], {module: {"Geo": (module, "Geo"), ("Geo", "Point"): point}})
 
     assert env.unqualified[("Geo", "Point")] == frozenset({point})
+
+
+def test_immutable_import_ways_are_shared_only_within_their_declaration() -> None:
+    module = _module("tools/text")
+    decls = [_decl("tools/text", tail=()), _decl("tools/text", alias="other", tail=())]
+    exports = {module: _exports("tools/text", "trim", "split")}
+    targets = {decl.node_id: SingleTarget(module) for decl in decls}
+    withheld = frozenset({(module, "hidden")})
+    env = build_import_env(
+        tuple(decls), targets, exports, {module: {}}, withheld={module: {"split": withheld}}
+    )
+    for decl in decls:
+        surface = env.contributions[module].routes[decl.alias]
+        for member, hidden in [("trim", frozenset()), ("split", withheld)]:
+            (route_way,) = surface.member_ways[member]
+            bare_way = next(
+                way
+                for way in env.unqualified_ways[member][(module, member)]
+                if way.node_id == decl.node_id
+            )
+            assert route_way == bare_way == ImportWay(decl.node_id, hidden)
+            assert route_way is bare_way
+    exports[module]["new"] = (module, "new")
+    fresh = build_import_env(tuple(decls), targets, exports, {module: {}})
+    assert "new" in fresh.unqualified_ways and "new" not in env.unqualified_ways
+    assert all(not way.withheld for way in fresh.unqualified_ways["split"][(module, "split")])
+    assert any(way.withheld for way in env.unqualified_ways["split"][(module, "split")])
+
+
+def test_route_way_snapshot_is_independent_of_further_accumulation() -> None:
+    original = frozenset({ImportWay(1)})
+    accumulator = _RouteAccumulator(member_ways={"trim": original})
+    surface = accumulator.freeze()
+    accumulator.member_ways["trim"] |= frozenset({ImportWay(2)})
+    accumulator.member_ways["split"] = original
+    assert surface.member_ways == {"trim": original}
+
+
+def test_equal_member_way_sets_share_immutable_storage() -> None:
+    decl = _decl("tools/text", tail=())
+    module = _module("tools/text")
+    env = _build([decl], {module: _exports("tools/text", "trim", "split")})
+    surface = env.contributions[module].routes[None]
+    ways = surface.member_ways["trim"]
+    assert ways == frozenset({ImportWay(decl.node_id)})
+    assert surface.member_ways["split"] is ways
+    assert env.unqualified_ways["trim"][(module, "trim")] is ways
+    assert env.unqualified_ways["split"][(module, "split")] is ways
 
 
 def test_positive_tail_injects_bare_names_without_narrowing_qualified_access() -> None:

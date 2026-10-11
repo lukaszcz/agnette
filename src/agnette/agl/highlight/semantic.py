@@ -353,7 +353,8 @@ def semantic_spans(
         prepared = PipelineDriver.prepare_parsed_entry(parsed, roots=roots)
         if prepared.resolved is None:
             return fallback
-        spans = _overlay_names(text, lexical_spans(text, types, constructors), prepared.resolved)
+        lexical = fallback if text == source else lexical_spans(text, types, constructors)
+        spans = _overlay_names(text, lexical, prepared.resolved)
         offsets = _source_offsets(combined)
         return context.body_spans([(offsets[a], offsets[b], c) for a, b, c in spans])
     except Exception:

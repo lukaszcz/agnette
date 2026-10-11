@@ -15,7 +15,7 @@ from agnette.agl.highlight.categories import Category, Span
 from agnette.agl.keywords import KEYWORDS, OPERATOR_SOFT_KEYWORDS
 from agnette.agl.lexer import (
     IncompleteInputError,
-    lex_comment_spans,
+    _tokenize_recover,
     lex_open_quote_start,
     tokenize_recover,
 )
@@ -328,11 +328,12 @@ def _literal_backgrounds(text: str, tokens: list[Token]) -> list[Span]:
 def _token_spans(
     text: str,
     tokens: list[Token],
+    comments: list[tuple[int, int]],
     type_names: frozenset[str],
     constructor_names: frozenset[str],
 ) -> list[Span]:
     candidates = _literal_backgrounds(text, tokens)
-    candidates.extend((a, b, Category.COMMENT) for a, b in lex_comment_spans(text))
+    candidates.extend((a, b, Category.COMMENT) for a, b in comments)
     categories = _token_categories(text, tokens, type_names, constructor_names)
     for token, category in zip(tokens, categories):
         start, end = token.start_pos, token.end_pos
@@ -368,11 +369,13 @@ def lexical_spans(
 ) -> list[Span]:
     """Return a total, nonoverlapping partition, retaining recovered code categories."""
     text = normalize_newlines(source)
-    tokens, _ = tokenize_recover(text)
+    result = _tokenize_recover(text)
     offsets = _source_offsets(source)
     return [
         (offsets[a], offsets[b], c)
-        for a, b, c in _token_spans(text, tokens, type_names, constructor_names)
+        for a, b, c in _token_spans(
+            text, result.tokens, result.comments, type_names, constructor_names
+        )
     ]
 
 
@@ -397,9 +400,10 @@ def repl_spans(
     the UI clips each span to its starting line. Classification is shared.
     """
     text = normalize_newlines(source)
-    tokens, errors = tokenize_recover(text)
-    if errors:
-        first = errors[0]
+    result = _tokenize_recover(text)
+    tokens = result.tokens
+    if result.errors:
+        first = result.errors[0]
         tail = next((t for t in tokens if t.type == VERBATIM_TAIL), None)
         start = (
             tail.start_pos
@@ -419,7 +423,7 @@ def repl_spans(
         start, end = tokens[index].start_pos, tokens[index].end_pos
         if start is not None and end is not None and end > start:
             following = start
-    spans = [(a, b, Category.COMMENT) for a, b in lex_comment_spans(source)]
+    spans = [(a, b, Category.COMMENT) for a, b in result.comments]
     for token, category, following in zip(tokens, categories, next_starts):
         start, end = token.start_pos, token.end_pos
         if start is not None and end is not None:

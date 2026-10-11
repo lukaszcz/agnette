@@ -8,6 +8,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -105,7 +106,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
     count = item.config.stash[_GC_TESTS] + 1
-    if count % 200 == 0:
+    if count % 600 == 0:
         gc.collect(2 if count == 1200 else 0)
     if count == 1200:
         count = 0
@@ -330,7 +331,7 @@ def isolate_host_environment(
     ``tmp_path`` so that a test inspecting that directory sees only its own
     files.
     """
-    home = tmp_path_factory.mktemp("isolated-home")
+    home = Path(tempfile.mkdtemp(prefix="isolated-home-", dir=tmp_path_factory.getbasetemp()))
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))

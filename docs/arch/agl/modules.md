@@ -29,9 +29,9 @@ The graph keeps full import/export adjacency (used to narrow a program's linked 
 Imported modules are precompiled on demand and reused in memory and across processes; entry modules are compiled afresh.
 
 - **Stages.** Parsed syntax, declaration metadata, export surfaces, resolution, type/function interfaces, checked bodies, match sites, and lowered module IR are retained per module.
-- **Validation.** `artifact_cache.py` validates each stage against the module's source and transitive dependencies.
+- **Validation.** `artifact_cache.py` validates each stage against the module's source and transitive dependencies. In-memory source sets retain their modules alongside precomputed object identities; disk reuse remains content- and compiler-derived.
 - **Identity.** `modules/parsed_module_cache.py` assigns content-addressed node namespaces, so unchanged declarations keep identity across processes. AST-only callers (package command discovery) parse through the same cache.
-- **Checked bodies** persist as their own declarations plus a journal of type-environment mutations, replayed on restore, never the whole-program environment.
+- **Checked bodies** persist as their own declarations plus a journal of type-environment mutations, replayed on restore, never the whole-program environment. Only active recording windows allocate facts; replay retains the original journal entries.
 - **Lowered modules** (`lower/module.py`) persist bodies and linkable tables; linking reassembles them per invocation. Companion imports, configuration values, initializer evaluation, and runtime state stay per invocation.
 - **Storage.** `artifact_storage.py` owns the versioned on-disk slot under `$XDG_CACHE_HOME/agm/agl`, compiler-digest validation, and atomic writes. Any unusable entry falls back to ordinary compilation.
 

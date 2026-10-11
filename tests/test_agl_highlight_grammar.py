@@ -309,11 +309,11 @@ def test_nonportable_lookbehind_contents_are_rejected(pattern: str) -> None:
         "(?:|^)",
     ],
 )
-@pytest.mark.parametrize("quantifier", ["*", "+", "?", "{0}", "{1,}", "{0,2}"])
-@pytest.mark.parametrize("lazy", ["", "?"])
-def test_repeated_assertions_are_rejected(assertion: str, quantifier: str, lazy: str) -> None:
-    with pytest.raises(ValueError):
-        Rule(assertion + quantifier + lazy)
+def test_repeated_assertions_are_rejected(assertion: str) -> None:
+    for quantifier in ("*", "+", "?", "{0}", "{1,}", "{0,2}"):
+        for lazy in ("", "?"):
+            with pytest.raises(ValueError):
+                Rule(assertion + quantifier + lazy)
 
 
 def test_lookbehind_restrictions_do_not_leak_to_sibling_groups() -> None:

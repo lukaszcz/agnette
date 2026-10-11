@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import httpx2
@@ -20,7 +21,7 @@ from agnette.config.context import current_config_context
 from agnette.config.home import agm_home_dir
 from agnette.packages.activation import load_activation_index
 from tests._git_helpers import git_output, init_repo
-from tests.conftest import LAUNCH_ENVIRONMENT
+from tests.conftest import LAUNCH_ENVIRONMENT, isolate_host_environment
 
 
 def test_the_suite_does_not_run_against_the_launching_home() -> None:
@@ -29,6 +30,33 @@ def test_the_suite_does_not_run_against_the_launching_home() -> None:
     assert launched_from is not None
     assert os.environ["HOME"] != launched_from
     assert Path.home() != Path(launched_from)
+
+
+def test_isolated_homes_are_fresh_private_and_do_not_scan_siblings(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = tmp_path_factory.getbasetemp()
+    homes: list[Path] = []
+    scandir = os.scandir
+
+    def no_base_scan(path: str | os.PathLike[str]) -> Iterator[os.DirEntry[str]]:
+        assert Path(path) != base
+        return scandir(path)
+
+    monkeypatch.setattr(os, "scandir", no_base_scan)
+    for _ in range(2):
+        with pytest.MonkeyPatch.context() as patch:
+            isolate_host_environment.__wrapped__(None, tmp_path_factory, patch)
+            home = Path.home()
+            assert home.parent == base
+            assert not list(home.iterdir())
+            assert home.stat().st_mode & 0o777 == 0o700
+            assert os.environ["XDG_CONFIG_HOME"] == str(home / ".config")
+            assert os.environ["XDG_DATA_HOME"] == str(home / ".local" / "share")
+            assert os.environ["GIT_CEILING_DIRECTORIES"] == str(base.resolve())
+            (home / ".gitconfig").write_text("[user]\nname = previous-test\n")
+            homes.append(home)
+    assert homes[0] != homes[1]
 
 
 def test_the_agm_home_is_empty_of_installed_state() -> None:

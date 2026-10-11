@@ -16,6 +16,7 @@ import dataclasses
 import inspect
 import os
 from collections.abc import Callable
+from unittest.mock import patch
 
 import pytest
 
@@ -40,6 +41,7 @@ from agnette.agl.typecheck.env import (
     EnvironmentFact,
     EnvironmentFacts,
     FunctionSignature,
+    FunctionSignatureByNodeIdFact,
     GenericTypeDef,
     TypeEnvironment,
     TypeFact,
@@ -346,6 +348,24 @@ class TestFactScenarios:
         assert scenario.query(target) != scenario.query(fresh)
 
     @pytest.mark.parametrize("scenario", _SCENARIOS, ids=_SCENARIO_IDS)
+    def test_inactive_journals_and_replay_do_not_allocate_discarded_facts(
+        self, scenario: _Scenario
+    ) -> None:
+        source = _prepared(scenario)
+        source.begin_facts()
+        scenario.record(source)
+        facts = source.own_facts()
+        fact_type = type(facts.entries[0])
+        target = _prepared(scenario)
+        with patch.object(env_module, fact_type.__name__, wraps=fact_type) as constructor:
+            scenario.record(target)
+            target.begin_facts()
+            target.replay(facts)
+            assert not constructor.called
+        assert scenario.query(target) == scenario.query(source)
+        assert target.own_facts() == facts
+
+    @pytest.mark.parametrize("scenario", _SCENARIOS, ids=_SCENARIO_IDS)
     def test_replay_is_idempotent(self, scenario: _Scenario) -> None:
         source = _prepared(scenario)
         source.begin_facts()
@@ -381,6 +401,60 @@ def _fact_classes() -> list[type[EnvironmentFact]]:
 
 
 class TestFactForwarding:
+    @pytest.mark.parametrize(
+        "fact",
+        [
+            BindingTypeFact(node_id=401, typ=IntType()),
+            FunctionSignatureByNodeIdFact(node_id=402, sig=_HELPER_SIG),
+        ],
+    )
+    def test_node_indexed_replay_needs_no_reflective_argument_pack(
+        self, fact: EnvironmentFact
+    ) -> None:
+        target = TypeEnvironment()
+        target.begin_facts()
+        facts = EnvironmentFacts((fact,))
+        with patch.object(env_module, "_member_values", wraps=env_module._member_values) as reads:
+            target.replay(facts)
+            assert not reads.called
+        assert target.own_facts() == facts
+        if isinstance(fact, BindingTypeFact):
+            assert target.get_binding_type(fact.node_id) is fact.typ
+        else:
+            assert isinstance(fact, FunctionSignatureByNodeIdFact)
+            assert target.get_function_signature_by_node_id(fact.node_id) is fact.sig
+
+    def test_generic_replay_reads_current_fields_without_reflective_packing(self) -> None:
+        first = TypeFact(name="First", typ=IntType())
+        second = TypeFact(name="Second", typ=TextType())
+        target = TypeEnvironment()
+        with (
+            patch.object(env_module, "getattr", side_effect=AssertionError, create=True),
+            patch.object(env_module, "zip", side_effect=AssertionError, create=True),
+        ):
+            first.apply(target)
+            second.apply(target)
+        assert target.get_type("First") is first.typ
+        assert target.get_type("Second") is second.typ
+
+    def test_generic_replay_dispatches_current_keyword_only_mutators(self) -> None:
+        class KeywordEnvironment(TypeEnvironment):
+            def register_type(self, *, name: str, typ: Type) -> None:
+                super().register_type(name, typ)
+
+        first = TypeFact(name="Value", typ=IntType())
+        second = TypeFact(name="Value", typ=TextType())
+        left = KeywordEnvironment()
+        right = KeywordEnvironment()
+        first.apply(left)
+        second.apply(right)
+        assert left.get_type("Value") is first.typ
+        assert right.get_type("Value") is second.typ
+        with patch.object(left, "register_type", wraps=left.register_type) as register:
+            second.apply(left)
+            register.assert_called_once_with(name="Value", typ=second.typ)
+        assert left.get_type("Value") is second.typ
+
     def test_each_fact_supplies_its_mutator_by_parameter_name(self) -> None:
         """A fact replays as a keyword call, so its fields are that method's parameters.
 

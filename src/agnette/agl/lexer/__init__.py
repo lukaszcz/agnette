@@ -11,7 +11,7 @@ Public API
 - :func:`tokenize_recover` — tokens plus diagnostics from every lexer stage;
   rejected scanner spans carry recovery-only error or incomplete-tail tokens.
 - :func:`lex_comment_spans` — offsets of the ``#`` comments the scan skipped
-  (comments carry no token, so highlighters read them from here).
+  for standalone consumers (comments carry no token).
 - :func:`lex_open_quote_start` — recovery scanner recognition under the REPL's
   legacy raw-quote completion policy; not AgL string semantics.
 - :func:`spaced_qualifier_collector` — collects lexical advisories for
@@ -22,6 +22,7 @@ Public API
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterator
 
 from lark.lexer import Token
@@ -80,8 +81,21 @@ def tokenize_recover(source: str) -> tuple[list[Token], list[LexError]]:
     so subsequent CODE lines retain their layout. Diagnostics follow strict encounter order
     (Unicode preflight, scanner/layout with lookahead, then module passes).
     """
+    result = _tokenize_recover(source)
+    return result.tokens, result.errors
+
+
+@dataclass(frozen=True, slots=True)
+class _RecoveryResult:
+    tokens: list[Token]
+    errors: list[LexError]
+    comments: list[tuple[int, int]]
+
+
+def _tokenize_recover(source: str) -> _RecoveryResult:
+    """Materialize tokens, diagnostics and skipped comments in one recovery pass."""
     scanner = _Scanner(source, recover=True)
     tokens = apply_module_passes(
         list(layout(scanner.scan(), errors=scanner.errors)), source, errors=scanner.errors
     )
-    return tokens, scanner.errors
+    return _RecoveryResult(tokens, scanner.errors, scanner.comment_spans)

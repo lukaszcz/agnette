@@ -1,4 +1,4 @@
-"""AgL's portable lexical grammar; contextual rules belong above these states."""
+"""Portable lexical grammar with local captures, not lexer promotion history."""
 
 import re
 import sys
@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.grammar import (
+    Capture,
     Grammar,
     Pop,
     Push,
@@ -45,6 +46,34 @@ _RESERVED_OPERATORS = frozenset(
 )
 _OPERATOR_END = f"(?!{_OPERATOR})"
 _CALL = keyword_rule(BUILTIN_CALL_NAMES, Category.BUILTIN_CALL, token_start=True)
+_RESERVED = keyword_rule(KEYWORDS, Category.KEYWORD, token_start=True).pattern
+_PLAIN = f"(?!{_RESERVED}){_NAME}"
+_QUALIFIER = r"::(?![ \t]*\[)"  # Type arguments are core call syntax, not paths.
+_DECLARATION = keyword_rule(
+    KEYWORDS & {"record", "enum", "type", "exception"}, Category.KEYWORD, token_start=True
+).pattern
+
+# These same-line captures deliberately do not track declarations, enum owners,
+# attribute arguments, module headers, or softword/layout promotion windows.
+_CONTEXT = (
+    Rule(
+        f"(@)([ \\t]*)({_PLAIN})",
+        captures=(Capture(1, Category.ATTRIBUTE), Capture(3, Category.ATTRIBUTE)),
+    ),
+    Rule(
+        f"({_DECLARATION})([ \\t]+)({_PLAIN})",
+        captures=(Capture(1, Category.KEYWORD), Capture(3, Category.TYPE)),
+    ),
+    Rule(
+        r"(\|" + _OPERATOR_END + r")([ \t]*)(" + _PLAIN + ")",
+        captures=(Capture(1, Category.OPERATOR), Capture(3, Category.CONSTRUCTOR)),
+    ),
+    Rule(
+        f"(?:{_PLAIN}(?:/{_PLAIN})*/\\*{_OPERATOR_END}(?:{_QUALIFIER})?"
+        f"|{_PLAIN}(?:/{_PLAIN})+(?:{_QUALIFIER})?|{_PLAIN}{_QUALIFIER})",
+        Category.MODULE,
+    ),
+)
 
 _CODE = (
     Rule(r"[ \t]+"),
@@ -55,11 +84,12 @@ _CODE = (
     Rule("'", Category.STRING, action=Push("single")),
     Rule(r"\$(?=[ \t]*$)", Category.VERBATIM, action=Push("verbatim-block")),
     Rule(r"\$", Category.VERBATIM, action=Push("verbatim")),
+    *_CONTEXT,
     # Rules run only at token starts: names are consumed whole, including a+b.
     keyword_rule(_CONSTANTS, Category.KEYWORD_CONSTANT, token_start=True),
     keyword_rule(KEYWORDS - _CONSTANTS, Category.KEYWORD, token_start=True),
-    # Context-free approximation; contextual promotion is layered separately.
-    keyword_rule(SOFT_KEYWORDS - OPERATOR_SOFT_KEYWORDS, Category.NAME, token_start=True),
+    # Inventory coloring is intentionally independent of layout/promotion history.
+    keyword_rule(SOFT_KEYWORDS - OPERATOR_SOFT_KEYWORDS, Category.KEYWORD, token_start=True),
     keyword_rule(OPERATOR_SOFT_KEYWORDS, Category.OPERATOR_WORD, token_start=True),
     keyword_rule(BUILTIN_TYPE_NAMES, Category.TYPE, token_start=True),
     replace(_CALL, pattern=_CALL.pattern + r"(?=[ \t]*(?:\(|::))"),

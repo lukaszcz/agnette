@@ -8,9 +8,9 @@ import pytest
 from agnette.agl.highlight.agl_grammar import AGL_GRAMMAR
 from agnette.agl.highlight.categories import Category, Span
 from agnette.agl.highlight.grammar_eval import evaluate
-from agnette.agl.highlight.lexical import lexical_spans
+from agnette.agl.highlight.lexical import _token_spans, lexical_spans
 from agnette.agl.keywords import KEYWORDS, OPERATOR_SOFT_KEYWORDS, SOFT_KEYWORDS
-from agnette.agl.lexer import tokenize_recover
+from agnette.agl.lexer import _tokenize_recover, tokenize_recover
 from agnette.agl.lexer.scanner import scan
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.symbols import BUILTIN_CALL_NAMES
@@ -18,7 +18,7 @@ from agnette.agl.syntax import BUILTIN_TYPE_NAMES, Call
 from agnette.agl.value_syntax.errors import ValueSyntaxError
 from agnette.agl.value_syntax.lexical import decode_escape
 from agnette.util.text import normalize_newlines
-from tests._agl_corpus import lexical_corpus
+from tests._agl_corpus import lexical_corpus_batches
 
 
 def _characters(source: str, spans: list[Span]) -> list[Category]:
@@ -48,62 +48,58 @@ def _normalized_offsets(source: str) -> tuple[str, list[int]]:
     ]
 
 
+_CONTEXT_ROLES = {
+    Category.TYPE,
+    Category.CONSTRUCTOR,
+    Category.ATTRIBUTE,
+    Category.MODULE,
+    Category.FUNCTION,
+    Category.LOCAL,
+    Category.PARAMETER,
+}
+
+
 def _project(source: str, spans: list[Span]) -> list[Category]:
+    """Symmetric coarse roles; never manufacture expected contextual recognition.
+
+    Rescan only styled code spans, not token/layout history. Contextual names
+    retain canonical builtin categories; only attribute/module punctuation is
+    source-normalized. Strings, errors, numbers and other core categories stay
+    untouched. Independent examples verify the finer contextual contract.
+    """
     result = _characters(source, spans)
-    text, offsets = _normalized_offsets(source)
-    tokens, _ = tokenize_recover(text)
-    significant = [
-        token for token in tokens if token.type not in {"_INDENT", "_DEDENT", "_NEWLINE"}
-    ]
-    for index, token in enumerate(significant):
-        start, end = offsets[token.start_pos], offsets[token.end_pos]
-        spelling = text[token.start_pos : token.end_pos]
-        next_type = significant[index + 1].type if index + 1 < len(significant) else None
-        category: Category | None = None
-        # TASK_11: remove this temporary collapse of contextual constructs.
-        if token.type in {"MODPATH", "MODQUAL"}:
-            raw = list(scan(spelling))
-            for raw_index, part in enumerate(raw):
-                if part.type == "NAME":
-                    following = raw[raw_index + 1].type if raw_index + 1 < len(raw) else next_type
-                    plain = _plain_name(str(part), following)
-                elif part.type in KEYWORDS:
-                    plain = Category.KEYWORD
-                elif part.type == "SLASH":
-                    plain = Category.OPERATOR
-                else:
-                    assert part.type == "DCOLON", part
-                    plain = Category.OPERATOR
-                a, b = (
-                    offsets[token.start_pos + part.start_pos],
-                    offsets[token.start_pos + part.end_pos],
-                )
-                result[a:b] = [plain] * (b - a)
-        elif token.type == "WILDCARD":
-            category = Category.NAME
-        elif token.type == "AT":
-            category = Category.OPERATOR
-        elif spelling in SOFT_KEYWORDS and token.type != "STRING_FRAGMENT":
-            category = (
-                Category.OPERATOR_WORD if spelling in OPERATOR_SOFT_KEYWORDS else Category.NAME
-            )
-        elif token.type in {"NAME", "OP_NAME"} and result[start] in {
-            Category.TYPE,
-            Category.CONSTRUCTOR,
-            Category.ATTRIBUTE,
+    for start, end, original in spans:
+        if original not in _CONTEXT_ROLES | {
+            Category.NAME,
+            Category.KEYWORD,
+            Category.OPERATOR_WORD,
+            Category.OPERATOR,
         }:
-            category = _plain_name(spelling, next_type)
-        # Keep semantic-only role collapse when removing the contextual block above.
-        elif token.type in {"NAME", "OP_NAME"} and result[start] in {
-            Category.FUNCTION,
-            Category.LOCAL,
-            Category.PARAMETER,
-        }:
-            category = _plain_name(spelling, next_type)
-        elif spelling == "at" and result[start] == Category.KEYWORD:
-            category = Category.NAME
-        if category is not None:
-            result[start:end] = [category] * (end - start)
+            continue
+        spelling = source[start:end]
+        _, offsets = _normalized_offsets(spelling)
+        for token in scan(spelling):
+            a, b = start + offsets[token.start_pos], start + offsets[token.end_pos]
+            word = source[a:b]
+            category: Category | None = None
+            if original in {Category.MODULE, Category.NAME, Category.OPERATOR} and word == "/*":
+                category = Category.OPERATOR
+            elif token.type in {"NAME", "OP_NAME"} and original in _CONTEXT_ROLES:
+                marker = re.match(r"[ \t\r\n]*(\(|::)", source[b:])
+                following = ("LPAR" if marker[1] == "(" else "DCOLON") if marker else None
+                category = _plain_name(word, following)
+            elif word in SOFT_KEYWORDS:
+                category = _plain_name(word, None)
+            elif word == "at" and original == Category.KEYWORD:
+                category = Category.NAME
+            elif word == "_" and original == Category.OPERATOR:
+                category = Category.NAME
+            elif original == Category.ATTRIBUTE and token.type == "AT":
+                category = Category.OPERATOR
+            elif original == Category.MODULE and token.type in {"SLASH", "DCOLON"}:
+                category = Category.OPERATOR
+            if category is not None:
+                result[a:b] = [category] * (b - a)
     return result
 
 
@@ -116,10 +112,11 @@ def _project(source: str, spans: list[Span]) -> list[Category]:
         'import std/text\nstd/text::split("x")',
         "scope x\nend\nx and y or not z\nlet and = 1\nf(with = 2)",
         "infixl + at 5",
+        "foo/*",
     ],
 )
-def test_temporary_context_projection_retains_plain_lexical_structure(source: str) -> None:
-    assert _characters(source, evaluate(AGL_GRAMMAR, source)) == _project(
+def test_context_projection_retains_plain_lexical_structure(source: str) -> None:
+    assert _project(source, evaluate(AGL_GRAMMAR, source)) == _project(
         source, lexical_spans(source)
     )
 
@@ -155,7 +152,7 @@ def test_triple_strings_keep_state_but_line_delimiters_are_text(newline: str) ->
 @pytest.mark.parametrize("word", sorted(KEYWORDS | SOFT_KEYWORDS | BUILTIN_TYPE_NAMES))
 def test_canonical_word_inventory_and_identifier_boundaries(word: str) -> None:
     source = f"{word} {word}-suffix α{word} {word}α"
-    actual = _characters(source, evaluate(AGL_GRAMMAR, source))
+    actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
     assert actual == expected
 
@@ -179,7 +176,7 @@ def test_builtin_call_inventory(word: str) -> None:
     ],
 )
 def test_nested_states_and_unicode_preserve_categories(source: str) -> None:
-    actual = _characters(source, evaluate(AGL_GRAMMAR, source))
+    actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
     allowed = _allowed_differences(source, actual, expected)
     assert all(a == e or index in allowed for index, (a, e) in enumerate(zip(actual, expected)))
@@ -229,6 +226,96 @@ class Comparison:
     allowed: dict[int, str]
 
 
+def _buffered_holes(source: str, start: int, end: int) -> list[int]:
+    """Locate candidates only; the recovery lexer validates ownership and closure."""
+    return [index for index in range(start, end - 1) if source.startswith("%{", index)]
+
+
+def _buffered_code_evidence(source: str, start: int, end: int) -> dict[int, Category]:
+    """Unbuffer holes with a nonbuffering quoted host; retain real owner bounds.
+
+    The recovery lexer owns raw categories, including nested literals and bad
+    characters. Drop only the wrapper's retroactive diagnostic; project names
+    with the same coarse P as both compared outputs, without contextual replay.
+    """
+    evidence: dict[int, Category] = {}
+    for opening in _buffered_holes(source, start, end):
+        # Parent BODY tokens already classify nested quotes, holes and braces.
+        # A candidate inside that body cannot replace those independent facts.
+        if opening in evidence:
+            continue
+        # Complete only the candidate's BODY to expose its real literal opener.
+        prefix = normalize_newlines(source[start:opening])
+        probe, _ = tokenize_recover(prefix + "%{0}" + source[start : start + 3])
+        if not any(part.type == "INTERP_START" and part.start_pos == len(prefix) for part in probe):
+            continue
+        fragment = '"' + source[opening:end]
+        text, offsets = _normalized_offsets(fragment)
+        recovery = _tokenize_recover(text)
+        tokens = recovery.tokens
+        depth = 0
+        stop = len(fragment)
+        for part in tokens:
+            depth += {"INTERP_START": 1, "INTERP_END": -1}.get(part.type, 0)
+            if part.type == "INTERP_END" and depth == 0:
+                assert part.end_pos is not None
+                stop = offsets[part.end_pos]
+                break
+        spans = [
+            (offsets[a], offsets[b], category)
+            for a, b, category in _token_spans(
+                text,
+                [part for part in tokens if part.type != "ERROR" or part.start_pos != 0],
+                recovery.comments,
+                frozenset(),
+                frozenset(),
+            )
+        ]
+        for index, category in enumerate(_project(fragment, spans)[1:stop], opening):
+            evidence.setdefault(index, category)
+    return evidence
+
+
+def _verbatim_evidence(source: str, start: int, end: int) -> list[Category]:
+    """Repair only block margins; the recovery lexer owns all body categories."""
+    fragment = source[start:end]
+    text, offsets = _normalized_offsets(fragment)
+    positions: list[int | None] = list(range(len(text)))
+    probe = text
+    if re.match(r"\$[ \t]*\n", text):
+        probe = ""
+        positions = []
+        for line_index, match in enumerate(re.finditer(r"[^\n]*\n|[^\n]+$", text)):
+            line = match[0]
+            opening = match.start()
+            if line_index == 0:
+                probe += line
+                positions.extend(range(len(line)))
+            else:
+                margin = len(line) - len(line.lstrip(" \t"))
+                # Uniform one-column margins avoid the rejected layout without
+                # changing payload spelling, including nested quotes and errors.
+                probe += " " + line[margin:]
+                positions.append(None)
+                positions.extend(range(opening + margin, opening + len(line)))
+    recovery = _tokenize_recover(probe)
+    spans = _token_spans(
+        probe,
+        [part for part in recovery.tokens if part.type != "ERROR" or part.start_pos != 0],
+        recovery.comments,
+        frozenset(),
+        frozenset(),
+    )
+    # Removed block margins remain literal background, not code evidence.
+    evidence = [Category.VERBATIM] * len(fragment)
+    for position, category in zip(positions, _project(probe, spans), strict=True):
+        if position is not None:
+            evidence[offsets[position] : offsets[position + 1]] = [category] * (
+                offsets[position + 1] - offsets[position]
+            )
+    return evidence
+
+
 def _allowed_differences(
     source: str, actual: list[Category], expected: list[Category]
 ) -> dict[int, str]:
@@ -244,12 +331,30 @@ def _allowed_differences(
             }
         ):
             allowed[index] = "literal-line-delimiters"
-    for blank in re.finditer(r"(?:^|(?<=[\r\n]))[ \t]+(?=[\r\n]|$)", source):
-        for index in range(blank.start(), blank.end()):
-            if actual[index] == Category.TEXT and expected[index] == Category.VERBATIM:
-                allowed[index] = "verbatim-blank-indentation"
+    blank_indentation = {
+        index
+        for blank in re.finditer(r"(?:^|(?<=[\r\n]))[ \t]+(?=[\r\n]|$)", source)
+        for index in range(blank.start(), blank.end())
+    }
+    for index in blank_indentation:
+        if actual[index] == Category.TEXT and expected[index] == Category.VERBATIM:
+            allowed[index] = "verbatim-blank-indentation"
     text, offsets = _normalized_offsets(source)
-    tokens, errors = tokenize_recover(text)
+    recovery = _tokenize_recover(text)
+    tokens, errors = recovery.tokens, recovery.errors
+    quote_stack: list[int] = []
+    closing_owners: dict[int, int] = {}
+    for token_index, token in enumerate(tokens):
+        if token.type == "TEMPLATE_START":
+            quote_stack.append(token.start_pos)
+        elif token.type == "ERROR":
+            # Recovery closes the rejected owner, not an abandoned nested quote.
+            if token.start_pos in quote_stack:
+                del quote_stack[quote_stack.index(token.start_pos) + 1 :]
+        elif token.type == "TEMPLATE_END" and quote_stack:
+            owner = quote_stack.pop()
+            if token.start_pos < token.end_pos:
+                closing_owners[token_index] = owner
     invalid_escapes: set[int] = set()
     for error in errors:
         position = error.span.start_offset
@@ -259,6 +364,7 @@ def _allowed_differences(
             except ValueSyntaxError as invalid:
                 if str(error) == invalid.message:
                     invalid_escapes.add(position)
+    online: list[Category] | None = None
     significant = [
         token for token in tokens if token.type not in {"_INDENT", "_DEDENT", "_NEWLINE"}
     ]
@@ -273,7 +379,7 @@ def _allowed_differences(
                 if actual[index] == Category.NAME and expected[index] == Category.BUILTIN_CALL:
                     allowed[index] = "cross-line-builtin-call"
     bracket_depth = 0
-    for token in tokens:
+    for token_index, token in enumerate(tokens):
         bracket_depth += {
             "LPAR": 1,
             "LSQB": 1,
@@ -290,17 +396,16 @@ def _allowed_differences(
                 if actual[index] == Category.ERROR and expected[index] == Category.VERBATIM:
                     allowed[index] = "deferred-verbatim-bracket-diagnostic"
         if token.type == "STRING_TAIL" and text[token.start_pos :].startswith(('"""', "'''")):
-            holes: list[int] = []
-            for index in range(start, end):
-                if actual[index] != Category.INTERPOLATION:
-                    continue
-                if source.startswith("%{", index):
-                    holes.append(index)
-                elif source[index] == "}" and holes:
-                    opening = holes.pop()
-                    for position in range(opening, index + 1):
-                        if expected[position] == Category.STRING:
-                            allowed[position] = "incomplete-triple-buffering"
+            owner = next(
+                part for part in reversed(tokens[:token_index]) if part.type == "TEMPLATE_START"
+            )
+            # A nested unfinished literal owns its tail, not its buffered host hole.
+            stop = start if token.start_pos > owner.start_pos else end
+            for position, category in _buffered_code_evidence(
+                source, offsets[owner.start_pos], stop
+            ).items():
+                if expected[position] == Category.STRING and actual[position] == category:
+                    allowed[position] = "incomplete-triple-buffering"
         if token.type == "VERBATIM_START" and re.match(r"\$[ \t]*\n", text[token.start_pos :]):
             line_start = max(source.rfind("\n", 0, start), source.rfind("\r", 0, start)) + 1
             if source[line_start:start].startswith((" ", "\t")):
@@ -351,13 +456,46 @@ def _allowed_differences(
                     )
                     else "rejected-template-diagnostics"
                 )
-                for index in range(start, end):
-                    if expected[index] == Category.ERROR:
+                if online is None:
+                    # Drop retroactive diagnostics, retaining real raw-token/escape evidence.
+                    online = _characters(
+                        source,
+                        [
+                            (offsets[a], offsets[b], category)
+                            for a, b, category in _token_spans(
+                                text,
+                                [part for part in tokens if part.type != "ERROR"],
+                                recovery.comments,
+                                frozenset(),
+                                frozenset(),
+                            )
+                        ],
+                    )
+                failure = min(
+                    (offsets[p] for p in invalid_escapes if token.start_pos <= p < token.end_pos),
+                    default=end,
+                )
+                buffered = (
+                    _buffered_code_evidence(source, start, failure)
+                    if spelling.startswith(('"""', "'''"))
+                    else {}
+                )
+                for index in range(start, failure):
+                    category = buffered.get(index, online[index])
+                    if expected[index] == Category.ERROR and (
+                        actual[index] == category
+                        or (
+                            source[index] in "\r\n"
+                            and actual[index] == Category.TEXT
+                            and category == Category.STRING
+                        )
+                    ):
                         allowed[index] = reason
-                # Recovery retains real closing delimiters even after an error.
-                for closing in tokens:
+                # Only this rejected owner's real closer after failure may be ERROR.
+                for closing_index, closing in enumerate(tokens):
                     if (
-                        closing.type == "TEMPLATE_END"
+                        closing_owners.get(closing_index) == token.start_pos
+                        and failure <= offsets[closing.start_pos]
                         and token.start_pos <= closing.start_pos < closing.end_pos <= token.end_pos
                     ):
                         for index in range(offsets[closing.start_pos], offsets[closing.end_pos]):
@@ -366,9 +504,21 @@ def _allowed_differences(
                                 and expected[index] == Category.STRING
                             ):
                                 allowed[index] = reason
-            elif spelling.startswith("$"):
+            elif spelling.startswith("$") and any(
+                part.type == "VERBATIM_START" and part.start_pos == token.start_pos
+                for part in tokens
+            ):
+                evidence = _verbatim_evidence(source, start, end)
                 for index in range(start, end):
-                    if expected[index] == Category.ERROR or actual[index] == Category.VERBATIM:
+                    category = evidence[index - start]
+                    if expected[index] == Category.ERROR and (
+                        actual[index] == category
+                        or (
+                            actual[index] == Category.TEXT
+                            and category in {Category.VERBATIM, Category.TEXT}
+                            and (source[index] in "\r\n" or index in blank_indentation)
+                        )
+                    ):
                         allowed[index] = "rejected-verbatim-structure"
     return allowed
 
@@ -394,7 +544,7 @@ def _allowed_differences(
     ],
 )
 def test_divergences_do_not_exempt_unrelated_or_payload_code(source: str, word: str) -> None:
-    actual = _characters(source, evaluate(AGL_GRAMMAR, source))
+    actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
     index = source.index(word)
     actual[index] = Category.VERBATIM if expected[index] != Category.VERBATIM else Category.ERROR
@@ -419,6 +569,48 @@ def test_context_projection_does_not_collapse_core_categories(
     assert expected[start : start + len(word)] == [category] * len(word)
 
 
+@pytest.mark.parametrize(
+    "source, spelling, replacement",
+    [
+        ("record Box", "record", Category.ATTRIBUTE),
+        ("record Box", "Box", Category.NUMBER),
+        ("import std/text", "std", Category.ERROR),
+        ("@tag(12)", "12", Category.TYPE),
+        ("int", "int", Category.NAME),
+        ("print(1)", "print", Category.NAME),
+        ("true", "true", Category.NAME),
+        ("12", "12", Category.MODULE),
+        ("?2", "?2", Category.CONSTRUCTOR),
+        ("x = 1", "=", Category.MODULE),
+        ("# import", "import", Category.KEYWORD),
+        ('"scope"', "scope", Category.KEYWORD),
+        ('"\\\\n"', "\\\\n", Category.ATTRIBUTE),
+        ('"${HOME}"', "${HOME}", Category.MODULE),
+        ('"%{ x }"', "%{", Category.ATTRIBUTE),
+        ("$ import", "import", Category.KEYWORD),
+        ('"bad\\\\q"', "\\\\q", Category.TYPE),
+    ],
+)
+def test_symmetric_projection_does_not_erase_core_regressions(
+    source: str, spelling: str, replacement: Category
+) -> None:
+    spans = evaluate(AGL_GRAMMAR, source)
+    expected = _project(source, spans)
+    start = source.index(spelling)
+    end = start + len(spelling)
+    # Split at source boundaries: simulate a wrong core classification rather
+    # than relying on the grammar's current span coalescing.
+    mutated: list[Span] = []
+    for a, b, category in spans:
+        if a < start:
+            mutated.append((a, min(b, start), category))
+        if a < end and b > start:
+            mutated.append((max(a, start), min(b, end), replacement))
+        if b > end:
+            mutated.append((max(a, end), b, category))
+    assert _project(source, mutated) != expected
+
+
 @pytest.mark.parametrize("category", [Category.FUNCTION, Category.LOCAL, Category.PARAMETER])
 def test_semantic_only_roles_project_to_plain_names(category: Category) -> None:
     source = "let value = 1"
@@ -437,7 +629,7 @@ def test_context_projection_uses_original_newline_offsets(newline: str) -> None:
     for character, category in zip(source.replace(newline, "\n"), expected, strict=True):
         expanded.extend([category] * (len(newline) if character == "\n" else 1))
     assert _project(source, lexical_spans(source)) == expanded
-    assert _characters(source, evaluate(AGL_GRAMMAR, source)) == expanded
+    assert _project(source, evaluate(AGL_GRAMMAR, source)) == expanded
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
@@ -449,12 +641,200 @@ def test_relative_verbatim_divergence_uses_original_newline_offsets(newline: str
     assert source.index("value") not in case.allowed
 
 
-@pytest.mark.parametrize("source", ['"bad\\n', '"bad\\n\nlet x=1', "'bad\\t"])
+@pytest.mark.parametrize(
+    "source, spelling, replacement",
+    [
+        ('"bad\\n', "bad", Category.NUMBER),
+        ('"bad\\n', "\\n", Category.NUMBER),
+        ('"bad\\n', "\\n", Category.STRING),
+        ('"""bad\\n%{1\nlet x=1', "\\n", Category.NUMBER),
+        ('"""bad\\n%{1\nlet x=1', "let", Category.STRING),
+        ('"abc\\n%{1} tail', "tail", Category.NUMBER),
+        ('"bad\\q"\nlet x=1', "bad", Category.NUMBER),
+        ('"bad\\q suffix"\nlet x=1', "suffix", Category.STRING),
+        ('"bad\\q"\nlet x=1', "let", Category.STRING),
+    ],
+)
+def test_diagnosed_literal_exemptions_reject_core_mutations(
+    source: str, spelling: str, replacement: Category
+) -> None:
+    case = _comparison("diagnosed-literal-mutation", source)
+    _assert_conformance(case)
+    index = source.index(spelling)
+    assert case.actual[index] != replacement
+    case.actual[index] = replacement
+    assert index not in _allowed_differences(source, case.actual, case.expected)
+
+
+@pytest.mark.parametrize("outer", ['"', '"""'])
+@pytest.mark.parametrize("complete", [False, True])
+@pytest.mark.parametrize(
+    "before_failure, nested",
+    [(False, "'"), (False, "'''"), (True, "'"), (True, "'''"), (True, '"'), (True, '"""')],
+)
+def test_rejected_literal_closer_exemption_keeps_nested_delimiters_strict(
+    outer: str, nested: str, complete: bool, before_failure: bool
+) -> None:
+    hole = "%{ " + nested + "hi" + nested + " }"
+    body = "abc" + hole + " tail\\q" if before_failure else "abc\\q" + hole + " tail"
+    source = outer + body + (outer if complete else "")
+    case = _comparison("nested-delimiters-around-failure", source)
+    _assert_conformance(case)
+    opening = source.index(nested + "hi", len(outer))
+    closing = opening + len(nested) + len("hi")
+    replacement = Category.ERROR if before_failure else Category.STRING
+    for start in (opening, closing):
+        positions = range(start, start + len(nested))
+        assert all(case.actual[index] != replacement for index in positions)
+        mutated = case.actual.copy()
+        for index in positions:
+            mutated[index] = replacement
+        assert not set(positions) & _allowed_differences(source, mutated, case.expected).keys()
+    if complete:
+        positions = range(len(source) - len(outer), len(source))
+        assert all(case.actual[index] == Category.ERROR for index in positions)
+        assert all(case.expected[index] == Category.STRING for index in positions)
+        assert all(case.allowed[index] == "invalid-template-escape-recovery" for index in positions)
+        mutated = case.actual.copy()
+        for index in positions:
+            mutated[index] = Category.NUMBER
+        assert not set(positions) & _allowed_differences(source, mutated, case.expected).keys()
+
+
+@pytest.mark.parametrize(
+    "source, spelling, replacement",
+    [
+        ('""" payload %{1 """', "1", Category.KEYWORD),
+        ('"""%{1', "%{1", Category.STRING),
+        ("'''%{1\nlet x=1", "1", Category.KEYWORD),
+        ('"""%{let x = 12 + \'hi\'\nlet y=2', "let", Category.NUMBER),
+        ('"""%{let x = 12 + \'hi\'\nlet y=2', "12", Category.STRING),
+        ('"""%{let x = 12 + \'hi\'\nlet y=2', "hi", Category.KEYWORD),
+        ('"""%{let x = 12 + \'hi\'\nlet y=2', "+", Category.NUMBER),
+        ('"""%{let x = 12 + \'hi\'\nlet y=2', " ", Category.STRING),
+        ('"""%{1\t+ 2', "\t", Category.NUMBER),
+        ('"""%{ # }', "#", Category.KEYWORD),
+        ('"""%{let x = 12 + \'hi\' }', "let", Category.NUMBER),
+        ('"""%{let x = 12 + \'hi\' }', "12", Category.KEYWORD),
+        ('"""%{let x = 12 + \'hi\' }', "hi", Category.KEYWORD),
+        ('"""%{let x = 12 + \'hi\' }', "+", Category.NUMBER),
+        ('"""%{let x = 12 + \'hi\' }', " ", Category.OPERATOR),
+        ('"""%{let x = 12 + \'hi\' }', "12", Category.ERROR),
+        ('"""%{let x = 12 + \'hi\' }\nlet y=2', "12", Category.OPERATOR),
+        ('"""%{ {1: {2: {3: 4}}} }', "4", Category.KEYWORD),
+        ('"""%{ {1: \'%{2}\'} }', "2", Category.KEYWORD),
+    ],
+)
+def test_buffered_hole_exemptions_require_exact_code_evidence(
+    source: str, spelling: str, replacement: Category
+) -> None:
+    case = _comparison("buffered-hole-mutation", source)
+    _assert_conformance(case)
+    index = source.index(spelling)
+    assert case.actual[index] == case.expected[index] or index in case.allowed
+    assert case.actual[index] != replacement
+    positions = range(index, index + len(spelling))
+    for position in positions:
+        case.actual[position] = replacement
+    assert not set(positions) & _allowed_differences(source, case.actual, case.expected).keys()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""%{1',
+        '"""%{1\n# recovered comment\nlet x=1',
+        "'''%{1\nlet x=1",
+        '"""%{let x = 12 + \'hi\'\nlet y=2',
+        '"""%{ {1: {2: {3: 4}}} }',
+        '"""%{ {1: \'%{2}\'} }',
+    ],
+)
+def test_buffered_holes_keep_eof_and_recovery_bounds(source: str) -> None:
+    case = _comparison("buffered-hole-bounds", source)
+    _assert_conformance(case)
+    assert source.index("%{") in case.allowed
+    if "\nlet" in source:
+        recovered = source.index("\nlet") + 1
+        assert case.actual[recovered : recovered + 3] == [Category.KEYWORD] * 3
+        assert case.actual[recovered:] == case.expected[recovered:]
+        assert not set(range(recovered, len(source))) & case.allowed.keys()
+
+
+@pytest.mark.parametrize(
+    "source, positions",
+    [
+        ('"""%{foo%{1}}', (8, 9, 11)),
+        ('"""%{foo%{1}', (8, 9, 11)),
+        ('"""%{ {1: 2} }', (6, 11)),
+        ('"""%{ {1: \'%{2}\'} }', (13, 16)),
+        ('"""\\%{1}', (4, 5, 7)),
+        ('"""%{ \'foo\\%{1}\' }', (11, 12, 14)),
+    ],
+)
+def test_buffered_hole_topology_rejects_fabricated_delimiters(
+    source: str, positions: tuple[int, ...]
+) -> None:
+    case = _comparison("fabricated-hole-delimiters", source)
+    _assert_conformance(case)
+    for changed in [positions, *((position,) for position in positions)]:
+        mutated = case.actual.copy()
+        for index in changed:
+            assert mutated[index] != Category.INTERPOLATION
+            mutated[index] = Category.INTERPOLATION
+        allowed = _allowed_differences(source, mutated, case.expected)
+        assert not set(changed) & allowed.keys()
+
+
+@pytest.mark.parametrize("nested", ["'%{2}'", "'''%{2}'''"])
+def test_buffered_parent_retains_real_nested_quoted_hole_evidence(nested: str) -> None:
+    source = '"""%{ {1: ' + nested + "} }"
+    case = _comparison("real-nested-quoted-hole", source)
+    _assert_conformance(case)
+    opening = source.index("%{", source.index("%{") + 2)
+    assert all(index in case.allowed for index in range(opening, opening + 4))
+    for index, replacement in [(opening, Category.PUNCTUATION), (opening + 2, Category.NAME)]:
+        mutated = case.actual.copy()
+        mutated[index] = replacement
+        assert index not in _allowed_differences(source, mutated, case.expected)
+
+
+@pytest.mark.parametrize("quote", ['"""', "'''"])
+@pytest.mark.parametrize("suffix", ["", "\nmore literal"])
+def test_incomplete_nested_triple_hole_has_a_live_bounded_divergence(
+    quote: str, suffix: str
+) -> None:
+    source = quote + " payload %{1 " + quote + suffix
+    case = _comparison("unfinished-nested-triple", source)
+    _assert_conformance(case)
+    opening = source.index("%{")
+    assert all(
+        case.allowed[index] == "incomplete-triple-buffering"
+        for index in range(opening, opening + 4)
+    )
+    assert not set(range(opening)) & case.allowed.keys()
+    for index, replacement in [
+        (source.index("payload"), Category.NUMBER),
+        (opening, Category.STRING_ESCAPE),
+        (opening + 1, Category.PUNCTUATION),
+        (opening + 2, Category.VERBATIM),
+        (opening + 3, Category.NUMBER),
+        (opening + 4, Category.NUMBER),
+    ]:
+        mutated = case.actual.copy()
+        mutated[index] = replacement
+        assert index not in _allowed_differences(source, mutated, case.expected)
+
+
+@pytest.mark.parametrize(
+    "source", ['"bad\\n', '"bad\\n\nlet x=1', '"bad\\n\n# recovered comment\nlet x=1', "'bad\\t"]
+)
 def test_valid_escapes_in_unterminated_strings_are_not_invalid_escape_divergences(
     source: str,
 ) -> None:
-    actual = _characters(source, evaluate(AGL_GRAMMAR, source))
+    actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
+    _assert_conformance(_comparison("valid-escape-recovery", source))
     assert (
         "invalid-template-escape-recovery"
         not in _allowed_differences(source, actual, expected).values()
@@ -479,7 +859,7 @@ def test_valid_escapes_in_unterminated_strings_are_not_invalid_escape_divergence
     ],
 )
 def test_aborted_templates_do_not_leak_states_into_recovered_code(source: str) -> None:
-    actual = _characters(source, evaluate(AGL_GRAMMAR, source))
+    actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
     start = source.index("let")
     assert actual[start:] == expected[start:]
@@ -501,9 +881,10 @@ def test_aborted_templates_do_not_leak_states_into_recovered_code(source: str) -
         ("$\n  hi ", ""),
     ],
 )
-@pytest.mark.parametrize(
-    "body, complete",
-    [
+def test_holes_track_only_curly_nesting_and_recover_at_line_end(
+    newline: str, opening: str, closing: str
+) -> None:
+    for body, complete in (
         ("{1: 2) }", False),
         ("{1: 2] }", False),
         ("([{1: 2)]}", False),
@@ -515,20 +896,16 @@ def test_aborted_templates_do_not_leak_states_into_recovered_code(source: str) -
         ("{[1) } }", True),
         ('{1: "})] %{ {2: 3) } }"} }', True),
         ("{1: '}([ %{ [2 }'} }", True),
-    ],
-)
-def test_holes_track_only_curly_nesting_and_recover_at_line_end(
-    newline: str, opening: str, closing: str, body: str, complete: bool
-) -> None:
-    source = (opening + "%{ " + body + (closing if complete else "") + "\nlet x=1").replace(
-        "\n", newline
-    )
-    case = _comparison("mixed-hole-brackets", source)
-    recovered = source.index("let")
-    assert case.actual[recovered:] == case.expected[recovered:]
-    assert case.actual[recovered : recovered + 3] == [Category.KEYWORD] * 3
-    assert not set(range(recovered, len(source))) & case.allowed.keys()
-    _assert_conformance(case)
+    ):
+        source = (opening + "%{ " + body + (closing if complete else "") + "\nlet x=1").replace(
+            "\n", newline
+        )
+        case = _comparison("mixed-hole-brackets", source)
+        recovered = source.index("let")
+        assert case.actual[recovered:] == case.expected[recovered:], source
+        assert case.actual[recovered : recovered + 3] == [Category.KEYWORD] * 3, source
+        assert not set(range(recovered, len(source))) & case.allowed.keys(), source
+        _assert_conformance(case)
 
 
 @pytest.mark.parametrize("opening", "([{")
@@ -573,6 +950,46 @@ def test_rejected_bracketed_verbatim_does_not_open_a_payload(source: str) -> Non
     assert not set(range(recovered, len(source))) & case.allowed.keys()
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+@pytest.mark.parametrize("replacement", [Category.NUMBER, Category.NAME, Category.STRING])
+def test_rejected_verbatim_prefix_requires_verbatim_evidence(
+    newline: str, replacement: Category
+) -> None:
+    source = "$" + newline + "let x=1"
+    case = _comparison("rejected-verbatim-prefix", source)
+    _assert_conformance(case)
+    assert case.allowed[0] == "rejected-verbatim-structure"
+    case.actual[0] = replacement
+    assert 0 not in _allowed_differences(source, case.actual, case.expected)
+
+
+@pytest.mark.parametrize(
+    "source, spelling, replacement",
+    [
+        ("$\nlet x=1", "\n", Category.NUMBER),
+        ("$\n ", " ", Category.NUMBER),
+        ('$ hi %{ "bad\\q" }\nlet x=1', "\\q", Category.VERBATIM),
+        ("$\n  hi %{ # }\n x\nlet x=1", "#", Category.TEXT),
+        ("$\n  hi %{1}\n x\nlet x=1", "%{", Category.VERBATIM),
+        ("$\n  hi %{1}\n x\nlet x=1", "1}", Category.VERBATIM),
+        ("$\n  hi\n x\nlet x=1", "hi", Category.TEXT),
+        ("$\n  hi\n x\nlet x=1", "hi", Category.KEYWORD),
+        ("$\n  hi\n x\nlet x=1", "x\n", Category.NUMBER),
+        ("$\nlet x=1", "let", Category.VERBATIM),
+        ("[$\n  x\n]\nlet x=1", "x\n", Category.VERBATIM),
+    ],
+)
+def test_rejected_verbatim_extent_keeps_payload_and_recovery_categories_strict(
+    source: str, spelling: str, replacement: Category
+) -> None:
+    case = _comparison("rejected-verbatim-mutation", source)
+    _assert_conformance(case)
+    index = source.index(spelling)
+    assert case.actual[index] != replacement
+    case.actual[index] = replacement
+    assert index not in _allowed_differences(source, case.actual, case.expected)
+
+
 def test_verbatim_trailing_blank_line_indentation_is_trivia() -> None:
     source = "$\n  hello\n  \nlet x=1"
     actual = _characters(source, evaluate(AGL_GRAMMAR, source))
@@ -584,7 +1001,7 @@ def test_verbatim_trailing_blank_line_indentation_is_trivia() -> None:
 def test_cross_line_builtin_call_has_only_a_name_spelling_divergence(newline: str) -> None:
     source = f"(print{newline} (1))"
     assert isinstance(parse_program(source).body.items[0], Call)
-    actual = _characters(source, evaluate(AGL_GRAMMAR, source))
+    actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
     allowed = _allowed_differences(source, actual, expected)
     assert allowed == dict.fromkeys(range(1, 6), "cross-line-builtin-call")
@@ -627,17 +1044,18 @@ def test_core_constructs_and_malformed_prefixes_are_total_and_conform(source: st
 
 
 def _comparison(name: str, source: str) -> Comparison:
-    actual = _characters(source, evaluate(AGL_GRAMMAR, source))
+    actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
     return Comparison(
         name, source, actual, expected, _allowed_differences(source, actual, expected)
     )
 
 
-@pytest.mark.parametrize("case", lexical_corpus(), ids=lambda case: case[0])
-def test_full_corpus_conformance(case: tuple[str, str]) -> None:
-    comparison = _comparison(*case)
-    _assert_conformance(comparison)
+@pytest.mark.parametrize("cases", lexical_corpus_batches(), ids=lambda cases: cases[0][0])
+def test_full_corpus_conformance(cases: tuple[tuple[str, str], ...]) -> None:
+    for case in cases:
+        comparison = _comparison(*case)
+        _assert_conformance(comparison)
 
 
 def _assert_conformance(case: Comparison) -> None:
@@ -657,9 +1075,11 @@ DIVERGENCE_WITNESSES = [
     ("invalid-interpolation-escape-recovery", '$ hi %{ "bad\\q" }\nlet x=1'),
     ("rejected-template-diagnostics", '"bad\\n\nlet x=1'),
     ("rejected-verbatim-structure", "$\nlet x=1"),
+    ("rejected-verbatim-structure", "$\n  hi %{1}\n x\nlet x=1"),
     ("deferred-verbatim-bracket-diagnostic", "[$\n  x\nlet x=1"),
     ("cross-line-builtin-call", "(print\n (1))"),
     ("incomplete-triple-buffering", '"""abc %{ {1: print(2)} }'),
+    ("incomplete-triple-buffering", '""" payload %{1 """'),
     ("verbatim-blank-indentation", "$\n  hi\n  \n  bye\nlet x=1"),
 ]
 

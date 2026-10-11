@@ -148,20 +148,17 @@ class ModuleContribution:
     exports: Mapping[NameAtom, QName] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        members: Mapping[NameAtom, QName] = MappingProxyType(
-            {atom: self.members[atom] for atom in sorted(self.members, key=_path_sort_key)}
-        )
+        members = _ordered_members(self.members)
         ordered: list[str | None] = [None] if None in self.routes else []
         ordered.extend(sorted(route for route in self.routes if route is not None))
         routes: Mapping[str | None, RouteSurface] = MappingProxyType(
             {
                 route: replace(
                     self.routes[route],
-                    members=MappingProxyType(
-                        {
-                            atom: self.routes[route].members[atom]
-                            for atom in sorted(self.routes[route].members, key=_path_sort_key)
-                        }
+                    members=(
+                        members
+                        if self.routes[route].members == self.members
+                        else _ordered_members(self.routes[route].members)
                     ),
                 )
                 for route in ordered
@@ -169,6 +166,10 @@ class ModuleContribution:
         )
         object.__setattr__(self, "members", members)
         object.__setattr__(self, "routes", routes)
+
+
+def _ordered_members(members: Mapping[NameAtom, QName]) -> Mapping[NameAtom, QName]:
+    return MappingProxyType({atom: members[atom] for atom in sorted(members, key=_path_sort_key)})
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,7 +303,7 @@ class ImportEnv:
 class _RouteAccumulator:
     members: dict[NameAtom, QName] = field(default_factory=dict)
     scope_paths: set[NameAtom] = field(default_factory=set)
-    member_ways: dict[NameAtom, set[ImportWay]] = field(default_factory=dict)
+    member_ways: dict[NameAtom, frozenset[ImportWay]] = field(default_factory=dict)
     decls: set[int] = field(default_factory=set)
 
     def freeze(self) -> RouteSurface:
@@ -310,7 +311,7 @@ class _RouteAccumulator:
         return RouteSurface(
             self.members,
             frozenset(self.scope_paths),
-            _frozen(self.member_ways),
+            dict(self.member_ways),
             frozenset(self.decls),
         )
 
@@ -550,8 +551,8 @@ def build_import_env(
     declarations: the import brings it like any export, withholding them.
     """
     accumulators: dict[ModuleId, _ContributionAccumulator] = {}
-    root_bare: dict[NameAtom, dict[QName, set[ImportWay]]] = {}
-    decl_bare: dict[int, dict[NameAtom, dict[QName, set[ImportWay]]]] = {}
+    root_bare: dict[NameAtom, dict[QName, frozenset[ImportWay]]] = {}
+    decl_bare: dict[int, dict[NameAtom, dict[QName, frozenset[ImportWay]]]] = {}
     root_bare_routes: dict[NameAtom, set[BareRoute]] = {}
     decl_bare_routes: dict[int, dict[NameAtom, set[BareRoute]]] = {}
     decl_scope_routes: dict[int, dict[NameAtom, set[BareRoute]]] = {}
@@ -586,6 +587,14 @@ def build_import_env(
                     sorted(origins, key=_origin_sort_key),
                     _with_vanished_ancestors(source, origins, module_exports, module_scopes),
                 )
+            # Ways carry only declaration identity and immutable withholding;
+            # members reached the same way can share one value.
+            ways = {
+                hidden: frozenset({ImportWay(decl.node_id, hidden)})
+                for hidden in {
+                    hidden for by_qname in reached.values() for hidden in by_qname.values()
+                }
+            }
             if decl.tail is None:
                 selected_exports: tuple[NameAtom, ...] = ()
                 selected_scopes: tuple[NameAtom, ...] = ()
@@ -612,25 +621,25 @@ def build_import_env(
                 for qname, withheld_by_source in by_qname.items():
                     acc.members[source] = qname
                     brought.members[source] = qname
-                    brought.member_ways.setdefault(source, set()).add(
-                        ImportWay(decl.node_id, withheld_by_source)
-                    )
+                    _add_ways(brought.member_ways, source, ways[withheld_by_source])
             brought.scope_paths.update(module_scopes)
             for source in module_scopes:
                 scope_origins_by_route[(module, _path(source))] = module_scopes[source]
             for exposed, source in _tail_exposures(decl, selected_exports):
                 route = (module, _path(source))
                 for qname, withheld_by_source in reached[source].items():
-                    way = ImportWay(decl.node_id, withheld_by_source)
+                    way = ways[withheld_by_source]
                     if decl.scope_path:
-                        decl_bare.setdefault(decl.node_id, {}).setdefault(exposed, {}).setdefault(
-                            qname, set()
-                        ).add(way)
+                        _add_ways(
+                            decl_bare.setdefault(decl.node_id, {}).setdefault(exposed, {}),
+                            qname,
+                            way,
+                        )
                         decl_bare_routes.setdefault(decl.node_id, {}).setdefault(
                             exposed, set()
                         ).add(route)
                     else:
-                        root_bare.setdefault(exposed, {}).setdefault(qname, set()).add(way)
+                        _add_ways(root_bare.setdefault(exposed, {}), qname, way)
                         root_bare_routes.setdefault(exposed, set()).add(route)
             for exposed, source in _tail_exposures(decl, selected_scopes):
                 decl_scope_routes.setdefault(decl.node_id, {}).setdefault(exposed, set()).add(
@@ -650,16 +659,13 @@ def build_import_env(
     return ImportEnv(
         contributions=contributions,
         unqualified={name: frozenset(qnames) for name, qnames in root_bare.items()},
-        unqualified_ways={name: _frozen(qnames) for name, qnames in root_bare.items()},
+        unqualified_ways=root_bare,
         decl_hiding={node_id: tuple(named) for node_id, named in decl_hiding.items()},
         decl_tail_beneath={
             node_id: {exposed: frozenset(items) for exposed, items in exposures.items()}
             for node_id, exposures in decl_tail_beneath.items()
         },
-        decl_bare_ways={
-            node_id: {atom: _frozen(qnames) for atom, qnames in members.items()}
-            for node_id, members in decl_bare.items()
-        },
+        decl_bare_ways=decl_bare,
         unqualified_routes={atom: frozenset(routes) for atom, routes in root_bare_routes.items()},
         decl_bare_routes={
             node_id: {atom: frozenset(routes) for atom, routes in members.items()}
@@ -673,8 +679,9 @@ def build_import_env(
     )
 
 
-def _frozen[K, V](ways: Mapping[K, set[V]]) -> dict[K, frozenset[V]]:
-    return {key: frozenset(found) for key, found in ways.items()}
+def _add_ways[K](target: dict[K, frozenset[ImportWay]], key: K, ways: frozenset[ImportWay]) -> None:
+    previous = target.get(key)
+    target[key] = ways if previous is None else previous | ways
 
 
 def qualifier_candidates(

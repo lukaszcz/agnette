@@ -3,6 +3,7 @@
 import re
 import textwrap
 from functools import cache
+from itertools import batched
 from pathlib import Path
 
 
@@ -31,3 +32,8 @@ def lexical_corpus() -> tuple[tuple[str, str], ...]:
             cases.append((f"{path.relative_to(root)}:{line}", textwrap.dedent("\n".join(body))))
             index += 1
     return tuple(cases)
+
+
+def lexical_corpus_batches() -> tuple[tuple[tuple[str, str], ...], ...]:
+    """Bound corpus test cost while amortizing per-test isolation and collection."""
+    return tuple(batched(lexical_corpus(), 32))

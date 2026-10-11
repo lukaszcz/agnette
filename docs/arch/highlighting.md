@@ -7,9 +7,11 @@ category-to-style mappings.
 ## Tiers and Consumers
 
 - `lexical.py` classifies recovery-mode lexer tokens, declaration sites, attributes,
-  and optionally known type/constructor names. Spans partition the original source,
-  including malformed input and normalized-newline offset mapping. Lexer delimiters
-  define raw literal backgrounds; code, holes, and escapes overlay them. Cooked/dedented
+  and optionally known type/constructor names. Recovery supplies tokens, diagnostics,
+  and skipped comments in one scan while retaining the public token API. Spans
+  partition the original source, including malformed input and normalized-newline
+  offset mapping. Lexer delimiters define raw literal backgrounds; code, holes, and
+  escapes overlay them. Cooked/dedented
   fragment widths remain diagnostic-only. Projection handles overlapping, non-source-ordered
   tokens without changing strict lexing; synthetic loop terminators own no text.
   Rejected opener extents terminate literal backgrounds before recovered code;
@@ -96,8 +98,36 @@ states: finite transitions and chained line-local ends require neither arbitrary
 stack reset nor target rejection. Exact scanner recovery of arbitrarily nested
 rejected literals is not expressible by these online states.
 
-`tests/test_agl_highlight_conformance.py` compares each corpus item once, projecting
-contextual roles with original-source offsets. Named, witnessed divergences cover
+### Contextual Approximation Contract
+
+The portable grammar adds three capture rules and one path rule, no contextual
+states or second classifier. They apply in CODE, brackets and holes, never literal text/comments.
+All names use canonical identifier boundaries; hard keywords are excluded.
+
+| Construct | Guaranteed local behavior | Deliberate limitation |
+| --- | --- | --- |
+| Attributes | `@` plus same-line horizontal whitespace and an identifier → `ATTRIBUTE`. | No cross-line lookahead or argument transparency: arguments remain ordinary CODE, including declaration captures. |
+| Modules | Contiguous identifier paths separated by `/`, optionally ending in `/*` and/or `::`; a single identifier followed by `::` → `MODULE`. | Lexical anywhere, not restricted to import/use/export headers; whitespace/comments interrupt paths; same-line `:: [` type arguments retain core call/name categories. |
+| Type declarations | Identifier immediately after `record`, `enum`, `type`, or `exception`, separated by same-line horizontal whitespace → `TYPE`. | No intervening attributes/comments, symbolic names, or later reference seeding. |
+| Enum variants | Identifier immediately after standalone `\|` with optional same-line horizontal whitespace → `CONSTRUCTOR`. | No enum-owner tracking: the same local shape outside an enum is also promoted; symbolic/hardword variants are not. |
+| Softwords | Canonical operator softwords → `OPERATOR_WORD`; other canonical softwords → `KEYWORD`, except where earlier contextual captures apply. | Inventory coloring even in fields, named arguments and member positions; no layout/header/recovery history. Infix `at` remains `NAME`. |
+
+`tests/test_agl_highlight_portable_context.py` independently checks these features
+and named boundaries. The corpus comparison applies the **same** coarse projection
+to both outputs: contextual/semantic name roles become plain names while canonical
+builtin types/calls retain their categories; attribute/module punctuation (including
+wildcard `/*`, even when the scanner treats a local path suffix as `NAME`) is
+source-normalized to operators in styled code. Softword role differences and
+contextual infix `at` are coarsened by spelling; wildcard `_` becomes a name.
+Projection rescans styled code spans only, never replays promotion history or reads
+generated rules. It does not collapse core keyword, literal, escape, interpolation,
+environment-hole, number, placeholder, error, or other punctuation categories.
+Mutation tests ensure unrelated core mistakes still fail comparison. Fine contextual
+equality is intentionally not a corpus requirement; the independent examples own
+that contract.
+
+`tests/test_agl_highlight_conformance.py` compares each corpus item once with
+original-source offsets. Named, witnessed core divergences cover
 literal newlines, relative verbatim dedent, interior blank indentation, rejected
 verbatim layout, retroactive template diagnostics, buffered holes in incomplete
 triple strings, and builtin-call names whose lookahead crosses lines.
@@ -108,7 +138,17 @@ invalid escape diagnostic through the enclosing rejected literal's end, and only
 `$ hi %{ "bad\q" }\nlet x=1`. `deferred-verbatim-bracket-diagnostic` covers only the
 `$` marker in an unfinished bracket (witness: `[$\n  x\nlet x=1`); the scanner delays
 that diagnostic until brackets close. Payload and later standalone statements must
-match. Exemptions never cover recovered code or whole files.
+match. Buffered-hole exemptions require per-position recovery-token evidence from
+nonbuffering quoted fragments, using the same coarse name projection. Candidates
+come only from source spelling, never compared categories. Lexer probes validate
+literal ownership; parent BODY tokens retain nested delimiter/code facts, and lexer
+closers and owner/tail bounds exclude recovered code. Rejected verbatim exemptions
+require a real opener/diagnostic extent and independent per-position recovery evidence.
+Uniform-margin probes expose layout-rejected bodies while preserving payload spelling,
+interpolation, and nested errors; only evidence-matching categories or literal
+line-delimiter/blank-indentation `TEXT` qualify. Projection reuses each recovery
+scan's skipped comments.
+Exemptions never cover whole files.
 
 ## Layering
 

@@ -10,7 +10,7 @@ from lark.lexer import Token
 
 from agnette.agl.highlight import Category, Span, lexical_spans
 from agnette.agl.highlight.lexical import open_string_start, repl_spans
-from agnette.agl.lexer import tokenize_recover
+from agnette.agl.lexer import _RecoveryResult, tokenize_recover
 from tests._agl_corpus import lexical_corpus
 
 
@@ -240,25 +240,27 @@ def test_positionless_synthetic_tokens_leave_the_source_intact() -> None:
     expected = lexical_spans(source)
     tokens, errors = tokenize_recover(source)
     with patch(
-        "agnette.agl.highlight.lexical.tokenize_recover",
-        return_value=([Token("NAME", "ghost"), *tokens], errors),
+        "agnette.agl.highlight.lexical._tokenize_recover",
+        return_value=_RecoveryResult([Token("NAME", "ghost"), *tokens], errors, []),
     ):
         assert lexical_spans(source) == expected
     with patch(
-        "agnette.agl.highlight.lexical.tokenize_recover", return_value=([Token("NAME", "x")], [])
+        "agnette.agl.highlight.lexical._tokenize_recover",
+        return_value=_RecoveryResult([Token("NAME", "x")], [], []),
     ):
         assert lexical_spans("x") == [(0, 1, Category.TEXT)]
     with patch(
-        "agnette.agl.highlight.lexical.tokenize_recover",
-        return_value=([Token("SYNTHETIC", "x", start_pos=0, end_pos=1)], []),
+        "agnette.agl.highlight.lexical._tokenize_recover",
+        return_value=_RecoveryResult([Token("SYNTHETIC", "x", start_pos=0, end_pos=1)], [], []),
     ):
         assert lexical_spans("x") == [(0, 1, Category.TEXT)]
     with patch(
-        "agnette.agl.highlight.lexical.tokenize_recover",
-        return_value=([Token("TEMPLATE_START", "", start_pos=0, end_pos=0)], []),
+        "agnette.agl.highlight.lexical._tokenize_recover",
+        return_value=_RecoveryResult([Token("TEMPLATE_START", "", start_pos=0, end_pos=0)], [], []),
     ):
         assert lexical_spans("x") == [(0, 1, Category.TEXT)]
     with patch(
-        "agnette.agl.highlight.lexical.tokenize_recover", return_value=([Token("NAME", "x")], [])
+        "agnette.agl.highlight.lexical._tokenize_recover",
+        return_value=_RecoveryResult([Token("NAME", "x")], [], []),
     ):
         assert repl_spans("x") == []
