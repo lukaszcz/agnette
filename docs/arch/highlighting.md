@@ -11,7 +11,9 @@ category-to-style mappings.
   including malformed input and normalized-newline offset mapping. Lexer delimiters
   define raw literal backgrounds; code, holes, and escapes overlay them. Cooked/dedented
   fragment widths remain diagnostic-only. Projection handles overlapping, non-source-ordered
-  tokens without changing strict lexing.
+  tokens without changing strict lexing; synthetic loop terminators own no text.
+  Rejected opener extents terminate literal backgrounds before recovered code;
+  deferred bracketed `$` markers with no payload create no literal background.
 - `semantic.py` overlays scope-resolved names through `PipelineDriver` load/scope only,
   reusing its module/artifact caches; no typecheck or evaluation. AST spelling boundaries
   and resolved side tables classify declarations, generic parameters, member selections,
@@ -57,15 +59,44 @@ captures. Assertions cannot be repeated, including through noncapturing groups.
 Keyword helpers derive boundaries from `IDENT_STOP`. `grammar_eval.py` interprets
 the generic model into partitioning spans.
 
+`agl_grammar.py` supplies the lexical grammar from canonical keyword, builtin,
+escape and identifier inventories. Explicit Unicode ranges cover identifiers and
+operator names. Recursive strings and brackets use ordered single-frame push/pop
+rules. Each literal has a finite hole state: entering a hole switches the literal
+frame, closing it switches back, and line-end recovery pops unfinished holes and
+nested braces. This also abandons a multiline host without a stack reset.
+Invalid escapes switch to a line-end rejected state. CODE tracks all brackets across
+lines; holes track only curly nesting, ignoring mismatched parentheses/squares.
+Bracketed code and holes reject `$` without opening a payload; holes also exclude
+root comments. Verbatim blocks
+approximate dedent at column zero and render blank-line indentation as trivia. Token-start keyword
+rules need only the following identifier boundary because names are consumed whole.
+
 Rules match each line without its LF, CRLF or CR delimiter: captures, anchors and
 lookarounds cannot see adjacent lines. Delimiters always receive `TEXT`; other
 Unicode separators remain content. Original offsets and the state stack survive
 line transitions. Empty lines and line ends (including EOF) run zero-width actions.
-Each zero-width `(state, rule)` runs once per offset; revisits and nontransitioning
-empty matches are skipped. Pop removes one frame; Switch replaces only the top.
-Chained actions can pop distinct frames, but the revisit guard also applies to
-recursive states. Target generators must faithfully lower stack operations and
-zero-width progress or reject unsupported grammars, not silently approximate them.
+Zero-width push/switch and base-frame pop rules run once per `(state, rule)` at
+an offset. Other pops decrease depth and can unwind repeated recursive frames;
+nontransitioning empty matches are skipped. Pop removes one frame; Switch replaces
+only the top. The built-in grammar is directly exportable to native TextMate/KDE
+states: finite transitions and chained line-local ends require neither arbitrary
+stack reset nor target rejection. Exact scanner recovery of arbitrarily nested
+rejected literals is not expressible by these online states.
+
+`tests/test_agl_highlight_conformance.py` compares each corpus item once, projecting
+contextual roles with original-source offsets. Named, witnessed divergences cover
+literal newlines, relative verbatim dedent, interior blank indentation, rejected
+verbatim layout, retroactive template diagnostics, buffered holes in incomplete
+triple strings, and builtin-call names whose lookahead crosses lines.
+`invalid-interpolation-escape-recovery` covers the scanner's overlapping nested-quote
+background after its closer versus the grammar's `ERROR` suffix. Bounds are the
+invalid escape diagnostic through the enclosing rejected literal's end, and only
+`STRING`/`ERROR` differences qualify. Witnesses: `"%{ "bad\q" }"\nlet x=1` and
+`$ hi %{ "bad\q" }\nlet x=1`. `deferred-verbatim-bracket-diagnostic` covers only the
+`$` marker in an unfinished bracket (witness: `[$\n  x\nlet x=1`); the scanner delays
+that diagnostic until brackets close. Payload and later standalone statements must
+match. Exemptions never cover recovered code or whole files.
 
 ## Layering
 

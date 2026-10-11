@@ -1,6 +1,6 @@
 """Portable grammar contracts, independent of the AgL grammar inventory."""
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields
 
 import pytest
 
@@ -13,6 +13,7 @@ from agnette.agl.highlight.grammar import (
     Rule,
     State,
     Switch,
+    character_class,
     keyword_rule,
 )
 from agnette.agl.highlight.grammar_eval import evaluate
@@ -207,7 +208,11 @@ def test_zero_width_transitions_terminate_and_preserve_partition() -> None:
             ),
         )
     )
-    assert _pieces("a!b", evaluate(nested, "a!b")) == [("a!b", Category.STRING)]
+    assert _pieces("a!b", evaluate(nested, "a!b")) == [
+        ("a", Category.STRING),
+        ("!", Category.TEXT),
+        ("b", Category.STRING),
+    ]
     assert _pieces(
         "x", evaluate(_root(Rule("", Category.ERROR), Rule("x", Category.NAME)), "x")
     ) == [("x", Category.NAME)]
@@ -438,6 +443,50 @@ def test_chained_line_end_pops_and_switch_preserve_stack_semantics() -> None:
     ]
 
 
+def test_base_pop_revisit_does_not_block_pop_on_a_new_nested_frame() -> None:
+    grammar = Grammar(
+        (
+            State(
+                "root",
+                (
+                    Rule(r"(?=x)", action=Pop()),
+                    Rule(r"(?=x)", action=Push("root")),
+                    Rule("x", Category.KEYWORD, action=Switch("done")),
+                ),
+            ),
+            State("done", (Rule("!", action=Pop()),), Category.NUMBER),
+        )
+    )
+    assert _pieces("x!y", evaluate(grammar, "x!y")) == [
+        ("x", Category.KEYWORD),
+        ("!", Category.TEXT),
+        ("y", Category.NUMBER),
+    ]
+
+
+def test_line_end_pop_unwinds_repeated_recursive_frames() -> None:
+    grammar = Grammar(
+        (
+            State("root", (Rule("x", Category.KEYWORD, action=Push("recursive")),)),
+            State(
+                "recursive",
+                (Rule("$", action=Pop()), Rule("x", Category.NAME, action=Push("recursive"))),
+                Category.STRING,
+            ),
+        )
+    )
+    assert _pieces("xxxx\ny", evaluate(grammar, "xxxx\ny")) == [
+        ("x", Category.KEYWORD),
+        ("xxx", Category.NAME),
+        ("\ny", Category.TEXT),
+    ]
+
+
+def test_pop_is_only_a_single_frame_operation() -> None:
+    assert fields(Pop) == ()
+    assert len({Pop(), Pop()}) == 1
+
+
 def test_unicode_separators_remain_line_content() -> None:
     source = "a\u2028b\u0085c"
     assert _pieces(source, evaluate(_root(Rule(".+", Category.NAME)), source)) == [
@@ -563,6 +612,22 @@ def test_invalid_states_are_rejected(states: tuple[State, ...], initial: str) ->
 def test_keyword_helper_rejects_empty_or_nonidentifier_inventory(words: tuple[str, ...]) -> None:
     with pytest.raises(ValueError):
         keyword_rule(words, Category.KEYWORD)
+
+
+def test_explicit_character_classes_compress_ranges_and_escape_delimiters() -> None:
+    characters = "abc_αβγ😀😁[]^-\\\n\t\r\f"
+    pattern = character_class(characters + characters)
+    grammar = _root(Rule(pattern + "+", Category.NAME))
+    assert _pieces(characters, evaluate(grammar, characters)) == [
+        (characters[: characters.index("\n")], Category.NAME),
+        ("\n", Category.TEXT),
+        ("\t", Category.NAME),
+        ("\r", Category.TEXT),
+        ("\f", Category.NAME),
+    ]
+    assert evaluate(grammar, "z") == [(0, 1, Category.TEXT)]
+    with pytest.raises(ValueError):
+        character_class(())
 
 
 def test_keyword_helper_can_transition_and_ignores_duplicate_words() -> None:

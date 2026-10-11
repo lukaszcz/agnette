@@ -67,6 +67,30 @@ def test_construct_categories(source: str, word: str, category: Category) -> Non
     assert any(a <= start < b and c == category for a, b, c in spans)
 
 
+@pytest.mark.parametrize(
+    "prefix", ["$ hi %{ {{{1\n", "$\n  hi %{ {{{1\n", "[$\n  x\n", "[ $ true\n", '"%{ $']
+)
+def test_aborted_or_deferred_verbatim_background_stops_before_recovered_code(prefix: str) -> None:
+    tail = "let x=1"
+    source = prefix + tail
+    spans = lexical_spans(source)
+    _partition(source, spans)
+    recovered = [
+        (max(a, len(prefix)) - len(prefix), b - len(prefix), category)
+        for a, b, category in spans
+        if b > len(prefix)
+    ]
+    assert recovered == lexical_spans(tail)
+
+
+@pytest.mark.parametrize("loop", ["for x in [1] do", "do[1]"])
+def test_implicit_loop_terminator_does_not_style_indentation(loop: str) -> None:
+    source = f"def f() -> unit =\n  {loop}\n    ()\n  print(1)\n"
+    spans = lexical_spans(source)
+    _partition(source, spans)
+    assert all(source[a:b].strip() for a, b, category in spans if category == Category.KEYWORD)
+
+
 def test_nested_literal_modes_keep_strings_distinct_from_verbatim() -> None:
     source = 'ask $ hi %{"hello\\n"} bye'
     spans = lexical_spans(source)

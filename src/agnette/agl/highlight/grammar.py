@@ -30,7 +30,7 @@ class Push:
 
 @dataclass(frozen=True, slots=True)
 class Pop:
-    """Return to the parent state; at the initial frame, remain there."""
+    """Remove one frame, retaining the base frame."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,8 +196,8 @@ class Grammar:
     """Named states with validated destinations, independent of target lowering.
 
     Pop removes one frame, Switch replaces one frame, and Push retains its parent.
-    Generators must lower these operations and zero-width progress semantics or
-    reject unsupported grammars; the generic model does not promise direct encoding.
+    Built-in states use these finite operations directly; line-end recovery chains
+    single-frame pops rather than requiring a stack reset.
     """
 
     states: tuple[State, ...]
@@ -220,15 +220,43 @@ class Grammar:
                         raise ValueError("A pushed state's pop rule must come first")
 
 
-def keyword_rule(words: Iterable[str], category: Category, *, action: Action | None = None) -> Rule:
-    """Match an inventory using AgL identifier stops, never regex word boundaries."""
+def character_class(characters: Iterable[str]) -> str:
+    """Spell an explicit, range-compressed Unicode set in the portable subset."""
+    points = sorted({ord(character) for character in characters})
+    if not points:
+        raise ValueError("Character classes must be nonempty")
+    ranges: list[str] = []
+    escapes = {"\n": r"\n", "\r": r"\r", "\t": r"\t", "\f": r"\f"}
+
+    def escaped(point: int) -> str:
+        character = chr(point)
+        return escapes.get(character, re.escape(character))
+
+    start = previous = points[0]
+    for point in (*points[1:], -1):
+        if point == previous + 1:
+            previous = point
+            continue
+        ranges.append(
+            escaped(start) if start == previous else f"{escaped(start)}-{escaped(previous)}"
+        )
+        start = previous = point
+    return "[" + "".join(ranges) + "]"
+
+
+def keyword_rule(
+    words: Iterable[str],
+    category: Category,
+    *,
+    action: Action | None = None,
+    token_start: bool = False,
+) -> Rule:
+    """Use identifier stops; omit the left boundary only at caller-owned token starts."""
     inventory = sorted(set(words))
     inventory.sort(key=len, reverse=True)
     if not inventory or any(not is_identifier(word) for word in inventory):
         raise ValueError("Keyword inventories must contain complete identifiers")
-    escapes = {"\n": r"\n", "\r": r"\r", "\t": r"\t"}
-    stops = "".join(
-        escapes.get(character, re.escape(character)) for character in sorted(IDENT_STOP)
-    )
+    stops = character_class(IDENT_STOP)[1:-1]
     alternatives = "|".join(re.escape(word) for word in inventory)
-    return Rule(f"(?<![^{stops}])(?:{alternatives})(?![^{stops}])", category, action=action)
+    before = "" if token_start else f"(?<![^{stops}])"
+    return Rule(f"{before}(?:{alternatives})(?![^{stops}])", category, action=action)

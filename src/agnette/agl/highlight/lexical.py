@@ -292,9 +292,16 @@ def _literal_backgrounds(text: str, tokens: list[Token]) -> list[Span]:
     """
     stack: list[tuple[int, Category]] = []
     spans: list[Span] = []
-    for token in tokens:
+    for index, token in enumerate(tokens):
         start, end = token.start_pos, token.end_pos
         if start is None or end is None:
+            continue
+        # A bracket-deferred `$` resumes CODE without a payload or closer.
+        if token.type == "VERBATIM_START" and (
+            index + 1 == len(tokens)
+            or tokens[index + 1].type
+            not in {"STRING_FRAGMENT", "INTERP_START", "VERBATIM_END", VERBATIM_TAIL}
+        ):
             continue
         if token.type in {"TEMPLATE_START", "VERBATIM_START", "INTERP_START"} and end > start:
             category = {
@@ -306,6 +313,14 @@ def _literal_backgrounds(text: str, tokens: list[Token]) -> list[Span]:
         elif token.type in {"TEMPLATE_END", "VERBATIM_END", "INTERP_END"} and stack:
             opening, category = stack.pop()
             spans.append((opening, end, category))
+        elif token.type == "ERROR":
+            # Recovery can omit a verbatim closer. A rejected opener owns only
+            # its consumed extent, never subsequent CODE trivia.
+            for index, (opening, _) in enumerate(stack):
+                if opening == start:
+                    spans.extend((a, end, c) for a, c in stack[index:])
+                    del stack[index:]
+                    break
     spans.extend((start, len(text), category) for start, category in stack if start < len(text))
     return spans
 
@@ -326,6 +341,7 @@ def _token_spans(
             and end is not None
             and end > start
             and token.type not in _LAYOUT_TOKENS | {"STRING_FRAGMENT"}
+            and not (token.type == "done" and text[start:end] != "done")
         ):
             candidates.append((start, end, category))
     spans: list[Span] = []

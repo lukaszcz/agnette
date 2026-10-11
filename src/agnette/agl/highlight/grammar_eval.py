@@ -41,7 +41,8 @@ def _evaluate_line(
         state = states[stack[-1]]
         for index, rule in enumerate(state.rules):
             key = (state.name, index)
-            if key in visited:
+            unwinding = isinstance(rule.action, Pop) and len(stack) > 1
+            if key in visited and not unwinding:
                 continue
             match = rule._compiled.match(line, position)
             if match is None:
@@ -49,7 +50,10 @@ def _evaluate_line(
             if match.end() == position:
                 if rule.action is None:
                     continue
-                visited.add(key)
+                # A real pop decreases depth, so repeated recursive frames
+                # can unwind. Push/switch revisits remain guarded against cycles.
+                if not unwinding:
+                    visited.add(key)
             else:
                 visited.clear()
             _match_spans(spans, rule, match, offset)
@@ -79,8 +83,9 @@ def evaluate(grammar: Grammar, source: str) -> list[Span]:
     Offsets refer to the unchanged source. Empty lines and each line's end run
     zero-width transitions, including the final line at EOF.
 
-    Zero-width transitions run at most once per (state, rule) at each offset;
-    revisits and nontransitioning empty matches are skipped to guarantee progress.
+    Zero-width push/switch and base-frame pop rules run once per (state, rule)
+    at each offset. Other pops decrease depth and may repeat to unwind recursion.
+    Nontransitioning empty matches are skipped.
     """
     states = {state.name: state for state in grammar.states}
     stack = [grammar.initial]
