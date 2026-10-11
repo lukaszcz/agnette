@@ -27,6 +27,15 @@ category-to-style mappings.
   raw-quote compatibility policy, independent of AgL interpolation/verbatim recognition.
   The exact lexical API retains recovered code and distinguishes escapes.
 
+## Documentation Adapter
+
+`pygments_lexer.py` maps exact spans to semantic Pygments tokens, preserving source
+text and filling gaps with `Text`. `AglLexer` accepts hidden `context` source and a
+`semantic` toggle (default on). The `pygments.lexers` entry point `agl` discovers it;
+the optional `highlight` extra supplies dependencies for the docs and dev groups.
+MkDocs highlights `agl` fences through superfences; `docs/stylesheets/agl.css`
+distinguishes type, constant, interpolation, and error tokens using Material's palette.
+
 ## Portable Grammars
 
 `grammar.py` defines immutable named states, ordered regex/capture rules, and

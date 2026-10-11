@@ -32,6 +32,10 @@ EXTERNALLY_USED = (
     "add_to_parser",
     "collect_usage_pieces",
     "format_options",
+    # Pygments entry-point metadata and tokenization hook
+    "filenames",
+    "mimetypes",
+    "get_tokens_unprocessed",
     # lazy module exports and protocol members
     "__getattr__",
     "__lt__",

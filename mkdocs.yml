@@ -13,6 +13,9 @@ theme:
     - toc.integrate
   font: false
 
+extra_css:
+  - stylesheets/agl.css
+
 markdown_extensions:
   - toc:
       permalink: true

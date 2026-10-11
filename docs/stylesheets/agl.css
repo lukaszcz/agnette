@@ -1,0 +1,16 @@
+/* Preserve semantic token distinctions within Material's code palette. */
+.highlight .kt {
+  color: var(--md-code-hl-function-color);
+}
+
+.highlight .kc {
+  color: var(--md-code-hl-constant-color);
+}
+
+.highlight .si {
+  color: var(--md-code-hl-special-color);
+}
+
+.highlight .err {
+  color: var(--md-code-hl-number-color);
+}

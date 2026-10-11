@@ -1,0 +1,3 @@
+from collections.abc import Mapping
+
+def get_bool_opt(options: Mapping[str, object], optname: str, default: bool = ...) -> bool: ...
