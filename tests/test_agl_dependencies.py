@@ -385,6 +385,19 @@ def test_highlighting_dependency_fences() -> None:
     assert violations == []
 
 
+def test_highlighting_context_stays_below_the_pipeline() -> None:
+    allowed = (
+        "agnette.agl.highlight.categories",
+        "agnette.agl.highlight.lexical",
+    )
+    violations = [
+        module
+        for module in _agnette_imports_of_file(AGL_ROOT / "highlight/context.py")
+        if not _is_allowed(module, allowed)
+    ]
+    assert violations == []
+
+
 def test_lexical_highlighting_depends_only_on_recognition_and_vocabulary() -> None:
     allowed = (
         "agnette.agl.highlight.categories",

@@ -12,8 +12,15 @@ category-to-style mappings.
   define raw literal backgrounds; code, holes, and escapes overlay them. Cooked/dedented
   fragment widths remain diagnostic-only. Projection handles overlapping, non-source-ordered
   tokens without changing strict lexing.
-- Function, parameter, and local categories are reserved for scope-resolved highlighting;
-  the lexical tier uses name categories without invoking the pipeline.
+- `semantic.py` overlays scope-resolved names through `PipelineDriver` load/scope only,
+  reusing its module/artifact caches; no typecheck or evaluation. AST spelling boundaries
+  and resolved side tables classify declarations, generic parameters, member selections,
+  aliases, scope labels, and references; type-directed alternatives remain neutral.
+  Scope records non-expression name candidates in `ModuleResolution.name_references`:
+  uses retain declaration-time visibility, import/export items read public surfaces,
+  and infix headers read root bindings. Highlighting never re-resolves these names.
+  Failure returns seeded lexical spans. `context.py` prepends hidden declarations/imports, seeds fallback names,
+  and projects original offsets onto the displayed body.
 - `repl/console.py` maps categories to prompt_toolkit styles. `repl_spans` shares
   classification but preserves legacy diagnostic clipping and plain-on-error fallback;
   the adapter presents each span only on its starting line. Completion uses the scanner's

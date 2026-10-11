@@ -337,6 +337,14 @@ def _token_spans(
     return spans
 
 
+def declared_names(source: str) -> tuple[frozenset[str], frozenset[str]]:
+    """Return recovery-recognized type and constructor declarations for fragment seeding."""
+    text = normalize_newlines(source)
+    tokens, _ = tokenize_recover(text)
+    _, types, constructors = _decl_site_styles(text, tokens)
+    return frozenset(types), frozenset(constructors)
+
+
 def lexical_spans(
     source: str,
     type_names: frozenset[str] = frozenset(),

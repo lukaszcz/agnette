@@ -139,6 +139,7 @@ from agnette.agl.scope.symbols import (
     is_qualified_function_member,
     undefined_name_message,
 )
+from agnette.agl.scope.symbols import binding_qname as _ref_qname
 from agnette.agl.scope.symbols import declaration_qname as _key_qname
 from agnette.agl.scope.symbols import qname_declaration as _qname_decl_key
 from agnette.agl.scope.symbols import to_bare_atom as _bare_atom
@@ -665,6 +666,7 @@ class _Resolver(ModuleSources):
         }
 
         self._resolution: dict[int, BindingRef] = {}
+        self._name_references: dict[tuple[int, str], frozenset[QName]] = {}
         self._builtin_calls: dict[int, BuiltinKind] = {}
         self._builtin_static_calls: dict[int, BuiltinStaticKind] = {}
         self._program = program
@@ -921,6 +923,7 @@ class _Resolver(ModuleSources):
             ):
                 self._reject_unnamed(named)
         self._resolve_root_items(self._program.body.items)
+        self._record_infix_names()
         self._reject_fixities_declaring_nothing()
         self._validate_bare_declaration_names()
         self._validate_non_method_type_params()
@@ -937,6 +940,7 @@ class _Resolver(ModuleSources):
         return ModuleResolution(
             program=program,
             resolution=self._resolution,
+            name_references=dict(self._name_references),
             builtin_calls=self._builtin_calls,
             builtin_static_calls=self._builtin_static_calls,
             root_scope=root,
@@ -1052,6 +1056,22 @@ class _Resolver(ModuleSources):
                     f"Infix operator '{name}' is declared, but this module declares no "
                     f"'{name}' it applies to.",
                     span=decl.span,
+                )
+
+    def _record_infix_names(self) -> None:
+        """Record header value reads at the root after its ordered bindings are installed."""
+        for decl in self._infix_decls.values():
+            for name in (decl.name, decl.priority_base):
+                if name is None or name in BUILTIN_FIXITIES:
+                    continue
+                target = self._bare_value_target(name, decl.span, layer=self._root_scope)
+                ref = (
+                    self._value_binding(target, decl.span)
+                    if isinstance(target, QualifiedTarget)
+                    else None
+                )
+                self._name_references[decl.node_id, name] = (
+                    frozenset((_ref_qname(ref),)) if ref is not None else frozenset()
                 )
 
     def _resolve_infix_chain(self, chain: RawInfixChain) -> None:
@@ -2176,6 +2196,9 @@ class _Resolver(ModuleSources):
                 # Recorded with the headers (``_resolve_headers``); what it
                 # names is checked where it is written.
                 self._uses.validate(self._scope.scope_path, item)
+                self._name_references.update(
+                    self._uses.name_references(self._scope.scope_path, item)
+                )
                 continue
             if isinstance(item, (ImportDecl, ExportDecl, InfixDecl)):
                 # The program module-system pass processes imports/exports; a
