@@ -416,6 +416,24 @@ def test_lexical_highlighting_depends_only_on_recognition_and_vocabulary() -> No
     assert violations == []
 
 
+@pytest.mark.parametrize("module", ("grammar", "grammar_eval"))
+def test_portable_grammar_depends_only_on_recognition_and_vocabulary(module: str) -> None:
+    allowed = (
+        "agnette.agl.highlight.categories",
+        "agnette.agl.highlight.grammar",
+        "agnette.agl.keywords",
+        "agnette.agl.lexer",
+        "agnette.agl.scope.symbols",
+        "agnette.util.ident",
+    )
+    violations = [
+        dependency
+        for dependency in _agnette_imports_of_file(AGL_ROOT / f"highlight/{module}.py")
+        if not _is_allowed(dependency, allowed)
+    ]
+    assert violations == []
+
+
 #: Only prelude injection may key on the prelude module's identity: the host
 #: recognizes a standard built-in declaration by the ``builtin`` keyword in any
 #: standard-library module, never by that module being ``std/prelude``.

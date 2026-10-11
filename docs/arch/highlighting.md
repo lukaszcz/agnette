@@ -27,6 +27,28 @@ category-to-style mappings.
   raw-quote compatibility policy, independent of AgL interpolation/verbatim recognition.
   The exact lexical API retains recovered code and distinguishes escapes.
 
+## Portable Grammars
+
+`grammar.py` defines immutable named states, ordered regex/capture rules, and
+push/pop/switch actions. Construction validates an explicit-character-set portable
+regex subset, capture mappings, and state references; pushed states put pop first.
+Braced quantifiers accept only `{n}`, `{n,}` and `{n,m}` with ASCII bounds ≤100000;
+literal braces require escaping outside classes. Lookbehind excludes lookahead;
+positive lookbehind excludes negative lookbehind, and negative lookbehind excludes
+captures. Assertions cannot be repeated, including through noncapturing groups.
+Keyword helpers derive boundaries from `IDENT_STOP`. `grammar_eval.py` interprets
+the generic model into partitioning spans.
+
+Rules match each line without its LF, CRLF or CR delimiter: captures, anchors and
+lookarounds cannot see adjacent lines. Delimiters always receive `TEXT`; other
+Unicode separators remain content. Original offsets and the state stack survive
+line transitions. Empty lines and line ends (including EOF) run zero-width actions.
+Each zero-width `(state, rule)` runs once per offset; revisits and nontransitioning
+empty matches are skipped. Pop removes one frame; Switch replaces only the top.
+Chained actions can pop distinct frames, but the revisit guard also applies to
+recursive states. Target generators must faithfully lower stack operations and
+zero-width progress or reject unsupported grammars, not silently approximate them.
+
 ## Layering
 
 Categories are a vocabulary leaf; lexical recognition depends on the lexer and
