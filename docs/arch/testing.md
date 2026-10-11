@@ -17,7 +17,7 @@ Tests assert behavior, never exact help, warning, or error text. The e2e harness
 - **Package layering** — `tests/test_agl_dependencies.py` asserts the AgL import contract ([agl/index.md](agl/index.md)) and keeps `core`/`util` below both subsystems.
 - **Coverage** — 100% line and branch coverage of `src/` and `packages/stdlib/src/` via `sys.monitoring` (hence Python 3.14); `packages/sysone` is outside the gates.
 - **Command coverage** — `tests/_command_coverage.py` records which leaf commands the e2e suite ran through the real binary.
-- **Documented examples compile** — every `agl` fence under `docs/agl/reference/` runs through the static pipeline (`tests/test_agl_doc_snippets.py`).
+- **Documented examples compile** — every `agl` fence under `docs/agl/reference/` runs through the static pipeline with adjacent hidden context (`tests/test_agl_doc_snippets.py`); shared metadata parsing is covered by `tests/test_agl_highlight_context.py`.
 - **AgL layout style** — `tools/agl_style.py` formats and checks every `.agl` source, doc fence, and embedded snippet.
 - **Self-validation** — compiler invariant self-checks and completion's error re-raising are gated by `agnette.agl.self_validation`, enabled for in-process tests by `tests/conftest.py`; e2e subprocesses and production run without it.
 - **Hermeticity** — autouse fixtures give each test an empty `HOME`, strip inherited `AGM_*` and related variables, pin `AGM_STDLIB` to the repository stdlib, and bound git discovery (`tests/test_environment_isolation.py`).

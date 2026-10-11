@@ -36,6 +36,15 @@ the optional `highlight` extra supplies dependencies for the docs and dev groups
 MkDocs highlights `agl` fences through superfences; `docs/stylesheets/agl.css`
 distinguishes type, constant, interpolation, and error tokens using Material's palette.
 
+## Document Context
+
+`context.fence_metadata` is the shared parser for adjacent `agl-check`/`agl-context`
+comments, including list indentation and blockquotes, for backtick/tilde fences
+with optional whitespace before `agl`. `FenceMetadata.body_line` normalizes
+container prefixes, including blank/nested quotes, for both consumers. The snippet
+compile guard prepends hidden context; `tools/agl_style.py` checks only displayed
+fence bodies.
+
 ## Portable Grammars
 
 `grammar.py` defines immutable named states, ordered regex/capture rules, and

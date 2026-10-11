@@ -5,12 +5,13 @@ run through AgL's full static pipeline (lex → parse → scope → typecheck �
 matchcompile → lower), with no agent ever executed. This keeps the
 documentation's examples from silently rotting as the language evolves.
 
-A block's expectation is declared by an HTML comment on the line immediately
-preceding its opening fence:
+Adjacent ``agl-context`` comments supply hidden source lines prepended to the
+body. An ``agl-check`` comment anywhere in that metadata block declares the
+combined source's expectation:
 
 * ``<!-- agl-check: fragment -->`` — an illustrative fragment or deliberately
   incomplete example (references undefined names, imports absent modules, …).
-  It must be rejected as a standalone program.
+  It must be rejected even with its hidden context.
 * ``<!-- agl-check: error -->`` — a deliberately-rejected program that
   demonstrates a static error. It MUST fail the static pipeline (the exact
   message is not asserted).
@@ -27,7 +28,6 @@ compiling.
 from __future__ import annotations
 
 import io
-import re
 import textwrap
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -36,11 +36,10 @@ from pathlib import Path
 import pytest
 
 from agnette.agl import PipelineDriver
+from agnette.agl.highlight.context import HiddenContext, fence_metadata
 from agnette.agl.runtime.agents import AgentRequest
 
 _REFERENCE_DIR = Path(__file__).resolve().parents[1] / "docs" / "agl" / "reference"
-_FENCE = re.compile(r"^[ \t]*```agl\s*$")
-_MARKER = re.compile(r"<!--\s*agl-check:\s*(?P<kind>skip|fragment|error)\s*-->")
 
 
 @dataclass(frozen=True)
@@ -57,33 +56,34 @@ class Snippet:
         return f"{self.path.name}:{self.line}"
 
 
-def _discover_snippets() -> list[Snippet]:
+def _discover_snippets(directory: Path = _REFERENCE_DIR) -> list[Snippet]:
     """Collect every ```agl block and its compilation expectation."""
     snippets: list[Snippet] = []
-    for path in sorted(_REFERENCE_DIR.glob("*.md")):
+    for path in sorted(directory.glob("*.md")):
         lines = path.read_text(encoding="utf-8").splitlines()
         index = 0
         while index < len(lines):
-            if _FENCE.match(lines[index]) is None:
+            metadata = fence_metadata(lines, index)
+            if metadata is None:
                 index += 1
                 continue
             fence_line = index + 1
             body: list[str] = []
             index += 1
-            while index < len(lines) and lines[index].strip() != "```":
-                body.append(lines[index])
+            while (
+                index < len(lines)
+                and metadata.body_line(lines[index]).strip() != metadata.delimiter
+            ):
+                body.append(metadata.body_line(lines[index]))
                 index += 1
-            marker: str | None = None
-            if fence_line - 2 >= 0:
-                match = _MARKER.search(lines[fence_line - 2])
-                if match is not None:
-                    marker = match.group("kind")
             snippets.append(
                 Snippet(
                     path=path,
                     line=fence_line,
-                    marker=marker,
-                    source=textwrap.dedent("\n".join(body)),
+                    marker=metadata.check,
+                    source=HiddenContext(metadata.context).prepend(
+                        textwrap.dedent("\n".join(body))
+                    ),
                 )
             )
             index += 1
@@ -91,6 +91,75 @@ def _discover_snippets() -> list[Snippet]:
 
 
 _SNIPPETS = _discover_snippets()
+
+
+@pytest.mark.parametrize("prefix", ["", "    ", "> ", "  > >   "])
+def test_document_context_is_compiled(tmp_path: Path, prefix: str) -> None:
+    """Hidden declarations participate in the same static check as the body."""
+    document = tmp_path / "example.md"
+    document.write_text(
+        "\n".join(
+            prefix + line
+            for line in [
+                "<!-- agl-context: record Point -->",
+                "<!-- agl-context:   x: int -->",
+                "```agl",
+                "let p = Point(x = 1)",
+                "```",
+                "",
+                "<!-- agl-context: let x = 1 -->",
+                "<!-- agl-check: error -->",
+                "```agl",
+                'let n: int = "wrong"',
+                "```",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    snippets = _discover_snippets(tmp_path)
+    assert len(snippets) == 2
+    assert snippets[0].marker is None
+    assert snippets[1].marker == "error"
+    for snippet in snippets:
+        test_reference_doc_snippet(snippet)
+    assert not _statically_compiles("let p = Point(x = 1)")[0]
+
+
+@pytest.mark.parametrize("delimiter", ["```", "~~~"])
+@pytest.mark.parametrize("gap", ["", " ", "\t"])
+@pytest.mark.parametrize(("prefix", "blank"), [("", ""), ("> ", ">"), ("  > >   ", "  >>")])
+def test_document_fence_variants_compile(
+    tmp_path: Path, delimiter: str, gap: str, prefix: str, blank: str
+) -> None:
+    document = tmp_path / "example.md"
+    document.write_text(
+        "\n".join(
+            [
+                prefix + "<!-- agl-context: let x = 1 -->",
+                prefix + delimiter + gap + "agl",
+                prefix + "let y = x",
+                blank,
+                prefix + "let z = y",
+                prefix + delimiter,
+            ]
+        ),
+        encoding="utf-8",
+    )
+    snippets = _discover_snippets(tmp_path)
+    assert len(snippets) == 1
+    assert snippets[0].source == "let x = 1\nlet y = x\n\nlet z = y"
+    test_reference_doc_snippet(snippets[0])
+
+
+def test_compiling_fragment_with_context_must_drop_marker(tmp_path: Path) -> None:
+    document = tmp_path / "example.md"
+    document.write_text(
+        "<!-- agl-check: fragment -->\n<!-- agl-context: let x = 1 -->\n```agl\nlet y = x\n```\n",
+        encoding="utf-8",
+    )
+    snippet = _discover_snippets(tmp_path)[0]
+    with pytest.raises(AssertionError):
+        test_reference_doc_snippet(snippet)
 
 
 def test_reference_docs_do_not_skip_snippets() -> None:

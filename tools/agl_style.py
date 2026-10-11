@@ -62,6 +62,7 @@ from pathlib import Path
 from lark.lexer import Token
 
 from agnette.agl.diagnostics import AglError
+from agnette.agl.highlight.context import fence_metadata
 from agnette.agl.lexer import LexError, lex_comment_spans, tokenize
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.syntax.nodes import Program
@@ -817,34 +818,38 @@ def _relocate(violations: Iterable[Violation], path: Path, offset: int) -> list[
 # Markdown documents
 # ---------------------------------------------------------------------------
 
-_AGL_FENCE = re.compile(r"^([ \t]*)```agl\s*$")
-
 
 def restyle_markdown(source: str, path: Path, *, fields: bool) -> tuple[str, list[Violation]]:
-    """Restyle every ```` ```agl ```` block in a Markdown document."""
+    """Restyle fence bodies, leaving hidden context metadata untouched.
+
+    Context lines can be incomplete declarations spread over several comments;
+    they support compilation, not displayed layout, and are not style-checked.
+    """
     lines = source.split("\n")
     violations: list[Violation] = []
     added = 0  # lines restyling has added so far, to report against the original
     index = 0
     while index < len(lines):
-        match = _AGL_FENCE.match(lines[index])
-        if match is None:
+        metadata = fence_metadata(lines, index)
+        if metadata is None:
             index += 1
             continue
-        margin = str(match.group(1))
+        margin = metadata.prefix
         opening = index
         index += 1
         body: list[str] = []
-        while index < len(lines) and lines[index].strip() != "```":
+        while index < len(lines) and metadata.body_line(lines[index]).strip() != metadata.delimiter:
             body.append(lines[index])
             index += 1
         if index >= len(lines):
             break
-        block = "\n".join(line[len(margin) :] if line.startswith(margin) else line for line in body)
+        block = "\n".join(metadata.body_line(line) for line in body)
         styled, found = restyle(block, fields=fields)
         if found:
             violations.extend(_relocate(found, path, opening + 1 - added))
-            replacement = [margin + line if line else line for line in styled.split("\n")]
+            replacement = [
+                margin + line if line or ">" in margin else line for line in styled.split("\n")
+            ]
             lines[opening + 1 : index] = replacement
             added += len(replacement) - len(body)
             index = opening + 1 + len(replacement)
