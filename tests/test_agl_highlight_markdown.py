@@ -120,6 +120,38 @@ def test_relaxed_header_validation_does_not_discard_context(header: str) -> None
     assert renderer.convert(source) == _markdown(custom=False, relaxed_headers=True).convert(source)
 
 
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Use `<!--` to open a comment.",
+        "Use `<!--\ninside the code span\n` as text.",
+        "Code `` a ` <!-- ` b `` end.",
+        "Escaped \\` tick, then `<!--` in code.",
+        "Write \\<!-- literally.",
+    ],
+)
+def test_literal_comment_delimiters_do_not_disable_context(prose: str) -> None:
+    source = (
+        prose
+        + "\n\n<!-- agl-context: record Point -->\n<!-- agl-context:   x: int -->\n"
+        + "```agl\nlet p: Point = Point(1)\n```"
+    )
+    html = _markdown().convert(source)
+    assert "agl-context" not in html
+    assert '<span class="kt">Point</span>' in html
+
+
+def test_unmatched_inline_code_delimiter_does_not_hide_markdown_comments() -> None:
+    source = (
+        "Use ` as a literal.\n\n"
+        "<!-- agl-context: record Point -->\n<!-- agl-context:   x: int -->\n"
+        "```agl\nlet p: Point = Point(1)\n```"
+    )
+    html = _markdown().convert(source)
+    assert "agl-context" not in html
+    assert '<span class="kt">Point</span>' in html
+
+
 def test_context_is_local_to_fence_and_document() -> None:
     renderer = _markdown()
     fence = "```agl\nlet p: Point = Point(1)\n```"

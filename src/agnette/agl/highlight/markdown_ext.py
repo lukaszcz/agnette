@@ -3,6 +3,7 @@
 import base64
 import re
 from copy import copy
+from itertools import chain, takewhile
 from typing import cast
 
 from markdown import Markdown
@@ -23,7 +24,66 @@ from agnette.agl.highlight.context import (
 from agnette.agl.highlight.pygments_lexer import document_context
 
 _COMMENT = re.compile(r"<!--|-->")
+_BACKTICKS = re.compile(r"`+")
 _OPTION = "agl_context"
+
+
+def _is_escaped(line: str, index: int) -> bool:
+    """Check whether an odd run of backslashes precedes *index*."""
+    start = index
+    while start and line[start - 1] == "\\":
+        start -= 1
+    return (index - start) % 2 == 1
+
+
+def _has_code_span_closer(lines: list[str], line_index: int, offset: int, ticks: int) -> bool:
+    """Check whether this code span closes before its Markdown paragraph ends."""
+    paragraph = takewhile(
+        lambda line: line.strip() and fence_opening(line) is None, lines[line_index + 1 :]
+    )
+    return any(
+        len(run.group()) == ticks
+        for line in chain([lines[line_index][offset:]], paragraph)
+        for run in _BACKTICKS.finditer(line)
+    )
+
+
+def _scan_comments(
+    lines: list[str], line_index: int, comment_depth: int, code_span: int | None
+) -> tuple[int, int | None]:
+    """Advance HTML comment depth and the open code span across one line.
+
+    Comment delimiters inside matched inline code spans, and escaped openers, are text.
+    """
+    line = lines[line_index]
+    index = 0
+    while index < len(line):
+        ticks = _BACKTICKS.match(line, index)
+        if code_span is not None:
+            if ticks is not None:
+                if len(ticks.group()) == code_span:
+                    code_span = None
+                index = ticks.end()
+            else:
+                index += 1
+            continue
+        if ticks is not None and not comment_depth and not _is_escaped(line, index):
+            count = len(ticks.group())
+            if _has_code_span_closer(lines, line_index, ticks.end(), count):
+                code_span = count
+                index = ticks.end()
+                continue
+
+        comment = _COMMENT.match(line, index)
+        if comment is None:
+            index += 1
+            continue
+        if comment.group() == "-->":
+            comment_depth = max(0, comment_depth - 1)
+        elif comment_depth or not _is_escaped(line, index):
+            comment_depth += 1
+        index = comment.end()
+    return comment_depth, code_span
 
 
 class ContextPreprocessor(Preprocessor):
@@ -56,6 +116,7 @@ class ContextPreprocessor(Preprocessor):
         removed: set[int] = set()
         body: FenceMetadata | None = None
         comment_depth = 0
+        code_span: int | None = None
         normalize_body = False
         for index, line in enumerate(lines):
             if body is not None:
@@ -94,11 +155,7 @@ class ContextPreprocessor(Preprocessor):
                                 removed.add(context_index)
                         lines[index] = injected
                 continue
-            for comment in _COMMENT.finditer(line):
-                if comment.group() == "<!--":
-                    comment_depth += 1
-                else:
-                    comment_depth = max(0, comment_depth - 1)
+            comment_depth, code_span = _scan_comments(lines, index, comment_depth, code_span)
         return [line for index, line in enumerate(lines) if index not in removed]
 
 
