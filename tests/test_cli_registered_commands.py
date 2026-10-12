@@ -22,6 +22,7 @@ from agnette.packages.activation import (
     ActivePackage,
     CommandRegistration,
     PackageActivationError,
+    activation_index_path,
     write_activation_index,
 )
 from agnette.packages.layout import MODULE_TREE_DIRNAME
@@ -1343,6 +1344,43 @@ def test_installed_package_dispatches_its_own_source_declared_command(
 
     assert result.exit_code == 0
     assert result.stdout == "set\n"
+
+
+def test_installed_legacy_dev_alias_does_not_break_commands_or_package_listing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source"
+    (source / MODULE_TREE_DIRNAME).mkdir(parents=True)
+    (source / "package.toml").write_text(
+        '[package]\nname = "tools"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
+    (source / MODULE_TREE_DIRNAME / "review.agl").write_text(
+        '@command("devel review")\nprogram def main() -> unit = print "reviewed"\n',
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    installed = install_directory(source, home=home, env={})
+    manifest = installed.root / "package.toml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + '\n[aliases]\ndev = "devel"\n',
+        encoding="utf-8",
+    )
+    index_path = activation_index_path(home=home, env={})
+    with index_path.open("a", encoding="utf-8") as index_file:
+        index_file.write(
+            '\n[commands.dev]\npackage = "tools"\n'
+            '\n[commands."dev review"]\n'
+            'package = "tools"\nprogram = "tools/review::main"\n'
+        )
+    monkeypatch.setenv("HOME", str(home))
+
+    command = invoke(CliRunner(), ["devel", "review"])
+    package_list = invoke(CliRunner(), ["pkg", "list"])
+
+    assert command.exit_code == 0, command.output
+    assert command.stdout == "reviewed\n"
+    assert package_list.exit_code == 0, package_list.output
+    assert "tools 1.0.0 active" in package_list.stdout
 
 
 def test_editable_package_dispatches_its_own_source_declared_command(

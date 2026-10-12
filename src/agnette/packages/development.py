@@ -37,7 +37,11 @@ def containing_development_package(
     if package_root is None:
         return None
     canonical_root = package_root.resolve()
-    manifest = load_manifest(canonical_root / "package.toml", commands_complete=False)
+    manifest = load_manifest(
+        canonical_root / "package.toml",
+        commands_complete=False,
+        allow_legacy_dev_aliases=True,
+    )
     if is_package_store_root(canonical_root, manifest.name, manifest.version, home=home, env=env):
         return None
     return PackageInfo(canonical_root, manifest, commands_complete=False)
@@ -91,7 +95,11 @@ def discover_development_packages(anchor: Path, *, home: Path) -> tuple[PackageI
 def _declared_dependency(root: Path, name: str, minimum: semver.Version) -> PackageInfo:
     """Load the package at a declared path source, checking identity and floor."""
 
-    manifest = load_manifest(root / "package.toml", commands_complete=False)
+    manifest = load_manifest(
+        root / "package.toml",
+        commands_complete=False,
+        allow_legacy_dev_aliases=True,
+    )
     if manifest.name != name:
         raise ValueError(f"development dependency {name!r} resolves package {manifest.name!r}")
     if manifest.version < minimum:

@@ -11,7 +11,13 @@ from tomlkit.exceptions import TOMLKitError
 
 from agnette.agl.keywords import is_plain_name
 from agnette.agl.modules.ids import ModuleId
-from agnette.command_catalog import has_subcommands, invalid_command_path, is_subcommand_path
+from agnette.command_catalog import (
+    LEGACY_RESERVED_COMMAND_NAMES,
+    RESERVED_COMMAND_NAMES,
+    has_subcommands,
+    invalid_command_path,
+    is_subcommand_path,
+)
 from agnette.core.toml import TomlDict, load_toml_file, parse_toml_doc, toml_data, toml_dict
 from agnette.packages.record import is_sha256_hex
 
@@ -185,10 +191,13 @@ def _canonical_paths(commands: dict[str, CommandSpec]) -> set[str]:
     return canonical_paths
 
 
-def _validate_alias_syntax(aliases: dict[str, str]) -> None:
+def _validate_alias_syntax(
+    aliases: dict[str, str], *, allow_legacy_dev_aliases: bool = False
+) -> None:
     """Validate each alias's own path syntax, independent of the command table."""
+    reserved = LEGACY_RESERVED_COMMAND_NAMES if allow_legacy_dev_aliases else RESERVED_COMMAND_NAMES
     for alias in aliases:
-        invalid = invalid_command_path(alias)
+        invalid = invalid_command_path(alias, reserved=reserved)
         if invalid is not None:
             raise ManifestError(f"alias path {alias!r} {invalid}")
 
@@ -206,7 +215,12 @@ def distribution_manifest(manifest: PackageManifest) -> PackageManifest:
     return replace(manifest, dependencies=dependencies)
 
 
-def load_manifest(path: Path, *, commands_complete: bool = True) -> PackageManifest:
+def load_manifest(
+    path: Path,
+    *,
+    commands_complete: bool = True,
+    allow_legacy_dev_aliases: bool = False,
+) -> PackageManifest:
     """Load and validate the ``package.toml`` at *path*.
 
     ``commands_complete=False`` defers :func:`validate_command_set`'s
@@ -218,14 +232,19 @@ def load_manifest(path: Path, *, commands_complete: bool = True) -> PackageManif
     must a caller that reads only a live tree's identity and never its
     command table. A manifest that is already complete — a store tree's, an
     archive's — must load with the default so a corrupt one is still caught
-    here.
+    here. Installed-package readers may set ``allow_legacy_dev_aliases`` to
+    accept aliases that predate AgM's built-in ``dev`` command.
     """
 
     try:
         raw = load_toml_file(path)
     except (OSError, TOMLKitError, UnicodeDecodeError) as exc:
         raise ManifestError(f"cannot load package manifest {path}: {exc}") from exc
-    return _parse_manifest(raw, commands_complete=commands_complete)
+    return _parse_manifest(
+        raw,
+        commands_complete=commands_complete,
+        allow_legacy_dev_aliases=allow_legacy_dev_aliases,
+    )
 
 
 def load_manifest_text(content: str) -> PackageManifest:
@@ -238,7 +257,12 @@ def load_manifest_text(content: str) -> PackageManifest:
     return _parse_manifest(raw)
 
 
-def _parse_manifest(raw: TomlDict, *, commands_complete: bool = True) -> PackageManifest:
+def _parse_manifest(
+    raw: TomlDict,
+    *,
+    commands_complete: bool = True,
+    allow_legacy_dev_aliases: bool = False,
+) -> PackageManifest:
     unknown = _unknown_keys(
         raw, {"package", "dependencies", "commands", "aliases", "python", "config"}, "manifest"
     )
@@ -251,7 +275,7 @@ def _parse_manifest(raw: TomlDict, *, commands_complete: bool = True) -> Package
     name = validate_package_name(_required_str(package, "name", "package"))
     aliases = _optional_table(raw, "aliases")
     alias_map = {path: _required_str(aliases, path, "aliases") for path in aliases}
-    _validate_alias_syntax(alias_map)
+    _validate_alias_syntax(alias_map, allow_legacy_dev_aliases=allow_legacy_dev_aliases)
     manifest = PackageManifest(
         name=name,
         version=_version(_required_str(package, "version", "package"), "package version"),
