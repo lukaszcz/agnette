@@ -186,6 +186,17 @@ def test_context_is_local_to_fence_and_document() -> None:
     )
 
 
+@pytest.mark.parametrize(("preceding", "block"), [("    x", "pre"), ("- item", "ul")])
+def test_removing_context_preserves_markdown_block_boundaries(preceding: str, block: str) -> None:
+    source = f"{preceding}\n<!-- agl-context: record Point -->\n```agl\nlet p = Point()\n```"
+    html = _markdown().convert(source)
+    root = ElementTree.fromstring(f"<root>{html}</root>")
+
+    assert [node.tag for node in root] == [block, "div"]
+    assert '<span class="nc">Point</span>' in html
+    assert "agl_context=" not in html
+
+
 def test_context_reaches_lexer_with_crlf_newlines() -> None:
     source = (
         "<!-- agl-context: record Point -->\r\n"

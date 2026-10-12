@@ -210,12 +210,16 @@ class ContextPreprocessor(Preprocessor):
                         if not self.accepts(injected, metadata.context):
                             normalize_body = False
                             continue
+                        list_metadata = any(
+                            MarkdownContainer.from_line(lines[i]).has_list
+                            for i in range(metadata.start, index)
+                        )
                         for context_index in context_lines:
                             container = MarkdownContainer.from_line(lines[context_index])
-                            if container.has_list:
-                                lines[context_index] = container.prefix
-                            else:
+                            if list_metadata and not container.has_list:
                                 removed.add(context_index)
+                            else:
+                                lines[context_index] = container.prefix
                         lines[index] = injected
                 continue
             if not comment_depth:
