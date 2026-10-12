@@ -134,6 +134,7 @@ def generate(grammar: Grammar) -> str:
         for rule in state.rules
     }
     validate(grammar, structures)
+    keyword_rules = {rule for rule in structures if _keyword(rule)}
     major, minor, patch = map(int, AGM_VERSION.split("."))
     root = ET.Element(
         "language",
@@ -174,24 +175,23 @@ def generate(grammar: Grammar) -> str:
         )
 
     def lower(parent: ET.Element, rule: Rule) -> None:
-        action = _action(rule.action, names)
-        keyword = _keyword(rule)
+        keyword = rule in keyword_rules
         if not rule.captures and not keyword:
             if rule.pattern or rule.action is not None:
                 _regex(
                     parent,
                     rule.pattern,
                     rule.category,
-                    action,
+                    _action(rule.action, names),
                     nullable=structures[rule].nullable if rule.action is not None else False,
                     column_zero=structures[rule].start_anchor,
                 )
             return
-        if rule in helpers:
-            entry = helpers[rule]
-        else:
+        entry = helpers.get(rule)
+        if entry is None:
             entry = f"helper{len(helpers)}"
             helpers[rule] = entry
+            finish = _action(rule.action, names, staged=True)
             if keyword:
                 stage = context(entry, rule.category)
                 # Native keyword delimiters may split identifiers containing
@@ -206,18 +206,18 @@ def generate(grammar: Grammar) -> str:
                         stage,
                         f"(?={rule.pattern})(?:{alternatives})",
                         rule.category,
-                        _action(rule.action, names, staged=True),
+                        finish,
                     )
                 ET.SubElement(
                     stage,
                     "keyword",
                     String=lists[rule.words],
                     attribute=rule.category.value,
-                    context=_action(rule.action, names, staged=True),
+                    context=finish,
                 )
                 # Explicit Unicode identifiers need not follow the engine's word
                 # scanner, so preserve the same regex as a keyword fallback.
-                _regex(stage, rule.pattern, rule.category, _action(rule.action, names, staged=True))
+                _regex(stage, rule.pattern, rule.category, finish)
             else:
                 facts = structures[rule]
                 if facts.nullable:
@@ -228,15 +228,10 @@ def generate(grammar: Grammar) -> str:
                     # Entering a stage commits a successful full match. At EOL
                     # its remaining partitions necessarily have zero width;
                     # bypass them because native RegExpr does not run there.
-                    finish = _action(rule.action, names, staged=True)
                     stage.set("lineEndContext", finish)
                     stage.set("lineEmptyContext", finish)
                     suffix = "".join(part for part, _ in parts[index + 1 :])
-                    transition = (
-                        f"#pop!{entry}-{index + 1}"
-                        if suffix
-                        else _action(rule.action, names, staged=True)
-                    )
+                    transition = f"#pop!{entry}-{index + 1}" if suffix else finish
                     _regex(
                         stage,
                         f"(?:{pattern})(?={suffix})",

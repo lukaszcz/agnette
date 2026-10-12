@@ -8,6 +8,7 @@ source partition. Trivia is TEXT and offsets always index the original input.
 from __future__ import annotations
 
 import heapq
+from collections.abc import Sequence
 
 from lark.lexer import Token
 
@@ -203,8 +204,10 @@ def _decl_site_styles(
     return forced, types, constructors
 
 
-def _source_offsets(source: str) -> list[int]:
+def _source_offsets(source: str) -> Sequence[int]:
     """Map normalized lexer boundaries back to original CRLF/lone-CR boundaries."""
+    if "\r\n" not in source:
+        return range(len(source) + 1)
     offsets = [0]
     index = 0
     while index < len(source):

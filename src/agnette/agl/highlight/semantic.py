@@ -107,8 +107,8 @@ class _Names:
             start = max(start, start_at)
         end = span.end_offset if before is None else before
         starts = self.starts.get(name, [])
-        first, stop = bisect_left(starts, start), bisect_left(starts, end)
-        if first < stop:
+        first = bisect_left(starts, start)
+        if first < len(starts) and starts[first] < end:
             start = starts[first]
             self.overrides[start] = category
             return start + len(name)
