@@ -3,9 +3,8 @@
 import std/config
 
 def Agent::merge(self, ref: text) -> unit =
-  exec $ git merge %{ref}
-  let unmerged: text = exec $ git ls-files -u
-  if unmerged != "" =>
+  let res = exec $ git merge %{ref}
+  if res.exit-code == 1 =>
     self.ask """
       Fix all conflicts and finish the merge. Make sure to preserve functionality from both branches.
     """
