@@ -132,6 +132,13 @@ def _attribute_styles(tokens: list[Token]) -> tuple[dict[int, Category], set[int
     forced: dict[int, Category] = {}
     covered: set[int] = set()
     significant = [i for i, token in enumerate(tokens) if token.type not in _LAYOUT_TOKENS]
+    opens: list[int] = []
+    matching_parens: dict[int, int] = {}
+    for position, token_index in enumerate(significant):
+        if tokens[token_index].type == "LPAR":
+            opens.append(position)
+        elif tokens[token_index].type == "RPAR" and opens:
+            matching_parens[opens.pop()] = position
     position = 0
     while position < len(significant):
         at_index = significant[position]
@@ -146,15 +153,9 @@ def _attribute_styles(tokens: list[Token]) -> tuple[dict[int, Category], set[int
         covered.update((at_index, name_index))
         position += 2
         if position < len(significant) and tokens[significant[position]].type == "LPAR":
-            depth = 0
-            scan = position
-            while scan < len(significant):
-                depth += {"LPAR": 1, "RPAR": -1}.get(tokens[significant[scan]].type, 0)
-                scan += 1
-                if depth == 0:
-                    covered.update(significant[position:scan])
-                    position = scan
-                    break
+            if (close := matching_parens.get(position)) is not None:
+                covered.update(significant[position : close + 1])
+                position = close + 1
     return forced, covered
 
 

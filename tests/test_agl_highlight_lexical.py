@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import itertools
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from lark.lexer import Token
 
 from agnette.agl.highlight import Category, Span, lexical_spans
-from agnette.agl.highlight.lexical import open_string_start, repl_spans
+from agnette.agl.highlight.lexical import _attribute_styles, open_string_start, repl_spans
 from agnette.agl.lexer import _RecoveryResult, tokenize_recover
 from tests._agl_corpus import lexical_corpus
 
@@ -65,6 +66,26 @@ def test_construct_categories(source: str, word: str, category: Category) -> Non
     _partition(source, spans)
     start = source.index(word)
     assert any(a <= start < b and c == category for a, b, c in spans)
+
+
+def test_unclosed_attribute_arguments_are_scanned_linearly() -> None:
+    class CountingToken(Token):
+        type_reads = 0
+
+        def __getattribute__(self, name: str) -> Any:
+            if name == "type":
+                type(self).type_reads += 1
+            return super().__getattribute__(name)
+
+    tokens = [
+        CountingToken(token_type, text)
+        for _ in range(512)
+        for token_type, text in (("AT", "@"), ("NAME", "doc"), ("LPAR", "("))
+    ]
+
+    _attribute_styles(tokens)
+
+    assert CountingToken.type_reads <= len(tokens) * 8
 
 
 @pytest.mark.parametrize(
