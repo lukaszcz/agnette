@@ -7,12 +7,16 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Protocol, cast
 
-from install_agm_config import build_parser
+# Keep direct script execution and module execution on the same package imports.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agnette.config.home import agm_home_dir
+from tools.install_agm_config import build_parser
 
 
 class _InstallArgs(Protocol):

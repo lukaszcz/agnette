@@ -3,20 +3,24 @@
 import argparse
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import TypedDict, cast
 
-from highlight_engine_support import (
+# Keep direct script execution and module execution on the same package imports.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from agnette.agl.highlight.categories import Category
+from agnette.agl.highlight.targets.textmate import TEXTMATE_SCOPES
+from tools.highlight_engine_support import (
     CORPUS,
     CorpusCase,
     EngineResult,
     assert_result,
     spans_from_categories,
 )
-
-from agnette.agl.highlight.categories import Category
-from agnette.agl.highlight.targets.textmate import TEXTMATE_SCOPES
 
 TOKENIZER = Path(__file__).resolve().parents[1] / "config/textmate/tests/tokenize.cjs"
 SCOPE_CATEGORIES = {scope: category for category, scope in TEXTMATE_SCOPES.items()}
