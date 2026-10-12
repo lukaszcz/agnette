@@ -194,6 +194,9 @@ def _decl_site_styles(
                 forced[index] = Category.CONSTRUCTOR
                 constructors.add(name)
             expect = None
+        elif ttype == "MODQUAL":
+            # The qualified declaration name still follows this scope prefix.
+            pass
         elif ttype in KEYWORDS:
             expect = ttype if ttype in _DECL_TYPE_KEYWORDS else None
             in_enum_variants = False

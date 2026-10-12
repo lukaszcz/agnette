@@ -10,7 +10,12 @@ import pytest
 from lark.lexer import Token
 
 from agnette.agl.highlight import Category, Span, lexical_spans
-from agnette.agl.highlight.lexical import _attribute_styles, open_string_start, repl_spans
+from agnette.agl.highlight.lexical import (
+    _attribute_styles,
+    declared_names,
+    open_string_start,
+    repl_spans,
+)
 from agnette.agl.lexer import _RecoveryResult, tokenize_recover
 from tests._agl_corpus import lexical_corpus
 
@@ -184,6 +189,20 @@ def test_known_names_and_buffer_declarations() -> None:
     names = [category for a, b, category in spans if source[a:b] == "Box"]
     assert names == [Category.TYPE, Category.TYPE, Category.CONSTRUCTOR]
     assert any(source[a:b] == "wrap" and c == Category.CONSTRUCTOR for a, b, c in spans)
+
+
+def test_qualified_declarations_retain_lexical_classification_and_names() -> None:
+    source = "record S::Point\n  x: int\nenum S::Color\n  | Red\n"
+
+    types, constructors = declared_names(source)
+    spans = lexical_spans(source)
+
+    assert types == frozenset({"Point", "Color"})
+    assert constructors == frozenset({"Point", "Red"})
+    assert any(source[a:b] == "Point" and category == Category.TYPE for a, b, category in spans)
+    assert any(
+        source[a:b] == "Red" and category == Category.CONSTRUCTOR for a, b, category in spans
+    )
 
 
 @pytest.mark.parametrize(

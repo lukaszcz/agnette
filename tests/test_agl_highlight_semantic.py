@@ -143,6 +143,21 @@ def test_seeded_fragment_fallback(body: str, highlight_roots: RootSet) -> None:
     assert spans == lexical_spans(body, types, constructors)
 
 
+def test_qualified_hidden_declarations_seed_fragment_fallback(
+    highlight_roots: RootSet,
+) -> None:
+    context = HiddenContext("record S::Point\n  x: int\nenum S::Color\n  | Red\n")
+    body = "Point("
+    types, constructors = context.declared_names
+
+    spans = semantic_spans(body, context, roots=highlight_roots)
+
+    assert types == frozenset({"Point", "Color"})
+    assert constructors == frozenset({"Point", "Red"})
+    assert spans == lexical_spans(body, types, constructors)
+    assert _category(body, spans, "Point") == Category.CONSTRUCTOR
+
+
 @pytest.mark.parametrize(
     "source", ["let x = missing\n", "import missing\n", "let x = %\n", "def f(\n"]
 )
