@@ -9,7 +9,9 @@ at its end. No capture substitution or stack cross product is needed.
 KDE does not run RegExpr at EOL. Unconditional end actions and empty-line actions
 use native context attributes; context-dependent zero-width end actions are not
 exportable. Nullable native transitions use an explicit lookahead fallback after
-any consuming rule; nontransitioning empty rules are omitted.
+any consuming rule; nontransitioning empty rules are omitted. Every generated
+context ends with a one-character default-category fallback so native scanners
+cannot swallow unmatched chunks before later rules.
 """
 
 from __future__ import annotations
@@ -264,6 +266,8 @@ def generate(grammar: Grammar) -> str:
             if empty and node.attrib["lineEmptyContext"] == "#stay":
                 node.set("lineEmptyContext", _action(rule.action, names))
             lower(node, rule)
+    for node in contexts:
+        _regex(node, ".", Category(node.attrib["attribute"]), "#stay")
     items = ET.SubElement(highlighting, "itemDatas")
     for category, style in KDE_STYLES.items():
         ET.SubElement(items, "itemData", name=category.value, defStyleNum=style)

@@ -132,6 +132,13 @@ def test_kde_registration_determinism_metadata_and_structure() -> None:
                 assert rule.tag == "RegExpr"
                 assert rule.attrib["String"]
                 re.compile(rule.attrib["String"])
+        fallback = context[-1]
+        assert fallback.tag == "RegExpr"
+        assert fallback.attrib == {
+            "String": ".",
+            "attribute": context.attrib["attribute"],
+            "context": "#stay",
+        }
     assert root.find(".//keyword") is not None
     assert "weakDeliminator" not in output
 
@@ -473,7 +480,7 @@ def test_kde_unconditional_zero_width_switch_runs_on_empty_lines() -> None:
     initial = next(iter(_contexts(root).values()))
     assert initial.attrib["lineEndContext"] == "#pop!state1"
     assert initial.attrib["lineEmptyContext"] == "#pop!state1"
-    assert len(initial) == 1
+    assert len(initial) == 2
     assert initial[0].attrib["lookAhead"] == "true"
     assert re.fullmatch(initial[0].attrib["String"], "x") is not None
     for source in ("let x if", "\nlet x", "\n\nif\nlet", "!\nif"):

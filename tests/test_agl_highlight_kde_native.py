@@ -64,6 +64,11 @@ def test_native_supported_repeats(pattern: str, tmp_path: Path) -> None:
     _assert_native(grammar, "ab", tmp_path)
 
 
+def test_native_unmatched_character_does_not_hide_following_rule(tmp_path: Path) -> None:
+    grammar = Grammar((State("root", (Rule("b", Category.KEYWORD),), Category.STRING),))
+    _assert_native(grammar, "ab", tmp_path)
+
+
 @pytest.mark.parametrize(
     "source",
     [
