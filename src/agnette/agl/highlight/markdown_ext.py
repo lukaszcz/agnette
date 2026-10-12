@@ -52,7 +52,7 @@ class ContextPreprocessor(Preprocessor):
         )
 
     def run(self, lines: list[str]) -> list[str]:
-        lines = lines.copy()
+        lines = "\n".join(lines).replace("\r\n", "\n").replace("\r", "\n").split("\n")
         removed: set[int] = set()
         body: FenceMetadata | None = None
         comment_depth = 0

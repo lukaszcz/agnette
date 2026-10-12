@@ -134,6 +134,18 @@ def test_context_is_local_to_fence_and_document() -> None:
     )
 
 
+def test_context_reaches_lexer_with_crlf_newlines() -> None:
+    source = (
+        "<!-- agl-context: record Point -->\r\n"
+        "<!-- agl-context:   x: int -->\r\n"
+        "```agl\r\nlet p: Point = Point(1)\r\n```"
+    )
+    html = _markdown().convert(source)
+    assert "agl-context" not in html
+    assert '<span class="kt">Point</span>' in html
+    assert '<span class="nc">Point</span>' in html
+
+
 @pytest.mark.parametrize(
     "source",
     [
