@@ -111,6 +111,19 @@ def test_uninjectable_attributes_preserve_markers(header: str) -> None:
     assert _markdown().convert(source) == _markdown(custom=False).convert(source)
 
 
+def test_rejected_unclosed_fence_does_not_hide_next_context() -> None:
+    source = (
+        '````agl unknown="value"\n'
+        "<!-- agl-context: record Point -->\n"
+        "<!-- agl-context:   x: int -->\n"
+        "```agl\nlet p: Point = Point(1)\n```"
+    )
+    html = _markdown().convert(source)
+    assert "agl-context" not in html
+    assert '<span class="kt">Point</span>' in html
+    assert '<span class="nc">Point</span>' in html
+
+
 @pytest.mark.parametrize("header", ["agl title=Example", 'agl hl_lines="not-a-number"'])
 def test_relaxed_header_validation_does_not_discard_context(header: str) -> None:
     lines = ["<!-- agl-context: record Point -->", "```" + header, "Point", "```"]

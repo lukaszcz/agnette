@@ -148,8 +148,8 @@ def _scan_comments(
 class ContextPreprocessor(Preprocessor):
     """Encode adjacent contexts before superfences or HTML comment stashing runs."""
 
-    def accepts(self, line: str, context: str | None = None) -> bool:
-        """Use SuperFences' configured header pipeline without changing its state."""
+    def _accepted_header(self, line: str) -> SuperFencesBlockPreprocessor | None:
+        """Parse a header with SuperFences' configured pipeline, without changing its state."""
         fenced = cast(SuperFencesBlockPreprocessor, self.md.preprocessors["fenced_code_block"])
         fenced.get_hl_settings()
         probe = copy(fenced)
@@ -157,15 +157,20 @@ class ContextPreprocessor(Preprocessor):
         prefix = MarkdownContainer.from_line(line).prefix
         match = RE_NESTED_FENCE_START.match(line, len(prefix))
         if match is None:
-            return False
+            return None
         if match.group("unrecognized"):
             accepted = probe.handle_unrecognized(match)
         elif match.group("attrs"):
             accepted = probe.handle_attrs(match)
         else:
             accepted = probe.parse_options(match)
+        return probe if accepted else None
+
+    def accepts(self, line: str, context: str | None = None) -> bool:
+        """Check whether SuperFences accepts this AgL header and optional context."""
+        probe = self._accepted_header(line)
         return (
-            accepted
+            probe is not None
             and probe.lang == "agl"
             and (context is None or probe.options.get(_OPTION) == context)
         )
@@ -192,11 +197,12 @@ class ContextPreprocessor(Preprocessor):
                 _advance_html_tags(line, html_tags)
                 continue
             if not comment_depth and (opening := fence_opening(line)):
+                header = self._accepted_header(line)
+                if header is None:
+                    continue
                 container, delimiter, _ = opening
                 body = FenceMetadata(None, "", index, container.continuation, delimiter)
-                metadata = fence_metadata(lines, index)
-                if metadata is not None and not self.accepts(line):
-                    metadata = None
+                metadata = fence_metadata(lines, index) if header.lang == "agl" else None
                 normalize_body = metadata is not None and ">" in body.prefix
                 if metadata is not None:
                     context_lines = {
