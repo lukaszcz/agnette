@@ -220,6 +220,15 @@ def test_binding_forms_and_scope_candidates(
         assert _category(source, spans, name) == category
 
 
+def test_type_owner_qualifier_is_not_colored_as_a_module(highlight_roots: RootSet) -> None:
+    source = "import std/option::{Option as Maybe}\nlet x = Maybe::Some(1)\n"
+    spans = semantic_spans(source, roots=highlight_roots)
+
+    assert _category(source, spans, "Maybe::") == Category.TYPE
+    assert _category(source, spans, "Some") == Category.CONSTRUCTOR
+    _partition(source, spans)
+
+
 def test_attribute_arguments_do_not_steal_declaration_spans(highlight_roots: RootSet) -> None:
     source = 'let x = "description"\ndef f(@doc(x) x: int) = x\n'
     spans = semantic_spans(source, roots=highlight_roots)

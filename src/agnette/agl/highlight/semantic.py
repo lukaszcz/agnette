@@ -14,6 +14,7 @@ from agnette.agl.scope.symbols import (
     BinderKind,
     BindingRef,
     ModuleResolution,
+    OwnerMemberSelection,
     QName,
     qname_declaration,
 )
@@ -89,8 +90,11 @@ class _Names:
         self.starts: dict[str, list[int]] = {}
         self.keyword_ends: dict[str, list[int]] = {}
         for start, end, category in spans:
+            spelling = text[start:end]
             if category in _NAME_CATEGORIES:
-                self.starts.setdefault(text[start:end], []).append(start)
+                self.starts.setdefault(spelling, []).append(start)
+                if category == Category.MODULE and spelling.endswith("::"):
+                    self.starts.setdefault(spelling[:-2], []).append(start)
             elif category == Category.KEYWORD:
                 self.keyword_ends.setdefault(text[start:end], []).append(end)
         self.overrides: dict[int, Category] = {}
@@ -158,6 +162,15 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
 
     def reference_category(node_id: int, name: str) -> Category:
         return _import_category(resolved.name_references.get((node_id, name), ()), program)
+
+    def mark_type_owner(chain: QualifierChain | None) -> None:
+        if (
+            chain is not None
+            and chain.segments
+            and isinstance(resolved.owner_declarations.get(chain.node_id), OwnerMemberSelection)
+        ):
+            owner = chain.segments[-1]
+            names.mark(owner.span, owner.name, Category.TYPE)
 
     def classify(node: object) -> None:
         if isinstance(node, (FuncDef, Lambda)):
@@ -251,6 +264,7 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                     before=node.body.span.start_offset,
                 )
         elif isinstance(node, AssignStmt) and isinstance(node.target, NameTarget):
+            mark_type_owner(node.target.qualifier)
             names.member(
                 node.target.span,
                 node.target.name,
@@ -283,8 +297,10 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                 if node.chain.node_id in resolved.owner_declarations
                 else Category.NAME
             )
+            mark_type_owner(node.chain)
             names.member(node.span, node.chain.member, category, node.chain)
         elif isinstance(node, IsTest):
+            mark_type_owner(node.qualifier)
             category = (
                 Category.CONSTRUCTOR if node.node_id in resolved.constructor_refs else Category.NAME
             )
@@ -316,6 +332,7 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                 )
             else:
                 category = Category.NAME
+            mark_type_owner(chain)
             names.member(node.span, node.name, category, chain)
 
     walk(resolved.program, classify)
