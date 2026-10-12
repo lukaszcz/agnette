@@ -54,8 +54,9 @@ EXTERNALLY_USED = (
     "set_self_validation_enabled",
     "close_detached_state",
     "loaded_companion",
-    # test-facing grammar instance
+    # test-facing grammar instance and public generator registry
     "AGL_GRAMMAR",
+    "TARGETS",
     # requests.Session hook, called by its own redirect handling
     "rebuild_auth",
 )

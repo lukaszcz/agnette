@@ -70,8 +70,8 @@ Braced quantifiers accept only `{n}`, `{n,}` and `{n,m}` with ASCII bounds ≤10
 literal braces require escaping outside classes. Lookbehind excludes lookahead;
 positive lookbehind excludes negative lookbehind, and negative lookbehind excludes
 captures. Assertions cannot be repeated, including through noncapturing groups.
-Keyword helpers derive boundaries from `IDENT_STOP`. `grammar_eval.py` interprets
-the generic model into partitioning spans.
+Keyword helpers derive boundaries from `IDENT_STOP` and retain canonical inventories
+in `Rule.words`. `grammar_eval.py` interprets the generic model into partitioning spans.
 
 `agl_grammar.py` supplies the lexical grammar from canonical keyword, builtin,
 escape and identifier inventories. Explicit Unicode ranges cover identifiers and
@@ -97,6 +97,45 @@ only the top. The built-in grammar is directly exportable to native TextMate/KDE
 states: finite transitions and chained line-local ends require neither arbitrary
 stack reset nor target rejection. Exact scanner recovery of arbitrarily nested
 rejected literals is not expressible by these online states.
+
+### Generated Targets
+
+`targets.TARGETS` maps names to pure `Grammar → str` generators; extending it needs
+one module and one registry entry. `targets/kde.py` emits deterministic XML with
+canonical keyword lists, category item data, integer release versions (major ×
+1000000 + minor × 1000 + patch), human release comments, and native push/pop/switch
+contexts. Only exact token-start keyword-helper patterns without captures use
+native keyword matching; other `Rule.words` remain inventory metadata, with matching
+lowered as regex. Identifier-stop guards and regex fallbacks preserve punctuation-bearing
+and Unicode identifiers without `weakDeliminator`. `targets/_regex.py` supplies structural lowering facts.
+
+KDE cannot style regex captures directly. Shared finite stages partition linear,
+top-level captures and background gaps; suffix lookaheads retain ordered matching,
+and only the final stage applies the rule action. Optional captures are supported;
+nullable whole capture rules, repeated/nested selected captures and top-level
+alternatives are rejected. All built-in contextual captures fit this subset.
+Native line-end/empty-line actions implement unconditional ends, chained pops and
+empty-line transitions; nullable context-dependent end actions are rejected.
+Nullable transitions pair consuming matches with explicit lookahead fallbacks.
+The target accepts `^` only as the leading atom with no top-level alternatives;
+other anchor forms and all lookbehind raise `ValueError`: native engines may lose
+preceding consumed text. Generic keyword helpers with `token_start=False` therefore
+require a caller-owned token-start alternative for export. `targets/_kde_contract.py` rejects
+base-frame pops and potential zero-width cycles involving push/switch, including
+returns through pops. Reachability conservatively ignores pattern feasibility;
+pop-only recursion remains supported. The contract also rejects XML 1.0-forbidden
+literal characters in regexes, state names and keyword items before serialization.
+It reuses `grammar.validate_pattern` with PCRE2's repeat-bound limit of 65535;
+the generic model retains 100000. Braced group repetitions with any bound >1
+are rejected: PCRE2 expands group bodies and can exceed compiled-regex size limits
+even within the numeric cap. Atom/class bounds retain the cap; group bounds 0/1
+and unbounded `*`/`+` remain supported. These lowering restrictions prevent known
+unsupported repeat expansion without runtime engine dependencies or size heuristics.
+Serialized text encodes CR as a character reference to preserve keyword metadata
+through XML newline normalization. Regexes remain line-local; defaults style unmatched characters.
+`tests/test_agl_highlight_targets.py` and `test_agl_highlight_kde_contract.py` check
+structure, inventories, staged transitions and target rejection cheaply, without
+launching external engines.
 
 ### Contextual Approximation Contract
 

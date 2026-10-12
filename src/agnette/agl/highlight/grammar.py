@@ -66,8 +66,14 @@ class _RegexGroup:
         self.atoms.clear()
 
 
-def _compile(pattern: str, selected: set[int]) -> re.Pattern[str]:
-    """Validate syntax shared with KDE/Oniguruma before compiling for Python."""
+def validate_pattern(
+    pattern: str,
+    selected: set[int] | frozenset[int] = frozenset(),
+    *,
+    repeat_limit: int = 100000,
+) -> None:
+    """Validate portable syntax and capture layout with the target's repeat limit."""
+    limit = str(repeat_limit)
     position = 0
     in_class = False
     class_start = 0
@@ -145,8 +151,8 @@ def _compile(pattern: str, selected: set[int]) -> re.Pattern[str]:
                         raise ValueError("Use {n}, {n,} or {n,m}; escape literal braces")
                     for digits in quantifier.group()[1:-1].split(","):
                         bound = digits.lstrip("0")
-                        if len(bound) > 6 or (len(bound) == 6 and bound > "100000"):
-                            raise ValueError("Portable repeat bounds must not exceed 100000")
+                        if len(bound) > len(limit) or (len(bound) == len(limit) and bound > limit):
+                            raise ValueError(f"Portable repeat bounds must not exceed {limit}")
                     position += quantifier.end() - 1
                 if groups[-1].atoms and not groups[-1].atoms[-1]:
                     raise ValueError("Assertions cannot be repeated")
@@ -155,6 +161,11 @@ def _compile(pattern: str, selected: set[int]) -> re.Pattern[str]:
             else:
                 groups[-1].atoms.append(character not in "^$")
         position += 1
+
+
+def _compile(pattern: str, selected: set[int]) -> re.Pattern[str]:
+    """Validate portable syntax before compiling for Python."""
+    validate_pattern(pattern, selected)
     try:
         # Python also checks that lookbehind has fixed width.
         return re.compile(pattern, re.MULTILINE)
@@ -164,12 +175,13 @@ def _compile(pattern: str, selected: set[int]) -> re.Pattern[str]:
 
 @dataclass(frozen=True, slots=True)
 class Rule:
-    """An ordered regex, a match background, optional captures and a transition."""
+    """Ordered regex, background, captures and transition; words retain helper provenance."""
 
     pattern: str
     category: Category = Category.TEXT
     captures: tuple[Capture, ...] = ()
     action: Action | None = None
+    words: tuple[str, ...] = ()
     _compiled: re.Pattern[str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -259,4 +271,9 @@ def keyword_rule(
     stops = character_class(IDENT_STOP)[1:-1]
     alternatives = "|".join(re.escape(word) for word in inventory)
     before = "" if token_start else f"(?<![^{stops}])"
-    return Rule(f"{before}(?:{alternatives})(?![^{stops}])", category, action=action)
+    return Rule(
+        f"{before}(?:{alternatives})(?![^{stops}])",
+        category,
+        action=action,
+        words=tuple(inventory),
+    )
