@@ -229,11 +229,11 @@ class AglSessionHost:
     def ask_request(self, handle: str, request: "AgentRequest") -> "AgentResponse":
         """Preserve a session response's metadata across the AgL firewall.
 
-        *request*'s decoded ``permission_mode``/``sandbox`` describe what the
-        call site asked for, but they never reach the backend here: a
-        session's sandboxing is fixed once, at ``open`` (or, for the
-        ephemeral session a one-shot ``ask``/``Agent::ask`` opens, when it is
-        opened), so this call sends only the prompt.
+        *request*'s ``permission_mode``/``sandbox``/``transport`` mirror the
+        session's fixed-at-open settings for tracing, but never reach the
+        backend here: a session's sandboxing and transport are fixed once, at
+        ``open`` (or, for the ephemeral session a one-shot ``ask``/``Agent::ask``
+        opens, when it is opened), so this call sends only the prompt.
         """
         from agnette.agl.runtime.request import AgentResponse
 

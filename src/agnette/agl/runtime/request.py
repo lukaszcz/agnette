@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from agnette.agent.spec import PermissionMode
+from agnette.agent.spec import PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo, AgentOutputCallback
 
 if TYPE_CHECKING:
@@ -84,8 +84,10 @@ class AgentRequest:
     the single seam that decodes an AgL ``Agent`` value, so no dispatcher ever
     sees the value or its nominal identity. ``permission_mode`` and
     ``sandbox`` are the decoded form of the call's ``sandbox`` argument
-    (``agnette.agl.runtime.sandbox_values.decode_agent_sandbox``); their defaults keep
-    every caller that does not decode a sandbox unaffected. ``env`` is the
+    (``agnette.agl.runtime.sandbox_values.decode_agent_sandbox``); for a
+    session ask they and ``transport`` are the session's fixed-at-open
+    settings. Their defaults keep every caller that does not decode a
+    sandbox or drive a session unaffected. ``env`` is the
     decoded form of the call's ``environ`` argument and is required: every
     AgL agent call resolves an environment (the ambient one by default), so
     no dispatcher ever falls back to the host process environment silently.
@@ -100,6 +102,7 @@ class AgentRequest:
     output_contract: "TextContractRequest | JsonContractRequest | None" = None
     permission_mode: PermissionMode = PermissionMode.NONE
     sandbox: "SandboxLimits | None" = None
+    transport: SessionTransport = SessionTransport.CLI
     output_callback: AgentOutputCallback | None = field(default=None, repr=False, compare=False)
     intermediate_output: list[dict[str, str]] = field(
         default_factory=list, repr=False, compare=False

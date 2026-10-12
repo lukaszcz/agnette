@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -749,6 +751,69 @@ def test_session_ask_request_carries_the_sessions_fixed_environment() -> None:
 
     assert result.ok
     assert [request.env for request in host.requests] == [{"AMBIENT": "present"}]
+
+
+class _EnvelopeHost(_Host):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[AgentRequest] = []
+
+    def ask_request(self, handle: str, request: AgentRequest) -> AgentResponse:
+        self.requests.append(request)
+        return AgentResponse(content=self.ask(handle, request.prompt))
+
+
+@pytest.mark.parametrize(
+    ("ask", "transport", "permission_mode", "sandbox_case"),
+    (
+        (
+            'ask("hi", agent = AgentPi(), sandbox = AgentSandbox::Disabled)',
+            SessionTransport.RPC,
+            PermissionMode.NONE,
+            "Disabled",
+        ),
+        (
+            "Session::open(\n"
+            "    AgentPi(),\n"
+            "    transport = Some(SessionTransport::Cli),\n"
+            "    sandbox = AgentSandbox::Native,\n"
+            '  ).ask("hi")',
+            SessionTransport.CLI,
+            PermissionMode.NATIVE,
+            "Native",
+        ),
+        (
+            'AgentPi().ask("hi", sandbox = Sandbox(memory = Some("2G")))',
+            SessionTransport.RPC,
+            PermissionMode.UNRESTRICTED,
+            "Sandbox",
+        ),
+    ),
+)
+def test_agent_request_and_its_trace_carry_the_sessions_sandbox_and_transport(
+    tmp_path: Path,
+    ask: str,
+    transport: SessionTransport,
+    permission_mode: PermissionMode,
+    sandbox_case: str,
+) -> None:
+    host = _EnvelopeHost()
+    trace_path = tmp_path / "trace.jsonl"
+    result = PipelineDriver(
+        resolve_agent_spec=None, session_host=host, get_sandbox_context=None
+    ).run(f"program def main() -> unit =\n  let _: text = {ask}\n", trace_file=trace_path)
+
+    assert result.ok
+    [request] = host.requests
+    assert request.transport is transport
+    assert request.permission_mode is permission_mode
+    [record] = [
+        json.loads(line)
+        for line in trace_path.read_text().splitlines()
+        if json.loads(line)["kind"] == "agent_request"
+    ]
+    assert record["transport"] == transport.value
+    assert record["sandbox"]["$case"] == sandbox_case
 
 
 def test_session_ask_retries_with_corrective_follow_ups() -> None:

@@ -7,13 +7,13 @@ from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, NoReturn, Protocol, TypeVar, runtime_checkable
 
-from agnette.agent.spec import PermissionMode
+from agnette.agent.spec import PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo
 from agnette.agl.runtime.request import AgentCallHostError, AgentRequest, AgentResponse
 from agnette.core.cleanup import preserve_primary_error
 
 if TYPE_CHECKING:
-    from agnette.agent.spec import AgentSpec, SessionTransport
+    from agnette.agent.spec import AgentSpec
     from agnette.agl.runtime.agents import AgentFn
     from agnette.sandbox.request import SandboxLimits
 
@@ -304,7 +304,7 @@ class AgentDispatcherSessionHost(SessionHost):
     def ask_request(self, handle: str, request: AgentRequest) -> AgentResponse:
         """Dispatch *request* under this handle's fixed-at-open sandboxing.
 
-        *request*'s own ``permission_mode``/``sandbox``/``env`` are replaced
+        *request*'s own ``permission_mode``/``sandbox``/``transport``/``env`` are replaced
         with the snapshot's, exactly as the production host applies a
         session's fixed mode and environment rather than a per-ask value:
         there is no per-ask override.
@@ -322,6 +322,7 @@ class AgentDispatcherSessionHost(SessionHost):
             request,
             permission_mode=snapshot.permission_mode,
             sandbox=snapshot.sandbox,
+            transport=SessionTransport(snapshot.transport),
             env=snapshot.env,
         )
         try:

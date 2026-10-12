@@ -1488,6 +1488,8 @@ class TestTraceStoreProperties:
             codec="text",
             strict_json=None,
             json_schema=None,
+            sandbox={"$case": "Disabled"},
+            transport="Cli",
             span=None,
         )
         ts.agent_response(ok=True, content="r", metadata={"source": "test"}, span=None)

@@ -66,6 +66,7 @@ from agnette.agl.runtime.sandbox_values import (
     permission_mode_and_limits,
     sandbox_mode_from_permission,
 )
+from agnette.agl.runtime.serialize import value_to_trace_json_obj
 from agnette.agl.runtime.sessions import (
     SessionAgentError,
     SessionAskError,
@@ -276,6 +277,14 @@ class EffectHandlers:
                 for name, value in agent.fields.items()
             },
         }
+
+    def _sandbox_trace_value(
+        self, permission_mode: PermissionMode, limits: SandboxLimits | None
+    ) -> object:
+        """Return the decoded sandbox pair in the trace shape of its ``AgentSandbox`` value."""
+        nominals = self._ctx._program.builtin_nominals
+        value = agent_sandbox_value(sandbox_mode_from_permission(permission_mode, limits), nominals)
+        return value_to_trace_json_obj(value, self._descriptors(), nominals)
 
     def _agent_output_callback(
         self, intermediate_output: list[dict[str, str]]
@@ -661,6 +670,8 @@ class EffectHandlers:
             codec=codec,
             strict_json=strict_json,
             json_schema=json_schema,
+            sandbox=self._sandbox_trace_value(request.permission_mode, request.sandbox),
+            transport=request.transport.value,
             span=node.location,
         )
         metadata: dict[str, object] = {}
@@ -755,9 +766,6 @@ class EffectHandlers:
                 max_attempts=max_attempts,
                 node=node,
                 output_contract=output_contract,
-                permission_mode=permission_mode,
-                sandbox=sandbox,
-                env=env,
                 dispatch=lambda request: self._dispatch_session_agent(
                     handle,
                     request,
@@ -802,7 +810,6 @@ class EffectHandlers:
         contract = self._ctx._program.contracts[node.contract_id]
         output_contract, json_schema = self._ask_contract(node.contract_id)
         spec = self._decode_agent_spec(agent)
-        env = self._ctx._session_host.snapshot(handle).env
         return self._eval_session_ask_attempts(
             handle=handle,
             agent=agent,
@@ -812,11 +819,6 @@ class EffectHandlers:
             max_attempts=max_attempts,
             node=node,
             output_contract=output_contract,
-            # A session's sandbox mode, fixed at open, is never per-ask; the
-            # request carries the environment the session was opened under.
-            permission_mode=PermissionMode.NONE,
-            sandbox=None,
-            env=env,
             dispatch=lambda request: self._dispatch_session_agent(
                 handle,
                 request,
@@ -830,9 +832,9 @@ class EffectHandlers:
             ),
         )
 
-    def _compose_session_prompt(self, handle: str, request: AgentRequest) -> str:
-        """Compose *request*'s prompt; a short follow-up only on a continuing *handle*."""
-        if not self._ctx._session_host.snapshot(handle).continues_conversation:
+    def _compose_session_prompt(self, request: AgentRequest, *, continues: bool) -> str:
+        """Compose *request*'s prompt; a short follow-up only on a *continues* conversation."""
+        if not continues:
             return compose_agent_prompt(request)
         if request.attempt == 0:
             return compose_initial_agent_prompt(request)
@@ -850,12 +852,14 @@ class EffectHandlers:
         node: IrAsk | IrSessionAsk,
         output_contract: TextContractRequest | JsonContractRequest | None,
         dispatch: Callable[[AgentRequest], str],
-        permission_mode: PermissionMode,
-        sandbox: SandboxLimits | None,
-        env: dict[str, str],
     ) -> Value:
-        """Run the session ask retry loop."""
+        """Run the session ask retry loop.
+
+        Each request carries the session's fixed-at-open sandboxing,
+        transport, and environment: a session has no per-ask override.
+        """
         contract = self._ctx._program.contracts[contract_id]
+        snapshot = self._ctx._session_host.snapshot(handle)
         effective_strict = (
             contract.strict_json if contract.strict_json is not None else self._ctx._strict_json
         )
@@ -868,17 +872,20 @@ class EffectHandlers:
             request = AgentRequest(
                 agent=spec,
                 prompt=prompt,
-                env=env,
+                env=snapshot.env,
                 attempt=attempt,
                 previous_invalid_output=last_raw,
                 validation_errors=list(last_errors),
                 output_contract=output_contract,
-                permission_mode=permission_mode,
-                sandbox=sandbox,
+                permission_mode=snapshot.permission_mode,
+                sandbox=snapshot.sandbox,
+                transport=SessionTransport(snapshot.transport),
                 output_callback=self._agent_output_callback(intermediate_output),
                 intermediate_output=intermediate_output,
             )
-            request.prompt = self._compose_session_prompt(handle, request)
+            request.prompt = self._compose_session_prompt(
+                request, continues=snapshot.continues_conversation
+            )
             raw = dispatch(request)
             if request.output_callback is not None:
                 request.output_callback("final", raw)

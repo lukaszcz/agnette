@@ -462,7 +462,9 @@ Tracing records only observable boundaries:
 - each agent request and response. A request records the fully composed prompt,
   the selected `Agent` value as given (`agent`, variant and payload), the agent
   actually dispatched after [`[agent]` defaults](../../commands/agl.md#agent-defaults)
-  (`effective_agent`, a `$case`-tagged object), attempt information, and output
+  (`effective_agent`, a `$case`-tagged object), the `AgentSandbox` it runs under
+  (`sandbox`, the session's fixed one for a session ask), the `SessionTransport`
+  member name it is driven through (`transport`), attempt information, and output
   contract; a response records its full content or transport/cancellation
   outcome;
 - every `exec` invocation (command, exit code, duration, stdout, stderr, and

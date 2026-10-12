@@ -213,9 +213,15 @@ class TraceStore:
         codec: str,
         strict_json: bool | None,
         json_schema: object | None,
+        sandbox: object,
+        transport: str,
         span: "SourceSpan | Location | None" = None,
     ) -> None:
-        """Record one agent attempt: its AgL *agent* value and the *effective_agent* spec run."""
+        """Record one agent attempt: its AgL *agent* value and the *effective_agent* spec run.
+
+        *sandbox* is the attempt's ``AgentSandbox`` in trace-value form; *transport* the
+        ``SessionTransport`` member name the session drives the agent through.
+        """
         if self._path is None:
             return
         self._emit(
@@ -230,6 +236,8 @@ class TraceStore:
                 "codec": codec,
                 "strict_json": strict_json,
                 "json_schema": json_schema,
+                "sandbox": sandbox,
+                "transport": transport,
             },
             span,
         )
