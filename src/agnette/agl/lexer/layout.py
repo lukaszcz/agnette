@@ -71,25 +71,18 @@ from agnette.agl.lexer.tokens import (
     DEDENT,
     EQ,
     INDENT,
-    INTERP_END,
-    INTERP_START,
-    LBRACE,
-    LPAR,
+    LAYOUT_DELIMITERS,
     LSQB,
     NEWLINE,
     PIPE,
-    RBRACE,
-    RPAR,
     RSQB,
-    TEMPLATE_END,
-    TEMPLATE_START,
     THIN_ARROW,
 )
 
 # Tokens that increase paren depth (newlines suppressed inside these)
-_OPEN_BRACKETS = {LPAR, LSQB, LBRACE, INTERP_START, TEMPLATE_START}
+_OPEN_BRACKETS = frozenset(LAYOUT_DELIMITERS)
 # Tokens that decrease paren depth
-_CLOSE_BRACKETS = {RPAR, RSQB, RBRACE, INTERP_END, TEMPLATE_END}
+_CLOSE_BRACKETS = frozenset(LAYOUT_DELIMITERS.values())
 # Tokens that no construct can begin with: a line opening with one of these
 # continues the line before it instead of starting a new item.
 _CONTINUATION = {
@@ -133,7 +126,7 @@ def _synthetic(typ: str, value: str, ref: Token) -> Token:
     )
 
 
-def layout(tokens: Iterator[Token]) -> Iterator[Token]:
+def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> Iterator[Token]:
     """Inject ``_INDENT``/``_DEDENT`` tokens into *tokens*.
 
     Parameters
@@ -141,6 +134,9 @@ def layout(tokens: Iterator[Token]) -> Iterator[Token]:
     tokens:
         Raw token stream from the scanner (contains ``_NEWLINE`` tokens with
         indentation widths as values).
+    errors:
+        Optional recovery sink: misaligned dedents snap to the nearest enclosing
+        level and flag the content span without replacing its token.
 
     Yields
     ------
@@ -366,11 +362,16 @@ def layout(tokens: Iterator[Token]) -> Iterator[Token]:
                 # Use the lookahead token (``sig``) to position the diagnostic
                 # on the *offending* line rather than the preceding ``_NEWLINE``
                 # (which sits on the line before the misaligned content).
-                raise LexError(
+                error = LexError(
                     f"Misaligned dedent: expected indentation {indent_stack[-1]}, "
                     f"got {indent_width}",
                     span=token_span(sig if sig is not None else tok),
                 )
+                if errors is None:
+                    raise error
+                # Popping already snapped to the nearest enclosing level. Keep
+                # the content token; the diagnostic flags its misaligned span.
+                errors.append(error)
             # Emit _NEWLINE at the restored level
             _pending_loop_body = False
             line_start = None

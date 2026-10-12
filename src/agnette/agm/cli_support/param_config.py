@@ -87,28 +87,30 @@ def _tables_with_registered_descendants(
 
 def _report_undeclared_config_keys(
     config: GeneralConfig,
-    routes: Iterable[_RouteReport],
+    routes: Sequence[_RouteReport],
     package_command_paths: frozenset[tuple[str, ...]],
 ) -> None:
     """Warn for configured route leaves that no host input consumes.
 
-    Each route carries its own declaration set because one config table can
-    address a module binding while another addresses the selected program.
+    Each route carries its own declaration set. Registered command tables are
+    validated only against their program, never against a colliding module route.
     """
+    command_tables = package_command_paths | frozenset(
+        path for route in routes for path in route.command_paths
+    )
     for route in routes:
+        exempt_tables = (command_tables - frozenset(route.command_paths)) | (
+            _tables_with_registered_descendants(route.command_paths, package_command_paths)
+        )
         leaf_tables = configured_leaf_tables(
             config,
             route.module_segments,
             route.scope_path,
             route.command_paths,
-        )
-        exempt_tables = _tables_with_registered_descendants(
-            route.command_paths, package_command_paths
+            excluded_tables=exempt_tables,
         )
         for leaf in sorted(leaf_tables):
             table_path = leaf_tables[leaf]
-            if table_path in exempt_tables:
-                continue
             table_name = display_table_path(table_path)
             if leaf in route.positional_only:
                 print(

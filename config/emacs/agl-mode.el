@@ -40,77 +40,12 @@
 
 ;;; Code:
 
+(require 'agl-inventory)
+
 (defgroup agl nil
   "Major mode for editing AgL source files."
   :group 'languages
   :prefix "agl-")
-
-;; ---------------------------------------------------------------------------
-;; Keyword inventories, wired into font-lock further below.
-;;
-;; Canonical sources, kept in lockstep with this file and
-;; config/micro/agl.yaml -- see the cross-reference comment in
-;; src/agnette/agl/keywords.py.
-;; ---------------------------------------------------------------------------
-
-(defconst agl-keywords
-  '("record" "enum" "type" "program" "def" "fn" "let" "var"
-    "for" "while" "do" "until" "done" "if" "else" "case" "of" "try" "catch"
-    "raise" "return" "break" "continue" "exception" "extends" "builtin"
-    "extern" "as" "as?"
-    "true" "false" "null" "infixl" "infixr" "prio")
-  "Reserved AgL keywords.
-
-Canonical source: `src/agnette/agl/keywords.py' (the `KEYWORDS' frozenset).")
-
-(defconst agl-constant-keywords
-  '("true" "false" "null")
-  "AgL literal keywords, a subset of `agl-keywords'.")
-
-(defconst agl-operator-keywords
-  '("and" "or" "not" "is" "in" "to" "downto" "step" "with")
-  "AgL operator words, a subset of `agl-soft-keywords'.
-
-Promoted to operators in operator position only, but painted as
-keywords wherever they appear: lexical highlighting cannot tell that
-position from a member name, and the operator reading is the common
-one.")
-
-(defconst agl-soft-keywords
-  '("import" "use" "export" "hiding" "scope" "end"
-    "and" "or" "not" "is" "in" "to" "downto" "step" "with")
-  "AgL soft (contextually promoted) keywords.
-
-Ordinary identifiers outside their promotion window.  The operator
-words are promoted in operator position only, so they name members
-and fields everywhere else.  Canonical source:
-`src/agnette/agl/keywords.py' (the `SOFT_KEYWORDS' frozenset), whose
-promoted token types are `src/agnette/agl/lexer/tokens.py''s
-`SOFT_KEYWORD_TOKENS'.")
-
-(defconst agl-contextual-builtins
-  '("print" "render" "exec" "ask" "ask-request"
-    "copy" "shallow-copy" "resource" "resource-dir")
-  "The AgL builtin call names, highlighted by spelling.
-
-These lex as ordinary NAME tokens; the stdlib declares them as
-`builtin def' across `packages/stdlib/src/*.agl'.  Canonical source:
-`src/agnette/agl/scope/symbols.py' (the `BUILTIN_CALL_NAMES' mapping),
-mirrored here in full -- update this list with that one.
-
-`regexp-opt' folds shared prefixes into a greedy trie, so `ask-request'
-and `resource-dir' win over `ask' and `resource' at the same position,
-and `agl--search-ident-forward' rejects any match that does not end on
-an AgL identifier boundary -- `-' continues a name, so `resource-path'
-and `copy-of' stay unfaced.")
-
-(defconst agl-primitive-type-names
-  '("unit" "text" "json" "bool" "int" "decimal" "array" "dict")
-  "AgL primitive type-annotation names.
-
-Ordinary identifiers outside type-annotation positions.  Canonical
-source: `docs/agl/reference/lexical-structure.md' (type-annotation
-keywords).")
 
 ;; ---------------------------------------------------------------------------
 ;; Identifier scanning.
@@ -123,16 +58,10 @@ keywords).")
 (defconst agl--ident-start-re "[[:alpha:]_]"
   "Regexp matching the first character of an AgL identifier.")
 
-(defconst agl--ident-continue-skip "^][(){}:,.|;/@=\t\n\r "
+(defconst agl--ident-continue-skip (concat "^" agl--ident-stop-chars)
   "`skip-chars-forward' spec matching AgL identifier-continuation characters.
 
 The complement of `IDENT_STOP' in `src/agnette/util/ident.py'.")
-
-(defconst agl--ident-stop-chars (substring agl--ident-continue-skip 1)
-  "The characters that terminate an AgL identifier.
-
-The bracket-expression body of `agl--ident-continue-skip', with its
-leading `^' negation marker stripped.")
 
 (defconst agl--ident-stop-char-re (concat "[" agl--ident-stop-chars "]")
   "Regexp matching one AgL identifier-terminating character.")

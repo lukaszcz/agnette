@@ -317,8 +317,10 @@ parse and validate is a host error.
 
 `ask` takes a typed `Agent` value as `agent`. Without one it uses the lazy default session,
 which snapshots `std/config::default-agent` and `std/config::default-sandbox` at first use; later
-free asks reuse that agent, sandboxing, and conversation:
+free asks reuse that agent, sandboxing, and conversation. This program-body fragment
+assumes a `Review` type and an `artifact` binding:
 
+<!-- agl-check: fragment -->
 ```agl
 let reviewer = AgentClaude("sonnet", "medium")
 let review: Review = ask("Review %{artifact}", agent = reviewer)

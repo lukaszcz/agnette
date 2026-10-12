@@ -1,0 +1,6 @@
+from markdown import Markdown
+
+class Preprocessor:
+    md: Markdown
+    def __init__(self, md: Markdown) -> None: ...
+    def run(self, lines: list[str]) -> list[str]: ...

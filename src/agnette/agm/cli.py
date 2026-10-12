@@ -20,6 +20,7 @@ from agnette.agm.cli_support.args import (
     DepNewArgs,
     DepRemoveArgs,
     DepSwitchArgs,
+    DevHighlightArgs,
     ExecArgs,
     InitArgs,
     OpenArgs,
@@ -334,6 +335,7 @@ workspace_app = typer.Typer(context_settings=_BASE_CONTEXT_SETTINGS, invoke_with
 sync_app = typer.Typer(context_settings=_BASE_CONTEXT_SETTINGS, invoke_without_command=True)
 dep_app = typer.Typer(context_settings=_BASE_CONTEXT_SETTINGS, invoke_without_command=True)
 pkg_app = typer.Typer(context_settings=_BASE_CONTEXT_SETTINGS, invoke_without_command=True)
+dev_app = typer.Typer(context_settings=_BASE_CONTEXT_SETTINGS, invoke_without_command=True)
 tmux_app = typer.Typer(context_settings=_BASE_CONTEXT_SETTINGS, invoke_without_command=True)
 
 
@@ -1196,6 +1198,43 @@ def _run_dep_remove(*, command_path: list[str], target: str | None, all: bool) -
     )
 
 
+@dev_app.callback(invoke_without_command=True)
+def dev_callback(
+    ctx: typer.Context,
+    _help: bool = _help_option(),
+) -> None:
+    del _help
+    _group_help(ctx, "dev")
+
+
+@dev_app.command(name="highlight")
+def dev_highlight(
+    target: str | None = typer.Argument(
+        None,
+        metavar="TARGET",
+        autocompletion=completion.complete_highlight_target,
+    ),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        metavar="PATH",
+        autocompletion=completion.complete_path_argument,
+    ),
+    _help: bool = _help_option(),
+) -> None:
+    del _help
+    from agnette.agl.highlight.targets import TARGETS
+
+    command_path = ["dev", "highlight"]
+    selected = _require_value(target, command_path=command_path, name="target")
+    if selected not in TARGETS:
+        exit_with_usage_error(command_path, f"error: target must be one of {', '.join(TARGETS)}")
+
+    import agnette.agm.commands.dev.highlight as highlight_command
+
+    highlight_command.run(DevHighlightArgs(target=selected, output=output))
+
+
 @pkg_app.callback(invoke_without_command=True)
 def pkg_callback(
     ctx: typer.Context,
@@ -1608,6 +1647,7 @@ app.add_typer(worktree_app, name="worktree")
 app.add_typer(sync_app, name="sync")
 app.add_typer(dep_app, name="dep")
 app.add_typer(pkg_app, name="pkg")
+app.add_typer(dev_app, name="dev")
 app.add_typer(tmux_app, name="tmux")
 
 

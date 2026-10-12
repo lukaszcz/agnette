@@ -11,7 +11,11 @@ import semver
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
 
-from agnette.command_catalog import has_subcommands, invalid_command_path
+from agnette.command_catalog import (
+    LEGACY_RESERVED_COMMAND_NAMES,
+    has_subcommands,
+    invalid_command_path,
+)
 from agnette.config.context import content_stamp, context_cached, invalidate_context_cache
 from agnette.config.general import (
     config_file_candidates,
@@ -73,7 +77,11 @@ def active_package_version(active: ActivePackage) -> semver.Version:
         return active.version
     # Live source: only the version is read, so its command table may still
     # be waiting on the commands its own programs register.
-    return load_manifest(active.editable / "package.toml", commands_complete=False).version
+    return load_manifest(
+        active.editable / "package.toml",
+        commands_complete=False,
+        allow_legacy_dev_aliases=True,
+    ).version
 
 
 @dataclass(frozen=True, slots=True)
@@ -785,7 +793,7 @@ def _validate_commands(index: ActivationIndex) -> None:
 def _validate_command_registration(
     path_name: str, command: CommandRegistration, packages: Mapping[str, ActivePackage]
 ) -> None:
-    invalid = invalid_command_path(path_name)
+    invalid = invalid_command_path(path_name, reserved=LEGACY_RESERVED_COMMAND_NAMES)
     if invalid is not None:
         raise PackageActivationError(f"command path {path_name!r} {invalid}")
     _validate_package_name(command.package)
@@ -1036,7 +1044,11 @@ def _load_installed_manifest(root: Path, *, commands_complete: bool = True) -> P
     validates the command set once that merge has happened.
     """
     try:
-        return load_manifest(root / "package.toml", commands_complete=commands_complete)
+        return load_manifest(
+            root / "package.toml",
+            commands_complete=commands_complete,
+            allow_legacy_dev_aliases=True,
+        )
     except ManifestError as exc:
         raise PackageActivationError(f"cannot load active package at {root}: {exc}") from exc
 

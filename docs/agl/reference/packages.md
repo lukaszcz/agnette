@@ -93,7 +93,7 @@ places — a manifest `[commands]` entry and a program's `@command` — is an
 error whenever the two name different programs.
 
 ```agl
-@command("dev review")
+@command("dv review")
 @doc("Review the working tree.")
 program def main(strict: bool = false) -> unit =
   print "review (strict = %{strict})"
@@ -116,11 +116,11 @@ of each command or [alias](../../commands/pkg.md#aliases) path naming it (with
 inherited group tables for the path's prefixes), and its manifest
 [`[config]`](../../commands/pkg.md#config) table ([Config-file
 schema](host-environment.md#config-file-schema),
-[Precedence](host-environment.md#precedence)); with `dev review` registered
+[Precedence](host-environment.md#precedence)); with `dv review` registered
 for the program above, this configures it however it is run:
 
 ```toml
-[dev.review]
+[dv.review]
 strict = true
 ```
 

@@ -9,6 +9,7 @@ inferior `agm repl`.
 
 | File | Contents |
 | ---- | -------- |
+| `agl-inventory.el` | Keyword/builtin inventory, generated at install time; not tracked |
 | `agl-mode.el` | Entry point: syntax table, `syntax-propertize`, font-lock, imenu, defun motion, keymap |
 | `agl-indent.el` | Indentation engine |
 | `agl-flymake.el` | Flymake backend over `agm check` |
@@ -23,12 +24,24 @@ just setup-emacs                  # install with package.el
 just setup-emacs /tmp/somewhere   # install under a different HOME
 ```
 
-The package is byte-compiled with generated autoloads, and its version tracks AgM's.
-`just install` runs this step when `emacs` is available. Your init file is never modified.
+The installer generates `agl-inventory.el` with the repository's `agm dev highlight
+emacs`, then packages it with the hand-written mode. The package is byte-compiled
+with generated autoloads, and its version tracks AgM's. `just install` runs this step
+when `emacs` is available. It uses Emacs's `package-user-dir` (normally
+`~/.emacs.d/elpa/`; a prefix replaces `HOME`) and honors relocation in `early-init.el`.
+Reinstallation always replaces the package; `--force` is accepted for installer
+parity. Your init file is never modified.
 
-Without package.el (Doom, straight.el, …), load the directory directly:
+Without package.el (Doom, straight.el, …), generate the inventory from the repository:
+
+```bash
+uv run agm dev highlight emacs --output build/emacs/agl-inventory.el
+```
+
+Then load both directories:
 
 ```elisp
+(add-to-list 'load-path "/path/to/agm/build/emacs")
 (add-to-list 'load-path "/path/to/agm/config/emacs")
 (require 'agl-mode)
 ```
@@ -67,7 +80,8 @@ final prompt appear. REPL input is highlighted like source buffers.
 
 - Diagnostics describe the **saved** file: imports resolve from the entry file's real path,
   so unsaved edits are not checked.
-- Expressions inside `%{…}` holes are not fontified, only the delimiters.
+- Completed `%{…}` holes receive code font-lock; incomplete holes may retain the
+  host literal's face.
 - Constructor use-sites in expressions are unfaced: capitalization carries no meaning in
   AgL, so faces come from declaration and annotation positions only.
 - Indentation does not guess: `TAB` cycles through the levels a line could legally take —
@@ -87,4 +101,5 @@ final prompt appear. REPL input is highlighted like source buffers.
 just test-emacs
 ```
 
-The suites never run `agm` and are not part of `just check`, which must not require Emacs.
+The recipe generates the inventory first; the ERT suites never run `agm`.
+They are outside `just check`, which does not require Emacs.

@@ -8702,4 +8702,17 @@ class TestReplCommand:
         assert any(line.split()[-1:] == ["42"] for line in result.stdout.splitlines())
 
 
+class TestDevHighlight:
+    def test_exports_emacs_inventory(self, tmp_path: Path, env: dict[str, str]) -> None:
+        output = tmp_path / "generated" / "emacs" / "agl-inventory.el"
+        result = run_agm(
+            ["dev", "highlight", "emacs", "--output", str(output)], env=env, cwd=tmp_path
+        )
+        assert result.returncode == 0
+        assert result.stdout == ""
+        inventory = output.read_text(encoding="utf-8")
+        assert "(provide 'agl-inventory)" in inventory
+        assert "agl-keywords" in inventory
+
+
 # ── the e2e command-coverage gate ────────────────────────────────────────────

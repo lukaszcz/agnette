@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.matchcompile import MatchCompiledProgram
+from agnette.agl import artifact_cache
 from agnette.agl.modules.ids import STD_PRELUDE_ID
 from agnette.agl.pipeline import (
     ArtifactProvenanceError,
@@ -67,17 +67,26 @@ def test_single_run_rejects_cached_artifact_from_different_prepared_program(
     assert capsys.readouterr().out == ""
 
 
-def test_program_run_rejects_cached_artifact_with_different_entry_identity() -> None:
-    prepared, discovery = _compiled("let value = 1\nvalue")
+@pytest.mark.parametrize("cache_state", ["cold", "memory", "rehydrated"])
+def test_program_run_rejects_cached_artifact_with_different_entry_identity(
+    cache_state: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    artifact_cache.clear_retained_artifacts()
+    source = "let value = 1\nvalue"
+    prepared, discovery = _compiled(source)
+    if cache_state != "cold":
+        if cache_state == "rehydrated":
+            artifact_cache._CHECKED.clear()
+        prepared, discovery = _compiled(source)
+        assert discovery.compiled is not None
+        assert discovery.compiled.reused_modules
     assert discovery.compiled is not None
     wrong_entry_checked = replace(
         discovery.compiled.checked,
         entry_id=STD_PRELUDE_ID,
     )
-    wrong_entry_compiled = MatchCompiledProgram(
-        checked=wrong_entry_checked,
-        sites_by_module=discovery.compiled.sites_by_module,
-    )
+    wrong_entry_compiled = replace(discovery.compiled, checked=wrong_entry_checked)
 
     with pytest.raises(ArtifactProvenanceError):
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None).run_prepared(

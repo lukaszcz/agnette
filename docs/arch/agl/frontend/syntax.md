@@ -1,11 +1,13 @@
 # AgL Syntax: Lexer, Parser, and AST
 
-A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}` holes, `${NAME}` environment holes, `$` verbatim literals), and the tight slash-path and `::` qualifier syntax. A Lark LALR grammar recognizes the token stream, and the AST builder constructs frozen dataclass nodes with stable ids. Comments produce no tokens; their spans are a side channel for highlighters.
+A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}` holes, `${NAME}` environment holes, `$` verbatim literals), and slash-path/`::` qualifier syntax. A Lark LALR grammar recognizes the token stream; the AST builder constructs frozen nodes with stable ids. Comments expose spans through a side channel, not tokens.
+
+`lexer.tokenize_recover` returns tokens and ordered diagnostics for highlighting malformed input; parser lexing stays strict. Accepted input retains the strict token stream. Error and incomplete-literal tokens preserve source identity; the shared [highlighter](../../highlighting.md) projects overlapping payload spans into a partition. REPL completion's raw-quote compatibility policy uses the same scanner independently of AgL template recognition.
 
 ## Shared Lexical Leaves
 
 - **Literal scanning** — escape, number, identifier, and environment-hole rules live in `agl/value_syntax/lexical.py`, shared by the lexer and the host value-syntax reader; it also spells values back as literals so runtime rendering and constant folding cannot diverge. All template forms share one hole scanner and one `template` grammar rule.
-- **Keywords** — `keywords.py` is the single inventory of reserved and soft keywords (soft keywords are ordinary names outside their promotion window). The lexer (including the grammar-terminal remap) and the REPL highlighter import it; the grammar's literals and the editor modes in `config/` mirror it by hand.
+- **Keywords** — `keywords.py` is the single inventory of reserved and soft keywords (soft keywords are ordinary names outside their promotion window). The lexer, shared highlighter, portable grammar and generated Emacs inventory import it; the parser grammar's literals and micro mode mirror it by hand.
 - **Operator position** — `lexer/operators.py` is the one inventory of operand-closing/opening tokens; layout line-continuation and operator-word promotion both query it, so they cannot disagree.
 
 ## Constant Folding

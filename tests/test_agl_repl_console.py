@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 from collections.abc import Iterator
 from contextlib import AbstractContextManager
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from lark.lexer import Token
 from prompt_toolkit.application.current import create_app_session, get_app_session
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
@@ -31,8 +32,6 @@ from prompt_toolkit.history import FileHistory, InMemoryHistory
 from prompt_toolkit.input import PipeInput, create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-import agnette.agl.repl.console as console
-from agnette.agl.lexer import tokenize
 from agnette.agl.repl import ReplSession as _ReplSession
 from agnette.agl.repl.console import (
     AglCompleter,
@@ -334,6 +333,19 @@ class TestMultiline:
 
 
 class TestLexer:
+    def test_exact_pre_extraction_fragment_regression(self) -> None:
+        expected = json.loads(Path(__file__).with_name("agl_repl_highlighting.json").read_text())
+        for source, lines in expected.items():
+            actual = AglPromptLexer._styled_lines(source)
+            assert [[list(fragment) for fragment in line] for line in actual] == lines
+
+    @pytest.mark.parametrize(
+        "source", ['"""\n  a%{x}b\n  c\n"""', "ask $\n  a%{x}b\n  c\n", "let x = 1\r\nlet y = 2\r"]
+    )
+    def test_multiline_fragments_preserve_every_character(self, source: str) -> None:
+        lines = AglPromptLexer._styled_lines(source)
+        assert "\n".join("".join(text for _, text in line) for line in lines) == source
+
     def test_info_output_is_highlighted_as_agl(self) -> None:
         session = ReplSession()
         assert session.eval_entry("record Issue").ok
@@ -398,16 +410,6 @@ class TestLexer:
         source = "let x = \u200bbad"
         fragments = lexer.lex_document(Document(source))(0)
         assert "".join(text for _style, text in fragments) == source
-
-    def test_token_without_source_position_is_not_styled(self) -> None:
-        source = "let x = 1 + foo"
-        expected = AglPromptLexer().lex_document(Document(source))(0)
-        with patch(
-            "agnette.agl.repl.console.tokenize",
-            side_effect=lambda text: iter([Token("NAME", "ghost"), *tokenize(text)]),
-        ):
-            fragments = AglPromptLexer().lex_document(Document(source))(0)
-        assert fragments == expected
 
     @pytest.mark.parametrize("quote", ['"""', "'''"])
     def test_unterminated_triple_quoted_string_preserves_prefix_highlighting(
@@ -505,18 +507,6 @@ class TestLexer:
         # partition the source so every typed character renders exactly once.
         fragments = AglPromptLexer().lex_document(Document(line))(0)
         assert "".join(text for _style, text in fragments) == line
-
-    def test_positionless_synthetic_token_is_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A lexer token without source offsets leaves the typed line intact."""
-        monkeypatch.setattr(
-            console,
-            "tokenize",
-            lambda _text: [Token("NAME", "x", start_pos=None, end_pos=None)],
-        )
-
-        fragments = AglPromptLexer().lex_document(Document("x"))(0)
-
-        assert fragments == [("", "x")]
 
     def test_multiline_document_styles_each_line(self) -> None:
         lexer = AglPromptLexer()

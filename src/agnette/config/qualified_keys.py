@@ -225,6 +225,8 @@ def configured_leaf_tables(
     module_segments: tuple[str, ...],
     scope_path: tuple[str, ...] = (),
     command_paths: tuple[tuple[str, ...], ...] = (),
+    *,
+    excluded_tables: frozenset[tuple[str, ...]] = frozenset(),
 ) -> dict[str, tuple[str, ...]]:
     """Return each leaf key the exact route sets, mapped to one table that sets it.
 
@@ -236,9 +238,14 @@ def configured_leaf_tables(
     single-route diagnostic (undeclared-key warnings) — inherited group tables
     never count as a leaf here, since a descendant command may be the one that
     actually consumes them; :func:`configured_leaf_table_candidates` reports
-    those too, for a check that must not depend on layer order.
+    those too, for a check that must not depend on layer order. Excluded tables
+    are skipped before selecting one table per leaf.
     """
-    paths = route_table_paths(module_segments, scope_path, command_paths)
+    paths = tuple(
+        path
+        for path in route_table_paths(module_segments, scope_path, command_paths)
+        if path not in excluded_tables
+    )
     tables: dict[str, tuple[str, ...]] = {}
     for name, path in _leaf_entries(config.layers, paths):
         tables.setdefault(name, path)
@@ -362,8 +369,8 @@ def route_table_paths(
 
     Every module-suffix spelling, shortest first, then the exact quoted module
     anchor, then each *command path* the declaration is registered under, whose
-    own segments are the whole table path: ``agm dev review`` reads
-    ``[dev.review]``. AgM's top-level configuration sections are excluded,
+    own segments are the whole table path: ``agm dv review`` reads
+    ``[dv.review]``. AgM's top-level configuration sections are excluded,
     except that a single-segment loose-file module named after a *command* may
     address one of its nested declaration tables: a command section holds its
     own settings as leaf keys, so a table one level below it is free. A

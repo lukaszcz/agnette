@@ -17,8 +17,8 @@ from __future__ import annotations
 import hashlib
 import threading
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl import artifact_serialization
@@ -37,8 +37,23 @@ if TYPE_CHECKING:
 # retained memory.
 _CAPACITY = 1024
 
-# Everything a module's artifacts could have been derived from.
-Sources = tuple["LoadedModule", ...]
+
+@dataclass(frozen=True, slots=True, eq=False)
+class Sources:
+    """Ordered source identities, keeping their objects alive for comparison."""
+
+    modules: tuple[LoadedModule, ...] = ()
+    identities: tuple[int, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        identities: tuple[int, ...] = tuple(id(module) for module in self.modules)
+        object.__setattr__(self, "identities", identities)
+
+    def __iter__(self) -> Iterator[LoadedModule]:
+        return iter(self.modules)
+
+
+_EMPTY_SOURCES = Sources()
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,10 +107,8 @@ class _ArtifactStore[V, K]:
 
 
 def _same_sources(retained: Sources, current: Sources) -> bool:
-    """Return whether two source tuples name the very same loaded modules."""
-    return len(retained) == len(current) and all(
-        left is right for left, right in zip(retained, current, strict=True)
-    )
+    """Compare object identities; both source sets keep their modules alive."""
+    return retained.identities == current.identities
 
 
 # What one compilation's retainable modules were derived from, computed once by
@@ -124,12 +137,12 @@ _LOWERED: _ArtifactStore["LoweredModule", bytes] = _ArtifactStore()
 
 def retained_lowered_module(key: bytes) -> LoweredModule | None:
     """Return linked module data retained under its full compilation identity."""
-    return _LOWERED.get(key, ())
+    return _LOWERED.get(key, _EMPTY_SOURCES)
 
 
 def retain_lowered_module(key: bytes, module: LoweredModule) -> None:
     """Keep immutable module IR for subsequent compilations in this process."""
-    _LOWERED.put(key, (), module)
+    _LOWERED.put(key, _EMPTY_SOURCES, module)
 
 
 def retained_module_sources(graph: ModuleGraph) -> dict[ModuleId, Sources]:
@@ -144,7 +157,7 @@ def retained_module_sources(graph: ModuleGraph) -> dict[ModuleId, Sources]:
     """
     closures = graph.dependency_closures()
     return {
-        module_id: closures[module_id]
+        module_id: Sources(closures[module_id])
         for module_id, loaded in graph.modules.items()
         if loaded.path is not None and module_id != graph.entry_id
     }
@@ -152,12 +165,12 @@ def retained_module_sources(graph: ModuleGraph) -> dict[ModuleId, Sources]:
 
 def retained_module_declarations(module: LoadedModule) -> _ModuleTables | None:
     """Reuse immutable declaration metadata for the same loaded module."""
-    return _DECLARATIONS.get(module.module_id, (module,))
+    return _DECLARATIONS.get(module.module_id, Sources((module,)))
 
 
 def retain_module_declarations(module: LoadedModule, tables: _ModuleTables) -> None:
     """Keep syntax-derived declaration metadata in memory only."""
-    _DECLARATIONS.put(module.module_id, (module,), tables)
+    _DECLARATIONS.put(module.module_id, Sources((module,)), tables)
 
 
 def retained_module_exports(retainable: RetainedSources) -> dict[ModuleId, _ModuleExports]:
@@ -408,10 +421,11 @@ def _disk_key(sources: Sources, discriminator: tuple[object, ...] = ()) -> bytes
     digest = hashlib.sha256(repr(discriminator).encode())
     for module in sources:
         key = module.module_id
-        fingerprint = _FINGERPRINTS.get(key, (module,))
+        identity = Sources((module,))
+        fingerprint = _FINGERPRINTS.get(key, identity)
         if fingerprint is None:
             fingerprint = hashlib.sha256(repr(module).encode()).digest()
-            _FINGERPRINTS.put(key, (module,), fingerprint)
+            _FINGERPRINTS.put(key, identity, fingerprint)
         digest.update(fingerprint)
     return digest.digest()
 

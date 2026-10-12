@@ -1,0 +1,9 @@
+{
+  "name": "agnette-textmate-tests",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "vscode-textmate": "9.2.0",
+    "vscode-oniguruma": "2.0.1"
+  }
+}

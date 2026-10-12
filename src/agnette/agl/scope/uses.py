@@ -517,6 +517,31 @@ class UseReader:
                 for origin in self._use_path_origins(site, decl, path)
             )
 
+    def name_references(
+        self, site: ScopePath, decl: UseDecl
+    ) -> dict[tuple[int, str], frozenset[QName]]:
+        """Read each target/item spelling with *decl*'s declaration-time visibility."""
+        references: dict[tuple[int, str], frozenset[QName]] = {}
+
+        def record(node_id: int, names: ScopePath, owners_within: int | None = None) -> None:
+            references[node_id, names[-1]] = frozenset(
+                candidate.origin.declaration
+                for kind in LookupKind
+                for candidate in self._use_path_reached(site, decl, names, kind, owners_within)
+            )
+
+        target = _use_target(decl)
+        with self._reading_use(decl):
+            for end, segment in enumerate(decl.target, 1):
+                record(segment.node_id, target[:end])
+            references[decl.node_id, target[-1]] = references[decl.target[-1].node_id, target[-1]]
+            for item in (*(decl.tail or ()), *decl.hidden):
+                path = _item_path(item)
+                for end, segment in enumerate(item.scope_path, 1):
+                    record(segment.node_id, (*target, *path[:end]), len(target))
+                record(item.node_id, (*target, *path), len(target))
+        return references
+
     def _use_path_reached(
         self,
         site: ScopePath,

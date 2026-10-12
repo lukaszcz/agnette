@@ -1006,6 +1006,11 @@ class ModuleResolution:
         to the ``BindingRef`` it resolved to. An ``AssignStmt`` with an indexed
         or field target creates no assignment binding: its receiver (and an
         indexed target's index) is resolved as an ordinary expression instead.
+    ``name_references``
+        Declaration candidates for non-expression name occurrences, keyed by
+        syntax node id and spelling. Empty or competing candidates stay neutral.
+        Use names are read at their declaration's visibility horizon; infix
+        headers read values at the module root, never in unrelated named scopes.
     ``builtin_calls``
         Maps every ``Call.node_id`` whose callee is a built-in name
         (``print``/``exec``/``ask``/``ask-request``) to its ``BuiltinKind``.  Calls whose
@@ -1125,6 +1130,7 @@ class ModuleResolution:
     builtin_calls: dict[int, BuiltinKind]
     root_scope: ScopeNode
     builtin_static_calls: dict[int, BuiltinStaticKind] = field(default_factory=dict)
+    name_references: dict[tuple[int, str], frozenset[QName]] = field(default_factory=dict)
     declarations: dict[DeclarationKey, BindingRef] = field(default_factory=dict)
     scope_nodes: dict[ScopePath, ScopeNode] = field(default_factory=dict)
     static_root: bool = False

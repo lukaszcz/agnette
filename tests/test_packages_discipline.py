@@ -219,6 +219,22 @@ class TestPackageDiscipline:
         with pytest.raises(DisciplineError):
             validate_package(package)
 
+    def test_rejects_a_new_alias_using_the_legacy_dev_name(self, tmp_path: Path) -> None:
+        package = _custom_package(tmp_path, command_path="devel")
+        package = PackageInfo(
+            package.root,
+            PackageManifest(
+                "custom",
+                semver.Version.parse("1.0.0"),
+                commands={"devel": CommandSpec("custom/main::main")},
+                aliases={"dev": "devel"},
+            ),
+        )
+        (package.module_root / "main.agl").write_text("program def main() -> unit = ()\n")
+
+        with pytest.raises(DisciplineError):
+            validate_package(package)
+
     @pytest.mark.parametrize("command", ("cp", "copy"))
     def test_accepts_command_path_matching_a_config_subcommand(
         self, tmp_path: Path, command: str
@@ -1143,8 +1159,8 @@ class TestManifestConfigDiscipline:
             '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
             '[commands.devel]\ndoc = "Development workflows"\n\n'
             '[commands."devel review"]\nprogram = "custom/main::main"\n\n'
-            '[aliases]\ndev = "devel"\n\n'
-            "[config.dev.review]\nverbose = true\n",
+            '[aliases]\ndv = "devel"\n\n'
+            "[config.dv.review]\nverbose = true\n",
             "@param let verbose: bool = false\nprogram def main() -> unit = ()\n",
         )
 

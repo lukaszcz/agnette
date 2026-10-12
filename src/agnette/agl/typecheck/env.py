@@ -20,6 +20,8 @@ from __future__ import annotations
 import copy
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from functools import lru_cache
+from operator import attrgetter
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, Protocol, cast
 
@@ -122,13 +124,32 @@ def _is_own_builtin_declaration(name: str, typ: Type) -> bool:
     return typ.decl_id != require_reserved_nominal_id(name)
 
 
+type _MemberReader = Callable[[object], tuple[object, ...]]
+
+
+def _make_member_getter(names: tuple[str, ...]) -> _MemberReader:
+    """Build readers of dataclass field names, never records or their values."""
+    if not names:
+        return lambda source: ()
+    read: attrgetter[object] = attrgetter(*names)
+    if len(names) == 1:
+
+        def singleton(source: object) -> tuple[object, ...]:
+            value: object = read(source)
+            return (value,)
+
+        return singleton
+    return cast(_MemberReader, read)
+
+
+_member_getter = cast(
+    Callable[[tuple[str, ...]], _MemberReader], lru_cache(maxsize=128)(_make_member_getter)
+)
+
+
 def _member_values(source: object, names: tuple[str, ...]) -> tuple[object, ...]:
     """Read *names* off *source*, in order."""
-    values: list[object] = []
-    for name in names:
-        value: object = getattr(source, name)
-        values.append(value)
-    return tuple(values)
+    return _member_getter(names)(source)
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +170,10 @@ class _Record:
 
     __slots__ = ()
     __match_args__: ClassVar[tuple[str, ...]] = ()
+    _read_members: ClassVar[_MemberReader] = _member_getter(())
 
     def __getstate__(self) -> tuple[object, ...]:
-        return _member_values(self, self.__match_args__)
+        return type(self)._read_members(self)
 
     def __setstate__(self, state: tuple[object, ...]) -> None:
         for name, value in zip(self.__match_args__, state):
@@ -164,6 +186,7 @@ def _pickles_by_name[T: _Record](cls: type[T]) -> type[T]:
     ``dataclass(slots=True)`` rebuilds the class and puts its own hooks in the
     new body, where they would otherwise shadow the inherited ones.
     """
+    setattr(cls, "_read_members", _member_getter(cls.__match_args__))
     setattr(cls, "__getstate__", _Record.__getstate__)
     setattr(cls, "__setstate__", _Record.__setstate__)
     return cls
@@ -760,17 +783,30 @@ class EnvironmentFact(_Record):
 
     ``_MUTATOR`` names the method the call went to, and a fact's fields are
     that method's arguments spelled with its parameter names, so replaying one
-    is a keyword call. A fact whose replay is more than that forward overrides
+    is a keyword call. The dominant node-indexed facts forward directly to
+    avoid reflective argument packing; other specialized replay overrides
     :meth:`apply`.
     """
 
     __slots__ = ()
     _MUTATOR: ClassVar[str]
+    _read_mutator: ClassVar[Callable[[TypeEnvironment], Callable[..., None]]]
+    _argument_readers: ClassVar[tuple[tuple[str, attrgetter[object]], ...]]
+
+    def __init_subclass__(cls) -> None:
+        super().__init_subclass__()
+        # The slots dataclass rebuild binds its final field names here too.
+        cls._read_mutator = attrgetter(cls._MUTATOR)
+        readers: list[tuple[str, attrgetter[object]]] = []
+        for name in cls.__match_args__:
+            read: attrgetter[object] = attrgetter(name)
+            readers.append((name, read))
+        cls._argument_readers = tuple(readers)
 
     def apply(self, env: TypeEnvironment) -> None:
-        """Replay this call on *env*."""
-        mutator: Callable[..., None] = getattr(env, self._MUTATOR)
-        mutator(**dict(zip(self.__match_args__, _member_values(self, self.__match_args__))))
+        """Replay this call on *env*, reading fresh arguments and the current method."""
+        cls = type(self)
+        cls._read_mutator(env)(**{name: read(self) for name, read in cls._argument_readers})
 
 
 @_pickles_by_name
@@ -782,6 +818,9 @@ class BindingTypeFact(EnvironmentFact):
 
     node_id: int
     typ: Type
+
+    def apply(self, env: TypeEnvironment) -> None:
+        env.set_binding_type(node_id=self.node_id, typ=self.typ)
 
 
 @_pickles_by_name
@@ -805,6 +844,9 @@ class FunctionSignatureByNodeIdFact(EnvironmentFact):
 
     node_id: int
     sig: FunctionSignature
+
+    def apply(self, env: TypeEnvironment) -> None:
+        env.register_function_signature_by_node_id(node_id=self.node_id, sig=self.sig)
 
 
 @_pickles_by_name
@@ -1170,7 +1212,8 @@ class TypeEnvironment:
             self._type_table.register_builtin_method(receiver, method)
         else:
             self._type_table.register_method(receiver, method)
-        self._record_fact(MethodHeaderFact(receiver=receiver, method=method))
+        if self._journaling:
+            self._journal.append(MethodHeaderFact(receiver=receiver, method=method))
 
     def seal(self) -> None:
         """Freeze this environment as checked output.
@@ -1221,8 +1264,9 @@ class TypeEnvironment:
     def replay(self, facts: EnvironmentFacts) -> None:
         """Apply *facts* in order through the journaled mutators.
 
-        Recording is suspended while applying; an active journal is then
-        extended with *facts* verbatim, so a skipped identical alias is kept.
+        Recording is suspended while applying; mutators construct facts only
+        during recording. An active journal is then extended with *facts*
+        verbatim, so a skipped identical alias is kept.
         """
         journaling, self._journaling = self._journaling, False
         try:
@@ -1232,11 +1276,6 @@ class TypeEnvironment:
             self._journaling = journaling
         if journaling:
             self._journal.extend(facts.entries)
-
-    def _record_fact(self, fact: EnvironmentFact) -> None:
-        """Append a fact while the own-facts journal is active."""
-        if self._journaling:
-            self._journal.append(fact)
 
     # --- Type namespace queries ---
 
@@ -1324,7 +1363,8 @@ class TypeEnvironment:
 
     def register_type(self, name: str, typ: Type) -> None:
         self._types[name] = typ
-        self._record_fact(TypeFact(name=name, typ=typ))
+        if self._journaling:
+            self._journal.append(TypeFact(name=name, typ=typ))
 
     def unregister_name(self, name: str) -> None:
         """Remove a user *name* from the tables that only ever expose ONE definition.
@@ -1364,7 +1404,8 @@ class TypeEnvironment:
         self._generic_types.pop(name, None)
         self._alias_type_params.pop(name, None)
         self._alias_spans.pop(name, None)
-        self._record_fact(UnregisteredNameFact(name=name))
+        if self._journaling:
+            self._journal.append(UnregisteredNameFact(name=name))
 
     def register_alias(
         self,
@@ -1384,26 +1425,31 @@ class TypeEnvironment:
         self._resolved_aliases.pop(name, None)
         self._alias_type_params[name] = type_params
         self._alias_spans[name] = declaration_span
-        self._record_fact(
-            AliasFact(
-                name=name,
-                target_expr=target_expr,
-                type_params=type_params,
-                declaration_span=declaration_span,
+        if self._journaling:
+            self._journal.append(
+                AliasFact(
+                    name=name,
+                    target_expr=target_expr,
+                    type_params=type_params,
+                    declaration_span=declaration_span,
+                )
             )
-        )
 
     def freeze_alias(self, name: str, template: Type, *, type_params: tuple[str, ...] = ()) -> None:
         """Preserve an alias's resolved template under its declaring identities."""
         self._resolved_aliases[name] = GenericAliasDef(type_params=type_params, template=template)
-        self._record_fact(FrozenAliasFact(name=name, template=template, type_params=type_params))
+        if self._journaling:
+            self._journal.append(
+                FrozenAliasFact(name=name, template=template, type_params=type_params)
+            )
 
     # --- Generic type registry ---
 
     def register_generic_type(self, name: str, gdef: GenericTypeDef) -> None:
         """Register a generic type definition under *name*."""
         self._generic_types[name] = gdef
-        self._record_fact(GenericTypeFact(name=name, gdef=gdef))
+        if self._journaling:
+            self._journal.append(GenericTypeFact(name=name, gdef=gdef))
 
     def get_generic_type(self, name: str) -> GenericTypeDef | None:
         return self._generic_types.get(name)
@@ -1648,7 +1694,8 @@ class TypeEnvironment:
         """
         if not scope_path:
             self._function_signatures[name] = sig
-        self._record_fact(FunctionSignatureFact(name=name, sig=sig, scope_path=scope_path))
+        if self._journaling:
+            self._journal.append(FunctionSignatureFact(name=name, sig=sig, scope_path=scope_path))
 
     def all_function_signatures(self) -> dict[str, FunctionSignature]:
         return dict(self._function_signatures)
@@ -1663,7 +1710,8 @@ class TypeEnvironment:
         functions have the same name.
         """
         self._function_signatures_by_node_id[node_id] = sig
-        self._record_fact(FunctionSignatureByNodeIdFact(node_id=node_id, sig=sig))
+        if self._journaling:
+            self._journal.append(FunctionSignatureByNodeIdFact(node_id=node_id, sig=sig))
 
     def get_function_signature_by_node_id(self, node_id: int) -> FunctionSignature | None:
         """Return the function signature for a callee's declaration ``node_id``.
@@ -1695,7 +1743,8 @@ class TypeEnvironment:
         ``ask``/``exec`` calls do.
         """
         self._extern_node_ids.add(node_id)
-        self._record_fact(ExternNodeIdFact(node_id=node_id))
+        if self._journaling:
+            self._journal.append(ExternNodeIdFact(node_id=node_id))
 
     def is_extern_node_id(self, node_id: int) -> bool:
         return node_id in self._extern_node_ids
@@ -1704,7 +1753,8 @@ class TypeEnvironment:
 
     def set_binding_type(self, node_id: int, typ: Type) -> None:
         self._binding_types[node_id] = typ
-        self._record_fact(BindingTypeFact(node_id=node_id, typ=typ))
+        if self._journaling:
+            self._journal.append(BindingTypeFact(node_id=node_id, typ=typ))
 
     def snapshot_binding_types(self) -> PersistentDict[int, Type]:
         """Return a restorable snapshot of transient binding-type metadata."""

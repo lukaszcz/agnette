@@ -16,6 +16,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -77,6 +78,17 @@ def build_package_tar(emacs_dir: Path, staging: Path, version: str) -> Path:
     package_dir.mkdir(parents=True)
     for source in package_sources(emacs_dir):
         shutil.copy2(source, package_dir / source.name)
+    subprocess.run(
+        [
+            str(Path(sys.executable).with_name("agm")),
+            "dev",
+            "highlight",
+            "emacs",
+            "--output",
+            str(package_dir / "agl-inventory.el"),
+        ],
+        check=True,
+    )
     (package_dir / f"{PACKAGE_NAME}-pkg.el").write_text(
         package_descriptor(version), encoding="utf-8"
     )
@@ -172,7 +184,9 @@ def manual_setup_notice(emacs_dir: Path) -> str:
     """Return the wiring instructions for setups that do not use package.el."""
     return (
         "Doom, straight.el, and other non-package.el setups can load the mode "
-        f"directly instead:\n"
+        "directly instead. From the repository, generate its inventory first:\n"
+        "  uv run agm dev highlight emacs --output build/emacs/agl-inventory.el\n"
+        f'  (add-to-list \'load-path "{emacs_dir.parent.parent / "build" / "emacs"}")\n'
         f'  (add-to-list \'load-path "{emacs_dir}")\n'
         "  (require 'agl-mode)"
     )

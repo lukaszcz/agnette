@@ -26,8 +26,17 @@ dependencies = [
     "urllib3>=2.2",
 ]
 
+[project.optional-dependencies]
+highlight = ["pygments>=2.20", "markdown>=3.6", "pymdown-extensions>=10"]
+
 [project.scripts]
 agm = "agnette.agm.cli:main"
+
+[project.entry-points."pygments.lexers"]
+agl = "agnette.agl.highlight.pygments_lexer:AglLexer"
+
+[project.entry-points."markdown.extensions"]
+agl_highlight = "agnette.agl.highlight.markdown_ext:AglHighlightExtension"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agnette"]
@@ -77,6 +86,7 @@ ignore_decorators = ["@*.command", "@*.callback", "@bindings.add"]
 
 [dependency-groups]
 dev = [
+    "agnette[highlight]",
     "pytest>=8.0",
     "pytest-cov>=6.0",
     "pytest-xdist>=3.0",
@@ -87,6 +97,7 @@ dev = [
     "httpx2>=2.13.0",
 ]
 docs = [
+    "agnette[highlight]",
     "mkdocs>=1.6,<2",
     "mkdocs-material>=9.7,<10",
 ]

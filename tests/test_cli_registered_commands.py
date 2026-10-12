@@ -22,6 +22,7 @@ from agnette.packages.activation import (
     ActivePackage,
     CommandRegistration,
     PackageActivationError,
+    activation_index_path,
     write_activation_index,
 )
 from agnette.packages.layout import MODULE_TREE_DIRNAME
@@ -35,6 +36,12 @@ if TYPE_CHECKING:
 
 
 _PARAM_SURFACE_PACKAGE = Path(__file__).parent / "agl" / "packages" / "param_surface"
+
+
+@pytest.fixture(autouse=True)
+def isolated_working_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep registered-command tests out of the checkout's project config."""
+    monkeypatch.chdir(tmp_path)
 
 
 def registered_help(
@@ -1339,6 +1346,43 @@ def test_installed_package_dispatches_its_own_source_declared_command(
     assert result.stdout == "set\n"
 
 
+def test_installed_legacy_dev_alias_does_not_break_commands_or_package_listing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source"
+    (source / MODULE_TREE_DIRNAME).mkdir(parents=True)
+    (source / "package.toml").write_text(
+        '[package]\nname = "tools"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
+    (source / MODULE_TREE_DIRNAME / "review.agl").write_text(
+        '@command("devel review")\nprogram def main() -> unit = print "reviewed"\n',
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    installed = install_directory(source, home=home, env={})
+    manifest = installed.root / "package.toml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + '\n[aliases]\ndev = "devel"\n',
+        encoding="utf-8",
+    )
+    index_path = activation_index_path(home=home, env={})
+    with index_path.open("a", encoding="utf-8") as index_file:
+        index_file.write(
+            '\n[commands.dev]\npackage = "tools"\n'
+            '\n[commands."dev review"]\n'
+            'package = "tools"\nprogram = "tools/review::main"\n'
+        )
+    monkeypatch.setenv("HOME", str(home))
+
+    command = invoke(CliRunner(), ["devel", "review"])
+    package_list = invoke(CliRunner(), ["pkg", "list"])
+
+    assert command.exit_code == 0, command.output
+    assert command.stdout == "reviewed\n"
+    assert package_list.exit_code == 0, package_list.output
+    assert "tools 1.0.0 active" in package_list.stdout
+
+
 def test_editable_package_dispatches_its_own_source_declared_command(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2261,7 +2305,7 @@ def test_registered_command_binds_module_parameters_from_its_command_table(
         home,
         "tools",
         source=source,
-        commands={"dev review": "tools/main::main"},
+        commands={"dv review": "tools/main::main"},
     )
     (module.parent / "logging.agl").write_text(
         '@param @opt-env("AGM_REGISTERED_VERBOSE") let verbose: bool = false\n'
@@ -2275,23 +2319,23 @@ def test_registered_command_binds_module_parameters_from_its_command_table(
     )
     monkeypatch.setenv("HOME", str(home))
 
-    default = invoke(CliRunner(), ["dev", "review"])
+    default = invoke(CliRunner(), ["dv", "review"])
     assert default.exit_code == 0
     assert default.output == "false\n"
 
     config = home / ".agm" / "config.toml"
     config.write_text("[tools.logging]\nverbose = true\n", encoding="utf-8")
-    module_value = invoke(CliRunner(), ["dev", "review"])
+    module_value = invoke(CliRunner(), ["dv", "review"])
     assert module_value.exit_code == 0
     assert module_value.output == "true\n"
 
     config.write_text(
-        "[tools.logging]\nverbose = true\n\n[dev.review]\nverbose = false\n",
+        "[tools.logging]\nverbose = true\n\n[dv.review]\nverbose = false\n",
         encoding="utf-8",
     )
 
     exec_program.run_registered(
-        "tools/main::main", args=exec_args(), package="tools", command_path="dev review"
+        "tools/main::main", args=exec_args(), package="tools", command_path="dv review"
     )
     assert capsys.readouterr().out == "false\n"
 
@@ -2299,29 +2343,29 @@ def test_registered_command_binds_module_parameters_from_its_command_table(
         "tools/main::main",
         args=exec_args(["--verbose"]),
         package="tools",
-        command_path="dev review",
+        command_path="dv review",
     )
     assert capsys.readouterr().out == "true\n"
 
-    program_value = invoke(CliRunner(), ["dev", "review"])
+    program_value = invoke(CliRunner(), ["dv", "review"])
     assert program_value.exit_code == 0
     assert program_value.output == "false\n"
 
     monkeypatch.setenv("AGM_REGISTERED_VERBOSE", "true")
-    environment_value = invoke(CliRunner(), ["dev", "review"])
+    environment_value = invoke(CliRunner(), ["dv", "review"])
     assert environment_value.exit_code == 0
     assert environment_value.output == "true\n"
 
-    cli_value = invoke(CliRunner(), ["dev", "review", "--no-verbose"])
+    cli_value = invoke(CliRunner(), ["dv", "review", "--no-verbose"])
     assert cli_value.exit_code == 0
     assert cli_value.output == "false\n"
 
-    undecodable = invoke(CliRunner(), ["dev", "review", "--tools.logging.retries", "bad"])
+    undecodable = invoke(CliRunner(), ["dv", "review", "--tools.logging.retries", "bad"])
     assert undecodable.exit_code == 1
     assert "retries" in undecodable.output
     assert "false\n" not in undecodable.output
 
-    help_result = invoke(CliRunner(), ["dev", "review", "--help"])
+    help_result = invoke(CliRunner(), ["dv", "review", "--help"])
     assert help_result.exit_code == 0
     assert "tools/logging" in help_result.output
     assert "--retries" in help_result.output
@@ -2340,7 +2384,7 @@ def test_registered_command_reports_an_ambiguous_module_parameter(
         home,
         "tools",
         source=source,
-        commands={"dev review": "tools/main::main"},
+        commands={"dv review": "tools/main::main"},
     )
     (module.parent / "logging.agl").write_text(
         "@param let verbose: bool = false\n", encoding="utf-8"
@@ -2348,7 +2392,7 @@ def test_registered_command_reports_an_ambiguous_module_parameter(
     (module.parent / "other.agl").write_text("@param let verbose: bool = false\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
 
-    result = invoke(CliRunner(), ["dev", "review", "--verbose"])
+    result = invoke(CliRunner(), ["dv", "review", "--verbose"])
 
     assert result.exit_code == 1
     assert "verbose" in result.output
@@ -2459,7 +2503,7 @@ def test_parameter_fixture_runs_by_installed_reference_and_file(
 
 
 def _write_group_table_package(root: Path) -> None:
-    """Write a ``devel review`` package (aliased ``dev``) with one of each config value.
+    """Write a ``devel review`` package (aliased ``dv``) with one of each config value.
 
     ``strict-json`` is an engine setting, ``label`` a defaulted signature
     argument, and ``verbose`` a module parameter — the three kinds of value a
@@ -2469,7 +2513,7 @@ def _write_group_table_package(root: Path) -> None:
     (root / "package.toml").write_text(
         '[package]\nname = "tools"\nversion = "1.0.0"\n'
         '\n[commands]\n"devel review" = { program = "tools/main::main" }\n'
-        '\n[aliases]\ndev = "devel"\n',
+        '\n[aliases]\ndv = "devel"\n',
         encoding="utf-8",
     )
     (root / MODULE_TREE_DIRNAME / "main.agl").write_text(
@@ -2542,7 +2586,7 @@ def test_an_alias_prefix_table_feeds_the_canonical_command_too(
     _write_group_table_package(root)
     install_directory(root, home=home)
     monkeypatch.setenv("HOME", str(home))
-    (home / ".agm" / "config.toml").write_text('[dev]\nlabel = "aliased"\n', encoding="utf-8")
+    (home / ".agm" / "config.toml").write_text('[dv]\nlabel = "aliased"\n', encoding="utf-8")
 
     result = invoke(CliRunner(), ["devel", "review"])
 
@@ -2568,7 +2612,7 @@ def test_an_unconsumed_group_table_leaf_draws_no_warning(
 def test_a_same_depth_conflict_via_an_alias_errors_even_in_one_layer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``[dev]`` and ``[devel]`` are the same-depth alias/canonical prefixes of one
+    """``[dv]`` and ``[devel]`` are the same-depth alias/canonical prefixes of one
     command; both setting one key in one config layer is an error, not a pick."""
     home = tmp_path / "home"
     root = tmp_path / "tools"
@@ -2576,7 +2620,7 @@ def test_a_same_depth_conflict_via_an_alias_errors_even_in_one_layer(
     install_directory(root, home=home)
     monkeypatch.setenv("HOME", str(home))
     (home / ".agm" / "config.toml").write_text(
-        '[dev]\nlabel = "a"\n\n[devel]\nlabel = "b"\n', encoding="utf-8"
+        '[dv]\nlabel = "a"\n\n[devel]\nlabel = "b"\n', encoding="utf-8"
     )
 
     result = invoke(CliRunner(), ["devel", "review"])

@@ -31,16 +31,18 @@ Start here for the system shape, then read only the subsystem documents relevant
 - [sandbox.md](sandbox.md) — sandbox preparation, `agm run`, the SRT backend.
 - [agents.md](agents.md) — agent specs, defaults, and sessions.
 - [agl/index.md](agl/index.md) — start here for any AgL task.
+- [highlighting.md](highlighting.md) — exact lexical/semantic tiers, document context, portable grammars and integrations.
 - [testing.md](testing.md) — test strategy and quality gates.
 
 ## Code Entry Points
 
 - `src/agnette/agm/cli.py`, `cli_dispatch.py`, `parser.py`, `completion.py` — CLI definition, registered-command fallback, help, completion; `src/agnette/command_catalog.py` — pure command-path leaf.
-- `src/agnette/agm/commands/` — command implementations; `src/agnette/agm/cli_support/` — argument containers and shared AgL CLI support.
+- `src/agnette/agm/commands/` — command implementations, including development/integration tooling in `commands/dev/`; `src/agnette/agm/cli_support/` — argument containers and shared AgL CLI support.
 - `src/agnette/agm/project/`, `src/agnette/agm/tmux/` — manager-specific project layout and tmux.
 - `src/agnette/core/`, `src/agnette/util/` — primitives and pure helpers.
 - `src/agnette/config/`, `src/agnette/stdlib_locator.py` — configuration; shipped stdlib location.
 - `src/agnette/agent/`, `src/agnette/vcs/`, `src/agnette/packages/`, `src/agnette/sandbox/` — agents, git, packages, sandboxing.
 - `src/agnette/agl/` — AgL implementation and host runtime; `packages/stdlib/src/` — the AgL standard library and its Python companions; `packages/sysone/` — the `sysone/jev` package; `packages/devel/` — the development-workflow package.
+- `src/agnette/agl/highlight/` — shared highlighting, Pygments/Markdown adapters and generated targets; `tools/install_highlighting.py`, `tools/install_emacs_mode.py` — installation hooks.
 - `src/agnette/version.py` — release version, kept in lockstep with package and project metadata.
 - `tests/`, `docs/`, `config/` (templates, editor modes), `stubs/` (typing stubs), `tools/` (repository tooling).

@@ -1,0 +1,590 @@
+{
+  "let x = 1 + foo": [
+    [
+      [
+        "class:agl.keyword",
+        "let"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "="
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.number",
+        "1"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "+"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "foo"
+      ]
+    ]
+  ],
+  "let x = \u200bbad": [
+    [
+      [
+        "",
+        "let x = \u200bbad"
+      ]
+    ]
+  ],
+  "let x = \"bad\\q\"": [
+    [
+      [
+        "",
+        "let x = \"bad\\q\""
+      ]
+    ]
+  ],
+  "# note\nlet x = \"abc": [
+    [
+      [
+        "class:agl.comment",
+        "# note"
+      ]
+    ],
+    [
+      [
+        "class:agl.keyword",
+        "let"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "="
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "\"abc"
+      ]
+    ]
+  ],
+  "let x = \"a%{foo}b": [
+    [
+      [
+        "class:agl.keyword",
+        "let"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "="
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "\"a%{foo}b"
+      ]
+    ]
+  ],
+  "ask $   ": [
+    [
+      [
+        "class:agl.name",
+        "ask"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "$   "
+      ]
+    ]
+  ],
+  "let x = \"bad\nlet y = 1": [
+    [
+      [
+        "class:agl.keyword",
+        "let"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "="
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "\"bad"
+      ]
+    ],
+    [
+      [
+        "",
+        "let y = 1"
+      ]
+    ]
+  ],
+  "let x = \"\"\"first\n\nle": [
+    [
+      [
+        "class:agl.keyword",
+        "let"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "="
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "\"\"\"first"
+      ]
+    ],
+    [
+      [
+        "",
+        ""
+      ]
+    ],
+    [
+      [
+        "",
+        "le"
+      ]
+    ]
+  ],
+  "enum A | A": [
+    [
+      [
+        "class:agl.keyword",
+        "enum"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.type",
+        "A"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "|"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.constructor",
+        "A"
+      ]
+    ]
+  ],
+  "infixl |> at 5": [
+    [
+      [
+        "class:agl.keyword",
+        "infixl"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "|>"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.keyword",
+        "at"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.number",
+        "5"
+      ]
+    ]
+  ],
+  "@doc(\"greets\") def greet(x: text) -> text = x": [
+    [
+      [
+        "class:agl.attribute",
+        "@"
+      ],
+      [
+        "class:agl.attribute",
+        "doc"
+      ],
+      [
+        "class:agl.operator",
+        "("
+      ],
+      [
+        "class:agl.string",
+        "\""
+      ],
+      [
+        "class:agl.string",
+        "greets"
+      ],
+      [
+        "class:agl.string",
+        "\""
+      ],
+      [
+        "class:agl.operator",
+        ")"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.keyword",
+        "def"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "greet"
+      ],
+      [
+        "class:agl.operator",
+        "("
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "class:agl.operator",
+        ":"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.type",
+        "text"
+      ],
+      [
+        "class:agl.operator",
+        ")"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "->"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.type",
+        "text"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "="
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ]
+    ]
+  ],
+  "\"${HOME}%{x}\"": [
+    [
+      [
+        "class:agl.string",
+        "\""
+      ],
+      [
+        "class:agl.string",
+        "${HOME}"
+      ],
+      [
+        "class:agl.string",
+        "%{"
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "class:agl.string",
+        "}"
+      ],
+      [
+        "class:agl.string",
+        "\""
+      ]
+    ]
+  ],
+  "record Box\n  x: int\nBox(1)": [
+    [
+      [
+        "class:agl.keyword",
+        "record"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.type",
+        "Box"
+      ]
+    ],
+    [
+      [
+        "",
+        "  "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "class:agl.operator",
+        ":"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.type",
+        "int"
+      ]
+    ],
+    [
+      [
+        "class:agl.constructor",
+        "Box"
+      ],
+      [
+        "class:agl.operator",
+        "("
+      ],
+      [
+        "class:agl.number",
+        "1"
+      ],
+      [
+        "class:agl.operator",
+        ")"
+      ]
+    ]
+  ],
+  "": [
+    [
+      [
+        "",
+        ""
+      ]
+    ]
+  ],
+  "\n": [
+    [
+      [
+        "",
+        ""
+      ]
+    ],
+    [
+      [
+        "",
+        ""
+      ]
+    ]
+  ],
+  "ask $ hi %{x}": [
+    [
+      [
+        "class:agl.name",
+        "ask"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "$"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "hi "
+      ],
+      [
+        "class:agl.string",
+        "%{"
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "class:agl.string",
+        "}"
+      ]
+    ]
+  ],
+  "let x = \"bad\\": [
+    [
+      [
+        "class:agl.keyword",
+        "let"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.name",
+        "x"
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.operator",
+        "="
+      ],
+      [
+        "",
+        " "
+      ],
+      [
+        "class:agl.string",
+        "\"bad\\"
+      ]
+    ]
+  ],
+  "# \"unfinished\nle": [
+    [
+      [
+        "class:agl.comment",
+        "# \"unfinished"
+      ]
+    ],
+    [
+      [
+        "class:agl.name",
+        "le"
+      ]
+    ]
+  ]
+}

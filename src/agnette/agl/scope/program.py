@@ -27,8 +27,9 @@ Design
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, MutableMapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
+from itertools import chain as iter_chain
 from typing import TYPE_CHECKING, Protocol, cast
 from weakref import WeakValueDictionary
 
@@ -65,6 +66,7 @@ from agnette.agl.scope.imports import (
     alias_prefix,
     build_import_env,
     matching_atoms,
+    target_modules,
     validate_import_items,
 )
 from agnette.agl.scope.resolver import _Resolver, reject_declaring_beneath_retained
@@ -104,6 +106,7 @@ from agnette.agl.syntax.nodes import (
     ExportItem,
     FuncDef,
     ImportDecl,
+    ImportItem,
     Item,
     LetDecl,
     Program,
@@ -1397,6 +1400,37 @@ def resolve_program(
     # then resolve each one's bodies against the type owners the prepared
     # headers make selectable: a body reads through other modules' aliases.
     # ------------------------------------------------------------------
+    def header_references(mid: ModuleId) -> dict[tuple[int, str], frozenset[QName]]:
+        """Read header spellings from their target's public surface, including alias paths."""
+        references: dict[tuple[int, str], frozenset[QName]] = {}
+        declarations: tuple[ImportDecl | ExportDecl, ...] = (
+            *graph.modules[mid].imports,
+            *graph.modules[mid].export_decls,
+        )
+        for decl in declarations:
+            items: tuple[ImportItem | ExportItem, ...] = (
+                decl.items if isinstance(decl, ExportDecl) else decl.tail or ()
+            )
+            targets = target_modules(all_targets[decl.node_id])
+
+            def record(node_id: int, name: str, path: PathAtom) -> None:
+                origins: set[QName] = set()
+                for target in targets:
+                    origin = export_maps[target].get(_atom(path))
+                    if origin is None:
+                        origin = through(target, path).get(())
+                    if origin is not None:
+                        origins.add(origin)
+                references[node_id, name] = frozenset(origins)
+
+            hidden: tuple[ImportItem | ExportItem, ...] = decl.hidden
+            for item in iter_chain(items, hidden):
+                path = _item_path(item)
+                for end, segment in enumerate(item.scope_path, 1):
+                    record(segment.node_id, segment.name, path[:end])
+                record(item.node_id, item.name, path)
+        return references
+
     for mid, resolver in resolvers.items():
         resolver.collect()
     for mid in graph.modules:
@@ -1404,6 +1438,9 @@ def resolve_program(
         if prepared is None:
             continue
         resolved = prepared.resolve()
+        resolved = replace(
+            resolved, name_references=resolved.name_references | header_references(mid)
+        )
         resolved_modules[mid] = ResolvedModule(
             module_id=mid,
             resolved=resolved,

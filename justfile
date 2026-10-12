@@ -11,6 +11,16 @@ default:
 # Refresh the locked project and dev dependencies, repairing moved-venv launchers
 setup:
     uv sync --locked --python 3.14 --group dev --reinstall
+    just setup-textmate-optional
+
+# Install the native TextMate tests' pinned npm dependencies when npm is available
+[private]
+setup-textmate-optional:
+    if command -v npm >/dev/null 2>&1; then \
+        npm ci --prefix config/textmate/tests; \
+    else \
+        echo "npm not found; skipping the native TextMate test dependencies"; \
+    fi
 
 # Build the Markdown documentation into site/
 docs-build:
@@ -98,7 +108,8 @@ setup-emacs-optional *args:
 
 # Run the Emacs mode's ERT suite (requires emacs)
 test-emacs:
-    emacs --batch -L config/emacs -l ert \
+    uv run agm dev highlight emacs --output build/emacs/agl-inventory.el
+    emacs --batch -L build/emacs -L config/emacs -l ert \
         $(for f in config/emacs/tests/*.el; do printf ' -l %s' "$f"; done) \
         -f ert-run-tests-batch-and-exit
 
@@ -108,6 +119,28 @@ test-emacs:
 # dependency, so a cached pass would otherwise survive editing the rules.
 test-micro:
     cd config/micro/tests && go test -count=1 ./...
+
+# Compare generated KDE highlighting with the reference grammar (optional Pandoc 3.x)
+test-kde:
+    @if command -v pandoc >/dev/null 2>&1; then \
+        uv run agm dev highlight kde --output build/kde/agl.xml; \
+        PYTHONPATH="{{justfile_directory()}}${PYTHONPATH:+:$PYTHONPATH}" \
+            uv run python config/kde/tests/test_engine.py; \
+        uv run python -m tools.highlight_kde build/kde/agl.xml; \
+    else \
+        echo "pandoc not found; skipping the optional KDE engine suite (requires Pandoc 3.x)"; \
+    fi
+
+# Compare the generated TextMate grammar with the reference in the native engine
+# Pinned npm dependencies are installed only by this optional recipe.
+test-textmate:
+    @if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then \
+        echo "node or npm not found; skipping the native TextMate suite"; \
+    else \
+        just setup-textmate-optional; \
+        uv run agm dev highlight textmate --output build/highlighting/AgL.tmLanguage.json; \
+        uv run python tools/highlight_textmate.py build/highlighting/AgL.tmLanguage.json; \
+    fi
 
 # Type-check with mypy
 typecheck:
@@ -170,6 +203,7 @@ install-prefix *args:
 install *args:
     just install-agm {{args}}
     uv run python tools/install_agm_config.py {{args}}
+    uv run python tools/install_highlighting.py {{args}}
     just setup-emacs-optional {{args}}
     install_prefix="$(just install-prefix {{args}})"; \
     if [[ -n "$install_prefix" ]]; then \

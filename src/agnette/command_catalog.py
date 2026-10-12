@@ -22,6 +22,7 @@ COMMAND_OVERVIEW: tuple[tuple[str, str], ...] = (
     ("sync", "Fetch and merge project repositories"),
     ("dep", "Manage dependency checkouts"),
     ("pkg", "Manage AgL packages"),
+    ("dev", "Development and integration tooling"),
     ("exec", "Run an AgL program"),
     ("repl", "Start the AgL REPL"),
     ("check", "Statically check AgL files"),
@@ -39,6 +40,10 @@ COMMAND_NAMES: tuple[str, ...] = tuple(name for name, _ in COMMAND_OVERVIEW)
 COMMAND_ALIASES: tuple[str, ...] = ("wsp", "wt")
 
 RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(COMMAND_NAMES) | frozenset(COMMAND_ALIASES)
+
+# ``dev`` was added after packages could already register it as an alias.
+# Package validation still uses the full set; readers use this set for persisted registrations.
+LEGACY_RESERVED_COMMAND_NAMES: frozenset[str] = RESERVED_COMMAND_NAMES - {"dev"}
 
 # Top-level config sections that describe AgM's configuration schema rather than
 # AgL modules, and key their own nested tables by user-chosen names -- an agent

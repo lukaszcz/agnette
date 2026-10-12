@@ -130,7 +130,9 @@ def iter_installed_packages(
     for name_dir in iter_store_package_dirs(home=home, env=env):
         for version_dir in iter_store_version_dirs(name_dir):
             try:
-                manifest = load_manifest(version_dir / "package.toml")
+                manifest = load_manifest(
+                    version_dir / "package.toml", allow_legacy_dev_aliases=True
+                )
             except ManifestError as exc:
                 raise PackageInstallError(
                     f"cannot load installed package at {version_dir}: {exc}"
@@ -185,7 +187,11 @@ def satisfying_installed_package(
     if selected is not None or active is None or active.editable is None:
         return selected
     # Live source, selected on identity alone; its commands are not read here.
-    manifest = load_manifest(active.editable / "package.toml", commands_complete=False)
+    manifest = load_manifest(
+        active.editable / "package.toml",
+        commands_complete=False,
+        allow_legacy_dev_aliases=True,
+    )
     editable = PackageInfo(active.editable, manifest)
     return (
         editable

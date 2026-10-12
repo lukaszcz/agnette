@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from agnette.agl import artifact_cache, artifact_storage
+from agnette.agl import artifact_cache, artifact_serialization, artifact_storage
 from agnette.agl.constraints import ConstraintKind
+from agnette.agl.lower.lowerer import _Lowerer
 from agnette.agl.lower.program import lower_program
 from agnette.agl.matchcompile import compile_program_matches
 from agnette.agl.matchcompile.diagnostics import NonExhaustiveIssue, render_witness
@@ -26,7 +28,7 @@ from agnette.agl.typecheck.env import (
     TypeEnvironment,
 )
 from agnette.agl.typecheck.program import _prepare_program, check_program
-from tests._agl_helpers import agl_roots, run_inline_code
+from tests._agl_helpers import agl_roots, prepare_inline_code, run_inline_code
 from tests.agl.ir_harness import (
     make_file_graph_from_files,
     make_inline_graph_from_files,
@@ -103,6 +105,68 @@ def test_field_default_survives_the_module_cache_disk_round_trip(
 
     assert result.ok, result.diagnostics
     assert capsys.readouterr().out == "3\n"
+
+
+def test_rehydrated_checked_modules_reuse_match_sites_with_correct_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    (tmp_path / "lib.agl").write_text(
+        "enum Choice\n"
+        "  | First\n"
+        "  | Second\n"
+        "def choose(value: Choice) -> int =\n"
+        "  case value of\n"
+        "    | First => 10\n"
+        "    | Second => 20\n"
+    )
+    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+    roots = agl_roots(tmp_path)
+    source = "import lib::*\nprint(choose(First))\nprint(choose(Second))\n"
+    prepared = prepare_inline_code(source, roots=roots)
+    original = runtime.discover_programs(prepared)
+    assert original.compiled is not None
+    assert runtime.run_prepared(
+        prepared, compiled=original.compiled, select_default_program=True
+    ).ok
+    assert capsys.readouterr().out == "10\n20\n"
+
+    artifact_cache._CHECKED.clear()  # Rehydrate checked bodies while retaining match sites.
+    prepared = prepare_inline_code(source, roots=roots)
+    restored = runtime.discover_programs(prepared)
+    assert restored.compiled is not None
+    lib_id = ModuleId.from_path("lib")
+    assert lib_id in restored.compiled.reused_modules
+    assert (
+        restored.compiled.checked.modules[lib_id] is not original.compiled.checked.modules[lib_id]
+    )
+    original_sites = original.compiled.sites_by_module[lib_id]
+    reused_sites = restored.compiled.sites_by_module[lib_id]
+    assert reused_sites
+    assert all(site is original_sites[node_id] for node_id, site in reused_sites.items())
+
+    # Keep checked/match disk reads intact, but force fresh lowering on the second run.
+    load_artifact = artifact_serialization.load
+
+    def without_persisted_ir(key: bytes, kind: str, anchors: tuple[object, ...] = ()) -> object:
+        return None if kind == "ir" else load_artifact(key, kind, anchors)
+
+    artifact_cache._LOWERED.clear()
+    monkeypatch.setattr(artifact_serialization, "load", without_persisted_ir)
+    with patch.object(
+        _Lowerer,
+        "_lower_compiled_decision",
+        autospec=True,
+        side_effect=_Lowerer._lower_compiled_decision,
+    ) as lowering:
+        assert runtime.run_prepared(
+            prepared, compiled=restored.compiled, select_default_program=True
+        ).ok
+    assert capsys.readouterr().out == "10\n20\n"
+    assert all(
+        any(call.args[1] is site for call in lowering.call_args_list)
+        for site in reused_sites.values()
+    )
 
 
 def _library_witnesses(root: Path, library: str) -> list[str]:
@@ -920,6 +984,38 @@ def test_an_in_memory_reused_module_skips_closure_validation(
     assert second.modules[lib_id] is checked.modules[lib_id]
 
 
+def test_source_sets_retain_the_objects_named_by_precomputed_identities(tmp_path: Path) -> None:
+    graph = make_file_graph_from_files(
+        tmp_path, {"entry": "import helper\n()", "helper": "()"}, default_stdlib=False
+    )
+    modules = tuple(graph.modules.values())
+    sources = artifact_cache.Sources(modules)
+    assert sources.identities == tuple(id(module) for module in modules)
+    assert all(left is right for left, right in zip(sources, modules, strict=True))
+
+
+@pytest.mark.parametrize("change", ["equal-replacement", "order", "length"])
+def test_artifact_source_identity_includes_each_object_and_its_position(
+    tmp_path: Path, change: str
+) -> None:
+    graph = make_file_graph_from_files(
+        tmp_path, {"entry": "import helper\n()", "helper": "()"}, default_stdlib=False
+    )
+    modules = tuple(graph.modules.values())
+    sources = artifact_cache.Sources(modules)
+    store: artifact_cache._ArtifactStore[str, str] = artifact_cache._ArtifactStore()
+    store.put("artifact", sources, "retained")
+    assert store.get("artifact", artifact_cache.Sources(modules)) == "retained"
+    if change == "equal-replacement":
+        changed = (replace(modules[0]), *modules[1:])
+    elif change == "order":
+        changed = tuple(reversed(modules))
+    else:
+        changed = modules[:-1]
+    assert store.get("artifact", artifact_cache.Sources(changed)) is None
+    assert store.get("artifact", sources) == "retained"
+
+
 def test_the_image_is_bounded_and_evicts_the_least_recently_used() -> None:
     """Retention is capped, so a long-lived process cannot grow without limit.
 
@@ -927,7 +1023,7 @@ def test_the_image_is_bounded_and_evicts_the_least_recently_used() -> None:
     compilations would mean building hundreds of distinct standard libraries.
     """
     store: artifact_cache._ArtifactStore[str] = artifact_cache._ArtifactStore(capacity=2)
-    sources: artifact_cache.Sources = ()
+    sources = artifact_cache.Sources()
     store.put(("a",), sources, "first")
     store.put(("b",), sources, "second")
     assert store.get(("a",), sources) == "first"
