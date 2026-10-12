@@ -87,9 +87,12 @@ class _Names:
 
     def __init__(self, text: str, spans: list[Span]) -> None:
         self.starts: dict[str, list[int]] = {}
+        self.keyword_ends: dict[str, list[int]] = {}
         for start, end, category in spans:
             if category in _NAME_CATEGORIES:
                 self.starts.setdefault(text[start:end], []).append(start)
+            elif category == Category.KEYWORD:
+                self.keyword_ends.setdefault(text[start:end], []).append(end)
         self.overrides: dict[int, Category] = {}
 
     def mark(
@@ -113,6 +116,13 @@ class _Names:
             self.overrides[start] = category
             return start + len(name)
         return start
+
+    def mark_after_keyword(
+        self, span: SourceSpan, keyword: str, name: str, category: Category
+    ) -> int:
+        ends = self.keyword_ends[keyword]
+        end = ends[bisect_left(ends, span.start_offset)]
+        return self.mark(span, name, category, start_at=end)
 
     def member(
         self, span: SourceSpan, name: str, category: Category, chain: QualifierChain | None
@@ -258,7 +268,7 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
             else:
                 items = node.items if isinstance(node, ExportDecl) else node.tail or ()
                 if isinstance(node, ImportDecl) and node.alias is not None:
-                    names.mark(node.span, node.alias, Category.MODULE)
+                    names.mark_after_keyword(node.span, "as", node.alias, Category.MODULE)
             hidden: tuple[ImportItem | ExportItem, ...] = node.hidden
             for item in iter_chain(items, hidden):
                 category = reference_category(item.node_id, item.name)

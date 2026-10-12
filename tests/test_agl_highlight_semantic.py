@@ -345,6 +345,11 @@ def test_unexpected_frontend_failure_is_total(
             [Category.MODULE],
         ),
         (
+            "import shapes as shapes\n",
+            "shapes",
+            [Category.MODULE, Category.MODULE],
+        ),
+        (
             "import shapes::{nested::nested as N}\nimport forward::{build as b}\n",
             "nested",
             [Category.FUNCTION],
