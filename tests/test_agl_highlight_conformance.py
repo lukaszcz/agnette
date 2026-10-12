@@ -10,7 +10,7 @@ from agnette.agl.highlight.categories import Category, Span
 from agnette.agl.highlight.grammar_eval import evaluate
 from agnette.agl.highlight.lexical import _token_spans, lexical_spans
 from agnette.agl.keywords import KEYWORDS, OPERATOR_SOFT_KEYWORDS, SOFT_KEYWORDS
-from agnette.agl.lexer import _tokenize_recover, tokenize_recover
+from agnette.agl.lexer import _RecoveryResult, _tokenize_recover, tokenize_recover
 from agnette.agl.lexer.scanner import scan
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.symbols import BUILTIN_CALL_NAMES
@@ -19,6 +19,7 @@ from agnette.agl.value_syntax.errors import ValueSyntaxError
 from agnette.agl.value_syntax.lexical import decode_escape
 from agnette.util.text import normalize_newlines
 from tests._agl_corpus import lexical_corpus_batches
+from tests.test_agl_highlight_native_frames import SUCCESSIVE_FRAME_CASES
 
 
 def _characters(source: str, spans: list[Span]) -> list[Category]:
@@ -184,6 +185,10 @@ def test_nested_states_and_unicode_preserve_categories(source: str) -> None:
 
 # Construct-specific discrepancies, never file exemptions. Each has a witness.
 DIVERGENCES = {
+    "native-multiline-recovery-tail": (
+        "EOL pops a rejected child, not its multiline literal owner; the owner persists "
+        "until its later delimiter/dedent or EOF. Independent continuation lexing owns categories."
+    ),
     "literal-line-delimiters": "Line-local engines assign TEXT to newlines, even inside literals.",
     "relative-verbatim-dedent": (
         "States cannot compare indentation with a header; only column-zero dedent ends them."
@@ -313,6 +318,121 @@ def _verbatim_evidence(source: str, start: int, end: int) -> list[Category]:
             evidence[offsets[position] : offsets[position + 1]] = [category] * (
                 offsets[position + 1] - offsets[position]
             )
+    return evidence
+
+
+def _native_owner_evidence(text: str, tail: int, delimiter: str) -> dict[int, Category]:
+    """Lex each rejected child independently under the unchanged literal owner."""
+    verbatim = delimiter.startswith("$")
+    prefix = delimiter if verbatim else delimiter + "\n"
+    opening = "VERBATIM_START" if verbatim else "TEMPLATE_START"
+    ending = "VERBATIM_END" if verbatim else "TEMPLATE_END"
+    evidence: dict[int, Category] = {}
+    while tail < len(text):
+        probe = prefix + text[tail:]
+        scanned = _tokenize_recover(probe)
+        rejected = next(
+            (part for part in scanned.tokens if part.type == "ERROR" and part.start_pos == 0),
+            None,
+        )
+        failures = [
+            error.span.start_offset
+            for error in scanned.errors
+            if rejected is not None
+            and len(prefix) <= error.span.start_offset <= rejected.end_pos
+            and probe[error.span.start_offset : error.span.start_offset + 1] in {"\\", "\n"}
+        ]
+        failure = min(failures, default=len(probe))
+        newline = probe.find("\n", failure)
+        # A failed child owns its entire physical line, including host closers.
+        stop = newline + 1 if newline >= 0 else len(probe)
+        if not failures:
+            depth = 0
+            for part in scanned.tokens:
+                if part.type == opening:
+                    depth += 1
+                elif part.type == ending:
+                    depth -= 1
+                    if depth == 0:
+                        stop = part.end_pos
+                        break
+            if verbatim and rejected is not None:
+                # An empty reopened block has already dedented; it owns no tail.
+                stop = len(prefix)
+        spans = _token_spans(
+            probe,
+            [part for part in scanned.tokens if part.type != "ERROR"],
+            scanned.comments,
+            frozenset(),
+            frozenset(),
+        )
+        colors = _project(probe, spans)
+        if not verbatim and (
+            rejected is not None
+            or any(part.type == "STRING_TAIL" and part.start_pos == 0 for part in scanned.tokens)
+        ):
+            # This window contains at most one failing physical line. Earlier
+            # failed holes never enter the ownership probe for its later holes.
+            for position, category in _buffered_code_evidence(probe, 0, min(failure, stop)).items():
+                colors[position] = category
+        # Only independent invalid-escape diagnostics own an ERROR suffix.
+        for error in scanned.errors:
+            position = error.span.start_offset
+            if position >= stop or not probe.startswith("\\", position):
+                continue
+            try:
+                decode_escape(probe, position)
+            except ValueSyntaxError as invalid:
+                if str(error) == invalid.message:
+                    end = probe.find("\n", position)
+                    end = end if end >= 0 else len(probe)
+                    colors[position:end] = [Category.ERROR] * (end - position)
+        for position in range(len(prefix), stop):
+            original = tail + position - len(prefix)
+            evidence[original] = Category.TEXT if text[original] == "\n" else colors[position]
+        if not failures or newline < 0:
+            break
+        tail += stop - len(prefix)
+    return evidence
+
+
+def _native_tail_evidence(
+    source: str, recovery: _RecoveryResult | None = None
+) -> dict[int, Category]:
+    """Resume a known multiline owner after each independently diagnosed child failure."""
+    text, offsets = _normalized_offsets(source)
+    recovery = recovery or _tokenize_recover(text)
+    evidence: dict[int, Category] = {}
+    for token in recovery.tokens:
+        if token.type != "ERROR":
+            continue
+        start = token.start_pos
+        header = re.match(r"\$[ \t]*\n", text[start:])
+        delimiter = (
+            header[0]
+            if header
+            else next((q for q in ('"""', "'''") if text.startswith(q, start)), None)
+        )
+        if delimiter is None or not any(
+            part.start_pos == start
+            and part.type == ("VERBATIM_START" if header else "TEMPLATE_START")
+            for part in recovery.tokens
+        ):
+            continue
+        failures = [
+            error.span.start_offset
+            for error in recovery.errors
+            if start <= error.span.start_offset <= token.end_pos
+            and text[error.span.start_offset : error.span.start_offset + 1] in {"\\", "\n"}
+        ]
+        if not failures:
+            continue
+        newline = text.find("\n", min(failures))
+        if newline < 0:
+            continue
+        for position, category in _native_owner_evidence(text, newline + 1, delimiter).items():
+            for index in range(offsets[position], offsets[position + 1]):
+                evidence.setdefault(index, category)
     return evidence
 
 
@@ -520,6 +640,9 @@ def _allowed_differences(
                         )
                     ):
                         allowed[index] = "rejected-verbatim-structure"
+    for index, category in _native_tail_evidence(source, recovery).items():
+        if actual[index] == category and actual[index] != expected[index]:
+            allowed[index] = "native-multiline-recovery-tail"
     return allowed
 
 
@@ -648,7 +771,7 @@ def test_relative_verbatim_divergence_uses_original_newline_offsets(newline: str
         ('"bad\\n', "\\n", Category.NUMBER),
         ('"bad\\n', "\\n", Category.STRING),
         ('"""bad\\n%{1\nlet x=1', "\\n", Category.NUMBER),
-        ('"""bad\\n%{1\nlet x=1', "let", Category.STRING),
+        ('"""bad\\n%{1\ntail""" let x=1', "let", Category.STRING),
         ('"abc\\n%{1} tail', "tail", Category.NUMBER),
         ('"bad\\q"\nlet x=1', "bad", Category.NUMBER),
         ('"bad\\q suffix"\nlet x=1', "suffix", Category.STRING),
@@ -756,9 +879,14 @@ def test_buffered_holes_keep_eof_and_recovery_bounds(source: str) -> None:
     assert source.index("%{") in case.allowed
     if "\nlet" in source:
         recovered = source.index("\nlet") + 1
-        assert case.actual[recovered : recovered + 3] == [Category.KEYWORD] * 3
-        assert case.actual[recovered:] == case.expected[recovered:]
-        assert not set(range(recovered, len(source))) & case.allowed.keys()
+        evidence = _native_tail_evidence(source)
+        assert case.actual[recovered:] == [
+            evidence[index] for index in range(recovered, len(source))
+        ]
+        assert set(case.allowed.values()) <= {
+            "rejected-template-diagnostics",
+            "native-multiline-recovery-tail",
+        }
 
 
 @pytest.mark.parametrize(
@@ -862,11 +990,16 @@ def test_aborted_templates_do_not_leak_states_into_recovered_code(source: str) -
     actual = _project(source, evaluate(AGL_GRAMMAR, source))
     expected = _project(source, lexical_spans(source))
     start = source.index("let")
-    assert actual[start:] == expected[start:]
+    evidence = _native_tail_evidence(source)
+    if start in evidence:
+        assert actual[start:] == [evidence[index] for index in range(start, len(source))]
+    else:
+        assert actual[start:] == expected[start:]
+        assert (
+            not set(range(start, len(source)))
+            & _allowed_differences(source, actual, expected).keys()
+        )
     _assert_conformance(_comparison("recovery", source))
-    assert (
-        not set(range(start, len(source))) & _allowed_differences(source, actual, expected).keys()
-    )
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
@@ -902,9 +1035,16 @@ def test_holes_track_only_curly_nesting_and_recover_at_line_end(
         )
         case = _comparison("mixed-hole-brackets", source)
         recovered = source.index("let")
-        assert case.actual[recovered:] == case.expected[recovered:], source
-        assert case.actual[recovered : recovered + 3] == [Category.KEYWORD] * 3, source
-        assert not set(range(recovered, len(source))) & case.allowed.keys(), source
+        if len(closing) == 3 and not complete:
+            assert case.actual[recovered:] == [Category.STRING] * (len(source) - recovered)
+            assert set(case.allowed.values()) <= {
+                "rejected-template-diagnostics",
+                "native-multiline-recovery-tail",
+            }
+        else:
+            assert case.actual[recovered:] == case.expected[recovered:], source
+            assert case.actual[recovered : recovered + 3] == [Category.KEYWORD] * 3, source
+            assert not set(range(recovered, len(source))) & case.allowed.keys(), source
         _assert_conformance(case)
 
 
@@ -1068,6 +1208,7 @@ def _assert_conformance(case: Comparison) -> None:
 
 
 DIVERGENCE_WITNESSES = [
+    ("native-multiline-recovery-tail", '"""%{1\nlet x=1'),
     ("literal-line-delimiters", '"""one\ntwo"""'),
     ("relative-verbatim-dedent", "def f() =\n  let x = $\n    hello\n  print(1)"),
     ("invalid-template-escape-recovery", '"bad\\q"\nlet x=1'),
@@ -1082,6 +1223,92 @@ DIVERGENCE_WITNESSES = [
     ("incomplete-triple-buffering", '""" payload %{1 """'),
     ("verbatim-blank-indentation", "$\n  hi\n  \n  bye\nlet x=1"),
 ]
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_native_recovery_tail_requires_owner_and_per_position_evidence(newline: str) -> None:
+    sources = [
+        '"""%{1\ntail\\n %{2} tail""" let after=3',
+        '"""bad\\q consumed"""\ntail\\n %{2} tail""" let after=3',
+        '"""%{1\ntail\\n %{2}',
+        '"""%{1\ntail\\q',
+        "$\n  hi %{1\n  tail %{2}\nlet after=3",
+    ]
+    for source in sources:
+        source = source.replace("\n", newline)
+        case = _comparison("native-owner-tail", source)
+        _assert_conformance(case)
+        evidence = _native_tail_evidence(source)
+        assert evidence
+        for spelling in ["tail", "\\n", "\\q", "%{2}"]:
+            start = source.find(spelling, source.index(newline) + len(newline))
+            if start < 0:
+                continue
+            for index in range(start, start + len(spelling)):
+                for replacement in {
+                    Category.ERROR,
+                    Category.COMMENT,
+                    Category.TYPE,
+                    Category.NUMBER,
+                    Category.STRING,
+                } - {evidence[index]}:
+                    mutated = case.actual.copy()
+                    mutated[index] = replacement
+                    assert index not in _allowed_differences(source, mutated, case.expected)
+        if "let after" in source:
+            following = source.index("let after")
+            assert following not in evidence
+            assert case.actual[following:] == case.expected[following:]
+            mutated = case.actual.copy()
+            mutated[following] = Category.STRING
+            assert following not in _allowed_differences(source, mutated, case.expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        *(source for source, _, _ in SUCCESSIVE_FRAME_CASES),
+        "  let s = $ \n    hi %{1\n    tail %{2\n    more\nlet after=3",
+        "\tlet s = $\t\n\t\thi %{1\n\t\ttail %{2\n\t\tmore\nlet after=3",
+    ],
+)
+def test_successive_native_recoveries_keep_live_owner_evidence(source: str, newline: str) -> None:
+    source = source.replace("\n", newline)
+    case = _comparison("successive-native-recovery", source)
+    _assert_conformance(case)
+    evidence = _native_tail_evidence(source)
+    second = source.index("tail")
+    assert evidence[second] == (Category.VERBATIM if "$" in source else Category.STRING)
+    opening = source.index("%{", second)
+    assert evidence[opening] == Category.INTERPOLATION
+    assert any(reason == "native-multiline-recovery-tail" for reason in case.allowed.values())
+    following = source.index("let after")
+    assert not set(range(following, len(source))) & evidence.keys()
+    assert case.actual[following:] == case.expected[following:]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""%{1\nx %{let n=2 + \'%{3}\'} %{4\ny %{5\nz""" let after=6',
+        "$ \n  hi %{1\n  x %{let n=2 + '%{3}'} %{4\n  y %{5\n  z\nlet after=6",
+    ],
+)
+def test_successive_native_recovery_rejects_each_core_category_mutation(source: str) -> None:
+    case = _comparison("successive-native-mutations", source)
+    # Mutations must fail even when the unmutated comparison is not consulted.
+    for index in range(source.index("x"), len(source)):
+        for replacement in (
+            set(Category) - _CONTEXT_ROLES - {case.actual[index], case.expected[index]}
+        ):
+            mutated = case.actual.copy()
+            mutated[index] = replacement
+            assert index not in _allowed_differences(source, mutated, case.expected), (
+                index,
+                replacement,
+            )
+    _assert_conformance(case)
 
 
 def test_every_divergence_has_a_handwritten_witness() -> None:

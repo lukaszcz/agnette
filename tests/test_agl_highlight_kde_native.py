@@ -12,6 +12,7 @@ from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.grammar import Capture, Grammar, Rule, State, Switch, keyword_rule
 from agnette.agl.highlight.grammar_eval import evaluate
 from agnette.agl.highlight.targets.kde import KDE_STYLES, generate
+from tests.test_agl_highlight_native_frames import FRAME_CASES
 
 pytestmark = pytest.mark.skipif(shutil.which("pandoc") is None, reason="requires pandoc")
 
@@ -144,6 +145,8 @@ def test_native_supported_repeats(pattern: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "source",
     [
+        *(source for source, _, _ in FRAME_CASES),
+        "$\n  hi\n\n  tail\nlet x=1",
         "@ field record Thing | Some\nexception Problem\ntype Alias enum Choice",
         "@\trecord @true record true | enum @\nrecord\nThing",
         "resource-path resource-dir( resource( as? a+b xrecord record-id",

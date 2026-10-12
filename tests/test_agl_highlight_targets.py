@@ -1,5 +1,6 @@
 """Generator structure and cheap target execution, without external engines."""
 
+import json
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import replace
@@ -24,7 +25,63 @@ from agnette.agl.highlight.targets.kde import KDE_STYLES
 from agnette.agl.keywords import KEYWORDS, OPERATOR_SOFT_KEYWORDS, SOFT_KEYWORDS
 from agnette.agl.scope.symbols import BUILTIN_CALL_NAMES
 from agnette.agl.syntax import BUILTIN_TYPE_NAMES
+from agnette.util.ident import IDENT_STOP
 from agnette.version import AGM_VERSION
+
+type _SExpression = str | list[_SExpression]
+
+
+def _elisp_forms(source: str) -> list[_SExpression]:
+    """Read inventory lists, strings, symbols and quotation; reject unbalanced forms."""
+    tokens = re.findall(r';[^\n]*|"(?:\\.|[^"\\])*"|[()\']|[^\s()\'";]+', source)
+    tokens = [token for token in tokens if not token.startswith(";")]
+    position = 0
+
+    def expression() -> _SExpression:
+        nonlocal position
+        token = tokens[position]
+        position += 1
+        if token == "(":
+            result: list[_SExpression] = []
+            while tokens[position] != ")":
+                result.append(expression())
+            position += 1
+            return result
+        if token == "'":
+            return ["quote", expression()]
+        assert token != ")"
+        return json.loads(token) if token.startswith('"') else token
+
+    forms = []
+    while position < len(tokens):
+        forms.append(expression())
+    return forms
+
+
+def test_emacs_inventory_is_deterministic_balanced_and_canonical() -> None:
+    output = TARGETS["emacs"](AGL_GRAMMAR)
+    assert output == TARGETS["emacs"](AGL_GRAMMAR)
+    # The inventory is a vocabulary target, independent of grammar state topology.
+    assert output == TARGETS["emacs"](Grammar((State("empty", ()),), "empty"))
+    forms = _elisp_forms(output)
+    definitions = {form[1]: form[2] for form in forms if form[0] == "defconst"}
+    inventories = {
+        "agl-keywords": KEYWORDS,
+        "agl-constant-keywords": {"true", "false", "null"},
+        "agl-operator-keywords": OPERATOR_SOFT_KEYWORDS,
+        "agl-soft-keywords": SOFT_KEYWORDS,
+        "agl-contextual-builtins": set(BUILTIN_CALL_NAMES),
+        "agl-primitive-type-names": set(BUILTIN_TYPE_NAMES),
+    }
+    assert set(definitions) == {*inventories, "agl--ident-stop-chars"}
+    for name, expected in inventories.items():
+        assert definitions[name] == ["quote", sorted(expected)]
+    stops = definitions["agl--ident-stop-chars"]
+    assert isinstance(stops, str)
+    assert set(stops) == IDENT_STOP
+    assert len(stops) == len(IDENT_STOP)
+    assert stops.startswith("][")  # Safe as a bracket-expression body in Emacs.
+    assert forms[-1] == ["provide", ["quote", "agl-inventory"]]
 
 
 def _xml(grammar: Grammar = AGL_GRAMMAR) -> ET.Element:
@@ -51,7 +108,7 @@ def test_kde_registration_determinism_metadata_and_structure() -> None:
     assert f"AgL release {AGM_VERSION}" in output
     contexts = _contexts(root)
     assert len(contexts) == len(root.findall("./highlighting/contexts/context"))
-    assert len(contexts) < 60  # Shared finite stages, not a stack/state cross product.
+    assert len(contexts) < 30  # Shared finite stages, not a stack/state cross product.
     items = {
         node.attrib["name"]: node for node in root.findall("./highlighting/itemDatas/itemData")
     }
@@ -242,6 +299,8 @@ def _expected(grammar: Grammar, source: str) -> list[Category]:
         '"a%{ record Thing @ field | Some }b"',
         '"unfinished\nlet x = 2',
         '"""%{ {{{x\nlet y=2',
+        '"""bad\\q consumed"""\ntail""" let x=1',
+        "$\n  hi\n\n  tail\nlet x=1",
         "$ text %{ @ field } tail\nlet z=3",
         "$\n  body\nnext",
         '"bad\\q\nlet x=3',

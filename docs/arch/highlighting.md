@@ -76,10 +76,10 @@ in `Rule.words`. `grammar_eval.py` interprets the generic model into partitionin
 `agl_grammar.py` supplies the lexical grammar from canonical keyword, builtin,
 escape and identifier inventories. Explicit Unicode ranges cover identifiers and
 operator names. Recursive strings and brackets use ordered single-frame push/pop
-rules. Each literal has a finite hole state: entering a hole switches the literal
-frame, closing it switches back, and line-end recovery pops unfinished holes and
-nested braces. This also abandons a multiline host without a stack reset.
-Invalid escapes switch to a line-end rejected state. CODE tracks all brackets across
+rules. Its 11 states share one pushed interpolation frame; closers pop back to
+the literal host. EOL pops unfinished holes, nested braces and rejected-escape
+children. Multiline hosts persist; single-line hosts cascade-pop at EOL.
+Invalid escapes push a line-end rejected state. CODE tracks all brackets across
 lines; holes track only curly nesting, ignoring mismatched parentheses/squares.
 Bracketed code and holes reject `$` without opening a payload; holes also exclude
 root comments. Verbatim blocks
@@ -93,18 +93,26 @@ line transitions. Empty lines and line ends (including EOF) run zero-width actio
 Zero-width push/switch and base-frame pop rules run once per `(state, rule)` at
 an offset. Other pops decrease depth and can unwind repeated recursive frames;
 nontransitioning empty matches are skipped. Pop removes one frame; Switch replaces
-only the top. The built-in grammar is directly exportable to native TextMate/KDE
-states: finite transitions and chained line-local ends require neither arbitrary
-stack reset nor target rejection. Exact scanner recovery of arbitrarily nested
-rejected literals is not expressible by these online states.
+only the top. Built-in transitions use only native Push/Pop framing, shared by
+KDE and TextMate. **Native multiline recovery tail** is a shared lexical
+approximation: malformed interpolation/invalid escapes consume the rejected
+child's remaining line (including any host delimiters), then EOL removes that
+child. A multiline literal host resumes until its own later delimiter/dedent or
+EOF, unlike the exact scanner's abandon-entire-construct recovery. Accepted
+source behavior is unchanged; exact Pygments/REPL lexing is unaffected.
 
 ### Generated Targets
 
 `targets.TARGETS` maps names to pure `Grammar → str` generators; extending it needs
-one module and one registry entry. `targets/kde.py` emits deterministic XML with
+one module and one registry entry. `targets/emacs.py` emits `agl-inventory.el`:
+six canonical keyword/builtin/type lists, identifier-stop characters safe for
+Emacs bracket expressions, and the `agl-inventory` feature. It exports vocabulary
+only, independent of grammar topology; editor font-lock remains hand-written.
+`targets/kde.py` emits deterministic XML with
 canonical keyword lists, category item data, integer release versions (major ×
 1000000 + minor × 1000 + patch), human release comments, and native push/pop/switch
-contexts. Only exact token-start keyword-helper patterns without captures use
+contexts (25 for the built-in grammar, including shared capture stages).
+Only exact token-start keyword-helper patterns without captures use
 native keyword matching; other `Rule.words` remain inventory metadata, with matching
 lowered as regex. Identifier-stop guards and regex fallbacks preserve punctuation-bearing
 and Unicode identifiers without `weakDeliminator`. `targets/_regex.py` supplies structural lowering facts.
@@ -133,9 +141,20 @@ and unbounded `*`/`+` remain supported. These lowering restrictions prevent know
 unsupported repeat expansion without runtime engine dependencies or size heuristics.
 Serialized text encodes CR as a character reference to preserve keyword metadata
 through XML newline normalization. Regexes remain line-local; defaults style unmatched characters.
-`tests/test_agl_highlight_targets.py` and `test_agl_highlight_kde_contract.py` check
-structure, inventories, staged transitions and target rejection cheaply, without
-launching external engines.
+`targets/textmate.py` emits deterministic `AgL.tmLanguage.json` data: repository
+states, native begin/end frames, numbered captures (including branch-adjusted end
+captures), `contentName` defaults and explicit deepest-scope fallbacks. It is a
+generic Push/Pop lowering, not an AgL classifier. Pop rules must precede child
+patterns; Switch, base pops and nonconsuming Push/match rules are rejected (empty
+nontransition rules are omitted). Patterns cannot inspect/consume LF: TextMate
+appends a synthetic LF that model lines exclude. Class predicates must exclude LF.
+`TEXTMATE_SCOPES` maps every shared category distinctly.
+
+`tests/test_agl_highlight_targets.py`, `test_agl_highlight_textmate.py` and
+`test_agl_highlight_kde_contract.py` check structure and target contracts cheaply.
+Optional native probes use Pandoc for KDE and batched vscode-textmate/Oniguruma
+for TextMate (`NODE_PATH` supplies those npm modules), comparing source-position
+categories with the reference interpreter, including malformed multiline recovery.
 
 ### Contextual Approximation Contract
 
@@ -187,6 +206,18 @@ Uniform-margin probes expose layout-rejected bodies while preserving payload spe
 interpolation, and nested errors; only evidence-matching categories or literal
 line-delimiter/blank-indentation `TEXT` qualify. Projection reuses each recovery
 scan's skipped comments.
+`native-multiline-recovery-tail` is owner-bounded and requires per-position
+independent evidence: reopen the rejected multiline owner's actual delimiter/header
+(including horizontal header whitespace) after each failing physical line and lex
+its untouched continuation. Successive child failures are independent windows;
+previously rejected holes cannot contaminate later ownership probes. Real owner
+closers/dedent or EOF bound literal, escape, environment-hole and interpolation
+evidence; rejected/incomplete triples reuse the independently validated buffered-hole
+probe within each window. Nested quote spelling is unchanged. Retroactive diagnostics
+cannot supply prefix `ERROR` evidence; independently diagnosed bad escapes own only
+their rejected-line suffix. No global quote rewriting, category-code blanket, or second promotion/history
+classifier is used. Mutations of those evidence
+categories and code outside the owner remain strict.
 Exemptions never cover whole files.
 
 ## Layering

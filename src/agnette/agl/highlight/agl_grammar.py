@@ -12,7 +12,6 @@ from agnette.agl.highlight.grammar import (
     Push,
     Rule,
     State,
-    Switch,
     character_class,
     keyword_rule,
 )
@@ -120,9 +119,9 @@ def _string_state(name: str, delimiter: str, *, multiline: bool = False) -> Stat
             Rule(delimiter, Category.STRING, action=Pop()),
             *((Rule(r"$", action=Pop()),) if not multiline else ()),
             _ESCAPE,
-            Rule(r"\\", Category.ERROR, action=Switch("rejected-template")),
+            Rule(r"\\", Category.ERROR, action=Push("rejected-template")),
             _ENV,
-            Rule(r"%\{", Category.INTERPOLATION, action=Switch(name + "-hole")),
+            Rule(r"%\{", Category.INTERPOLATION, action=Push("interpolation")),
         ),
         Category.STRING,
     )
@@ -144,24 +143,10 @@ _INTERPOLATION_CODE = (
 )
 
 
-def _hole_state(host: str) -> State:
-    # Replace the literal frame: an unfinished hole can pop even a multiline
-    # host at line end. A closing brace restores that host without extra depth.
-    return State(
-        host + "-hole",
-        (
-            Rule(r"$", action=Pop()),
-            Rule(r"\}", Category.INTERPOLATION, action=Switch(host)),
-            *_INTERPOLATION_CODE,
-        ),
-        Category.ERROR,
-    )
-
-
-def _verbatim_rules(host: str) -> tuple[Rule, ...]:
+def _verbatim_rules() -> tuple[Rule, ...]:
     return (
         Rule(r"\\%\{", Category.VERBATIM),
-        Rule(r"%\{", Category.INTERPOLATION, action=Switch(host + "-hole")),
+        Rule(r"%\{", Category.INTERPOLATION, action=Push("interpolation")),
     )
 
 
@@ -181,16 +166,16 @@ AGL_GRAMMAR = Grammar(
         _string_state("single", "'"),
         _string_state("triple-double", '"""', multiline=True),
         _string_state("triple-single", "'''", multiline=True),
-        *(
-            _hole_state(host)
-            for host in (
-                "double",
-                "single",
-                "triple-double",
-                "triple-single",
-                "verbatim",
-                "verbatim-block",
-            )
+        # Native child recovery pops only the child; multiline hosts survive
+        # until their own closer/dedent. Single-line hosts then cascade at EOL.
+        State(
+            "interpolation",
+            (
+                Rule(r"$", action=Pop()),
+                Rule(r"\}", Category.INTERPOLATION, action=Pop()),
+                *_INTERPOLATION_CODE,
+            ),
+            Category.ERROR,
         ),
         State(
             "hole-braces",
@@ -204,15 +189,15 @@ AGL_GRAMMAR = Grammar(
         State("rejected-template", (Rule(r"$", action=Pop()),), Category.ERROR),
         State(
             "verbatim",
-            (Rule(r"$|(?=[ \t]+$)", action=Pop()), *_verbatim_rules("verbatim")),
+            (Rule(r"$|(?=[ \t]+$)", action=Pop()), *_verbatim_rules()),
             Category.VERBATIM,
         ),
         State(
             "verbatim-block",
             (
-                Rule(r"^(?=[^ \t])", action=Pop()),
+                Rule(r"^(?=[^ \t\r\n])", action=Pop()),
                 Rule(r"^[ \t]+$"),
-                *_verbatim_rules("verbatim-block"),
+                *_verbatim_rules(),
             ),
             Category.VERBATIM,
         ),
