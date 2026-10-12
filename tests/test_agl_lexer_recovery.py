@@ -161,6 +161,17 @@ def test_malformed_string_recovery_retains_real_quote_closers(source: str) -> No
     assert_source_coverage(source, tokens)
 
 
+def test_retained_template_end_does_not_unwind_surrounding_layout() -> None:
+    source = 'let a = ["\\q",\n  1,\n  2\n],'
+    tokens, errors = tokenize_recover(source)
+
+    assert len(errors) == 1
+    template_ends = [token for token in tokens if token.type == "TEMPLATE_END"]
+    assert len(template_ends) == 1
+    assert template_ends[0].end_pos > template_ends[0].start_pos
+    assert not any(token.type in {"_INDENT", "_DEDENT", "_NEWLINE"} for token in tokens)
+
+
 def test_surrogate_insertion_preserves_multiline_payload_order() -> None:
     source = '# \ud800\n$ %{"""\nhi"""}\nlater'
     strict = list(tokenize(source.replace("\ud800", " ")))

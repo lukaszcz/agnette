@@ -1332,6 +1332,7 @@ class _Scanner:
             yield self._make_token(ERROR, self._src[start[0] : self._pos], *start)
             if literal_end is not None:
                 yield literal_end
+                closers.remove(TEMPLATE_END)
         else:
             return
         # Zero-width closers unwind only the aborted construct's layout depth;
