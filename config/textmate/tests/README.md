@@ -11,10 +11,7 @@ Offsets count Unicode codepoints, not JavaScript UTF-16 units. Concatenating tok
 reconstructs the unchanged input, including CR, LF, CRLF and empty lines. Newline tokens
 have no scopes; the Python adapter maps them to `Category.TEXT`.
 
-The exported `tokenizeCases` also accepts `{grammar, source}` pairs for the existing opt-in
-pytest probes. To run those probes with these dependencies:
-
-```sh
-NODE_PATH="$PWD/config/textmate/tests/node_modules" \
-  uv run python -m pytest tests/test_agl_highlight_textmate_native.py --no-cov
-```
+The exported `tokenizeCases` also accepts `{grammar, source}` pairs for the native pytest
+probes in `tests/test_agl_highlight_textmate_native.py`. They run in `just check` whenever
+node is installed, and fail if `node_modules/` is missing. `just setup` installs it when npm
+is available.

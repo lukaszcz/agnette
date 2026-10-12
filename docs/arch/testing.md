@@ -35,7 +35,8 @@ Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` en
 
 Outside `just check`, `just test-kde` uses Pandoc 3.x/skylighting and
 `just test-textmate` uses pinned TextMate/Oniguruma npm dependencies. Missing tools
-skip clearly. Both compare CLI-generated definitions with `grammar_eval` over the
+skip clearly. `just setup` installs those dependencies when npm is available; with node
+present, `just check` also runs the native TextMate pytest probes and fails if they are missing. Both compare CLI-generated definitions with `grammar_eval` over the
 shared corpus/partition contract in `tools/highlight_engine_support.py`, including
 native recovery frames. KDE compares projected HTML styles and normalizes newlines;
 TextMate compares published scopes and rejects unknown scopes. Harnesses live in

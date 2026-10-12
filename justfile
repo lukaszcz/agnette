@@ -11,6 +11,16 @@ default:
 # Refresh the locked project and dev dependencies, repairing moved-venv launchers
 setup:
     uv sync --locked --python 3.14 --group dev --reinstall
+    just setup-textmate-optional
+
+# Install the native TextMate tests' pinned npm dependencies when npm is available
+[private]
+setup-textmate-optional:
+    if command -v npm >/dev/null 2>&1; then \
+        npm ci --prefix config/textmate/tests; \
+    else \
+        echo "npm not found; skipping the native TextMate test dependencies"; \
+    fi
 
 # Build the Markdown documentation into site/
 docs-build:
@@ -127,7 +137,7 @@ test-textmate:
     @if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then \
         echo "node or npm not found; skipping the native TextMate suite"; \
     else \
-        npm ci --prefix config/textmate/tests; \
+        just setup-textmate-optional; \
         uv run agm dev highlight textmate --output build/highlighting/AgL.tmLanguage.json; \
         uv run python tools/highlight_textmate.py build/highlighting/AgL.tmLanguage.json; \
     fi

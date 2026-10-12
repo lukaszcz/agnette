@@ -1,7 +1,6 @@
-"""Opt-in native execution: NODE_PATH supplies vscode-textmate and vscode-oniguruma."""
+"""Native TextMate execution, run whenever node is installed."""
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -15,10 +14,19 @@ from agnette.agl.highlight.grammar_eval import evaluate
 from agnette.agl.highlight.targets.textmate import TEXTMATE_SCOPES, generate
 from tests.test_agl_highlight_native_frames import FRAME_CASES
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None or not os.environ.get("NODE_PATH"),
-    reason="requires node and NODE_PATH with vscode-textmate/vscode-oniguruma",
-)
+_HARNESS = Path(__file__).resolve().parents[1] / "config/textmate/tests"
+
+pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="requires node")
+
+
+@pytest.fixture(autouse=True)
+def textmate_dependencies() -> None:
+    """Fail, rather than skip, when node is present but the pinned packages are not."""
+    if not all(
+        (_HARNESS / "node_modules" / name).is_dir()
+        for name in ("vscode-textmate", "vscode-oniguruma")
+    ):
+        pytest.fail("TextMate npm dependencies are missing; run `just setup`")
 
 
 def test_native_textmate_source_offsets_and_roundtrip(tmp_path: Path) -> None:
@@ -30,7 +38,7 @@ def test_native_textmate_source_offsets_and_roundtrip(tmp_path: Path) -> None:
     ]
     grammar = tmp_path / "AgL.tmLanguage.json"
     grammar.write_text(generate(AGL_GRAMMAR))
-    helper = Path(__file__).resolve().parents[1] / "config/textmate/tests/tokenize.cjs"
+    helper = _HARNESS / "tokenize.cjs"
     result = subprocess.run(
         ["node", str(helper), str(grammar)],
         input=json.dumps(sources),
