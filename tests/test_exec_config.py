@@ -392,6 +392,47 @@ class TestPackageEntryConfigRoute:
 
         assert capsys.readouterr().err == ""
 
+    @pytest.mark.parametrize("invocation", ["file", "reference", "command"])
+    def test_command_table_overlapping_its_module_accepts_an_agent_argument(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        invocation: str,
+    ) -> None:
+        home = tmp_path / "home"
+        source = (
+            '@command("devel review")\n'
+            'program def review-main(agent: Agent = AgentCommand("noop")) -> unit =\n'
+            "  print (case agent of\n"
+            "    | AgentClaude(model, _) => model\n"
+            '    | _ => "other")\n'
+        )
+        reference = "devel/review::review-main"
+        module = write_installed_package(
+            home,
+            "devel",
+            source=source,
+            module_path="review",
+            commands={"devel review": reference},
+        )
+        (home / ".agm" / "config.toml").write_text('[devel.review]\nagent = "claude/opus"\n')
+        self._use_home(monkeypatch, home, tmp_path)
+
+        if invocation == "file":
+            exec_engine.run(replace(exec_args(), file=str(module)))
+        else:
+            exec_engine.run_registered(
+                reference,
+                args=exec_args(),
+                package="devel" if invocation == "command" else None,
+                command_path="devel review" if invocation == "command" else None,
+            )
+
+        captured = capsys.readouterr()
+        assert captured.out == "opus\n"
+        assert captured.err == ""
+
     def test_undeclared_command_table_key_is_reported(
         self,
         tmp_path: Path,

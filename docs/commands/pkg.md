@@ -205,7 +205,8 @@ address the same program route (signature arguments, engine settings, and resolv
 parameters, bare or dotted-qualified), even via `agm exec`. Different keys in these tables
 combine; setting the same key
 through multiple spellings in one layer is an ambiguity error, and a later config layer overrides
-an earlier one. CLI flags still take precedence.
+an earlier one. CLI flags still take precedence. Unused-key diagnostics validate a registered
+command table against that command's program route, not a module route with the same dotted path.
 
 A group table also supplies defaults to every command beneath it: `[devel]` and, through the
 `dv = "devel"` alias, `[dv]` both feed `devel review`, however it is invoked. Its own command's

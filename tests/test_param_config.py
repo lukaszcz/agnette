@@ -459,6 +459,93 @@ def test_every_declared_leaf_of_each_module_and_program_route_draws_no_warning(
     assert capsys.readouterr().err == ""
 
 
+@pytest.mark.parametrize(
+    ("module", "scope_path"),
+    [("devel/review", ()), ("vendor/devel/review", ()), ("devel", ("review",))],
+)
+@pytest.mark.parametrize("leaf", ["agent", "timeout", "logging.verbose", "unknown", "input"])
+def test_command_validation_takes_precedence_over_colliding_module_routes(
+    capsys: pytest.CaptureFixture[str],
+    module: str,
+    scope_path: tuple[str, ...],
+    leaf: str,
+) -> None:
+    colliding = _binding(module, "quiet", scope_path=scope_path)
+    imported = _binding("A/logging", "verbose")
+    parameters = tuple(
+        ProgramParamInfo(
+            name=name,
+            kind=kind,
+            type=TextType(),
+            has_default=True,
+            span=_SPAN,
+            cli=_option(name),
+        )
+        for name, kind in (("agent", ParamZone.NAMED_ONLY), ("input", ParamZone.POSITIONAL_ONLY))
+    )
+    program = _program(closure=(colliding.module, imported.module), parameters=parameters)
+
+    resolve_param_values(
+        _config({"devel": {"review": {leaf: True}}}),
+        program,
+        {},
+        entry_segments=("app", "main"),
+        command_paths=(("devel", "review"),),
+        surface=_surface(program, (colliding, imported)),
+    )
+
+    reported = capsys.readouterr().err
+    if leaf in {"unknown", "input"}:
+        assert reported.count(leaf) == 1
+        if leaf == "input":
+            assert "positional-only" in reported
+    else:
+        assert reported == ""
+
+
+def test_a_sibling_command_table_is_not_validated_as_a_module_route(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    program = _program(closure=(ModuleId.from_path("devel/review"),))
+
+    resolve_param_values(
+        _config({"devel": {"review": {"agent": "claude/opus"}}}),
+        program,
+        {},
+        entry_segments=("app", "main"),
+        command_paths=(("devel", "revise"),),
+        package_command_paths=frozenset({("devel", "review"), ("devel", "revise")}),
+        surface=_surface(program, ()),
+    )
+
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("command_first", [True, False])
+def test_a_command_table_does_not_hide_unknown_keys_on_a_module_table(
+    capsys: pytest.CaptureFixture[str],
+    command_first: bool,
+) -> None:
+    program = _program(closure=(ModuleId.from_path("devel/review"),))
+    command_layer = {"devel": {"review": {"stray": True}}}
+    module_layer = {"review": {"stray": True}}
+    layers = (command_layer, module_layer) if command_first else (module_layer, command_layer)
+
+    resolve_param_values(
+        _config(*layers),
+        program,
+        {},
+        entry_segments=("app", "main"),
+        command_paths=(("devel", "revise"),),
+        package_command_paths=frozenset({("devel", "review"), ("devel", "revise")}),
+        surface=_surface(program, ()),
+    )
+
+    reported = capsys.readouterr().err
+    assert reported.count("stray") == 1
+    assert "devel.review" not in reported
+
+
 def test_a_module_root_is_reported_before_its_scope_routes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

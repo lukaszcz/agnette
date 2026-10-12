@@ -37,6 +37,12 @@ if TYPE_CHECKING:
 _PARAM_SURFACE_PACKAGE = Path(__file__).parent / "agl" / "packages" / "param_surface"
 
 
+@pytest.fixture(autouse=True)
+def isolated_working_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep registered-command tests out of the checkout's project config."""
+    monkeypatch.chdir(tmp_path)
+
+
 def registered_help(
     path_name: str, registration: CommandRegistration, *, program: "ProgramDeclInfo | None"
 ) -> str:

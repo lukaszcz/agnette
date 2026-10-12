@@ -225,6 +225,8 @@ def configured_leaf_tables(
     module_segments: tuple[str, ...],
     scope_path: tuple[str, ...] = (),
     command_paths: tuple[tuple[str, ...], ...] = (),
+    *,
+    excluded_tables: frozenset[tuple[str, ...]] = frozenset(),
 ) -> dict[str, tuple[str, ...]]:
     """Return each leaf key the exact route sets, mapped to one table that sets it.
 
@@ -236,9 +238,14 @@ def configured_leaf_tables(
     single-route diagnostic (undeclared-key warnings) — inherited group tables
     never count as a leaf here, since a descendant command may be the one that
     actually consumes them; :func:`configured_leaf_table_candidates` reports
-    those too, for a check that must not depend on layer order.
+    those too, for a check that must not depend on layer order. Excluded tables
+    are skipped before selecting one table per leaf.
     """
-    paths = route_table_paths(module_segments, scope_path, command_paths)
+    paths = tuple(
+        path
+        for path in route_table_paths(module_segments, scope_path, command_paths)
+        if path not in excluded_tables
+    )
     tables: dict[str, tuple[str, ...]] = {}
     for name, path in _leaf_entries(config.layers, paths):
         tables.setdefault(name, path)
