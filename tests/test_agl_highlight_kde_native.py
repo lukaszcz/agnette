@@ -1,8 +1,6 @@
 """Optional independent execution through Pandoc's native KDE highlighter."""
 
 import shutil
-import subprocess
-from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -10,102 +8,26 @@ import pytest
 from agnette.agl.highlight.agl_grammar import AGL_GRAMMAR
 from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.grammar import Capture, Grammar, Rule, State, Switch, keyword_rule
-from agnette.agl.highlight.grammar_eval import evaluate
-from agnette.agl.highlight.targets.kde import KDE_STYLES, generate
+from agnette.agl.highlight.targets.kde import generate
 from tests.test_agl_highlight_native_frames import FRAME_CASES
+from tools.highlight_engine_support import NEWLINE_CASES, CorpusCase
+from tools.highlight_kde_support import run_corpus
 
 pytestmark = pytest.mark.skipif(shutil.which("pandoc") is None, reason="requires pandoc")
 
-_CLASSES = dict(
-    zip(
-        (
-            "dsNormal",
-            "dsKeyword",
-            "dsConstant",
-            "dsDataType",
-            "dsFunction",
-            "dsBuiltIn",
-            "dsImport",
-            "dsAttribute",
-            "dsVariable",
-            "dsString",
-            "dsSpecialChar",
-            "dsVerbatimString",
-            "dsDecVal",
-            "dsOperator",
-            "dsComment",
-            "dsError",
-        ),
-        (
-            "",
-            "kw",
-            "cn",
-            "dt",
-            "fu",
-            "bu",
-            "im",
-            "at",
-            "va",
-            "st",
-            "sc",
-            "vs",
-            "dv",
-            "op",
-            "co",
-            "er",
-        ),
-        strict=True,
-    )
-)
 
-
-class _Tokens(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.active = False
-        self.styles: list[str] = []
-        self.text: list[str] = []
-        self.colors: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "code":
-            self.active = True
-        if self.active and tag == "span":
-            self.styles.append(dict(attrs).get("class") or "")
-
-    def handle_endtag(self, tag: str) -> None:
-        if self.active and tag == "span":
-            self.styles.pop()
-        if tag == "code":
-            self.active = False
-
-    def handle_data(self, data: str) -> None:
-        if self.active:
-            self.text.append(data)
-            style = next((item for item in reversed(self.styles) if item), "")
-            self.colors.extend([style] * len(data))
+@pytest.fixture(scope="session")
+def builtin_definition(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Generate the immutable built-in grammar once per native-engine worker."""
+    definition = tmp_path_factory.mktemp("kde") / "agl.xml"
+    definition.write_text(generate(AGL_GRAMMAR), encoding="utf-8")
+    return definition
 
 
 def _assert_native(grammar: Grammar, source: str, tmp_path: Path) -> None:
     definition = tmp_path / "agl.xml"
     definition.write_text(generate(grammar), encoding="utf-8")
-    result = subprocess.run(
-        ["pandoc", "--preserve-tabs", "--syntax-definition", str(definition), "-t", "html"],
-        input="```agl\n" + source + "\n```\n",
-        text=True,
-        capture_output=True,
-        check=True,
-        timeout=10,
-    )
-    parsed = _Tokens()
-    parsed.feed(result.stdout)
-    expected = [
-        _CLASSES[KDE_STYLES[category]]
-        for start, end, category in evaluate(grammar, source)
-        for _ in range(end - start)
-    ]
-    assert "".join(parsed.text) == source
-    assert parsed.colors == expected
+    run_corpus(definition, (CorpusCase("native", source),), grammar=grammar)
 
 
 @pytest.mark.parametrize(
@@ -162,5 +84,10 @@ def test_native_supported_repeats(pattern: str, tmp_path: Path) -> None:
         "record Ωmega @ attr | Variant\n# comment",
     ],
 )
-def test_native_builtin_states(source: str, tmp_path: Path) -> None:
-    _assert_native(AGL_GRAMMAR, source, tmp_path)
+def test_native_builtin_states(source: str, builtin_definition: Path) -> None:
+    run_corpus(builtin_definition, (CorpusCase("native", source),))
+
+
+@pytest.mark.parametrize("case", NEWLINE_CASES, ids=lambda case: case.name)
+def test_native_input_newlines(case: CorpusCase, builtin_definition: Path) -> None:
+    run_corpus(builtin_definition, (case,))

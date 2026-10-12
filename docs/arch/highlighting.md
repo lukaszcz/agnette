@@ -119,7 +119,9 @@ contexts (25 for the built-in grammar, including shared capture stages).
 Only exact token-start keyword-helper patterns without captures use
 native keyword matching; other `Rule.words` remain inventory metadata, with matching
 lowered as regex. Identifier-stop guards and regex fallbacks preserve punctuation-bearing
-and Unicode identifiers without `weakDeliminator`. `targets/_regex.py` supplies structural lowering facts.
+and Unicode identifiers without `weakDeliminator`. `targets/_regex.py` supplies
+immutable structural lowering facts through a bounded per-process cache keyed by
+pattern, background and captures; target/grammar validation still runs on every export.
 
 KDE cannot style regex captures directly. Shared finite stages partition linear,
 top-level captures and background gaps; suffix lookaheads retain ordered matching,
@@ -159,6 +161,11 @@ appends a synthetic LF that model lines exclude. Class predicates must exclude L
 Optional native probes use Pandoc for KDE and batched vscode-textmate/Oniguruma
 for TextMate (`NODE_PATH` supplies those npm modules), comparing source-position
 categories with the reference interpreter, including malformed multiline recovery.
+`tools/highlight_kde_support.py` shares Pandoc decoding/projection/comparison between
+native generator tests and `just test-kde`. Pandoc normalizes CRLF/CR: this KDE-only
+coordinator converts input to LF before both engine and reference evaluation and
+requires exact normalized-source round trips. The engine-neutral corpus/contract in
+`tools/highlight_engine_support.py` retains original delimiters for other adapters.
 
 ### Installation
 

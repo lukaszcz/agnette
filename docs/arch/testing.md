@@ -31,6 +31,16 @@ Tests assert behavior, never exact help, warning, or error text. The e2e harness
 
 Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` enforces a per-test ceiling and `just test-budget` ranks tests to recalibrate it. Pure lexer and grammar matrices batch small input axes under the same isolation and CPU gates; each case constructs fresh results. Compiling modules dominates AgL cost, so fixtures reuse immutable compilation where roots agree and keep runtime state fresh. Periodic young and full GC bounds cyclic compiler retention without per-allocation scans; only session metadata is frozen. `just check` runs the static gates concurrently with the suite.
 
+## Native Highlighting Engines
+
+`just test-kde` optionally checks generated KDE XML through Pandoc 3.x/skylighting,
+outside `just check`; missing Pandoc skips clearly. `tools/highlight_kde.py` compares
+HTML styles with `grammar_eval` under the same KDE-style projection on both sides.
+`tools/highlight_engine_support.py` shares a small real-program/doc-fence corpus,
+lexical/native-frame fixtures, reference spans, and strict source/partition checks
+for native harnesses. Manual harness regressions live in `config/kde/tests/`;
+generated definitions stay under ignored `build/`.
+
 ## Editor Modes
 
 The Emacs (`config/emacs/`) and micro (`config/micro/`) modes have their own suites, `just test-emacs` and `just test-micro`, outside `just check`. Emacs uses a generated inventory in `build/emacs/`; micro still mirrors the canonical keyword/builtin inventories by hand.

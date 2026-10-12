@@ -1,6 +1,9 @@
 """Structural facts for finite target lowering, independent of regex engine internals."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
+from typing import cast
 
 from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.grammar import Capture
@@ -36,10 +39,10 @@ class Structure:
     expanding_group_repeat: bool
 
 
-def analyze(
-    pattern: str, background: Category = Category.TEXT, captures: tuple[Capture, ...] = ()
+def _parse_structure(
+    pattern: str, background: Category, captures: tuple[Capture, ...]
 ) -> Structure:
-    """Parse already-validated model syntax or its partitions; assertions have zero width."""
+    """Parse already-validated model syntax; assertions have zero width."""
     selected = {capture.group: capture.category for capture in captures}
     extents: list[tuple[int, int, Category]] = []
     stack = [_Group()]
@@ -131,3 +134,19 @@ def analyze(
         not misplaced_anchor and not top_alternative,
         expanding_group_repeat,
     )
+
+
+_cached_structure = cast(
+    Callable[[str, Category, tuple[Capture, ...]], Structure],
+    lru_cache(maxsize=512)(_parse_structure),
+)
+
+
+def analyze(
+    pattern: str, background: Category = Category.TEXT, captures: tuple[Capture, ...] = ()
+) -> Structure:
+    """Reuse immutable lowering facts; grammar/target validation remains caller-owned.
+
+    All parse inputs form the cache key. Bound retention for arbitrary user grammars.
+    """
+    return _cached_structure(pattern, background, captures)

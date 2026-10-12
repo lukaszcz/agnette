@@ -110,6 +110,17 @@ test-emacs:
 test-micro:
     cd config/micro/tests && go test -count=1 ./...
 
+# Compare generated KDE highlighting with the reference grammar (optional Pandoc 3.x)
+test-kde:
+    @if command -v pandoc >/dev/null 2>&1; then \
+        uv run agm dev highlight kde --output build/kde/agl.xml; \
+        PYTHONPATH="{{justfile_directory()}}${PYTHONPATH:+:$PYTHONPATH}" \
+            uv run python config/kde/tests/test_engine.py; \
+        uv run python -m tools.highlight_kde build/kde/agl.xml; \
+    else \
+        echo "pandoc not found; skipping the optional KDE engine suite (requires Pandoc 3.x)"; \
+    fi
+
 # Type-check with mypy
 typecheck:
     uv run mypy src/agnette/ tools/

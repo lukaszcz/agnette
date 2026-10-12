@@ -39,6 +39,10 @@ EXTERNALLY_USED = (
     # Python-Markdown entry point and extension hook
     "AglHighlightExtension",
     "extendMarkdown",
+    # HTMLParser callbacks used by the optional native highlighting harness
+    "handle_starttag",
+    "handle_endtag",
+    "handle_data",
     # lazy module exports and protocol members
     "__getattr__",
     "__lt__",

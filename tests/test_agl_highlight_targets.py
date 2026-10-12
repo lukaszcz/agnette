@@ -136,6 +136,36 @@ def test_kde_registration_determinism_metadata_and_structure() -> None:
     assert "weakDeliminator" not in output
 
 
+def test_kde_repeated_generation_retains_category_and_style_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pattern = "(x)y"
+    for background, captured in (
+        (Category.STRING, Category.KEYWORD),
+        (Category.NUMBER, Category.ATTRIBUTE),
+        (Category.STRING, Category.KEYWORD),
+    ):
+        grammar = Grammar((State("root", (Rule(pattern, background, (Capture(1, captured),)),)),))
+        assert _render(grammar, "xy") == [captured, background]
+        monkeypatch.setitem(KDE_STYLES, captured, "dsError")
+        items = _xml(grammar).findall("./highlighting/itemDatas/itemData")
+        assert (
+            next(item for item in items if item.attrib["name"] == captured.value).attrib[
+                "defStyleNum"
+            ]
+            == "dsError"
+        )
+
+
+def test_kde_repeated_generation_still_validates_new_stack_contexts() -> None:
+    rule = Rule("x", Category.KEYWORD, action=Pop())
+    TARGETS["kde"](
+        Grammar((State("root", (Rule("y", action=Push("child")),)), State("child", (rule,))))
+    )
+    with pytest.raises(ValueError):
+        TARGETS["kde"](Grammar((State("root", (rule,)),)))
+
+
 def test_kde_keyword_lists_are_canonical() -> None:
     lists = {
         frozenset(item.text for item in node) for node in _xml().findall("./highlighting/list")
