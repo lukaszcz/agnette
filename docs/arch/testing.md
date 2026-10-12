@@ -33,7 +33,7 @@ Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` en
 
 ## Editor Modes
 
-The Emacs (`config/emacs/`) and micro (`config/micro/`) modes have their own suites, `just test-emacs` and `just test-micro`, outside `just check`. Both mirror the keyword set (`src/agnette/agl/keywords.py`) and builtin names (`src/agnette/agl/scope/symbols.py`) by hand, so changes to either must be carried into both modes.
+The Emacs (`config/emacs/`) and micro (`config/micro/`) modes have their own suites, `just test-emacs` and `just test-micro`, outside `just check`. Emacs uses a generated inventory in `build/emacs/`; micro still mirrors the canonical keyword/builtin inventories by hand.
 
 ## Code Entry Points
 

@@ -9,6 +9,7 @@ inferior `agm repl`.
 
 | File | Contents |
 | ---- | -------- |
+| `agl-inventory.el` | Keyword/builtin inventory, generated at install time; not tracked |
 | `agl-mode.el` | Entry point: syntax table, `syntax-propertize`, font-lock, imenu, defun motion, keymap |
 | `agl-indent.el` | Indentation engine |
 | `agl-flymake.el` | Flymake backend over `agm check` |
@@ -26,9 +27,16 @@ just setup-emacs /tmp/somewhere   # install under a different HOME
 The package is byte-compiled with generated autoloads, and its version tracks AgM's.
 `just install` runs this step when `emacs` is available. Your init file is never modified.
 
-Without package.el (Doom, straight.el, …), load the directory directly:
+Without package.el (Doom, straight.el, …), generate the inventory from the repository:
+
+```bash
+uv run agm dev highlight emacs --output build/emacs/agl-inventory.el
+```
+
+Then load both directories:
 
 ```elisp
+(add-to-list 'load-path "/path/to/agm/build/emacs")
 (add-to-list 'load-path "/path/to/agm/config/emacs")
 (require 'agl-mode)
 ```
@@ -87,4 +95,5 @@ final prompt appear. REPL input is highlighted like source buffers.
 just test-emacs
 ```
 
-The suites never run `agm` and are not part of `just check`, which must not require Emacs.
+The recipe generates the inventory first; the ERT suites never run `agm`.
+They are outside `just check`, which does not require Emacs.

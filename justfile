@@ -98,7 +98,8 @@ setup-emacs-optional *args:
 
 # Run the Emacs mode's ERT suite (requires emacs)
 test-emacs:
-    emacs --batch -L config/emacs -l ert \
+    uv run agm dev highlight emacs --output build/emacs/agl-inventory.el
+    emacs --batch -L build/emacs -L config/emacs -l ert \
         $(for f in config/emacs/tests/*.el; do printf ' -l %s' "$f"; done) \
         -f ert-run-tests-batch-and-exit
 
@@ -170,6 +171,7 @@ install-prefix *args:
 install *args:
     just install-agm {{args}}
     uv run python tools/install_agm_config.py {{args}}
+    uv run python tools/install_highlighting.py {{args}}
     just setup-emacs-optional {{args}}
     install_prefix="$(just install-prefix {{args}})"; \
     if [[ -n "$install_prefix" ]]; then \

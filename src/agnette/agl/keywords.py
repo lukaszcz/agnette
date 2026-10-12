@@ -13,11 +13,9 @@ they follow an operand, `PREFIX_SOFT_KEYWORDS` when they precede one. After a
 declaration, they are ordinary names, so `Option::or` and `flag.not()` name
 members the way any other spelling does.
 
-Every syntax-highlighting definition mirrors both inventories and must be
-updated alongside them: `config/micro/agl.yaml` (Micro), `config/emacs/agl-mode.el`
-(`agl-keywords`, `agl-soft-keywords`, and the other keyword-inventory constants
-near the top of that file), and the shared lexical highlighter in
-`agnette.agl.highlight.lexical`.
+The exact lexical highlighter, portable highlight grammar, and generated Emacs
+lists derive from these inventories. Only `config/micro/agl.yaml` is mirrored
+by hand and must be updated alongside them.
 """
 
 from __future__ import annotations

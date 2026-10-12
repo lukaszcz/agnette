@@ -160,6 +160,14 @@ Optional native probes use Pandoc for KDE and batched vscode-textmate/Oniguruma
 for TextMate (`NODE_PATH` supplies those npm modules), comparing source-position
 categories with the reference interpreter, including malformed multiline recovery.
 
+### Installation
+
+`tools/install_highlighting.py` uses the installed CLI to refresh AgM-home and
+KDE definitions; Pandoc defaults are user-preserving unless forced. Prefix installs
+isolate AgM home and XDG data under the prefix. `tools/install_emacs_mode.py` generates
+the inventory with the repository CLI before packaging; font-lock stays hand-written.
+Generated artifacts are untracked.
+
 ### Contextual Approximation Contract
 
 The portable grammar adds three capture rules and one path rule, no contextual
