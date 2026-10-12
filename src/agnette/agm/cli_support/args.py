@@ -17,6 +17,12 @@ class ConfigEnvArgs:
 
 
 @dataclass(slots=True)
+class DevHighlightArgs:
+    target: str
+    output: str | None
+
+
+@dataclass(slots=True)
 class PkgCheckArgs:
     directory: str | None
 

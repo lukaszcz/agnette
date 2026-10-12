@@ -420,11 +420,11 @@ default-sandbox = 'Sandbox(memory = Some("8G"))'
 
 A program a package registers as a command is also addressed by that command
 path and by every [alias](../../commands/pkg.md#aliases) path naming the
-command: `agm dev review`, registered for `review-tools/review::main`, reads
-`[dev.review]` however the program is run — as the command, by installed
+command: `agm dv review`, registered for `review-tools/review::main`, reads
+`[dv.review]` however the program is run — as the command, by installed
 reference, or by file path. Setting one leaf through two spellings of the
 same program in one config layer is an error. Every proper prefix of a command
-path is an inherited group table (`[dev]` for `dev review`): a deeper prefix
+path is an inherited group table (`[dv]` for `dv review`): a deeper prefix
 wins over a shallower one, and the program's exact tables win over any of
 them regardless of config layer. A leaf an inherited table sets joins
 ambiguity checks but is exempt from undeclared-key warnings, since a

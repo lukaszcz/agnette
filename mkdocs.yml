@@ -68,6 +68,7 @@ nav:
       - Workspace and project lifecycle: commands/workspaces.md
       - AgL workflow DSL: commands/agl.md
       - Packages: commands/pkg.md
+      - Development tooling: commands/dev.md
       - Configuration: commands/config.md
       - Dependencies: commands/dependencies.md
       - Sandboxing: commands/run.md

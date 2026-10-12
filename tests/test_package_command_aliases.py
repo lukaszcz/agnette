@@ -27,7 +27,7 @@ doc = "Choose a development workflow."
 [commands.devel.review]
 program = "tools/main::main"
 [aliases]
-dev = "devel"
+dv = "devel"
 rev = "devel review"
 """
 
@@ -50,7 +50,7 @@ def command_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path / "home" / ".agm" / "config.toml"
 
 
-@pytest.mark.parametrize("path", ["devel", "dev", "devel nested", "dev nested"])
+@pytest.mark.parametrize("path", ["devel", "dv", "devel nested", "dv nested"])
 @pytest.mark.parametrize("help_form", ["bare", "flag", "help"])
 def test_group_help_lists_descendants(command_package: Path, path: str, help_form: str) -> None:
     args = path.split()
@@ -68,7 +68,7 @@ def test_group_help_lists_descendants(command_package: Path, path: str, help_for
         assert "Choose a development workflow." in result.output
 
 
-@pytest.mark.parametrize("path", ["devel review", "dev review", "rev"])
+@pytest.mark.parametrize("path", ["devel review", "dv review", "rev"])
 def test_leaf_help_documents_the_program_behind_the_command(
     command_package: Path, path: str
 ) -> None:
@@ -152,8 +152,8 @@ def test_help_command_uses_its_context_for_registered_programs(
     assert "Review the selected subject." in result.output
 
 
-@pytest.mark.parametrize("section", ["rev", "dev.review", "devel.review"])
-@pytest.mark.parametrize("path", ["rev", "dev review", "devel review", "exec tools/main::main"])
+@pytest.mark.parametrize("section", ["rev", "dv.review", "devel.review"])
+@pytest.mark.parametrize("path", ["rev", "dv review", "devel review", "exec tools/main::main"])
 def test_alias_config_applies_to_every_invocation(
     command_package: Path, section: str, path: str
 ) -> None:
@@ -166,12 +166,13 @@ def test_alias_config_applies_to_every_invocation(
 @pytest.mark.parametrize(
     "extra",
     [
-        '[aliases]\ndev = "absent"',
-        "[aliases]\ndev = 1",
+        '[aliases]\ndv = "absent"',
+        "[aliases]\ndv = 1",
+        '[aliases]\ndev = "devel review"',
         '[aliases]\nhelp = "devel review"',
         '[aliases]\n"bad  path" = "devel review"',
         '[aliases]\ndevel = "devel review"',
-        '[aliases]\ndev = "rev"\nrev = "dev"',
+        '[aliases]\ndv = "rev"\nrev = "dv"',
         "[commands.lonely]",
     ],
 )
@@ -205,18 +206,18 @@ def test_alias_metadata_survives_distribution(command_package: Path) -> None:
     assert load_manifest_text(normalized_manifest(manifest).decode()) == manifest
     result = CliRunner().invoke(get_command(app), ["pkg", "info", "tools"])
     assert result.exit_code == 0
-    assert "dev: devel" in result.output
+    assert "dv: devel" in result.output
     assert "rev: devel review" in result.output
 
 
 def test_group_rejects_unknown_subcommands(command_package: Path) -> None:
-    result = CliRunner().invoke(get_command(app), ["dev", "missing"])
+    result = CliRunner().invoke(get_command(app), ["dv", "missing"])
     assert result.exit_code != 0
 
 
 def test_group_help_remains_available_when_source_is_missing(command_package: Path) -> None:
     (command_package.parent / "packages" / "tools" / "1.0.0" / "src" / "main.agl").unlink()
-    result = CliRunner().invoke(get_command(app), ["dev", "--help"], catch_exceptions=False)
+    result = CliRunner().invoke(get_command(app), ["dv", "--help"], catch_exceptions=False)
     assert result.exit_code == 0
     assert "nested check" in result.output
     assert "review" in result.output
@@ -229,7 +230,7 @@ def test_group_option_completion(command_package: Path, prefix: str, expected: l
     from agnette.agm.completion import registered_command_param_completion
 
     root = click.Context(get_command(app))
-    completions = registered_command_param_completion(["dev"], prefix, root)
+    completions = registered_command_param_completion(["dv"], prefix, root)
     assert [item.value for item in completions] == expected
 
 
@@ -244,10 +245,10 @@ def test_alias_can_target_an_implicit_group() -> None:
     manifest = load_manifest_text(
         '[package]\nname = "tools"\nversion = "1.0.0"\n'
         '[commands]\n"devel review" = { program = "tools/main::main" }\n'
-        '[aliases]\ndev = "devel"\n'
+        '[aliases]\ndv = "devel"\n'
     )
-    assert expanded_commands(manifest)["dev"].program is None
+    assert expanded_commands(manifest)["dv"].program is None
     assert command_paths_for_program(manifest, "tools/main::main") == (
-        ("dev", "review"),
         ("devel", "review"),
+        ("dv", "review"),
     )

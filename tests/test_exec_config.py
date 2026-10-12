@@ -323,10 +323,10 @@ class TestPackageEntryConfigRoute:
         assert capsys.readouterr().out == "prod\n"
 
     def _install_registered(self, tmp_path: Path, table: str) -> tuple[Path, Path]:
-        """Install a ``tools`` package registering ``agm dev review``, with *table* config."""
+        """Install a ``tools`` package registering ``agm dv review``, with *table* config."""
         home = tmp_path / "home"
         module = write_installed_package(
-            home, "tools", source=self._SOURCE, commands={"dev review": "tools/main::main"}
+            home, "tools", source=self._SOURCE, commands={"dv review": "tools/main::main"}
         )
         (home / ".agm" / "config.toml").write_text(table)
         return home, module
@@ -337,12 +337,12 @@ class TestPackageEntryConfigRoute:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """``agm dev review`` reads the ``[dev.review]`` table its registration names."""
-        home, _module = self._install_registered(tmp_path, '[dev.review]\nlevel = "cmd"\n')
+        """``agm dv review`` reads the ``[dv.review]`` table its registration names."""
+        home, _module = self._install_registered(tmp_path, '[dv.review]\nlevel = "cmd"\n')
         self._use_home(monkeypatch, home, tmp_path)
 
         exec_engine.run_registered(
-            "tools/main::main", args=exec_args(), package="tools", command_path="dev review"
+            "tools/main::main", args=exec_args(), package="tools", command_path="dv review"
         )
 
         assert capsys.readouterr().out == "cmd\n"
@@ -354,7 +354,7 @@ class TestPackageEntryConfigRoute:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """The command table addresses the program, not one way of reaching it."""
-        home, module = self._install_registered(tmp_path, '[dev.review]\nlevel = "cmd"\n')
+        home, module = self._install_registered(tmp_path, '[dv.review]\nlevel = "cmd"\n')
         self._use_home(monkeypatch, home, tmp_path)
 
         exec_engine.run(
@@ -368,7 +368,7 @@ class TestPackageEntryConfigRoute:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         home, module = self._install_registered(
-            tmp_path, '[dev.review]\nlevel = "cmd"\n\n[tools.main.main]\nlevel = "route"\n'
+            tmp_path, '[dv.review]\nlevel = "cmd"\n\n[tools.main.main]\nlevel = "route"\n'
         )
         self._use_home(monkeypatch, home, tmp_path)
 
@@ -383,7 +383,7 @@ class TestPackageEntryConfigRoute:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        home, module = self._install_registered(tmp_path, '[dev.review]\nlevel = "cmd"\n')
+        home, module = self._install_registered(tmp_path, '[dv.review]\nlevel = "cmd"\n')
         self._use_home(monkeypatch, home, tmp_path)
 
         exec_engine.run(
@@ -398,7 +398,7 @@ class TestPackageEntryConfigRoute:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        home, module = self._install_registered(tmp_path, "[dev.review]\nbogus = 1\n")
+        home, module = self._install_registered(tmp_path, "[dv.review]\nbogus = 1\n")
         self._use_home(monkeypatch, home, tmp_path)
 
         exec_engine.run(

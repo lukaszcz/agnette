@@ -168,7 +168,7 @@ doc = "Development workflows"
 program = "review-tools/main::review"
 
 [aliases]
-dev = "devel"
+dv = "devel"
 rev = "devel review"
 ```
 
@@ -197,10 +197,10 @@ program def review(target: text) -> unit =
 key is an alternate command path (same restrictions as commands) naming a canonical command or
 group in this package, never another alias; an alias cannot overwrite another command or alias,
 but may target a command a program registers via `@command`. Group aliases expose all canonical
-descendants: the example supports both `agm dev review` and `agm rev`. Aliases participate in
+descendants: the example supports both `agm dv review` and `agm rev`. Aliases participate in
 activation conflicts, project pins, help, and completion like commands.
 
-Config tables use dots between path words: `[rev]`, `[dev.review]`, and `[devel.review]` all
+Config tables use dots between path words: `[rev]`, `[dv.review]`, and `[devel.review]` all
 address the same program route (signature arguments, engine settings, and resolving module
 parameters, bare or dotted-qualified), even via `agm exec`. Different keys in these tables
 combine; setting the same key
@@ -208,7 +208,7 @@ through multiple spellings in one layer is an ambiguity error, and a later confi
 an earlier one. CLI flags still take precedence.
 
 A group table also supplies defaults to every command beneath it: `[devel]` and, through the
-`dev = "devel"` alias, `[dev]` both feed `devel review`, however it is invoked. Its own command's
+`dv = "devel"` alias, `[dv]` both feed `devel review`, however it is invoked. Its own command's
 exact table always wins over an inherited group table, regardless of which config layer set either
 one; among group tables, a deeper one wins, and a same-depth pair (an alias and its canonical, or
 two sibling group tables) setting one key in one config layer is an ambiguity error, just like two
@@ -270,10 +270,10 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   as for [`agm exec`](agl.md#agm-exec), anywhere after the command path.
 - **Configuration.** Omitted signature arguments and engine settings use the program route:
   the program's qualified table (e.g. `[review-tools.main.review]` for
-  `review-tools/main::review`) or a registered command path (`[pr-review]`, or `[dev.review]`
-  for command `dev review`). Both name the same program regardless of how it runs, so setting
+  `review-tools/main::review`) or a registered command path (`[pr-review]`, or `[dv.review]`
+  for command `dv review`). Both name the same program regardless of how it runs, so setting
   one key through both in one config layer is an error. Below either, an inherited group table —
-  a proper prefix of a command path, such as `[dev]` for `dev review` (see
+  a proper prefix of a command path, such as `[dv]` for `dv review` (see
   [Aliases](#aliases)) — supplies further defaults. The program's own
   [`@config`](../agl/reference/attributes.md#config) entries rank below the program route: an
   engine setting falls through to `@config` before `[exec]`, and a module parameter falls

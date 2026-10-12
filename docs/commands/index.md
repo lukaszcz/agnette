@@ -26,6 +26,7 @@ help; each command also accepts `--help`.
 | [Workspace and project lifecycle](workspaces.md) | `agm open`/`close`, `agm workspace`/`wsp`, `agm init`, `agm sync` |
 | [AgL workflow DSL](agl.md) | `agm exec`, `agm check`, `agm repl` |
 | [Packages](pkg.md) | `agm pkg` init/check/create/install/switch/uninstall/list/info/sync |
+| [Development tooling](dev.md) | `agm dev highlight` |
 | [Configuration](config.md) | `agm config` copy/env/update |
 | [Dependencies](dependencies.md) | `agm dep` |
 | [Sandboxing](run.md) | `agm run` |

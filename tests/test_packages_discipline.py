@@ -1143,8 +1143,8 @@ class TestManifestConfigDiscipline:
             '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
             '[commands.devel]\ndoc = "Development workflows"\n\n'
             '[commands."devel review"]\nprogram = "custom/main::main"\n\n'
-            '[aliases]\ndev = "devel"\n\n'
-            "[config.dev.review]\nverbose = true\n",
+            '[aliases]\ndv = "devel"\n\n'
+            "[config.dv.review]\nverbose = true\n",
             "@param let verbose: bool = false\nprogram def main() -> unit = ()\n",
         )
 

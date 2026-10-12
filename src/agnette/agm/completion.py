@@ -92,6 +92,7 @@ _HELP_TREE: dict[tuple[str, ...], list[str]] = {
         "worktree",
         "dep",
         "pkg",
+        "dev",
         "exec",
         "repl",
         "check",
@@ -108,11 +109,20 @@ _HELP_TREE: dict[tuple[str, ...], list[str]] = {
     ("dep",): ["list", "new", "switch", "rm", "remove"],
     ("pkg",): ["init", "check", "create", "install", "uninstall", "list", "info", "sync"],
     ("tmux",): ["open", "close", "layout"],
+    ("dev",): ["highlight"],
 }
 
 
 def _match(candidates: set[str] | list[str], incomplete: str) -> list[str]:
     return sorted(candidate for candidate in candidates if candidate.startswith(incomplete))
+
+
+def complete_highlight_target(ctx: click.Context, incomplete: str) -> list[str]:
+    """Complete registry names without constructing the AgL grammar."""
+    del ctx
+    from agnette.agl.highlight.targets import TARGETS
+
+    return _match(list(TARGETS), incomplete)
 
 
 def _resolve_project_repo_dir() -> Path | None:

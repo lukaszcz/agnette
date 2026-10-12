@@ -25,6 +25,14 @@ _MODULE_PATH_ROW = (
 _NO_STDLIB_ROW = "  --no-stdlib            Disable the automatic `import std/prelude::*`.\n"
 
 _HELP_TEXTS: dict[str, str] = {
+    "dev": textwrap.dedent("""\
+        agm dev COMMAND
+
+        Development and integration tooling.
+
+        Commands:
+          highlight TARGET  Export portable AgL highlighting definitions.
+    """),
     "open": textwrap.dedent("""\
         agm open [-d] [-n PANES] [-p PARENT] [--fetch | --no-fetch] [--dry-run] TARGET
 
@@ -346,6 +354,16 @@ _PATH_ALIASES: dict[tuple[str, ...], tuple[str, ...]] = {
 }
 
 _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
+    ("dev", "highlight"): textwrap.dedent("""\
+        agm dev highlight TARGET [--output PATH]
+
+        Export an AgL highlighting definition. TARGET is kde (XML), textmate
+        (JSON), or emacs (Lisp keyword inventory).
+
+        Options:
+          --output PATH  Write UTF-8 to PATH, creating parent directories and
+                         replacing an existing file. Default: stdout.
+    """),
     ("workspace", "setup"): textwrap.dedent("""\
         agm workspace setup [--dry-run]
 

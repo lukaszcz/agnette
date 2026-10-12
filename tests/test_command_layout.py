@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agnette.agm.cli import app
+from agnette.command_catalog import COMMAND_ALIASES
+
 
 def test_command_subpackages_match_cli_command_groups() -> None:
     """commands/ sub-packages must mirror CLI command groups (repository guideline)."""
@@ -20,4 +23,6 @@ def test_command_subpackages_match_cli_command_groups() -> None:
         if path.is_dir() and (path / "__init__.py").is_file()
     }
 
-    assert subpackages == {"config", "dep", "pkg", "sync", "tmux", "workspace", "worktree"}
+    assert subpackages == {
+        group.name for group in app.registered_groups if group.name not in COMMAND_ALIASES
+    }

@@ -362,8 +362,8 @@ def route_table_paths(
 
     Every module-suffix spelling, shortest first, then the exact quoted module
     anchor, then each *command path* the declaration is registered under, whose
-    own segments are the whole table path: ``agm dev review`` reads
-    ``[dev.review]``. AgM's top-level configuration sections are excluded,
+    own segments are the whole table path: ``agm dv review`` reads
+    ``[dv.review]``. AgM's top-level configuration sections are excluded,
     except that a single-segment loose-file module named after a *command* may
     address one of its nested declaration tables: a command section holds its
     own settings as leaf keys, so a table one level below it is free. A

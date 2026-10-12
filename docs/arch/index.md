@@ -37,7 +37,7 @@ Start here for the system shape, then read only the subsystem documents relevant
 ## Code Entry Points
 
 - `src/agnette/agm/cli.py`, `cli_dispatch.py`, `parser.py`, `completion.py` — CLI definition, registered-command fallback, help, completion; `src/agnette/command_catalog.py` — pure command-path leaf.
-- `src/agnette/agm/commands/` — command implementations; `src/agnette/agm/cli_support/` — argument containers and shared AgL CLI support.
+- `src/agnette/agm/commands/` — command implementations, including development/integration tooling in `commands/dev/`; `src/agnette/agm/cli_support/` — argument containers and shared AgL CLI support.
 - `src/agnette/agm/project/`, `src/agnette/agm/tmux/` — manager-specific project layout and tmux.
 - `src/agnette/core/`, `src/agnette/util/` — primitives and pure helpers.
 - `src/agnette/config/`, `src/agnette/stdlib_locator.py` — configuration; shipped stdlib location.

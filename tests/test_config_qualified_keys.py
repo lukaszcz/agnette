@@ -202,20 +202,18 @@ class TestQualifiedConfigKeys:
     def test_resolves_a_registered_command_path_table(self) -> None:
         """A command path addresses the program its package registers under it."""
         key = QualifiedConfigKey(
-            ("review-tools", "review"), ("main",), "strict", command_paths=(("dev", "review"),)
+            ("review-tools", "review"), ("main",), "strict", command_paths=(("dv", "review"),)
         )
 
-        assert resolve_qualified_values(_config({"dev": {"review": {"strict": True}}}), (key,)) == {
+        assert resolve_qualified_values(_config({"dv": {"review": {"strict": True}}}), (key,)) == {
             key: True
         }
 
     def test_rejects_a_command_path_table_conflicting_with_its_module_route(self) -> None:
         key = QualifiedConfigKey(
-            ("review-tools", "judge"), ("main",), "strict", command_paths=(("dev", "review"),)
+            ("review-tools", "judge"), ("main",), "strict", command_paths=(("dv", "review"),)
         )
-        config = _config(
-            {"dev": {"review": {"strict": True}}, "judge": {"main": {"strict": False}}}
-        )
+        config = _config({"dv": {"review": {"strict": True}}, "judge": {"main": {"strict": False}}})
 
         with pytest.raises(QualifiedConfigLookupError) as exc_info:
             resolve_qualified_values(config, (key,))
@@ -224,10 +222,10 @@ class TestQualifiedConfigKeys:
 
     def test_a_later_layer_command_path_table_overrides_a_module_route(self) -> None:
         key = QualifiedConfigKey(
-            ("review-tools", "judge"), ("main",), "strict", command_paths=(("dev", "review"),)
+            ("review-tools", "judge"), ("main",), "strict", command_paths=(("dv", "review"),)
         )
         config = _config(
-            {"judge": {"main": {"strict": False}}}, {"dev": {"review": {"strict": True}}}
+            {"judge": {"main": {"strict": False}}}, {"dv": {"review": {"strict": True}}}
         )
 
         assert resolve_qualified_values(config, (key,)) == {key: True}
@@ -235,10 +233,10 @@ class TestQualifiedConfigKeys:
     def test_resolves_every_command_path_registered_for_one_program(self) -> None:
         """Two registrations of one program are two spellings of its address."""
         first = QualifiedConfigKey(
-            ("tools", "run"), ("main",), "level", command_paths=(("dev", "run"), ("dev", "r"))
+            ("tools", "run"), ("main",), "level", command_paths=(("dv", "run"), ("dv", "r"))
         )
 
-        assert resolve_qualified_values(_config({"dev": {"r": {"level": "high"}}}), (first,)) == {
+        assert resolve_qualified_values(_config({"dv": {"r": {"level": "high"}}}), (first,)) == {
             first: "high"
         }
 
@@ -280,11 +278,11 @@ class TestQualifiedConfigKeys:
         )
 
     def test_configured_leaf_tables_report_command_path_leaves(self) -> None:
-        config = _config({"dev": {"review": {"strict": True}}})
+        config = _config({"dv": {"review": {"strict": True}}})
 
         assert configured_leaf_tables(
-            config, ("review-tools", "review"), ("main",), command_paths=(("dev", "review"),)
-        ) == {"strict": ("dev", "review")}
+            config, ("review-tools", "review"), ("main",), command_paths=(("dv", "review"),)
+        ) == {"strict": ("dv", "review")}
 
     def test_configured_leaf_tables_report_every_consulted_spelling(self) -> None:
         config = _config(
@@ -395,15 +393,15 @@ class TestGroupTableInheritance:
         ) == {key: True}
 
     def test_alias_prefixes_are_already_expanded_command_paths(self) -> None:
-        """An alias's own group table (``[dev]``) inherits down just like the canonical one."""
+        """An alias's own group table (``[dv]``) inherits down just like the canonical one."""
         key = QualifiedConfigKey(
             ("tools", "review"),
             ("main",),
             "strict",
-            command_paths=(("dev", "review"), ("devel", "review")),
+            command_paths=(("dv", "review"), ("devel", "review")),
         )
 
-        assert resolve_qualified_values(_config({"dev": {"strict": True}}), (key,)) == {key: True}
+        assert resolve_qualified_values(_config({"dv": {"strict": True}}), (key,)) == {key: True}
 
     def test_same_depth_conflict_from_two_command_paths_in_one_layer_errors(self) -> None:
         key = QualifiedConfigKey(
@@ -423,9 +421,9 @@ class TestGroupTableInheritance:
             ("tools", "review"),
             ("main",),
             "x",
-            command_paths=(("dev", "review"), ("devel", "review")),
+            command_paths=(("dv", "review"), ("devel", "review")),
         )
-        config = _config({"dev": {"x": 1, "review": {"x": 3}}, "devel": {"x": 2}})
+        config = _config({"dv": {"x": 1, "review": {"x": 3}}, "devel": {"x": 2}})
 
         with pytest.raises(QualifiedConfigLookupError):
             resolve_qualified_values(config, (key,))

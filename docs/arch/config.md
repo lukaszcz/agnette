@@ -29,7 +29,7 @@ A **program route** is the selected program's qualified config table; a **module
 | Module parameters (`@param` bindings) | CLI flag > `@opt-env` > program route > `@config` > manifest `[config]` > module route > initializer |
 
 - `config/engine_keys.py` is the pure catalog of engine settings (kind, default, path-ness, validity rule); CLI flags, the checker, IR validation, and the evaluator all derive from it. `cli_support/engine_seeds.py` resolves the CLI-over-config tiers once per run.
-- `config/qualified_keys.py` routes a table to a module by path suffix (ambiguous suffixes are errors) and keeps layer provenance. A package-registered program is also addressed by its command path (`[dev.review]`), with each path prefix as a lower-specificity inherited group table. AgM's own section names are excluded from module routing.
+- `config/qualified_keys.py` routes a table to a module by path suffix (ambiguous suffixes are errors) and keeps layer provenance. A package-registered program is also addressed by its command path (`[dv.review]`), with each path prefix as a lower-specificity inherited group table. AgM's own section names are excluded from module routing.
 - `cli_support/param_config.py` resolves module parameters across both routes; `commands/exec_program.py` resolves program arguments and engine settings from the program route; [agl/hosting.md](agl/hosting.md) describes how hosts seed the resolved values.
 
 ## Sandbox Configuration

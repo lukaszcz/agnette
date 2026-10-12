@@ -22,6 +22,7 @@ COMMAND_OVERVIEW: tuple[tuple[str, str], ...] = (
     ("sync", "Fetch and merge project repositories"),
     ("dep", "Manage dependency checkouts"),
     ("pkg", "Manage AgL packages"),
+    ("dev", "Development and integration tooling"),
     ("exec", "Run an AgL program"),
     ("repl", "Start the AgL REPL"),
     ("check", "Statically check AgL files"),

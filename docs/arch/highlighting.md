@@ -104,7 +104,11 @@ source behavior is unchanged; exact Pygments/REPL lexing is unaffected.
 ### Generated Targets
 
 `targets.TARGETS` maps names to pure `Grammar → str` generators; extending it needs
-one module and one registry entry. `targets/emacs.py` emits `agl-inventory.el`:
+one module and one registry entry. `agm dev highlight TARGET [--output PATH]`
+exports through `agm/commands/dev/highlight.py`; it loads `AGL_GRAMMAR` only when
+generating, so help and target completion do not scan Unicode inventories.
+Output defaults to stdout; file output creates parents and replaces existing content.
+`targets/emacs.py` emits `agl-inventory.el`:
 six canonical keyword/builtin/type lists, identifier-stop characters safe for
 Emacs bracket expressions, and the `agl-inventory` feature. It exports vocabulary
 only, independent of grammar topology; editor font-lock remains hand-written.

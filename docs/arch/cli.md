@@ -6,6 +6,8 @@ AgM's entry point is a Typer application that defines the command tree, parses a
 
 A root app plus one sub-app per command group. `src/agnette/agm/commands/` mirrors the tree (`agm pkg check` → `commands/pkg/check.py`); the Typer wiring stays in `cli.py`. Handlers are imported at dispatch, so unrelated command domains do not add to startup.
 
+`agm dev` owns development and integration tooling. `dev highlight` exports portable AgL definitions through the highlighting target registry ([highlighting.md](highlighting.md)); CLI choices and completion use its keys, while grammar construction is deferred until generation.
+
 When no built-in command matches, a lazy fallback (`cli_dispatch.py`) loads the package command index (the activation index's cached registry, re-derived from manifests under project pins or editable packages), resolves the longest registered path, and shows group help or runs the program through the same host as `agm exec` ([packages.md](packages.md)). Resolving a built-in command never loads that index or AgL; only the command overview and `agm help` read the index, without compiling programs.
 
 ## Argument Handling
@@ -26,4 +28,5 @@ Help texts and the command overview live in `parser.py`, keyed by command path; 
 - `src/agnette/agm/parser.py` — help texts; `completion.py` — dynamic completions; `src/agnette/command_catalog.py` — command-path shape and reserved names.
 - `src/agnette/agm/commands/` — implementations; `commands/exec_program.py` is the shared host for file, installed-reference, and registered AgL programs; `commands/check.py` runs the static pipeline only.
 - `src/agnette/agm/cli_support/` — argument containers (`args.py`), `exec` target classification and module roots (`exec_target.py`, `exec_roots.py`), program discovery and CLI projection (`program_discovery.py`, `program_options.py`), module-parameter spelling and config resolution (`param_surface.py`, `param_config.py`), engine seeds (`engine_seeds.py`), and shared run options (`execution_options.py`, `run_options.py`).
+- `src/agnette/agm/commands/dev/highlight.py` — registry-backed highlighting export; `docs/commands/dev.md` — its user-facing reference.
 - `docs/commands/` — the user-facing command reference.
