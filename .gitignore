@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 site/
+node_modules/
 
 .agent-files/
 .pi/

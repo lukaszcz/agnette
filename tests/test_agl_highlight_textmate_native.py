@@ -21,6 +21,42 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_textmate_source_offsets_and_roundtrip(tmp_path: Path) -> None:
+    sources = [
+        "",
+        "𐐀name 😀 \u2028\u2029\v\f\r\nlet x=1\r# Ω\n",
+        '"""😀%{1}\r\n\r\ntail"""\rlet x=2',
+        "\r\n\r\n\r\n",
+    ]
+    grammar = tmp_path / "AgL.tmLanguage.json"
+    grammar.write_text(generate(AGL_GRAMMAR))
+    helper = Path(__file__).resolve().parents[1] / "config/textmate/tests/tokenize.cjs"
+    result = subprocess.run(
+        ["node", str(helper), str(grammar)],
+        input=json.dumps(sources),
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=20,
+    )
+    reverse = {scope: category for category, scope in TEXTMATE_SCOPES.items()}
+    for source, tokens in zip(sources, json.loads(result.stdout), strict=True):
+        assert "".join(token["text"] for token in tokens) == source
+        actual = []
+        offset = 0
+        for token in tokens:
+            assert token["start"] == offset
+            offset = token["end"]
+            assert source[token["start"] : offset] == token["text"]
+            category = next(
+                (reverse[s] for s in reversed(token["scopes"]) if s in reverse), Category.TEXT
+            )
+            actual.extend([category] * len(token["text"]))
+        assert offset == len(source)
+        expected = [c for a, b, c in evaluate(AGL_GRAMMAR, source) for _ in range(b - a)]
+        assert actual == expected
+
+
 def test_native_textmate_frames_captures_and_recovery_batch() -> None:
     generic = Grammar(
         (

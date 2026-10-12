@@ -121,6 +121,17 @@ test-kde:
         echo "pandoc not found; skipping the optional KDE engine suite (requires Pandoc 3.x)"; \
     fi
 
+# Compare the generated TextMate grammar with the reference in the native engine
+# Pinned npm dependencies are installed only by this optional recipe.
+test-textmate:
+    @if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then \
+        echo "node or npm not found; skipping the native TextMate suite"; \
+    else \
+        npm ci --prefix config/textmate/tests; \
+        uv run agm dev highlight textmate --output build/highlighting/AgL.tmLanguage.json; \
+        uv run python tools/highlight_textmate.py build/highlighting/AgL.tmLanguage.json; \
+    fi
+
 # Type-check with mypy
 typecheck:
     uv run mypy src/agnette/ tools/

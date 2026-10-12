@@ -27,6 +27,14 @@ Tests assert behavior, never exact help, warning, or error text. The e2e harness
 - **Vacuous-assertion guard** — `just test-neutral-tmp` reruns with neutrally named temp directories.
 - **Optional mutation gate** — `tools/mutation_check.py` replays the mutation sample in `tools/mutations.json`, outside `just check`.
 
+`just test-textmate` optionally compares the CLI-generated grammar with the shared
+reference corpus (`tools/highlight_engine_support.py`) through native TextMate/Oniguruma.
+Its pinned npm dependencies and tokenizer live in `config/textmate/tests/`; the same
+tokenizer serves opt-in pytest probes. The adapter accepts only the root `source.agl`
+wrapper and published category scopes; native malformed-grammar probes reject unknown
+scopes even beneath known categories. It skips when Node/npm is unavailable and stays
+outside `just check`.
+
 ## Test Cost
 
 Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` enforces a per-test ceiling and `just test-budget` ranks tests to recalibrate it. Pure lexer and grammar matrices batch small input axes under the same isolation and CPU gates; each case constructs fresh results. Compiling modules dominates AgL cost, so fixtures reuse immutable compilation where roots agree and keep runtime state fresh. Periodic young and full GC bounds cyclic compiler retention without per-allocation scans; only session metadata is frozen. `just check` runs the static gates concurrently with the suite.
