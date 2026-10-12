@@ -60,7 +60,8 @@ def _is_escaped(line: str, index: int) -> bool:
 def _has_code_span_closer(lines: list[str], line_index: int, offset: int, ticks: int) -> bool:
     """Check whether this code span closes before its Markdown paragraph ends."""
     paragraph = takewhile(
-        lambda line: line.strip() and fence_opening(line) is None, lines[line_index + 1 :]
+        lambda line: line.strip() and fence_opening(line) is None,
+        (lines[index] for index in range(line_index + 1, len(lines))),
     )
     return any(
         len(run.group()) == ticks

@@ -8,7 +8,12 @@ import pytest
 from markdown import Markdown
 from pygments.token import Keyword, Name
 
-from agnette.agl.highlight.markdown_ext import ContextPreprocessor, formatter, validator
+from agnette.agl.highlight.markdown_ext import (
+    ContextPreprocessor,
+    _has_code_span_closer,
+    formatter,
+    validator,
+)
 from agnette.agl.highlight.pygments_lexer import AglLexer, document_context
 
 
@@ -152,6 +157,17 @@ def test_literal_comment_delimiters_do_not_disable_context(prose: str) -> None:
     html = _markdown().convert(source)
     assert "agl-context" not in html
     assert '<span class="kt">Point</span>' in html
+
+
+def test_inline_code_closer_scan_does_not_slice_remaining_lines() -> None:
+    class SliceCheckingLines(list[str]):
+        def __getitem__(self, index: int | slice) -> str | list[str]:
+            if isinstance(index, slice):
+                pytest.fail("inline-code scan copied a slice of the document")
+            return super().__getitem__(index)
+
+    lines = SliceCheckingLines(["`code`", *["tail"] * 1000])
+    assert _has_code_span_closer(lines, 0, 1, 1)
 
 
 def test_unmatched_inline_code_delimiter_does_not_hide_markdown_comments() -> None:
