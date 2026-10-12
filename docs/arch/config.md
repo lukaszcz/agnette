@@ -12,6 +12,15 @@ One AgM home holds config, sandbox settings, the AgL global library, and the pac
 
 The standard library resolves from `AGM_STDLIB` (unchecked override), then a development `std` checkout containing the invocation's anchor, then the active managed `std` store package, then the shipped tree located by `agnette.stdlib_locator` ([package-store.md](package-store.md)).
 
+## Highlighting and Editor Assets
+
+`just install` also refreshes generated definitions in `<AgM home>/highlighting/`
+and the KDE XDG data directory, preserving existing Pandoc defaults unless forced.
+Prefix installs isolate AgM home and XDG destinations. Emacs packages a generated
+vocabulary with hand-written font-lock; micro remains hand-written.
+See [highlighting](highlighting.md) for components and
+[development tooling](../commands/dev.md) for destinations and usage.
+
 ## Layering and Precedence
 
 General configuration merges from least to most specific: install prefix, AgM home, project config directory, then the invocation directory's `.agm/config.toml`. Tables merge by key. Path-valued settings resolve relative to their defining file (else the invocation directory when that path does not exist) and interpolate `%{VAR}` *leniently* — an unresolved hole stays verbatim, so an irrelevant section never prevents loading.
@@ -43,4 +52,5 @@ Sandbox settings are per-command JSON profiles discovered in the AgM home, the p
 - `src/agnette/config/engine_keys.py`, `qualified_keys.py` — engine-key catalog; qualified AgL key routing.
 - `src/agnette/config/module_roots.py` — AgL module roots; `src/agnette/stdlib_locator.py` — the shipped stdlib tree.
 - `src/agnette/config/sandbox/` — sandbox settings discovery and merging.
-- `src/agnette/agm/commands/config/` — the `agm config` commands; `config/` (repository root) — templates.
+- `src/agnette/agm/commands/config/` — the `agm config` commands; `config/` (repository root) — templates and editor integrations.
+- `tools/install_highlighting.py`, `tools/install_emacs_mode.py` — generated definitions, Pandoc defaults and Emacs packaging.

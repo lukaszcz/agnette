@@ -10,7 +10,8 @@ Reference `agl` fences must statically compile by default. Put metadata comments
 on consecutive lines directly before the fence, in the same Markdown container;
 blank lines or unrelated comments break adjacency. A list marker may start the
 metadata block; later comments and the fence use its continuation indentation.
-Plain `agl` and attribute-style `{.agl}` fence headers share these rules.
+Backtick and tilde fences with plain `agl` or attribute-style `{.agl}` headers
+share these rules; normal SuperFences options still apply.
 
 - `<!-- agl-check: fragment -->` marks an incomplete example; `error` marks an
   intentional static rejection. Both must fail compilation; never use `skip`.
@@ -21,3 +22,10 @@ Plain `agl` and attribute-style `{.agl}` fence headers share these rules.
   (e.g. `<!-- agl-context:   x: int -->` supplies `  x: int`).
 - Remove `fragment` when context makes the example compile. Context comments are
   not layout-style-checked or rewritten; displayed fence bodies remain checked.
+
+`agnette.agl.highlight.context.fence_metadata` shares this contract between the
+snippet guard, style tooling and Markdown adapter. Rendering removes accepted
+context markers and injects URL-safe base64 into a fence-local option; check markers
+remain comments. Rejected or uninjectable headers retain authored metadata.
+Context never leaks to another fence or document. Pandoc's portable grammar does
+not consume these markers.
