@@ -26,6 +26,27 @@ from agnette.agl.highlight.pygments_lexer import document_context
 _COMMENT = re.compile(r"<!--|-->")
 _BACKTICKS = re.compile(r"`+")
 _OPTION = "agl_context"
+_BLOCK_PREFIX = re.compile(r"(?: {0,3}>[ \t]?| {0,3}(?:[-+*]|[0-9]+[.)])[ \t]+)")
+_HTML_TAG = re.compile(r"<(?P<closing>/)?(?P<tag>[A-Za-z][A-Za-z0-9:-]*)\b[^>]*>")
+_VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+_CDATA_TAGS = frozenset({"script", "style", "xmp", "iframe", "noembed", "noframes"})
 
 
 def _is_escaped(line: str, index: int) -> bool:
@@ -46,6 +67,44 @@ def _has_code_span_closer(lines: list[str], line_index: int, offset: int, ticks:
         for line in chain([lines[line_index][offset:]], paragraph)
         for run in _BACKTICKS.finditer(line)
     )
+
+
+def _is_indented_code(line: str) -> bool:
+    """Check whether a line has code-block indentation after Markdown containers."""
+    index = 0
+    while prefix := _BLOCK_PREFIX.match(line, index):
+        index = prefix.end()
+    indentation = re.match(r"[ \t]*", line[index:])
+    return indentation is not None and len(indentation.group().expandtabs(4)) >= 4
+
+
+def _advance_html_tags(line: str, tags: list[str]) -> None:
+    """Track the end of a raw HTML block, ignoring markup inside CDATA elements."""
+    for match in _HTML_TAG.finditer(line):
+        tag = cast(str, match.group("tag")).lower()
+        closing = match.start("closing") >= 0
+        if tags and tags[-1] in _CDATA_TAGS and (not closing or tag != tags[-1]):
+            continue
+        if closing:
+            if tag in tags:
+                while tags.pop() != tag:
+                    pass
+        elif tag not in _VOID_TAGS and not str(match.group()).endswith("/>"):
+            tags.append(tag)
+
+
+def _start_html_block(line: str, md: Markdown, tags: list[str]) -> bool:
+    """Start tracking a block-level HTML element, if this line opens one."""
+    container = MarkdownContainer.from_line(line)
+    content = line[len(container.prefix) :]
+    if (match := _HTML_TAG.match(content)) is None:
+        return False
+    tag = cast(str, match.group("tag")).lower()
+    block_tags = cast(list[str], getattr(md, "block_level_elements"))
+    if match.start("closing") >= 0 or tag not in block_tags:
+        return False
+    _advance_html_tags(content, tags)
+    return True
 
 
 def _scan_comments(
@@ -117,6 +176,7 @@ class ContextPreprocessor(Preprocessor):
         body: FenceMetadata | None = None
         comment_depth = 0
         code_span: int | None = None
+        html_tags: list[str] = []
         normalize_body = False
         for index, line in enumerate(lines):
             if body is not None:
@@ -128,6 +188,9 @@ class ContextPreprocessor(Preprocessor):
                         body = None
                     continue
                 body = None
+            if html_tags:
+                _advance_html_tags(line, html_tags)
+                continue
             if not comment_depth and (opening := fence_opening(line)):
                 container, delimiter, _ = opening
                 body = FenceMetadata(None, "", index, container.continuation, delimiter)
@@ -155,6 +218,9 @@ class ContextPreprocessor(Preprocessor):
                                 removed.add(context_index)
                         lines[index] = injected
                 continue
+            if not comment_depth:
+                if _is_indented_code(line) or _start_html_block(line, self.md, html_tags):
+                    continue
             comment_depth, code_span = _scan_comments(lines, index, comment_depth, code_span)
         return [line for index, line in enumerate(lines) if index not in removed]
 

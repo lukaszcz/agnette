@@ -152,6 +152,26 @@ def test_unmatched_inline_code_delimiter_does_not_hide_markdown_comments() -> No
     assert '<span class="kt">Point</span>' in html
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        "    <div>\n    <!-- literal in an indented code block\n\n",
+        "<script>\n<!-- literal <div> in raw HTML\n</script>\n\n",
+        "<div>\n<section>\n</span>\n<hr>\n<!-- literal in raw HTML\n</div>\n\n",
+        "<span>inline HTML <!-- note --></span>\n\n",
+    ],
+)
+def test_comment_delimiters_in_markdown_blocks_do_not_hide_context(block: str) -> None:
+    source = (
+        block
+        + "<!-- agl-context: record Point -->\n<!-- agl-context:   x: int -->\n"
+        + "```agl\nlet p: Point = Point(1)\n```"
+    )
+    html = _markdown().convert(source)
+    assert "agl-context" not in html
+    assert '<span class="kt">Point</span>' in html
+
+
 def test_context_is_local_to_fence_and_document() -> None:
     renderer = _markdown()
     fence = "```agl\nlet p: Point = Point(1)\n```"
