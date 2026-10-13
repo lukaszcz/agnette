@@ -1,9 +1,11 @@
+import std/array
 import std/config
 import std/env::Environ
 import std/errors::Exception
 import std/option::Option
 import std/path::path
 import std/sandbox::Sandbox
+import std/text::{join, ++}
 
 builtin
 record ExecResult
@@ -41,3 +43,15 @@ builtin def exec[T](
   strict-json: bool = false,
   parse-error-retries: int = 0,
 ) -> T
+
+@exempts("unquoted-exec-hole")
+@doc("Quote text as one literal POSIX shell word: single-quoted, each `'` written as `'\\''`.")
+def shell-quote(value: text) -> text = "'" ++ value.replace("'", "'\\''") ++ "'"
+
+@exempts("unquoted-exec-hole")
+@doc("Quote each value with `shell-quote` and join them with spaces, one shell word per value.")
+def shell-join(values: array[text]) -> text = join(values.map(shell-quote), " ")
+
+@exempts("unquoted-exec-hole")
+@doc("Return `value` unchanged, marking a deliberate unquoted splice into a shell command.")
+def shell-raw(value: text) -> text = value

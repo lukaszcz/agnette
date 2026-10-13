@@ -108,6 +108,21 @@ are inserted **verbatim** — there is **no automatic shell quoting**. Text from
 models or users inside a shell command is an injection hazard unless the
 author quotes it.
 
+### Quoting functions
+
+`shell-quote(value)` returns `value` as one literal POSIX shell word: always
+single-quoted, each `'` written as `'\''`, empty text as `''`. `shell-join` and
+`shell-raw` are the related helpers; all three come from `std/exec` through the
+prelude.
+
+```agl
+program def main() -> unit =
+  let name = "it's here"
+  let files = ["a b.txt", "c.txt"]
+  let found: text = exec "grep -l %{shell-quote(name)} %{shell-join(files)}"
+  print(found)
+```
+
 ## The three forms of `exec`
 
 `exec`'s behavior depends on its **target type**, determined from context as

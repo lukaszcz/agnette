@@ -1,0 +1,36 @@
+{
+  "scenarios": [
+    {
+      "name": "quote_wraps_every_text_as_one_single_quoted_word",
+      "params": {"mode": 1},
+      "expect": {
+        "stdout": "'plain'\n''\n'a b'\n'it'\\''s'\n''\\'''\\'''\n'a'\\'''\n''\\''b'\n'$(rm -rf /); `id` *.txt'\n'line\nbreak'\n'back\\slash 100%'\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "join_quotes_each_value_and_separates_with_spaces",
+      "params": {"mode": 2},
+      "expect": {
+        "stdout": "'ls' '-la' 'my dir' 'it'\\''s' ''\n\n'only'\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "raw_returns_its_argument_unchanged",
+      "params": {"mode": 3},
+      "expect": {
+        "stdout": "$HOME/bin *.txt\n\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "prelude_and_exec_module_routes_resolve",
+      "params": {"mode": 4},
+      "expect": {
+        "stdout": "'x y'\n'a' 'b c'\n",
+        "calls": {}
+      }
+    }
+  ]
+}

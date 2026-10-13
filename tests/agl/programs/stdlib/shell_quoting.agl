@@ -1,0 +1,28 @@
+# std/exec quoting is available through the prelude: always single-quoted, `'` becomes `'\''`.
+import std/exec
+
+def show(value: text) -> unit = print(shell-quote(value))
+
+program def main(mode: int) -> unit =
+  case mode of
+    | 1 =>
+        show("plain")
+        show("")
+        show("a b")
+        show("it's")
+        show("''")
+        show("a'")
+        show("'b")
+        show("$(rm -rf /); `id` *.txt")
+        show("line\nbreak")
+        show("back\\slash 100\%")
+    | 2 =>
+        print(shell-join(["ls", "-la", "my dir", "it's", ""]))
+        print(shell-join([]))
+        print(shell-join(["only"]))
+    | 3 =>
+        print(shell-raw("$HOME/bin *.txt"))
+        print(shell-raw(""))
+    | _ =>
+        print(std/prelude::shell-quote("x y"))
+        print(std/exec::shell-join(["a", "b c"]))

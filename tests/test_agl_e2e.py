@@ -2246,6 +2246,28 @@ def test_qualified_std_prelude_print_still_works(capsys: pytest.CaptureFixture[s
 _SCOPED_STDLIB_MODULES = ("errors", "agent", "session", "exec", "io", "value", "package")
 
 
+def _without_ordinary_defs(source: str) -> str:
+    """Drop every ordinary ``def`` (not ``builtin``/``extern``) with its attributes and body."""
+    kept: list[str] = []
+    attributes: list[str] = []
+    in_def = False
+    for line in source.splitlines(keepends=True):
+        if in_def:
+            if line.startswith((" ", "\t", ")")) or not line.strip():
+                continue
+            in_def = False
+        if line.startswith("@"):
+            attributes.append(line)
+        elif line.startswith("def "):
+            attributes.clear()
+            in_def = True
+        else:
+            kept.extend(attributes)
+            attributes.clear()
+            kept.append(line)
+    return "".join(kept + attributes)
+
+
 def _scoped_stdlib_root(tmp_path: Path) -> Path:
     """Build a throwaway standard-library root whose builtin surface is one scoped module.
 
@@ -2256,8 +2278,10 @@ def _scoped_stdlib_root(tmp_path: Path) -> Path:
     ``std/path``. Canonical
     session statics are omitted because wrapping changes their owner path,
     and ``exec``'s and the agent calls' defaults are rewritten so that no
-    default names the environment or config module. Infix declarations stay at
-    module root because scopes cannot contain them.
+    default names the environment or config module. Ordinary ``def``s are
+    dropped from those modules because they call extern-backed methods this
+    fixture lacks. Infix declarations stay at module root because scopes
+    cannot contain them.
     """
     scoped_stdlib_root = tmp_path / "scoped_stdlib"
     std_dir = scoped_stdlib_root / MODULE_TREE_DIRNAME
@@ -2290,6 +2314,7 @@ def _scoped_stdlib_root(tmp_path: Path) -> Path:
             "",
             source,
         )
+        source = _without_ordinary_defs(source)
         source = source.replace(
             "parse-error-retries: int = std/config::parse-error-retries",
             "parse-error-retries: int = 0",
