@@ -58,6 +58,7 @@ class Diagnostic:
     ``warning_name`` is the catalog name of the static warning this diagnostic
     reports (see :mod:`agnette.agl.warnings` and :func:`warning_diagnostic`),
     kept when a denied warning is an error; formatting appends it as `` [NAME]``.
+    Every static warning is built by :func:`warning_diagnostic`, so it is named.
     ``source_label`` is the display label of the source file this diagnostic
     originated from (e.g. a canonical file path, ``"<agl>"``, ``"<repl>"``).
     When set, it takes precedence over the ambient ``source_name`` argument
@@ -94,13 +95,8 @@ def related_diagnostic_from_span(message: str, span: SourceSpan) -> RelatedDiagn
     )
 
 
-def diagnostic_from_span(
-    message: str,
-    span: SourceSpan,
-    *,
-    severity: Literal["error", "warning"] = "error",
-) -> Diagnostic:
-    """Build a diagnostic pinned to a concrete source span.
+def diagnostic_from_span(message: str, span: SourceSpan) -> Diagnostic:
+    """Build an error diagnostic pinned to a concrete source span.
 
     When ``span.source`` is a real (non-default) ``SourceId``, the diagnostic's
     ``source_label`` is populated from ``span.source.label`` so that multi-file
@@ -114,15 +110,17 @@ def diagnostic_from_span(
         column=span.start_col,
         end_line=span.end_line,
         end_column=span.end_col,
-        severity=severity,
         source_label=_source_label_from_span(span),
     )
 
 
 def warning_diagnostic(warning: StaticWarning, message: str, span: SourceSpan) -> Diagnostic:
-    """Build the *warning* diagnostic pinned to *span*, severity and catalog name together."""
+    """Build the *warning* diagnostic pinned to *span*.
+
+    The only way to build a warning, so every one carries its catalog name.
+    """
     return replace(
-        diagnostic_from_span(message, span, severity="warning"), warning_name=warning.name
+        diagnostic_from_span(message, span), severity="warning", warning_name=warning.name
     )
 
 

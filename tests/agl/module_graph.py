@@ -112,6 +112,7 @@ def _cached_std_core() -> tuple[dict[ModuleId, LoadedModule], int]:
             path=None,
             cached={},
             roots=_roots(),
+            source_text="()",
         )
         _std_core_cache = new_modules
         _std_core_next_start_id = next_id
@@ -128,6 +129,7 @@ def build_module_graph(
     parsed = parse_entry_module(source, entry_path=origin_path)
     return build_module_graph_from_program(
         parsed.program,
+        source_text=source,
         next_node_id=parsed.next_id,
         origin_path=origin_path,
         default_stdlib=default_stdlib,
@@ -138,6 +140,7 @@ def build_module_graph(
 def build_module_graph_from_program(
     entry_program: Program,
     *,
+    source_text: str,
     next_node_id: int,
     origin_path: Path | None,
     default_stdlib: bool,
@@ -161,6 +164,7 @@ def build_module_graph_from_program(
         roots=_roots(),
         default_stdlib=default_stdlib,
         spaced_qualifiers=spaced_qualifiers,
+        source_text=normalize_newlines(source_text),
     )
     return graph, import_node_id
 
@@ -293,6 +297,7 @@ def build_inline_entry_graph(
     parsed = parse_entry_module(source, entry_path=origin_path, inline_code=True)
     return build_module_graph_from_program(
         parsed.program,
+        source_text=source,
         next_node_id=parsed.next_id,
         origin_path=origin_path,
         default_stdlib=default_stdlib,
@@ -338,6 +343,7 @@ def resolve_repl_entry(
     entry_program, next_node_id, spaced_qualifiers = _parse_repl_entry(source)
     graph, import_node_id = build_module_graph_from_program(
         entry_program,
+        source_text=source,
         next_node_id=next_node_id,
         origin_path=None,
         default_stdlib=default_stdlib,
@@ -363,6 +369,7 @@ def resolve_and_check_repl_entry(
     entry_program, next_node_id, spaced_qualifiers = _parse_repl_entry(source)
     graph, import_node_id = build_module_graph_from_program(
         entry_program,
+        source_text=source,
         next_node_id=next_node_id,
         origin_path=None,
         default_stdlib=default_stdlib,

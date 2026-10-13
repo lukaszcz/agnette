@@ -136,6 +136,8 @@ Inputs:
   `stdlib_root` replaces the standard library root; `no_stdlib` disables the prelude.
 - `inline_entry` — no `program def`: run through the same synthetic-entry transform as
   `agm exec -c`.
+- `warning_levels` — static-warning levels by name (`allow`, `warn`, `deny`), simulating
+  `--warning NAME=LEVEL`; unlisted warnings keep their catalog level.
 - `runtime` — `PipelineDriver` overrides (`default_call_depth_limit`,
   `default_strict_json`) and the `parse_error_retries` engine seed.
 - `filesystem` — a fixture in a temporary root: `directories`, UTF-8 `text_files`,
@@ -212,7 +214,8 @@ Expectations:
 
 The program must be rejected statically with nothing executed, with a diagnostic on `line`
 (1-based, optional) containing the `message_contains` fragments (case-insensitive,
-optional). `module_roots` and `stdlib_root` work as in scenarios.
+optional). `module_roots`, `stdlib_root` and `warning_levels` work as in scenarios; the
+optional `"warning"` names a denied warning the matching diagnostic must carry.
 
 ## Rejection categories
 
@@ -224,3 +227,4 @@ optional). `module_roots` and `stdlib_root` work as in scenarios.
 | `scope/` | Undefined names, duplicate declarations |
 | `type/` | Type mismatches, arity errors, operator type rules, opacity |
 | `match/` | Non-exhaustive and redundant matches |
+| `warnings/` | Warnings denied by `warning_levels` |

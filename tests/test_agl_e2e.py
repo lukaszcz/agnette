@@ -42,7 +42,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, get_args
 
 import pytest
 
@@ -60,6 +60,8 @@ from agnette.agl.ir.contracts import JsonContractRequest
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery
 from agnette.agl.semantics.values import IntValue, Value
+from agnette.agl.warning_policy import WarningPolicy
+from agnette.agl.warnings import WARNING_CATALOG, WarningLevel
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.sandbox.prepare import SandboxContext
 from agnette.sandbox.request import Default, SandboxLimits
@@ -108,6 +110,29 @@ def _load_json(path: Path) -> Any:
     # parse_float=Decimal: AgL has no binary floats; scenario
     # params and expected exception fields must round-trip decimals exactly.
     return json.loads(path.read_text(encoding="utf-8"), parse_float=Decimal)
+
+
+def _warning_policy(spec: dict[str, Any]) -> WarningPolicy:
+    """The warning levels a scenario or rejection sets, simulating ``--warning NAME=LEVEL``.
+
+    Raises ``ValueError`` for a name outside the catalog or a level that is not one.
+    """
+    levels = spec.get("warning_levels", {})
+    valid_levels = get_args(WarningLevel.__value__)
+    for name, level in levels.items():
+        if name not in WARNING_CATALOG:
+            raise ValueError(f"unknown warning {name!r} in warning_levels")
+        if level not in valid_levels:
+            raise ValueError(f"invalid level {level!r} for warning {name!r}")
+    return WarningPolicy(levels)
+
+
+@pytest.mark.parametrize(
+    "levels", [{"no-such-warning": "deny"}, {"tab-indentation": "error"}, {"tab-indentation": None}]
+)
+def test_invalid_warning_levels_are_rejected_in_fixtures(levels: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="warning"):
+        _warning_policy({"warning_levels": levels})
 
 
 def _fixture_roots(spec: dict[str, Any]) -> Any | None:
@@ -1221,6 +1246,7 @@ def _run_program(
     runtime = PipelineDriver(
         extern_registry=registry,
         resolve_agent_spec=None,
+        warning_policy=_warning_policy(scenario),
         **runtime_options,
     )
     scripts: list[_Script] = [shell, http_adapter]
@@ -2033,7 +2059,14 @@ def _scenario_params() -> list[Any]:
             shareable = not (
                 program.is_relative_to(EXTERNS_PROGRAMS_DIR)
                 or program.is_relative_to(RESOURCE_PROGRAMS_DIR)
-                or {"filesystem", "sandbox_home", "module_roots", "stdlib_root", "jev"}
+                or {
+                    "filesystem",
+                    "sandbox_home",
+                    "module_roots",
+                    "stdlib_root",
+                    "jev",
+                    "warning_levels",
+                }
                 & scenario.keys()
             )
             if not shareable and batch:
@@ -2132,13 +2165,16 @@ def test_static_rejection(program: Path) -> None:
     roots = _fixture_roots(spec)
     prepared = PipelineDriver.prepare_program(program.read_text(encoding="utf-8"), roots=roots)
     # Invalid programs need neither discovery nor argument preflight: compile once.
-    result = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None).run_prepared(
-        prepared
-    )
+    result = PipelineDriver(
+        resolve_agent_spec=None, get_sandbox_context=None, warning_policy=_warning_policy(spec)
+    ).run_prepared(prepared)
     assert not result.ok, "expected the program to be rejected statically"
     assert result.error is None, "static rejection must happen before execution"
     diagnostics = list(result.diagnostics)
     assert diagnostics, "expected at least one diagnostic"
+    if "warning" in expect:
+        diagnostics = [d for d in diagnostics if d.warning_name == expect["warning"]]
+        assert diagnostics, f"no diagnostic denies {expect['warning']!r}"
     needles = expect.get("message_contains", [])
     if "line" in expect:
         candidates = [diagnostic for diagnostic in diagnostics if diagnostic.line == expect["line"]]

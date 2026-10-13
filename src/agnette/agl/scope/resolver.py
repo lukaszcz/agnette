@@ -542,6 +542,7 @@ class _Resolver(ModuleSources):
         site_sources: Callable[[ModuleId], ModuleSources],
         fixity_of: Callable[[ModuleId, str], Fixity | None],
         *,
+        source_text: str,
         builtin_static_decl_node_ids: frozenset[int] = frozenset(),
         allow_root_statements: bool = False,
         is_standard_library_module: bool = False,
@@ -657,6 +658,7 @@ class _Resolver(ModuleSources):
         # backing file (inline `-c` sources, direct REPL entries). Drives the
         # `extern def` placement check — externs require a file-backed module.
         self._origin_path: Path | None = origin_path
+        self._source_text = source_text
         # Spaced-qualifier advisories from this module's lex pass, keyed by the
         # offset of the ``::`` that whitespace kept out of a qualifier.  A
         # self-qualified reference that fails to resolve consults them to
@@ -934,7 +936,9 @@ class _Resolver(ModuleSources):
         )
         # Receiver classification follows the ordered lexical walk, so attribute
         # recognition runs only after every method declaration is known.
-        attribute_facts = recognize_attributes(program, declares_receiver=self._declares_receiver)
+        attribute_facts = recognize_attributes(
+            program, declares_receiver=self._declares_receiver, source_text=self._source_text
+        )
         self._validate_extern_backing()
 
         return ModuleResolution(

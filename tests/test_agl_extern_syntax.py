@@ -408,13 +408,15 @@ class TestPlacement:
             resolve_program(graph)
 
     def test_repl_graph_entry_rejects_extern(self) -> None:
-        program, next_id = parse_program_seeded("extern def f(x: int) -> int", start_id=0)
+        source = "extern def f(x: int) -> int"
+        program, next_id = parse_program_seeded(source, start_id=0)
         graph, _next_id, _newly_loaded = build_repl_graph(
             program,
             next_id,
             path=None,
             cached={},
             roots=agl_roots(),
+            source_text=source,
         )
         with pytest.raises(AglScopeError):
             resolve_program(graph)

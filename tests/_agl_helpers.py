@@ -137,6 +137,7 @@ from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
 from agnette.agl.type_schema import derive_schema_and_decode
 from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.typecheck.program import CheckedProgram, check_program
+from agnette.agl.warning_policy import WarningPolicy
 from agnette.agl.zones import ParamZone
 from agnette.config.context import ConfigContext
 from agnette.sandbox.prepare import SandboxContext, lazy_sandbox_context
@@ -864,9 +865,10 @@ def repl_session_with_root(
     param_seed_resolver: (
         Callable[[ModuleId, tuple[ParamBindingInfo, ...]], Mapping[StaticBindingKey, object]] | None
     ) = None,
+    warning_policy: WarningPolicy | None = None,
 ) -> ReplSession:
     """Build a REPL session whose only module search root besides the stdlib is *root*."""
-    session = ReplSession(param_seed_resolver=param_seed_resolver)
+    session = ReplSession(param_seed_resolver=param_seed_resolver, warning_policy=warning_policy)
     session._roots = assemble_roots(
         invocation_root=root,
         stdlib_root=REPO_STDLIB_ROOT,

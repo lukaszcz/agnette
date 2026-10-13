@@ -718,7 +718,7 @@ def build_repl_graph(
     roots: RootSet,
     default_stdlib: bool = True,
     spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
-    source_text: str = "",
+    source_text: str,
 ) -> tuple[ModuleGraph, int, dict[ModuleId, LoadedModule]]:
     """Build a module graph from an already-parsed entry program.
 
@@ -747,12 +747,10 @@ def build_repl_graph(
     spaced_qualifiers:
         Spaced-qualifier advisories collected while *program* was lexed.
     source_text:
-        The entry's normalized source text, recorded on the entry
-        ``LoadedModule`` for deep IR-validation span checks and runtime
-        source slicing.  Defaults to ``""``, which is what the REPL wants:
-        its own lowering step supplies the per-entry text directly (see
-        ``agnette.agl.lower.repl``), so the loader's copy is never consulted. A
-        caller outside the REPL passes the real entry source here.
+        The normalized text *program* was parsed from, recorded on the entry
+        ``LoadedModule``: scope places ``@allow`` regions from it, and deep
+        IR-validation span checks and runtime source slicing read it. ``""``
+        only for a synthetic entry with no source.
 
     Returns
     -------

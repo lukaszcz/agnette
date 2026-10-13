@@ -1,0 +1,12 @@
+# An @allow region hides only the warnings anchored in its own module: the
+# entry's region spans the line the imported module's warning sits on.
+import tabby::*
+
+@allow("tab-indentation")
+def entry-region() -> int =
+  let a = 1
+  # A TAB in the entry's region:	hidden.
+  a + a + a + a
+
+program def main() -> unit =
+  print(hidden() + quiet() + visible() + entry-region())

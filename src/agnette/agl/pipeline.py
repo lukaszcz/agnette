@@ -44,6 +44,7 @@ from agnette.agl.runtime.types import (
     ProgramParamInfo,
 )
 from agnette.agl.self_validation import self_validation_enabled
+from agnette.agl.warning_policy import WarningOutcome, WarningPolicy, apply_program_policy
 from agnette.core.cleanup import notes_of
 
 if TYPE_CHECKING:
@@ -69,7 +70,7 @@ if TYPE_CHECKING:
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
-    from agnette.agl.scope.program import ResolvedProgram
+    from agnette.agl.scope.program import ResolvedModule, ResolvedProgram
     from agnette.agl.semantics.type_table import TypeTable
     from agnette.agl.semantics.types import Type
     from agnette.agl.semantics.values import ExceptionValue, Value
@@ -268,6 +269,10 @@ class PreparedProgram:
         Error-severity load/scope diagnostics; empty on success.
     ``warnings``
         Non-fatal lex (TAB) and scope warnings; present even on failure.
+    ``resolved_before_failure``
+        The modules scope finished before it failed (empty unless ``resolved``
+        is ``None`` because scope raised): the modules whose ``@allow`` regions
+        are known. Read through :attr:`resolutions`.
     ``companion_paths``
         Each loaded module's Python companion path (``None`` when the module
         declares no extern), keyed by module id. Empty when loading failed.
@@ -280,6 +285,13 @@ class PreparedProgram:
     diagnostics: tuple[Diagnostic, ...]
     warnings: tuple[Diagnostic, ...]
     companion_paths: "dict[ModuleId, Path | None]" = field(default_factory=dict)
+    resolved_before_failure: "dict[ModuleId, ResolvedModule]" = field(default_factory=dict)
+
+    @property
+    def resolutions(self) -> "Iterable[ResolvedModule]":
+        """Every module scope resolved, whether or not the program as a whole did."""
+        modules = self.resolved_before_failure if self.resolved is None else self.resolved.modules
+        return modules.values()
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,18 +355,22 @@ class RunResult:
 
     ``ok``
         ``True`` iff there are no error-severity ``diagnostics`` **and** no
-        uncaught AgL exception.  ``warnings`` never affect ``ok``.
+        uncaught AgL exception.  Reported ``warnings`` never affect ``ok``; a
+        warning the policy denies is an error in ``diagnostics`` instead.
     ``diagnostics``
         Pre-execution FAILURES only: error-severity items from
         lex/parse/scope/typecheck/matchcompile/program-argument-validation.  Each entry has a
-        ``.message`` (str) and a ``.line`` (int, 1-based).  Warnings are a
-        SEPARATE channel and NEVER appear here; on a successful run this list is
-        empty.
+        ``.message`` (str) and a ``.line`` (int, 1-based).  Reported warnings are a
+        SEPARATE channel (``warnings``); only a warning the policy denies appears
+        here, as an error with its ``warning_name`` kept, after the errors of the
+        failing pass.  On a successful run this list is empty.
     ``warnings``
-        Advisory warning-severity diagnostics (e.g. an unused binding)
-        surfaced on EVERY path — success, static failure, program-argument-validation
-        failure, and uncaught exception.  Same ``Diagnostic`` type as
-        ``diagnostics`` but with ``.severity == "warning"``.  Reported to the
+        Advisory warning-severity diagnostics (e.g. an unused binding) that the
+        warning policy reports, on every path that reaches the policy.  Allowed
+        and ``@allow``-ed warnings are filtered out, denied ones move to
+        ``diagnostics``, and the warnings of a module whose ``@allow`` regions are
+        unknown (scope never resolved it) are withheld.  Same ``Diagnostic`` type
+        as ``diagnostics`` but with ``.severity == "warning"``.  Reported to the
         user but never cause the run to fail (never affect ``ok``).
     ``error``
         The uncaught AgL exception, or ``None``.  Set only when the program
@@ -411,6 +427,10 @@ class PipelineDriver:
         dispatch (see `agnette.agent.spec_defaults.configured_defaults_resolver`).
         Required, like ``get_sandbox_context``; ``None`` dispatches specs as
         decoded.
+    warning_policy : WarningPolicy or None
+        The static-warning levels (``None``: the catalog defaults). Applied per
+        invocation after type checking: a denied warning is a static error, so
+        nothing is lowered or run.
     """
 
     def __init__(
@@ -424,6 +444,7 @@ class PipelineDriver:
         extern_registry: "ExternRegistry | None" = None,
         get_sandbox_context: "Callable[[], SandboxContext] | None",
         resolve_agent_spec: "AgentSpecResolver | None",
+        warning_policy: WarningPolicy | None = None,
     ) -> None:
         self._default_strict_json = default_strict_json
         self._agent_dispatcher = agent_dispatcher
@@ -431,6 +452,7 @@ class PipelineDriver:
         self._shell_exec_timeout = shell_exec_timeout
         self._get_sandbox_context = get_sandbox_context
         self._resolve_agent_spec = resolve_agent_spec
+        self._warning_policy = warning_policy if warning_policy is not None else WarningPolicy()
         self._default_call_depth_limit = (
             default_call_depth_limit
             if default_call_depth_limit is not None
@@ -905,6 +927,7 @@ class PipelineDriver:
         if parsed.program is None:
             return PreparedProgram(roots, None, parsed.diagnostics, parsed.warnings)
 
+        resolutions: dict[ModuleId, ResolvedModule] = {}
         with tab_warning_collector() as tab_sink:
             try:
                 with frontend_recursion_boundary():
@@ -918,13 +941,14 @@ class PipelineDriver:
                         spaced_qualifiers=parsed.spaced_qualifiers,
                         source_text=normalize_newlines(entry_source),
                     )
-                    resolved = resolve_program(graph)
+                    resolved = resolve_program(graph, resolutions=resolutions)
             except AglError as exc:
                 return PreparedProgram(
                     roots,
                     None,
                     (exc.to_diagnostic(),),
                     (*parsed.warnings, *tab_sink),
+                    resolved_before_failure=resolutions,
                 )
         warnings: tuple[Diagnostic, ...] = (*parsed.warnings, *tab_sink)
 
@@ -1022,26 +1046,25 @@ class PipelineDriver:
         module.
         """
         if prepared.resolved is None:
+            outcome = self._govern_warnings(prepared, None)
             return ProgramDiscovery(
                 programs=(),
                 checked=None,
                 compiled=None,
-                diagnostics=prepared.diagnostics,
-                warnings=prepared.warnings,
+                diagnostics=(*prepared.diagnostics, *outcome.denied),
+                warnings=outcome.reported,
             )
 
         checked, tc_diagnostics = _run_typecheck_program(prepared.resolved)
-        all_warnings_list: list[Diagnostic] = list(prepared.warnings)
-        if checked is not None:
-            _append_checker_warnings(all_warnings_list, checked)
-        all_warnings = tuple(all_warnings_list)
+        outcome = self._govern_warnings(prepared, checked)
+        all_warnings = outcome.reported
 
-        if checked is None:
+        if checked is None or outcome.denied:
             return ProgramDiscovery(
                 programs=(),
                 checked=None,
                 compiled=None,
-                diagnostics=tc_diagnostics,
+                diagnostics=(*tc_diagnostics, *outcome.denied),
                 warnings=all_warnings,
             )
 
@@ -1366,15 +1389,14 @@ class PipelineDriver:
         supplied as *executable*, or the one lowered here), or ``None`` when a
         pass before lowering failed.
         """
-        warnings: list[Diagnostic] = list(prepared.warnings)
-
         if prepared.resolved is None:
+            outcome = self._govern_warnings(prepared, None)
             return (
                 RunResult(
                     ok=False,
-                    diagnostics=list(prepared.diagnostics),
+                    diagnostics=[*prepared.diagnostics, *outcome.denied],
                     error=None,
-                    warnings=warnings,
+                    warnings=list(outcome.reported),
                 ),
                 None,
             )
@@ -1396,18 +1418,18 @@ class PipelineDriver:
             checked = compiled.checked
         else:
             checked, tc_diagnostics = _run_typecheck_program(resolved)
-        if checked is None:
+        outcome = self._govern_warnings(prepared, checked)
+        warnings = list(outcome.reported)
+        if checked is None or outcome.denied:
             return (
                 RunResult(
                     ok=False,
-                    diagnostics=list(tc_diagnostics),
+                    diagnostics=[*tc_diagnostics, *outcome.denied],
                     error=None,
                     warnings=warnings,
                 ),
                 None,
             )
-
-        _append_checker_warnings(warnings, checked)
 
         if compiled is None:
             compiled, match_diagnostics = _run_matchcompile_program(checked, resolved)
@@ -1481,9 +1503,33 @@ class PipelineDriver:
             executable,
         )
 
+    def _govern_warnings(
+        self, prepared: PreparedProgram, checked: "CheckedProgram | None"
+    ) -> WarningOutcome:
+        """Apply this driver's warning policy to the raw warnings of *prepared* and *checked*.
+
+        The raw warnings are lexer and scope ones plus the checker's, which the caches
+        keep unfiltered; the policy runs on every invocation, whichever pass failed,
+        with the regions of every module scope resolved. Callers append the denied
+        errors after the errors of the failing pass. The one call site of the policy
+        in this driver, and where the dependency cap's sources (from ``prepared.roots``)
+        enter.
+        """
+        raw = (*prepared.warnings, *(() if checked is None else checked.warnings))
+        return apply_program_policy(
+            raw,
+            prepared.resolutions,
+            self._warning_policy,
+            scope_complete=prepared.resolved is not None,
+        )
+
     @property
     def default_call_depth_limit(self) -> int:
         return self._default_call_depth_limit
+
+    @property
+    def warning_policy(self) -> WarningPolicy:
+        return self._warning_policy
 
     def reset_extern_registry(self) -> None:
         """Replace the cached extern registry with a fresh, empty one.
@@ -1509,14 +1555,6 @@ class PipelineDriver:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _append_checker_warnings(
-    warnings: list[Diagnostic],
-    checked: "CheckedProgram",
-) -> None:
-    """Append one checked artifact's warnings at the typecheck phase boundary."""
-    warnings.extend(checked.warnings)
 
 
 def _reachable_modules(

@@ -1,0 +1,1 @@
+{"diagnostic": {"line": 2, "warning": "tab-indentation", "message_contains": ["TAB"]}, "warning_levels": {"tab-indentation": "deny"}}

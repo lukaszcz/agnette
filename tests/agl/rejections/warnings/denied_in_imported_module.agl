@@ -1,0 +1,4 @@
+import tabby::*
+
+program def main() -> unit =
+  print answer()

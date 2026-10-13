@@ -9,7 +9,8 @@ initializers when the entry declares one, and exit per the exit-code contract.
 
 Warnings (``result.warnings``) and error diagnostics (``result.diagnostics``)
 are two separate channels: warnings are printed to stderr like errors but never
-affect the exit code; only error-severity diagnostics yield exit 1.  The
+affect the exit code; only error-severity diagnostics yield exit 1 (a warning the
+warning policy denies is one).  The
 diagnostic severity is included in compiler-style output, e.g.
 ``path.agl:1:5: warning: message`` or ``1:5: error: message`` for inline
 ``-c/--code`` source.
@@ -75,6 +76,7 @@ from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import ProgramDeclInfo
 from agnette.agl.semantics.engine_keys import ENGINE_KEY_NAMES
 from agnette.agl.syntax.nodes import FuncDef, static_items
+from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import (
     build_host_engine_seeds,
@@ -386,6 +388,7 @@ def registered_program_declaration(
     *,
     artifact_sink: list[ProgramDiscoveryArtifacts],
     context: ConfigContext | None = None,
+    warning_policy: WarningPolicy | None = None,
 ) -> ProgramDeclInfo | None:
     """Discover the referenced program's own ``program def`` declaration.
 
@@ -393,7 +396,8 @@ def registered_program_declaration(
     *package_name* (including unreadable or invalid package state) or its
     source fails discovery, so help and completion describe the command
     without its program's parameters. The discovery's reusable artifacts are
-    appended to *artifact_sink*.
+    appended to *artifact_sink*, governed by *warning_policy* so a run under the
+    same policy reuses them.
 
     A registered command names exactly one ``program def`` declaration — the
     one selected here by matching the installed reference's own declaration
@@ -414,6 +418,7 @@ def registered_program_declaration(
         no_stdlib=False,
         context=context,
         resolved_target=target,
+        warning_policy=warning_policy,
     )
     if artifacts is None:
         return None
@@ -429,12 +434,16 @@ def run(
     entry_module_segments: tuple[str, ...] | None = None,
     reserved_flags: frozenset[str] = EXEC_RESERVED_FLAGS,
     invoked_command: str = "exec",
+    warning_policy: WarningPolicy | None = None,
 ) -> None:
     """Run an AgL program selected by an exec argument container.
 
     *reserved_flags* is the invoking surface's flag inventory, which the
-    selected program's parameters may not claim.
+    selected program's parameters may not claim. *warning_policy* is the
+    invocation's (``None``: the catalog defaults): the run's driver is built
+    with it, and cached discovery products are reused only if governed by it.
     """
+    warning_policy = WarningPolicy() if warning_policy is None else warning_policy
     # The program source comes either from an inline ``-c/--code`` argument
     # or from a file.  The CLI layer guarantees exactly one is provided; the
     # defensive ``else`` keeps ``run`` safe when called directly.
@@ -486,6 +495,7 @@ def run(
         and args.pipeline_cache.entry_path == entry_path
         and args.pipeline_cache.roots == exec_roots.roots
         and args.pipeline_cache.default_stdlib == (not args.no_stdlib)
+        and args.pipeline_cache.warning_policy == warning_policy
         else None
     )
     parsed = (
@@ -604,6 +614,7 @@ def run(
         default_call_depth_limit=resolved_call_depth_limit,
         get_sandbox_context=None,
         resolve_agent_spec=None,
+        warning_policy=warning_policy,
     )
     discovery = (
         cached_pipeline.discovery
@@ -850,6 +861,7 @@ def run_registered(
     package: str | None = None,
     command_path: str | None = None,
     pipeline_cache: ProgramDiscoveryArtifacts | None = None,
+    warning_policy: WarningPolicy | None = None,
 ) -> None:
     """Run an installed reference, verifying a registered command against its manifest.
 
@@ -905,4 +917,5 @@ def run_registered(
         entry_module_segments=target.module_id.segments,
         reserved_flags=(EXEC_RESERVED_FLAGS if command_path is None else REGISTERED_RESERVED_FLAGS),
         invoked_command="exec" if command_path is None else command_path,
+        warning_policy=warning_policy,
     )

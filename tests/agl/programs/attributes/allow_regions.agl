@@ -1,0 +1,34 @@
+# @allow hides the warnings it names anywhere inside its declaration, attributes
+# included. Nested declarations inherit the region; a name it does not list stays visible.
+@allow("tab-indentation")
+def on-def() -> int =
+  # A TAB in a hidden def:	not reported.
+  1
+
+def with-local() -> int =
+  @allow("tab-indentation")
+  let hidden =
+    # A TAB in a hidden let:	not reported.
+    2
+  # A TAB in the def, outside the let:	reported.
+  hidden
+
+@allow("tab-indentation")
+def outer() -> int =
+  let inner =
+    # A TAB in a nested let:	inherits the region.
+    3
+  inner
+
+@allow("noop-parse-retries")
+def other-name() -> int =
+  # A TAB that only noop-parse-retries is allowed to hide:	reported.
+  4
+
+@allow("tab-indentation")
+def other-warning() -> text = ask("Q", parse-error-retries = 0)
+
+def unallowed() -> text = ask("Q", parse-error-retries = 0)
+
+program def main() -> unit =
+  print(on-def() + with-local() + outer() + other-name())

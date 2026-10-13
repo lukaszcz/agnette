@@ -1,0 +1,15 @@
+{
+  "scenarios": [
+    {
+      "name": "deny_levels_cannot_see_hidden_warnings",
+      "warning_levels": {
+        "tab-indentation": "deny",
+        "noop-parse-retries": "deny"
+      },
+      "expect": {
+        "stdout": "1\n",
+        "warnings": []
+      }
+    }
+  ]
+}

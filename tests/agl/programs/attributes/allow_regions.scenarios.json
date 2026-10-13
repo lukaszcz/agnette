@@ -1,0 +1,105 @@
+{
+  "scenarios": [
+    {
+      "name": "default_levels_report_what_no_region_hides",
+      "expect": {
+        "stdout": "10\n",
+        "warnings": [
+          {
+            "name": "tab-indentation",
+            "line": 13
+          },
+          {
+            "name": "tab-indentation",
+            "line": 25
+          },
+          {
+            "name": "noop-parse-retries",
+            "line": 29
+          },
+          {
+            "name": "noop-parse-retries",
+            "line": 31
+          }
+        ]
+      }
+    },
+    {
+      "name": "explicit_warn_matches_the_default",
+      "warning_levels": {
+        "tab-indentation": "warn",
+        "noop-parse-retries": "warn"
+      },
+      "expect": {
+        "stdout": "10\n",
+        "warnings": [
+          {
+            "name": "tab-indentation",
+            "line": 13
+          },
+          {
+            "name": "tab-indentation",
+            "line": 25
+          },
+          {
+            "name": "noop-parse-retries",
+            "line": 29
+          },
+          {
+            "name": "noop-parse-retries",
+            "line": 31
+          }
+        ]
+      }
+    },
+    {
+      "name": "allow_level_drops_a_warning_everywhere",
+      "warning_levels": {
+        "tab-indentation": "allow"
+      },
+      "expect": {
+        "stdout": "10\n",
+        "warnings": [
+          {
+            "name": "noop-parse-retries",
+            "line": 29
+          },
+          {
+            "name": "noop-parse-retries",
+            "line": 31
+          }
+        ]
+      }
+    },
+    {
+      "name": "allow_level_for_the_other_warning",
+      "warning_levels": {
+        "noop-parse-retries": "allow"
+      },
+      "expect": {
+        "stdout": "10\n",
+        "warnings": [
+          {
+            "name": "tab-indentation",
+            "line": 13
+          },
+          {
+            "name": "tab-indentation",
+            "line": 25
+          }
+        ]
+      }
+    },
+    {
+      "name": "allow_levels_for_both",
+      "warning_levels": {
+        "tab-indentation": "allow",
+        "noop-parse-retries": "allow"
+      },
+      "expect": {
+        "stdout": "10\n",
+        "warnings": []
+      }
+    }
+  ]
+}

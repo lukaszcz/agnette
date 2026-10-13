@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from agnette.agl.repl.session import ReplSession
     from agnette.agl.runtime.trace import TraceStore
     from agnette.agl.runtime.types import HostEnvironment
-    from agnette.agl.scope.program import ResolvedProgram
+    from agnette.agl.scope.program import ResolvedModule, ResolvedProgram
     from agnette.agl.scope.symbols import ScopePath
     from agnette.agl.semantics.type_table import TypeDef, TypeTable
     from agnette.agl.semantics.values import Value
@@ -96,7 +96,9 @@ class EntryPipeline:
         *,
         pipeline_program: Program,
         next_start_id: int,
+        source_text: str,
         spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
+        resolutions: "dict[ModuleId, ResolvedModule] | None" = None,
     ) -> LoadedCheckedProgram:
         """Build the module graph, resolve, and type-check.
 
@@ -107,6 +109,11 @@ class EntryPipeline:
         retained import/use preamble and cached library modules before
         resolving and type-checking the result.
 
+        *source_text* is the text *pipeline_program* was parsed from, which scope reads
+        to place ``@allow`` regions;
+        *resolutions* receives each module scope resolves, so a caller keeps them when
+        a later module or pass fails.
+
         Raises an ``AglError`` on any source, module-loading, root, or
         configuration failure — callers adapt it to their own failure-reporting
         shape.
@@ -114,6 +121,7 @@ class EntryPipeline:
         from agnette.agl.modules.loader import build_repl_graph
         from agnette.agl.recursion import frontend_recursion_boundary
         from agnette.agl.typecheck.program import check_program
+        from agnette.util.text import normalize_newlines
 
         roots = self._ctx._ensure_roots()
 
@@ -129,8 +137,9 @@ class EntryPipeline:
                 roots=roots,
                 default_stdlib=self._ctx._default_stdlib,
                 spaced_qualifiers=spaced_qualifiers,
+                source_text=normalize_newlines(source_text),
             )
-            resolved_program = self._resolve_program(graph)
+            resolved_program = self._resolve_program(graph, resolutions)
             checked_program = check_program(
                 resolved_program,
                 entry_seed_env=self._ctx._type_env,
@@ -186,14 +195,23 @@ class EntryPipeline:
         the full scope/typecheck/match-compilation passes with the session
         context, then lowers and evaluates.
         """
-        try:
-            loaded = self.load_and_check_program(
-                pipeline_program=pipeline_program,
-                next_start_id=next_start_id,
-                spaced_qualifiers=spaced_qualifiers,
-            )
-        except AglError as exc:
-            return self._ctx._fail_static(exc, tab_warnings)
+        from agnette.agl.lexer import tab_warning_collector
+
+        resolutions: dict[ModuleId, ResolvedModule] = {}
+        # Newly loaded modules are lexed here, so their TAB advisories are collected here.
+        with tab_warning_collector() as load_tab_sink:
+            try:
+                loaded = self.load_and_check_program(
+                    pipeline_program=pipeline_program,
+                    next_start_id=next_start_id,
+                    spaced_qualifiers=spaced_qualifiers,
+                    source_text=text,
+                    resolutions=resolutions,
+                )
+            except AglError as exc:
+                return self._ctx._fail_static_governed(
+                    exc, [*tab_warnings, *load_tab_sink], resolutions.values()
+                )
 
         resolved_program = loaded.resolved_program
         checked_program = loaded.checked_program
@@ -206,8 +224,23 @@ class EntryPipeline:
         retired_member_scopes = loaded.retired_member_scopes
         entry_cm = checked_program.modules[checked_program.entry_id]
 
-        # Collect warnings from all passes.
-        warnings: list[Diagnostic] = [*tab_warnings, *checked_program.warnings]
+        # Collect warnings from all passes, then apply the session's warning policy. A
+        # session-cached library module was reported when it first loaded, so only the
+        # entry's and the newly loaded modules' checker warnings are raised again.
+        checker_warnings = [
+            warning
+            for module_id, module in checked_program.modules.items()
+            if module_id == checked_program.entry_id or module_id in new_modules
+            for warning in module.warnings
+        ]
+        outcome = self._ctx._govern_warnings(
+            [*tab_warnings, *load_tab_sink, *checker_warnings],
+            resolved_program.modules.values(),
+            scope_complete=True,
+        )
+        warnings: list[Diagnostic] = list(outcome.reported)
+        if outcome.denied:
+            return self._ctx._fail(list(outcome.denied), warnings)
 
         downgrade = _hashability_downgrade(
             self._ctx._type_env.type_table, entry_cm.type_env.type_table
@@ -272,6 +305,7 @@ class EntryPipeline:
         program: Program,
         next_start_id: int,
         *,
+        source_text: str,
         spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
     ) -> tuple[ResolvedProgram, CheckedProgram]:
         """Prepare, build the module graph, resolve, and typecheck *program*.
@@ -286,7 +320,7 @@ class EntryPipeline:
         from agnette.agl.typecheck.program import check_program
 
         resolved_program = self.resolve_program(
-            program, next_start_id, spaced_qualifiers=spaced_qualifiers
+            program, next_start_id, source_text=source_text, spaced_qualifiers=spaced_qualifiers
         )
         checked_program = check_program(
             resolved_program,
@@ -301,15 +335,19 @@ class EntryPipeline:
         program: Program,
         next_start_id: int,
         *,
+        source_text: str,
         spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
     ) -> ResolvedProgram:
-        """Resolve *program* against the retained REPL session without checking it.
+        """Resolve *program*, parsed from *source_text*, against the retained REPL session.
+
+        The program is not checked.
 
         The REPL's introspection commands use this phase to identify one name
         exactly as a subsequent entry would, without evaluating source or
         requiring a generic function value to infer its type arguments.
         """
         from agnette.agl.modules.loader import build_repl_graph
+        from agnette.util.text import normalize_newlines
 
         roots = self._ctx._ensure_roots()
         entry_program, next_start_id, _entry_imports, _entry_uses = self._prepare_entry_program(
@@ -323,6 +361,7 @@ class EntryPipeline:
             roots=roots,
             default_stdlib=self._ctx._default_stdlib,
             spaced_qualifiers=spaced_qualifiers,
+            source_text=normalize_newlines(source_text),
         )
         return self._resolve_program(graph)
 
@@ -346,8 +385,12 @@ class EntryPipeline:
     def _resolve_program(
         self,
         graph: "ModuleGraph",
+        resolutions: "dict[ModuleId, ResolvedModule] | None" = None,
     ) -> "ResolvedProgram":
-        """Resolve one entry against the session's retained resolved scope state."""
+        """Resolve one entry against the session's retained resolved scope state.
+
+        *resolutions* receives each module as it resolves (see ``resolve_program``).
+        """
         from agnette.agl.scope.program import resolve_program
 
         return resolve_program(
@@ -357,6 +400,7 @@ class EntryPipeline:
             entry_repl_session_type_paths=self._ctx._session_type_paths,
             entry_repl_session_fixities=self._ctx._accumulated_infix,
             cached_modules=self._ctx._retained_resolved_modules,
+            resolutions=resolutions,
         )
 
     @staticmethod

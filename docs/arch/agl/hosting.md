@@ -22,6 +22,16 @@ Engine settings are root `builtin var` bindings of `std/config`, catalogued in `
 
 All passes report through `agl/diagnostics.py`. A static warning is a `Diagnostic` carrying its catalog name (`agl/warnings.py`), rendered with a ` [NAME]` suffix; the parse labels lexer warnings with their module's source like span-based diagnostics. Only `AglError`s become diagnostics; internal compiler failures propagate. `agl/recursion.py` turns stack exhaustion on over-deep source into a pre-execution diagnostic around every frontend pass and lowering.
 
+## Warning Policy
+
+Static passes and caches keep every warning raw (`CheckedModuleImage.warnings` included); `agl/warning_policy.py` decides per invocation which reach the user. An invocation resolves one `WarningPolicy` (levels by name over the catalog defaults) and gives it to every driver it creates — discovery, run, check, REPL — so they filter alike. `PipelineDriver` applies it right after type checking, to lexer, scope and checker warnings alike, in order:
+
+1. **Dependency cap** — drops warnings from capped sources (`capped_sources`); each host's single policy call site will compute the set from the roots once module origins exist, so the set is empty and the step drops nothing until then.
+2. **Source regions** — drops a warning inside an `@allow` region that names it. Scope files the regions in its side table: a declaration from its attributes to its end, reaching back to its line's start only when blanks alone precede it. They match by source label, so a region never hides another module's warning.
+3. **Levels** — `allow` drops, `warn` reports, `deny` turns the warning into an error that keeps its name.
+
+Denied warnings follow the errors of the failing pass and join the failure before match compilation, lowering and evaluation, in discovery, preflight and `run_prepared` alike: `agm exec` exits 1 with nothing run, `agm check` exits 1. Every path applies the policy with the regions of the modules scope resolved (`PreparedProgram.resolutions`; scope's `resolutions` sink keeps them past a later failure); on a failure path a warning of any other module is withheld, since its `@allow` cannot be honoured, while after a complete scope a source without regions has none (`scope_complete`). Policy input is typed `(name, diagnostic)` pairs (`named_warnings`). The REPL does the same per entry (`ReplSession(warning_policy=…)`), including the lexer warnings of modules the entry loads, reports a library module's checker warnings once, on the entry that first loads it, and fails the entry before it promotes anything.
+
 ## Self-Validation
 
 Compiler self-checks (checker closure, match artifacts, deep IR validation, FFI class shapes) are gated by one toggle in `agl/self_validation.py`: on in tests, off in production ([testing.md](../testing.md)).
@@ -29,7 +39,7 @@ Compiler self-checks (checker closure, match artifacts, deep IR validation, FFI 
 ## Code Entry Points
 
 - `src/agnette/agl/pipeline.py` — `PipelineDriver`: preparation, discovery, preflight, execution.
-- `src/agnette/agl/diagnostics.py`, `recursion.py`, `self_validation.py` — host-facing leaves.
+- `src/agnette/agl/diagnostics.py`, `recursion.py`, `self_validation.py` — host-facing leaves; `warning_policy.py` — levels, `@allow` regions, denial.
 - `src/agnette/agl/navigation.py` — position → declaration locations for editors.
 - `src/agnette/agl/runtime/arguments.py`, `value_decode.py`, `engine_config.py` — argument binding, host-value decoding, engine settings.
 - `src/agnette/agm/commands/exec_program.py`, `check.py`, `repl.py` — the CLI hosts; `src/agnette/agm/cli_support/` — discovery, parameter routes, engine seeds.

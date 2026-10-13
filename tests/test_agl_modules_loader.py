@@ -1272,9 +1272,10 @@ class TestBuildReplGraph:
 
     def test_simple_program_no_imports(self, tmp_path: Path) -> None:
         """Graph for a program with no explicit imports still loads std/prelude."""
-        program = _parse_for_repl("let x = 1")
+        source = "let x = 1"
+        program = _parse_for_repl(source)
         graph, _next_id, new_modules = build_repl_graph(
-            program, 1000, path=None, cached={}, roots=_roots(tmp_path)
+            program, 1000, path=None, cached={}, roots=_roots(tmp_path), source_text=source
         )
         assert ENTRY_ID in graph.modules
         assert STD_PRELUDE_ID in graph.modules
@@ -1293,9 +1294,10 @@ class TestBuildReplGraph:
         """A program with import declarations loads the referenced lib module."""
         lib = tmp_path / "mylib.agl"
         lib.write_text("def add(a: int, b: int) -> int = a + b\n")
-        program = _parse_for_repl("import mylib\nadd(3, 4)")
+        source = "import mylib\nadd(3, 4)"
+        program = _parse_for_repl(source)
         graph, _next_id, new_modules = build_repl_graph(
-            program, 1000, path=None, cached={}, roots=_roots(tmp_path)
+            program, 1000, path=None, cached={}, roots=_roots(tmp_path), source_text=source
         )
         mid = ModuleId(segments=("mylib",))
         assert mid in graph.modules
@@ -1308,17 +1310,19 @@ class TestBuildReplGraph:
         mid = ModuleId(segments=("mylib",))
 
         # First build: loads mylib
-        program1 = _parse_for_repl("import mylib\n()")
+        source1 = "import mylib\n()"
+        program1 = _parse_for_repl(source1)
         _, next_id, new1 = build_repl_graph(
-            program1, 0, path=None, cached={}, roots=_roots(tmp_path)
+            program1, 0, path=None, cached={}, roots=_roots(tmp_path), source_text=source1
         )
         assert mid in new1
 
         # Second build: mylib already cached; should not appear in new_modules
         cached: dict[ModuleId, LoadedModule] = {mid: new1[mid]}
-        program2 = _parse_for_repl("import mylib\n()")
+        source2 = "import mylib\n()"
+        program2 = _parse_for_repl(source2)
         _, _next2, new2 = build_repl_graph(
-            program2, next_id, path=None, cached=cached, roots=_roots(tmp_path)
+            program2, next_id, path=None, cached=cached, roots=_roots(tmp_path), source_text=source2
         )
         assert mid not in new2
 
@@ -1332,19 +1336,22 @@ class TestBuildReplGraph:
         library_id = ModuleId.from_path("library")
         dependency_id = ModuleId.from_path("dependency")
 
-        program1 = _parse_for_repl("import library\n()")
+        source1 = "import library\n()"
+        program1 = _parse_for_repl(source1)
         _, next_id, new1 = build_repl_graph(
-            program1, 0, path=None, cached={}, roots=_roots(tmp_path)
+            program1, 0, path=None, cached={}, roots=_roots(tmp_path), source_text=source1
         )
         cached_library = new1[library_id]
 
-        program2 = _parse_for_repl("import library\n()")
+        source2 = "import library\n()"
+        program2 = _parse_for_repl(source2)
         graph2, _next_id, new2 = build_repl_graph(
             program2,
             next_id,
             path=None,
             cached={library_id: cached_library},
             roots=_roots(tmp_path),
+            source_text=source2,
         )
 
         assert graph2.modules[library_id] is cached_library
@@ -1354,19 +1361,22 @@ class TestBuildReplGraph:
 
     def test_cached_std_core_not_reloaded(self, tmp_path: Path) -> None:
         """The REPL graph builder reuses cached std/prelude when present."""
-        program1 = _parse_for_repl("()")
+        source1 = "()"
+        program1 = _parse_for_repl(source1)
         graph1, next_id, _new1 = build_repl_graph(
-            program1, 0, path=None, cached={}, roots=_roots(tmp_path)
+            program1, 0, path=None, cached={}, roots=_roots(tmp_path), source_text=source1
         )
         std_core = graph1.modules[STD_PRELUDE_ID]
 
-        program2 = _parse_for_repl("let x: Option[int] = None\nx")
+        source2 = "let x: Option[int] = None\nx"
+        program2 = _parse_for_repl(source2)
         graph2, _next2, new2 = build_repl_graph(
             program2,
             next_id,
             path=None,
             cached={STD_PRELUDE_ID: std_core},
             roots=_roots(tmp_path),
+            source_text=source2,
         )
 
         assert graph2.modules[STD_PRELUDE_ID] is std_core
@@ -1378,9 +1388,10 @@ class TestBuildReplGraph:
         pkg.mkdir()
         (pkg / "a.agl").write_text("def fa() -> int = 1\n")
         (pkg / "b.agl").write_text("def fb() -> int = 2\n")
-        program = _parse_for_repl("import pkg/*\n()")
+        source = "import pkg/*\n()"
+        program = _parse_for_repl(source)
         graph, _next_id, new_modules = build_repl_graph(
-            program, 0, path=None, cached={}, roots=_roots(tmp_path)
+            program, 0, path=None, cached={}, roots=_roots(tmp_path), source_text=source
         )
         mid_a = ModuleId(segments=("pkg", "a"))
         mid_b = ModuleId(segments=("pkg", "b"))
@@ -1393,9 +1404,12 @@ class TestBuildReplGraph:
         """An import that resolves to the entry file path raises ImportEntryError."""
         entry_file = tmp_path / "entry.agl"
         entry_file.write_text("import entry\n()")
-        program = _parse_for_repl("import entry\n()")
+        source = "import entry\n()"
+        program = _parse_for_repl(source)
         with pytest.raises(ImportEntryError):
-            build_repl_graph(program, 0, path=entry_file, cached={}, roots=_roots(tmp_path))
+            build_repl_graph(
+                program, 0, path=entry_file, cached={}, roots=_roots(tmp_path), source_text=source
+            )
 
     def test_wildcard_skips_already_cached_modules(self, tmp_path: Path) -> None:
         """Wildcard expansion skips modules already present in *cached* or *modules*."""
@@ -1406,18 +1420,20 @@ class TestBuildReplGraph:
         mid_a = ModuleId(segments=("pkg", "a"))
 
         # First build: load pkg.a via explicit import to pre-cache it.
-        program1 = _parse_for_repl("import pkg/a::*\n()")
+        source1 = "import pkg/a::*\n()"
+        program1 = _parse_for_repl(source1)
         _, next_id, new1 = build_repl_graph(
-            program1, 0, path=None, cached={}, roots=_roots(tmp_path)
+            program1, 0, path=None, cached={}, roots=_roots(tmp_path), source_text=source1
         )
         assert mid_a in new1
 
         # Second build: wildcard pkg.* with pkg.a already cached.
         # pkg.a should not appear in new_modules (already in cached).
         cached: dict[ModuleId, LoadedModule] = {mid_a: new1[mid_a]}
-        program2 = _parse_for_repl("import pkg/*\n()")
+        source2 = "import pkg/*\n()"
+        program2 = _parse_for_repl(source2)
         _, _next2, new2 = build_repl_graph(
-            program2, next_id, path=None, cached=cached, roots=_roots(tmp_path)
+            program2, next_id, path=None, cached=cached, roots=_roots(tmp_path), source_text=source2
         )
         mid_b = ModuleId(segments=("pkg", "b"))
         # pkg.a was already cached, not in new_modules
@@ -1441,9 +1457,10 @@ class TestBuildReplGraph:
         # so pkg.shared would be queued twice: once for direct import and once
         # via wildcard; BFS should handle the dedup via the 'if mid in modules'
         # check.
-        program = _parse_for_repl("import pkg/shared::*\nimport pkg/*\n()")
+        source = "import pkg/shared::*\nimport pkg/*\n()"
+        program = _parse_for_repl(source)
         graph, _next_id, new_modules = build_repl_graph(
-            program, 0, path=None, cached={}, roots=_roots(tmp_path)
+            program, 0, path=None, cached={}, roots=_roots(tmp_path), source_text=source
         )
         mid_shared = ModuleId(segments=("pkg", "shared"))
         # pkg.shared should appear exactly once in the graph

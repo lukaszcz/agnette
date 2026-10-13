@@ -23,6 +23,7 @@ from agnette.agl.runtime.request import AgentResponse
 if TYPE_CHECKING:
     from agnette.agl.pipeline import ParsedEntry, PreparedProgram, ProgramDiscovery
     from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
+    from agnette.agl.warning_policy import WarningPolicy
     from agnette.agm.cli_support.exec_target import ExecTarget
     from agnette.agm.cli_support.program_options import ProgramCommand
     from agnette.config.context import ConfigContext
@@ -43,7 +44,11 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class ProgramDiscoveryArtifacts:
-    """One advisory discovery's reusable static-pipeline products."""
+    """One advisory discovery's reusable static-pipeline products.
+
+    ``warning_policy`` is the policy ``discovery`` was governed under; a run reuses
+    the products only under the same one.
+    """
 
     source: str
     entry_path: Path | None
@@ -52,6 +57,7 @@ class ProgramDiscoveryArtifacts:
     parsed: "ParsedEntry"
     prepared: "PreparedProgram"
     discovery: "ProgramDiscovery"
+    warning_policy: "WarningPolicy"
     referenced_program: str | None = None
 
 
@@ -63,8 +69,12 @@ def discover_program_artifacts_for_target(
     no_stdlib: bool,
     context: "ConfigContext | None" = None,
     resolved_target: "ExecTarget | None" = None,
+    warning_policy: "WarningPolicy | None" = None,
 ) -> ProgramDiscoveryArtifacts | None:
     """Discover an ``agm exec`` target and retain every reusable static artifact.
+
+    *warning_policy* is the invocation's, shared with the run that may reuse the
+    artifacts (``None``: the catalog defaults).
 
     *resolved_target* is the same selector already classified by the caller.
     Resolving an installed reference selects the active packages, so a caller
@@ -127,6 +137,7 @@ def discover_program_artifacts_for_target(
             agent_dispatcher=lambda request: AgentResponse(content=""),
             get_sandbox_context=None,
             resolve_agent_spec=None,
+            warning_policy=warning_policy,
         )
         parsed = runtime.parse_entry(source, entry_path=entry_path, inline_code=inline_source)
         prepared = runtime.prepare_parsed_entry(
@@ -141,6 +152,7 @@ def discover_program_artifacts_for_target(
             parsed=parsed,
             prepared=prepared,
             discovery=discovery,
+            warning_policy=runtime.warning_policy,
             referenced_program=referenced_program,
         )
     except (OSError, ValueError, StdlibResolutionError):
@@ -170,7 +182,9 @@ class ExecProgramDiscovery:
         requested_program: str | None,
         module_paths: "list[str] | None",
         no_stdlib: bool,
+        warning_policy: "WarningPolicy | None" = None,
     ) -> None:
+        self._warning_policy = warning_policy
         self._code = code
         self._requested_program = requested_program
         self._module_paths = module_paths
@@ -185,6 +199,7 @@ class ExecProgramDiscovery:
                 code=self._code,
                 module_paths=self._module_paths,
                 no_stdlib=self._no_stdlib,
+                warning_policy=self._warning_policy,
             )
         return self._artifacts[file]
 
@@ -260,6 +275,7 @@ def registered_program_command(
     package_name: str,
     *,
     context: "ConfigContext | None" = None,
+    warning_policy: "WarningPolicy | None" = None,
 ) -> "tuple[ProgramDeclInfo | None, ProgramCommand | None]":
     """Discover a registered command's program declaration and project its command.
 
@@ -270,7 +286,11 @@ def registered_program_command(
 
     artifacts: list[ProgramDiscoveryArtifacts] = []
     declaration = registered_program_declaration(
-        program, package_name, artifact_sink=artifacts, context=context
+        program,
+        package_name,
+        artifact_sink=artifacts,
+        context=context,
+        warning_policy=warning_policy,
     )
     return declaration, registered_command_for(declaration, artifacts[0] if artifacts else None)
 

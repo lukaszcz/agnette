@@ -1,0 +1,1 @@
+{"diagnostic": {"line": 2, "warning": "noop-parse-retries", "message_contains": ["parse-error-retries"]}, "warning_levels": {"noop-parse-retries": "deny"}}

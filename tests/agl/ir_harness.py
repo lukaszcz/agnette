@@ -83,6 +83,7 @@ def _checked_inline_program(
     parsed = parse_entry_module(source, entry_path=origin_path, inline_code=True)
     graph, _import_node_id = build_module_graph_from_program(
         parsed.program,
+        source_text=source,
         next_node_id=parsed.next_id,
         origin_path=origin_path,
         default_stdlib=default_stdlib,

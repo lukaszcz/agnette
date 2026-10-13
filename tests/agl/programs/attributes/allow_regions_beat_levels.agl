@@ -1,0 +1,12 @@
+# A warning inside an @allow region naming it is dropped before its level applies,
+# so even a denied warning does not stop the program.
+@allow("tab-indentation")
+def quiet-tab() -> int =
+  # A TAB in a hidden def:	never denied.
+  1
+
+@allow("noop-parse-retries")
+def quiet-retries() -> text = ask("Q", parse-error-retries = 0)
+
+program def main() -> unit =
+  print quiet-tab()

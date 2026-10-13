@@ -1056,10 +1056,14 @@ class TestWarningsThreadedOnFailurePaths:
         from dataclasses import replace
 
         import agnette.agl.typecheck.program as tc_mod
-        from agnette.agl.diagnostics import Diagnostic
+        from agnette.agl.diagnostics import SourceSpan, warning_diagnostic
+        from agnette.agl.syntax.spans import UNKNOWN_SOURCE
+        from agnette.agl.warnings import TAB_INDENTATION
 
         real_check = tc_mod.check_program
-        warning = Diagnostic(message="a checker warning", line=1, severity="warning")
+        warning = warning_diagnostic(
+            TAB_INDENTATION, "a checker warning", SourceSpan(1, 1, 1, 2, 0, 0, UNKNOWN_SOURCE)
+        )
 
         def check_with_warning(resolved: object, **kwargs: object) -> object:
             checked = real_check(resolved, **kwargs)

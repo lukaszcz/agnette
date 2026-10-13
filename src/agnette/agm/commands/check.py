@@ -23,7 +23,8 @@ def`` value parameter with no default is silently accepted, unlike under
 
 Warnings (on ``RunResult.warnings``) are a separate channel from error
 diagnostics, printed to stderr but never affecting the exit code — the same
-channel discipline ``agm exec`` uses (see ``commands/exec_program.py``).
+channel discipline ``agm exec`` uses (see ``commands/exec_program.py``). A warning the
+warning policy denies is an error diagnostic.
 
 Exit-code contract:
     0  no file produced an error-severity diagnostic
@@ -35,18 +36,27 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.cli_support.exec_roots import prepare_entry_file
 from agnette.core.fs import read_text_arg_or_none
 
+if TYPE_CHECKING:
+    from agnette.agl.warning_policy import WarningPolicy
 
-def run(args: CheckArgs) -> None:
-    """Statically check each file in ``args.files``, independently, in order."""
+
+def run(args: CheckArgs, *, warning_policy: "WarningPolicy | None" = None) -> None:
+    """Statically check each file in ``args.files``, independently, in order.
+
+    *warning_policy* is the invocation's (``None``: the catalog defaults).
+    """
     from agnette.agl import PipelineDriver
     from agnette.agl.diagnostics import format_diagnostic
 
-    runtime = PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None)
+    runtime = PipelineDriver(
+        get_sandbox_context=None, resolve_agent_spec=None, warning_policy=warning_policy
+    )
     had_error = False
 
     for file in args.files:

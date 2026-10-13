@@ -176,6 +176,7 @@ def _repl_entry(
         cached={},
         roots=RootSet(roots=frozenset()),
         default_stdlib=default_stdlib,
+        source_text=source,
     )
     resolved = resolve_program(
         graph,

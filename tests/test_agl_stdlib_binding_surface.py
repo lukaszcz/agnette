@@ -70,7 +70,9 @@ def _exported_bindings(module_name: str) -> tuple[frozenset[str], dict[str, str]
     """
     source = (STDLIB_MODULES_DIR / f"{module_name}.agl").read_text(encoding="utf-8")
     program = parse_program(source)
-    options = recognize_attributes(program, declares_receiver=lambda _node: False).params
+    options = recognize_attributes(
+        program, declares_receiver=lambda _node: False, source_text=source
+    ).params
     qualified = list(_qualified_exported_bindings(program.body.items, ()))
     names = frozenset(name for name, _ in qualified)
     params = {

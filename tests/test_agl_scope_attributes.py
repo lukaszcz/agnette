@@ -249,14 +249,14 @@ class TestAttributeDiagnostics:
         assert resolution.attributes.docs[lets[0].node_id] == "the answer"
 
     def test_a_builtin_var_admits_a_doc_attribute(self) -> None:
-        program, _next_id = parse_program_seeded(
-            '@doc("the setting")\nbuiltin var setting: int = 1\n',
-            start_id=0,
-        )
+        source = '@doc("the setting")\nbuiltin var setting: int = 1\n'
+        program, _next_id = parse_program_seeded(source, start_id=0)
         declaration = program.body.items[0]
         assert isinstance(declaration, BuiltinVarDecl)
 
-        facts = recognize_attributes(program, declares_receiver=lambda _node: False)
+        facts = recognize_attributes(
+            program, declares_receiver=lambda _node: False, source_text=source
+        )
 
         assert facts.docs[declaration.node_id] == "the setting"
 
@@ -298,7 +298,7 @@ class TestAttributeDiagnostics:
         walk(program, collect)
 
         with pytest.raises(AglScopeError) as raised:
-            recognize_attributes(program, declares_receiver=lambda _node: False)
+            recognize_attributes(program, declares_receiver=lambda _node: False, source_text=source)
 
         assert raised.value.span == attributes[occurrence].span
 
@@ -538,10 +538,10 @@ class TestWarningAttributes:
         }
         assert regions == {
             (1, 1, 3): frozenset({"tab-indentation"}),
-            (3, 3, 3): frozenset({"shell-quoted-hole"}),
+            (3, 1, 3): frozenset({"shell-quoted-hole"}),
             (5, 1, 11): frozenset({"noop-parse-retries", "tab-indentation"}),
-            (7, 3, 7): frozenset({"tab-indentation"}),
-            (9, 3, 10): frozenset({"unquoted-exec-hole"}),
+            (7, 1, 7): frozenset({"tab-indentation"}),
+            (9, 1, 10): frozenset({"unquoted-exec-hole"}),
         }
         assert len(resolution.attributes.warning_allows) == 5
         assert resolution.attributes.warning_exemptions == {}
@@ -566,14 +566,16 @@ class TestWarningAttributes:
         assert resolution.attributes.warning_allows == []
 
     def test_exempts_sits_on_program_extern_and_builtin_declarations(self) -> None:
-        program, _next_id = parse_program_seeded(
+        source = (
             '@exempts("unquoted-exec-hole")\nprogram def p() -> unit = ()\n'
             '@exempts("unquoted-exec-hole")\nextern def e(v: text) -> text\n'
-            '@exempts("unquoted-exec-hole")\nbuiltin def b(v: text) -> text\n',
-            start_id=0,
+            '@exempts("unquoted-exec-hole")\nbuiltin def b(v: text) -> text\n'
         )
+        program, _next_id = parse_program_seeded(source, start_id=0)
 
-        facts = recognize_attributes(program, declares_receiver=lambda _node: False)
+        facts = recognize_attributes(
+            program, declares_receiver=lambda _node: False, source_text=source
+        )
 
         assert list(facts.warning_exemptions.values()) == [frozenset({"unquoted-exec-hole"})] * 3
 

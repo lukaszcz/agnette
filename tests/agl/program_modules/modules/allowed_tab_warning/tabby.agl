@@ -1,0 +1,12 @@
+def hidden() -> int =
+  1
+
+def visible() -> int =
+  let a = 3
+  # A TAB in the module, outside any of its regions:	reported.
+  a + 4
+
+@allow("tab-indentation")
+def quiet() -> int =
+  # A TAB inside the module's own region:	hidden.
+  2

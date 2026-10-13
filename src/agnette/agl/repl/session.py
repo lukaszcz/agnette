@@ -31,6 +31,7 @@ from agnette.agl.repl.entry_pipeline import EntryPipeline
 from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
+from agnette.agl.warning_policy import apply_program_policy
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
         FunctionSignature,
         TypeEnvironment,
     )
+    from agnette.agl.warning_policy import WarningOutcome, WarningPolicy
     from agnette.packages.model import PackageInfo
     from agnette.sandbox.prepare import SandboxContext
 
@@ -295,6 +297,7 @@ class ReplSession:
         configured_roots: "Iterable[tuple[str, Path]]" = (),
         package_roots: "Iterable[PackageInfo]" = (),
         default_stdlib: bool = True,
+        warning_policy: "WarningPolicy | None" = None,
     ) -> None:
         from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
         from agnette.agl.lower import LinkImage
@@ -403,7 +406,10 @@ class ReplSession:
             session_host=effective_session_host,
             get_sandbox_context=get_sandbox_context,
             resolve_agent_spec=resolve_agent_spec,
+            warning_policy=warning_policy,
         )
+        # Applied to each entry's warnings, like the driver's policy to a program's.
+        self._warning_policy = self._runtime.warning_policy
         # Reuse the driver's resolved (default-applied) limit for the per-entry
         # interpreters this session builds directly, so the canonical default
         # lives in exactly one place.
@@ -570,6 +576,7 @@ class ReplSession:
                 loaded = self._entry_pipeline.load_and_check_program(
                     pipeline_program=program,
                     next_start_id=next_start_id,
+                    source_text="()",
                 )
             except AglError as exc:
                 return (exc.to_diagnostic(),)
@@ -774,7 +781,7 @@ class ReplSession:
         program, fresh_name, next_node_id = self._type_probe_program(type_expr, next_node_id)
         checked_program = _static_verdict(
             lambda: self._entry_pipeline.resolve_and_check_program(
-                program, next_node_id, spaced_qualifiers=spaced_qualifiers
+                program, next_node_id, source_text=text, spaced_qualifiers=spaced_qualifiers
             )[1]
         )
         if isinstance(checked_program, UnappliedGenericTypeError) and (
@@ -854,14 +861,14 @@ class ReplSession:
         host_env = self._runtime.host_environment()
 
         # TAB advisories come from the parse's single lex pass (no separate TAB
-        # scan).  The collector is populated even on a failed parse, so they
-        # surface on EVERY return path (mirroring ``PipelineDriver.prepare``).
+        # scan).  The collector is populated even on a failed parse; the warning
+        # policy then filters them (and withholds them if the parse failed).
         # [1] Parse (seeded so node ids stay globally unique across entries).
         with tab_warning_collector() as tab_sink, spaced_qualifier_collector() as spaced_sink:
             try:
                 program, next_start_id = parse_program_seeded(text, start_id=self._next_node_id)
             except AglSyntaxError as exc:
-                return self._fail_static(exc, list(tab_sink))
+                return self._fail_static_governed(exc, list(tab_sink))
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
 
@@ -928,6 +935,40 @@ class ReplSession:
             error=None,
             ok=False,
             failure=failure,
+        )
+
+    def _govern_warnings(
+        self,
+        warnings: "Iterable[Diagnostic]",
+        modules: "Iterable[ResolvedModule]",
+        *,
+        scope_complete: bool,
+    ) -> "WarningOutcome":
+        """Apply the session's warning policy to one entry's raw *warnings*.
+
+        *modules* are those scope resolved for the entry, whichever pass then failed;
+        *scope_complete* is whether it resolved the whole program.
+        The one call site of the policy in the session, and where the dependency cap's
+        sources (from the session's roots) enter.
+        """
+        return apply_program_policy(
+            warnings, modules, self._warning_policy, scope_complete=scope_complete
+        )
+
+    def _fail_static_governed(
+        self,
+        exc: AglError,
+        warnings: list[Diagnostic],
+        modules: "Iterable[ResolvedModule]" = (),
+    ) -> EntryResult:
+        """Build the :meth:`_fail_static` result with the policy applied to *warnings*.
+
+        A denied warning follows *exc*'s diagnostic as an error; *modules* are those
+        scope resolved before the failure (none if it never ran).
+        """
+        outcome = self._govern_warnings(warnings, modules, scope_complete=False)
+        return self._fail(
+            [exc.to_diagnostic(), *outcome.denied], list(outcome.reported), failure=exc
         )
 
     def _fail_static(self, exc: AglError, warnings: list[Diagnostic]) -> EntryResult:
@@ -1556,7 +1597,7 @@ class ReplSession:
                 "':type' expects a single expression, not a binding, declaration, or statement."
             )
         resolved_program, checked_program = self._entry_pipeline.resolve_and_check_program(
-            program, next_node_id, spaced_qualifiers=spaced_qualifiers
+            program, next_node_id, source_text=text, spaced_qualifiers=spaced_qualifiers
         )
         checked = checked_program.modules[checked_program.entry_id]
         from agnette.agl.matchcompile import (
@@ -1707,12 +1748,12 @@ class ReplSession:
         type_program, _fresh_name, type_next_id = self._type_probe_program(type_name, next_node_id)
         resolved = _static_verdict(
             lambda: self._entry_pipeline.resolve_program(
-                program, next_node_id, spaced_qualifiers=spaced_qualifiers
+                program, next_node_id, source_text=name, spaced_qualifiers=spaced_qualifiers
             )
         )
         type_resolved = _static_verdict(
             lambda: self._entry_pipeline.resolve_program(
-                type_program, type_next_id, spaced_qualifiers=spaced_qualifiers
+                type_program, type_next_id, source_text=name, spaced_qualifiers=spaced_qualifiers
             )
         )
         type_key = (

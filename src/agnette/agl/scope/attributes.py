@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import keyword
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from agnette.agl.attributes import (
     ALLOW_ATTRIBUTE,
@@ -190,20 +190,23 @@ def recognize_program_registration(
 
 
 def recognize_attributes(
-    program: Program, *, declares_receiver: Callable[[FuncDef], bool]
+    program: Program, *, declares_receiver: Callable[[FuncDef], bool], source_text: str
 ) -> AttributeFacts:
     """Validate *program*'s declaration attributes and build their facts.
 
     *declares_receiver* reports scope's method classification for a ``def``:
     a classified method's first parameter is its ``self`` receiver, which is
-    positional-only and admits no zone attribute of its own.
+    positional-only and admits no zone attribute of its own. *source_text* is
+    the text *program* was parsed from, which places each ``@allow`` region.
     """
     static_binding_ids = frozenset(
         item.node_id
         for item in static_items(program.body.items)
         if isinstance(item, (LetDecl, VarDecl))
     )
-    recognizer = _Recognizer(declares_receiver, static_binding_ids, ModuleConstants(program))
+    recognizer = _Recognizer(
+        declares_receiver, static_binding_ids, ModuleConstants(program), source_text
+    )
     walk(program, recognizer.visit)
     return AttributeFacts(
         param_zones=recognizer.param_zones,
@@ -226,10 +229,12 @@ class _Recognizer:
         declares_receiver: Callable[[FuncDef], bool],
         static_binding_ids: frozenset[int],
         constants: ModuleConstants,
+        source_text: str,
     ) -> None:
         self._declares_receiver = declares_receiver
         self._static_binding_ids = static_binding_ids
         self._constants = constants
+        self._source_text = source_text
         self._scope_path: tuple[str, ...] = ()
         self.param_zones: dict[int, ParamZone] = {}
         self.extern_names: dict[int, str] = {}
@@ -399,13 +404,16 @@ class _Recognizer:
         """Record the catalog warnings ``@allow`` and ``@exempts`` name on one declaration.
 
         The names were validated against the catalog with the rest of the
-        prefix. ``@allow`` files a region (the declaration's *span* and the
+        prefix. ``@allow`` files a region (the declaration's *span*, reaching back
+        to its line's start when only whitespace precedes it there, and the
         names) in walk order; ``@exempts`` files the names by the ``def`` it
         sits on. A declaration without the attribute files nothing.
         """
         allowed = recognized.lists.get(ALLOW_ATTRIBUTE)
         if allowed is not None:
-            self.warning_allows.append(AllowRegion(span, frozenset(allowed)))
+            self.warning_allows.append(
+                AllowRegion(_from_blank_line_start(span, self._source_text), frozenset(allowed))
+            )
         exempted = recognized.lists.get(EXEMPTS_ATTRIBUTE)
         if exempted is not None:
             self.warning_exemptions[node_id] = frozenset(exempted)
@@ -761,3 +769,15 @@ def _zone_attribute(recognized: _Recognized) -> ParamZone | None:
         if zone is not None:
             return zone
     return None
+
+
+def _from_blank_line_start(span: SourceSpan, text: str) -> SourceSpan:
+    """Return *span* starting at its line's first column when only blanks precede it there.
+
+    A declaration sharing its first line with an earlier sibling keeps its own start. *text*
+    must be the text *span* indexes.
+    """
+    line_start = text.rfind("\n", 0, span.start_offset) + 1
+    if text[line_start : span.start_offset].strip():
+        return span
+    return replace(span, start_col=1, start_offset=line_start)

@@ -1909,12 +1909,14 @@ def _spy_runtime(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
             default_call_depth_limit: int | None = None,
             get_sandbox_context: Any | None = None,
             resolve_agent_spec: Any | None = None,
+            warning_policy: Any | None = None,
         ) -> None:
             captured["default_call_depth_limit"] = default_call_depth_limit
             super().__init__(
                 default_call_depth_limit=default_call_depth_limit,
                 get_sandbox_context=get_sandbox_context,
                 resolve_agent_spec=resolve_agent_spec,
+                warning_policy=warning_policy,
             )
 
         def configure_execution_services(

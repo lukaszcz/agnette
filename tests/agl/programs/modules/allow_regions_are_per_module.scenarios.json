@@ -1,0 +1,20 @@
+{
+  "scenarios": [
+    {
+      "name": "a_region_never_hides_another_modules_warning",
+      "module_roots": [
+        "program_modules/modules/allowed_tab_warning"
+      ],
+      "expect": {
+        "stdout": "14\n",
+        "warnings": [
+          {
+            "name": "tab-indentation",
+            "line": 6,
+            "source": "program_modules/modules/allowed_tab_warning/tabby.agl"
+          }
+        ]
+      }
+    }
+  ]
+}

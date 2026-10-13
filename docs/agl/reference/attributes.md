@@ -83,7 +83,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@name("…")` | AgL identifier | field, enum member, or record declaration | Alternative external name; default JSON name. |
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
-| `@allow("name", ...)` | one or more warning names | every defining declaration | Names static warnings. |
+| `@allow("name", ...)` | one or more warning names | every defining declaration | Hides the named static warnings within the declaration. |
 | `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Names exemptable static warnings. |
 | `@config(key = value, ...)` | one or more keyed entries | `program def` | States the values module parameters and engine settings take when this program is selected. |
 
@@ -198,7 +198,12 @@ naming a static warning. An unknown name, or a name repeated within one
 attribute, is a static error; the error points at the offending argument.
 Neither attribute changes what a program computes.
 
-`@allow` may prefix every declaration that takes attributes.
+`@allow` may prefix every declaration that takes attributes. It hides the named
+warnings reported anywhere inside the declaration, from its first attribute to its
+end, and in the leading whitespace of its first line unless anything precedes it on
+that line. Declarations nested in it, such as a local `let` in a `def`,
+inherit it. A warning outside the declaration, in another module, or not named stays
+reported; a hidden warning is never reported at any level a host sets for it.
 
 `@exempts` may prefix any `def` form: `def`, `program def`, `extern def`,
 `builtin def`, and a method. It may name only *exemptable* warnings, those about

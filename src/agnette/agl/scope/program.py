@@ -983,6 +983,7 @@ def resolve_program(
     entry_repl_session_type_paths: Mapping[ScopePath, TypeOwner] | None = None,
     entry_repl_session_fixities: Mapping[str, Fixity] | None = None,
     cached_modules: Mapping[ModuleId, ResolvedModule] | None = None,
+    resolutions: dict[ModuleId, ResolvedModule] | None = None,
 ) -> ResolvedProgram:
     """Run the full scope-resolution pass over a :class:`~agnette.agl.modules.loader.ModuleGraph`.
 
@@ -1012,6 +1013,9 @@ def resolve_program(
         redeclaration misses it. Whatever this leaves uncovered is looked up in
         the process-global artifact cache, and this pass's own results are
         retained there for the next compilation.
+    resolutions:
+        When given, receives each module's resolution as it is finished, so a
+        caller keeps the modules that resolved before a later one raised.
 
     Returns
     -------
@@ -1090,7 +1094,7 @@ def resolve_program(
     # ------------------------------------------------------------------
     # Step 4: The type-owner index over every module's prepared headers.
     # ------------------------------------------------------------------
-    resolved_modules: dict[ModuleId, ResolvedModule] = {}
+    resolved_modules = {} if resolutions is None else resolutions
     resolvers: dict[ModuleId, _Resolver] = {}
     # Modules on a cycle whose exports are being settled (step 5): what their
     # aliases select is read against exports that may still change.
@@ -1278,6 +1282,7 @@ def resolve_program(
             repl_session_fixities=entry_repl_session_fixities if is_entry else None,
             origin_path=loaded.path,
             spaced_qualifiers=loaded.spaced_qualifiers,
+            source_text=loaded.source_text,
         )
 
     def unreadable_value(qname: QName) -> bool:
