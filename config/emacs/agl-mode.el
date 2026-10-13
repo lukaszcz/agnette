@@ -21,7 +21,8 @@
 ;;   identifier.  A quote or `#' only starts a template or comment when it is
 ;;   not in the middle of an identifier scan.
 ;; - Four string-template forms -- `"..."', `'...'', `"""..."""',
-;;   `'''...''''  -- with `%{expr}' interpolation.
+;;   `'''...''''  -- with `%{expr}', `%!{expr}', `%${NAME}' and `%!${NAME}'
+;;   interpolation holes (a bare `${...}' is plain text).
 ;; - A `$' verbatim text literal -- `$' at token start owns a payload: the
 ;;   rest of the line, or a following indented block.  Inside an identifier
 ;;   or an operator-name run (`ask$', `a$b', `<$>') `$' is an ordinary
@@ -78,6 +79,15 @@ regexp match would risk (see `agl--ident-boundary-after-p').")
 
 (defconst agl--name-re (concat agl--ident-start-re agl--ident-continue-char-re "*")
   "Regexp matching one complete AgL `NAME' token.")
+
+(defconst agl--code-hole-open-re "%!?{"
+  "Regexp matching the opener of a code hole, `%{' or `%!{'.")
+
+(defconst agl--env-hole-re (concat "%!?\\${" agl--name-re "}")
+  "Regexp matching a whole environment hole, `%${NAME}' or `%!${NAME}'.")
+
+(defconst agl--hole-start-re (concat agl--env-hole-re "\\|" agl--code-hole-open-re)
+  "Regexp matching an environment hole or a code hole's opener.")
 
 ;; ---------------------------------------------------------------------------
 ;; Identifier-boundary-safe searching.
@@ -240,12 +250,12 @@ The payload is the rest of the current line, starting at point."
   "Mark completed interpolation bodies in a `$' verbatim literal payload.
 
 START and END delimit a payload already marked with
-`agl-verbatim-payload'.  A verbatim payload escapes a `%{' whenever its
-immediately preceding character is `\\', so this cannot reuse the
+`agl-verbatim-payload'.  A verbatim payload escapes a hole opener whenever
+its immediately preceding character is `\\', so this cannot reuse the
 template scanner."
   (save-excursion
     (goto-char start)
-    (while (search-forward "%{" end t)
+    (while (re-search-forward agl--code-hole-open-re end t)
       (let ((open-start (match-beginning 0)) (body-start (match-end 0)))
         (unless (agl--escaped-interpolation-open-p open-start)
           (let ((depth 1) (p body-start))
@@ -286,15 +296,16 @@ ordinary quote character stays outside a template's payload."
       (agl--propertize-verbatim-inline))))
 
 (defun agl--skip-template-hole ()
-  "Skip forward over a `%{...}' interpolation hole.
+  "Skip forward over a `%{...}' or `%!{...}' code hole.
 
-Point must be at the `%' of an unescaped `%{'.  Advance past the
+Point must be at the `%' of an unescaped code hole.  Advance past the
 matching close brace, counting nested braces, so the template scanner
 does not mistake a quote or brace inside the hole -- e.g. the nested
 call in `%{f(\"x\")}' -- for its own delimiter.  A hole may itself span
 multiple lines.  If no matching close brace is found, stop at the end
 of the buffer."
-  (forward-char 2)                     ; past "%{"
+  (looking-at agl--code-hole-open-re)
+  (goto-char (match-end 0))
   (let ((body-start (point)) (depth 1))
     (while (and (> depth 0) (not (eobp)))
       (cond
@@ -305,8 +316,8 @@ of the buffer."
       (put-text-property body-start (1- (point)) 'agl-interpolation-code t))))
 
 (defun agl--template-hole-start-p ()
-  "Return non-nil if point is at the `%' of an unescaped `%{' hole."
-  (and (eq (char-after) ?%) (eq (char-after (1+ (point))) ?\{)))
+  "Return non-nil if point is at the `%' of an unescaped code hole."
+  (looking-at-p agl--code-hole-open-re))
 
 (defun agl--propertize-single-quoted (quote-char)
   "Propertize the single-line template opened by QUOTE-CHAR at point.
@@ -316,7 +327,7 @@ both delimiters with string-quote syntax and move point past the
 close quote.  Otherwise the template is unterminated: leave the
 opener with its default (punctuation) syntax and advance one
 character, so the template does not swallow the following lines.  A
-`%{...}' hole is skipped whole (see `agl--skip-template-hole'), which
+code hole is skipped whole (see `agl--skip-template-hole'), which
 may carry the scan past the line-end limit if the hole spans multiple
 lines."
   (let ((open (point))
@@ -347,7 +358,7 @@ closing delimiter with generic-string-fence syntax (python-mode's
 technique for triple quotes), so inner single quotes and `#' are
 inert.  If unterminated, fence the opener and treat the rest of the
 buffer as inside the string, matching standard
-unterminated-multiline-string handling.  A `%{...}' hole is skipped
+unterminated-multiline-string handling.  A code hole is skipped
 whole (see `agl--skip-template-hole')."
   (let ((open (point)))
     (forward-char 3)
@@ -499,8 +510,9 @@ function only ever adjusts the start of the region."
 ;; interpolation bodies are marked by the propertizer and receive the same
 ;; rules again with an override, restoring code faces only there.  The
 ;; interpolation-delimiter and attribute rules also deliberately override:
-;; the former faces `%{' / `}', and the latter makes a whole `@name' read as
-;; one attribute while rejecting string/comment candidates in its matcher.
+;; the former faces hole delimiters (`%{', `%!{', `}', whole env holes), and
+;; the latter makes a whole `@name' read as one attribute while rejecting
+;; string/comment candidates in its matcher.
 ;; ---------------------------------------------------------------------------
 
 (defconst agl--keyword-face-names
@@ -607,7 +619,10 @@ for operator highlighting -- when `font-lock-operator-face' (added in
 
 (defface agl-interpolation-face
   `((t :inherit ,agl--escape-face))
-  "Face for the `%{' and `}' delimiters of an AgL interpolation hole.
+  "Face for the delimiters of an AgL interpolation hole.
+
+These are the `%{', `%!{' and `}' of a code hole and the whole of an
+environment hole, `%${NAME}' or `%!${NAME}'.
 
 Hole contents (the expression between the delimiters) keep the
 surrounding string/template face; fontifying AgL expressions inside a
@@ -959,7 +974,7 @@ semantics, which are different."
     (= 1 (mod count 2))))
 
 (defun agl--escaped-interpolation-open-p (pos)
-  "Return non-nil if the `%{' hole opener at POS is escaped.
+  "Return non-nil if the hole opener (any form) at POS is escaped.
 
 Dispatches on whether POS lies in a `$' verbatim payload (tagged with
 the internal `agl-verbatim-payload' text property -- see
@@ -978,12 +993,14 @@ there."
     (agl--preceding-backslash-parity-odd-p pos)))
 
 (defun agl--match-interpolation-delims (limit)
-  "Search forward for a `%{...}' interpolation hole, up to LIMIT.
+  "Search forward for an interpolation hole, up to LIMIT.
 
-Only matches inside a string/template region.  `match-data' group 1
-covers the opening `%{' and group 2 covers the closing `}'; hole
-contents are left with their inherited string face (see
-`agl-interpolation-face').  An escaped `\\%{'
+Matches a code hole `%{...}'/`%!{...}' or an environment hole
+`%${NAME}'/`%!${NAME}' inside a string/template region.  `match-data'
+group 1 covers the opening `%{' or `%!{' and group 2 the closing `}';
+code hole contents are left with their inherited string face (see
+`agl-interpolation-face').  An environment hole is all delimiter:
+group 1 covers it whole and group 2 is empty.  An escaped `\\%{'
 \(docs/agl/reference/lexical-structure.md, and see
 `agl--escaped-interpolation-open-p' for the `$' verbatim payload vs.
 template distinction) is skipped.  The closing-brace scan is bounded by
@@ -993,28 +1010,33 @@ state while typing one -- must never scan, or paint
 `agl-interpolation-face' (its rule uses OVERRIDE=t), past the string it
 opened in.  Return non-nil on success."
   (let (found)
-    (while (and (not found) (search-forward "%{" limit t))
+    (while (and (not found) (re-search-forward agl--hole-start-re limit t))
       (let ((open-start (match-beginning 0)) (open-end (match-end 0)))
-        (if (and (agl--in-string-p open-start)
-                 (not (agl--escaped-interpolation-open-p open-start)))
-            (let ((depth 1) (p open-end)
-                  (region-end (min limit (agl--string-region-end open-start)))
-                  close-start close-end)
-              (while (and (> depth 0) (< p region-end))
-                (cond
-                 ((eq (char-after p) ?\{) (setq depth (1+ depth)) (setq p (1+ p)))
-                 ((eq (char-after p) ?\}) (setq depth (1- depth)) (setq p (1+ p)))
-                 (t (setq p (1+ p)))))
-              (if (= depth 0)
-                  (progn
-                    (setq close-end p close-start (1- p))
-                    (set-match-data (list open-start close-end
-                                          open-start open-end
-                                          close-start close-end))
-                    (goto-char close-end)
-                    (setq found t))
-                (goto-char open-end)))
-          (goto-char open-end))))
+        (cond
+         ((not (and (agl--in-string-p open-start)
+                    (not (agl--escaped-interpolation-open-p open-start))))
+          (goto-char open-end))
+         ((eq (char-before open-end) ?})
+          (set-match-data (list open-start open-end open-start open-end open-end open-end))
+          (setq found t))
+         (t
+          (let ((depth 1) (p open-end)
+                (region-end (min limit (agl--string-region-end open-start)))
+                close-start close-end)
+            (while (and (> depth 0) (< p region-end))
+              (cond
+               ((eq (char-after p) ?\{) (setq depth (1+ depth)) (setq p (1+ p)))
+               ((eq (char-after p) ?\}) (setq depth (1- depth)) (setq p (1+ p)))
+               (t (setq p (1+ p)))))
+            (if (= depth 0)
+                (progn
+                  (setq close-end p close-start (1- p))
+                  (set-match-data (list open-start close-end
+                                        open-start open-end
+                                        close-start close-end))
+                  (goto-char close-end)
+                  (setq found t))
+              (goto-char open-end)))))))
     found))
 
 (defun agl--decl-head-segment-start-p ()

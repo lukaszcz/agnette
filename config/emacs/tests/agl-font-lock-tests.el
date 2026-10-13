@@ -345,6 +345,56 @@
     (should-not (eq (agl-flt--face-of "${HOME}") 'agl-interpolation-face))
     (should (eq (agl-flt--face-of "${HOME}") 'font-lock-string-face))))
 
+;; --- Shell-quoted and environment hole forms: `%!{e}', `%${NAME}', `%!${NAME}' ---
+
+(defconst agl-flt--hole-hosts
+  '("let a = \"cost is %s!\"\n"
+    "let a = 'cost is %s!'\n"
+    "let a = \"\"\"\ncost is %s!\n\"\"\"\n"
+    "let a = '''\ncost is %s!\n'''\n"
+    "ask $ cost is %s!\n"
+    "ask $\n  cost is %s!\n")
+  "Format strings placing one hole in each template and `$' host.")
+
+(defmacro agl-flt--with-hole-in-each-host (hole &rest body)
+  "Run BODY in a buffer for each host of `agl-flt--hole-hosts' holding HOLE."
+  (declare (indent 1))
+  `(dolist (host agl-flt--hole-hosts)
+     (agl-flt--with-buffer (format host ,hole)
+       ,@body)))
+
+(ert-deftest agl-flt-quoting-hole-delimiters-faced-in-every-host ()
+  (agl-flt--with-hole-in-each-host "%!{price}"
+    (should (agl-flt--wholly-faced-p "%!{" 'agl-interpolation-face))
+    (should (eq (agl-flt--face-at (1- (agl-flt--pos-after "%!{price}")))
+                'agl-interpolation-face))
+    (should-not (agl-flt--face-of "price"))))
+
+(ert-deftest agl-flt-quoting-hole-code-is-highlighted ()
+  (agl-flt--with-buffer "let a = \"cost is %!{render(price + 1 as json)}\"\n"
+    (should (eq (agl-flt--face-of "render") 'font-lock-builtin-face))
+    (should (eq (agl-flt--face-of "+") agl--operator-face))))
+
+(ert-deftest agl-flt-environment-holes-are-faced-whole-in-every-host ()
+  (dolist (hole '("%${HOME}" "%!${HOME}"))
+    (agl-flt--with-hole-in-each-host hole
+      (should (agl-flt--wholly-faced-p hole 'agl-interpolation-face)))))
+
+(ert-deftest agl-flt-environment-hole-needs-a-name ()
+  (agl-flt--with-buffer "let a = \"x %${} y %!${1 z}\"\n"
+    (should-not (eq (agl-flt--face-of "%${}") 'agl-interpolation-face))
+    (should-not (eq (agl-flt--face-of "%!${1 z}") 'agl-interpolation-face))))
+
+(ert-deftest agl-flt-escaped-hole-forms-are-not-faced-in-any-host ()
+  (dolist (hole '("%{x}" "%!{x}" "%${HOME}" "%!${HOME}"))
+    (agl-flt--with-hole-in-each-host (concat "\\" hole)
+      (should-not (eq (agl-flt--face-of hole) 'agl-interpolation-face))
+      (should (eq (agl-flt--face-of hole) 'font-lock-string-face)))))
+
+(ert-deftest agl-flt-bare-dollar-brace-is-plain-text-in-every-host ()
+  (agl-flt--with-hole-in-each-host "${HOME}"
+    (should (agl-flt--wholly-faced-p "${HOME}" 'font-lock-string-face))))
+
 ;; --- Keywords inside templates/`$' verbatim payloads stay string-faced ---
 
 (ert-deftest agl-flt-keyword-inside-template-stays-string-faced ()
@@ -465,6 +515,12 @@
   (agl-flt--with-buffer "@extern-name(\"to_slug\")\nextern def to-slug(t: text) -> text\n"
     (should (agl-flt--wholly-faced-p "@extern-name" 'font-lock-preprocessor-face))
     (should (eq (agl-flt--face-of "\"to_slug\"") 'font-lock-string-face))))
+
+(ert-deftest agl-flt-warning-attributes-are-attribute-face ()
+  (agl-flt--with-buffer
+      "@allow(\"unquoted-exec-hole\")\n@exempts(\"unquoted-exec-hole\")\ndef f() -> unit = ()\n"
+    (should (agl-flt--wholly-faced-p "@allow" 'font-lock-preprocessor-face))
+    (should (agl-flt--wholly-faced-p "@exempts" 'font-lock-preprocessor-face))))
 
 (ert-deftest agl-flt-attribute-on-its-target-line-is-attribute-face ()
   ;; An attribute may sit on the same line as what it decorates, and the

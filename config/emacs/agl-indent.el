@@ -11,7 +11,7 @@
 ;; through the enclosing levels.  The rules it implements come from the
 ;; layout section of docs/agl/reference/lexical-structure.md:
 ;;
-;; - Bracket continuation: while a `(', `[', `{', or `%{' interpolation is
+;; - Bracket continuation: while a `(', `[', `{', `%{' or `%!{' interpolation is
 ;;   open, the logical line continues, and a continuation line aligns with
 ;;   the bracket's content column — except the line that closes the
 ;;   bracket, which returns to the level of the line that opened it.

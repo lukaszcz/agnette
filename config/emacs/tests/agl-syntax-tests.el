@@ -400,6 +400,16 @@ Otherwise the block stays open and swallows the following code."
   (agl-test--with-buffer "let a = \"hello %{f(\"x\")} world\"\n"
     (should (= 0 (car (syntax-ppss (point-max)))))))
 
+(ert-deftest agl-syntax-quoting-hole-with-nested-call-and-quotes-balances-parens ()
+  (agl-test--with-buffer "let a = \"hello %!{f(\"x\")} world\"\nlet b = 1\n"
+    (should (= 0 (car (syntax-ppss (point-max)))))
+    (should-not (agl-test--in-string-p (agl-test--pos-after "let b")))))
+
+(ert-deftest agl-syntax-environment-holes-keep-the-template-closed ()
+  (agl-test--with-buffer "let a = \"x %${HOME} %!${HOME}\"\nlet b = 1\n"
+    (should (agl-test--in-string-p (agl-test--pos-after "x %${HOME}")))
+    (should-not (agl-test--in-string-p (agl-test--pos-after "let b")))))
+
 (ert-deftest agl-syntax-template-escaped-percent-brace-is-literal ()
   (agl-test--with-buffer "let a = \"cost is \\%{100}\"\nlet b = 1\n"
     (should (agl-test--in-string-p (agl-test--pos-after "cost is")))

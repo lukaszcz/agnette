@@ -310,15 +310,97 @@ func TestVerbatimPayloadIsVerbatim(t *testing.T) {
 	assertFace(t, "let a = exec $ ls", "exec", "identifier")
 }
 
-// A `%{...}' hole interpolates inside a `$' verbatim payload, matching the
-// template regions, so its delimiters stay visible.  `${...}' does not: only
-// `%{' opens a hole, so a raw `${' stays plain payload text.
+// Holes interpolate inside a `$' verbatim payload, matching the template
+// regions, so their delimiters stay visible.  `${...}' does not: every hole
+// opens with `%', so a raw `${' stays plain payload text.
 func TestVerbatimPayloadInterpolationHoleIsFaced(t *testing.T) {
 	assertFace(t, "ask $ Summarize %{topic} please", "%{", "special")
 	assertFace(t, "ask $ Summarize %{topic} please", "}", "special")
 	assertFace(t, "exec $ echo ${HOME}", "${", "constant.string")
 	assertNotFace(t, "exec $ echo ${HOME}", "}", "special")
 	assertFace(t, "ask $ escaped \\%{topic}", "%{", "constant.string")
+}
+
+// Every hole form opens with `%': `%{e}', `%!{e}', `%${NAME}' and `%!${NAME}'
+// in each template and in a `$' payload.  A bare `${...}' is plain text, and an
+// escaped opener stays text whatever its form.
+func TestAllHoleFormsAreFacedAndBareDollarBraceIsText(t *testing.T) {
+	for _, source := range holeHosts {
+		for _, opener := range []string{"%!{", "%${", "%!${"} {
+			src := strings.Replace(source, "%%s", opener+"X}", 1)
+			assertFace(t, src, opener, "special")
+			assertFace(t, src, " there", "constant.string")
+			escaped := strings.Replace(source, "%%s", "\\"+opener+"X}", 1)
+			assertNotFace(t, escaped, opener, "special")
+		}
+		bare := strings.Replace(source, "%%s", "${X}", 1)
+		assertFace(t, bare, "${", "constant.string")
+		assertNotFace(t, bare, "}", "special")
+	}
+}
+
+var holeHosts = []string{
+	`let s = "hi %%s there"`,
+	`let s = 'hi %%s there'`,
+	"let s =\n  \"\"\"\n  hi %%s there\n  \"\"\"",
+	"let s =\n  '''\n  hi %%s there\n  '''",
+	"exec $ hi %%s there",
+}
+
+// An environment hole is one token, as in the shared highlighter and the Emacs
+// mode: `%${NAME}' and `%!${NAME}' are faced whole.
+func TestEnvironmentHolesAreFacedWhole(t *testing.T) {
+	for _, source := range holeHosts {
+		for _, hole := range []string{"%${HOME}", "%!${HOME}", "%${a-b?}"} {
+			src := strings.Replace(source, "%%s", hole, 1)
+			assertFace(t, src, hole, "special")
+			assertFace(t, src, " there", "constant.string")
+		}
+	}
+}
+
+// An environment hole needs a valid name; anything else is plain text, and it
+// must not hide the code after the string either.
+func TestEnvironmentHoleNeedsAName(t *testing.T) {
+	for _, source := range holeHosts {
+		for _, hole := range []string{"%${}", "%${1 z}", "%!${a b}", "%!${1x}"} {
+			src := strings.Replace(source, "%%s", hole, 1)
+			assertNotFace(t, src, hole[:strings.Index(hole, "{")+1], "special")
+		}
+	}
+	assertFace(t, `let ss = "x %${" ++ b`, "++", "symbol.operator")
+	assertNotFace(t, `let ss = "x %${" ++ b ++ "}" ++ c`, "b", "constant.string")
+	assertNotFace(t, `let ss = "x %${" ++ b ++ "}" ++ c`, "c", "constant.string")
+}
+
+// In a `$' payload only a `\' directly before a hole opener escapes it; any
+// other backslash is plain payload text.
+func TestVerbatimPayloadEscapesOnlyHoleOpeners(t *testing.T) {
+	assertNotFace(t, `exec $ a\%{x}`, "%{", "special")
+	assertNotFace(t, `exec $ a\%!{x}`, "%!{", "special")
+	assertNotFace(t, `exec $ a\%${HOME}`, "%${", "special")
+	assertNotFace(t, `exec $ a\%!${HOME}`, "%!${", "special")
+	assertNotFace(t, `exec $ a\%!${HOME}`, "}", "special")
+	// A single preceding backslash escapes, however many come before it.
+	assertNotFace(t, `exec $ aa\\%{x}`, "%{", "special")
+	// Other backslashes are plain, and a hole beside them is still a hole.
+	assertFace(t, `exec $ a\b %{x} c\`, `\b `, "constant.string")
+	assertFace(t, `exec $ a\b %{x} c\`, "%{", "special")
+	assertFace(t, `exec $ a\b %{x} c\`, `c\`, "constant.string")
+	assertFace(t, `exec $ a \\ b %{x}`, `\\`, "constant.string")
+	assertFace(t, `exec $ a \\ b %{x}`, "%{", "special")
+	// A backslash inside a hole's code is not an opener's escape.
+	assertFace(t, `exec $ %{a\b}`, `a\b`, "constant.string")
+}
+
+// micro's highlightRegion stops looking for nested regions and patterns when
+// a region's content length up to its closing delimiter equals its start
+// column, so the hole in `let s = "a %{XX} b"' is not faced.
+func TestHoleFacedWhenContentLengthEqualsColumn(t *testing.T) {
+	t.Skip("upstream micro highlighter bug: highlightRegion tests start == endLoc[0] instead of 0")
+	assertFace(t, `let s = "a %{XX} b"`, "%{", "special")
+	assertFace(t, "ask $ %{x}", "%{", "special")
+	assertFace(t, `x = "ab\nc"`, `\n`, "constant.specialChar")
 }
 
 // A declaration attribute is a `@name' prefix, optionally followed by an
@@ -333,6 +415,9 @@ func TestAttributesAreFaced(t *testing.T) {
 	// The argument list is code, not part of the attribute name.
 	assertFace(t, `@doc("greets") def greet(x: text) -> text = x`, `"greets"`, "constant.string")
 	assertFace(t, "@opt-short(name = 'v')\nlet verbose = true", "@opt-short", "preproc")
+	// The warning-control attributes are ordinary attributes.
+	assertFace(t, `@allow("unquoted-exec-hole") def f() = x`, "@allow", "preproc")
+	assertFace(t, `@exempts("unquoted-exec-hole") def f() = x`, "@exempts", "preproc")
 	// An `@' with no name after it is not an attribute.
 	assertFace(t, "let x = a @ b", "@", "symbol.operator")
 }

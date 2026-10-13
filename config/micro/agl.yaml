@@ -15,6 +15,9 @@ detect:
 # operator character, then the spellings that legitimately contain one, and
 # finally the true delimiters -- which can never occur inside a name, so
 # repainting them last is always safe.
+#
+# Known limit: micro's highlightRegion skips a region's rules when its content
+# length equals its start column (`let s = "a %{XX} b"'), an upstream bug.
 rules:
     # Operator characters that double as identifier characters.  Painted first
     # so that `ask-request' faces as one name rather than two around a `-'.
@@ -123,26 +126,34 @@ rules:
         start: "(^|[\\]\\[(){}:,.;@\"' \t])[0-9]*\\$"
         end: "$"
         skip: "\\\\."
+        # Holes as in the template regions below, except for the escape: only
+        # a `\' directly before an opener escapes it, any other is payload.
         rules:
-            - special: &hole "\\\\.|%\\{[^}]*\\}"
-            - constant.string: "[^%{}\\\\]+|\\\\."
+            - special: "\\\\%!?\\$?\\{|%!?\\{[^}]*\\}"
+            - constant.string: "[^%{}]+"
+            - special: "\\\\%!?\\$?\\{|%!?\\{|%!?\\$\\{[\\p{L}_][^\\]\\[(){}:,.|;/@=\\s]*\\}"
+            - constant.string: "\\\\%!?\\$?\\{"
 
-    # Template strings and `$' payloads contain unescaped `%{...}' holes.  They
-    # are faced by patterns, not by a nested region: entering a nested region
-    # makes micro paint the top-level code rules over the rest of the line,
-    # and nothing repaints them once the hole closes.  The first pattern faces
-    # each hole whole -- an escape is matched first so that it cannot open
-    # one -- and the second returns the hole's contents, and the escape it
-    # matched, to the string face, leaving `%', `{' and `}' as delimiters.  A
-    # hole is skipped when looking for the closing quote, since its code may
+    # Template strings contain unescaped holes: `%{e}', `%!{e}', `%${NAME}' and
+    # `%!${NAME}' (NAME is an identifier, so `%${}' and `%${a b}' are text); a
+    # bare `${...}' is plain text.  Holes are faced by patterns, not by a
+    # nested region: entering a nested region makes micro paint the top-level
+    # code rules over the rest of the line, and nothing repaints them once the
+    # hole closes.  The first rule faces each hole whole; an escape is matched
+    # first so that it cannot open one.  The second returns the hole's
+    # contents, and the escape it matched, to the string face.  The opener rule
+    # then faces `%{' / `%!{' and each whole environment hole again, and the
+    # last rule gives escapes their own face.  A hole is skipped when looking
+    # for the closing quote, since its code (or an identifier's quote) may
     # contain quotes of its own.
     - constant.string:
         start: "\"\"\""
         end: "\"\"\""
-        skip: *hole
+        skip: &hole "\\\\.|%!?\\{[^}]*\\}|%!?\\$\\{[\\p{L}_][^\\]\\[(){}:,.|;/@=\\s]*\\}"
         rules: &template
             - special: *hole
             - constant.string: "[^%{}\\\\]+"
+            - special: "\\\\.|%!?\\{|%!?\\$\\{[\\p{L}_][^\\]\\[(){}:,.|;/@=\\s]*\\}"
             - constant.specialChar: "\\\\."
 
     - constant.string:

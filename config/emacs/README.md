@@ -76,7 +76,7 @@ final prompt appear. REPL input is highlighted like source buffers.
 - `agl-repl-reload-on-save` — reset and reload the buffer after each save; off by default
   because it clears values entered at the REPL prompt.
 - `agl-repl-buffer-name` — the inferior REPL buffer's name.
-- `agl-interpolation-face` — the face for `%{`/`}` delimiters.
+- `agl-interpolation-face` — the face for hole delimiters: `%{`, `%!{`, `}` and whole `%${NAME}`/`%!${NAME}` holes.
 
 ## Known limits
 
@@ -86,7 +86,7 @@ final prompt appear. REPL input is highlighted like source buffers.
   fields and methods also need it to type-check. It looks names up by position, so a name
   typed at the `C-u M-.` prompt finds nothing; `use` targets, named arguments, builtin
   types, and type parameters have no declaration to jump to.
-- Completed `%{…}` holes receive code font-lock; incomplete holes may retain the
+- Completed `%{…}` and `%!{…}` holes receive code font-lock; incomplete holes may retain the
   host literal's face.
 - Constructor use-sites in expressions are unfaced: capitalization carries no meaning in
   AgL, so faces come from declaration and annotation positions only.
