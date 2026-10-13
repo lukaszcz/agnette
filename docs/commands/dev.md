@@ -14,6 +14,7 @@ Targets come from the highlighting generator registry:
 | ------ | ------ |
 | `kde` | KSyntaxHighlighting XML, also usable by Pandoc |
 | `textmate` | TextMate grammar JSON (`source.agl`) |
+| `sublime` | Sublime Text syntax YAML (`source.agl`), also read by bat |
 | `emacs` | Lisp keyword/builtin inventory providing `agl-inventory` |
 
 Without `--output`, the generated definition is written to stdout. With `--output`,
@@ -24,6 +25,7 @@ paths.
 ```sh
 agm dev highlight kde --output build/highlighting/agl.xml
 agm dev highlight textmate --output build/highlighting/AgL.tmLanguage.json
+agm dev highlight sublime --output build/highlighting/agl.sublime-syntax
 agm dev highlight emacs --output build/emacs/agl-inventory.el
 ```
 
@@ -31,7 +33,10 @@ agm dev highlight emacs --output build/emacs/agl-inventory.el
 
 `just install [PREFIX] [--force]` installs:
 
-- `<AgM home>/highlighting/agl.xml` and `agl.tmLanguage.json` (TextMate).
+- `<AgM home>/highlighting/agl.xml`, `agl.tmLanguage.json` (TextMate) and
+  `agl.sublime-syntax` (Sublime Text).
+- `$(bat --config-dir)/syntaxes/agl.sublime-syntax`, followed by `bat cache --build`,
+  when `bat` (or Debian's `batcat`) is installed. Prefix installs skip bat.
 - `<XDG data>/org.kde.syntax-highlighting/syntax/agl.xml` for Kate and other KDE editors.
 - `<XDG data>/pandoc/defaults/agl.yaml`; use `pandoc -d agl input.md -o output.html`.
 - Generated `agl-inventory.el` inside the Emacs mode package, when Emacs is available.
@@ -55,7 +60,9 @@ pandoc --syntax-definition /path/to/AgM-home/highlighting/agl.xml input.md -o ou
 Use `agl` as the fenced-code language in Markdown. Kate discovers the installed
 KDE syntax definition for `.agl` files. TextMate-compatible editors need their own
 registration of `agl.tmLanguage.json` with scope `source.agl`; no editor settings
-are changed automatically. Emacs's package includes the generated inventory and
+are changed automatically. Sublime Text loads `agl.sublime-syntax` from its `Packages/User`
+directory. bat highlights `.agl` files and `--language agl`; rerun `bat cache --build`
+after upgrading bat. mcat bundles its syntaxes and cannot load the definition. Emacs's package includes the generated inventory and
 hand-written font-lock, installed into `package-user-dir` (normally
 `~/.emacs.d/elpa/`, or under the prefix's `HOME`); non-package.el setup is described
 in `config/emacs/README.md`. Micro's rules remain hand-written.

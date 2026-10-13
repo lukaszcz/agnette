@@ -142,6 +142,15 @@ test-textmate:
         uv run python tools/highlight_textmate.py build/highlighting/AgL.tmLanguage.json; \
     fi
 
+# Compare generated Sublime syntax with the reference grammar through bat (optional)
+test-sublime:
+    @if ! command -v bat >/dev/null 2>&1 && ! command -v batcat >/dev/null 2>&1; then \
+        echo "bat not found; skipping the native Sublime suite"; \
+    else \
+        uv run agm dev highlight sublime --output build/highlighting/agl.sublime-syntax; \
+        uv run python tools/highlight_sublime.py build/highlighting/agl.sublime-syntax; \
+    fi
+
 # Type-check with mypy
 typecheck:
     uv run mypy src/agnette/ tools/

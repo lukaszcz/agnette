@@ -5,11 +5,10 @@ Switch, base-frame pops and nullable pushes have no equivalent native frame.
 """
 
 import json
-import re
 
 from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.grammar import Grammar, Pop, Push, Rule, Switch
-from agnette.agl.highlight.targets._regex import analyze
+from agnette.agl.highlight.targets._regex import analyze, validate_line
 
 TEXTMATE_SCOPES: dict[Category, str] = {
     Category.TEXT: "meta.text.agl",
@@ -49,26 +48,6 @@ def _captures(rule: Rule, offset: int = 0) -> dict[str, dict[str, str]]:
     }
 
 
-def _validate_line(pattern: str) -> None:
-    """Exclude access to TextMate's synthetic LF, absent from model lines."""
-    position = 0
-    while position < len(pattern):
-        character = pattern[position]
-        if character == "[":
-            end = position + 1 + pattern.startswith("^", position + 1)
-            end += pattern.startswith("]", end)
-            while pattern[end] != "]":
-                end += 2 if pattern[end] == "\\" else 1
-            if re.fullmatch(pattern[position : end + 1], "\n") is not None:
-                raise ValueError("TextMate character classes must exclude LF")
-            position = end + 1
-        else:
-            width = 2 if character == "\\" else 1
-            if pattern[position : position + width] in {r"\n", "\n"}:
-                raise ValueError("TextMate patterns cannot inspect LF")
-            position += width
-
-
 def generate(grammar: Grammar) -> str:
     """Lower arbitrary native-framed states without AgL-specific recognition."""
     names = {state.name: f"state{index}" for index, state in enumerate(grammar.states)}
@@ -79,7 +58,7 @@ def generate(grammar: Grammar) -> str:
         groups = 0
         nonpop = False
         for rule in state.rules:
-            _validate_line(rule.pattern)
+            validate_line(rule.pattern)
             if isinstance(rule.action, Switch):
                 raise ValueError("TextMate does not support same-frame Switch")
             if (

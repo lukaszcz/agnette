@@ -33,14 +33,16 @@ Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` en
 
 ## Native Highlighting Engines
 
-Outside `just check`, `just test-kde` uses Pandoc 3.x/skylighting and
-`just test-textmate` uses pinned TextMate/Oniguruma npm dependencies. Missing tools
-skip clearly. `just setup` installs those dependencies when npm is available; with node
-present, `just check` also runs the native TextMate pytest probes and fails if they are missing. Both compare CLI-generated definitions with `grammar_eval` over the
+Outside `just check`, `just test-kde` uses Pandoc 3.x/skylighting,
+`just test-textmate` uses pinned TextMate/Oniguruma npm dependencies, and
+`just test-sublime` uses bat/syntect. Missing tools skip clearly; with bat present,
+`just check` also runs the native Sublime pytest probes. `just setup` installs those dependencies when npm is available; with node
+present, `just check` also runs the native TextMate pytest probes and fails if they are missing. All compare CLI-generated definitions with `grammar_eval` over the
 shared corpus/partition contract in `tools/highlight_engine_support.py`, including
 native recovery frames. KDE compares projected HTML styles and normalizes newlines;
-TextMate compares published scopes and rejects unknown scopes. Harnesses live in
-`tools/highlight_kde*.py`, `tools/highlight_textmate.py` and
+TextMate compares published scopes and rejects unknown scopes; Sublime decodes a
+probe theme's per-category colors and normalizes newlines. Harnesses live in
+`tools/highlight_{kde,textmate,sublime}*.py` and
 `config/{kde,textmate}/tests/`; generated definitions stay under ignored `build/`.
 
 ## Editor Modes
@@ -54,4 +56,4 @@ The Emacs (`config/emacs/`) and micro (`config/micro/`) modes have their own sui
 - `tests/conftest.py` and `tests/_*_helpers.py` — shared fixtures and fakes.
 - `tests/_command_coverage.py`, `_durations.py`, `_agm_zygote.py` — command coverage, CPU cost, e2e launcher.
 - `tests/test_agl_highlight_*.py` — exact tiers, Markdown context rendering/isolation, portable conformance and target contracts.
-- `justfile` — standard gates; optional `test-kde`, `test-textmate`, `test-emacs`, `test-micro`.
+- `justfile` — standard gates; optional `test-kde`, `test-textmate`, `test-sublime`, `test-emacs`, `test-micro`.

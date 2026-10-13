@@ -1,5 +1,6 @@
 """Structural facts for finite target lowering, independent of regex engine internals."""
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -150,3 +151,23 @@ def analyze(
     All parse inputs form the cache key. Bound retention for arbitrary user grammars.
     """
     return _cached_structure(pattern, background, captures)
+
+
+def validate_line(pattern: str) -> None:
+    """Exclude access to the LF that native engines append, absent from model lines."""
+    position = 0
+    while position < len(pattern):
+        character = pattern[position]
+        if character == "[":
+            end = position + 1 + pattern.startswith("^", position + 1)
+            end += pattern.startswith("]", end)
+            while pattern[end] != "]":
+                end += 2 if pattern[end] == "\\" else 1
+            if re.fullmatch(pattern[position : end + 1], "\n") is not None:
+                raise ValueError("Native character classes must exclude LF")
+            position = end + 1
+        else:
+            width = 2 if character == "\\" else 1
+            if pattern[position : position + width] in {r"\n", "\n"}:
+                raise ValueError("Native patterns cannot inspect LF")
+            position += width

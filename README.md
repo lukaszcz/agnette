@@ -47,7 +47,7 @@ requirements, and installs the AgL editor modes (Micro, and Emacs when available
 and always refreshes the editor modes and highlighting definitions; `--force` controls
 replacement of differing config files and existing Pandoc defaults.
 
-[AgL highlighting](docs/commands/dev.md) installs for Kate, TextMate, Emacs, and Pandoc (`pandoc -d agl`).
+[AgL highlighting](docs/commands/dev.md) installs for Kate, TextMate, Sublime Text, bat, Emacs, and Pandoc (`pandoc -d agl`).
 
 The AgM home is `$AGM_HOME`, else a populated `.agm` beside the executable, else
 `$HOME/.agm`. A prefix install puts `agm` in `<prefix>/bin` (add it to `PATH`) and the

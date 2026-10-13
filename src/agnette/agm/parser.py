@@ -358,7 +358,8 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         agm dev highlight TARGET [--output PATH]
 
         Export an AgL highlighting definition. TARGET is kde (XML), textmate
-        (JSON), or emacs (Lisp keyword inventory).
+        (JSON), sublime (Sublime Text/bat YAML), or emacs (Lisp keyword
+        inventory).
 
         Options:
           --output PATH  Write UTF-8 to PATH, creating parent directories and

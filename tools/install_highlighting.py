@@ -1,4 +1,4 @@
-"""Install generated AgL definitions and user-preserving Pandoc defaults."""
+"""Install generated AgL definitions, bat registration and user-preserving Pandoc defaults."""
 
 from __future__ import annotations
 
@@ -24,6 +24,27 @@ class _InstallArgs(Protocol):
     prefix: str | None
 
 
+def bat_executable() -> str | None:
+    """Locate bat, which Debian and Ubuntu install as `batcat`."""
+    return shutil.which("bat") or shutil.which("batcat")
+
+
+def _register_bat(definition: Path) -> None:
+    """Add the syntax to bat's user configuration and rebuild bat's cache with it."""
+    bat = bat_executable()
+    if bat is None:
+        print("bat not found; skipping the bat syntax")
+        return
+    config = subprocess.run(
+        [bat, "--config-dir"], capture_output=True, text=True, check=True
+    ).stdout.removesuffix("\n")
+    destination = Path(config) / "syntaxes" / definition.name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(definition, destination)
+    subprocess.run([bat, "cache", "--build"], stdout=subprocess.DEVNULL, check=True)
+    print(f"Installed {destination}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python tools/install_highlighting.py", parents=[build_parser()], add_help=False
@@ -44,13 +65,21 @@ def main(argv: list[str] | None = None) -> int:
         bin_dir = prefix / "bin"
 
     highlighting = home / "highlighting"
-    for target, filename in (("kde", "agl.xml"), ("textmate", "agl.tmLanguage.json")):
+    for target, filename in (
+        ("kde", "agl.xml"),
+        ("textmate", "agl.tmLanguage.json"),
+        ("sublime", "agl.sublime-syntax"),
+    ):
         destination = highlighting / filename
         subprocess.run(
             [str(bin_dir / "agm"), "dev", "highlight", target, "--output", str(destination)],
             check=True,
         )
         print(f"Installed {destination}")
+
+    # bat's configuration and cache are per user; a prefix install leaves them alone.
+    if args.prefix is None:
+        _register_bat(highlighting / "agl.sublime-syntax")
 
     kde = data / "org.kde.syntax-highlighting" / "syntax" / "agl.xml"
     kde.parent.mkdir(parents=True, exist_ok=True)

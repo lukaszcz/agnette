@@ -3,10 +3,11 @@
 from collections.abc import Callable
 
 from agnette.agl.highlight.grammar import Grammar
-from agnette.agl.highlight.targets import emacs, kde, textmate
+from agnette.agl.highlight.targets import emacs, kde, sublime, textmate
 
 TARGETS: dict[str, Callable[[Grammar], str]] = {
     "kde": kde.generate,
     "emacs": emacs.generate,
     "textmate": textmate.generate,
+    "sublime": sublime.generate,
 }

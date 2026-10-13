@@ -72,13 +72,16 @@ Single-line hosts unwind at line end. This shared native error-frame approximati
 does not change the exact Pygments/REPL path.
 
 `targets.TARGETS` registers pure `Grammar → str` generators: KDE XML (also Pandoc),
-TextMate JSON (`source.agl`), and Emacs vocabulary (`agl-inventory`). CLI help and
+TextMate JSON (`source.agl`), Sublime YAML (TextMate scopes; also bat), and Emacs
+vocabulary (`agl-inventory`). CLI help and
 completion use registry keys; grammar construction is deferred until export.
 Generic target restrictions are narrower than the model: KDE requires lowerable
 linear captures, safe native transitions and PCRE2/XML-compatible patterns;
 TextMate requires consuming push/match rules, pop-first frames, no switch/base pop,
-and no LF-sensitive patterns. Contracts live in `targets/_kde_contract.py`,
-`targets/_regex.py`, `targets/kde.py`, and `targets/textmate.py`.
+and no LF-sensitive patterns; Sublime keeps rule order with a fallback per context
+and requires consuming match/push/switch rules, no base-frame pop/switch, and no
+LF-sensitive patterns. Contracts live in `targets/_kde_contract.py`,
+`targets/_regex.py`, `targets/kde.py`, `targets/textmate.py`, and `targets/sublime.py`.
 Emacs generates inventory only; its font-lock and micro's entire mode remain
 hand-written. Generated files are not committed.
 
@@ -86,8 +89,9 @@ hand-written. Generated files are not committed.
 
 `agm/commands/dev/highlight.py` exports definitions to stdout or a UTF-8 file.
 `just install` runs `tools/install_highlighting.py` with the **installed** CLI:
-refresh AgM-home/TextMate and KDE definitions, preserve Pandoc defaults unless
-forced, and isolate prefix installs from user home/XDG data.
+refresh AgM-home/TextMate/Sublime and KDE definitions, register the Sublime syntax
+with bat, preserve Pandoc defaults unless forced, and isolate prefix installs from
+user home/XDG data and bat.
 `tools/install_emacs_mode.py` generates inventory with the repository CLI before
 packaging. Locations and Pandoc usage: [development tooling](../commands/dev.md).
 
@@ -95,8 +99,8 @@ packaging. Locations and Pandoc usage: [development tooling](../commands/dev.md)
 tier under a symmetric contextual projection; independent local-context tests own
 the finer approximation contract. Named, witnessed, source-bounded core divergences
 and mutation probes keep exemptions narrow. Lexical, semantic, adapter and target
-suites verify the remaining seams. Optional `just test-kde` (Pandoc/skylighting)
-and `just test-textmate` (TextMate/Oniguruma) compare real engines with the reference:
-`tools/highlight_engine_support.py`, `tools/highlight_kde*.py`,
-`tools/highlight_textmate.py`, and `config/{kde,textmate}/tests/`.
+suites verify the remaining seams. Optional `just test-kde` (Pandoc/skylighting),
+`just test-textmate` (TextMate/Oniguruma) and `just test-sublime` (bat/syntect)
+compare real engines with the reference: `tools/highlight_engine_support.py`,
+`tools/highlight_{kde,textmate,sublime}*.py`, and `config/{kde,textmate}/tests/`.
 See [testing](testing.md) for quality gates and editor suites.
