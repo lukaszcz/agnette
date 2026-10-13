@@ -185,9 +185,9 @@ command the way a host `Agent` input does.
 
 - **Text.** A quoted text literal takes the [template
   escapes](strings-and-interpolation.md#escapes) and holds no interpolation: an
-  unescaped hole opener (`%{`, `%${NAME}`) is an error, and `${` is ordinary
-  text. Rendering writes every `%` as `\%`, so a rendered text reads back
-  unchanged.
+  unescaped hole opener (`%{`, `%!{`, `%${NAME}`, `%!${NAME}`) is an error,
+  and `${` is ordinary text. Rendering writes every `%` as `\%`, so a rendered
+  text reads back unchanged.
 - **Constructors.** Arguments bind against the declared fields by the same
   [zone rules](functions.md#parameters) as an ordinary call, except that a
   named-only field always takes an explicit `field = value` (value syntax has

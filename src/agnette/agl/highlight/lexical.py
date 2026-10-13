@@ -20,7 +20,13 @@ from agnette.agl.lexer import (
     lex_open_quote_start,
     tokenize_recover,
 )
-from agnette.agl.lexer.tokens import SOFT_KEYWORD_TOKENS, STRING_TAIL, VERBATIM_TAIL
+from agnette.agl.lexer.tokens import (
+    ENV_HOLE_TOKENS,
+    HOLE_START_TOKENS,
+    SOFT_KEYWORD_TOKENS,
+    STRING_TAIL,
+    VERBATIM_TAIL,
+)
 from agnette.agl.scope.symbols import BUILTIN_CALL_NAMES
 from agnette.agl.syntax import BUILTIN_TYPE_NAMES
 from agnette.agl.value_syntax.errors import ValueSyntaxError
@@ -90,7 +96,7 @@ def _category_for(
         return Category.VERBATIM
     if token_type in {"INTERP_START", "INTERP_END"}:
         return Category.INTERPOLATION
-    if token_type == "ENV_HOLE":
+    if token_type in ENV_HOLE_TOKENS:
         return Category.ENV_HOLE
     if token_type in {"INT", "DECIMAL"}:
         return Category.NUMBER
@@ -307,7 +313,7 @@ def _literal_backgrounds(text: str, tokens: list[Token]) -> list[Span]:
         if token.type == "VERBATIM_START" and (
             index + 1 == len(tokens)
             or tokens[index + 1].type
-            not in {"STRING_FRAGMENT", "INTERP_START", "VERBATIM_END", VERBATIM_TAIL}
+            not in {"STRING_FRAGMENT", "VERBATIM_END", VERBATIM_TAIL} | HOLE_START_TOKENS
         ):
             continue
         if token.type in {"TEMPLATE_START", "VERBATIM_START", "INTERP_START"} and end > start:

@@ -196,6 +196,7 @@ def test_default_resolver_and_scope_only(scope_only: None) -> None:
         ("let session = Session::open()\n", {"open": Category.BUILTIN_CALL}),
         ('let message = "%${HOME}"\n', {"%${HOME}": Category.ENV_HOLE}),
         ('let message = "%${HOME}"\nlet tail = 1\n', {"%${HOME}": Category.ENV_HOLE}),
+        ('let message = "%!${HOME}"\n', {"%!${HOME}": Category.ENV_HOLE}),
         (
             "def f(value: Option[int]) =\n  case value of\n  | Some(x) => x\n  | None => 0\n",
             {"Some": Category.NAME, "None": Category.NAME, "x": Category.LOCAL},

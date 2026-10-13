@@ -31,7 +31,9 @@ _OPERATOR = character_class(
 )
 _STOP = character_class(IDENT_STOP)[1:-1]
 _NAME = f"{_START}[^{_STOP}]*"
-_ENV = Rule(r"%\$\{" + _NAME + r"\}", Category.ENV_HOLE)
+# Holes open at `%`, optionally followed by `!` to shell-quote the value.
+_ENV = Rule(r"%!?\$\{" + _NAME + r"\}", Category.ENV_HOLE)
+_HOLE = Rule(r"%!?\{", Category.INTERPOLATION, action=Push("interpolation"))
 _ESCAPE = Rule(
     r"\\(?:"
     + character_class(ESCAPE_DECODE)
@@ -121,7 +123,7 @@ def _string_state(name: str, delimiter: str, *, multiline: bool = False) -> Stat
             _ESCAPE,
             Rule(r"\\", Category.ERROR, action=Push("rejected-template")),
             _ENV,
-            Rule(r"%\{", Category.INTERPOLATION, action=Push("interpolation")),
+            _HOLE,
         ),
         Category.STRING,
     )
@@ -147,7 +149,7 @@ def _verbatim_rules() -> tuple[Rule, ...]:
     return (
         Rule(r"\\%", Category.VERBATIM),  # escapes a following hole opener
         _ENV,
-        Rule(r"%\{", Category.INTERPOLATION, action=Push("interpolation")),
+        _HOLE,
     )
 
 

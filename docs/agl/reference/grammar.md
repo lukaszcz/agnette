@@ -540,8 +540,8 @@ template      ::= '"' (text_fragment | interpolation | env_hole)* '"'
                 | "'''" (text_fragment | interpolation | env_hole)* "'''"
                 | "$" (verbatim_text | interpolation | env_hole)+  (* to end of line, or an indented block *)
 
-interpolation ::= "%{" expr "}"                    (* single line *)
-env_hole      ::= "%${" NAME "}"
+interpolation ::= ("%{" | "%!{") expr "}"         (* single line *)
+env_hole      ::= "%${" NAME "}" | "%!${" NAME "}"
 ```
 
 Escapes and triple-quoted dedent are lexical

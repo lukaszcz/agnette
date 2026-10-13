@@ -3,38 +3,67 @@
 [← Index](index.md)
 
 Every string literal in AgL is a **template**: a sequence of literal text
-fragments, `%{…}` expression holes, and `%${…}` environment holes. A template
-evaluates to `text`. The quoted forms, triple-quoted dedent, and the `$`
-literal's payload are lexical
+fragments and [holes](#interpolation). A template evaluates to `text`. The
+quoted forms, triple-quoted dedent, and the `$` literal's payload are lexical
 ([Strings and templates](lexical-structure.md#strings-and-templates)); this
 chapter specifies escapes, holes, and rendering.
 
 ## Interpolation
 
-An expression hole `%{expr}` holds any expression, `case` and `if` included
+A template has four hole forms. Each opens with `%`:
+
+| Hole | Meaning |
+| ---- | ------- |
+| `%{expr}` | the value of `expr`, rendered as text |
+| `%!{expr}` | `expr` rendered as text, then [shell-quoted](#shell-quoted-holes): `%{std/prelude::shell-quote("%{expr}")}` |
+| `%${NAME}` | the environment variable `NAME`: `%{std/prelude::getenv("NAME")}` |
+| `%!${NAME}` | the environment variable, shell-quoted: `%!{std/prelude::getenv("NAME")}` |
+
+An expression hole holds any expression, `case` and `if` included
 (`"%{if n == 1 => "one" else => "many"}"`). Its value is converted to text by
 the [uniform rendering rules](#uniform-rendering-rules), the same in every
 position: an `ask` prompt, a `print` argument, an `exec` command, or any other
 template.
 
-An environment hole `%${NAME}` is shorthand for
-`%{std/prelude::getenv("NAME")}`, so it needs no import and a local binding
-named `getenv` does not affect it. It reads the environment snapshot supplied
-to the running program, and a missing variable raises the same exception as
-that call. `NAME` is an AgL identifier. Environment holes are available
-wherever the prelude is.
+An environment hole needs no import, and a local binding named `getenv` or
+`shell-quote` does not affect any hole, since the calls are qualified through
+the prelude. It reads the environment snapshot supplied to the running
+program, and a missing variable raises the same exception as that call. `NAME`
+is an AgL identifier. These holes are available wherever the prelude is.
 
-Both hole forms are the same in quoted, triple-quoted, and `$` templates. A
-`%` that begins neither opener, including `%$` without a complete `{NAME}`, is
-literal text, and `${…}` is always literal text: `"${HOME}"` is the seven
-characters `${HOME}`. `\%` writes a literal percent sign, so `\%{` and `\%${`
-write the openers literally.
+All hole forms are the same in quoted, triple-quoted, and `$` templates. A `%`
+that begins no complete opener — `%$` without a complete `{NAME}`, or `%!` not
+followed by `{` or a complete `${NAME}` — is literal text, and `${…}` is always
+literal text: `"${HOME}"` is the seven characters `${HOME}`. `\%` writes a
+literal percent sign, so `\%{`, `\%!{`, `\%${`, and `\%!${` write the openers
+literally.
 
 A template whose holes are all constant is itself a [constant
 expression](bindings-and-scope.md#constant-expressions), so it may fill a
 position that runs no code — an attribute argument, a `builtin var` default, a
-root binding initializer. An environment hole reads the environment and so is
-never constant.
+root binding initializer. Environment and shell-quoted holes are calls and so
+are never constant.
+
+### Shell-quoted holes
+
+A shell-quoted hole renders its value to text like any hole, then quotes that
+text as one literal POSIX shell word (the [quoting
+functions](shell-execution.md#quoting-functions) give the exact form).
+Whatever the value holds — spaces, quotes, `$(…)`, `;`, globs, newlines — a
+shell reads it back as exactly the rendered text.
+
+```agl
+program def main() -> unit =
+  let name = "it's here"
+  # The shell sees: ls -- 'it'\''s here'
+  let listing: text = exec "ls -- %!{name}"
+  # The shell sees: echo '[1, 2]' '3'
+  let count: text = exec $ echo %!{[1, 2]} %!{3}
+  print(listing ++ count)
+```
+
+A non-text value is rendered first and the rendering is quoted, so an array
+becomes one word, not one word per element.
 
 ## Escapes
 
@@ -49,7 +78,7 @@ never constant.
 | `\n` | newline |
 | `\r` | carriage return |
 | `\t` | tab |
-| `\%` | `%` |
+| `\%` | `%` (also escapes a following hole opener) |
 | `\uXXXX` | the Unicode scalar value `U+XXXX` |
 
 Any other escape is a lexical error. `\uXXXX` denotes a Unicode scalar value
@@ -66,8 +95,8 @@ A **verbatim text literal** (`$` literal) is a template like any other,
 evaluating to `text`, but treats its payload differently from a quoted
 template:
 
-- Only `%{expr}` and `%${NAME}` holes interpolate, with the same rules and
-  rendering as any other template:
+- Only the four [hole forms](#interpolation) interpolate, with the same rules
+  and rendering as any other template:
 
   ```agl
   program def main() -> unit =
@@ -77,10 +106,10 @@ template:
 - `${NAME}` is inert payload text, along with `$VAR`, `$(cmd)`, and every
   other dollar form.
 - The only escape is `\%` immediately before a hole opener, writing the opener
-  literally (`\%{`, `\%${`); `#`, `;`, quotes, parentheses, and every other
-  backslash are literal payload text. So `\\%{x}` is a backslash followed by a
-  literal `%{x}`; to place a backslash directly before an interpolation,
-  interpolate it (`%{"\\"}%{subdir}`).
+  literally (`\%{`, `\%!{`, `\%${`, `\%!${`); `#`, `;`, quotes, parentheses,
+  and every other backslash are literal payload text. So `\\%{x}` is a
+  backslash followed by a literal `%{x}`; to place a backslash directly before
+  an interpolation, interpolate it (`%{"\\"}%{subdir}`).
 
 The payload's extent, trimming, block dedent, and placement are lexical rules
 ([Verbatim literals](lexical-structure.md#verbatim-literals)). Because the
@@ -154,9 +183,9 @@ program def main() -> unit =
 
 ## Templates in `exec` commands
 
-`exec` templates use the same rendering. Interpolated values are inserted
-**verbatim** into the command string — there is **no automatic shell
-quoting**; see [Shell execution](shell-execution.md).
+`exec` templates use the same rendering. A plain hole inserts its value
+**verbatim** into the command string; only a [shell-quoted
+hole](#shell-quoted-holes) quotes. See [Shell execution](shell-execution.md).
 
 ## Errors
 

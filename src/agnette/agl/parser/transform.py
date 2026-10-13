@@ -54,6 +54,7 @@ from agnette.agl.syntax.types import (
     TypeExpr,
     UnitT,
 )
+from agnette.agl.value_syntax.lexical import QUOTED_EXPRESSION_OPEN
 from agnette.util.decimal import decimal_in_range
 
 # The receiver parameter every method declares first.
@@ -64,6 +65,7 @@ _SELF_PARAM = "self"
 _PRELUDE_MODULE = "std/prelude"
 # An environment hole ``%${NAME}`` reads the environment through this function.
 _ENVIRONMENT_READER = "getenv"
+_SHELL_QUOTER = "shell-quote"
 
 
 @dataclass(frozen=True, slots=True)
@@ -2995,13 +2997,13 @@ class AstBuilder(Transformer):
         return cast(syntax.InterpSegment, args[0])
 
     def interp(self, meta: Meta, args: _Args) -> syntax.InterpSegment:
+        """``%{e}`` — an expression hole; ``%!{e}`` — the same hole, shell-quoted."""
         # Grammar: INTERP_START expr INTERP_END
         expr: syntax.Expr = _find_expr(args)
-        return syntax.InterpSegment(
-            expr=expr,
-            span=self._span_from_meta(meta),
-            node_id=self._next_id(),
-        )
+        span = self._span_from_meta(meta)
+        if str(args[0]) == QUOTED_EXPRESSION_OPEN:
+            return self._quoted_hole(expr, span)
+        return syntax.InterpSegment(expr=expr, span=span, node_id=self._next_id())
 
     def tmpl_env(self, meta: Meta, args: _Args) -> syntax.InterpSegment:
         """``%${NAME}`` — an environment hole, a call reading the environment.
@@ -3016,6 +3018,25 @@ class AstBuilder(Transformer):
         return syntax.InterpSegment(
             expr=self._environment_read(token), span=span, node_id=self._next_id()
         )
+
+    def tmpl_quoted_env(self, meta: Meta, args: _Args) -> syntax.InterpSegment:
+        """``%!${NAME}`` — ``%!{std/prelude::getenv("NAME")}``, spanning the hole."""
+        del meta
+        token = cast(Token, args[0])
+        return self._quoted_hole(self._environment_read(token), token_span(token, self._source))
+
+    def _quoted_hole(self, expr: syntax.Expr, span: SourceSpan) -> syntax.InterpSegment:
+        """Build the hole ``%{std/prelude::shell-quote("%{expr}")}``, spanning *span*.
+
+        The inner one-hole template renders *expr* as text before it is quoted.
+        """
+        rendered = syntax.Template(
+            segments=(syntax.InterpSegment(expr=expr, span=span, node_id=self._next_id()),),
+            span=span,
+            node_id=self._next_id(),
+        )
+        quoted = self._prelude_call(_SHELL_QUOTER, (rendered,), span)
+        return syntax.InterpSegment(expr=quoted, span=span, node_id=self._next_id())
 
     def _environment_read(self, token: Token) -> syntax.Call:
         """Build ``std/prelude::getenv("NAME")`` for an ``ENV_HOLE`` token, spanning the hole."""

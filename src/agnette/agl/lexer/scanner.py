@@ -6,8 +6,8 @@ The scanner handles:
 - CODE mode: keywords, identifiers, numbers, operators (maximal munch), and
   horizontal whitespace / ``#`` comments.
 - Template mode: single- and triple-quoted string literals with expression
-  (``%{...}``) and environment (``%${NAME}``) interpolation, plus the JSON
-  escape set plus ``\\%``.
+  (``%{...}``, ``%!{...}``) and environment (``%${NAME}``, ``%!${NAME}``)
+  interpolation, plus the JSON escape set plus ``\\%``.
 - Layout signalling: ``_NEWLINE`` tokens carrying the next real line's leading
   indentation width (tabs expanded at ``tab_len=4``, comments skipped).
 
@@ -79,6 +79,7 @@ from agnette.agl.lexer.tokens import (
     PLACEHOLDER,
     PLACEHOLDER_NUM,
     PLUS,
+    QUOTED_ENV_HOLE,
     RBRACE,
     RPAR,
     RSQB,
@@ -121,8 +122,11 @@ _TAB_LEN = 4
 # The token each kind of hole opener emits.
 _OPENER_TOKEN_TYPES: dict[lexical.HoleKind, str] = {
     lexical.HoleKind.EXPRESSION: INTERP_START,
+    lexical.HoleKind.QUOTED_EXPRESSION: INTERP_START,
     lexical.HoleKind.ENVIRONMENT: ENV_HOLE,
+    lexical.HoleKind.QUOTED_ENVIRONMENT: QUOTED_ENV_HOLE,
 }
+_EXPRESSION_KINDS = frozenset({lexical.HoleKind.EXPRESSION, lexical.HoleKind.QUOTED_EXPRESSION})
 
 # Characters that end a verbatim run inside a `$` literal's payload: ``%`` may
 # open a hole and ``\`` may escape one.  Everything between them is copied wholesale.
@@ -568,7 +572,7 @@ class _Scanner:
         opener = lexical.hole_opener(self._src, self._pos)
         if opener is None:
             return None
-        if opener.kind is lexical.HoleKind.EXPRESSION:
+        if opener.kind in _EXPRESSION_KINDS:
             return self._scan_interpolation(opener)
         return self._scan_environment_hole(opener)
 
@@ -583,7 +587,7 @@ class _Scanner:
         yield from self._scan_interp_code()
 
     def _scan_environment_hole(self, opener: lexical.HoleOpener) -> Iterator[Token]:
-        """Emit one ``ENV_HOLE`` token spanning a whole ``%${NAME}`` hole.
+        """Emit one environment-hole token spanning a whole ``%${NAME}`` or ``%!${NAME}`` hole.
 
         The token carries the environment variable's name and the span of the
         spelling the author wrote; the parser builds the environment read from
@@ -676,7 +680,8 @@ class _Scanner:
         2. Measure indentation with holes as nonblank, then dedent the combined
            literal text and map its segment boundaries to the output.
         3. Emit tokens: STRING_FRAGMENT for each literal segment, with each hole's
-           tokens (INTERP_START/inner/INTERP_END, or a single ENV_HOLE) between them.
+           tokens (INTERP_START/inner/INTERP_END, or a single ENV_HOLE/QUOTED_ENV_HOLE)
+           between them.
 
         Interpolation holes occupy their position in the text and are never
         dedented; only surrounding literal whitespace is stripped.
@@ -789,8 +794,8 @@ class _Scanner:
     # A `$` verbatim text literal's inline-or-block payload: trims leading/
     # trailing horizontal whitespace, collects a same-line payload or an
     # indented block (dedented, blank lines handled identically), and scans
-    # ``%{expr}`` and ``%${NAME}`` holes with the ``\%`` escape before a hole
-    # opener.  An empty payload is a lex error.
+    # hole openers (``lexical.hole_opener``) with the ``\%`` escape before one.
+    # An empty payload is a lex error.
     # ------------------------------------------------------------------
 
     def _indent_info(self, pos: int) -> tuple[int, int]:
@@ -843,8 +848,8 @@ class _Scanner:
     def _scan_block_lines(self, lines: list[_BlockLine]) -> Iterator[Token]:
         """Emit fragments and interpolation holes from dedented block line slices.
 
-        Recognizes the ``%{expr}`` and ``%${NAME}`` holes and the ``\\%`` escape
-        before a hole opener; every other backslash and ``${...}`` stay payload.
+        Recognizes hole openers (``lexical.hole_opener``) and the ``\\%`` escape
+        before one; every other backslash and ``${...}`` stay payload.
         """
         saved_state = (self._pos, self._line, self._col, self._line_start_pos)
         buf: list[str] = []
@@ -1104,9 +1109,9 @@ class _Scanner:
     def _scan_verbatim(self, start_pos: int, start_line: int, start_col: int) -> Iterator[Token]:
         """Scan a `$` verbatim text literal at token start.
 
-        Emits ``VERBATIM_START``, the payload, and ``VERBATIM_END``.  Only
-        ``%{expr}`` holes interpolate, and an empty literal is a lex error
-        anchored at the `$` itself.  Inside brackets (including a `%{...}`
+        Emits ``VERBATIM_START``, the payload, and ``VERBATIM_END``.  Only hole
+        openers (``lexical.hole_opener``) interpolate, and an empty literal is a
+        lex error anchored at the `$` itself.  Inside brackets (including a
         hole) the error is deferred, so an unclosed bracket still yields the
         parser's diagnostic.
         """

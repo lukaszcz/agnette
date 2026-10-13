@@ -1,0 +1,40 @@
+# `%!{e}` renders `e`, then shell-quotes the text; `%!${NAME}` quotes an environment value.
+# Local bindings named like the expansion's callees never affect it.
+def shell-quote(value: text) -> text = "LOCAL-QUOTE"
+
+def getenv(name: text) -> text = "LOCAL-GETENV"
+
+program def main(value: text, mode: int) -> unit =
+  case mode of
+    | 1 =>
+        exec "printf %s %!{value}"
+        exec $ printf %s %!{value}
+        exec """printf %s %!{value}"""
+        exec '''
+          printf %s %!{value}
+          echo done
+        '''
+    | 2 =>
+        exec $ echo %!{42} %!{-7} %!{1.50} %!{true}
+        let nothing: array[int] = []
+        exec $ echo %!{[1, 2, 3]} %!{["a b", "it's"]} %!{nothing}
+    | 3 =>
+        let args = ["ls", "-la", "my dir", "it's", ""]
+        exec $ %{shell-join(args)}
+        exec $ %!{shell-join(args)}
+        exec $ echo %{shell-raw(value)} %!{shell-raw(value)}
+    | 4 =>
+        exec $ echo %!${HOME} %${HOME} %!${USER}
+        exec "echo %!${HOME}"
+        exec '''echo %!${HOME}'''
+    | 5 =>
+        exec $ echo %!{if value == "" => "empty" | else => value}
+        exec $ echo %!{case value of | "x" => "ex" | _ as other => other ++ "!"}
+        exec (if value == "" => "echo none" | else => "echo %!{value}")
+        exec (case value of | "x" => "echo %!{value}!" | _ => "true")
+    | 6 =>
+        exec $ echo %!{value}%!{value}%{value}x
+        exec $ echo \%!{value} \%!${HOME} %!${} %!x %! {value} %!
+        exec "echo \%!{value} \%!${HOME} %!${} %!x %!"
+    | _ =>
+        exec "echo %!{value} %${HOME} %!${HOME}"

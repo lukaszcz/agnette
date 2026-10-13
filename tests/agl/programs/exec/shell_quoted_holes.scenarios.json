@@ -1,0 +1,410 @@
+{
+  "scenarios": [
+    {
+      "name": "quoted_hole_in_every_template_form_plain",
+      "params": {
+        "value": "plain",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s 'plain'"
+        },
+        {
+          "command": "printf %s 'plain'"
+        },
+        {
+          "command": "printf %s 'plain'"
+        },
+        {
+          "command": "printf %s 'plain'\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_space",
+      "params": {
+        "value": "a b",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s 'a b'"
+        },
+        {
+          "command": "printf %s 'a b'"
+        },
+        {
+          "command": "printf %s 'a b'"
+        },
+        {
+          "command": "printf %s 'a b'\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_apostrophe",
+      "params": {
+        "value": "it's",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s 'it'\\''s'"
+        },
+        {
+          "command": "printf %s 'it'\\''s'"
+        },
+        {
+          "command": "printf %s 'it'\\''s'"
+        },
+        {
+          "command": "printf %s 'it'\\''s'\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_empty_quotes",
+      "params": {
+        "value": "''",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s ''\\'''\\'''"
+        },
+        {
+          "command": "printf %s ''\\'''\\'''"
+        },
+        {
+          "command": "printf %s ''\\'''\\'''"
+        },
+        {
+          "command": "printf %s ''\\'''\\'''\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_trailing_apostrophe",
+      "params": {
+        "value": "a'",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s 'a'\\'''"
+        },
+        {
+          "command": "printf %s 'a'\\'''"
+        },
+        {
+          "command": "printf %s 'a'\\'''"
+        },
+        {
+          "command": "printf %s 'a'\\'''\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_leading_apostrophe",
+      "params": {
+        "value": "'b",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s ''\\''b'"
+        },
+        {
+          "command": "printf %s ''\\''b'"
+        },
+        {
+          "command": "printf %s ''\\''b'"
+        },
+        {
+          "command": "printf %s ''\\''b'\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_substitution_separator_glob",
+      "params": {
+        "value": "$(rm -rf /); `id` *.txt",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s '$(rm -rf /); `id` *.txt'"
+        },
+        {
+          "command": "printf %s '$(rm -rf /); `id` *.txt'"
+        },
+        {
+          "command": "printf %s '$(rm -rf /); `id` *.txt'"
+        },
+        {
+          "command": "printf %s '$(rm -rf /); `id` *.txt'\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_newline",
+      "params": {
+        "value": "line\nbreak",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s 'line\nbreak'"
+        },
+        {
+          "command": "printf %s 'line\nbreak'"
+        },
+        {
+          "command": "printf %s 'line\nbreak'"
+        },
+        {
+          "command": "printf %s 'line\nbreak'\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_hole_in_every_template_form_empty",
+      "params": {
+        "value": "",
+        "mode": 1
+      },
+      "shell": [
+        {
+          "command": "printf %s ''"
+        },
+        {
+          "command": "printf %s ''"
+        },
+        {
+          "command": "printf %s ''"
+        },
+        {
+          "command": "printf %s ''\necho done"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "scalars_and_arrays_are_rendered_then_quoted",
+      "params": {
+        "value": "",
+        "mode": 2
+      },
+      "shell": [
+        {
+          "command": "echo '42' '-7' '1.5' 'true'"
+        },
+        {
+          "command": "echo '[1, 2, 3]' '[\"a b\", \"it'\\''s\"]' '[]'"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "join_and_raw_compose_with_quoted_holes",
+      "params": {
+        "value": "a b",
+        "mode": 3
+      },
+      "shell": [
+        {
+          "command": "'ls' '-la' 'my dir' 'it'\\''s' ''"
+        },
+        {
+          "command": "''\\''ls'\\'' '\\''-la'\\'' '\\''my dir'\\'' '\\''it'\\''\\'\\'''\\''s'\\'' '\\'''\\'''"
+        },
+        {
+          "command": "echo a b 'a b'"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_environment_holes",
+      "params": {
+        "value": "",
+        "mode": 4
+      },
+      "process_environment": {
+        "HOME": "/home/me y",
+        "USER": "o'neil"
+      },
+      "shell": [
+        {
+          "command": "echo '/home/me y' /home/me y 'o'\\''neil'",
+          "env": {
+            "HOME": "/home/me y",
+            "USER": "o'neil"
+          }
+        },
+        {
+          "command": "echo '/home/me y'",
+          "env": {
+            "HOME": "/home/me y",
+            "USER": "o'neil"
+          }
+        },
+        {
+          "command": "echo '/home/me y'",
+          "env": {
+            "HOME": "/home/me y",
+            "USER": "o'neil"
+          }
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_holes_over_if_and_case_empty",
+      "params": {
+        "value": "",
+        "mode": 5
+      },
+      "shell": [
+        {
+          "command": "echo 'empty'"
+        },
+        {
+          "command": "echo '!'"
+        },
+        {
+          "command": "echo none"
+        },
+        {
+          "command": "true"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_holes_over_if_and_case_x",
+      "params": {
+        "value": "x",
+        "mode": 5
+      },
+      "shell": [
+        {
+          "command": "echo 'x'"
+        },
+        {
+          "command": "echo 'ex'"
+        },
+        {
+          "command": "echo 'x'"
+        },
+        {
+          "command": "echo 'x'!"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "quoted_holes_over_if_and_case_apostrophe",
+      "params": {
+        "value": "it's",
+        "mode": 5
+      },
+      "shell": [
+        {
+          "command": "echo 'it'\\''s'"
+        },
+        {
+          "command": "echo 'it'\\''s!'"
+        },
+        {
+          "command": "echo 'it'\\''s'"
+        },
+        {
+          "command": "true"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "adjacent_escaped_and_malformed_openers",
+      "params": {
+        "value": "v w",
+        "mode": 6
+      },
+      "shell": [
+        {
+          "command": "echo 'v w''v w'v wx"
+        },
+        {
+          "command": "echo %!{value} %!${HOME} %!${} %!x %! {value} %!"
+        },
+        {
+          "command": "echo %!{value} %!${HOME} %!${} %!x %!"
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    },
+    {
+      "name": "plain_and_quoted_holes_mix_in_one_command",
+      "params": {
+        "value": "v w",
+        "mode": 7
+      },
+      "process_environment": {
+        "HOME": "/h m"
+      },
+      "shell": [
+        {
+          "command": "echo 'v w' /h m '/h m'",
+          "env": {
+            "HOME": "/h m"
+          }
+        }
+      ],
+      "expect": {
+        "stdout": ""
+      }
+    }
+  ]
+}

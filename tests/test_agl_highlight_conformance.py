@@ -127,6 +127,10 @@ def test_context_projection_retains_plain_lexical_structure(source: str) -> None
     [
         "# comment\nlet n = 12.34 + 56\ntrue false null () [] {} : , . ; := :: ? ?12 _",
         '"hello\\n\\u0041\\uD83D\\uDE00\\%${HOME} %${HOME} ${HOME} %{ {1: "nested"} }"',
+        '"quoted %!{ {1: "nested"} } %!${HOME} \\%!{x} \\%!${HOME} %!${} %!"',
+        "$ %${HOME} x",
+        "let v = $ %!${HOME} x",
+        '$ quoted %!{ {1: "nested"} } %!${HOME} \\%!{x} \\%!${HOME} %!${} %! # tail\nnext',
         "'hello\\' %{ {1: 'nested'} }'",
         '"""hello %{ {1: "nested"} }"""',
         '$ hello \\%{literal} \\%${HOME} %${HOME} ${HOME} %{ {1: "nested"} } # literal   \nnext',
@@ -233,7 +237,7 @@ class Comparison:
 
 def _buffered_holes(source: str, start: int, end: int) -> list[int]:
     """Locate candidates only; the recovery lexer validates ownership and closure."""
-    return [index for index in range(start, end - 1) if source.startswith("%{", index)]
+    return [index for index in range(start, end - 1) if source.startswith(("%{", "%!{"), index)]
 
 
 def _buffered_code_evidence(source: str, start: int, end: int) -> dict[int, Category]:
@@ -867,6 +871,7 @@ def test_buffered_hole_exemptions_require_exact_code_evidence(
     [
         '"""%{1',
         '"""%{1\n# recovered comment\nlet x=1',
+        '"""%!{1\nlet x=1',
         "'''%{1\nlet x=1",
         '"""%{let x = 12 + \'hi\'\nlet y=2',
         '"""%{ {1: {2: {3: 4}}} }',
@@ -876,7 +881,7 @@ def test_buffered_hole_exemptions_require_exact_code_evidence(
 def test_buffered_holes_keep_eof_and_recovery_bounds(source: str) -> None:
     case = _comparison("buffered-hole-bounds", source)
     _assert_conformance(case)
-    assert source.index("%{") in case.allowed
+    assert source.index("%") in case.allowed
     if "\nlet" in source:
         recovered = source.index("\nlet") + 1
         evidence = _native_tail_evidence(source)

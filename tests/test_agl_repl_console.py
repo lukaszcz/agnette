@@ -432,6 +432,10 @@ class TestLexer:
         assert ("class:agl.string", "%${HOME}") in fragments
         assert "".join(text for _style, text in fragments) == 'print "%${HOME}"'
 
+    def test_quoted_environment_hole_is_styled_as_part_of_its_string(self) -> None:
+        fragments = AglPromptLexer().lex_document(Document('print "%!${HOME}"'))(0)
+        assert ("class:agl.string", "%!${HOME}") in fragments
+
     def test_half_typed_dollar_verbatim_header_preserves_prefix_highlighting(self) -> None:
         # `ask $` with nothing typed after the `$` yet is a half-typed entry
         # (lexing raises IncompleteInputError at the `$`); the prefix before it
@@ -498,6 +502,7 @@ class TestLexer:
             '"%${PROJ_DIR}"',
             '"a%${HOME}b"',
             '"%${A}%{x}%${B}"',
+            '"%!{x}%!${B}"',
         ],
     )
     def test_string_interpolation_is_not_duplicated(self, line: str) -> None:

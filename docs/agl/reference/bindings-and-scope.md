@@ -267,7 +267,7 @@ root](modules.md#library-modules-and-cycles), a `builtin var` default, an
   scope region, of the **same module**.
 
 Other reads, calls other than constructors and resource lookups, binary
-operators, and `%${NAME}` environment holes are not constant.
+operators, and `%${NAME}`, `%!{…}`, and `%!${NAME}` holes are not constant.
 
 A constant reference resolves by the ordinary [scope
 rules](scopes.md#names-and-visibility) and may name a binding declared further

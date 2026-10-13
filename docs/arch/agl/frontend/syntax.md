@@ -1,12 +1,12 @@
 # AgL Syntax: Lexer, Parser, and AST
 
-A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}` holes, `%${NAME}` environment holes, `$` verbatim literals), and slash-path/`::` qualifier syntax. A Lark LALR grammar recognizes the token stream; the AST builder constructs frozen nodes with stable ids. Comments expose spans through a side channel, not tokens.
+A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}`, `%!{}`, `%${NAME}` and `%!${NAME}` holes, `$` verbatim literals), and slash-path/`::` qualifier syntax. A Lark LALR grammar recognizes the token stream; the AST builder constructs frozen nodes with stable ids. Comments expose spans through a side channel, not tokens.
 
 `lexer.tokenize_recover` returns tokens and ordered diagnostics for highlighting malformed input; parser lexing stays strict. Accepted input retains the strict token stream. Error and incomplete-literal tokens preserve source identity; the shared [highlighter](../../highlighting.md) projects overlapping payload spans into a partition. REPL completion's raw-quote compatibility policy uses the same scanner independently of AgL template recognition.
 
 ## Shared Lexical Leaves
 
-- **Literal scanning** — escape, number, identifier, and hole-opener rules live in `agl/value_syntax/lexical.py`, shared by the lexer and the host value-syntax reader; it also spells values back as literals so runtime rendering and constant folding cannot diverge. Every hole opener starts at `%`, and one recognizer (`hole_opener`) classifies it. All template forms share one hole scanner and one `template` grammar rule.
+- **Literal scanning** — escape, number, identifier, and hole-opener rules live in `agl/value_syntax/lexical.py`, shared by the lexer and the host value-syntax reader; it also spells values back as literals so runtime rendering and constant folding cannot diverge. Every hole opener starts at `%` (`%!` quotes), and one recognizer (`hole_opener`) classifies it. All template forms share one hole scanner and one `template` grammar rule.
 - **Keywords** — `keywords.py` is the single inventory of reserved and soft keywords (soft keywords are ordinary names outside their promotion window). The lexer, shared highlighter, portable grammar and generated Emacs inventory import it; the parser grammar's literals and micro mode mirror it by hand.
 - **Operator position** — `lexer/operators.py` is the one inventory of operand-closing/opening tokens; layout line-continuation and operator-word promotion both query it, so they cannot disagree.
 
@@ -22,7 +22,7 @@ The AST records source structure faithfully so later passes never reconstruct sp
 - Qualified expressions, types, patterns, and `is` tests share one qualifier-chain node with per-segment spans and type arguments.
 - Declarations carry canonical scope paths, method receivers (including applied builtin receivers), constraint blocks (`agl/constraints.py`), and `let`/`var` and assignment-target shapes.
 - A partial-application placeholder is a call argument, never an expression; a leading-dot chain becomes a marked unary lambda over a hygienic receiver.
-- An environment hole is desugared at parse into a `std/prelude::getenv` call whose every node spans the written hole; one parser helper builds such a qualified prelude call.
+- Environment and quoted holes are desugared at parse into qualified `std/prelude` calls whose every node spans the written hole: `%${NAME}` is `getenv("NAME")`, and `%!{e}` is `shell-quote` over a one-hole template of `e`, so rendering precedes quoting. One parser helper builds the qualified call; being calls, these holes are never constant.
 - Attributes are held verbatim; the AST never imports the attribute catalog (`agl/attributes.py`), and meaning is assigned by scope ([scope.md](scope.md#attribute-recognition)).
 
 Inline `agm exec -c` sources parse through `PipelineDriver.parse_entry(inline_code=True)`: unless the source declares a `program def`, a purely syntactic wrapper (`parser/wrap.py`) keeps declarations, path-bearing and `@param` bindings, and the plain bindings they read at the module root, moving everything else into a synthetic entry. REPL entries are not wrapped; their root keeps executable items.

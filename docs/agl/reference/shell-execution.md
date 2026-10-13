@@ -82,10 +82,10 @@ program def main() -> unit =
 
 With no named arguments, the command may follow `exec` without parentheses,
 as a quoted template or a [`$` literal](strings-and-interpolation.md#the-literal),
-whose payload reaches the shell verbatim apart from `%{…}` and `%${…}` holes.
-Dollar forms (`$HOME`, `${name}`, `$(date)`) are expanded by the shell at run
-time, using `exec`'s `env`; `%${NAME}` and `getenv` read the program's own
-environment snapshot:
+whose payload reaches the shell verbatim apart from `%{…}`, `%!{…}`, `%${…}`,
+and `%!${…}` holes. Dollar forms (`$HOME`, `${name}`, `$(date)`) are expanded by
+the shell at run time, using `exec`'s `env`; `%${NAME}` and `getenv` read the
+program's own environment snapshot:
 
 ```agl
 program def main() -> unit =
@@ -104,9 +104,10 @@ program def main() -> unit =
 The command template renders interpolations like every other template
 ([Uniform rendering rules](strings-and-interpolation.md#uniform-rendering-rules));
 use `%{value as json}` to pass a structured value as JSON. Interpolated values
-are inserted **verbatim** — there is **no automatic shell quoting**. Text from
-models or users inside a shell command is an injection hazard unless the
-author quotes it.
+are inserted **verbatim** by a plain hole; a [shell-quoted
+hole](strings-and-interpolation.md#shell-quoted-holes) (`%!{value}`,
+`%!${NAME}`) inserts the value as one quoted shell word. Text from models or
+users inside a shell command is an injection hazard unless it is quoted.
 
 ### Quoting functions
 

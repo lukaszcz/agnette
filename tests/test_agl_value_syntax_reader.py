@@ -204,6 +204,17 @@ def test_malformed_environment_opener_is_literal_text(text: str) -> None:
     assert node == TextNode(text, 0, len(text) + 2)
 
 
+@pytest.mark.parametrize("text", ["%!{x}", "%!${HOME}", "a %!{1}", "%!${HOME} b"])
+def test_quoted_hole_openers_are_rejected_in_values(text: str) -> None:
+    with pytest.raises(ValueSyntaxError, match="interpolation"):
+        read_value(f'"{text}"')
+
+
+@pytest.mark.parametrize("text", ["%!", "%!x", "%! {x}", "%!$", "%!${}", "%!${HOME"])
+def test_malformed_quoted_opener_is_literal_value_text(text: str) -> None:
+    assert read_value(f'"{text}"') == TextNode(text, 0, len(text) + 2)
+
+
 def test_args_with_trailing_comma() -> None:
     node = read_value("Circle(1,)")
     assert isinstance(node, CtorNode)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants, constant_key
 from agnette.agl.syntax.nodes import Expr, FuncDef, LetDecl, static_items
@@ -163,6 +165,12 @@ class TestFoldFailures:
 
     def test_an_environment_hole_is_not_a_constant(self) -> None:
         folded = _fold("", '"%{1}%${HOME}"')
+
+        assert isinstance(folded, FoldFailure)
+
+    @pytest.mark.parametrize("hole", ["%!{1}", '%!{"x"}', "%!${HOME}"])
+    def test_a_quoted_hole_is_not_a_constant(self, hole: str) -> None:
+        folded = _fold("", f'"%{{1}}{hole}"')
 
         assert isinstance(folded, FoldFailure)
 

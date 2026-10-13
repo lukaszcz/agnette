@@ -533,6 +533,68 @@ def test_environment_opener_at_end_of_unterminated_string(source: str) -> None:
         tok(source)
 
 
+@pytest.mark.parametrize("quote", ['"', '"""'])
+def test_quoted_holes_tokenize_in_templates(quote: str) -> None:
+    assert tok(quote + "a %!{x} b %!${HOME}" + quote) == [
+        ("TEMPLATE_START", '"'),
+        ("STRING_FRAGMENT", "a "),
+        ("INTERP_START", "%!{"),
+        ("NAME", "x"),
+        ("INTERP_END", "}"),
+        ("STRING_FRAGMENT", " b "),
+        ("QUOTED_ENV_HOLE", "HOME"),
+        ("STRING_FRAGMENT", ""),
+        ("TEMPLATE_END", '"'),
+    ]
+
+
+def test_quoted_holes_tokenize_in_verbatim_literals() -> None:
+    assert tok("$ ls %!{x} %!${HOME}") == [
+        ("VERBATIM_START", "$"),
+        ("STRING_FRAGMENT", "ls "),
+        ("INTERP_START", "%!{"),
+        ("NAME", "x"),
+        ("INTERP_END", "}"),
+        ("STRING_FRAGMENT", " "),
+        ("QUOTED_ENV_HOLE", "HOME"),
+        ("VERBATIM_END", ""),
+    ]
+
+
+@pytest.mark.parametrize("quote", ['"', '"""'])
+@pytest.mark.parametrize("opener", ["%!{x}", "%!${HOME}"])
+def test_escaped_percent_before_a_quoted_opener_is_literal(quote: str, opener: str) -> None:
+    assert tok(quote + "\\" + opener + quote) == [
+        ("TEMPLATE_START", '"'),
+        ("STRING_FRAGMENT", opener),
+        ("TEMPLATE_END", '"'),
+    ]
+
+
+@pytest.mark.parametrize(
+    "source, payload", ((r"$ \%!{x}", "%!{x}"), (r"$ \%!${NAME}", "%!${NAME}"))
+)
+def test_verbatim_escape_writes_a_quoted_opener_literally(source: str, payload: str) -> None:
+    assert tok(source) == [
+        ("VERBATIM_START", "$"),
+        ("STRING_FRAGMENT", payload),
+        ("VERBATIM_END", ""),
+    ]
+
+
+@pytest.mark.parametrize("quote", ['"', '"""'])
+@pytest.mark.parametrize(
+    "text", ["%!", "%! {x}", "%!$", "%!$x", "%!${}", "%!${NAME", "%!x", "%!!{x"]
+)
+def test_malformed_quoted_opener_is_literal_text(quote: str, text: str) -> None:
+    assert tok(quote + text + quote) == [
+        ("TEMPLATE_START", '"'),
+        ("STRING_FRAGMENT", text),
+        ("TEMPLATE_END", '"'),
+    ]
+    assert tok("$ " + text)[1] == ("STRING_FRAGMENT", text)
+
+
 class TestSimpleTemplates:
     def test_empty_string(self) -> None:
         result = tok('""')

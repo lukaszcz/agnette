@@ -3447,6 +3447,68 @@ class TestTemplates:
             )
         } == {hole}
 
+    @pytest.mark.parametrize(
+        "source, inner",
+        [
+            ('"%!{x}"', "x"),
+            ("'''%!{x}'''", "x"),
+            ("$ %!{x}", "x"),
+            ('"%!${HOME}"', "HOME"),
+            ("'''%!${HOME}'''", "HOME"),
+            ("$ %!${HOME}", "HOME"),
+        ],
+    )
+    def test_quoted_interpolation_desugars_to_shell_quote(self, source: str, inner: str) -> None:
+        template = first(parse(source))
+
+        assert isinstance(template, Template)
+        interpolation = template.segments[0]
+        assert isinstance(interpolation, InterpSegment)
+        quote = interpolation.expr
+        assert isinstance(quote, Call)
+        assert isinstance(quote.callee, VarRef)
+        assert quote.callee.name == "shell-quote"
+        assert quote.callee.qualifier is not None
+        assert tuple(s.name for s in quote.callee.qualifier.segments) == ("std/prelude",)
+        # The argument renders the inner hole: a one-hole template.
+        (argument,) = quote.args
+        assert isinstance(argument, Template)
+        (rendered,) = argument.segments
+        assert isinstance(rendered, InterpSegment)
+        if inner == "x":
+            assert isinstance(rendered.expr, VarRef)
+            assert rendered.expr.name == "x"
+        else:
+            assert isinstance(rendered.expr, Call)
+            assert isinstance(rendered.expr.callee, VarRef)
+            assert rendered.expr.callee.name == "getenv"
+            name = rendered.expr.args[0]
+            assert isinstance(name, StringLit)
+            assert name.value == inner
+        # Every synthesized node spans the hole the author wrote.
+        hole = (source.index("%!"), source.rindex("}") + 1)
+        nodes = [interpolation, quote, quote.callee, quote.callee.qualifier, argument, rendered]
+        assert {(n.span.start_offset, n.span.end_offset) for n in nodes} == {hole}
+
+    @pytest.mark.parametrize("source", ['"\\%!{x}"', r"$ \%!{x}"])
+    def test_escaped_quoted_interpolation_is_literal(self, source: str) -> None:
+        text = first(parse(source))
+
+        assert isinstance(text, StringLit)
+        assert text.value == "%!{x}"
+
+    @pytest.mark.parametrize("source", ['"%!${}"', '"%!x"', '"%!"', '"%! {x}"'])
+    def test_malformed_quoted_interpolation_is_literal(self, source: str) -> None:
+        text = first(parse(source))
+
+        assert isinstance(text, StringLit)
+        assert text.value == source[1:-1]
+
+    @pytest.mark.parametrize("hole", ["%!{y}", "%!${HOME}"])
+    def test_pattern_quoted_hole_raises(self, hole: str) -> None:
+        with pytest.raises(AglSyntaxError, match="interpolation"):
+            parse(f'case x of | "{hole}" => ok')
+
     @pytest.mark.parametrize("source", ['"\\%${HOME}"', r"$ \%${HOME}"])
     def test_escaped_environment_interpolation_is_literal(self, source: str) -> None:
         text = first(parse(source))

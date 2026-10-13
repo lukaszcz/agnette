@@ -40,6 +40,13 @@ LEXICAL_CASES = (
     CorpusCase(
         "escapes-env", r'"hello\n\u0041\uD83D\uDE00\%${HOME} %${HOME} ${HOME} %{ {1: "nested"} }"'
     ),
+    CorpusCase(
+        "quoted-holes",
+        r'"%!{ {1: "nested"} } %!${HOME} \%!{x} \%!${HOME} %!${} %!"'
+        + r" $ %!{x} %!${HOME} \%!{x} \%!${HOME}",
+    ),
+    CorpusCase("verbatim-leading-env-holes", "$ %${HOME} x\nlet v = $ %!${HOME} x"),
+    CorpusCase("triple-quoted-holes", '"""one %!{x}\ntwo %!${HOME} three""" let x = 1'),
     CorpusCase("single-quote", "'hello\\' %{ {1: 'nested'} }'"),
     CorpusCase("triple-double", '"""one\ntwo %{ {1: "nested"} }\nthree""" let x = 1'),
     CorpusCase("triple-single", "'''one\ntwo %{ {1: 'nested'} }\nthree''' let x = 1"),

@@ -37,7 +37,7 @@ The layout rules:
    open, newlines do not terminate the item; the logical line continues until
    the bracket closes, so argument lists and container literals may span
    lines. An interpolation hole is not a bracket: a newline anywhere inside
-   `%{…}`, even within brackets there, is a lexical error.
+   `%{…}` or `%!{…}`, even within brackets there, is a lexical error.
 4. **Continuation markers.** None of `|`, `else`, `catch`, `until`, `done`,
    `->`, `=>`, and `=` can begin a construct, so a line whose first token is
    one of them always continues the line before it rather than starting a new
@@ -381,10 +381,11 @@ operator: `-3` is `-` applied to the literal `3`.
 ## Strings and templates
 
 Every string literal is a **template**: text fragments plus interpolation
-holes. Every hole opens with `%`: the expression hole `%{expr}` and the
-environment hole `%${NAME}`. A `%` that opens no hole is literal text, as is
-`${…}`. A [`$` verbatim literal](#verbatim-literals) is a third template
-spelling with the same two holes. Both `"` and `'` are quote delimiters, giving
+holes. Every hole opens with `%`: the expression hole `%{expr}`, the
+environment hole `%${NAME}`, and their shell-quoted forms `%!{expr}` and
+`%!${NAME}`. A `%` that opens no hole is literal text, as is `${…}`. A [`$`
+verbatim literal](#verbatim-literals) is a third template spelling with the
+same four holes. Both `"` and `'` are quote delimiters, giving
 four quoted forms:
 
 - `"…"` / `'…'` — single-line.
@@ -444,9 +445,9 @@ A payload that is empty — nothing but whitespace before the line ends
 ### Placement
 
 A `$` literal is not valid directly inside brackets — `(`, `[`, `{`, or a
-`%{…}` interpolation hole — so it cannot be a call or constructor argument,
-an array or dict element, or the expression inside a hole; use a quoted
-template in those positions instead.
+`%{…}` or `%!{…}` interpolation hole — so it cannot be a call or constructor
+argument, an array or dict element, or the expression inside a hole; use a
+quoted template in those positions instead.
 
 ### Content
 
@@ -455,11 +456,12 @@ parentheses, and every dollar form it contains (`$VAR`, `${NAME}`, `$(cmd)`)
 pass through unchanged, never read as AgL syntax. Only two kinds of spelling
 are recognized inside the payload:
 
-- `%{expr}` and `%${NAME}` — interpolation holes, on the same terms as in any
-  other template ([Strings and interpolation](strings-and-interpolation.md)).
+- `%{expr}`, `%!{expr}`, `%${NAME}`, and `%!${NAME}` — interpolation holes, on
+  the same terms as in any other template ([Strings and
+  interpolation](strings-and-interpolation.md)).
 - `\%` immediately before a hole opener — the one escape sequence, writing the
-  opener literally (`\%{`, `\%${`). Every other backslash is literal payload
-  text.
+  opener literally (`\%{`, `\%!{`, `\%${`, `\%!${`). Every other backslash
+  is literal payload text.
 
 ## Operators and punctuation
 

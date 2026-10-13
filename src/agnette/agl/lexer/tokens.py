@@ -85,10 +85,13 @@ VERBATIM_TAIL = "VERBATIM_TAIL"
 # ---------------------------------------------------------------------------
 TEMPLATE_START = "TEMPLATE_START"
 STRING_FRAGMENT = "STRING_FRAGMENT"
-INTERP_START = "INTERP_START"  # "%{" sequence
+INTERP_START = "INTERP_START"  # "%{" or "%!{" sequence
 INTERP_END = "INTERP_END"  # "}" that closes an interpolation
 ENV_HOLE = "ENV_HOLE"  # whole "%${NAME}" hole; its value is NAME
+QUOTED_ENV_HOLE = "QUOTED_ENV_HOLE"  # whole "%!${NAME}" hole; its value is NAME
 TEMPLATE_END = "TEMPLATE_END"
+ENV_HOLE_TOKENS = frozenset({ENV_HOLE, QUOTED_ENV_HOLE})
+HOLE_START_TOKENS = frozenset({INTERP_START}) | ENV_HOLE_TOKENS  # tokens that begin a hole
 VERBATIM_START = "VERBATIM_START"  # "$" opening a verbatim text literal
 VERBATIM_END = "VERBATIM_END"  # closes a verbatim text literal (empty value)
 

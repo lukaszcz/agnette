@@ -19,7 +19,7 @@ from typing import Final
 from agnette.agl.value_syntax.errors import ValueSyntaxError
 from agnette.util.decimal import strip_trailing_zeros
 from agnette.util.ident import IDENT_STOP, is_identifier_start
-from agnette.util.interp import INTERP_OPEN, INTERP_TRIGGER
+from agnette.util.interp import INTERP_TRIGGER
 
 # Each pair is (escape character, decoded literal character).  The pairs are
 # bijective, so the encoder below can be derived from the same declaration.
@@ -42,7 +42,9 @@ ESCAPE_ENCODE: Final[Mapping[str, str]] = {
     literal: f"\\{escaped}" for escaped, literal in _ESCAPE_PAIRS
 }
 
-_ENVIRONMENT_OPEN: Final[str] = f"{INTERP_TRIGGER}${{"
+_QUOTE_MARK: Final[str] = "!"
+QUOTED_EXPRESSION_OPEN: Final[str] = f"{INTERP_TRIGGER}{_QUOTE_MARK}{{"
+_ENVIRONMENT_MARK: Final[str] = "${"
 
 _HEX_DIGITS: Final[str] = "0123456789abcdefABCDEF"
 
@@ -207,10 +209,15 @@ def identifier_end(source: str, offset: int) -> int:
 
 
 class HoleKind(Enum):
-    """The kinds of template hole an opener can start."""
+    """The kinds of template hole an opener can start.
+
+    The quoted kinds shell-quote the rendered value of the hole they open.
+    """
 
     EXPRESSION = "expression"
     ENVIRONMENT = "environment"
+    QUOTED_EXPRESSION = "quoted-expression"
+    QUOTED_ENVIRONMENT = "quoted-environment"
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,30 +238,37 @@ class HoleOpener:
 def hole_opener(source: str, offset: int) -> HoleOpener | None:
     """Return the hole opener starting at *offset*, or None for ordinary text.
 
-    Every opener starts with ``%``. A ``%`` that begins no complete opener,
-    such as ``%$`` without a valid ``{NAME}``, is ordinary text.
+    Every opener starts with ``%``, optionally followed by ``!`` to quote. A
+    ``%`` that begins no complete opener, such as ``%$`` without a valid
+    ``{NAME}`` or ``%!`` without a hole, is ordinary text.
     """
     if not source.startswith(INTERP_TRIGGER, offset):
         return None
-    if source.startswith(INTERP_OPEN, offset):
-        return HoleOpener(HoleKind.EXPRESSION, len(INTERP_OPEN), INTERP_OPEN)
-    return _environment_opener(source, offset)
+    quoted = source.startswith(_QUOTE_MARK, offset + len(INTERP_TRIGGER))
+    body = offset + len(INTERP_TRIGGER) + (len(_QUOTE_MARK) if quoted else 0)
+    if source.startswith("{", body):
+        kind = HoleKind.QUOTED_EXPRESSION if quoted else HoleKind.EXPRESSION
+        length = body + 1 - offset
+        return HoleOpener(kind, length, source[offset : offset + length])
+    return _environment_opener(source, offset, body, quoted)
 
 
-def _environment_opener(source: str, offset: int) -> HoleOpener | None:
-    """Return the ``%${NAME}`` hole at *offset*, or None if it is malformed."""
-    if not source.startswith(_ENVIRONMENT_OPEN, offset):
+def _environment_opener(source: str, offset: int, body: int, quoted: bool) -> HoleOpener | None:
+    """Return the ``%${NAME}`` or ``%!${NAME}`` hole whose ``$`` is at *body*, if well formed."""
+    if not source.startswith(_ENVIRONMENT_MARK, body):
         return None
-    start = offset + len(_ENVIRONMENT_OPEN)
+    start = body + len(_ENVIRONMENT_MARK)
     end = scan_name(source, start)
     if end is None or source[end : end + 1] != "}":
         return None
-    return HoleOpener(HoleKind.ENVIRONMENT, end + 1 - offset, source[start:end])
+    kind = HoleKind.QUOTED_ENVIRONMENT if quoted else HoleKind.ENVIRONMENT
+    return HoleOpener(kind, end + 1 - offset, source[start:end])
 
 
 __all__ = [
     "HoleKind",
     "HoleOpener",
+    "QUOTED_EXPRESSION_OPEN",
     "decode_escape",
     "hole_opener",
     "identifier_end",
