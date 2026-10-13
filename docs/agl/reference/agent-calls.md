@@ -293,7 +293,7 @@ An `int`, evaluated once per call: the number of corrective retries after
 invalid structured output ([Parse retries](#parse-retries)). When omitted, it
 reads `std/config::parse-error-retries` at the call, so an earlier write to
 that setting applies. A negative count raises `RangeError` before dispatch.
-On a `text` target it draws a static warning, since text never fails parsing.
+On a `text` target it draws the `noop-parse-retries` [static warning](warnings.md), since text never fails parsing.
 
 ### `sandbox`
 

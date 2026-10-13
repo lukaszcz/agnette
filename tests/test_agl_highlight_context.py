@@ -19,6 +19,7 @@ from agnette.agl.highlight.context import fence_metadata
         (["<!-- agl-check: fragment -->"], "fragment", ""),
         (["<!-- agl-check: error -->"], "error", ""),
         (["<!-- agl-check: skip -->"], "skip", ""),
+        (["<!-- agl-check: warns -->"], "warns", ""),
         (
             ["<!-- agl-check: error -->", "<!-- agl-context: let x = 1 -->"],
             "error",

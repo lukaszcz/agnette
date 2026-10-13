@@ -13,10 +13,10 @@ record Stats
 
 program def main() -> unit =
   let dir = "src"
-  let listing = exec "ls -la %{dir}"                    # ExecResult; nonzero exit is data
-  let notes: text = exec "cat %{dir}/NOTES.md"          # stdout; raises on nonzero exit
-  let stats: Stats = exec "compute-stats --json %{dir}" # stdout parsed as JSON
-  exec "make build"                                     # unit; raises on nonzero exit
+  let listing = exec "ls -la %!{dir}"                    # ExecResult; nonzero exit is data
+  let notes: text = exec "cat %!{dir ++ "/NOTES.md"}"    # stdout; raises on nonzero exit
+  let stats: Stats = exec "compute-stats --json %!{dir}" # stdout parsed as JSON
+  exec "make build"                                      # unit; raises on nonzero exit
   print(listing.stdout)
 ```
 
@@ -85,12 +85,13 @@ as a quoted template or a [`$` literal](strings-and-interpolation.md#the-literal
 whose payload reaches the shell verbatim apart from `%{…}`, `%!{…}`, `%${…}`,
 and `%!${…}` holes. Dollar forms (`$HOME`, `${name}`, `$(date)`) are expanded by
 the shell at run time, using `exec`'s `env`; `%${NAME}` and `getenv` read the
-program's own environment snapshot:
+program's own environment snapshot. So `%!${HOME}` and the shell's `"${HOME}"`
+agree only while `env` leaves `HOME` as the program sees it:
 
 ```agl
 program def main() -> unit =
   let directory = "."
-  let listing: text = exec $ printf '%s\n' %{directory}
+  let listing: text = exec $ printf '%s\n' %!{directory}
   let home: text = exec $ printf '%s' "${HOME}"
   let scripts: text = exec $
     for file in "$HOME"/bin/*; do
@@ -112,9 +113,11 @@ users inside a shell command is an injection hazard unless it is quoted.
 ### Quoting functions
 
 `shell-quote(value)` returns `value` as one literal POSIX shell word: always
-single-quoted, each `'` written as `'\''`, empty text as `''`. `shell-join` and
-`shell-raw` are the related helpers; all three come from `std/exec` through the
-prelude.
+single-quoted, each `'` written as `'\''`, empty text as `''`; `%!{value}` is
+shorthand for `%{shell-quote("%{value}")}`. `shell-join(values)` quotes each text of
+an array and joins the words with spaces, so one array hole yields one word per
+element. `shell-raw(value)` returns `value` unchanged: it marks a deliberate
+unquoted splice. All three come from `std/exec` through the prelude.
 
 ```agl
 program def main() -> unit =
@@ -126,23 +129,27 @@ program def main() -> unit =
 
 ### Hole warnings
 
-A hole in an `exec` command that inserts runtime text verbatim is reported as the
-`unquoted-exec-hole` warning. Exempt are holes of type `int`, `decimal` or `bool`,
-constant expressions, and direct calls of a function or method declared
-[`@exempts("unquoted-exec-hole")`](attributes.md#allow-and-exempts), which includes
-every `%!{…}` and `%!${NAME}` hole and `shell-quote`, `shell-join`, `shell-raw`. An
-environment hole `%${NAME}` is reported, and so is a reference to a `var` or an
-`@param let`, directly or through other bindings: only fixed `let` bindings count as
-constant here, since the others change at run time. The warning is anchored at the hole, and
-`@allow("unquoted-exec-hole")` hides it within a declaration.
+Two [static warnings](warnings.md) check the holes of an `exec` command;
+[`@allow`](attributes.md#allow-and-exempts) hides either within a declaration.
 
-A call of `shell-quote` or `shell-join` (so every `%!{…}` and `%!${NAME}` hole) placed
-inside quotes the command text itself opens is reported as the `shell-quoted-hole`
-warning, anchored at the hole: in `'%!{value}'` or `"%!{value}"` the hole's own quotes
-cancel or join the surrounding ones and the value is not protected. `shell-raw` and
+`unquoted-exec-hole` reports a hole that inserts runtime text verbatim, anchored
+at the hole. Exempt are holes of type `int`, `decimal` or `bool`; [constant
+expressions](bindings-and-scope.md#constant-expressions), such as literals,
+constructors, templates of those, and references to root or scope-region `let`
+constants of the same module; and direct calls of a function or method declared
+[`@exempts("unquoted-exec-hole")`](attributes.md#allow-and-exempts), which includes
+every `%!{…}` and `%!${NAME}` hole and `shell-quote`, `shell-join`, `shell-raw`
+(`shell-raw` marks a deliberate raw splice). An environment hole `%${NAME}` is
+reported. A `var`, an `@param let`, and a function-local binding are never constant
+here, so a hole that refers to one is reported, directly or through other bindings.
+
+`shell-quoted-hole` reports a call of `shell-quote` or `shell-join` (so every
+`%!{…}` and `%!${NAME}` hole) placed inside quotes the command text itself opens,
+anchored at the hole: in `'%!{value}'` or `"%!{value}"` the hole's own quotes cancel
+or join the surrounding ones and the value is not protected. `shell-raw` and
 other `@exempts` functions never warn here, since a raw splice inside quotes can be
-deliberate. A plain hole inside quotes keeps the `unquoted-exec-hole` warning, noting
-that the surrounding quotes do not protect its value.
+deliberate. A plain hole inside quotes keeps the `unquoted-exec-hole` warning,
+noting that the surrounding quotes do not protect its value.
 
 Quote state is judged conservatively from the literal text: `'…'`, `"…"` and backslash
 escapes, with each constant hole counted as its text and each `int`, `decimal`, `bool`
@@ -150,7 +157,6 @@ or quoting-function hole as words. Judging stops for the rest of the command at 
 unknown text, a command or parameter expansion (`$(`, a backtick, `${`), `$'`, a heredoc
 (`<<`), a comment (`#` at the start of a word), a backslash-newline outside `'…'`, or a
 `\`, `$` or `<` directly before a hole (which, if empty, could join the next text).
-`@allow("shell-quoted-hole")` hides the warning within a declaration.
 
 Only the template literal given as the command is checked: directly, through
 parentheses, as the result of an `if` or `case` arm, of a block's final item, or
@@ -191,7 +197,7 @@ output both raise `ExecError`:
 ```agl
 program def main() -> unit =
   let file = "README.md"
-  let out: text = exec "cat %{file}"          # stdout verbatim
+  let out: text = exec "cat %!{file}"         # stdout verbatim
   let counts: dict[text, int] = exec(         # JSON parsed
     "compute-stats --json",
     parse-error-retries = 1,

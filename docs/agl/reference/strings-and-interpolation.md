@@ -103,8 +103,7 @@ template:
     let region: text = ask $ Deploy region is %${REGION}.
   ```
 
-- `${NAME}` is inert payload text, along with `$VAR`, `$(cmd)`, and every
-  other dollar form.
+- `$VAR`, `$(cmd)`, and every other dollar form are inert payload text.
 - The only escape is `\%` immediately before a hole opener, writing the opener
   literally (`\%{`, `\%!{`, `\%${`, `\%!${`); `#`, `;`, quotes, parentheses,
   and every other backslash are literal payload text. So `\\%{x}` is a
@@ -121,7 +120,7 @@ directly; pipe the result instead of nesting another call after it:
 ```agl
 program def main() -> unit =
   let dir = "."
-  print <| exec::[text] $ printf '%s' %{dir}
+  print <| exec::[text] $ printf '%s' %!{dir}
 ```
 
 [Shell execution](shell-execution.md) and [Agent calls](agent-calls.md) show
@@ -185,10 +184,13 @@ program def main() -> unit =
 
 `exec` templates use the same rendering. A plain hole inserts its value
 **verbatim** into the command string; only a [shell-quoted
-hole](#shell-quoted-holes) quotes. See [Shell execution](shell-execution.md).
+hole](#shell-quoted-holes) quotes. A plain hole carrying runtime text, and a
+shell-quoted hole inside quotes the command itself opens, draw [static
+warnings](shell-execution.md#hole-warnings). See [Shell
+execution](shell-execution.md).
 
 ## Errors
 
 Unterminated strings and holes, unknown (such as `\$`) or unpaired-surrogate
-escapes, a newline inside `%{…}`, and an empty or bracketed `$` literal are
-lexical errors ([Lexical structure](lexical-structure.md)).
+escapes, a newline inside an expression hole, and an empty or bracketed `$` literal
+are lexical errors ([Lexical structure](lexical-structure.md)).

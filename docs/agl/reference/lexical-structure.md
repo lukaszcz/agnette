@@ -30,7 +30,8 @@ closes it. A semicolon `;` also separates items; see
 The layout rules:
 
 1. **Indentation width.** Leading spaces count 1 column each; a tab advances
-   to the next multiple of 4 columns. A dedent must return to an active prior
+   to the next multiple of 4 columns, but draws the `tab-indentation` [static
+   warning](warnings.md). A dedent must return to an active prior
    indentation level — a misaligned dedent is a lexical error.
 2. **Blank lines and comment-only lines** are ignored for layout purposes.
 3. **Implicit continuation inside brackets.** While any `(`, `[`, or `{` is

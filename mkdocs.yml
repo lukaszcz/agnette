@@ -57,6 +57,7 @@ nav:
       - Shell execution: agl/reference/shell-execution.md
       - Exceptions: agl/reference/exceptions.md
       - Attributes: agl/reference/attributes.md
+      - Static warnings: agl/reference/warnings.md
       - Modules: agl/reference/modules.md
       - Named scopes: agl/reference/scopes.md
       - Packages: agl/reference/packages.md

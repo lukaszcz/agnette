@@ -624,12 +624,15 @@ the status; an out-of-range value is a runtime error, not a termination.
 - Agent transport failures include the captured stderr tail in the exception message,
   even when agent output echo and tracing are disabled.
 - Advisory **warnings** go to stderr as `path:line:col: warning: message [NAME]`, ending in
-  the warning's name (`tab-indentation`, `noop-parse-retries`); at the default `warn` level
-  they never affect the exit code and the program runs to completion.
+  the warning's name (the [catalog](../agl/reference/warnings.md#catalog)); at the default
+  `warn` level they never affect the exit code and the program runs to completion.
 - Warning levels come from `--warning`, then the `[warnings]` [config table](config.md#warnings),
   then the default `warn`; a source `@allow` outranks both. A `deny`-level warning is printed
   as `error: message [NAME]`, exits 1, and nothing runs. A [registered package
   command](pkg.md#registered-commands) has no `--warning` flag and uses `[warnings]` only.
+- Warnings anchored in installed code (store packages, including the managed `std`, and the
+  shipped standard library), including an entry file inside one, are never reported or denied.
+  Development checkouts, `AGM_STDLIB`, loose module roots, and loose files are local.
 - Program `print` output goes to stdout, free of diagnostics.
 
 ### Compilation cache

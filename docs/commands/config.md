@@ -30,7 +30,7 @@ changes to the config repo with message `chore: update config`.
 ## Warnings
 
 The `[warnings]` table sets the level of each named static warning for `agm exec`, `agm check`, `agm repl` and registered
-package commands. Each key is a warning name and each value `"allow"` (drop the warning),
+package commands. Each key is a [warning name](../agl/reference/warnings.md#catalog) and each value `"allow"` (drop the warning),
 `"warn"` (report it; the default) or `"deny"` (report it as an error, so `agm exec` runs nothing
 and exits 1):
 

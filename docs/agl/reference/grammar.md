@@ -552,7 +552,7 @@ Hole semantics: [Strings and interpolation](strings-and-interpolation.md).
 ```agl
 program def main() -> unit =
   let path = "."
-  let output: text = exec $ printf '%s' %{path}
+  let output: text = exec $ printf '%s' %!{path}
   print output
 ```
 

@@ -15,9 +15,12 @@ combined source's expectation:
 * ``<!-- agl-check: error -->`` — a deliberately-rejected program that
   demonstrates a static error. It MUST fail the static pipeline (the exact
   message is not asserted).
+* ``<!-- agl-check: warns -->`` — a program that compiles and deliberately
+  demonstrates a static warning. It MUST draw at least one.
 
-A block with no marker is the default and MUST statically compile, so a newly
-added doc example is checked automatically unless it is explicitly opted out.
+A block with no marker is the default and MUST statically compile without any
+static warning, so a newly added doc example is checked automatically unless it
+is explicitly opted out.
 
 "Statically compiles" means the pipeline reached a lowered program. A program
 that lowers but would fail only at run time — for example a required
@@ -48,7 +51,7 @@ class Snippet:
 
     path: Path
     line: int  # 1-based source line of the opening fence
-    marker: str | None  # "fragment", "error", or None (must-compile)
+    marker: str | None  # "fragment", "error", "warns", or None (must-compile, warning-free)
     source: str
 
     @property
@@ -164,6 +167,25 @@ def test_compiling_fragment_with_context_must_drop_marker(tmp_path: Path) -> Non
         test_reference_doc_snippet(snippet)
 
 
+_WARNING_SNIPPET = '```agl\nprogram def main(name: text) -> unit =\n  exec "echo %{name}"\n```\n'
+
+
+def test_unmarked_snippet_must_not_warn(tmp_path: Path) -> None:
+    (tmp_path / "example.md").write_text(_WARNING_SNIPPET, encoding="utf-8")
+    snippet = _discover_snippets(tmp_path)[0]
+    with pytest.raises(AssertionError):
+        test_reference_doc_snippet(snippet)
+
+
+def test_warns_snippet_must_warn(tmp_path: Path) -> None:
+    document = tmp_path / "example.md"
+    document.write_text("<!-- agl-check: warns -->\n" + _WARNING_SNIPPET, encoding="utf-8")
+    test_reference_doc_snippet(_discover_snippets(tmp_path)[0])
+    document.write_text("<!-- agl-check: warns -->\n```agl\nlet x = 1\n```\n", encoding="utf-8")
+    with pytest.raises(AssertionError):
+        test_reference_doc_snippet(_discover_snippets(tmp_path)[0])
+
+
 def test_reference_docs_do_not_skip_snippets() -> None:
     """Every reference snippet must have an executable test expectation."""
     skipped = [snippet.id for snippet in _SNIPPETS if snippet.marker == "skip"]
@@ -180,8 +202,8 @@ def _unused_agent(request: AgentRequest) -> str:
     return ""
 
 
-def _statically_compiles(source: str) -> tuple[bool, list[str]]:
-    """Return whether *source* reaches a lowered program, plus any diagnostics.
+def _statically_compiles(source: str) -> tuple[bool, list[str], list[str]]:
+    """Return whether *source* reaches a lowered program, plus its diagnostics and warnings.
 
     Runs the full static pipeline without executing anything.
     ``check_prepared`` never resolves or validates a program's arguments,
@@ -196,17 +218,20 @@ def _statically_compiles(source: str) -> tuple[bool, list[str]]:
         prepared = driver.prepare_program(source)
         result = driver.check_prepared(prepared)
     diagnostics = [diag.message for diag in result.diagnostics]
-    return result.ok, diagnostics
+    warnings = [warning.message for warning in result.warnings]
+    return result.ok, diagnostics, warnings
 
 
 @pytest.mark.parametrize("snippet", _SNIPPETS, ids=[snippet.id for snippet in _SNIPPETS])
 def test_reference_doc_snippet(snippet: Snippet) -> None:
-    compiles, diagnostics = _statically_compiles(snippet.source)
+    compiles, diagnostics, warnings = _statically_compiles(snippet.source)
     if snippet.marker in {"error", "fragment"}:
         assert not compiles, (
             f"{snippet.id}: marked 'agl-check: {snippet.marker}' but it statically compiled"
         )
+        return
+    assert compiles, f"{snippet.id}: expected a static compile but got diagnostics: {diagnostics}"
+    if snippet.marker == "warns":
+        assert warnings, f"{snippet.id}: marked 'agl-check: warns' but drew no warning"
     else:
-        assert compiles, (
-            f"{snippet.id}: expected a static compile but got diagnostics: {diagnostics}"
-        )
+        assert not warnings, f"{snippet.id}: unexpected static warnings: {warnings}"

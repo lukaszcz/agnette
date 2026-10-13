@@ -27,9 +27,12 @@ A conforming host processes a program in this order:
 6. **Execution.**
 
 A failure in steps 1–5 means **nothing executes**: no statement runs, no
-agent is called, no shell command is spawned. Warnings (for example a useless
-`parse-error-retries` on a `text` target) are reported on every path and never
-prevent execution.
+agent is called, no shell command is spawned. [Static
+warnings](warnings.md) (for example a useless `parse-error-retries` on a `text`
+target) do not prevent execution, unless the host sets their level to `deny`, which
+makes them static errors. A failed name resolution withholds the warnings of modules
+it never reached. A host chooses warning levels and does not report warnings from
+installed libraries.
 
 ## Agents
 

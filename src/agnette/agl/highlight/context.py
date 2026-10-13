@@ -14,7 +14,7 @@ _LANGUAGE = re.compile(r"\.?agl(?:[ \t]+.*)?$")
 # Markdown attributes quote values only; quotes/backslashes in words are literal.
 _ATTRIBUTE = re.compile(r"""[^ =}]+=".*?"|[^ =}]+='.*?'|[^ =}]+=[^ =}]+|(?P<word>[^ =}]+)| +""")
 _MARKER = re.compile(
-    r"<!--\s*agl-(?:check:\s*(?P<check>skip|fragment|error)\s*"
+    r"<!--\s*agl-(?:check:\s*(?P<check>skip|fragment|error|warns)\s*"
     r"|context:[ \t]?(?P<context>.*?)[ \t]*)-->[ \t]*$"
 )
 
