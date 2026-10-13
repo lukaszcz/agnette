@@ -1,0 +1,29 @@
+import std/env
+
+def shout(value: text) -> text = "[%{value}]"
+
+program def main(mode: int) -> unit =
+  case mode of
+    | 1 =>
+        print "value=%${VALUE}; computed=%{1 + 2}"
+    | 3 =>
+        print "%${FIRST}%${SECOND}"
+        let combined = shout("%${FIRST}") ++ "%${SECOND}"
+        print combined
+        print "literal \%${FIRST}"
+        print """
+        first=%${FIRST}
+        second=%${SECOND}
+        """
+    | 4 =>
+        print $ first=%${FIRST} second=%${SECOND} sum=%{1 + 2}
+        print $
+          block=%${FIRST}
+          escaped=\%${SECOND}
+          shell=${SECOND} $FIRST \${FIRST}
+    | 5 =>
+        print "bare ${FIRST} $FIRST $(echo %${FIRST}) %$ %$FIRST %${} %${FIRST"
+        print $ bare ${FIRST} $FIRST $(echo %${FIRST}) %$ %$FIRST %${} %${FIRST
+        print "escaped \%{1} \%${FIRST}"
+    | _ =>
+        print "missing=%${MISSING}"

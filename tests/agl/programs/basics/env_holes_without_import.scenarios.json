@@ -5,7 +5,7 @@
       "params": {"mode": 1},
       "process_environment": {"VALUE": "from environment"},
       "expect": {
-        "stdout": "value=from environment (0)\nshadowed VALUE\n",
+        "stdout": "value=from environment (0)\nshadowed VALUE\nverbatim=from environment (1)\n",
         "calls": {}
       }
     },

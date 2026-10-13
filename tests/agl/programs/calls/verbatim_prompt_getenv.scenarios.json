@@ -12,7 +12,7 @@
         "stdout": "Hi Ada\n",
         "calls": {"reviewer": 1},
         "prompts": [
-          {"agent": "reviewer", "call": 0, "equals": "Say hello to Ada (${NAME})."}
+          {"agent": "reviewer", "call": 0, "equals": "Say hello to Ada (Ada; ${NAME})."}
         ]
       }
     },
@@ -28,7 +28,7 @@
         "stdout": "Hi Bo\n",
         "calls": {"reviewer": 1},
         "prompts": [
-          {"agent": "reviewer", "call": 0, "equals": "Say hello to Bo (${NAME})."}
+          {"agent": "reviewer", "call": 0, "equals": "Say hello to Bo (Bo; ${NAME})."}
         ]
       }
     },

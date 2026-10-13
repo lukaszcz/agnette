@@ -59,9 +59,10 @@ from agnette.util.decimal import decimal_in_range
 # The receiver parameter every method declares first.
 _SELF_PARAM = "self"
 
-# An environment hole ``${NAME}`` reads the environment through this function,
-# named in full so that neither an import nor a local binding can affect it.
-_ENVIRONMENT_MODULE = "std/prelude"
+# Hole sugar expands to calls into the prelude, named in full so that neither
+# an import nor a local binding can affect them.
+_PRELUDE_MODULE = "std/prelude"
+# An environment hole ``%${NAME}`` reads the environment through this function.
 _ENVIRONMENT_READER = "getenv"
 
 
@@ -3003,7 +3004,7 @@ class AstBuilder(Transformer):
         )
 
     def tmpl_env(self, meta: Meta, args: _Args) -> syntax.InterpSegment:
-        """``${NAME}`` — an environment hole, a call reading the environment.
+        """``%${NAME}`` — an environment hole, a call reading the environment.
 
         Every node built here spans the hole the author wrote, so the hole
         resolves, types, and runs exactly like the qualified call spelled out
@@ -3012,33 +3013,46 @@ class AstBuilder(Transformer):
         del meta
         token = cast(Token, args[0])
         span = token_span(token, self._source)
+        return syntax.InterpSegment(
+            expr=self._environment_read(token), span=span, node_id=self._next_id()
+        )
+
+    def _environment_read(self, token: Token) -> syntax.Call:
+        """Build ``std/prelude::getenv("NAME")`` for an ``ENV_HOLE`` token, spanning the hole."""
+        span = token_span(token, self._source)
+        argument = syntax.StringLit(value=str(token), span=span, node_id=self._next_id())
+        return self._prelude_call(_ENVIRONMENT_READER, (argument,), span)
+
+    def _prelude_call(
+        self, member: str, args: tuple[syntax.Expr, ...], span: SourceSpan
+    ) -> syntax.Call:
+        """Build ``std/prelude::member(args)`` with every node spanning *span*."""
         qualifier = syntax.QualifierChain(
             anchor=None,
             segments=(
                 syntax.QualifierSegment(
-                    name=_ENVIRONMENT_MODULE,
+                    name=_PRELUDE_MODULE,
                     type_args=None,
                     span=span,
                     node_id=self._next_id(),
                 ),
             ),
-            member=_ENVIRONMENT_READER,
+            member=member,
             span=span,
             node_id=self._next_id(),
         )
-        call = syntax.Call(
+        return syntax.Call(
             callee=syntax.VarRef(
-                name=_ENVIRONMENT_READER,
+                name=member,
                 span=span,
                 node_id=self._next_id(),
                 qualifier=qualifier,
             ),
-            args=(syntax.StringLit(value=str(token), span=span, node_id=self._next_id()),),
+            args=args,
             named_args=(),
             span=span,
             node_id=self._next_id(),
         )
-        return syntax.InterpSegment(expr=call, span=span, node_id=self._next_id())
 
     # ------------------------------------------------------------------
     # Array and dict literals

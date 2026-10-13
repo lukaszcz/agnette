@@ -86,7 +86,7 @@ program def main(spec: text) -> unit =
 | [Types](types.md) | Built-in types, `record`/`enum`/`type` declarations, library types the language names, assignability, casts (`as`/`as?`), mutable fields and reference semantics, copying, parsing |
 | [Bindings and scope](bindings-and-scope.md) | `let`, `var`, `:=`, `builtin var`, `def`, lexical scoping, shadowing |
 | [Expressions](expressions.md) | Literals, constructors, calls, operators, `as`/`as?` cast operators, `render`, JSON parsing, `case`/`if` expressions, `unit`-typed forms, expected-type propagation |
-| [Strings and interpolation](strings-and-interpolation.md) | Templates, escapes, `%{…}` and `${…}` holes, `$` literals, uniform rendering rules |
+| [Strings and interpolation](strings-and-interpolation.md) | Templates, escapes, `%{…}` and `%${…}` holes, `$` literals, uniform rendering rules |
 | [Functions](functions.md) | `def` declarations, `fn` lambdas, optional/named arguments, function types, first-class values, recursion and depth limit |
 | [Control flow](control-flow.md) | `if`, `case`, unified loops (`for`/`while`/`do`/`until`/`done`), `break`, `continue` |
 | [Pattern matching](pattern-matching.md) | Patterns, source priority, exhaustiveness, redundancy |

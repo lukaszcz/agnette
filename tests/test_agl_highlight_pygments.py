@@ -66,7 +66,7 @@ def test_original_text_and_offsets(source: str, semantic: bool) -> None:
         ('"a\\n"', "\\n", String.Escape),
         ('"%{missing}"', "%{", String.Interpol),
         ("ask $ hello", "hello", String.Other),
-        ('"${HOME}"', "${HOME}", String.Interpol),
+        ('"%${HOME}"', "%${HOME}", String.Interpol),
         ("123", "123", Number.Integer),
         ("1.25", "1.25", Number.Float),
         ("x + y", "+", Operator),

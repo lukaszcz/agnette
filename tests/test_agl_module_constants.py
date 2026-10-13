@@ -162,7 +162,7 @@ class TestFoldFailures:
         assert "not a constant expression" in folded.message
 
     def test_an_environment_hole_is_not_a_constant(self) -> None:
-        folded = _fold("", '"%{1}${HOME}"')
+        folded = _fold("", '"%{1}%${HOME}"')
 
         assert isinstance(folded, FoldFailure)
 

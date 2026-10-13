@@ -428,9 +428,9 @@ class TestLexer:
 
     def test_environment_hole_is_styled_as_part_of_its_string(self) -> None:
         lexer = AglPromptLexer()
-        fragments = lexer.lex_document(Document('print "${HOME}"'))(0)
-        assert ("class:agl.string", "${HOME}") in fragments
-        assert "".join(text for _style, text in fragments) == 'print "${HOME}"'
+        fragments = lexer.lex_document(Document('print "%${HOME}"'))(0)
+        assert ("class:agl.string", "%${HOME}") in fragments
+        assert "".join(text for _style, text in fragments) == 'print "%${HOME}"'
 
     def test_half_typed_dollar_verbatim_header_preserves_prefix_highlighting(self) -> None:
         # `ask $` with nothing typed after the `$` yet is a half-typed entry
@@ -495,9 +495,9 @@ class TestLexer:
             '"a%{x}"',
             '"a%{x}b"',
             '"%{x}%{y}"',
-            '"${PROJ_DIR}"',
-            '"a${HOME}b"',
-            '"${A}%{x}${B}"',
+            '"%${PROJ_DIR}"',
+            '"a%${HOME}b"',
+            '"%${A}%{x}%${B}"',
         ],
     )
     def test_string_interpolation_is_not_duplicated(self, line: str) -> None:

@@ -66,9 +66,9 @@ def test_reads_text_in_either_quote_style(quote: str) -> None:
 
 
 def test_reads_text_escapes() -> None:
-    node = read_value(r'"café \n \${x}"')
+    node = read_value(r'"café \n \%{x} \%${X} ${x}"')
     assert isinstance(node, TextNode)
-    assert node.value == "café \n ${x}"
+    assert node.value == "café \n %{x} %${X} ${x}"
 
 
 def test_reads_surrogate_pair_escape_combines_into_one_character() -> None:
@@ -191,16 +191,17 @@ def test_dict_without_trailing_comma() -> None:
     assert node == DictNode((DictEntry(TextNode("a", 1, 4), IntNode(1, 6, 7), 1, 7),), 0, 8)
 
 
-def test_dollar_brace_not_followed_by_a_name_is_literal_text() -> None:
-    """`${` only opens a hole when followed by an identifier; otherwise it is literal."""
-    node = read_value('"${}"')
-    assert node == TextNode("${}", 0, 5)
+def test_bare_dollar_brace_is_literal_text() -> None:
+    """`${NAME}` without the `%` prefix is ordinary text."""
+    node = read_value('"${HOME}"')
+    assert node == TextNode("${HOME}", 0, 9)
 
 
-def test_dollar_brace_hole_without_closing_brace_is_literal_text() -> None:
-    """A `${NAME` run that never reaches `}` is not a hole; it stays literal."""
-    node = read_value('"${HOME }"')
-    assert node == TextNode("${HOME }", 0, 10)
+@pytest.mark.parametrize("text", ["%${}", "%$", "%$HOME", "%${HOME }", "%${HOME"])
+def test_malformed_environment_opener_is_literal_text(text: str) -> None:
+    """`%${` only opens a hole when followed by `NAME}`; otherwise it is literal."""
+    node = read_value(f'"{text}"')
+    assert node == TextNode(text, 0, len(text) + 2)
 
 
 def test_args_with_trailing_comma() -> None:
@@ -273,8 +274,9 @@ def test_deeply_nested_array_raises_value_syntax_error_not_recursion_error() -> 
         '"unterminated',
         '"line one\nline two"',
         '"%{x}"',
-        '"${HOME}"',
+        '"%${HOME}"',
         r'"\q"',
+        r'"\${x}"',
         "if",
         "-",
         "-x",
@@ -299,7 +301,7 @@ def test_deeply_nested_array_raises_value_syntax_error_not_recursion_error() -> 
         "Shape::if",
         "Circle(1 2)",
         "Circle(if = 1)",
-        '"${',
+        '"%${',
         "{if: 1}",
         "{1 2}",
     ),
@@ -309,6 +311,7 @@ def test_deeply_nested_array_raises_value_syntax_error_not_recursion_error() -> 
         "expr-interpolation-in-text",
         "env-interpolation-in-text",
         "unknown-escape",
+        "escaped-dollar-brace",
         "keyword-as-ctor",
         "minus-without-digit",
         "minus-followed-by-name",
@@ -333,7 +336,7 @@ def test_deeply_nested_array_raises_value_syntax_error_not_recursion_error() -> 
         "qualified-ctor-invalid-member",
         "args-missing-comma",
         "invalid-argument-name",
-        "dollar-brace-at-eof-in-text",
+        "env-opener-at-eof-in-text",
         "dict-key-is-keyword",
         "dict-key-without-colon",
     ),

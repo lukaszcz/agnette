@@ -3,7 +3,7 @@
 [← Index](index.md)
 
 Every string literal in AgL is a **template**: a sequence of literal text
-fragments, `%{…}` expression holes, and `${…}` environment holes. A template
+fragments, `%{…}` expression holes, and `%${…}` environment holes. A template
 evaluates to `text`. The quoted forms, triple-quoted dedent, and the `$`
 literal's payload are lexical
 ([Strings and templates](lexical-structure.md#strings-and-templates)); this
@@ -15,15 +15,20 @@ An expression hole `%{expr}` holds any expression, `case` and `if` included
 (`"%{if n == 1 => "one" else => "many"}"`). Its value is converted to text by
 the [uniform rendering rules](#uniform-rendering-rules), the same in every
 position: an `ask` prompt, a `print` argument, an `exec` command, or any other
-template. A percent sign
-not followed by `{` is literal; `\%` produces a literal percent sign.
+template.
 
-An environment hole `${NAME}` is shorthand for
+An environment hole `%${NAME}` is shorthand for
 `%{std/prelude::getenv("NAME")}`, so it needs no import and a local binding
 named `getenv` does not affect it. It reads the environment snapshot supplied
 to the running program, and a missing variable raises the same exception as
 that call. `NAME` is an AgL identifier. Environment holes are available
-wherever the prelude is. `\${` writes a literal `${`.
+wherever the prelude is.
+
+Both hole forms are the same in quoted, triple-quoted, and `$` templates. A
+`%` that begins neither opener, including `%$` without a complete `{NAME}`, is
+literal text, and `${…}` is always literal text: `"${HOME}"` is the seven
+characters `${HOME}`. `\%` writes a literal percent sign, so `\%{` and `\%${`
+write the openers literally.
 
 A template whose holes are all constant is itself a [constant
 expression](bindings-and-scope.md#constant-expressions), so it may fill a
@@ -45,7 +50,6 @@ never constant.
 | `\r` | carriage return |
 | `\t` | tab |
 | `\%` | `%` |
-| `\${` | `${` |
 | `\uXXXX` | the Unicode scalar value `U+XXXX` |
 
 Any other escape is a lexical error. `\uXXXX` denotes a Unicode scalar value
@@ -62,21 +66,21 @@ A **verbatim text literal** (`$` literal) is a template like any other,
 evaluating to `text`, but treats its payload differently from a quoted
 template:
 
-- Only `%{expr}` holes interpolate, with the same rules and rendering as any
-  other template.
-- `${NAME}` is **not** an environment hole: it is inert payload text, along
-  with `$VAR`, `$(cmd)`, and every other dollar form. Read the environment in
-  a `$` literal with `%{getenv("NAME")}`:
+- Only `%{expr}` and `%${NAME}` holes interpolate, with the same rules and
+  rendering as any other template:
 
   ```agl
   program def main() -> unit =
-    let region: text = ask $ Deploy region is %{getenv("REGION")}.
+    let region: text = ask $ Deploy region is %${REGION}.
   ```
 
-- The only escape is `\%{`, for a literal `%{`; `#`, `;`, quotes,
-  parentheses, and ordinary backslashes are literal payload text. So `\\%{x}`
-  is a backslash followed by a literal `%{x}`; to place a backslash directly
-  before an interpolation, interpolate it (`%{"\\"}%{subdir}`).
+- `${NAME}` is inert payload text, along with `$VAR`, `$(cmd)`, and every
+  other dollar form.
+- The only escape is `\%` immediately before a hole opener, writing the opener
+  literally (`\%{`, `\%${`); `#`, `;`, quotes, parentheses, and every other
+  backslash are literal payload text. So `\\%{x}` is a backslash followed by a
+  literal `%{x}`; to place a backslash directly before an interpolation,
+  interpolate it (`%{"\\"}%{subdir}`).
 
 The payload's extent, trimming, block dedent, and placement are lexical rules
 ([Verbatim literals](lexical-structure.md#verbatim-literals)). Because the
@@ -118,8 +122,8 @@ Interpolation, `print`, and `as text` render structured values on a **single
 line**; `render` is multi-line unless `pretty = false`
 ([`render`](expressions.md#render) defines its parameters). A nested `text`
 value, and a string inside a nested `json` value, is emitted as a quoted AgL
-string literal: full JSON escaping plus `\%` for `%` and `\${` for `${`, so it
-cannot be misread as interpolation syntax and the output is AgL value syntax. A
+string literal: full JSON escaping plus `\%` for `%`, so it cannot be misread as
+interpolation syntax and the output is AgL value syntax. A
 `json` value printed or interpolated directly is pure JSON.
 
 - `bool` renders as `true` / `false`.
@@ -156,6 +160,6 @@ quoting**; see [Shell execution](shell-execution.md).
 
 ## Errors
 
-Unterminated strings and holes, unknown or unpaired-surrogate escapes, a
-newline inside `%{…}`, and an empty or bracketed `$` literal are lexical
-errors ([Lexical structure](lexical-structure.md)).
+Unterminated strings and holes, unknown (such as `\$`) or unpaired-surrogate
+escapes, a newline inside `%{…}`, and an empty or bracketed `$` literal are
+lexical errors ([Lexical structure](lexical-structure.md)).

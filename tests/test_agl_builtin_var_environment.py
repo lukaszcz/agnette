@@ -222,7 +222,7 @@ def test_repl_environment_hole_needs_no_import() -> None:
     session = ReplSession(stdlib_root=_STDLIB, process_environment={"PROJ_DIR": "/proj"})
 
     assert session.open() == ()
-    result = session.eval_entry('"${PROJ_DIR}"')
+    result = session.eval_entry('"%${PROJ_DIR}"')
 
     assert result.ok, result.diagnostics
     assert result.value == TextValue("/proj")

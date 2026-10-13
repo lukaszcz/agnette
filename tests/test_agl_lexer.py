@@ -507,7 +507,7 @@ def test_malformed_environment_holes_keep_search_work_linear(quote: str, suffix:
             assert self.searched <= 8 * len(self)
             return found
 
-    body = "${name " * 1_000 + suffix
+    body = "%${name " * 1_000 + suffix
     source = SearchBudgetText(quote + body + quote)
     assert tok(source) == [
         ("TEMPLATE_START", '"'),
@@ -517,15 +517,17 @@ def test_malformed_environment_holes_keep_search_work_linear(quote: str, suffix:
 
 
 @pytest.mark.parametrize("quote", ['"', '"""'])
-@pytest.mark.parametrize("prefix", ["${", "${bad name}", "${bad", "${}", "${1}"])
+@pytest.mark.parametrize(
+    "prefix", ["%${", "%${bad name}", "%${bad", "%${}", "%${1}", "%$", "%$x", "${", "$"]
+)
 def test_environment_hole_after_malformed_literal(quote: str, prefix: str) -> None:
     for name in ("HOME", "é", "ask-prompt", "a+b", "price$", 'foo"bar'):
-        tokens = tok(quote + prefix + "${" + name + "}" + quote)
+        tokens = tok(quote + prefix + "%${" + name + "}" + quote)
         assert [value for typ, value in tokens if typ == "STRING_FRAGMENT"] == [prefix, ""], name
         assert [value for typ, value in tokens if typ == "ENV_HOLE"] == [name], name
 
 
-@pytest.mark.parametrize("source", ['"${', '"""${'])
+@pytest.mark.parametrize("source", ['"%${', '"""%${'])
 def test_environment_opener_at_end_of_unterminated_string(source: str) -> None:
     with pytest.raises(LexError):
         tok(source)
@@ -597,6 +599,28 @@ class TestSimpleTemplates:
     def test_escaped_dollar_is_lex_error(self) -> None:
         with pytest.raises(LexError):
             tok(r'"\$"')
+
+    @pytest.mark.parametrize("source", [r'"\${HOME}"', r'"""\${HOME}"""'])
+    def test_escaped_dollar_brace_is_lex_error(self, source: str) -> None:
+        with pytest.raises(LexError):
+            tok(source)
+
+    @pytest.mark.parametrize("quote", ['"', '"""'])
+    def test_bare_dollar_brace_is_literal_text(self, quote: str) -> None:
+        text = "a ${HOME} $HOME $(date) ${x"
+        assert tok(quote + text + quote) == [
+            ("TEMPLATE_START", '"'),
+            ("STRING_FRAGMENT", text),
+            ("TEMPLATE_END", '"'),
+        ]
+
+    @pytest.mark.parametrize("quote", ['"', '"""'])
+    def test_escaped_percent_before_an_environment_opener_is_literal(self, quote: str) -> None:
+        assert tok(quote + r"\%${HOME}" + quote) == [
+            ("TEMPLATE_START", '"'),
+            ("STRING_FRAGMENT", "%${HOME}"),
+            ("TEMPLATE_END", '"'),
+        ]
 
     def test_escape_sequences(self) -> None:
         # JSON set: \" \\ \/ \b \f \n \r \t
@@ -997,6 +1021,31 @@ class TestVerbatimLiteral:
             ("VERBATIM_END", ""),
         ]
 
+    def test_environment_hole_interpolates(self) -> None:
+        assert tok("$ echo %${NAME} ${NAME}") == [
+            ("VERBATIM_START", "$"),
+            ("STRING_FRAGMENT", "echo "),
+            ("ENV_HOLE", "NAME"),
+            ("STRING_FRAGMENT", " ${NAME}"),
+            ("VERBATIM_END", ""),
+        ]
+
+    @pytest.mark.parametrize(
+        "source, payload",
+        (
+            (r"$ \%{x}", "%{x}"),
+            (r"$ \%${NAME}", "%${NAME}"),
+            ("$\n  \\%${NAME}", "%${NAME}"),
+            (r"$ \%$ \%x \%", r"\%$ \%x \%"),
+        ),
+    )
+    def test_escape_writes_a_hole_opener_literally(self, source: str, payload: str) -> None:
+        assert tok(source) == [
+            ("VERBATIM_START", "$"),
+            ("STRING_FRAGMENT", payload),
+            ("VERBATIM_END", ""),
+        ]
+
     def test_newline_in_verbatim_hole_is_rejected(self) -> None:
         with pytest.raises(LexError):
             tok("$ a %{x\n} b")
@@ -1038,6 +1087,7 @@ class TestVerbatimLiteral:
             (r"$ $VAR", "$VAR"),
             (r"$ $(cmd)", "$(cmd)"),
             (r"$ \${x}", r"\${x}"),
+            (r"$ %$ %$NAME %${} %${NAME", r"%$ %$NAME %${} %${NAME"),
         ),
     )
     def test_environment_style_holes_stay_verbatim(self, source: str, payload: str) -> None:

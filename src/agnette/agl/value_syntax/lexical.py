@@ -1,4 +1,4 @@
-"""AgL literal lexical rules: text escapes, numbers, and environment holes.
+"""AgL literal lexical rules: text escapes, numbers, and template hole openers.
 
 Pure functions over ``(source, offset)`` shared by the frontend scanner and the
 value-syntax reader, so both scan literals identically. The reverse direction
@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import decimal
 from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import Enum
 from typing import Final
 
 from agnette.agl.value_syntax.errors import ValueSyntaxError
 from agnette.util.decimal import strip_trailing_zeros
 from agnette.util.ident import IDENT_STOP, is_identifier_start
-from agnette.util.interp import INTERP_TRIGGER
+from agnette.util.interp import INTERP_OPEN, INTERP_TRIGGER
 
 # Each pair is (escape character, decoded literal character).  The pairs are
 # bijective, so the encoder below can be derived from the same declaration.
@@ -40,16 +42,19 @@ ESCAPE_ENCODE: Final[Mapping[str, str]] = {
     literal: f"\\{escaped}" for escaped, literal in _ESCAPE_PAIRS
 }
 
+_ENVIRONMENT_OPEN: Final[str] = f"{INTERP_TRIGGER}${{"
+
 _HEX_DIGITS: Final[str] = "0123456789abcdefABCDEF"
 
 
 def escape_interpolation_triggers(quoted: str) -> str:
-    """Escape ``%`` and ``${`` in already-quoted string text for value syntax.
+    """Escape ``%`` in already-quoted string text for value syntax.
 
-    A double-quoted JSON string and an AgL text literal share every other
-    escape, so this is the only step turning one into the other.
+    Every hole opener starts with ``%``. A double-quoted JSON string and an AgL
+    text literal share every other escape, so this is the only step turning one
+    into the other.
     """
-    return quoted.replace(INTERP_TRIGGER, ESCAPE_ENCODE[INTERP_TRIGGER]).replace("${", "\\${")
+    return quoted.replace(INTERP_TRIGGER, ESCAPE_ENCODE[INTERP_TRIGGER])
 
 
 def quote_text(value: str) -> str:
@@ -126,19 +131,16 @@ def decode_escape(source: str, offset: int) -> tuple[str, int]:
     """Decode the backslash escape at *offset* in *source*.
 
     *offset* indexes the backslash. Returns (decoded text, offset just past the
-    escape): the ``\\${`` template escape (decodes to ``"${"``), the escape
-    table, or ``\\uXXXX``. ``\\uXXXX`` denotes a Unicode scalar value; an
-    astral character is written as an adjacent UTF-16 surrogate pair of two
-    ``\\uXXXX`` escapes, as in JSON, and the pair decodes to one character
-    with the offset landing just past both escapes.
+    escape): an entry of the escape table or ``\\uXXXX``. ``\\uXXXX`` denotes a
+    Unicode scalar value; an astral character is written as an adjacent UTF-16
+    surrogate pair of two ``\\uXXXX`` escapes, as in JSON, and the pair decodes
+    to one character with the offset landing just past both escapes.
 
     Raises :class:`ValueSyntaxError` for end-of-input after the backslash, an
     incomplete or invalid ``\\uXXXX``, an unknown escape, or a surrogate
     escape that is not part of such a pair (a high escape not immediately
     followed by a low one, or a low escape on its own).
     """
-    if source.startswith("${", offset + 1):
-        return "${", offset + 3
     pos = offset + 1
     if pos >= len(source):
         raise ValueSyntaxError("Unexpected end of input after backslash", offset, pos)
@@ -204,20 +206,57 @@ def identifier_end(source: str, offset: int) -> int:
     return end
 
 
-def environment_hole_name(source: str, offset: int) -> str | None:
-    """Return the environment name when *offset* starts a ``${NAME}`` hole."""
-    if not source.startswith("${", offset):
+class HoleKind(Enum):
+    """The kinds of template hole an opener can start."""
+
+    EXPRESSION = "expression"
+    ENVIRONMENT = "environment"
+
+
+@dataclass(frozen=True, slots=True)
+class HoleOpener:
+    """A recognized template hole opener.
+
+    ``length`` is the opener's width and ``value`` the text of the token that
+    stands for it. An expression hole's opener ends at its ``{`` and ``value``
+    is the opener spelling. An environment hole is complete at its opener:
+    ``length`` covers the whole ``%${NAME}`` spelling and ``value`` is ``NAME``.
+    """
+
+    kind: HoleKind
+    length: int
+    value: str
+
+
+def hole_opener(source: str, offset: int) -> HoleOpener | None:
+    """Return the hole opener starting at *offset*, or None for ordinary text.
+
+    Every opener starts with ``%``. A ``%`` that begins no complete opener,
+    such as ``%$`` without a valid ``{NAME}``, is ordinary text.
+    """
+    if not source.startswith(INTERP_TRIGGER, offset):
         return None
-    start = offset + 2
+    if source.startswith(INTERP_OPEN, offset):
+        return HoleOpener(HoleKind.EXPRESSION, len(INTERP_OPEN), INTERP_OPEN)
+    return _environment_opener(source, offset)
+
+
+def _environment_opener(source: str, offset: int) -> HoleOpener | None:
+    """Return the ``%${NAME}`` hole at *offset*, or None if it is malformed."""
+    if not source.startswith(_ENVIRONMENT_OPEN, offset):
+        return None
+    start = offset + len(_ENVIRONMENT_OPEN)
     end = scan_name(source, start)
     if end is None or source[end : end + 1] != "}":
         return None
-    return source[start:end]
+    return HoleOpener(HoleKind.ENVIRONMENT, end + 1 - offset, source[start:end])
 
 
 __all__ = [
+    "HoleKind",
+    "HoleOpener",
     "decode_escape",
-    "environment_hole_name",
+    "hole_opener",
     "identifier_end",
     "is_ascii_digit",
     "quote_text",

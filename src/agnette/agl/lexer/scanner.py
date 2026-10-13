@@ -6,8 +6,8 @@ The scanner handles:
 - CODE mode: keywords, identifiers, numbers, operators (maximal munch), and
   horizontal whitespace / ``#`` comments.
 - Template mode: single- and triple-quoted string literals with expression
-  (``%{...}``) and environment (``${NAME}``) interpolation, plus the JSON
-  escape set, ``\\%``, and ``\\${``.
+  (``%{...}``) and environment (``%${NAME}``) interpolation, plus the JSON
+  escape set plus ``\\%``.
 - Layout signalling: ``_NEWLINE`` tokens carrying the next real line's leading
   indentation width (tabs expanded at ``tab_len=4``, comments skipped).
 
@@ -98,7 +98,7 @@ from agnette.agl.operator_names import is_operator_name_char
 from agnette.agl.value_syntax import lexical
 from agnette.agl.value_syntax.errors import ValueSyntaxError
 from agnette.util.ident import is_identifier_start
-from agnette.util.interp import INTERP_OPEN, INTERP_TRIGGER
+from agnette.util.interp import INTERP_TRIGGER
 from agnette.util.text import normalize_newlines
 from agnette.util.unicode import surrogate_index
 
@@ -116,6 +116,12 @@ from agnette.util.unicode import surrogate_index
 # and ``a+b`` scan as single identifiers.
 
 _TAB_LEN = 4
+
+# The token each kind of hole opener emits.
+_OPENER_TOKEN_TYPES: dict[lexical.HoleKind, str] = {
+    lexical.HoleKind.EXPRESSION: INTERP_START,
+    lexical.HoleKind.ENVIRONMENT: ENV_HOLE,
+}
 
 # Characters that end a verbatim run inside a `$` literal's payload: ``%`` may
 # open a hole and ``\`` may escape one.  Everything between them is copied wholesale.
@@ -460,9 +466,8 @@ class _Scanner:
                 # Restore measured columns, including tab-expanded indentation.
                 self._pos, self._line, self._col, self._line_start_pos = newline_state
             raise LexError(exc.message, span=span) from None
-        in_string = decoded == "${"
         while self._pos < end_offset:
-            self._advance(in_string=in_string)
+            self._advance()
         return decoded
 
     # ------------------------------------------------------------------
@@ -558,34 +563,40 @@ class _Scanner:
                 buf.append(ch)
 
     def _template_interpolation(self) -> Iterator[Token] | None:
-        """Recognize either template hole without advancing the cursor."""
-        if self._raw_quotes:
-            return None
-        if self._src.startswith(INTERP_OPEN, self._pos):
-            return self._scan_interpolation()
-        name = lexical.environment_hole_name(self._src, self._pos)
-        return self._scan_environment_hole(name) if name is not None else None
+        """Recognize a template hole in a quoted template, without advancing the cursor."""
+        return None if self._raw_quotes else self._hole_at_cursor()
 
-    def _scan_interpolation(self) -> Iterator[Token]:
-        """Emit an expression hole: its ``%{`` opener, its code tokens, and its ``}``."""
+    def _hole_at_cursor(self) -> Iterator[Token] | None:
+        """Scan the hole opened at the cursor, or return None when none opens there."""
+        opener = lexical.hole_opener(self._src, self._pos)
+        if opener is None:
+            return None
+        if opener.kind is lexical.HoleKind.EXPRESSION:
+            return self._scan_interpolation(opener)
+        return self._scan_environment_hole(opener)
+
+    def _scan_interpolation(self, opener: lexical.HoleOpener) -> Iterator[Token]:
+        """Emit an expression hole: its opener token, its code tokens, and its ``}``."""
         start_pos, start_line, start_col = self._pos, self._line, self._col
-        self._advance(in_string=True)
-        self._advance(in_string=True)
-        yield self._make_token(INTERP_START, INTERP_OPEN, start_pos, start_line, start_col)
+        for _ in range(opener.length):
+            self._advance(in_string=True)
+        yield self._make_token(
+            _OPENER_TOKEN_TYPES[opener.kind], opener.value, start_pos, start_line, start_col
+        )
         yield from self._scan_interp_code()
 
-    def _scan_environment_hole(self, name: str) -> Iterator[Token]:
-        """Emit one ``ENV_HOLE`` token spanning a whole ``${NAME}`` hole.
+    def _scan_environment_hole(self, opener: lexical.HoleOpener) -> Iterator[Token]:
+        """Emit one ``ENV_HOLE`` token spanning a whole ``%${NAME}`` hole.
 
         The token carries the environment variable's name and the span of the
         spelling the author wrote; the parser builds the environment read from
         it.  It is yielded before its characters are consumed so that the
         literal fragment its caller flushes ends in front of the hole.
         """
-        width = len("${" + name + "}")
+        width = opener.length
         yield Token(
-            ENV_HOLE,
-            name,
+            _OPENER_TOKEN_TYPES[opener.kind],
+            opener.value,
             start_pos=self._pos,
             line=self._line,
             column=self._col,
@@ -781,7 +792,8 @@ class _Scanner:
     # A `$` verbatim text literal's inline-or-block payload: trims leading/
     # trailing horizontal whitespace, collects a same-line payload or an
     # indented block (dedented, blank lines handled identically), and scans
-    # ``%{expr}`` holes with the ``\%{`` escape.  An empty payload is a lex error.
+    # ``%{expr}`` and ``%${NAME}`` holes with the ``\%`` escape before a hole
+    # opener.  An empty payload is a lex error.
     # ------------------------------------------------------------------
 
     def _indent_info(self, pos: int) -> tuple[int, int]:
@@ -834,9 +846,8 @@ class _Scanner:
     def _scan_block_lines(self, lines: list[_BlockLine]) -> Iterator[Token]:
         """Emit fragments and interpolation holes from dedented block line slices.
 
-        Recognizes only the ``%{expr}`` hole and its ``\\%{`` escape; ``${...}``
-        environment spellings are never desugared here (they reach a `$`
-        literal verbatim).
+        Recognizes the ``%{expr}`` and ``%${NAME}`` holes and the ``\\%`` escape
+        before a hole opener; every other backslash and ``${...}`` stay payload.
         """
         saved_state = (self._pos, self._line, self._col, self._line_start_pos)
         buf: list[str] = []
@@ -866,22 +877,18 @@ class _Scanner:
                     start_fragment()
                     buf.append(raw_line.prefix)
                 while self._pos < raw_line.end_pos:
-                    ch = self._peek()
-                    if (
-                        ch == "\\"
-                        and self._pos + len(INTERP_OPEN) < raw_line.end_pos
-                        and self._src.startswith(INTERP_OPEN, self._pos + 1)
-                    ):
+                    if self._escapes_hole_opener(raw_line.end_pos):
+                        # The escape writes the opener's `%` literally; the rest of the
+                        # opener is then ordinary text.
                         start_fragment()
-                        buf.append(INTERP_OPEN)
+                        buf.append(INTERP_TRIGGER)
                         self._advance(in_string=True)
-                        for _ in INTERP_OPEN:
-                            self._advance(in_string=True)
-                    elif self._src.startswith(INTERP_OPEN, self._pos):
+                        self._advance(in_string=True)
+                    elif (interpolation := self._hole_at_cursor()) is not None:
                         fragment = emit_fragment()
                         if fragment is not None:
                             yield fragment
-                        yield from self._scan_interpolation()
+                        yield from interpolation
                     else:
                         # Copy the whole run up to the next character that could
                         # open a hole or escape it, rather than one char at a
@@ -910,6 +917,13 @@ class _Scanner:
             raise
         finally:
             self._pos, self._line, self._col, self._line_start_pos = saved_state
+
+    def _escapes_hole_opener(self, line_end: int) -> bool:
+        """Return True when the cursor's backslash escapes a hole opener within the line."""
+        if self._peek() != "\\":
+            return False
+        opener = lexical.hole_opener(self._src, self._pos + 1)
+        return opener is not None and self._pos + 1 + opener.length <= line_end
 
     def _dedented_block_line(
         self, line_start: int, line_end: int, line_no: int, line_col: int, margin: int

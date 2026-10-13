@@ -190,30 +190,30 @@
       }
     },
     {
-      "name": "json_key_escapes_dollar_hole",
+      "name": "json_key_leaves_dollar_brace_unescaped",
       "params": {
-        "mode": "round_trip_json_key_dollar_hole"
+        "mode": "round_trip_json_key_dollar_brace"
       },
       "expect": {
-        "stdout": "{\n  \"\\${HOME}\": 1\n}\ntrue\n"
+        "stdout": "{\n  \"${HOME}\": 1\n}\ntrue\n"
       }
     },
     {
-      "name": "json_field_escapes_dollar_hole",
+      "name": "json_field_leaves_dollar_brace_unescaped",
       "params": {
-        "mode": "round_trip_json_field_dollar_hole"
+        "mode": "round_trip_json_field_dollar_brace"
       },
       "expect": {
-        "stdout": "Holder(\n  j = \"\\${HOME}\"\n)\ntrue\n"
+        "stdout": "Holder(\n  j = \"${HOME}\"\n)\ntrue\n"
       }
     },
     {
-      "name": "json_key_escapes_percent_before_dollar_hole",
+      "name": "json_key_escapes_percent_before_dollar_brace",
       "params": {
-        "mode": "round_trip_json_key_percent_dollar_hole"
+        "mode": "round_trip_json_key_percent_dollar_brace"
       },
       "expect": {
-        "stdout": "{\n  \"\\%\\${HOME}\": 1\n}\ntrue\n"
+        "stdout": "{\n  \"\\%${HOME}\": 1\n}\ntrue\n"
       }
     }
   ]

@@ -18,7 +18,7 @@ SUCCESSIVE_FRAME_CASES = (
 FRAME_CASES = (
     ('"%{ {1: 2} }tail" let x=1', "let", Category.KEYWORD),
     ('"""%{1\ntail""" let x=1', "tail", Category.STRING),
-    ('"""bad\\q consumed"""\ntail\\n %{2} ${HOME}\n""" let x=1', "tail", Category.STRING),
+    ('"""bad\\q consumed"""\ntail\\n %{2} %${HOME}\n""" let x=1', "tail", Category.STRING),
     ('"bad\\q\nlet x=1', "let", Category.KEYWORD),
     ("$\n  hi %{1\n  tail\nlet x=1", "tail", Category.VERBATIM),
     *SUCCESSIVE_FRAME_CASES,

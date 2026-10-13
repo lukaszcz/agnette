@@ -82,9 +82,10 @@ program def main() -> unit =
 
 With no named arguments, the command may follow `exec` without parentheses,
 as a quoted template or a [`$` literal](strings-and-interpolation.md#the-literal),
-whose payload reaches the shell verbatim apart from `%{…}` holes. Dollar forms
-(`$HOME`, `${name}`, `$(date)`) are expanded by the shell at run time, using
-`exec`'s `env`:
+whose payload reaches the shell verbatim apart from `%{…}` and `%${…}` holes.
+Dollar forms (`$HOME`, `${name}`, `$(date)`) are expanded by the shell at run
+time, using `exec`'s `env`; `%${NAME}` and `getenv` read the program's own
+environment snapshot:
 
 ```agl
 program def main() -> unit =

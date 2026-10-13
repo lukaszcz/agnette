@@ -94,7 +94,7 @@ def test_native_textmate_frames_captures_and_recovery_batch() -> None:
         '"""%{ {1: "nested"} }tail""" let x=1',
         '"%{ {{{1\nlet x=1',
         '"""%{ {{{1\ntail""" let x=1',
-        '"""bad\\q\ntail\\n %{2} ${HOME} tail""" let x=1',
+        '"""bad\\q\ntail\\n %{2} %${HOME} tail""" let x=1',
         '"""%{ "bad\\q" }"""\ntail""" let x=1',
         '"""%{1',
         '"""%{1\nmore literal',

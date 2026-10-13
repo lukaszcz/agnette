@@ -104,16 +104,16 @@ program def main(mode: text) -> unit =
         let h = Holder(j = "a\%{b}" as json)
         print(render(h))
         print(parse::[Holder](render(h)) == h)
-    | "round_trip_json_key_dollar_hole" =>
-        let d: dict[json, int] = {("\${HOME}" as json): 1}
+    | "round_trip_json_key_dollar_brace" =>
+        let d: dict[json, int] = {("${HOME}" as json): 1}
         print(render(d))
         print(parse::[dict[json, int]](render(d)) == d)
-    | "round_trip_json_field_dollar_hole" =>
-        let h = Holder(j = "\${HOME}" as json)
+    | "round_trip_json_field_dollar_brace" =>
+        let h = Holder(j = "${HOME}" as json)
         print(render(h))
         print(parse::[Holder](render(h)) == h)
-    | "round_trip_json_key_percent_dollar_hole" =>
-        let d: dict[json, int] = {("%\${HOME}" as json): 1}
+    | "round_trip_json_key_percent_dollar_brace" =>
+        let d: dict[json, int] = {("\%${HOME}" as json): 1}
         print(render(d))
         print(parse::[dict[json, int]](render(d)) == d)
     | "round_trip_key_error" =>

@@ -32,7 +32,6 @@ from agnette.agl.value_syntax.nodes import (
     ValueArg,
     ValueNode,
 )
-from agnette.util.interp import INTERP_OPEN
 
 __all__ = ["read_ctor_head", "read_value"]
 
@@ -129,14 +128,10 @@ def _read_quoted_text(source: str, pos: int) -> tuple[str, int]:
             decoded, end = lexical.decode_escape(source, end)
             parts.append(decoded)
             continue
-        if source.startswith(INTERP_OPEN, end):
+        opener = lexical.hole_opener(source, end)
+        if opener is not None:
             raise ValueSyntaxError(
-                "interpolation is not allowed in values", end, end + len(INTERP_OPEN)
-            )
-        hole = lexical.environment_hole_name(source, end)
-        if hole is not None:
-            raise ValueSyntaxError(
-                "interpolation is not allowed in values", end, end + len(hole) + 3
+                "interpolation is not allowed in values", end, end + opener.length
             )
         parts.append(ch)
         end += 1

@@ -1,2 +1,2 @@
-@doc("home: ${HOME}")
+@doc("home: %${HOME}")
 program def main() -> unit = ()

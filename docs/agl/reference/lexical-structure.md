@@ -381,10 +381,11 @@ operator: `-3` is `-` applied to the literal `3`.
 ## Strings and templates
 
 Every string literal is a **template**: text fragments plus interpolation
-holes. A quoted template supports two kinds of hole, `%{expr}` and `${NAME}`;
-a [`$` verbatim literal](#verbatim-literals) is a third template spelling with
-only the `%{expr}` hole. Both `"` and `'` are quote delimiters, giving four
-quoted forms:
+holes. Every hole opens with `%`: the expression hole `%{expr}` and the
+environment hole `%${NAME}`. A `%` that opens no hole is literal text, as is
+`${…}`. A [`$` verbatim literal](#verbatim-literals) is a third template
+spelling with the same two holes. Both `"` and `'` are quote delimiters, giving
+four quoted forms:
 
 - `"…"` / `'…'` — single-line.
 - `"""…"""` / `'''…'''` — triple-quoted, multi-line.
@@ -451,13 +452,14 @@ template in those positions instead.
 
 The payload reaches the literal's value verbatim: `#`, `;`, quotes,
 parentheses, and every dollar form it contains (`$VAR`, `${NAME}`, `$(cmd)`)
-pass through unchanged, never read as AgL syntax. Only two spellings are
-recognized inside the payload:
+pass through unchanged, never read as AgL syntax. Only two kinds of spelling
+are recognized inside the payload:
 
-- `%{expr}` — an interpolation hole, on the same terms as any other template
-  ([Strings and interpolation](strings-and-interpolation.md)).
-- `\%{` — the one escape sequence, for a literal `%{`. Every other backslash
-  is literal payload text.
+- `%{expr}` and `%${NAME}` — interpolation holes, on the same terms as in any
+  other template ([Strings and interpolation](strings-and-interpolation.md)).
+- `\%` immediately before a hole opener — the one escape sequence, writing the
+  opener literally (`\%{`, `\%${`). Every other backslash is literal payload
+  text.
 
 ## Operators and punctuation
 

@@ -3416,7 +3416,7 @@ class TestTemplates:
         interps = [s for s in t.segments if isinstance(s, InterpSegment)]
         assert len(interps) == 2
 
-    @pytest.mark.parametrize("source", ['"${HOME}"', "'''${HOME}'''"])
+    @pytest.mark.parametrize("source", ['"%${HOME}"', "'''%${HOME}'''", "$ %${HOME}"])
     def test_environment_interpolation_desugars_to_getenv(self, source: str) -> None:
         template = first(parse(source))
 
@@ -3434,7 +3434,7 @@ class TestTemplates:
         assert isinstance(argument, StringLit)
         assert argument.value == "HOME"
         # Every node the hole stands for spans the hole the author wrote.
-        hole = (source.index("${"), source.index("}") + 1)
+        hole = (source.index("%${"), source.index("}") + 1)
         assert {
             (span.start_offset, span.end_offset)
             for span in (
@@ -3447,13 +3447,21 @@ class TestTemplates:
             )
         } == {hole}
 
-    def test_escaped_environment_interpolation_is_literal(self) -> None:
-        text = first(parse(r'"\${HOME}"'))
+    @pytest.mark.parametrize("source", ['"\\%${HOME}"', r"$ \%${HOME}"])
+    def test_escaped_environment_interpolation_is_literal(self, source: str) -> None:
+        text = first(parse(source))
+
+        assert isinstance(text, StringLit)
+        assert text.value == "%${HOME}"
+
+    @pytest.mark.parametrize("source", ['"${HOME}"', "'''${HOME}'''", "$ ${HOME}"])
+    def test_bare_dollar_brace_is_literal(self, source: str) -> None:
+        text = first(parse(source))
 
         assert isinstance(text, StringLit)
         assert text.value == "${HOME}"
 
-    @pytest.mark.parametrize("source", ['"${}"', '"${HOME"'])
+    @pytest.mark.parametrize("source", ['"%${}"', '"%${HOME"', '"%$HOME"', '"%$"'])
     def test_malformed_environment_interpolation_is_literal(self, source: str) -> None:
         text = first(parse(source))
 

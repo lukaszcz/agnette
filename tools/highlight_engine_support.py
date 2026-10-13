@@ -37,14 +37,18 @@ LEXICAL_CASES = (
     CorpusCase(
         "core", "# comment\nlet n = 12.34 + 56\ntrue false null () [] {} : , . ; := :: ? ?12 _"
     ),
-    CorpusCase("escapes-env", r'"hello\n\u0041\uD83D\uDE00\${HOME} ${HOME} %{ {1: "nested"} }"'),
+    CorpusCase(
+        "escapes-env", r'"hello\n\u0041\uD83D\uDE00\%${HOME} %${HOME} ${HOME} %{ {1: "nested"} }"'
+    ),
     CorpusCase("single-quote", "'hello\\' %{ {1: 'nested'} }'"),
     CorpusCase("triple-double", '"""one\ntwo %{ {1: "nested"} }\nthree""" let x = 1'),
     CorpusCase("triple-single", "'''one\ntwo %{ {1: 'nested'} }\nthree''' let x = 1"),
     CorpusCase(
-        "verbatim-inline", r'$ hello \%{literal} %{ {1: "nested"} } ${HOME} # literal   ' + "\nnext"
+        "verbatim-inline",
+        r'$ hello \%{literal} \%${HOME} %${HOME} ${HOME} %{ {1: "nested"} } # literal   '
+        + "\nnext",
     ),
-    CorpusCase("verbatim-block", '$\n  hello %{ {1: "nested"} }\n\n  ${HOME}\nnext(1)'),
+    CorpusCase("verbatim-block", '$\n  hello %{ {1: "nested"} }\n\n  %${HOME} ${HOME}\nnext(1)'),
     CorpusCase("nested-interpolation", '"%{ {1: {2: {3: "%{4}"}}} }" let after = 1'),
     CorpusCase(
         "attributes-declarations",
@@ -72,7 +76,7 @@ LEXICAL_CASES = (
     CorpusCase("escape-recovery", '"bad\\q\nlet x = 3'),
     CorpusCase("triple-hole-recovery", '"""%{1\ntail""" let x = 1'),
     CorpusCase(
-        "triple-escape-recovery", '"""bad\\q consumed"""\ntail\\n %{2} ${HOME}\n""" let x = 1'
+        "triple-escape-recovery", '"""bad\\q consumed"""\ntail\\n %{2} %${HOME}\n""" let x = 1'
     ),
     CorpusCase("deep-hole-recovery", '"""%{ {{{x\nlet y = 2'),
     CorpusCase("verbatim-hole-recovery", "$\n  hi %{1\n  tail\nlet x = 1"),

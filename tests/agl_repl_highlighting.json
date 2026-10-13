@@ -399,7 +399,7 @@
       ]
     ]
   ],
-  "\"${HOME}%{x}\"": [
+  "\"%${HOME}%{x}\"": [
     [
       [
         "class:agl.string",
@@ -407,7 +407,7 @@
       ],
       [
         "class:agl.string",
-        "${HOME}"
+        "%${HOME}"
       ],
       [
         "class:agl.string",

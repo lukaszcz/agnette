@@ -2,12 +2,14 @@ def getenv(name: text) -> text = "shadowed %{name}"
 
 def label(key: text) -> text =
   let getenv = 0
-  "%{key}=${VALUE} (%{getenv})"
+  "%{key}=%${VALUE} (%{getenv})"
 
 program def main(mode: int) -> unit =
   case mode of
     | 1 =>
         print label("value")
         print getenv("VALUE")
+        let getenv = 1
+        print $ verbatim=%${VALUE} (%{getenv})
     | _ =>
-        print '''missing=${MISSING}'''
+        print '''missing=%${MISSING}'''

@@ -14,7 +14,25 @@
       "params": {"mode": 3},
       "process_environment": {"FIRST": "one", "SECOND": "two"},
       "expect": {
-        "stdout": "onetwo\n[one]two\nliteral ${FIRST}\nfirst=one\nsecond=two\n",
+        "stdout": "onetwo\n[one]two\nliteral %${FIRST}\nfirst=one\nsecond=two\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "verbatim_literals_take_environment_holes",
+      "params": {"mode": 4},
+      "process_environment": {"FIRST": "one", "SECOND": "two"},
+      "expect": {
+        "stdout": "first=one second=two sum=3\nblock=one\nescaped=%${SECOND}\nshell=${SECOND} $FIRST \\${FIRST}\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "bare_dollar_text_and_malformed_openers_stay_literal",
+      "params": {"mode": 5},
+      "process_environment": {"FIRST": "one"},
+      "expect": {
+        "stdout": "bare ${FIRST} $FIRST $(echo one) %$ %$FIRST %${} %${FIRST\nbare ${FIRST} $FIRST $(echo one) %$ %$FIRST %${} %${FIRST\nescaped %{1} %${FIRST}\n",
         "calls": {}
       }
     },

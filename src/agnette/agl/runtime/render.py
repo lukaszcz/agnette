@@ -8,12 +8,12 @@ and REPL display.  Callers choose two display options:
   lines when ``True``; keep the output on one line when ``False``.
 - ``quote_strings``: quote a top-level ``text`` value as an AgL string literal
   when ``True``; leave top-level text verbatim when ``False``. A top-level
-  ``json`` value is value syntax (``%`` and ``${`` escaped inside its strings)
+  ``json`` value is value syntax (``%`` escaped inside its strings)
   when ``True`` and pure JSON when ``False``.
 
 Nested ``text`` values (including ``text`` dict keys) are always quoted so
 structured output remains parseable as AgL surface syntax, and nested ``json``
-strings escape ``%`` and ``${`` the same way; every dict key
+strings escape ``%`` the same way; every dict key
 renders in one-line value syntax.  A record or exception renders its nominal's
 ``positional_fields`` bare, then the rest as ``name = value``.
 """

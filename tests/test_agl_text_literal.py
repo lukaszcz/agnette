@@ -42,6 +42,7 @@ _TEXT_CORPUS = (
     "%{x}",
     r"\%{x}",
     "${HOME}",
+    "%${HOME}",
 )
 
 
@@ -63,7 +64,8 @@ def test_quoted_text_round_trips_through_the_template_scanner(value: str) -> Non
 
 
 def test_quote_text_escapes_environment_interpolation() -> None:
-    assert quote_text("${HOME}") == r'"\${HOME}"'
+    assert quote_text("%${HOME}") == r'"\%${HOME}"'
+    assert quote_text("${HOME}") == '"${HOME}"'
 
 
 @pytest.mark.parametrize("value", _TEXT_CORPUS)
