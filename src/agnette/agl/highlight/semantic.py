@@ -140,7 +140,7 @@ class _Names:
     ) -> int:
         """Record *name* in *span* (default: *node*'s), returning the search resume offset."""
         span = node.span if span is None else span
-        start = max((s.end_offset for s in after), default=span.start_offset)
+        start = max((span.start_offset, *(s.end_offset for s in after)))
         if start_at is not None:
             start = max(start, start_at)
         end = span.end_offset if before is None else before

@@ -253,6 +253,20 @@ def test_definitions_ignore_unresolved_positions(
     assert _find(tmp_path, entry, needle, delta) == []
 
 
+def test_definitions_locate_repeated_declarations_in_scoped_members() -> None:
+    path = Path(__file__).resolve().parent / "agl/programs/scope/scoped_members.agl"
+    source = path.read_text(encoding="utf-8")
+    parsed = PipelineDriver.parse_entry(source, entry_path=path)
+    prepared = PipelineDriver.prepare_parsed_entry(parsed)
+    assert prepared.resolved is not None, prepared.diagnostics
+    checked = PipelineDriver.typecheck_resolved(prepared.resolved)
+    offset = source.index("flag: Flag") + len("flag: ")
+
+    assert definitions(prepared.resolved, checked, source, offset) == [
+        Location(path, 48, 10, "    enum Flag | inner")
+    ]
+
+
 def test_definitions_need_a_file_backed_entry() -> None:
     source = "def f(n: int) -> int = n\n"
     prepared = PipelineDriver.prepare_parsed_entry(PipelineDriver.parse_entry(source))
