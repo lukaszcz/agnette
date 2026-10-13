@@ -1,0 +1,11 @@
+{
+  "scenarios": [
+    {
+      "name": "allow_and_exempts_leave_results_unchanged",
+      "expect": {
+        "stdout": "7\nraw\n(1, 2)\n",
+        "warnings": []
+      }
+    }
+  ]
+}

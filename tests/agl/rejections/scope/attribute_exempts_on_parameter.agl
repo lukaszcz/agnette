@@ -1,0 +1,3 @@
+def helper(@exempts("unquoted-exec-hole") value: int) -> int = value
+
+program def main() -> unit = print helper(1)

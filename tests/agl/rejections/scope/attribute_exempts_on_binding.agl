@@ -1,0 +1,4 @@
+@exempts("unquoted-exec-hole")
+let value = 1
+
+program def main() -> unit = print value

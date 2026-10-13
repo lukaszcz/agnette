@@ -1,0 +1,4 @@
+@allow(name = "tab-indentation")
+def helper() -> int = 1
+
+program def main() -> unit = print helper()

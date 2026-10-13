@@ -1,0 +1,8 @@
+@allow(
+  "tab-indentation",
+  "noop-parse-retries",
+  "tab-indentation",
+)
+def helper() -> int = 1
+
+program def main() -> unit = print helper()

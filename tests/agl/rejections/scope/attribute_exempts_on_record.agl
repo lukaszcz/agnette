@@ -1,0 +1,5 @@
+@exempts("unquoted-exec-hole")
+record Box
+  value: int
+
+program def main() -> unit = print Box(value = 1).value

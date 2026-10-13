@@ -14,8 +14,9 @@ without reaching into a pass.
 
 It is a top-level leaf sitting on ``zones``, whose ``ParamZone`` the ``@arg-*``
 attributes name, on the pure command catalog, whose command-path rule
-``@command`` shares with a package manifest, and on the keyword inventory,
-whose plain-name predicate ``@name``'s argument rule shares, and on nothing
+``@command`` shares with a package manifest, on the keyword inventory,
+whose plain-name predicate ``@name``'s argument rule shares, and on the warning
+catalog, whose names ``@allow`` and ``@exempts`` list, and on nothing
 else, so any layer may name an attribute without pulling a pass in with it.
 """
 
@@ -29,14 +30,17 @@ from types import MappingProxyType
 from typing import Protocol
 
 from agnette.agl.keywords import is_plain_name
+from agnette.agl.warnings import EXEMPTABLE_WARNINGS, WARNING_CATALOG
 from agnette.agl.zones import ParamZone
 from agnette.command_catalog import invalid_command_path
 
 __all__ = [
+    "ALLOW_ATTRIBUTE",
     "BUILTIN_ATTRIBUTES",
     "COMMAND_ATTRIBUTE",
     "CONFIG_ATTRIBUTE",
     "DOC_ATTRIBUTE",
+    "EXEMPTS_ATTRIBUTE",
     "EXTERN_NAME_ATTRIBUTE",
     "JSON_NAME_ATTRIBUTE",
     "NAME_ADDRESSED_OPTION_ATTRIBUTES",
@@ -88,14 +92,16 @@ class AttributeTarget(enum.Enum):
 class AttributeArguments(enum.Enum):
     """The argument shape a built-in attribute accepts.
 
-    Most built-in attributes take literal constants only, in one of two
-    shapes: nothing at all, or a single text literal. ``@config`` instead
-    takes one or more ``key = value`` entries, resolved and type-checked
-    downstream rather than validated as a literal here.
+    Most built-in attributes take literal constants only, in one of three
+    shapes: nothing at all, a single text constant, or one or more positional
+    text constants (``TEXT_LIST``). ``@config`` instead takes one or more
+    ``key = value`` entries, resolved and type-checked downstream rather than
+    validated as a literal here.
     """
 
     NONE = "none"
     ONE_TEXT = "one_text"
+    TEXT_LIST = "text_list"
     KEYED_ENTRIES = "keyed_entries"
 
 
@@ -109,6 +115,12 @@ class AttributeSpec:
     be able to form from it — and ``expected`` phrases that shape for the
     diagnostic an argument failing it raises. Both are absent for an
     attribute whose text is arbitrary prose.
+
+    A ``TEXT_LIST`` attribute may restrict its elements: ``known`` is every
+    value the list could ever name (anything else is unknown), ``admitted``
+    the subset this attribute takes (a known value outside it is not admitted
+    here), and ``element`` the noun diagnostics use for one element. Elements
+    are never repeated.
     """
 
     name: str
@@ -117,27 +129,34 @@ class AttributeSpec:
     conflicts: tuple[str, ...] = ()
     pattern: re.Pattern[str] | None = None
     expected: str | None = None
+    element: str = "name"
+    known: frozenset[str] | None = None
+    admitted: frozenset[str] | None = None
 
 
-#: Every declaration kind: ``@doc`` may sit on all of them.
+#: Every declaration kind: ``@doc`` and ``@allow`` may sit on all of them.
 _EVERY_TARGET: frozenset[AttributeTarget] = frozenset(AttributeTarget)
 
-#: A parameter or field, plus the declarations whose entry lists they form: a
-#: zone attribute sets one entry's zone or the whole list's default.
-_ZONED_TARGETS: frozenset[AttributeTarget] = frozenset(
+#: Every ``def`` form, the declarations a call can resolve to.
+_DEF_TARGETS: frozenset[AttributeTarget] = frozenset(
     {
-        AttributeTarget.PARAMETER,
-        AttributeTarget.PROGRAM_PARAMETER,
-        AttributeTarget.FIELD,
         AttributeTarget.FUNCTION,
         AttributeTarget.PROGRAM,
         AttributeTarget.EXTERN,
         AttributeTarget.BUILTIN_FUNCTION,
-        AttributeTarget.RECORD,
-        AttributeTarget.EXCEPTION,
-        AttributeTarget.ENUM_MEMBER,
     }
 )
+
+#: A parameter or field, plus the declarations whose entry lists they form: a
+#: zone attribute sets one entry's zone or the whole list's default.
+_ZONED_TARGETS: frozenset[AttributeTarget] = _DEF_TARGETS | {
+    AttributeTarget.PARAMETER,
+    AttributeTarget.PROGRAM_PARAMETER,
+    AttributeTarget.FIELD,
+    AttributeTarget.RECORD,
+    AttributeTarget.EXCEPTION,
+    AttributeTarget.ENUM_MEMBER,
+}
 
 #: The zone each ``@arg-*`` attribute selects. This is the one place the zone
 #: attributes are named: the catalog derives their mutual conflicts from these
@@ -169,6 +188,12 @@ COMMAND_ATTRIBUTE = "command"
 #: The attribute stating the module-parameter and engine-setting values a
 #: ``program def`` selects in source.
 CONFIG_ATTRIBUTE = "config"
+
+#: The attributes naming static warnings (see :mod:`agnette.agl.warnings`):
+#: ``@allow`` hides them inside a declaration, ``@exempts`` declares a
+#: function's call results exempt from the exemptable ones.
+ALLOW_ATTRIBUTE = "allow"
+EXEMPTS_ATTRIBUTE = "exempts"
 
 #: The attributes shaping how a host-facing parameter is presented.
 OPTION_NAME_ATTRIBUTE = "opt-name"
@@ -389,6 +414,22 @@ _SPECS: tuple[AttributeSpec, ...] = (
         name=DOC_ATTRIBUTE,
         targets=_EVERY_TARGET,
         arguments=AttributeArguments.ONE_TEXT,
+    ),
+    AttributeSpec(
+        name=ALLOW_ATTRIBUTE,
+        targets=_EVERY_TARGET,
+        arguments=AttributeArguments.TEXT_LIST,
+        element="warning",
+        known=frozenset(WARNING_CATALOG),
+        admitted=frozenset(WARNING_CATALOG),
+    ),
+    AttributeSpec(
+        name=EXEMPTS_ATTRIBUTE,
+        targets=_DEF_TARGETS,
+        arguments=AttributeArguments.TEXT_LIST,
+        element="warning",
+        known=frozenset(WARNING_CATALOG),
+        admitted=EXEMPTABLE_WARNINGS,
     ),
     AttributeSpec(
         name=NAME_ATTRIBUTE,

@@ -7,7 +7,7 @@ admitted target, the arguments match the declared schema, the attribute is not
 repeated or contradicted — and turns the surviving attributes into typed
 side-table entries.
 
-Eight facts are built: a parameter's zone, from the ``@arg-*`` attribute an
+Ten facts are built: a parameter's zone, from the ``@arg-*`` attribute an
 entry or its owning declaration carries; an ``extern def``'s Python companion
 name, from ``@extern-name`` — the walk sees every extern of a module, so it is
 also where their companion names are held apart; host-facing parameters'
@@ -16,7 +16,10 @@ a ``program def`` registers itself as, from ``@command`` and its prose; a
 declaration's documentation text, from ``@doc``; a field, inline enum
 member, or record declaration's external spellings, from ``@name``/
 ``@json-name``; and a ``program def``'s ``@config`` entries, filed raw for
-resolution and type checking to give meaning to. The walk is the seam a
+resolution and type checking to give meaning to; the static warnings each
+declaration allows within itself, from ``@allow``; and the warnings each
+function's call results are exempt from, from ``@exempts`` — both validated
+against the warning catalog. The walk is the seam a
 further attribute meaning joins through — a new fact reads the attributes the
 walk already hands it and fills a table of its own, so it costs one more
 builder, never one more traversal.
@@ -29,10 +32,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from agnette.agl.attributes import (
+    ALLOW_ATTRIBUTE,
     BUILTIN_ATTRIBUTES,
     COMMAND_ATTRIBUTE,
     CONFIG_ATTRIBUTE,
     DOC_ATTRIBUTE,
+    EXEMPTS_ATTRIBUTE,
     EXTERN_NAME_ATTRIBUTE,
     JSON_NAME_ATTRIBUTE,
     NAME_ADDRESSED_OPTION_ATTRIBUTES,
@@ -53,7 +58,7 @@ from agnette.agl.attributes import (
     invalid_json_name,
     invalid_program_command_path,
 )
-from agnette.agl.scope.symbols import AglScopeError, AttributeFacts
+from agnette.agl.scope.symbols import AglScopeError, AllowRegion, AttributeFacts
 from agnette.agl.semantics.external_names import ExternalName
 from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants
 from agnette.agl.syntax.nodes import (
@@ -62,6 +67,7 @@ from agnette.agl.syntax.nodes import (
     BuiltinVarDecl,
     EnumDef,
     ExceptionDef,
+    Expr,
     FuncDef,
     Item,
     Lambda,
@@ -76,6 +82,7 @@ from agnette.agl.syntax.nodes import (
     static_binding_node_id,
     static_items,
 )
+from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import ParamZone
 
@@ -87,12 +94,14 @@ class _Recognized:
     """One declaration's validated attribute prefix, ready for a fact builder.
 
     ``nodes`` locates every attribute the declaration carries by name — for a
-    builder reporting one that may not sit where it does — and ``texts`` the
-    already-validated argument of every attribute whose schema takes one.
+    builder reporting one that may not sit where it does — ``texts`` the
+    already-validated argument of every attribute whose schema takes one, and
+    ``lists`` the arguments, in written order, of every attribute taking a list.
     """
 
     nodes: dict[str, Attribute]
     texts: dict[str, str]
+    lists: dict[str, tuple[str, ...]]
 
     def text_of(self, name: str) -> str | None:
         return self.texts.get(name)
@@ -204,6 +213,8 @@ def recognize_attributes(
         docs=recognizer.docs,
         external_names=recognizer.external_names,
         program_configs=recognizer.program_configs,
+        warning_allows=recognizer.warning_allows,
+        warning_exemptions=recognizer.warning_exemptions,
     )
 
 
@@ -227,6 +238,8 @@ class _Recognizer:
         self.docs: dict[int, str] = {}
         self.external_names: dict[int, ExternalName] = {}
         self.program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = {}
+        self.warning_allows: list[AllowRegion] = []
+        self.warning_exemptions: dict[int, frozenset[str]] = {}
         self._companion_owners: dict[str, str] = {}
 
     def visit(self, node: object) -> None:
@@ -241,7 +254,9 @@ class _Recognizer:
             if declared_scope is not None:
                 self._scope_path = declared_scope
         if isinstance(node, FuncDef):
-            recognized = self._check(node.attributes, _function_target(node), node.node_id)
+            recognized = self._check(
+                node.attributes, _function_target(node), node.node_id, node.span
+            )
             if node.is_extern:
                 self._extern_name(node, recognized)
             if node.is_program:
@@ -261,16 +276,20 @@ class _Recognizer:
             )
         elif isinstance(node, Lambda):
             for param in node.params:
-                self._check(param.attributes, AttributeTarget.LAMBDA_PARAMETER, param.node_id)
+                self._check(
+                    param.attributes, AttributeTarget.LAMBDA_PARAMETER, param.node_id, param.span
+                )
         elif isinstance(node, (RecordDef, ExceptionDef, VariantDef)):
-            recognized = self._check(node.attributes, _FIELD_OWNERS[type(node)], node.node_id)
+            recognized = self._check(
+                node.attributes, _FIELD_OWNERS[type(node)], node.node_id, node.span
+            )
             self._entries(node.fields, _zone_attribute(recognized), target=AttributeTarget.FIELD)
         elif isinstance(node, (LetDecl, VarDecl)):
             self._binding(node)
         elif isinstance(node, BuiltinVarDecl):
-            self._check(node.attributes, AttributeTarget.BUILTIN_VAR, node.node_id)
+            self._check(node.attributes, AttributeTarget.BUILTIN_VAR, node.node_id, node.span)
         elif isinstance(node, (EnumDef, TypeAlias)):
-            self._check(node.attributes, _PLAIN_TARGETS[type(node)], node.node_id)
+            self._check(node.attributes, _PLAIN_TARGETS[type(node)], node.node_id, node.span)
 
     # ------------------------------------------------------------------
     # Catalog validation
@@ -281,14 +300,16 @@ class _Recognizer:
         attributes: tuple[Attribute, ...],
         target: AttributeTarget,
         node_id: int,
+        span: SourceSpan,
         *,
         param_allowed: bool = False,
     ) -> _Recognized:
-        """Validate the whole attribute prefix of the declaration *node_id*.
+        """Validate the whole attribute prefix of the declaration *node_id* spanning *span*.
 
-        Delegates to :func:`_validate_attribute_prefix` and additionally files
-        ``@doc`` text, admitted on every declaration kind, since documentation
-        has no fact builder of its own.
+        Delegates to :func:`_validate_attribute_prefix`, then files the facts
+        that need no builder of their own: ``@doc`` text, the ``@name`` and
+        ``@json-name`` spellings, and the ``@allow``/``@exempts`` warning
+        names. *span* covers the declaration, its attribute prefix included.
         """
         param = next((item for item in attributes if item.name == PARAM_ATTRIBUTE), None)
         if target is AttributeTarget.BINDING and param is not None:
@@ -306,6 +327,7 @@ class _Recognizer:
         if documentation is not None:
             self.docs[node_id] = documentation
         self._external_name(node_id, recognized)
+        self._warning_names(node_id, span, recognized)
         return recognized
 
     # ------------------------------------------------------------------
@@ -319,6 +341,7 @@ class _Recognizer:
             node.attributes,
             AttributeTarget.BINDING,
             node.node_id,
+            node.span,
             param_allowed=is_static,
         )
         marker = recognized.nodes.get(PARAM_ATTRIBUTE)
@@ -367,6 +390,25 @@ class _Recognizer:
         self.external_names[node_id] = ExternalName(
             name=texts[NAME_ATTRIBUTE], json_name=texts[JSON_NAME_ATTRIBUTE]
         )
+
+    # ------------------------------------------------------------------
+    # Fact builder: static warning names
+    # ------------------------------------------------------------------
+
+    def _warning_names(self, node_id: int, span: SourceSpan, recognized: _Recognized) -> None:
+        """Record the catalog warnings ``@allow`` and ``@exempts`` name on one declaration.
+
+        The names were validated against the catalog with the rest of the
+        prefix. ``@allow`` files a region (the declaration's *span* and the
+        names) in walk order; ``@exempts`` files the names by the ``def`` it
+        sits on. A declaration without the attribute files nothing.
+        """
+        allowed = recognized.lists.get(ALLOW_ATTRIBUTE)
+        if allowed is not None:
+            self.warning_allows.append(AllowRegion(span, frozenset(allowed)))
+        exempted = recognized.lists.get(EXEMPTS_ATTRIBUTE)
+        if exempted is not None:
+            self.warning_exemptions[node_id] = frozenset(exempted)
 
     # ------------------------------------------------------------------
     # Fact builder: extern companion names
@@ -453,7 +495,7 @@ class _Recognizer:
         list_default = form_default if owner_zone is None else owner_zone
         highest = _ZONE_SEQUENCE[0]
         for index, entry in enumerate(entries):
-            recognized = self._check(entry.attributes, target, entry.node_id)
+            recognized = self._check(entry.attributes, target, entry.node_id, entry.span)
             declared = _zone_attribute(recognized)
             if has_receiver and index == 0:
                 if declared is not None:
@@ -541,6 +583,7 @@ def _validate_attribute_prefix(
     """
     nodes: dict[str, Attribute] = {}
     texts: dict[str, str] = {}
+    lists: dict[str, tuple[str, ...]] = {}
     for attribute in attributes:
         spec = BUILTIN_ATTRIBUTES.get(attribute.name)
         if spec is None:
@@ -565,11 +608,13 @@ def _validate_attribute_prefix(
                     f"Attribute '@{attribute.name}' conflicts with '@{other}'.",
                     span=attribute.span,
                 )
-        text = _check_arguments(attribute, spec, constants, scope_path)
-        if text is not None:
-            texts[attribute.name] = text
+        argument = _check_arguments(attribute, spec, constants, scope_path)
+        if isinstance(argument, str):
+            texts[attribute.name] = argument
+        elif argument is not None:
+            lists[attribute.name] = argument
         nodes[attribute.name] = attribute
-    return _Recognized(nodes=nodes, texts=texts)
+    return _Recognized(nodes=nodes, texts=texts, lists=lists)
 
 
 def _option_spec(
@@ -605,22 +650,65 @@ def _program_command_path(recognized: _Recognized) -> str | None:
     return path
 
 
+def _check_list_elements(attribute: Attribute, spec: AttributeSpec, texts: tuple[str, ...]) -> None:
+    """Reject a list argument repeating an element or naming one the spec does not admit.
+
+    Each error is anchored at the offending argument expression.
+    """
+    seen: set[str] = set()
+    for text, argument in zip(texts, attribute.args, strict=True):
+        if text in seen:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' lists {spec.element} {text!r} more than once; "
+                "an element cannot be repeated.",
+                span=argument.span,
+            )
+        seen.add(text)
+        if spec.known is not None and text not in spec.known:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' names unknown {spec.element} {text!r}.",
+                span=argument.span,
+            )
+        if spec.admitted is not None and text not in spec.admitted:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' does not admit {spec.element} {text!r}; "
+                f"it admits only {', '.join(sorted(spec.admitted))}.",
+                span=argument.span,
+            )
+
+
+def _fold_text(
+    attribute: Attribute,
+    argument: Expr,
+    constants: ModuleConstants,
+    scope_path: tuple[str, ...],
+) -> str:
+    """Fold one attribute argument to its constant text, or reject it."""
+    folded = constants.fold_text(argument, scope_path=scope_path)
+    if isinstance(folded, FoldFailure):
+        raise AglScopeError(
+            f"Attribute '@{attribute.name}' requires a constant text argument: {folded.message}.",
+            span=folded.span,
+        )
+    return folded
+
+
 def _check_arguments(
     attribute: Attribute,
     spec: AttributeSpec,
     constants: ModuleConstants,
     scope_path: tuple[str, ...],
-) -> str | None:
+) -> str | tuple[str, ...] | None:
     """Reject arguments a built-in attribute's constant schema does not admit.
 
-    Returns the text an attribute taking one argument carries, and ``None``
-    for an attribute whose schema takes none or keyed entries. The argument is
-    a constant text expression: a literal, a template whose holes name the
-    module's own constants, or a reference to one, folded here so everything
-    downstream reads plain text. A schema narrowing that text to a spelling a
-    host has to form (``AttributeSpec.pattern``) is enforced on the folded
-    text, so a fact builder downstream reads an argument already known to be
-    well shaped.
+    Returns the text an attribute taking one argument carries, the texts, in
+    written order, of one taking a list, and ``None`` for an attribute whose
+    schema takes none or keyed entries. Each argument is a constant text
+    expression: a literal, a template whose holes name the module's own
+    constants, or a reference to one, folded here so everything downstream
+    reads plain text. A schema narrowing that text to a spelling a host has to
+    form (``AttributeSpec.pattern``) is enforced on the folded text, so a fact
+    builder downstream reads an argument already known to be well shaped.
     """
     if spec.arguments is AttributeArguments.KEYED_ENTRIES:
         if attribute.args:
@@ -643,17 +731,21 @@ def _check_arguments(
                 f"Attribute '@{attribute.name}' takes no arguments.", span=attribute.span
             )
         return None
+    if spec.arguments is AttributeArguments.TEXT_LIST:
+        if not attribute.args:
+            raise AglScopeError(
+                f"Attribute '@{attribute.name}' takes at least one text argument.",
+                span=attribute.span,
+            )
+        texts = tuple(_fold_text(attribute, arg, constants, scope_path) for arg in attribute.args)
+        _check_list_elements(attribute, spec, texts)
+        return texts
     if len(attribute.args) != 1:
         raise AglScopeError(
             f"Attribute '@{attribute.name}' takes exactly one text argument.",
             span=attribute.span,
         )
-    folded = constants.fold_text(attribute.args[0], scope_path=scope_path)
-    if isinstance(folded, FoldFailure):
-        raise AglScopeError(
-            f"Attribute '@{attribute.name}' requires a constant text argument: {folded.message}.",
-            span=folded.span,
-        )
+    folded = _fold_text(attribute, attribute.args[0], constants, scope_path)
     if spec.pattern is not None and spec.pattern.fullmatch(folded) is None:
         raise AglScopeError(
             f"Attribute '@{attribute.name}' {spec.expected} {folded!r}.",

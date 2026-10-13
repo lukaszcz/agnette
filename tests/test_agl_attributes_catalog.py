@@ -21,6 +21,7 @@ from agnette.agl.attributes import (
     AttributeSpec,
     AttributeTarget,
 )
+from agnette.agl.warnings import EXEMPTABLE_WARNINGS, WARNING_CATALOG
 
 ZONE_ATTRIBUTES = ("arg-pos", "arg-std", "arg-named")
 OPTION_ATTRIBUTES = ("opt-short", "opt-name", "opt-env", "opt-metavar", "opt-hidden")
@@ -39,6 +40,8 @@ class TestCatalogContents:
             "doc",
             "name",
             "json-name",
+            "allow",
+            "exempts",
         }
 
     @pytest.mark.parametrize("name", ["name", "json-name"])
@@ -155,6 +158,32 @@ class TestDocAttribute:
         assert spec.targets == frozenset(AttributeTarget)
 
 
+class TestWarningAttributes:
+    def test_allow_takes_a_text_list_on_every_target(self) -> None:
+        spec = BUILTIN_ATTRIBUTES["allow"]
+        assert spec.arguments is AttributeArguments.TEXT_LIST
+        assert spec.targets == frozenset(AttributeTarget)
+
+    def test_exempts_takes_a_text_list_on_every_def_form(self) -> None:
+        spec = BUILTIN_ATTRIBUTES["exempts"]
+        assert spec.arguments is AttributeArguments.TEXT_LIST
+        assert spec.targets == frozenset(
+            {
+                AttributeTarget.FUNCTION,
+                AttributeTarget.PROGRAM,
+                AttributeTarget.EXTERN,
+                AttributeTarget.BUILTIN_FUNCTION,
+            }
+        )
+
+    def test_the_lists_name_warnings_from_the_catalog(self) -> None:
+        allow, exempts = BUILTIN_ATTRIBUTES["allow"], BUILTIN_ATTRIBUTES["exempts"]
+        assert allow.known == exempts.known == frozenset(WARNING_CATALOG)
+        assert allow.admitted == frozenset(WARNING_CATALOG)
+        assert exempts.admitted == EXEMPTABLE_WARNINGS
+        assert allow.element == exempts.element == "warning"
+
+
 class TestSpecDefaults:
     def test_a_spec_defaults_to_an_unconstrained_argument_without_conflicts(self) -> None:
         spec = AttributeSpec(
@@ -165,3 +194,4 @@ class TestSpecDefaults:
         assert spec.conflicts == ()
         assert spec.pattern is None
         assert spec.expected is None
+        assert (spec.element, spec.known, spec.admitted) == ("name", None, None)

@@ -921,6 +921,14 @@ def atom_under_prefix(atom: BareAtom, prefix: ScopePath) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class AllowRegion:
+    """The span of one declaration carrying ``@allow`` and the warning names it lists."""
+
+    span: SourceSpan
+    names: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
 class AttributeFacts:
     """The typed facts one module's recognized declaration attributes carry.
 
@@ -959,6 +967,14 @@ class AttributeFacts:
         attribute, keyed by ``FuncDef.node_id``. Keys resolve through the
         ordinary resolution tables, like any other reference. A program
         without ``@config`` has no entry.
+    ``warning_allows``
+        One :class:`AllowRegion` per declaration carrying ``@allow`` (parameters,
+        fields and members included), in source walk order: the declaration's
+        span, attribute prefix included, and the validated, distinct names.
+    ``warning_exemptions``
+        The warning names each ``def`` carrying ``@exempts`` declares its call
+        results exempt from, keyed by ``FuncDef.node_id``. Names are
+        validated, distinct, and all exemptable.
     """
 
     param_zones: dict[int, ParamZone] = field(default_factory=dict)
@@ -968,6 +984,8 @@ class AttributeFacts:
     docs: dict[int, str] = field(default_factory=dict)
     external_names: dict[int, ExternalName] = field(default_factory=dict)
     program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = field(default_factory=dict)
+    warning_allows: list[AllowRegion] = field(default_factory=list)
+    warning_exemptions: dict[int, frozenset[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

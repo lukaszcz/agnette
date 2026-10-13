@@ -514,6 +514,107 @@ class TestDocumentationTexts:
         assert resolution.attributes.docs == {}
 
 
+class TestWarningAttributes:
+    """``@allow`` and ``@exempts``: validated names, filed per declaration."""
+
+    def test_allow_files_a_region_for_every_declaration_kind_it_sits_on(self) -> None:
+        resolution = resolve_entry(
+            '@allow("tab-indentation")\n'
+            "record R\n"
+            '  @allow("shell-quoted-hole") x: int\n'
+            "\n"
+            '@allow("noop-parse-retries", "tab-indentation")\n'
+            "def f(\n"
+            '  @allow("tab-indentation") a: int,\n'
+            ") -> int =\n"
+            '  @allow("unquoted-exec-hole")\n'
+            "  let y = a\n"
+            "  y\n"
+        )
+
+        regions = {
+            (r.span.start_line, r.span.start_col, r.span.end_line): r.names
+            for r in resolution.attributes.warning_allows
+        }
+        assert regions == {
+            (1, 1, 3): frozenset({"tab-indentation"}),
+            (3, 3, 3): frozenset({"shell-quoted-hole"}),
+            (5, 1, 11): frozenset({"noop-parse-retries", "tab-indentation"}),
+            (7, 3, 7): frozenset({"tab-indentation"}),
+            (9, 3, 10): frozenset({"unquoted-exec-hole"}),
+        }
+        assert len(resolution.attributes.warning_allows) == 5
+        assert resolution.attributes.warning_exemptions == {}
+
+    def test_exempts_files_its_names_on_functions_and_methods(self) -> None:
+        resolution = resolve_entry(
+            '@exempts("unquoted-exec-hole")\n'
+            "def f(v: text) -> text = v\n"
+            "\n"
+            '@exempts("unquoted-exec-hole")\n'
+            "def text::g(self) -> text = self\n"
+            "\n"
+            "def h() -> int = 1\n"
+        )
+
+        exemptions = resolution.attributes.warning_exemptions
+        by_name = {name: _program(resolution, name) for name in ("f", "g", "h")}
+        assert exemptions == {
+            by_name["f"].node_id: frozenset({"unquoted-exec-hole"}),
+            by_name["g"].node_id: frozenset({"unquoted-exec-hole"}),
+        }
+        assert resolution.attributes.warning_allows == []
+
+    def test_exempts_sits_on_program_extern_and_builtin_declarations(self) -> None:
+        program, _next_id = parse_program_seeded(
+            '@exempts("unquoted-exec-hole")\nprogram def p() -> unit = ()\n'
+            '@exempts("unquoted-exec-hole")\nextern def e(v: text) -> text\n'
+            '@exempts("unquoted-exec-hole")\nbuiltin def b(v: text) -> text\n',
+            start_id=0,
+        )
+
+        facts = recognize_attributes(program, declares_receiver=lambda _node: False)
+
+        assert list(facts.warning_exemptions.values()) == [frozenset({"unquoted-exec-hole"})] * 3
+
+    def test_names_are_folded_like_other_constant_arguments(self) -> None:
+        resolution = resolve_entry(
+            'let name = "tab-indentation"\n@allow(name, "noop-%{kind}")\ndef f() -> int = 1\n'
+            'let kind = "parse-retries"\n'
+        )
+
+        assert [r.names for r in resolution.attributes.warning_allows] == [
+            frozenset({"tab-indentation", "noop-parse-retries"})
+        ]
+
+    @pytest.mark.parametrize(
+        ("attribute", "bad"),
+        [
+            ("allow", "no-such-warning"),
+            ("exempts", "no-such-warning"),
+            ("exempts", "shell-quoted-hole"),
+            ("allow", "tab-indentation"),
+        ],
+    )
+    def test_a_name_error_is_anchored_at_the_offending_argument(
+        self, attribute: str, bad: str
+    ) -> None:
+        first = '"unquoted-exec-hole"' if attribute == "exempts" else '"noop-parse-retries"'
+        repeated = bad == "tab-indentation"
+        arguments = f'{first}, "{bad}", "{bad}"' if repeated else f'{first}, "{bad}"'
+        source = f"@{attribute}({arguments})\ndef f() -> int = 1\n"
+
+        with pytest.raises(AglScopeError) as raised:
+            resolve_entry(source)
+
+        span = raised.value.span
+        assert span is not None
+        offending = source.index(f'"{bad}"', source.index(first) + len(first))
+        if repeated:
+            offending = source.rindex(f'"{bad}"')
+        assert (span.start_line, span.start_col) == (1, offending + 1)
+
+
 class TestCommandRegistrations:
     """``@command`` validation, and a registered program's ``@doc``."""
 

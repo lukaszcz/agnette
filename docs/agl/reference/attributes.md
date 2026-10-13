@@ -16,12 +16,13 @@ be written in a row; their layout is given in
 [Lexical structure](lexical-structure.md#attributes), their syntax in
 [Grammar](grammar.md#attributes).
 
-Every built-in attribute but `@config` takes one constant text expression
-positionally, or nothing at all; see [Constant arguments](#constant-arguments)
-below. `@config` instead takes one or more `key = value` entries; see
-[`@config`](#config). An unknown name, a misplaced, repeated, or conflicting
-attribute, and an argument list the attribute does not admit are static
-errors.
+Every built-in attribute but `@config`, `@allow`, and `@exempts` takes one
+constant text expression positionally, or nothing at all; see [Constant
+arguments](#constant-arguments) below. `@allow` and `@exempts` take one or more
+such expressions, `@allow("a", "b")`. `@config` instead takes one or more
+`key = value` entries; see [`@config`](#config). An unknown name, a misplaced,
+repeated, or conflicting attribute, and an argument list the attribute does not
+admit are static errors.
 
 ## Constant arguments
 
@@ -55,8 +56,8 @@ is an ordinary constant elsewhere. The whole argument must be text: a
 number folds inside a hole, not as the argument itself.
 
 Folding happens first, so an attribute that narrows its text to a particular
-spelling — `@name`, `@json-name`, `@command`, `@extern-name`, and the `@opt-*`
-attributes — checks the folded result.
+spelling — `@name`, `@json-name`, `@command`, `@extern-name`, the `@opt-*`
+attributes, and the names of `@allow` and `@exempts` — checks the folded result.
 
 A binding a host can override — a [module parameter](#module-parameters) or an
 [engine setting](host-environment.md#engine-settings) — may be named too, and
@@ -82,6 +83,8 @@ that same binding in an expression reads whatever value the host bound.
 | `@name("…")` | AgL identifier | field, enum member, or record declaration | Alternative external name; default JSON name. |
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
+| `@allow("name", ...)` | one or more warning names | every defining declaration | Names static warnings. |
+| `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Names exemptable static warnings. |
 | `@config(key = value, ...)` | one or more keyed entries | `program def` | States the values module parameters and engine settings take when this program is selected. |
 
 ## Zone attributes
@@ -187,6 +190,31 @@ program def main(@arg-pos subject: text) -> unit =
 ```
 
 A program outside a package registers nothing: nothing reads its `@command`.
+
+## `@allow` and `@exempts`
+
+Both take one or more [constant text expressions](#constant-arguments), each
+naming a static warning. An unknown name, or a name repeated within one
+attribute, is a static error; the error points at the offending argument.
+Neither attribute changes what a program computes.
+
+`@allow` may prefix every declaration that takes attributes.
+
+`@exempts` may prefix any `def` form: `def`, `program def`, `extern def`,
+`builtin def`, and a method. It may name only *exemptable* warnings, those about
+a value placed in a hole (`unquoted-exec-hole`); naming any other warning is a
+static error, as is `@exempts` on any other declaration.
+
+```agl
+@allow("tab-indentation")
+def double(n: int) -> int =
+  @allow("noop-parse-retries")
+  let result = n * 2
+  result
+
+@exempts("unquoted-exec-hole")
+def passthrough(value: text) -> text = value
+```
 
 ## Module parameters
 

@@ -53,6 +53,12 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `external_names` | `@name`, `@json-name` | type building; collisions checked by typecheck |
 | `params`, `program_options`, `docs` | `@param`, `@opt-*`, `@doc` | program discovery and CLI projection ([hosting.md](../hosting.md)); `docs` also type building |
 | `program_configs` | `@config` | typecheck (keys resolved, values checked as constants) and lowering ([hosting.md](../hosting.md)) |
+| `warning_allows` | `@allow` | none yet |
+| `warning_exemptions` | `@exempts` | none yet |
+
+`warning_allows` is a list of `AllowRegion(span, names)` (declaration span, attribute prefix included); `warning_exemptions` maps `FuncDef.node_id` to names.
+
+Argument shapes are `NONE`, `ONE_TEXT`, `TEXT_LIST` (`@allow`, `@exempts`: positional constant texts, folded alike) and `KEYED_ENTRIES`. A `TEXT_LIST` spec declares its `known` and `admitted` element sets (the warning catalog, and its exemptable subset for `@exempts`); the shared prefix validator rejects repeated, unknown and non-admitted elements at the offending argument, so parse-only callers see the same errors.
 
 `@command` writes no fact: scope only validates its path, and the package command scan reuses the recognizer without a scope pass ([packages.md](../../packages.md)).
 

@@ -127,6 +127,7 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
                 "agnette.agl.scope",
                 "agnette.agl.semantics",
                 "agnette.agl.syntax",
+                "agnette.agl.warnings",
                 "agnette.agl.zones",
             ),
         ),
@@ -278,7 +279,15 @@ def test_shared_primitives_do_not_import_manager_or_language(package: str) -> No
     ("leaf", "allowed"),
     [
         ("zones.py", ()),
-        ("attributes.py", ("agnette.agl.keywords", "agnette.agl.zones", "agnette.command_catalog")),
+        (
+            "attributes.py",
+            (
+                "agnette.agl.keywords",
+                "agnette.agl.warnings",
+                "agnette.agl.zones",
+                "agnette.command_catalog",
+            ),
+        ),
         ("artifact_storage.py", ()),
         ("keywords.py", ("agnette.util.ident",)),
         ("constraints.py", ()),
@@ -292,8 +301,9 @@ def test_shared_leaves_sit_below_every_pass(leaf: str, allowed: tuple[str, ...])
     ``zones`` is the bottom leaf and imports nothing under ``agnette``;
     ``attributes`` names the zones its ``@arg-*`` entries select, the
     command-path rule its ``@command`` entry shares with a package manifest,
-    and the plain-name predicate its ``@name`` argument rule shares, all pure
-    data leaves, and nothing else; ``artifact_storage`` is the disk envelope
+    the plain-name predicate its ``@name`` argument rule shares, and the
+    warning catalog its ``@allow``/``@exempts`` name sets are derived from, all
+    pure data leaves, and nothing else; ``artifact_storage`` is the disk envelope
     every disk cache writes through and, like ``zones``, imports nothing
     under ``agnette``; ``keywords`` names only the identifier grammar leaf its
     plain-name predicate cross-checks; ``warnings`` is the static warning

@@ -1,0 +1,39 @@
+# @allow names catalog warnings and sits on any declaration; @exempts names
+# exemptable warnings and sits on any def form. Both take several positional
+# constant texts, and neither changes what the program computes.
+let exempt-name = "unquoted-exec-hole"
+
+@allow("tab-indentation")
+@doc("An allowed function.")
+def twice(n: int) -> int =
+  @allow("tab-indentation", "noop-parse-retries")
+  let doubled = n * 2
+  doubled
+
+@allow("unquoted-exec-hole")
+record Point
+  @allow("shell-quoted-hole") x: int
+  y: int
+
+@allow("tab-indentation")
+enum Shade
+  | @allow("tab-indentation") Light
+  | Dark
+
+@allow("tab-indentation")
+type Count = int
+
+@exempts("unquoted-exec-hole")
+def passthrough(value: text) -> text = value
+
+@exempts(exempt-name)
+def Point::label(self) -> text = "(%{self.x}, %{self.y})"
+
+@exempts(exempt-name)
+@allow("tab-indentation")
+program def main() -> unit =
+  @allow("tab-indentation")
+  let sum: Count = twice(2) + 3
+  print sum
+  print passthrough("raw")
+  print Point(x = 1, y = 2).label()
