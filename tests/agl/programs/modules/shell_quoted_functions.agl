@@ -1,0 +1,12 @@
+# An imported `@shell-quoted` function, method or extern returns complete shell words, like
+# `std/exec::shell-quote`: its call is exempt from `unquoted-exec-hole`, warns
+# `shell-quoted-hole` inside quotes the author wrote, and keeps the quote state of the holes
+# after it known. After an opaque hole, the quote state is unknown and nothing is judged.
+import wrapping::*
+import wrapping as w
+
+program def main(value: text) -> unit =
+  let wrapper = Wrapper(prefix = "p")
+  exec $ echo %{wrap(value)} %{wrapper.wrap(value)} %{w::host-wrap(value)}
+  exec $ echo "%{wrap(value)}" '%{wrapper.wrap(value)}'
+  exec $ echo %{opaque(value)} '%{wrap(value)}'

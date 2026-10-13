@@ -51,6 +51,7 @@ __all__ = [
     "OPTION_NAME_ATTRIBUTE",
     "OPTION_SHORT_ATTRIBUTE",
     "PARAM_ATTRIBUTE",
+    "SHELL_QUOTED_ATTRIBUTE",
     "ZONE_ATTRIBUTES",
     "AttributeArguments",
     "AttributeSpec",
@@ -194,6 +195,10 @@ CONFIG_ATTRIBUTE = "config"
 #: function's call results exempt from the exemptable ones.
 ALLOW_ATTRIBUTE = "allow"
 EXEMPTS_ATTRIBUTE = "exempts"
+
+#: The marker declaring a function's call results complete shell words: exempt
+#: from ``unquoted-exec-hole``, and subject to ``shell-quoted-hole``.
+SHELL_QUOTED_ATTRIBUTE = "shell-quoted"
 
 #: The attributes shaping how a host-facing parameter is presented.
 OPTION_NAME_ATTRIBUTE = "opt-name"
@@ -430,6 +435,11 @@ _SPECS: tuple[AttributeSpec, ...] = (
         element="warning",
         known=frozenset(WARNING_CATALOG),
         admitted=EXEMPTABLE_WARNINGS,
+    ),
+    AttributeSpec(
+        name=SHELL_QUOTED_ATTRIBUTE,
+        targets=_DEF_TARGETS,
+        arguments=AttributeArguments.NONE,
     ),
     AttributeSpec(
         name=NAME_ATTRIBUTE,

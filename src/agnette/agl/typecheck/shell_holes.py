@@ -1,11 +1,12 @@
 """Static analysis of the holes in templates that reach an ``exec`` command.
 
 :func:`checked_templates` finds the template literals whose text becomes the
-command; :func:`calls_exempt_function` decides whether a hole is a direct call
-of a function declared ``@exempts`` for a warning, which is what every
-``%!{…}`` hole expands to. :func:`check_exec_holes` raises ``unquoted-exec-hole``
-for the holes that neither carry a scalar nor a constant nor an exempt call, and
-``shell-quoted-hole`` for standard quoting calls (:func:`is_std_quoting_call`) inside the
+command. A hole that directly calls a function declared ``@shell-quoted`` — every
+``%!{…}`` hole does — is a quoting call (:func:`calls_shell_quoted_function`); one
+calling a function declared ``@exempts`` for a warning is exempt from it
+(:func:`calls_exempt_function`). :func:`check_exec_holes` raises
+``unquoted-exec-hole`` for the holes that carry neither a scalar, a constant, a
+quoting call nor an exempt call, and ``shell-quoted-hole`` for quoting calls inside the
 author's own shell quotes.
 """
 
@@ -15,7 +16,6 @@ from collections.abc import Iterator
 from typing import Protocol
 
 from agnette.agl.diagnostics import Diagnostic, warning_diagnostic
-from agnette.agl.modules.ids import ModuleId
 from agnette.agl.scope.symbols import BinderKind, BindingRef, ConstructorRef
 from agnette.agl.semantics.type_table import MethodDef
 from agnette.agl.semantics.types import BoolType, DecimalType, IntType, Type
@@ -34,21 +34,17 @@ from agnette.agl.syntax.nodes import (
     VarRef,
 )
 from agnette.agl.typecheck.constant_bindings import ModuleConstantBindings
-from agnette.agl.typecheck.env import TypeEnvironment
+from agnette.agl.typecheck.env import FunctionSignature, TypeEnvironment
 from agnette.agl.warnings import SHELL_QUOTED_HOLE, UNQUOTED_EXEC_HOLE, StaticWarning
 from agnette.util.posix_shell import HoleKind, QuoteState, hole_quote_states
 
 __all__ = [
     "HoleCheckCtx",
     "calls_exempt_function",
+    "calls_shell_quoted_function",
     "check_exec_holes",
     "checked_templates",
-    "is_std_quoting_call",
 ]
-
-#: The functions that quote their argument into shell words, by module and name.
-_STD_EXEC = ModuleId.from_path("std/exec")
-_QUOTING_FUNCTIONS = frozenset({"shell-quote", "shell-join"})
 
 _UNQUOTED = (
     "This hole inserts its value into the shell command verbatim. Quote it "
@@ -109,8 +105,23 @@ def checked_templates(command: Item) -> Iterator[Template]:
 
 def calls_exempt_function(expr: Expr, warning: StaticWarning, ctx: HoleCheckCtx) -> bool:
     """Whether *expr* is a direct function or method call whose declaration exempts *warning*."""
+    signature = _called_signature(expr, ctx)
+    return signature is not None and warning.name in signature.exempts
+
+
+def calls_shell_quoted_function(expr: Expr, ctx: HoleCheckCtx) -> bool:
+    """Whether *expr* is a direct function or method call whose declaration is ``@shell-quoted``.
+
+    Identified by the resolved declaration, so the spelling of the call does not matter.
+    """
+    signature = _called_signature(expr, ctx)
+    return signature is not None and signature.shell_quoted
+
+
+def _called_signature(expr: Expr, ctx: HoleCheckCtx) -> FunctionSignature | None:
+    """The declared signature of the function or method *expr* calls directly, if any."""
     if not isinstance(expr, Call):
-        return False
+        return None
     callee = expr.callee
     declaration: int | None = None
     if isinstance(callee, VarRef):
@@ -120,21 +131,8 @@ def calls_exempt_function(expr: Expr, warning: StaticWarning, ctx: HoleCheckCtx)
         method = ctx._method_selections.get(callee.node_id)
         declaration = None if method is None else method.decl_node_id
     if declaration is None:
-        return False
-    signature = ctx._env.get_function_signature_by_node_id(declaration)
-    return signature is not None and warning.name in signature.exempts
-
-
-def is_std_quoting_call(expr: Expr, ctx: HoleCheckCtx) -> bool:
-    """Whether *expr* directly calls ``std/exec``'s ``shell-quote`` or ``shell-join``.
-
-    Identified by the resolved declaration, so every ``%!{…}`` qualifies and a same-named
-    local function or ``shell-raw`` (which also exempts holes) does not.
-    """
-    if not (isinstance(expr, Call) and isinstance(expr.callee, VarRef)):
-        return False
-    ref = _function_binding(expr.callee, ctx)
-    return ref is not None and ref.module_id == _STD_EXEC and ref.name in _QUOTING_FUNCTIONS
+        return None
+    return ctx._env.get_function_signature_by_node_id(declaration)
 
 
 def _function_binding(callee: VarRef, ctx: HoleCheckCtx) -> BindingRef | None:
@@ -150,10 +148,9 @@ def check_exec_holes(command: Expr, ctx: HoleCheckCtx) -> None:
 
     ``unquoted-exec-hole`` marks each plain hole carrying runtime data: a hole is exempt when
     its type is ``int``, ``decimal`` or ``bool``, when it is a constant expression over fixed
-    bindings (never a ``var`` or ``@param``), or when it directly calls a function exempting
-    the warning. ``shell-quoted-hole`` marks a call of a standard quoting function (every
-    ``%!{…}``) that sits inside shell quotes the author wrote, as judged by
-    :func:`hole_quote_states`.
+    bindings (never a ``var`` or ``@param``), or when it is a quoting call or a call exempting
+    the warning. ``shell-quoted-hole`` marks a quoting call (every ``%!{…}``) that sits
+    inside shell quotes the author wrote, as judged by :func:`hole_quote_states`.
     """
     for template in checked_templates(command):
         states = _hole_states(template, ctx)
@@ -161,7 +158,7 @@ def check_exec_holes(command: Expr, ctx: HoleCheckCtx) -> None:
             if not isinstance(segment, InterpSegment):
                 continue
             quoted = states.get(segment.node_id) in (QuoteState.SINGLE, QuoteState.DOUBLE)
-            if is_std_quoting_call(segment.expr, ctx):
+            if calls_shell_quoted_function(segment.expr, ctx):
                 if quoted:
                     ctx._append_warning(
                         warning_diagnostic(SHELL_QUOTED_HOLE, _QUOTED, segment.span)
@@ -175,7 +172,7 @@ def _hole_states(template: Template, ctx: HoleCheckCtx) -> dict[int, QuoteState]
     """The quote state of each hole of *template* that stays in the scan, by node id.
 
     A constant hole is spliced into the text as its folded value and has no state. Any
-    other hole is a word when it is a standard quoting call or a scalar, else opaque.
+    other hole is a word when it is a quoting call or a scalar, else opaque.
     """
     fragments = [""]
     kinds: list[HoleKind] = []
@@ -189,7 +186,7 @@ def _hole_states(template: Template, ctx: HoleCheckCtx) -> dict[int, QuoteState]
             holes.append(segment.node_id)
             kinds.append(
                 HoleKind.WORD
-                if is_std_quoting_call(segment.expr, ctx) or _is_scalar(segment.expr, ctx)
+                if calls_shell_quoted_function(segment.expr, ctx) or _is_scalar(segment.expr, ctx)
                 else HoleKind.OPAQUE
             )
             fragments.append("")

@@ -42,6 +42,7 @@ class TestCatalogContents:
             "json-name",
             "allow",
             "exempts",
+            "shell-quoted",
         }
 
     @pytest.mark.parametrize("name", ["name", "json-name"])
@@ -175,6 +176,11 @@ class TestWarningAttributes:
                 AttributeTarget.BUILTIN_FUNCTION,
             }
         )
+
+    def test_shell_quoted_is_a_bare_marker_on_every_def_form(self) -> None:
+        spec = BUILTIN_ATTRIBUTES["shell-quoted"]
+        assert spec.arguments is AttributeArguments.NONE
+        assert spec.targets == BUILTIN_ATTRIBUTES["exempts"].targets
 
     def test_the_lists_name_warnings_from_the_catalog(self) -> None:
         allow, exempts = BUILTIN_ATTRIBUTES["allow"], BUILTIN_ATTRIBUTES["exempts"]

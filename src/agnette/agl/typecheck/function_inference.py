@@ -927,7 +927,8 @@ def resolve_function_header(
 
     A classified method's resolved owner is returned alongside its signature so
     :func:`register_method_header` reuses it instead of resolving it again.
-    The declaration's ``@arg-*`` zones and ``@exempts`` set are read from *attributes*.
+    The declaration's ``@arg-*`` zones, ``@exempts`` set and ``@shell-quoted`` marker are read
+    from *attributes*.
     """
     param_zones = attributes.param_zones
     validate_required_after_defaulted(node.params, param_zones)
@@ -986,5 +987,6 @@ def resolve_function_header(
         target_params=_target_params(signature_type_params, params) if node.is_extern else (),
         bounds=_declaration_bounds(node),
         exempts=attributes.warning_exemptions.get(node.node_id, frozenset()),
+        shell_quoted=node.node_id in attributes.shell_quoted,
     )
     return signature, signature.value_type, resolved_receiver

@@ -94,7 +94,7 @@ program def main(spec: text) -> unit =
 | [Agent calls](agent-calls.md) | `ask`, agents as values, call options, output contracts, the JSON wire format, parse retries |
 | [Shell execution](shell-execution.md) | `exec`, the `ExecResult` structured form vs the parsed form, shell-quoted holes and their warnings, `ExecError` |
 | [Exceptions](exceptions.md) | The exception model, `try`/`catch`/`raise`, the built-in exception catalog |
-| [Attributes](attributes.md) | `@name` declaration attributes: placement, catalog, zones, `@doc`, `@allow`, `@exempts`, `@extern-name`, command registration, program parameter options |
+| [Attributes](attributes.md) | `@name` declaration attributes: placement, catalog, zones, `@doc`, `@allow`, `@exempts`, `@shell-quoted`, `@extern-name`, command registration, program parameter options |
 | [Static warnings](warnings.md) | The warning catalog, levels, `@allow` regions, `@exempts`, host control |
 | [Modules](modules.md) | File-based module system: module identity, import forms, `use`, qualified access, re-exports and visibility, the prelude, cyclic imports, REPL imports |
 | [Named scopes](scopes.md) | Nestable declaration namespaces, qualifier paths, visibility, and `use` |

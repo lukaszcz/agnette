@@ -85,6 +85,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
 | `@allow("name", ...)` | one or more warning names | every defining declaration | Hides the named static warnings within the declaration. |
 | `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Exempts the function's call results from the named static warnings. |
+| `@shell-quoted` | none | any `def` form | Declares the function's call results complete, quoted shell words. |
 | `@config(key = value, ...)` | one or more keyed entries | `program def` | States the values module parameters and engine settings take when this program is selected. |
 
 ## Zone attributes
@@ -214,6 +215,22 @@ def double(n: int) -> int =
 
 @exempts("unquoted-exec-hole")
 def passthrough(value: text) -> text = value
+```
+
+## `@shell-quoted`
+
+`@shell-quoted` declares that every call of the function returns complete,
+quoted POSIX shell words, as `shell-quote` and `shell-join` do. It may prefix
+any `def` form, a method included; on any other declaration it is a static
+error. Like `@exempts`, it belongs to the function, so it holds in every module
+that imports it, and it does not change what a program computes. A direct call
+of the function in a hole of an `exec` command is exempt from
+`unquoted-exec-hole` and is checked by `shell-quoted-hole`; see [Hole
+warnings](shell-execution.md#hole-warnings).
+
+```agl
+@shell-quoted
+def shell-option(name: text, value: text) -> text = "--%{name}=" ++ shell-quote(value)
 ```
 
 ## Module parameters

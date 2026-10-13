@@ -1,0 +1,14 @@
+@shell-quoted
+def wrap(value: text) -> text = "'" ++ value ++ "'"
+
+def opaque(value: text) -> text = value
+
+record Wrapper
+  prefix: text
+
+@shell-quoted
+def Wrapper::wrap(self, value: text) -> text = "'" ++ self.prefix ++ value ++ "'"
+
+@shell-quoted
+@extern-name("host_wrap")
+extern def host-wrap(value: text) -> text

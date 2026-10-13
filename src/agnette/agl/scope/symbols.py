@@ -986,6 +986,8 @@ class AttributeFacts:
         The warning names each ``def`` carrying ``@exempts`` declares its call
         results exempt from, keyed by ``FuncDef.node_id``. Names are
         validated, distinct, and all exemptable.
+    ``shell_quoted``
+        The ``FuncDef.node_id`` of every ``def`` carrying ``@shell-quoted``.
     """
 
     param_zones: dict[int, ParamZone] = field(default_factory=dict)
@@ -997,6 +999,7 @@ class AttributeFacts:
     program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = field(default_factory=dict)
     warning_allows: list[AllowRegion] = field(default_factory=list)
     warning_exemptions: dict[int, frozenset[str]] = field(default_factory=dict)
+    shell_quoted: set[int] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)

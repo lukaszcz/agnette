@@ -59,8 +59,9 @@ in the catalog, and `@exempts` may name only those. Naming any other warning is 
 static error. [`@exempts("name", …)`](attributes.md#allow-and-exempts) on a function
 declares that a direct call of it, or of the method, placed in a hole of an
 [`exec` command](shell-execution.md#hole-warnings) is exempt from the named
-warnings. It is how `shell-quote`, `shell-join`, and `shell-raw` make their holes
-exempt. The exemption belongs to the function, so it holds in every module that
+warnings. It is how `shell-raw` makes its holes exempt; a
+[`@shell-quoted`](attributes.md#shell-quoted) function, such as `shell-quote` or
+`shell-join`, is exempt from `unquoted-exec-hole` without naming it. The exemption belongs to the function, so it holds in every module that
 imports it; the result of any other expression, such as `passthrough(value) ++ "x"`
 or a function value bound to another name, is not exempt:
 

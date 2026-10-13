@@ -131,6 +131,9 @@ def vetted(value: text) -> text = value
 
 @exempts("unquoted-exec-hole")
 def Point::label(self) -> text = "%{self.x}"
+
+@shell-quoted
+def quoted(value: text) -> text = value
 """
 
 _CANDIDATE_CALLEE_SRC = "def factorial(n: int) = if n <= 1 => 1 else => n * factorial(n - 1)\n"
@@ -271,21 +274,25 @@ class TestRehydrationParity:
                         param.node_id
                     ) == cm.type_env.get_binding_type(param.node_id)
 
-    def test_exemption_sets_survive_rehydration(
+    def test_warning_signature_facts_survive_rehydration(
         self, compiled: _Compiled, rehydrated: dict[ModuleId, CheckedModule]
     ) -> None:
         mid = ModuleId.from_path("lib_methods")
         exempt = frozenset({"unquoted-exec-hole"})
         for module in (compiled.checked.modules[mid], rehydrated[mid]):
-            exemptions = {
-                item.name: module.type_env.function_signature_of(item.node_id).exempts
+            signatures = {
+                item.name: module.type_env.function_signature_of(item.node_id)
                 for item in static_function_items(module.resolved.program.body.items)
             }
-            assert exemptions == {
+            assert {name: signature.exempts for name, signature in signatures.items()} == {
                 "sum": frozenset(),
                 "sum-of-origin": frozenset(),
                 "vetted": exempt,
                 "label": exempt,
+                "quoted": frozenset(),
+            }
+            assert {name for name, signature in signatures.items() if signature.shell_quoted} == {
+                "quoted"
             }
 
     def test_declared_type_template_queries_match(
@@ -375,7 +382,7 @@ class TestImageArtifactSerialization:
 
             assert restored == image
 
-    def test_exemption_sets_round_trip_through_artifact_serialization(
+    def test_warning_signature_facts_round_trip_through_artifact_serialization(
         self, compiled: _Compiled
     ) -> None:
         image = compiled.checked.modules[ModuleId.from_path("lib_methods")].image()
@@ -389,6 +396,11 @@ class TestImageArtifactSerialization:
             for record in restored.published_signatures.values()
         }
         assert exemptions["vetted"] == frozenset({"unquoted-exec-hole"})
+        assert {
+            record.name
+            for record in restored.published_signatures.values()
+            if record.signature.shell_quoted
+        } == {"quoted"}
 
 
 def _is_vacuous(value: object) -> bool:

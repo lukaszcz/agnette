@@ -1,0 +1,4 @@
+@shell-quoted("x")
+def quote(value: text) -> text = value
+
+program def main() -> unit = print quote("a")

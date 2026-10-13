@@ -44,11 +44,11 @@ builtin def exec[T](
   parse-error-retries: int = 0,
 ) -> T
 
-@exempts("unquoted-exec-hole")
+@shell-quoted
 @doc("Quote text as one literal POSIX shell word: single-quoted, each `'` written as `'\\''`.")
 def shell-quote(value: text) -> text = "'" ++ value.replace("'", "'\\''") ++ "'"
 
-@exempts("unquoted-exec-hole")
+@shell-quoted
 @doc("Quote each value with `shell-quote` and join them with spaces, one shell word per value.")
 def shell-join(values: array[text]) -> text = join(values.map(shell-quote), " ")
 

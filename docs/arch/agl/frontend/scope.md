@@ -55,8 +55,9 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `program_configs` | `@config` | typecheck (keys resolved, values checked as constants) and lowering ([hosting.md](../hosting.md)) |
 | `warning_allows` | `@allow` | the warning policy ([hosting.md](../hosting.md)) |
 | `warning_exemptions` | `@exempts` | function headers (`FunctionSignature.exempts`) → `exec` hole analysis ([types.md](types.md)) |
+| `shell_quoted` | `@shell-quoted` | function headers (`FunctionSignature.shell_quoted`) → `exec` hole analysis ([types.md](types.md)) |
 
-`warning_allows` is a list of `AllowRegion(span, names)` (the declaration, attribute prefix included, reaching back to its line's start when only blanks precede it); `warning_exemptions` maps `FuncDef.node_id` to names.
+`warning_allows` is a list of `AllowRegion(span, names)` (the declaration, attribute prefix included, reaching back to its line's start when only blanks precede it); `warning_exemptions` maps `FuncDef.node_id` to names; `shell_quoted` is a set of `FuncDef.node_id`s.
 
 Argument shapes are `NONE`, `ONE_TEXT`, `TEXT_LIST` (`@allow`, `@exempts`: positional constant texts, folded alike) and `KEYED_ENTRIES`. A `TEXT_LIST` spec declares its `known` and `admitted` element sets (the warning catalog, and its exemptable subset for `@exempts`); the shared prefix validator rejects repeated, unknown and non-admitted elements at the offending argument, so parse-only callers see the same errors.
 

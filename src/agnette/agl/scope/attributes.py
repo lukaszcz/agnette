@@ -7,7 +7,7 @@ admitted target, the arguments match the declared schema, the attribute is not
 repeated or contradicted — and turns the surviving attributes into typed
 side-table entries.
 
-Ten facts are built: a parameter's zone, from the ``@arg-*`` attribute an
+Eleven facts are built: a parameter's zone, from the ``@arg-*`` attribute an
 entry or its owning declaration carries; an ``extern def``'s Python companion
 name, from ``@extern-name`` — the walk sees every extern of a module, so it is
 also where their companion names are held apart; host-facing parameters'
@@ -19,7 +19,8 @@ member, or record declaration's external spellings, from ``@name``/
 resolution and type checking to give meaning to; the static warnings each
 declaration allows within itself, from ``@allow``; and the warnings each
 function's call results are exempt from, from ``@exempts`` — both validated
-against the warning catalog. The walk is the seam a
+against the warning catalog — and the functions returning shell words, from
+``@shell-quoted``. The walk is the seam a
 further attribute meaning joins through — a new fact reads the attributes the
 walk already hands it and fills a table of its own, so it costs one more
 builder, never one more traversal.
@@ -48,6 +49,7 @@ from agnette.agl.attributes import (
     OPTION_NAME_ATTRIBUTE,
     OPTION_SHORT_ATTRIBUTE,
     PARAM_ATTRIBUTE,
+    SHELL_QUOTED_ATTRIBUTE,
     ZONE_ATTRIBUTES,
     AttributeArguments,
     AttributeSpec,
@@ -218,6 +220,7 @@ def recognize_attributes(
         program_configs=recognizer.program_configs,
         warning_allows=recognizer.warning_allows,
         warning_exemptions=recognizer.warning_exemptions,
+        shell_quoted=recognizer.shell_quoted,
     )
 
 
@@ -245,6 +248,7 @@ class _Recognizer:
         self.program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = {}
         self.warning_allows: list[AllowRegion] = []
         self.warning_exemptions: dict[int, frozenset[str]] = {}
+        self.shell_quoted: set[int] = set()
         self._companion_owners: dict[str, str] = {}
 
     def visit(self, node: object) -> None:
@@ -401,13 +405,14 @@ class _Recognizer:
     # ------------------------------------------------------------------
 
     def _warning_names(self, node_id: int, span: SourceSpan, recognized: _Recognized) -> None:
-        """Record the catalog warnings ``@allow`` and ``@exempts`` name on one declaration.
+        """Record the warning facts ``@allow``, ``@exempts`` and ``@shell-quoted`` state.
 
         The names were validated against the catalog with the rest of the
         prefix. ``@allow`` files a region (the declaration's *span*, reaching back
         to its line's start when only whitespace precedes it there, and the
         names) in walk order; ``@exempts`` files the names by the ``def`` it
-        sits on. A declaration without the attribute files nothing.
+        sits on, and ``@shell-quoted`` that ``def``. A declaration without these
+        attributes files nothing.
         """
         allowed = recognized.lists.get(ALLOW_ATTRIBUTE)
         if allowed is not None:
@@ -417,6 +422,8 @@ class _Recognizer:
         exempted = recognized.lists.get(EXEMPTS_ATTRIBUTE)
         if exempted is not None:
             self.warning_exemptions[node_id] = frozenset(exempted)
+        if SHELL_QUOTED_ATTRIBUTE in recognized.nodes:
+            self.shell_quoted.add(node_id)
 
     # ------------------------------------------------------------------
     # Fact builder: extern companion names

@@ -241,6 +241,8 @@ class FunctionSignature(_Record):
     ``exempts``     — the warnings the declaration's ``@exempts`` declares its
                       call results exempt from; part of the signature so an
                       imported or cached function keeps them.
+    ``shell_quoted`` — whether the declaration's ``@shell-quoted`` declares its
+                      call results complete shell words; kept likewise.
     """
 
     params: tuple[ParamSpec, ...]
@@ -249,6 +251,7 @@ class FunctionSignature(_Record):
     target_params: tuple[str, ...] = ()
     bounds: ConstraintBounds = MappingProxyType({})
     exempts: frozenset[str] = frozenset()
+    shell_quoted: bool = False
 
     @property
     def value_type(self) -> FunctionType:

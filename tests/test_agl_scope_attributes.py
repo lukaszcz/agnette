@@ -579,6 +579,25 @@ class TestWarningAttributes:
 
         assert list(facts.warning_exemptions.values()) == [frozenset({"unquoted-exec-hole"})] * 3
 
+    def test_shell_quoted_marks_every_def_form(self) -> None:
+        source = (
+            "@shell-quoted\ndef f(v: text) -> text = v\n"
+            "@shell-quoted\ndef text::g(self) -> text = self\n"
+            "@shell-quoted\nprogram def p() -> unit = ()\n"
+            "@shell-quoted\nextern def e(v: text) -> text\n"
+            "@shell-quoted\nbuiltin def b(v: text) -> text\n"
+            "def h(v: text) -> text = v\n"
+        )
+        program, _next_id = parse_program_seeded(source, start_id=0)
+
+        facts = recognize_attributes(
+            program, declares_receiver=lambda node: node.name == "g", source_text=source
+        )
+
+        marked = {item.name for item in program.body.items if item.node_id in facts.shell_quoted}
+        assert marked == {"f", "g", "p", "e", "b"}
+        assert facts.warning_exemptions == {}
+
     def test_names_are_folded_like_other_constant_arguments(self) -> None:
         resolution = resolve_entry(
             'let name = "tab-indentation"\n@allow(name, "noop-%{kind}")\ndef f() -> int = 1\n'

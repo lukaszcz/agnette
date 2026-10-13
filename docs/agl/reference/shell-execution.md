@@ -118,6 +118,9 @@ shorthand for `%{shell-quote("%{value}")}`. `shell-join(values)` quotes each tex
 an array and joins the words with spaces, so one array hole yields one word per
 element. `shell-raw(value)` returns `value` unchanged: it marks a deliberate
 unquoted splice. All three come from `std/exec` through the prelude.
+`shell-quote` and `shell-join` are declared
+[`@shell-quoted`](attributes.md#shell-quoted), as may be any function that returns
+complete, quoted shell words.
 
 ```agl
 program def main() -> unit =
@@ -137,14 +140,15 @@ at the hole. Exempt are holes of type `int`, `decimal` or `bool`; [constant
 expressions](bindings-and-scope.md#constant-expressions), such as literals,
 constructors, templates of those, and references to root or scope-region `let`
 constants of the same module; and direct calls of a function or method declared
-[`@exempts("unquoted-exec-hole")`](attributes.md#allow-and-exempts), which includes
-every `%!{…}` and `%!${NAME}` hole and `shell-quote`, `shell-join`, `shell-raw`
-(`shell-raw` marks a deliberate raw splice). An environment hole `%${NAME}` is
+[`@shell-quoted`](attributes.md#shell-quoted), which includes every `%!{…}` and
+`%!${NAME}` hole and `shell-quote` and `shell-join`, or
+[`@exempts("unquoted-exec-hole")`](attributes.md#allow-and-exempts), such as
+`shell-raw` (which marks a deliberate raw splice). An environment hole `%${NAME}` is
 reported. A `var`, an `@param let`, and a function-local binding are never constant
 here, so a hole that refers to one is reported, directly or through other bindings.
 
-`shell-quoted-hole` reports a call of `shell-quote` or `shell-join` (so every
-`%!{…}` and `%!${NAME}` hole) placed inside quotes the command text itself opens,
+`shell-quoted-hole` reports a direct call of a `@shell-quoted` function or method
+(so every `%!{…}` and `%!${NAME}` hole) placed inside quotes the command text itself opens,
 anchored at the hole: in `'%!{value}'` or `"%!{value}"` the hole's own quotes cancel
 or join the surrounding ones and the value is not protected. `shell-raw` and
 other `@exempts` functions never warn here, since a raw splice inside quotes can be
@@ -153,7 +157,7 @@ noting that the surrounding quotes do not protect its value.
 
 Quote state is judged conservatively from the literal text: `'…'`, `"…"` and backslash
 escapes, with each constant hole counted as its text and each `int`, `decimal`, `bool`
-or quoting-function hole as words. Judging stops for the rest of the command at a hole of
+or `@shell-quoted` call hole as words. Judging stops for the rest of the command at a hole of
 unknown text, a command or parameter expansion (`$(`, a backtick, `${`), `$'`, a heredoc
 (`<<`), a comment (`#` at the start of a word), a backslash-newline outside `'…'`, or a
 `\`, `$` or `<` directly before a hole (which, if empty, could join the next text).

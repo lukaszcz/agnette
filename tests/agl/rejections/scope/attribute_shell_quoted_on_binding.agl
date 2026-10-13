@@ -1,0 +1,4 @@
+@shell-quoted
+let value = "a"
+
+program def main() -> unit = print value
