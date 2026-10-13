@@ -336,3 +336,38 @@ func TestAttributesAreFaced(t *testing.T) {
 	// An `@' with no name after it is not an attribute.
 	assertFace(t, "let x = a @ b", "@", "symbol.operator")
 }
+
+// Text after a `%{...}' hole is still template text: keywords, operators and
+// braces there are content, and a later hole on the same line is still a hole.
+func TestTemplateTextAfterAHoleStaysString(t *testing.T) {
+	for _, source := range []string{
+		`let s = "a %{x} and b - c."`,
+		`let s = 'a %{x} and b - c.'`,
+		"let s =\n  \"\"\"\n  a %{x} and b - c.\n  \"\"\"",
+		"let s =\n  '''\n  a %{x} and b - c.\n  '''",
+		"ask $ a %{x} and b - c.",
+	} {
+		assertFace(t, source, " and b - c.", "constant.string")
+	}
+	second := "\"\"\"\n%{x} in %{yy}\n\"\"\""
+	assertFace(t, second, " in ", "constant.string")
+	assertFace(t, second, "yy", "constant.string")
+	assertNotFace(t, second, "in %{yy}", "symbol.brackets")
+}
+
+// A hole is code, so a quote inside it does not close the enclosing string.
+func TestQuoteInsideAHoleKeepsTheString(t *testing.T) {
+	assertFace(t, `let s = "a %{f("x")} if b"`, ` if b"`, "constant.string")
+	assertFace(t, `let s = "a %{f("x")} if b" + c`, "+", "symbol.operator")
+}
+
+// A quote inside a name is part of the name (IDENT_STOP in
+// src/agnette/util/ident.py), not a string opener.
+func TestQuoteInsideANameStaysCode(t *testing.T) {
+	assertFace(t, "let x' = f(1)", "x'", "default")
+	assertFace(t, "let x' = f(1)", "=", "symbol.operator")
+	assertFace(t, "let x' = f(1)", "1", "constant.number")
+	assertFace(t, `let s = f(a"b) + "c"`, `"c"`, "constant.string")
+	// A quote after a number or a delimiter still opens a string.
+	assertFace(t, "let s = g(1, 'a b')", "'a b'", "constant.string")
+}

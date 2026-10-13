@@ -124,62 +124,54 @@ rules:
         end: "$"
         skip: "\\\\."
         rules:
-            - constant.string:
-                start: "%\\{"
-                end: "(\\}|$)"
-                skip: "\\\\."
-                limit-group: special
+            - special: &hole "\\\\.|%\\{[^}]*\\}"
+            - constant.string: "[^%{}\\\\]+|\\\\."
 
-    # Template strings and `$' payloads contain unescaped `%{...}' holes. A
-    # nested region faces their delimiters without styling literal braces or
-    # escaped hole openers.
+    # Template strings and `$' payloads contain unescaped `%{...}' holes.  They
+    # are faced by patterns, not by a nested region: entering a nested region
+    # makes micro paint the top-level code rules over the rest of the line,
+    # and nothing repaints them once the hole closes.  The first pattern faces
+    # each hole whole -- an escape is matched first so that it cannot open
+    # one -- and the second returns the hole's contents, and the escape it
+    # matched, to the string face, leaving `%', `{' and `}' as delimiters.  A
+    # hole is skipped when looking for the closing quote, since its code may
+    # contain quotes of its own.
     - constant.string:
         start: "\"\"\""
         end: "\"\"\""
-        skip: "\\\\."
-        rules:
+        skip: *hole
+        rules: &template
+            - special: *hole
+            - constant.string: "[^%{}\\\\]+"
             - constant.specialChar: "\\\\."
-            - constant.string:
-                start: "%\\{"
-                end: "(\\}|$)"
-                skip: "\\\\."
-                limit-group: special
 
     - constant.string:
         start: "'''"
         end: "'''"
-        skip: "\\\\."
-        rules:
-            - constant.specialChar: "\\\\."
-            - constant.string:
-                start: "%\\{"
-                end: "(\\}|$)"
-                skip: "\\\\."
-                limit-group: special
+        skip: *hole
+        rules: *template
 
     - constant.string:
         start: "\""
         end: "(\"|$)"
-        skip: "\\\\."
-        rules:
-            - constant.specialChar: "\\\\."
-            - constant.string:
-                start: "%\\{"
-                end: "(\\}|$)"
-                skip: "\\\\."
-                limit-group: special
+        skip: *hole
+        rules: *template
 
     - constant.string:
         start: "'"
         end: "('|$)"
-        skip: "\\\\."
-        rules:
-            - constant.specialChar: "\\\\."
-            - constant.string:
-                start: "%\\{"
-                end: "(\\}|$)"
-                skip: "\\\\."
-                limit-group: special
+        skip: *hole
+        rules: *template
+
+    # A quote inside a name is part of the name (`x'', `foo"bar'), not a
+    # string opener.  Only a region can keep a later region from starting, so
+    # such a name is a region that ends as soon as it starts.  Micro picks the
+    # region that starts leftmost, and a name starts before its own quote, so
+    # this wins over the string rules exactly where the lexer would.
+    - default:
+        start: "[\\p{L}_][^\\]\\[(){}:,.|;/@=\\s'\"]*['\"][^\\]\\[(){}:,.|;/@=\\s]*"
+        end: "^"
+        rules: []
 
     - comment:
         start: "#"
