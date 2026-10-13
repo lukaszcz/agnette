@@ -125,6 +125,12 @@ record Point
 def Point::sum(self) -> int = self.x + self.y
 
 def sum-of-origin() -> int = Point(x = 0, y = 0).sum()
+
+@exempts("unquoted-exec-hole")
+def vetted(value: text) -> text = value
+
+@exempts("unquoted-exec-hole")
+def Point::label(self) -> text = "%{self.x}"
 """
 
 _CANDIDATE_CALLEE_SRC = "def factorial(n: int) = if n <= 1 => 1 else => n * factorial(n - 1)\n"
@@ -265,6 +271,23 @@ class TestRehydrationParity:
                         param.node_id
                     ) == cm.type_env.get_binding_type(param.node_id)
 
+    def test_exemption_sets_survive_rehydration(
+        self, compiled: _Compiled, rehydrated: dict[ModuleId, CheckedModule]
+    ) -> None:
+        mid = ModuleId.from_path("lib_methods")
+        exempt = frozenset({"unquoted-exec-hole"})
+        for module in (compiled.checked.modules[mid], rehydrated[mid]):
+            exemptions = {
+                item.name: module.type_env.function_signature_of(item.node_id).exempts
+                for item in static_function_items(module.resolved.program.body.items)
+            }
+            assert exemptions == {
+                "sum": frozenset(),
+                "sum-of-origin": frozenset(),
+                "vetted": exempt,
+                "label": exempt,
+            }
+
     def test_declared_type_template_queries_match(
         self, compiled: _Compiled, rehydrated: dict[ModuleId, CheckedModule]
     ) -> None:
@@ -351,6 +374,21 @@ class TestImageArtifactSerialization:
             restored = artifact_serialization.load(key, "test-checked-module-image-round-trip")
 
             assert restored == image
+
+    def test_exemption_sets_round_trip_through_artifact_serialization(
+        self, compiled: _Compiled
+    ) -> None:
+        image = compiled.checked.modules[ModuleId.from_path("lib_methods")].image()
+        key = os.urandom(16)
+        artifact_serialization.save(key, "test-checked-module-image-exemptions", image)
+        restored = artifact_serialization.load(key, "test-checked-module-image-exemptions")
+        assert isinstance(restored, CheckedModuleImage)
+        assert restored.published_signatures is not None
+        exemptions = {
+            record.name: record.signature.exempts
+            for record in restored.published_signatures.values()
+        }
+        assert exemptions["vetted"] == frozenset({"unquoted-exec-hole"})
 
 
 def _is_vacuous(value: object) -> bool:

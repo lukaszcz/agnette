@@ -84,7 +84,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
 | `@allow("name", ...)` | one or more warning names | every defining declaration | Hides the named static warnings within the declaration. |
-| `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Names exemptable static warnings. |
+| `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Exempts the function's call results from the named static warnings. |
 | `@config(key = value, ...)` | one or more keyed entries | `program def` | States the values module parameters and engine settings take when this program is selected. |
 
 ## Zone attributes
@@ -208,7 +208,13 @@ reported; a hidden warning is never reported at any level a host sets for it.
 `@exempts` may prefix any `def` form: `def`, `program def`, `extern def`,
 `builtin def`, and a method. It may name only *exemptable* warnings, those about
 a value placed in a hole (`unquoted-exec-hole`); naming any other warning is a
-static error, as is `@exempts` on any other declaration.
+static error, as is `@exempts` on any other declaration. It declares that a direct
+call of the function, or of the method, is exempt from the named warnings when the
+call is placed in a hole of an [`exec` command](shell-execution.md#interpolation-in-shell-templates),
+as in `%{passthrough(value)}`. The exemption belongs to the function, so it holds
+in every module that imports it; the result of any other expression, such as
+`passthrough(value) ++ "x"` or a function value bound to another name, is not
+exempt. `@allow` reaches `unquoted-exec-hole` like any warning.
 
 ```agl
 @allow("tab-indentation")

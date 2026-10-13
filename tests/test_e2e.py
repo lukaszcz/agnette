@@ -8793,6 +8793,27 @@ class TestWarningLevels:
         assert "error:" in denied.stderr
         assert allowed.stderr == ""
 
+    def test_repository_packages_pass_with_unquoted_exec_holes_denied(
+        self, env: dict[str, str]
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        # Only a source naming `exec` can hold an exec hole.
+        sources = sorted(
+            path
+            for path in root.glob("packages/*/src/**/*.agl")
+            if "exec" in path.read_text(encoding="utf-8")
+        )
+        assert {"stdlib", "devel"} <= {part for path in sources for part in path.parts}
+
+        # A local stdlib is not capped as an installed dependency, so its holes are reported.
+        result = run_agm(
+            ["check", "--warning", "unquoted-exec-hole=deny", *map(str, sources)],
+            env={**env, "AGM_STDLIB": str(root / "packages" / "stdlib")},
+            cwd=root,
+        )
+
+        assert result.stderr == ""
+
     def test_repl_flag_denies_an_entry_and_keeps_the_session_going(
         self, tmp_path: Path, env: dict[str, str]
     ) -> None:

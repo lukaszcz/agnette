@@ -17,7 +17,13 @@
         }
       ],
       "expect": {
-        "stdout": "hello|\n4\n"
+        "stdout": "hello|\n4\n",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 6
+          }
+        ]
       }
     },
     {
@@ -37,7 +43,13 @@
         }
       ],
       "expect": {
-        "stdout": "test|\n-12\n"
+        "stdout": "test|\n-12\n",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 6
+          }
+        ]
       }
     },
     {
@@ -57,7 +69,13 @@
         }
       ],
       "expect": {
-        "stdout": "a|b|\n0\n"
+        "stdout": "a|b|\n0\n",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 6
+          }
+        ]
       }
     }
   ]

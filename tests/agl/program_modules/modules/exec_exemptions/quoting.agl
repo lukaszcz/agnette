@@ -1,0 +1,19 @@
+@exempts("unquoted-exec-hole")
+def vetted(value: text) -> text = value
+
+def plain(value: text) -> text = value
+
+record Quoter
+  prefix: text
+
+@exempts("unquoted-exec-hole")
+def Quoter::wrap(self, value: text) -> text = self.prefix ++ value
+
+def Quoter::bare(self, value: text) -> text = self.prefix ++ value
+
+@exempts("unquoted-exec-hole")
+def ident[T](value: T) -> T = value
+
+@exempts("unquoted-exec-hole")
+@extern-name("host_quote")
+extern def host-quote(value: text) -> text

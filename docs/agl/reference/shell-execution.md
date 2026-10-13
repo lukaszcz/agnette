@@ -124,6 +124,23 @@ program def main() -> unit =
   print(found)
 ```
 
+### Unquoted-hole warning
+
+A hole in an `exec` command that inserts runtime text verbatim is reported as the
+`unquoted-exec-hole` warning. Exempt are holes of type `int`, `decimal` or `bool`,
+constant expressions, and direct calls of a function or method declared
+[`@exempts("unquoted-exec-hole")`](attributes.md#allow-and-exempts), which includes
+every `%!{…}` and `%!${NAME}` hole and `shell-quote`, `shell-join`, `shell-raw`. An
+environment hole `%${NAME}` is reported, and so is a reference to a `var` or an
+`@param let`, directly or through other bindings: only fixed `let` bindings count as
+constant here, since the others change at run time. The warning is anchored at the hole, and
+`@allow("unquoted-exec-hole")` hides it within a declaration.
+
+Only the template literal given as the command is checked: directly, through
+parentheses, as the result of an `if` or `case` arm, of a block's final item, or
+of a `try` body or `catch` arm. A command reached through a binding, a pipe, or an
+operator is not checked.
+
 ## The three forms of `exec`
 
 `exec`'s behavior depends on its **target type**, determined from context as

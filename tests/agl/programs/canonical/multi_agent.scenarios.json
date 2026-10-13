@@ -18,7 +18,7 @@
       },
       "shell": [
         {
-          "command": "printf 'final:%s' draft",
+          "command": "printf 'final:%s' 'draft'",
           "stdout": "final:draft"
         }
       ],
@@ -52,7 +52,7 @@
       },
       "shell": [
         {
-          "command": "printf 'final:%s' revised",
+          "command": "printf 'final:%s' 'revised'",
           "stdout": "final:revised"
         }
       ],
@@ -101,7 +101,7 @@
       },
       "shell": [
         {
-          "command": "printf 'final:%s' revised",
+          "command": "printf 'final:%s' 'revised'",
           "stdout": "final:revised"
         }
       ],
@@ -147,7 +147,7 @@
       },
       "shell": [
         {
-          "command": "printf 'final:%s' revised",
+          "command": "printf 'final:%s' 'revised'",
           "stdout": "final:revised"
         }
       ],

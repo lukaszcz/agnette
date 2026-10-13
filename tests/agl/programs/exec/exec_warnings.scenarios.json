@@ -1,0 +1,493 @@
+{
+  "scenarios": [
+    {
+      "name": "holes_warn_exactly_where_the_rules_say",
+      "params": {
+        "value": "a b",
+        "n": 2,
+        "size": 5,
+        "ratio": "1.5",
+        "flag": true
+      },
+      "process_environment": {
+        "HOME": "/home/u"
+      },
+      "shell": [
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo /home/u",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b! a b [\"a b\"] [2, 1]",
+          "stdout": ""
+        },
+        {
+          "command": "echo nested a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b! a b a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo q-a b q-a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo Quoter(prefix = \"a b\") a b a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo tag a b count tag",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b a b!",
+          "stdout": ""
+        },
+        {
+          "command": "echo lambda a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo default /home/u",
+          "stdout": ""
+        },
+        {
+          "command": "echo 2 3 1.5 true false",
+          "stdout": ""
+        },
+        {
+          "command": "echo lit build [\"a\", \"b\"] v-build -1",
+          "stdout": ""
+        },
+        {
+          "command": "echo 'a b' '2' '/home/u'",
+          "stdout": ""
+        },
+        {
+          "command": "echo 'a b' 'a b' 'b' a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b q-a b q-a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo build 5 6",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b a b 'a b'",
+          "stdout": ""
+        },
+        {
+          "command": "echo then a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo 2",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo try a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo bound a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo value a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo piped a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo concat a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo ok",
+          "stdout": ""
+        },
+        {
+          "command": "echo allowed-def a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo allowed-let a b",
+          "stdout": "out\n"
+        },
+        {
+          "command": "echo other-allow a b",
+          "stdout": "out\n"
+        }
+      ],
+      "expect": {
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 35,
+            "column": 55
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 45,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 46,
+            "column": 14
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 46,
+            "column": 23
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 47,
+            "column": 14
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 48,
+            "column": 23
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 49,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 50,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 50,
+            "column": 31
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 50,
+            "column": 47
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 50,
+            "column": 58
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 51,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 52,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 52,
+            "column": 39
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 52,
+            "column": 58
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 53,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 53,
+            "column": 37
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 56,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 56,
+            "column": 41
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 56,
+            "column": 57
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 58,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 58,
+            "column": 22
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 58,
+            "column": 33
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 58,
+            "column": 44
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 60,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 60,
+            "column": 31
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 61,
+            "column": 60
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 75,
+            "column": 30
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 75,
+            "column": 61
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 76,
+            "column": 35
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 77,
+            "column": 31
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 78,
+            "column": 22
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 78,
+            "column": 55
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 79,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 95,
+            "column": 47
+          }
+        ]
+      }
+    },
+    {
+      "name": "allow_level_drops_every_hole_warning",
+      "params": {
+        "value": "a b",
+        "n": 2,
+        "size": 5,
+        "ratio": "1.5",
+        "flag": true
+      },
+      "process_environment": {
+        "HOME": "/home/u"
+      },
+      "shell": [
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo /home/u",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b! a b [\"a b\"] [2, 1]",
+          "stdout": ""
+        },
+        {
+          "command": "echo nested a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b! a b a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo q-a b q-a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo Quoter(prefix = \"a b\") a b a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo tag a b count tag",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b a b!",
+          "stdout": ""
+        },
+        {
+          "command": "echo lambda a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo default /home/u",
+          "stdout": ""
+        },
+        {
+          "command": "echo 2 3 1.5 true false",
+          "stdout": ""
+        },
+        {
+          "command": "echo lit build [\"a\", \"b\"] v-build -1",
+          "stdout": ""
+        },
+        {
+          "command": "echo 'a b' '2' '/home/u'",
+          "stdout": ""
+        },
+        {
+          "command": "echo 'a b' 'a b' 'b' a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b q-a b q-a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo build 5 6",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b a b 'a b'",
+          "stdout": ""
+        },
+        {
+          "command": "echo then a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo 2",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo try a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo bound a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo value a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo piped a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo concat a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo ok",
+          "stdout": ""
+        },
+        {
+          "command": "echo allowed-def a b",
+          "stdout": ""
+        },
+        {
+          "command": "echo allowed-let a b",
+          "stdout": "out\n"
+        },
+        {
+          "command": "echo other-allow a b",
+          "stdout": "out\n"
+        }
+      ],
+      "warning_levels": {
+        "unquoted-exec-hole": "allow"
+      },
+      "expect": {
+        "stdout": "",
+        "warnings": []
+      }
+    }
+  ]
+}

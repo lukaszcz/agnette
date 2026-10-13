@@ -1,0 +1,49 @@
+{
+  "scenarios": [
+    {
+      "name": "imported_exemptions_apply_to_calls",
+      "module_roots": [
+        "program_modules/modules/exec_exemptions"
+      ],
+      "params": {
+        "value": "x y"
+      },
+      "shell": [
+        {
+          "command": "echo x y q-x y"
+        },
+        {
+          "command": "echo x y x y"
+        },
+        {
+          "command": "echo x y x y x y"
+        },
+        {
+          "command": "echo [x y] [x y]"
+        },
+        {
+          "command": "echo x y q-x y x y"
+        }
+      ],
+      "expect": {
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 14,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 14,
+            "column": 31
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 14,
+            "column": 53
+          }
+        ]
+      }
+    }
+  ]
+}

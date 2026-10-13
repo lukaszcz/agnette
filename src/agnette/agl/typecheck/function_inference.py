@@ -10,7 +10,7 @@ publishes only concrete signatures outside that import SCC.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, cast
@@ -55,6 +55,7 @@ from agnette.util.graph import sccs
 
 if TYPE_CHECKING:
     from agnette.agl.scope.symbols import (
+        AttributeFacts,
         BindingRef,
         ConstructorRef,
         ModuleResolution,
@@ -550,7 +551,7 @@ def _infer_function_component(
             module.env,
             node,
             result_type=result,
-            param_zones=module.resolved.attributes.param_zones,
+            attributes=module.resolved.attributes,
             receiver_owner=receiver_owner,
         )
         register_method_header(module.env, node, signature, receiver, module.module_id)
@@ -632,12 +633,7 @@ def _infer_function_component(
     records: list[FunctionSignatureRecord] = []
     for module, node, body, result, signature, receiver in provisional:
         concrete_result = engine.zonk(result)
-        concrete_signature = FunctionSignature(
-            params=signature.params,
-            result=concrete_result,
-            type_params=signature.type_params,
-            bounds=signature.bounds,
-        )
+        concrete_signature = replace(signature, result=concrete_result)
         function_type = concrete_signature.value_type
         for env in publication_envs:
             _register_signature(env, module, node, concrete_signature, function_type)
@@ -924,14 +920,16 @@ def resolve_function_header(
     node: FuncDef,
     *,
     result_type: TypeExpr | Type,
-    param_zones: Mapping[int, ParamZone],
+    attributes: AttributeFacts,
     receiver_owner: "ReceiverOwner | None" = None,
 ) -> tuple[FunctionSignature, FunctionType, ResolvedReceiver | None]:
     """Resolve one function's parameter scheme and declared or supplied result.
 
     A classified method's resolved owner is returned alongside its signature so
     :func:`register_method_header` reuses it instead of resolving it again.
+    The declaration's ``@arg-*`` zones and ``@exempts`` set are read from *attributes*.
     """
+    param_zones = attributes.param_zones
     validate_required_after_defaulted(node.params, param_zones)
     source_type_params = node.type_params
     type_vars = frozenset(source_type_params)
@@ -987,5 +985,6 @@ def resolve_function_header(
         type_params=signature_type_params,
         target_params=_target_params(signature_type_params, params) if node.is_extern else (),
         bounds=_declaration_bounds(node),
+        exempts=attributes.warning_exemptions.get(node.node_id, frozenset()),
     )
     return signature, signature.value_type, resolved_receiver

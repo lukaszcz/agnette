@@ -60,12 +60,29 @@ class ModuleConstantBindings:
 
     def is_constant(self, expr: Expr) -> bool:
         """Whether *expr* is a constant expression in this module."""
+        return self._is_constant(expr, self.is_constant_reference)
+
+    def is_fixed(self, expr: Expr) -> bool:
+        """Whether *expr* is constant through fixed bindings only (see ``initializer_for``)."""
+        return self._is_constant(expr, self._is_fixed_reference)
+
+    def _is_constant(self, expr: Expr, is_module_constant: Callable[[int], bool]) -> bool:
         return is_constant_expression(
             expr,
             is_constructor=self._is_constructor,
             is_constant_builtin=self._is_constant_builtin,
-            is_module_constant=self.is_constant_reference,
+            is_module_constant=is_module_constant,
         )
+
+    def _is_fixed_reference(self, node_id: int) -> bool:
+        """Constant reference whose chain of initializers names fixed bindings only.
+
+        Checking constancy first also rejects a cyclic chain before it is walked.
+        """
+        if not self.is_constant_reference(node_id):
+            return False
+        initializer = self.initializer_for(node_id)
+        return initializer is not None and self.is_fixed(initializer[0])
 
     def initializer_for(self, node_id: int) -> tuple[Expr, TypeExpr | None] | None:
         """Return the initializer and declared type *node_id* (a ``VarRef``) names.

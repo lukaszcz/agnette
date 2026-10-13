@@ -1,0 +1,4 @@
+@exempts("unquoted-exec-hole")
+def quote(value: text) -> text = "'" ++ value ++ "'"
+
+def run-raw(value: text) -> unit = exec $ echo %{value}

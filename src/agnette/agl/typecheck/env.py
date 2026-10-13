@@ -238,6 +238,9 @@ class FunctionSignature(_Record):
     ``bounds``      — the declaration's constraint block, type-parameter name to
                       its closed constraint kinds (``Hashable`` implies ``Eq``).
                       Empty for a declaration with no ``{...}`` block.
+    ``exempts``     — the warnings the declaration's ``@exempts`` declares its
+                      call results exempt from; part of the signature so an
+                      imported or cached function keeps them.
     """
 
     params: tuple[ParamSpec, ...]
@@ -245,6 +248,7 @@ class FunctionSignature(_Record):
     type_params: tuple[str, ...] = ()
     target_params: tuple[str, ...] = ()
     bounds: ConstraintBounds = MappingProxyType({})
+    exempts: frozenset[str] = frozenset()
 
     @property
     def value_type(self) -> FunctionType:

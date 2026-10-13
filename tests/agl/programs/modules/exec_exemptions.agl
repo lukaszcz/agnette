@@ -1,0 +1,14 @@
+# An `@exempts` function or method keeps its exemption when imported, under a renamed or
+# qualified spelling alike: its call results are exempt in an `exec` command, while the
+# module's other functions are not. An `extern def` can carry the exemption too.
+import quoting::*
+import quoting::{vetted as renamed}
+import quoting as q
+
+program def main(value: text) -> unit =
+  let quoter = Quoter(prefix = "q-")
+  exec $ echo %{vetted(value)} %{quoter.wrap(value)}
+  exec $ echo %{renamed(value)} %{q::vetted(value)}
+  exec $ echo %{ident(value)} %{ident::[text](value)} %{q::ident(value)}
+  exec $ echo %{host-quote(value)} %{q::host-quote(value)}
+  exec $ echo %{plain(value)} %{quoter.bare(value)} %{q::plain(value)}

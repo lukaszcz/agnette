@@ -1398,11 +1398,13 @@ def _source_ref(label: str | None) -> str | None:
 def _assert_warnings(warnings: tuple[Diagnostic, ...], expect: dict[str, Any]) -> None:
     """Match the static warnings exactly against ``expect.warnings`` (default: none).
 
-    An expected entry's optional ``source`` is checked too; entries without one match any source.
+    An expected entry's optional ``column`` and ``source`` are checked too; entries without
+    one match any column or source.
     """
     expected = expect.get("warnings", [])
     actual = [
         {"name": warning.warning_name, "line": warning.line}
+        | ({"column": warning.column} if "column" in want else {})
         | ({"source": _source_ref(warning.source_label)} if "source" in want else {})
         for warning, want in zip(warnings, expected, strict=False)
     ]

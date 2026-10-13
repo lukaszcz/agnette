@@ -15,10 +15,10 @@ from typing import Protocol, cast
 from weakref import proxy
 
 from agnette.agl.constraints import ConstraintBounds
-from agnette.agl.diagnostics import Diagnostic, warning_diagnostic
+from agnette.agl.diagnostics import warning_diagnostic
 from agnette.agl.ir.reserved_nominals import reserved_nominal_id
 from agnette.agl.modules.ids import STD_ENV_ID, spell_declaration
-from agnette.agl.scope.symbols import BindingRef, BuiltinKind
+from agnette.agl.scope.symbols import BuiltinKind
 from agnette.agl.semantics.analyses import nominal_references
 from agnette.agl.semantics.type_table import DeclId, TypeDef, parse_classification
 from agnette.agl.semantics.types import (
@@ -56,9 +56,9 @@ from agnette.agl.typecheck.env import (
     FunctionSignature,
     OutputContractSpec,
     ParamSpec,
-    TypeEnvironment,
 )
 from agnette.agl.typecheck.inference import InferenceEngine
+from agnette.agl.typecheck.shell_holes import HoleCheckCtx, check_exec_holes
 from agnette.agl.warnings import NOOP_PARSE_RETRIES
 from agnette.agl.zones import ParamZone
 
@@ -103,6 +103,8 @@ class PendingBuiltinObligation:
     # Retained so region-close diagnostics point at the offending argument rather
     # than the whole call span.
     parse_option_spans: tuple[tuple[str, SourceSpan], ...]
+    # A direct ``exec`` call's command argument, whose holes are analysed at region close.
+    command: Expr | None = None
 
     @property
     def has_parse_shaping_option(self) -> bool:
@@ -135,16 +137,12 @@ class PendingBuiltinObligation:
 # ---------------------------------------------------------------------------
 
 
-class BuiltinCheckCtx(Protocol):
+class BuiltinCheckCtx(HoleCheckCtx, Protocol):
     """The minimal _Checker surface the built-in call checker needs."""
-
-    _env: TypeEnvironment
 
     def _record_contract_spec(self, node_id: int, spec: OutputContractSpec) -> None: ...
 
     def _record_explicit_builtin_target(self, node_id: int, target_type: Type) -> None: ...
-
-    def _append_warning(self, warning: Diagnostic) -> None: ...
 
     _current_type_vars: frozenset[str]
 
@@ -174,8 +172,6 @@ class BuiltinCheckCtx(Protocol):
     def _defer_builtin_default(
         self, variable: InferenceVarType, default: Type, span: SourceSpan, subject: str
     ) -> None: ...
-
-    def _binding_for(self, node_id: int) -> BindingRef: ...
 
     def _record_cast_spec(self, node_id: int, spec: CastSpec) -> None: ...
 
@@ -1013,6 +1009,7 @@ class BuiltinCallChecker:
                 format_name=format_name,
                 strict_json=strict_json,
                 parse_option_spans=parse_option_spans,
+                command=node.args[0],
             )
         )
         return target_type
@@ -1320,6 +1317,8 @@ class BuiltinCallChecker:
         return spec
 
     def _finalize_exec(self, obligation: PendingBuiltinObligation) -> None:
+        if obligation.command is not None:
+            check_exec_holes(obligation.command, self._ctx)
         target_type = obligation.target_type
         if isinstance(target_type, UnitType):
             if obligation.has_parse_shaping_option:

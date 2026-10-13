@@ -884,6 +884,10 @@ def _builtin_type_args_match(
     )
 
 
+def _source_position(diagnostic: Diagnostic) -> tuple[int, int]:
+    return diagnostic.line, diagnostic.column or 0
+
+
 def _signature_matches(
     actual: FunctionSignature, expected: FunctionSignature, type_table: TypeTable
 ) -> bool:
@@ -1122,7 +1126,7 @@ class _Checker:
             self._env,
             node,
             result_type=node.return_type,
-            param_zones=self._resolved.attributes.param_zones,
+            attributes=self._resolved.attributes,
             receiver_owner=receiver_owner,
         )
         if node.is_extern:
@@ -1782,6 +1786,10 @@ class _Checker:
         require a value that a host can compute without running arbitrary code.
         """
         return self._constant_bindings.is_constant(expr)
+
+    def _is_fixed_constant_expr(self, expr: Expr) -> bool:
+        """Whether *expr* is constant through fixed bindings only: never a ``var`` or ``@param``."""
+        return self._constant_bindings.is_fixed(expr)
 
     @staticmethod
     def _binder_result(value_type: Type) -> Type:
@@ -6878,12 +6886,14 @@ class _Checker:
     # ------------------------------------------------------------------
 
     def result(self) -> CheckedModule:
+        # Region finalization emits warnings out of source order; report them in it.
+        warnings = sorted(self._warnings, key=_source_position)
         return CheckedModule(
             resolved=self._resolved,
             node_types=self._node_types,
             contract_specs=self._contract_specs,
             target_contract_specs=self._target_contract_specs,
-            warnings=tuple(self._warnings),
+            warnings=tuple(warnings),
             type_env=self._env,
             function_signatures=self._env.all_function_signatures(),
             cast_specs=self._cast_specs,

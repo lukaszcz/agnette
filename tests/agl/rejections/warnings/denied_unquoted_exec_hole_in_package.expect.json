@@ -1,0 +1,1 @@
+{"packages": ["packages/shelly"], "diagnostic": {"line": 4, "warning": "unquoted-exec-hole", "message_contains": ["%!{"]}, "warning_levels": {"unquoted-exec-hole": "deny"}}

@@ -10552,7 +10552,7 @@ def _method_header(
         env,
         function,
         result_type=function.return_type,
-        param_zones=resolved.attributes.param_zones,
+        attributes=resolved.attributes,
         receiver_owner=owner,
     )
     return function, signature.params

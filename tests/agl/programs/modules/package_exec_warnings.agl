@@ -1,0 +1,7 @@
+# A package's raw hole is reported for a development checkout and capped for an installed
+# package, while its `@exempts` functions exempt call results in both.
+import shelly/lib::*
+
+program def main(value: text) -> unit =
+  run-raw(value)
+  exec $ echo %{quote(value)}

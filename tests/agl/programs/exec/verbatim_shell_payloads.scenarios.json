@@ -40,6 +40,20 @@
           "one:two;\n",
           "\"report\"\n",
           "<release>\n"
+        ],
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 7
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 10
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 28
+          }
         ]
       }
     },
@@ -83,6 +97,20 @@
           "one:two;\n",
           "\"archive\"\n",
           "<literal %{file}>\n"
+        ],
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 7
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 10
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 28
+          }
         ]
       }
     }

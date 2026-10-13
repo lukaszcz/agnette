@@ -38,6 +38,12 @@
           "\"k\"",
           "\"a\"",
           "\"b\""
+        ],
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 5
+          }
         ]
       }
     },
@@ -76,6 +82,12 @@
           "hi hello_world\n",
           "padded\nend marker\n",
           "43\n"
+        ],
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 5
+          }
         ]
       }
     }

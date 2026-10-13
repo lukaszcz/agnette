@@ -34,5 +34,5 @@ program def main(spec: text) -> unit =
       ()
   until code is Pass and design is Pass
 
-  let stamp: text = exec "printf 'final:%s' %{artifact}"
+  let stamp: text = exec "printf 'final:%s' %!{artifact}"
   print stamp

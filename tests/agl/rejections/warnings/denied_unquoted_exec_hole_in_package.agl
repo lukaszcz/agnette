@@ -1,0 +1,4 @@
+import shelly/lib::*
+
+program def main(value: text) -> unit =
+  run-raw(value)

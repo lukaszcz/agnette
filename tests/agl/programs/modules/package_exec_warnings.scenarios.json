@@ -1,0 +1,53 @@
+{
+  "scenarios": [
+    {
+      "name": "development_package_hole_is_reported",
+      "packages": [
+        "packages/shelly"
+      ],
+      "params": {
+        "value": "x"
+      },
+      "shell": [
+        {
+          "command": "echo x"
+        },
+        {
+          "command": "echo 'x'"
+        }
+      ],
+      "expect": {
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 4,
+            "source": "packages/shelly/src/lib.agl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "installed_package_hole_is_capped_even_when_denied",
+      "installed_packages": [
+        "packages/shelly"
+      ],
+      "warning_levels": {
+        "unquoted-exec-hole": "deny"
+      },
+      "params": {
+        "value": "x"
+      },
+      "shell": [
+        {
+          "command": "echo x"
+        },
+        {
+          "command": "echo 'x'"
+        }
+      ],
+      "expect": {
+        "warnings": []
+      }
+    }
+  ]
+}

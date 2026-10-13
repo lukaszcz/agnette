@@ -54,7 +54,7 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `params`, `program_options`, `docs` | `@param`, `@opt-*`, `@doc` | program discovery and CLI projection ([hosting.md](../hosting.md)); `docs` also type building |
 | `program_configs` | `@config` | typecheck (keys resolved, values checked as constants) and lowering ([hosting.md](../hosting.md)) |
 | `warning_allows` | `@allow` | the warning policy ([hosting.md](../hosting.md)) |
-| `warning_exemptions` | `@exempts` | none yet |
+| `warning_exemptions` | `@exempts` | function headers (`FunctionSignature.exempts`) → `exec` hole analysis ([types.md](types.md)) |
 
 `warning_allows` is a list of `AllowRegion(span, names)` (the declaration, attribute prefix included, reaching back to its line's start when only blanks precede it); `warning_exemptions` maps `FuncDef.node_id` to names.
 

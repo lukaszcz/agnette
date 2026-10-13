@@ -21,7 +21,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -45,7 +59,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -69,7 +97,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -93,7 +135,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -117,7 +173,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -141,7 +211,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -165,7 +249,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -189,7 +287,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -213,7 +325,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -231,7 +357,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -252,7 +392,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -289,7 +443,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -313,7 +481,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -337,7 +519,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -361,7 +557,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -382,7 +592,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     },
     {
@@ -403,7 +627,21 @@
         }
       ],
       "expect": {
-        "stdout": ""
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 36
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 40
+          }
+        ]
       }
     }
   ]

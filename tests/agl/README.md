@@ -200,7 +200,8 @@ Expectations:
 - `raises` — the uncaught exception: `type`, a recursive exact-match subset of `fields`,
   `message_contains`, optional 1-based `line` and `source_contains` (source display name).
 - `warnings` — the exact list of static warnings as `{"name": …, "line": …}` objects, in
-  report order; absent means the program emits none. An optional `"source"` also pins the
+  report order; absent means the program emits none. An optional `"column"` also pins the
+  1-based start column (use it on lines with several holes); an optional `"source"` pins the
   module the warning is attributed to: a path relative to `tests/agl/`, or a label such as
   `<code>` for the entry.
 - `exit_code` — termination through `SystemExit` with this status.

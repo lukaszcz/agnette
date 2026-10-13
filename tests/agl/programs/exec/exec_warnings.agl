@@ -1,0 +1,96 @@
+# A plain hole carrying runtime data into the command of an `exec` warns
+# (`unquoted-exec-hole`). Exempt: `int`/`decimal`/`bool` holes, constant expressions,
+# and direct calls of an `@exempts` function or method (so every `%!{…}` hole).
+# Only templates in the command's result positions are checked.
+import std/exec
+
+@exempts("unquoted-exec-hole")
+def vetted(value: text) -> text = value
+
+def plain(value: text) -> text = value
+
+record Quoter
+  prefix: text
+
+@exempts("unquoted-exec-hole")
+def Quoter::wrap(self, value: text) -> text = self.prefix ++ value
+
+def Quoter::bare(self, value: text) -> text = self.prefix ++ value
+
+record Hooks
+  run: (text) -> text
+
+let fixed = "build"
+let fixed-again = fixed
+@param let tag = "tag"
+var counter = "count"
+let via-var = counter
+let via-param = tag
+
+type Count = int
+
+@exempts("unquoted-exec-hole")
+def ident[T](value: T) -> T = value
+
+def defaulted(path: text = exec::[text]("echo default %${HOME}")) -> text = path
+
+@allow("unquoted-exec-hole")
+def allowed-def(value: text) -> unit =
+  exec $ echo allowed-def %{value}
+
+program def main(value: text, n: int, size: Count, ratio: decimal, flag: bool) -> unit =
+  let quoter = Quoter(prefix = "q-")
+
+  # Warns: every hole of a command template carrying text.
+  exec $ echo %{value}
+  exec "echo %{value} %{value}"
+  exec("echo %{value}")
+  exec::[unit] $ echo %{value}
+  exec $ echo %${HOME}
+  exec $ echo %{value ++ "!"} %{plain(value)} %{[value]} %{[n, 1]}
+  exec $ echo %{"nested %{value}"}
+  exec $ echo %{vetted(value) ++ "!"} %{value |> vetted} %{plain(vetted(value))}
+  exec $ echo %{quoter.bare(value)} %{Quoter::bare(quoter, value)}
+  let shout = fn(text: text) -> text => text
+  let hooks = Hooks(run = plain)
+  exec $ echo %{Quoter(prefix = value)} %{shout(value)} %{hooks.run(value)}
+  counter := value
+  exec $ echo %{tag} %{counter} %{via-var} %{via-param}
+  let alias = vetted
+  exec $ echo %{alias(value)} %{ident(value) ++ "!"}
+  let runner = fn(arg: text) -> unit => exec $ echo lambda %{arg}
+  runner(value)
+  let from-default = defaulted()
+
+  # Exempt: scalar types, constant expressions, and calls of `@exempts` functions.
+  exec $ echo %{n} %{n + 1} %{ratio} %{flag} %{n > 2}
+  exec $ echo %{"lit"} %{fixed} %{["a", "b"]} %{"v-%{fixed}"} %{-1}
+  exec $ echo %!{value} %!{n} %!${HOME}
+  exec $ echo %{shell-quote(value)} %{shell-join([value, "b"])} %{shell-raw(value)}
+  exec $ echo %{vetted(value)} %{quoter.wrap(value)} %{Quoter::wrap(quoter, value)}
+  exec $ echo %{fixed-again} %{size} %{size + 1}
+  exec $ echo %{ident(value)} %{ident::[text](value)} %{std/exec::shell-quote(value)}
+
+  # Result positions of the command argument.
+  exec(if flag => "echo then %{value}" | else => "echo else %{value}")
+  exec(case n of | 1 => "echo one %{value}" | _ => "echo %{n}")
+  exec((let unused = 1; "echo %{value}"))
+  exec(try "echo try %{value}" catch _ => "echo catch %{value}")
+  exec(("echo %{value}"))
+
+  # Not followed: bindings, `exec` as a value, pipes, operators, other arguments.
+  let command = "echo bound %{value}"
+  exec(command)
+  let run = exec
+  let ran = run("echo value %{value}")
+  let piped = "echo piped %{value}" |> exec
+  exec("echo " ++ "concat %{value}")
+  exec("echo ok", cwd = Some("%{value}"))
+
+  # `@allow` hides the warning inside its declaration.
+  allowed-def(value)
+  @allow("unquoted-exec-hole")
+  let allowed = exec::[text] $ echo allowed-let %{value}
+  @allow("shell-quoted-hole")
+  let other = exec::[text] $ echo other-allow %{value}
+  ()

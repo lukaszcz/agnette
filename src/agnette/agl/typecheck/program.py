@@ -788,7 +788,7 @@ def _build_program_func_sig_table(
                 env,
                 item,
                 result_type=item.return_type,
-                param_zones=rmod.resolved.attributes.param_zones,
+                attributes=rmod.resolved.attributes,
                 receiver_owner=receiver_owner,
             )
             result[item.node_id] = FunctionSignatureRecord(
@@ -1329,7 +1329,7 @@ def _prepare_program(
                 env,
                 item,
                 result_type=record.signature.result,
-                param_zones=rmod.attributes.param_zones,
+                attributes=rmod.attributes,
                 receiver_owner=owner,
             )
             register_method_header(env, item, signature, receiver, mid)
