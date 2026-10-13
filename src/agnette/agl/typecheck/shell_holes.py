@@ -1,9 +1,9 @@
 """Static analysis of the holes in templates that reach an ``exec`` command.
 
 :func:`checked_templates` finds the template literals whose text becomes the
-command. A hole that directly calls a function declared ``@shell-quoted`` — every
+command. A hole that fully applies a function declared ``@shell-quoted`` — every
 ``%!{…}`` hole does — is a quoting call (:func:`calls_shell_quoted_function`); one
-calling a function declared ``@exempts`` for a warning is exempt from it
+fully applying a function declared ``@exempts`` for a warning is exempt from it
 (:func:`calls_exempt_function`). :func:`check_exec_holes` raises
 ``unquoted-exec-hole`` for the holes that carry neither a scalar, a constant, a
 quoting call nor an exempt call, and ``shell-quoted-hole`` for quoting calls inside the
@@ -28,6 +28,7 @@ from agnette.agl.syntax.nodes import (
     If,
     InterpSegment,
     Item,
+    Placeholder,
     Template,
     TextSegment,
     Try,
@@ -104,13 +105,13 @@ def checked_templates(command: Item) -> Iterator[Template]:
 
 
 def calls_exempt_function(expr: Expr, warning: StaticWarning, ctx: HoleCheckCtx) -> bool:
-    """Whether *expr* is a direct function or method call whose declaration exempts *warning*."""
+    """Whether *expr* fully applies a function or method whose declaration exempts *warning*."""
     signature = _called_signature(expr, ctx)
     return signature is not None and warning.name in signature.exempts
 
 
 def calls_shell_quoted_function(expr: Expr, ctx: HoleCheckCtx) -> bool:
-    """Whether *expr* is a direct function or method call whose declaration is ``@shell-quoted``.
+    """Whether *expr* fully applies a function or method declared ``@shell-quoted``.
 
     Identified by the resolved declaration, so the spelling of the call does not matter.
     """
@@ -119,8 +120,12 @@ def calls_shell_quoted_function(expr: Expr, ctx: HoleCheckCtx) -> bool:
 
 
 def _called_signature(expr: Expr, ctx: HoleCheckCtx) -> FunctionSignature | None:
-    """The declared signature of the function or method *expr* calls directly, if any."""
+    """The declared signature of a fully applied function or method call, if any."""
     if not isinstance(expr, Call):
+        return None
+    if any(isinstance(arg, Placeholder) for arg in expr.args) or any(
+        isinstance(arg.value, Placeholder) for arg in expr.named_args
+    ):
         return None
     callee = expr.callee
     declaration: int | None = None
@@ -148,9 +153,9 @@ def check_exec_holes(command: Expr, ctx: HoleCheckCtx) -> None:
 
     ``unquoted-exec-hole`` marks each plain hole carrying runtime data: a hole is exempt when
     its type is ``int``, ``decimal`` or ``bool``, when it is a constant expression over fixed
-    bindings (never a ``var`` or ``@param``), or when it is a quoting call or a call exempting
-    the warning. ``shell-quoted-hole`` marks a quoting call (every ``%!{…}``) that sits
-    inside shell quotes the author wrote, as judged by :func:`hole_quote_states`.
+    bindings (never a ``var`` or ``@param``), or when it fully applies a quoting function or a
+    function exempting the warning. ``shell-quoted-hole`` marks a quoting call (every
+    ``%!{…}``) inside shell quotes the author wrote, as judged by :func:`hole_quote_states`.
     """
     for template in checked_templates(command):
         states = _hole_states(template, ctx)
@@ -172,7 +177,7 @@ def _hole_states(template: Template, ctx: HoleCheckCtx) -> dict[int, QuoteState]
     """The quote state of each hole of *template* that stays in the scan, by node id.
 
     A constant hole is spliced into the text as its folded value and has no state. Any
-    other hole is a word when it is a quoting call or a scalar, else opaque.
+    other hole is a word when it fully applies a quoting function or is a scalar, else opaque.
     """
     fragments = [""]
     kinds: list[HoleKind] = []
