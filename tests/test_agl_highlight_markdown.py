@@ -11,6 +11,7 @@ from pygments.token import Keyword, Name
 from agnette.agl.highlight.markdown_ext import (
     ContextPreprocessor,
     _has_code_span_closer,
+    _scan_comments,
     formatter,
     validator,
 )
@@ -157,6 +158,15 @@ def test_literal_comment_delimiters_do_not_disable_context(prose: str) -> None:
     html = _markdown().convert(source)
     assert "agl-context" not in html
     assert '<span class="kt">Point</span>' in html
+
+
+def test_unmatched_backtick_run_is_scanned_once() -> None:
+    with patch(
+        "agnette.agl.highlight.markdown_ext._has_code_span_closer", return_value=False
+    ) as has_closer:
+        assert _scan_comments(["`" * 128], 0, 0, None) == (0, None)
+
+    assert has_closer.call_count == 1
 
 
 def test_inline_code_closer_scan_does_not_slice_remaining_lines() -> None:

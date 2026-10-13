@@ -125,13 +125,15 @@ def _scan_comments(
             if code_span is not None:
                 if len(token) == code_span:
                     code_span = None
-            elif (
-                comment_depth
-                or _is_escaped(line, index)
-                or not _has_code_span_closer(lines, line_index, delimiter.end(), len(token))
-            ):
-                # The rest of the run may still open a span.
+            elif comment_depth:
+                index = delimiter.end()
+                continue
+            elif _is_escaped(line, index):
+                # The first tick is escaped, but the rest of the run may open a span.
                 index += 1
+                continue
+            elif not _has_code_span_closer(lines, line_index, delimiter.end(), len(token)):
+                index = delimiter.end()
                 continue
             else:
                 code_span = len(token)
