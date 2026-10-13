@@ -48,6 +48,13 @@
   (let ((report (car (agl-flymake-parse "a.agl:1:1: warning: careful\n"))))
     (should (eq (agl-flymake-report-severity report) :warning))))
 
+(ert-deftest agl-fm-keeps-a-warning-name-suffix-in-the-text ()
+  (let ((report (car (agl-flymake-parse
+                      "a.agl:2:3: warning: careful [tab-indentation]\n"))))
+    (should (eq (agl-flymake-report-severity report) :warning))
+    (should (equal (agl-flymake-report-text report)
+                   "careful [tab-indentation]"))))
+
 (ert-deftest agl-fm-parses-a-same-line-span ()
   ;; `agm check' prints the span's last column, so the exclusive end is
   ;; one past it.

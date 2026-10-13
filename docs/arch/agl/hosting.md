@@ -20,7 +20,7 @@ Engine settings are root `builtin var` bindings of `std/config`, catalogued in `
 
 ## Diagnostics and Recursion
 
-All passes report through `agl/diagnostics.py`. Only `AglError`s become diagnostics; internal compiler failures propagate. `agl/recursion.py` turns stack exhaustion on over-deep source into a pre-execution diagnostic around every frontend pass and lowering.
+All passes report through `agl/diagnostics.py`. A static warning is a `Diagnostic` carrying its catalog name (`agl/warnings.py`), rendered with a ` [NAME]` suffix; the parse labels lexer warnings with their module's source like span-based diagnostics. Only `AglError`s become diagnostics; internal compiler failures propagate. `agl/recursion.py` turns stack exhaustion on over-deep source into a pre-execution diagnostic around every frontend pass and lowering.
 
 ## Self-Validation
 

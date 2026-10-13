@@ -279,6 +279,17 @@ class TestRenderEntryResult:
         rendered = render_mod.render_entry_result(result, echo=False)
         assert rendered == "2:5-9: warning: watch out"
 
+    def test_named_warning_renders_with_its_name(self) -> None:
+        result = _result(
+            kind="statement",
+            ok=True,
+            warnings=[
+                Diagnostic(message="watch out", line=2, severity="warning", warning_name="a-b")
+            ],
+        )
+        rendered = render_mod.render_entry_result(result, echo=False)
+        assert rendered == "2: warning: watch out [a-b]"
+
     def test_pre_execution_diagnostics(self) -> None:
         result = _result(
             ok=False,

@@ -1,0 +1,8 @@
+program def main() -> unit =
+  # A TAB in a comment line (here:	) is a warning only.
+  let block = $
+		from a tab-indented block
+		second line
+  print block
+  let word =	"tabbed"
+  print word

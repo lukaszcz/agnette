@@ -54,6 +54,7 @@ from agnette.agent.session.protocol import (
 )
 from agnette.agent.session.service import SessionService
 from agnette.agent.spec import PermissionMode
+from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import JsonContractRequest
 from agnette.agl.modules.ids import STD_CONFIG_ID
@@ -1184,7 +1185,7 @@ def _run_program(
     monkeypatch: pytest.MonkeyPatch,
     get_sandbox_context: Callable[[], SandboxContext] | None,
     compilations: CompilationCache | None = None,
-) -> tuple[Any, dict[str, ScriptedAgent], FakeShell, list[_Script]]:
+) -> tuple[Any, dict[str, ScriptedAgent], FakeShell, list[_Script], tuple[Diagnostic, ...]]:
     from agnette.agl import PipelineDriver
     from agnette.agl.runtime.externs import ExternRegistry
 
@@ -1278,7 +1279,9 @@ def _run_program(
             )
         except SystemExit as exc:
             result = exc
-    return result, agents, shell, scripts
+    # A terminated run reports no result; discovery holds the static warnings.
+    warnings = discovery.warnings if isinstance(result, SystemExit) else tuple(result.warnings)
+    return result, agents, shell, scripts, warnings
 
 
 def _assert_host_error(result: Any, agents: dict[str, ScriptedAgent], spec: dict[str, Any]) -> None:
@@ -1341,6 +1344,28 @@ def _assert_outcome(result: Any, expect: dict[str, Any]) -> None:
                 f"unexpected uncaught {result.error.type_name}: {result.error.fields!r}"
             )
         assert result.ok
+
+
+def _source_ref(label: str | None) -> str | None:
+    """Name a diagnostic's source: a path under ``tests/agl/`` when it is one, else its label."""
+    if label is None:
+        return None
+    path = Path(label)
+    return path.relative_to(AGL_DIR).as_posix() if path.is_relative_to(AGL_DIR) else label
+
+
+def _assert_warnings(warnings: tuple[Diagnostic, ...], expect: dict[str, Any]) -> None:
+    """Match the static warnings exactly against ``expect.warnings`` (default: none).
+
+    An expected entry's optional ``source`` is checked too; entries without one match any source.
+    """
+    expected = expect.get("warnings", [])
+    actual = [
+        {"name": warning.warning_name, "line": warning.line}
+        | ({"source": _source_ref(warning.source_label)} if "source" in want else {})
+        for warning, want in zip(warnings, expected, strict=False)
+    ]
+    assert len(warnings) == len(expected) and actual == expected, f"static warnings: {warnings!r}"
 
 
 def _assert_output(out: str, expect: dict[str, Any]) -> None:
@@ -2069,7 +2094,7 @@ def _assert_program_scenario(
     # scenario using both never depends on incidental call order.
     scenario = _prepare_temp_filesystem(scenario, tmp_path)
     scenario, get_sandbox_context = _apply_sandbox_home(scenario, tmp_path)
-    result, agents, shell, scripts = _run_program(
+    result, agents, shell, scripts, warnings = _run_program(
         program.read_text(encoding="utf-8"),
         scenario,
         program,
@@ -2090,6 +2115,7 @@ def _assert_program_scenario(
         assert result.code == expect["exit_code"]
     else:
         _assert_outcome(result, expect)
+    _assert_warnings(warnings, expect)
     _assert_output(out, expect)
     _assert_calls(agents, expect)
     _assert_sessions(agents, expect)

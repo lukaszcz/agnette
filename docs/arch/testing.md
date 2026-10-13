@@ -4,7 +4,7 @@ The suite mirrors the architecture: AgL is tested pass by pass plus whole-progra
 
 ## Strategy
 
-- **AgL passes** have their own suites plus end-to-end corpora under `tests/agl/` (programs with multi-scenario sidecars, static rejections, multi-file programs, packages). Scope and typecheck suites build a real `ModuleGraph` (`tests/agl/module_graph.py`); evaluation helpers (`tests/agl/ir_harness.py`) run programs through `PipelineDriver` with fake agents and shells.
+- **AgL passes** have their own suites plus end-to-end corpora under `tests/agl/` (programs with multi-scenario sidecars, static rejections, multi-file programs, packages). Scope and typecheck suites build a real `ModuleGraph` (`tests/agl/module_graph.py`); evaluation helpers (`tests/agl/ir_harness.py`) run programs through `PipelineDriver` with fake agents and shells. A scenario's `expect.warnings` is the exact list of `{name, line}` static warnings, each optionally pinned to its `source` module (absent means none).
 - **Name resolution** probes (`tests/agl/qualifier_support.py`) run inline, as files, and across REPL entry splits.
 - **Commands** are tested at the CLI boundary; multi-command user workflows live in `tests/test_e2e.py`.
 - **Domain and primitives** have unit tests using real archives, manifests, git, filesystem, and loopback HTTP; external boundaries (agents, unavailable tools, remote HTTP) are faked.

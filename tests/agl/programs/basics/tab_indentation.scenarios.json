@@ -1,0 +1,18 @@
+{
+  "scenarios": [
+    {
+      "name": "tabs_warn_and_the_program_still_runs",
+      "expect": {
+        "warnings": [
+          {"name": "tab-indentation", "line": 2},
+          {"name": "tab-indentation", "line": 4},
+          {"name": "tab-indentation", "line": 4},
+          {"name": "tab-indentation", "line": 5},
+          {"name": "tab-indentation", "line": 5},
+          {"name": "tab-indentation", "line": 7}
+        ],
+        "stdout": "from a tab-indented block\nsecond line\ntabbed\n"
+      }
+    }
+  ]
+}

@@ -1507,6 +1507,7 @@ class TestExecCommandWarnings:
         captured = capsys.readouterr()
         assert captured.out == "hi\n"
         assert captured.err.count("warning:") == 1
+        assert captured.err.rstrip().endswith("[tab-indentation]")
 
     def test_error_diagnostic_still_exits_1(
         self,

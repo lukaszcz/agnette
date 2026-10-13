@@ -1,0 +1,3 @@
+def answer() -> int =
+  # This comment carries a TAB:	the warning belongs to this module.
+  42

@@ -37,6 +37,7 @@ from agnette.agl.lexer.lexer import (
     apply_module_passes,
     spaced_qualifier_collector,
     tab_warning_collector,
+    tab_warning_labels,
     token_collector,
     unclosed_scope_path,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "lex_open_quote_start",
     "spaced_qualifier_collector",
     "tab_warning_collector",
+    "tab_warning_labels",
     "token_collector",
     "unclosed_scope_path",
     "tokenize",

@@ -1,0 +1,21 @@
+{
+  "scenarios": [
+    {
+      "name": "imported_module_tab_names_the_imported_file",
+      "module_roots": [
+        "program_modules/modules/imported_tab_warning"
+      ],
+      "expect": {
+        "warnings": [
+          {"name": "tab-indentation", "line": 5, "source": "<code>"},
+          {
+            "name": "tab-indentation",
+            "line": 2,
+            "source": "program_modules/modules/imported_tab_warning/tabby.agl"
+          }
+        ],
+        "stdout": "42\n"
+      }
+    }
+  ]
+}

@@ -15,7 +15,7 @@ from typing import Protocol, cast
 from weakref import proxy
 
 from agnette.agl.constraints import ConstraintBounds
-from agnette.agl.diagnostics import Diagnostic, diagnostic_from_span
+from agnette.agl.diagnostics import Diagnostic, warning_diagnostic
 from agnette.agl.ir.reserved_nominals import reserved_nominal_id
 from agnette.agl.modules.ids import STD_ENV_ID, spell_declaration
 from agnette.agl.scope.symbols import BindingRef, BuiltinKind
@@ -59,6 +59,7 @@ from agnette.agl.typecheck.env import (
     TypeEnvironment,
 )
 from agnette.agl.typecheck.inference import InferenceEngine
+from agnette.agl.warnings import NOOP_PARSE_RETRIES
 from agnette.agl.zones import ParamZone
 
 #: Format name -> the ``Type.kind`` strings that format can encode and decode.
@@ -967,11 +968,11 @@ class BuiltinCallChecker:
         ):
             return
         self._ctx._append_warning(
-            diagnostic_from_span(
+            warning_diagnostic(
+                NOOP_PARSE_RETRIES,
                 "'parse-error-retries' has no effect on a text target: a text result "
                 "never fails parsing, so no retry can ever fire.",
                 obligation.span,
-                severity="warning",
             )
         )
 

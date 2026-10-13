@@ -1,0 +1,6 @@
+# Modules: a TAB warning is attributed to the module whose source holds it.
+import tabby::*
+
+program def main() -> unit =
+  # The entry has its own TAB:	reported against the entry.
+  print answer()

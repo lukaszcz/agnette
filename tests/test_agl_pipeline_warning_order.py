@@ -37,7 +37,9 @@ def _prepare_graph(source: str) -> PreparedProgram:
 def _assert_warning_then_match_error(
     result: RunResult | ProgramDiscovery | EntryResult,
 ) -> None:
-    assert [(item.line, item.severity) for item in result.warnings] == [(2, "warning")]
+    assert [(item.line, item.severity, item.warning_name) for item in result.warnings] == [
+        (2, "warning", "noop-parse-retries")
+    ]
     assert [(item.line, item.severity) for item in result.diagnostics] == [(3, "error")]
 
 

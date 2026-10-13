@@ -38,7 +38,7 @@ from typing import cast
 
 from lark.lexer import Token
 
-from agnette.agl.diagnostics import Diagnostic, SourceSpan
+from agnette.agl.diagnostics import Diagnostic, SourceSpan, warning_diagnostic
 from agnette.agl.keywords import KEYWORDS
 from agnette.agl.lexer.errors import (
     IncompleteInputError,
@@ -97,6 +97,7 @@ from agnette.agl.lexer.tokens import (
 from agnette.agl.operator_names import is_operator_name_char
 from agnette.agl.value_syntax import lexical
 from agnette.agl.value_syntax.errors import ValueSyntaxError
+from agnette.agl.warnings import TAB_INDENTATION
 from agnette.util.ident import is_identifier_start
 from agnette.util.interp import INTERP_TRIGGER
 from agnette.util.text import normalize_newlines
@@ -296,16 +297,12 @@ class _Scanner:
         a `$`-literal block strips ahead of the scanner.
         """
         col = pos - self._line_start_pos + 1
+        span = SourceSpan(line, col, line, col + 1, pos, pos + 1)
         self._tab_warnings.append(
-            Diagnostic(
-                message=(
-                    f"TAB character at column {col} is not allowed; use spaces for indentation"
-                ),
-                line=line,
-                column=col,
-                end_line=line,
-                end_column=col + 1,
-                severity="warning",
+            warning_diagnostic(
+                TAB_INDENTATION,
+                f"TAB character at column {col} is not allowed; use spaces for indentation",
+                span,
             )
         )
 

@@ -145,6 +145,7 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
                 "agnette.agl.semantics",
                 "agnette.agl.syntax",
                 "agnette.agl.typecheck",
+                "agnette.agl.warnings",
                 "agnette.agl.zones",
             ),
         ),
@@ -281,6 +282,7 @@ def test_shared_primitives_do_not_import_manager_or_language(package: str) -> No
         ("artifact_storage.py", ()),
         ("keywords.py", ("agnette.util.ident",)),
         ("constraints.py", ()),
+        ("warnings.py", ()),
         ("highlight/categories.py", ()),
     ],
 )
@@ -294,7 +296,8 @@ def test_shared_leaves_sit_below_every_pass(leaf: str, allowed: tuple[str, ...])
     data leaves, and nothing else; ``artifact_storage`` is the disk envelope
     every disk cache writes through and, like ``zones``, imports nothing
     under ``agnette``; ``keywords`` names only the identifier grammar leaf its
-    plain-name predicate cross-checks.
+    plain-name predicate cross-checks; ``warnings`` is the static warning
+    catalog and, like ``zones``, imports nothing under ``agnette``.
     """
     violations = [
         f"{leaf} imports {module}"

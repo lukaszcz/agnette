@@ -1969,6 +1969,27 @@ class TestAglLexerClass:
         assert len(warnings) == 1
         assert warnings[0].line == 2
 
+    def test_parse_labels_tab_warnings_with_the_parsed_source(self) -> None:
+        from agnette.agl.parser.parser import parse_program
+        from agnette.agl.syntax.spans import SourceId
+
+        with tab_warning_collector() as warnings:
+            parse_program("let a = 1\n", source=SourceId(label="first.agl"))
+            parse_program("let\tb = 1\n", source=SourceId(label="lib/second.agl"))
+            parse_program("let\tc = 1\n")
+
+        assert [(w.line, w.source_label) for w in warnings] == [(1, "lib/second.agl"), (1, None)]
+
+    def test_parse_labels_tab_warnings_collected_before_a_syntax_error(self) -> None:
+        from agnette.agl.parser import AglSyntaxError
+        from agnette.agl.parser.parser import parse_program
+        from agnette.agl.syntax.spans import SourceId
+
+        with tab_warning_collector() as warnings, pytest.raises(AglSyntaxError):
+            parse_program("let\tx = = 1\n", source=SourceId(label="bad.agl"))
+
+        assert [w.source_label for w in warnings] == ["bad.agl"]
+
     def test_tab_warning_collector_receives_lexer_warnings(self) -> None:
         lexer = AglLexer(None)
         state = lexer_state("let\tx = 1")
@@ -2702,6 +2723,10 @@ class TestTabWarnings:
         warnings = _tab_warnings("let x = 1\n\t")
         assert len(warnings) == 1
         assert warnings[0].line == 2
+
+    def test_warnings_are_named_tab_indentation(self) -> None:
+        warnings = _tab_warnings("\tx = 1\n\ty = 2")
+        assert [w.warning_name for w in warnings] == ["tab-indentation", "tab-indentation"]
 
     def test_warnings_are_diagnostic_instances(self) -> None:
         warnings = _tab_warnings("\tx = 1")

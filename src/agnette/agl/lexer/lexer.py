@@ -31,6 +31,7 @@ from __future__ import annotations
 import contextvars
 import importlib.resources
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import Iterator, TypeVar
 
 from lark import Lark
@@ -121,6 +122,23 @@ def tab_warning_collector() -> Iterator[list[Diagnostic]]:
     """
     with _ambient_list_sink(_TAB_WARNING_SINK) as sink:
         yield sink
+
+
+@contextmanager
+def tab_warning_labels(source_label: str | None) -> Iterator[None]:
+    """Label the TAB advisories produced within the block as coming from *source_label*.
+
+    The scanner sees text, not its origin; the parse that knows the source
+    stamps its advisories so each one names its own module.  Applied even when
+    the block raises.
+    """
+    sink = _TAB_WARNING_SINK.get()
+    start = 0 if sink is None else len(sink)
+    try:
+        yield
+    finally:
+        if sink is not None and source_label is not None:
+            sink[start:] = [replace(w, source_label=source_label) for w in sink[start:]]
 
 
 # Ambient sink for spaced-qualifier advisories, mirroring the TAB sink above.

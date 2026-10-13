@@ -23,7 +23,7 @@ from lark import Lark, Tree
 from lark.exceptions import UnexpectedToken, VisitError
 
 import agnette.agl.syntax as syntax
-from agnette.agl.lexer import token_collector, tokenize
+from agnette.agl.lexer import tab_warning_labels, token_collector, tokenize
 from agnette.agl.lexer.errors import (
     IncompleteInputError,
     LexError,
@@ -115,9 +115,13 @@ def _parse_tree(parser: Lark, text: str, *, source: SourceId | None) -> Tree:
 
     Installs :func:`~agnette.agl.lexer.token_collector` around the parse so a
     Lark-derived error can be diagnosed against the parse's own materialized
-    token pass (e.g. the `$`-spacing hint) without re-lexing *text*.
+    token pass (e.g. the `$`-spacing hint) without re-lexing *text*, and labels
+    the parse's TAB advisories with *source*.
     """
-    with token_collector() as tokens:
+    with (
+        token_collector() as tokens,
+        tab_warning_labels(None if source is None else source.label),
+    ):
         try:
             return parser.parse(text)
         except LexError as exc:

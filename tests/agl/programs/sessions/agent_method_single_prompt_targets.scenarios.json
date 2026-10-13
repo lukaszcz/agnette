@@ -5,6 +5,7 @@
       "runtime": {"session_host": true},
       "agents": {"writer": ["a plan", "7"]},
       "expect": {
+        "warnings": [{"name": "noop-parse-retries", "line": 4}],
         "stdout": "a plan\n7\n",
         "calls": {"writer": 0},
         "sessions": [

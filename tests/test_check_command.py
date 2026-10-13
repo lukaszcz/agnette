@@ -420,6 +420,21 @@ class TestCheckCommand:
         assert captured.out == ""
         assert "tabby.agl" in captured.err
         assert "warning:" in captured.err
+        assert captured.err.rstrip().endswith("[tab-indentation]")
+
+    def test_imported_module_tab_warning_names_the_imported_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "tabby.agl").write_bytes(b"def answer() -> int =\n\t42\n")
+        main = tmp_path / "main.agl"
+        main.write_text("import tabby::*\nprogram def main() -> unit =\n  print answer()\n")
+
+        check_command.run(CheckArgs(files=[str(main)]))
+
+        err = capsys.readouterr().err
+        assert err.count("warning:") == 1
+        assert "tabby.agl:2:" in err
+        assert "main.agl" not in err
 
     def test_extern_call_inside_program_is_checked_without_execution(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

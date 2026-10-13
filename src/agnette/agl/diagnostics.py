@@ -23,6 +23,7 @@ from typing import Literal, NamedTuple, Sequence
 # Re-export the canonical source-span definitions.
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE as UNKNOWN_SOURCE
 from agnette.agl.syntax.spans import SourceSpan as SourceSpan
+from agnette.agl.warnings import StaticWarning
 from agnette.core.path import display_path
 
 
@@ -54,6 +55,9 @@ class Diagnostic:
     ``severity`` is ``"error"`` (the default) or ``"warning"``: warnings are
     reported to the user but, unlike errors, do not cause the run to fail (see
     ``RunResult.ok`` and the exit-code contract).
+    ``warning_name`` is the catalog name of the static warning this diagnostic
+    reports (see :mod:`agnette.agl.warnings` and :func:`warning_diagnostic`),
+    kept when a denied warning is an error; formatting appends it as `` [NAME]``.
     ``source_label`` is the display label of the source file this diagnostic
     originated from (e.g. a canonical file path, ``"<agl>"``, ``"<repl>"``).
     When set, it takes precedence over the ambient ``source_name`` argument
@@ -70,6 +74,7 @@ class Diagnostic:
     severity: Literal["error", "warning"] = "error"
     source_label: str | None = None
     related: tuple[RelatedDiagnostic, ...] = ()
+    warning_name: str | None = None
 
 
 def _source_label_from_span(span: SourceSpan) -> str | None:
@@ -111,6 +116,13 @@ def diagnostic_from_span(
         end_column=span.end_col,
         severity=severity,
         source_label=_source_label_from_span(span),
+    )
+
+
+def warning_diagnostic(warning: StaticWarning, message: str, span: SourceSpan) -> Diagnostic:
+    """Build the *warning* diagnostic pinned to *span*, severity and catalog name together."""
+    return replace(
+        diagnostic_from_span(message, span, severity="warning"), warning_name=warning.name
     )
 
 
@@ -157,9 +169,10 @@ def format_diagnostic_location(
 
 def format_diagnostic(diagnostic: Diagnostic, *, source_name: str | None = "<agl>") -> str:
     """Return a user-visible primary diagnostic followed by its related notes."""
+    suffix = "" if diagnostic.warning_name is None else f" [{diagnostic.warning_name}]"
     primary = (
         f"{format_diagnostic_location(diagnostic, source_name=source_name)}: "
-        f"{diagnostic.severity}: {diagnostic.message}"
+        f"{diagnostic.severity}: {diagnostic.message}{suffix}"
     )
     notes = (
         f"  {format_diagnostic_location(note, source_name=source_name)}: note: {note.message}"

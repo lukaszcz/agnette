@@ -111,6 +111,8 @@ Data files for `tests/test_agl_e2e.py`, the AgL specification suite.
           {"agent": "impl", "session": "session-1", "operation": "compact",
            "arg": "summarize"}
         ],
+        "warnings": [{"name": "noop-parse-retries", "line": 6},
+                     {"name": "tab-indentation", "line": 2, "source": "<code>"}],
         "raises": {"type": "MaxIterationsExceeded",
                    "fields": {"limit": 3},
                    "message_contains": ["fragment"],
@@ -192,6 +194,10 @@ Expectations:
   once, matched by `operation`, optional `call`, `arg`, and `outcome`.
 - `raises` — the uncaught exception: `type`, a recursive exact-match subset of `fields`,
   `message_contains`, optional 1-based `line` and `source_contains` (source display name).
+- `warnings` — the exact list of static warnings as `{"name": …, "line": …}` objects, in
+  report order; absent means the program emits none. An optional `"source"` also pins the
+  module the warning is attributed to: a path relative to `tests/agl/`, or a label such as
+  `<code>` for the entry.
 - `exit_code` — termination through `SystemExit` with this status.
 - `host_error` — a pre-execution failure (argument binding or decoding): no agent call, no
   AgL exception, diagnostics containing `message_contains`.

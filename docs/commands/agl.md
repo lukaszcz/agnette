@@ -619,7 +619,8 @@ the status; an out-of-range value is a runtime error, not a termination.
   set the exit code.
 - Agent transport failures include the captured stderr tail in the exception message,
   even when agent output echo and tracing are disabled.
-- Advisory **warnings** go to stderr as `warning: line N: message` and never affect the exit
+- Advisory **warnings** go to stderr as `path:line:col: warning: message [NAME]`, ending in
+  the warning's name (`tab-indentation`, `noop-parse-retries`), and never affect the exit
   code; the program runs to completion.
 - Program `print` output goes to stdout, free of diagnostics.
 
@@ -685,7 +686,11 @@ path:line:col-endline:endcol: error: message
 
 Related notes are indented two spaces under their diagnostic. A diagnostic from an imported
 module carries that module's path. **Warnings** (e.g. a TAB-indented line) never affect the exit
-code.
+code; each ends in its name in brackets:
+
+```text
+path:line:col: warning: message [tab-indentation]
+```
 
 ### Example
 
