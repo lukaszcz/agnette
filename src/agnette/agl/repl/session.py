@@ -119,6 +119,7 @@ class _BootstrapSnapshot:
     """Reusable checked image for an unchanged default-standard-library graph."""
 
     modules: dict["ModuleId", "LoadedModule"]
+    warnings: tuple[Diagnostic, ...]
     type_env: "TypeEnvironment"
     next_node_id: int
     source_texts: tuple[tuple["Path", str], ...]
@@ -457,6 +458,7 @@ class ReplSession:
         self._roots: RootSet | None = None
         # Cached lib modules from prior REPL program entries.
         self._loaded_lib_modules: dict[ModuleId, LoadedModule] = {}
+        self._pending_bootstrap_warnings: list[Diagnostic] = []
         # Compilation artifacts of the library modules this session has loaded,
         # retained across entries. Each pass reuses one only while the entry's
         # graph still holds the very AST object the artifact was derived from,
@@ -543,13 +545,15 @@ class ReplSession:
         the standard-library companion, if any, imported) only once an entry
         actually executes, exactly as today.
 
-        Returns the rejection diagnostics, or an empty tuple on success. A
-        host calls this once, right after constructing the session and before
+        Returns the rejection diagnostics, or an empty tuple on success. Bootstrap
+        warnings are governed before promotion; reported warnings accompany the next
+        entry once. A host calls this once, right after constructing the session and before
         it accepts any entry or prints a banner. Every source, module-loading,
         stdlib-root, or configuration failure is an ``AglError`` and becomes a
         diagnostic, exactly as :meth:`EntryPipeline.eval_entry` reports it for
         an ordinary entry.
         """
+        from agnette.agl.lexer import tab_warning_collector
         from agnette.agl.parser import parse_program_seeded
 
         try:
@@ -565,7 +569,15 @@ class ReplSession:
                         cached
                     ) and self._bootstrap_discovery_matches(cached, roots):
                         _bootstrap_cache.move_to_end(cache_key)
+                        outcome = self._govern_warnings(
+                            cached.warnings,
+                            cached.resolved_modules.values(),
+                            scope_complete=True,
+                        )
+                        if outcome.denied:
+                            return outcome.denied
                         self._restore_bootstrap(cached)
+                        self._pending_bootstrap_warnings.extend(outcome.reported)
                         return ()
                     # A source edit invalidates this image permanently; retaining it
                     # until ordinary LRU eviction would waste one of the few slots.
@@ -577,14 +589,38 @@ class ReplSession:
             # referenced again once ``_next_node_id`` moves past them.
             program, next_start_id = parse_program_seeded("()", start_id=self._next_node_id)
 
-            try:
-                loaded = self._entry_pipeline.load_and_check_program(
-                    pipeline_program=program,
-                    next_start_id=next_start_id,
-                    source_text="()",
-                )
-            except AglError as exc:
-                return (exc.to_diagnostic(),)
+            resolutions: dict[ModuleId, ResolvedModule] = {}
+            with tab_warning_collector() as tab_sink:
+                try:
+                    loaded = self._entry_pipeline.load_and_check_program(
+                        pipeline_program=program,
+                        next_start_id=next_start_id,
+                        source_text="()",
+                        resolutions=resolutions,
+                    )
+                except AglError as exc:
+                    outcome = self._govern_warnings(
+                        tab_sink, resolutions.values(), scope_complete=False
+                    )
+                    return (exc.to_diagnostic(), *outcome.denied)
+
+            bootstrap_warnings = [
+                *tab_sink,
+                *(
+                    warning
+                    for module_id, module in loaded.checked_program.modules.items()
+                    if module_id == loaded.checked_program.entry_id
+                    or module_id in loaded.new_modules
+                    for warning in module.warnings
+                ),
+            ]
+            outcome = self._govern_warnings(
+                bootstrap_warnings,
+                loaded.resolved_program.modules.values(),
+                scope_complete=True,
+            )
+            if outcome.denied:
+                return outcome.denied
 
             self._loaded_lib_modules.update(loaded.new_modules)
             self._pending_param_raw_values.update(loaded.raw_param_values)
@@ -594,6 +630,7 @@ class ReplSession:
             if cache_key is not None:
                 _bootstrap_cache[cache_key] = _BootstrapSnapshot(
                     modules=dict(loaded.new_modules),
+                    warnings=tuple(bootstrap_warnings),
                     type_env=self._type_env,
                     next_node_id=self._next_node_id,
                     source_texts=tuple(
@@ -608,6 +645,7 @@ class ReplSession:
                 _bootstrap_cache.move_to_end(cache_key)
                 while len(_bootstrap_cache) > BOOTSTRAP_CACHE_MAX_ENTRIES:
                     _bootstrap_cache.popitem(last=False)
+            self._pending_bootstrap_warnings.extend(outcome.reported)
             return ()
 
     def _bootstrap_cache_key(self, roots: "RootSet") -> tuple[object, ...] | None:
@@ -734,6 +772,9 @@ class ReplSession:
         bindings keep their normal echo.
         """
         result = self._eval_entry_pipeline(text, check_only=check_only)
+        if self._pending_bootstrap_warnings:
+            result.warnings[:0] = self._pending_bootstrap_warnings
+            self._pending_bootstrap_warnings.clear()
         if not result.ok:
             type_result = self._try_type_entry(text, value_failure=result.failure)
             if type_result is not None:
@@ -1971,6 +2012,7 @@ class ReplSession:
         # Clear module state.
         self._roots = None
         self._loaded_lib_modules = {}
+        self._pending_bootstrap_warnings = []
         # The retained library artifacts survive: each is consulted only through
         # the identity of the AST or checked module it was derived from, so a
         # reopened session reuses one only when it loads that very module, and

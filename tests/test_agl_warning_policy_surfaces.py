@@ -454,3 +454,60 @@ def test_repl_caps_only_an_installed_standard_library(tmp_path: Path, installed:
     assert [d.warning_name for d in result.diagnostics] == (
         [] if installed else ["tab-indentation"]
     )
+
+
+def test_repl_open_denies_bootstrap_warnings_before_promoting_modules(tmp_path: Path) -> None:
+    stdlib = tmp_path / "stdlib"
+    (stdlib / "src").mkdir(parents=True)
+    (stdlib / "src" / "prelude.agl").write_text(_TABBY_LIBRARY)
+
+    unopened = ReplSession(stdlib_root=stdlib, warning_policy=_DENY_TAB)
+    assert _names(unopened.eval_entry("1").diagnostics) == [("error", "tab-indentation")]
+
+    opened = ReplSession(stdlib_root=stdlib, warning_policy=_DENY_TAB)
+    diagnostics = opened.open()
+
+    assert _names(diagnostics) == [("error", "tab-indentation")]
+    assert opened._loaded_lib_modules == {}
+    assert _names(opened.eval_entry("1").diagnostics) == [("error", "tab-indentation")]
+
+
+def test_repl_open_reports_bootstrap_warnings_on_the_first_entry(tmp_path: Path) -> None:
+    stdlib = tmp_path / "stdlib"
+    (stdlib / "src").mkdir(parents=True)
+    (stdlib / "src" / "prelude.agl").write_text(_TABBY_LIBRARY)
+    session = ReplSession(stdlib_root=stdlib)
+
+    assert session.open() == ()
+    first = session.eval_entry("1")
+    later = session.eval_entry("2")
+
+    assert _names(first.warnings) == [("warning", "tab-indentation")]
+    assert first.ok and later.ok and later.warnings == []
+
+
+def test_repl_open_applies_the_current_policy_to_cached_bootstrap_warnings(
+    tmp_path: Path,
+) -> None:
+    stdlib = tmp_path / "stdlib"
+    (stdlib / "src").mkdir(parents=True)
+    (stdlib / "src" / "prelude.agl").write_text(_TABBY_LIBRARY)
+
+    assert ReplSession(stdlib_root=stdlib, warning_policy=_ALLOW_TAB).open() == ()
+    denied = ReplSession(stdlib_root=stdlib, warning_policy=_DENY_TAB)
+
+    assert _names(denied.open()) == [("error", "tab-indentation")]
+    assert denied._loaded_lib_modules == {}
+
+
+def test_repl_reset_discards_pending_bootstrap_warnings(tmp_path: Path) -> None:
+    stdlib = tmp_path / "stdlib"
+    (stdlib / "src").mkdir(parents=True)
+    (stdlib / "src" / "prelude.agl").write_text(_TABBY_LIBRARY)
+    session = ReplSession(stdlib_root=stdlib)
+    assert session.open() == ()
+
+    session.reset()
+    result = session.eval_entry("1")
+
+    assert _names(result.warnings) == [("warning", "tab-indentation")]
