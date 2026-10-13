@@ -232,7 +232,7 @@ class TestLiveTracePathResolver:
     def test_auto_path_is_minted_once_and_reused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path / "af")
+        monkeypatch.setattr("agnette.core.log.default_trace_dir", lambda: tmp_path / "af")
         resolver = LiveTracePathResolver(command_name="exec", auto_path=None)
         with patch("agnette.core.log.datetime", _StepClock()):
             first = resolver(True, None)
@@ -400,7 +400,7 @@ class TestIntegrationDefaultNoTrace:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"'))
-        agent_files = tmp_path / ".agent-files"
+        agent_files = tmp_path / ".agent-files" / "logs"
         assert not agent_files.exists(), "No .agent-files dir should be created by default"
 
 
@@ -414,7 +414,7 @@ class TestIntegrationLogFlagWritesTrace:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"', trace=True))
-        agent_files = tmp_path / ".agent-files"
+        agent_files = tmp_path / ".agent-files" / "logs"
         assert agent_files.exists()
         trace_files = list(agent_files.glob("exec-*.jsonl"))
         assert len(trace_files) == 1
@@ -427,7 +427,7 @@ class TestIntegrationLogFlagWritesTrace:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"', no_trace=no_trace, debug=True))
-        assert len(list(tmp_path.glob(".agent-files/exec-*.jsonl"))) == written
+        assert len(list(tmp_path.glob(".agent-files/logs/exec-*.jsonl"))) == written
 
     def test_explicit_trace_file_path_used(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -453,7 +453,7 @@ class TestIntegrationConfigLogTrue:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"'))
-        agent_files = tmp_path / ".agent-files"
+        agent_files = tmp_path / ".agent-files" / "logs"
         assert agent_files.exists()
         trace_files = list(agent_files.glob("exec-*.jsonl"))
         assert len(trace_files) == 1
@@ -487,5 +487,5 @@ class TestIntegrationNoLogOverridesConfig:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr("agnette.core.log.git_helpers.containing_root", lambda _: None)
         exec_command.run(_exec_args('print "hello"', no_trace=True))
-        agent_files = tmp_path / ".agent-files"
+        agent_files = tmp_path / ".agent-files" / "logs"
         assert not agent_files.exists(), "--no-trace must override config trace=true"

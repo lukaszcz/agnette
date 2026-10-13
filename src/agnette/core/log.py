@@ -13,13 +13,14 @@ from pathlib import Path
 from agnette.core.fs import append_text, mkdir, write_text
 from agnette.vcs import git as git_helpers
 
-AGENT_FILES_DIRNAME = ".agent-files"
+TRACE_DIR = Path(".agent-files") / "logs"
 
 
-def default_agent_files_dir() -> Path:
+def default_trace_dir() -> Path:
+    """Auto trace directory: ``TRACE_DIR`` under the git root, else under cwd."""
     cwd = Path.cwd()
     root = git_helpers.containing_root(cwd)
-    return (root if root is not None else cwd) / AGENT_FILES_DIRNAME
+    return (root if root is not None else cwd) / TRACE_DIR
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,7 @@ class TraceDecision:
 
     ``enabled`` is the starting on/off state.  ``explicit_path`` is the resolved
     trace-file path when the user (or config) provided one explicitly; ``None``
-    means use the auto-generated timestamped path inside ``.agent-files/``.
+    means use the auto-generated timestamped path inside ``.agent-files/logs/``.
 
     Resolved once per run by
     :meth:`~agnette.agm.cli_support.engine_seeds.EngineSeedTiers.trace_decision`, from
@@ -100,7 +101,7 @@ def _log_file_path(*, command_name: str, log_file: str | None) -> Path:
         return resolved
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     pid = os.getpid()
-    return default_agent_files_dir() / f"{command_name}-{timestamp}-{pid}.jsonl"
+    return default_trace_dir() / f"{command_name}-{timestamp}-{pid}.jsonl"
 
 
 def prepare_trace_log(

@@ -235,7 +235,7 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Setting ``trace := false`` after logging was on stops later trace writes."""
-        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_trace_dir", lambda: tmp_path)
 
         agl_file = tmp_path / "prog.agl"
         write_file_program(
@@ -266,7 +266,7 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``--trace`` seeds the ``trace`` register so a read before any write sees True."""
-        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_trace_dir", lambda: tmp_path)
         agl_file = tmp_path / "prog.agl"
         write_file_program(agl_file, "import std/config::*\nlet l = std/config::trace\nprint l\n")
 
@@ -296,7 +296,7 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``--trace`` plus a mid-run ``trace := true`` keeps the run in ONE file."""
-        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_trace_dir", lambda: tmp_path)
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
@@ -317,7 +317,7 @@ class TestTraceReconfiguration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A program that turns logging on, off, then on again writes ONE file."""
-        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: tmp_path)
+        monkeypatch.setattr("agnette.core.log.default_trace_dir", lambda: tmp_path)
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
@@ -344,7 +344,7 @@ class TestTraceReconfiguration:
         """``--trace-file`` keeps the whole run in the named file, minting nothing."""
         auto_dir = tmp_path / "agent-files"
         auto_dir.mkdir()
-        monkeypatch.setattr("agnette.core.log.default_agent_files_dir", lambda: auto_dir)
+        monkeypatch.setattr("agnette.core.log.default_trace_dir", lambda: auto_dir)
         trace_path = tmp_path / "explicit.jsonl"
         agl_file = tmp_path / "prog.agl"
         write_file_program(

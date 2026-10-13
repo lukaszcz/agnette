@@ -2807,7 +2807,7 @@ class TestExecSourceConfigPrecedence:
         agl_file = tmp_path / "prog.agl"
         write_file_program(agl_file, 'import std/config\nstd/config::trace := true\nprint "hi"\n')
 
-        # Run in tmp_path so .agent-files/ is created there.
+        # Run in tmp_path so .agent-files/logs/ is created there.
         import os
 
         old_cwd = os.getcwd()
@@ -2825,7 +2825,7 @@ class TestExecSourceConfigPrecedence:
         finally:
             os.chdir(old_cwd)
 
-        agent_files = tmp_path / ".agent-files"
+        agent_files = tmp_path / ".agent-files" / "logs"
         trace_files = list(agent_files.glob("exec-*.jsonl"))
         assert trace_files, "Expected a trace trace file from std/config::trace := true"
 
