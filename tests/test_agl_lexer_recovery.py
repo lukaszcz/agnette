@@ -44,6 +44,7 @@ def test_recovery_result_retains_public_tokens_diagnostics_and_comments() -> Non
 
 REJECTED = [
     '"bad\\q"\nlater',  # escape conversion
+    r'"%{)}\$"',  # mismatched interpolation closer before an invalid escape
     '"unfinished',  # string EOF
     '"unfinished\nlater',  # single-line string newline
     '"%{unfinished',  # interpolation EOF

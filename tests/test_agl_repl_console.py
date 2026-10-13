@@ -475,6 +475,12 @@ class TestLexer:
         assert ("class:agl.operator", "?2") in fragments
         assert "".join(text for _style, text in fragments) == "add(?, ?2)"
 
+    def test_mismatched_interpolation_closer_keeps_malformed_line_renderable(self) -> None:
+        source = r'"%{)}\$"'
+        fragments = AglPromptLexer().lex_document(Document(source))(0)
+
+        assert "".join(text for _style, text in fragments) == source
+
     @pytest.mark.parametrize(
         "line",
         [

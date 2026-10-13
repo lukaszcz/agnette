@@ -1296,7 +1296,7 @@ class _Scanner:
             for token in self._scan_one_code_token():
                 if token.type in LAYOUT_DELIMITERS:
                     closers.append(LAYOUT_DELIMITERS[token.type])
-                elif token.type in LAYOUT_DELIMITERS.values() and closers:
+                elif closers and token.type == closers[-1]:
                     closers.pop()
                 yield token
                 # Match the strict outer consumer before the nested scanner resumes.
