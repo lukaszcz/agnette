@@ -64,7 +64,7 @@ from agnette.config.module_roots import (
     StdlibResolutionError,
     load_module_roots,
     resolve_lib_root,
-    resolve_stdlib_root,
+    select_stdlib_root,
 )
 from agnette.config.qualified_keys import QualifiedConfigLookupError
 from agnette.core.cleanup import preserve_primary_error
@@ -145,7 +145,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
 
     mod_roots_cfg = load_module_roots(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
     try:
-        stdlib_root = resolve_stdlib_root(home=ctx.home, anchor=ctx.cwd)
+        stdlib = select_stdlib_root(home=ctx.home, anchor=ctx.cwd)
     except StdlibResolutionError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -180,7 +180,8 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
             process_environment=process_environment,
             host_settings_policy=host_settings_policy,
             cwd=ctx.cwd,
-            stdlib_root=stdlib_root,
+            stdlib_root=stdlib.root,
+            stdlib_installed=stdlib.installed,
             lib_root=lib_root,
             configured_roots=mod_roots_cfg.extra,
             package_roots=package_roots,

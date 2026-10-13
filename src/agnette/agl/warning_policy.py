@@ -4,9 +4,9 @@ The static passes report every warning they find, and caches keep those raw
 warnings. A host then applies a :class:`WarningPolicy` to one invocation's
 warnings with :func:`apply_warning_policy`, in order:
 
-1. drop warnings anchored in capped sources (installed dependencies); a host
-   passes the capped set once it knows each module's origin, and until then
-   the set is empty and the step drops nothing;
+1. drop warnings anchored in capped sources: modules of installed
+   dependencies (store packages, the store or shipped standard library), whose
+   warnings the user cannot act on, whatever their level;
 2. drop warnings inside an ``@allow`` region that names them;
 3. apply the configured level: ``allow`` drops, ``warn`` reports, ``deny``
    turns the warning into an error that keeps its catalog name.
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 from agnette.agl.diagnostics import Diagnostic
@@ -30,6 +31,7 @@ from agnette.agl.syntax.spans import UNKNOWN_SOURCE
 from agnette.agl.warnings import WARNING_DEFAULT_LEVELS, WarningLevel
 
 if TYPE_CHECKING:
+    from agnette.agl.modules.roots import RootSet
     from agnette.agl.scope.program import ResolvedModule
     from agnette.agl.scope.symbols import AllowRegion
 
@@ -39,6 +41,7 @@ __all__ = [
     "WarningPolicy",
     "apply_program_policy",
     "apply_warning_policy",
+    "installed_sources",
     "named_warnings",
     "regions_by_source",
 ]
@@ -93,27 +96,45 @@ def regions_by_source(modules: Iterable[ResolvedModule]) -> dict[str, list[Allow
     return by_source
 
 
+def installed_sources(warnings: Iterable[NamedWarning], roots: RootSet | None) -> frozenset[str]:
+    """The source labels of *warnings* anchored in installed modules.
+
+    A file module's label is its canonical absolute path, so *roots* tells its
+    origin; a synthetic label such as ``<code>`` is never installed. This reads
+    only the invocation's roots, never the modules, so it also holds for a
+    module a failing pass never reached. *roots* is ``None`` before a host has
+    any, when no module is loaded.
+    """
+    if roots is None:
+        return frozenset()
+    paths = {label: Path(label) for _, w in warnings if (label := w.source_label) is not None}
+    return frozenset(
+        label for label, path in paths.items() if path.is_absolute() and roots.is_installed(path)
+    )
+
+
 def apply_program_policy(
     warnings: Iterable[Diagnostic],
     modules: Iterable[ResolvedModule],
     policy: WarningPolicy,
     *,
     scope_complete: bool,
-    capped_sources: frozenset[str] = frozenset(),
+    roots: RootSet | None,
 ) -> WarningOutcome:
     """Apply *policy* to the *warnings* of one program invocation.
 
     *modules* are every module scope resolved, also when a later module or pass
     failed. *scope_complete* is whether scope resolved the whole program; if not,
-    the warnings of any other module are withheld. *capped_sources* are the labels
-    of the sources whose warnings the dependency cap drops.
+    the warnings of any other module are withheld. *roots* are the invocation's
+    module roots, whose installed modules the dependency cap drops.
     """
+    named = named_warnings(warnings)
     return apply_warning_policy(
-        named_warnings(warnings),
+        named,
         regions_by_source(modules),
         policy,
         scope_complete=scope_complete,
-        capped_sources=capped_sources,
+        capped_sources=installed_sources(named, roots),
     )
 
 

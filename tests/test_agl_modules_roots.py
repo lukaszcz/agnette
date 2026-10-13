@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -713,3 +714,75 @@ class TestPackageModuleIdFor:
         )
 
         assert roots.package_module_id_for(module) == ModuleId(segments=("inner", "mod"))
+
+
+class TestIsInstalled:
+    """Origin is data on the mounted packages and the standard library, not a path guess."""
+
+    def test_a_module_of_an_installed_package_is_installed(self, tmp_path: Path) -> None:
+        package = replace(_package_with_a_rogue_module(tmp_path), installed=True)
+        roots = _roots_for(tmp_path, package, loose=False)
+
+        assert roots.is_installed(package.module_root / "main.agl")
+
+    def test_a_module_of_a_development_package_is_local(self, tmp_path: Path) -> None:
+        package = _package_with_a_rogue_module(tmp_path)
+        roots = _roots_for(tmp_path, package, loose=False)
+
+        assert not roots.is_installed(package.module_root / "main.agl")
+
+    def test_a_file_under_no_mounted_package_is_local(self, tmp_path: Path) -> None:
+        package = replace(_package_with_a_rogue_module(tmp_path), installed=True)
+        roots = _roots_for(tmp_path, package, loose=False)
+
+        assert not roots.is_installed(tmp_path / "main.agl")
+        assert not roots.is_installed(Path("<code>"))
+
+    def test_the_innermost_package_decides_for_a_nested_module_tree(self, tmp_path: Path) -> None:
+        outer = replace(_package_with_a_rogue_module(tmp_path, "demo"), installed=True)
+        inner_root = outer.module_root / "vendor"
+        (inner_root / MODULE_TREE_DIRNAME).mkdir(parents=True)
+        (inner_root / "package.toml").write_text('[package]\nname = "inner"\nversion = "1.0.0"\n')
+        module = inner_root / MODULE_TREE_DIRNAME / "mod.agl"
+        module.write_text("")
+        inner = PackageInfo(inner_root, load_manifest(inner_root / "package.toml"))
+        roots = assemble_roots(
+            invocation_root=None,
+            stdlib_root=tmp_path / "absent-stdlib",
+            lib_root=None,
+            configured=[],
+            cli=[],
+            cwd=tmp_path,
+            package_roots=(outer, inner),
+        )
+
+        assert not roots.is_installed(module)
+        assert roots.is_installed(outer.module_root / "main.agl")
+
+    @pytest.mark.parametrize("installed", [True, False])
+    def test_the_standard_library_is_installed_only_when_assembled_so(
+        self, tmp_path: Path, installed: bool
+    ) -> None:
+        stdlib = _stdlib_tree(tmp_path)
+        roots = assemble_roots(
+            invocation_root=None,
+            stdlib_root=stdlib,
+            lib_root=None,
+            configured=[],
+            cli=[],
+            cwd=tmp_path,
+            stdlib_installed=installed,
+        )
+
+        assert roots.is_installed(stdlib / MODULE_TREE_DIRNAME / "prelude.agl") is installed
+
+    def test_installed_is_decided_per_standard_library_root(self, tmp_path: Path) -> None:
+        installed, local = tmp_path / "installed", tmp_path / "local"
+        roots = RootSet(
+            roots=frozenset(),
+            stdlib_roots=frozenset({installed, local}),
+            installed_stdlib_roots=frozenset({installed}),
+        )
+
+        assert roots.is_installed(installed / MODULE_TREE_DIRNAME / "prelude.agl")
+        assert not roots.is_installed(local / MODULE_TREE_DIRNAME / "prelude.agl")

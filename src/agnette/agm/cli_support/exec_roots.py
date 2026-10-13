@@ -13,12 +13,13 @@ from agnette.config.module_roots import (
     StdlibResolutionError,
     load_module_roots,
     resolve_lib_root,
-    resolve_stdlib_root,
+    select_stdlib_root,
 )
 from agnette.packages.activation import select_package_roots
 from agnette.packages.development import discover_development_packages
 from agnette.packages.manifest import ManifestError, load_manifest
 from agnette.packages.model import PackageInfo, is_std_package_name, owning_package
+from agnette.packages.stdlib import StdlibSelection
 
 if TYPE_CHECKING:
     from agnette.agl.pipeline import PreparedProgram
@@ -64,8 +65,8 @@ def effective_exec_roots(
         cwd=cwd,
         development_packages=development_packages,
     )
-    stdlib_root = resolve_stdlib_root(home=home, anchor=anchor)
-    stdlib_package = _mounted_stdlib_package(entry_path, stdlib_root=stdlib_root)
+    stdlib = select_stdlib_root(home=home, anchor=anchor)
+    stdlib_package = _mounted_stdlib_package(entry_path, stdlib=stdlib)
     mounted_packages = (
         selected_packages if stdlib_package is None else (*selected_packages, stdlib_package)
     )
@@ -78,7 +79,8 @@ def effective_exec_roots(
         else entry_path.parent
         if entry_path is not None
         else cwd,
-        stdlib_root=stdlib_root,
+        stdlib_root=stdlib.root,
+        stdlib_installed=stdlib.installed,
         lib_root=resolve_lib_root(module_config, home=home),
         configured=module_config.extra,
         cli=module_paths,
@@ -88,7 +90,9 @@ def effective_exec_roots(
     return ExecRoots(roots=roots)
 
 
-def _mounted_stdlib_package(entry_path: Path | None, *, stdlib_root: Path) -> PackageInfo | None:
+def _mounted_stdlib_package(
+    entry_path: Path | None, *, stdlib: StdlibSelection
+) -> PackageInfo | None:
     """Return the selected standard library as a package, when it owns the entry.
 
     ``select_package_roots`` drops every discovered ``std`` package, because
@@ -111,12 +115,12 @@ def _mounted_stdlib_package(entry_path: Path | None, *, stdlib_root: Path) -> Pa
     if entry_path is None:
         return None
     try:
-        manifest = load_manifest(stdlib_root / "package.toml")
+        manifest = load_manifest(stdlib.root / "package.toml")
     except ManifestError:
         return None
     if not is_std_package_name(manifest.name):
         return None
-    candidate = PackageInfo(stdlib_root, manifest)
+    candidate = PackageInfo(stdlib.root, manifest, installed=stdlib.installed)
     return candidate if owning_package(entry_path, (candidate,)) is not None else None
 
 

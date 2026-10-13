@@ -94,7 +94,7 @@ def test_check_denies_a_warning(tmp_path: Path) -> None:
     assert raised.value.code == 1
 
 
-def test_registered_command_discovery_is_governed_by_the_invocations_policy(
+def test_a_registered_command_of_a_store_package_is_capped_even_when_denied(
     tmp_path: Path,
 ) -> None:
     from agnette.agm.cli_support.program_discovery import ProgramDiscoveryArtifacts
@@ -118,6 +118,7 @@ def test_registered_command_discovery_is_governed_by_the_invocations_policy(
     default = discover(None)
     denied = discover(_DENY_TAB)
 
-    assert default.discovery.diagnostics == ()
-    assert [d.warning_name for d in denied.discovery.diagnostics] == ["tab-indentation"]
+    assert default.discovery.warnings == ()
+    assert denied.discovery.diagnostics == ()
+    assert denied.discovery.warnings == ()
     assert denied.warning_policy == _DENY_TAB

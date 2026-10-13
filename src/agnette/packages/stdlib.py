@@ -6,12 +6,13 @@ package-domain work — development discovery, activation lookup, canonical
 identity, store paths, and manifest loading — so it lives here rather than in
 the configuration layer. ``agnette.config.module_roots`` handles only the
 ``AGM_STDLIB`` environment override and delegates everything else to
-:func:`resolve_std_package_root`.
+:func:`select_std_package`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import semver
@@ -44,10 +45,22 @@ class StdlibVersionMismatchError(StdlibResolutionError):
         )
 
 
-def resolve_std_package_root(
+@dataclass(frozen=True, slots=True)
+class StdlibSelection:
+    """A selected standard-library root and its origin.
+
+    ``installed`` is true for the store ``std`` package and the shipped tree,
+    false for live source (a development checkout or a host override).
+    """
+
+    root: Path
+    installed: bool
+
+
+def select_std_package(
     *, home: Path, env: Mapping[str, str] | None = None, anchor: Path | None = None
-) -> Path:
-    """Return the selected AgL standard-library module root.
+) -> StdlibSelection:
+    """Select the AgL standard library, with its origin.
 
     A development ``std`` checkout whose module tree contains *anchor* wins
     outright, so working inside the standard library resolves it from the tree
@@ -60,7 +73,7 @@ def resolve_std_package_root(
     if anchor is not None:
         checkout = _anchoring_std_checkout(anchor, home=home, env=env)
         if checkout is not None:
-            return checkout
+            return StdlibSelection(checkout, installed=False)
     try:
         active = load_activation_index(home=home, env=env).packages.get(STD_PACKAGE_NAME)
     except PackageActivationError as exc:
@@ -96,12 +109,12 @@ def resolve_std_package_root(
                 raise StdlibResolutionError(
                     f"cannot read active std package manifest at {store_stdlib}: {exc}"
                 ) from exc
-            return store_stdlib
+            return StdlibSelection(store_stdlib, installed=True)
 
     shipped = shipped_stdlib_root()
     if not shipped.is_dir():
         raise StdlibResolutionError(f"shipped standard library is missing at {shipped}")
-    return shipped
+    return StdlibSelection(shipped, installed=True)
 
 
 def _anchoring_std_checkout(

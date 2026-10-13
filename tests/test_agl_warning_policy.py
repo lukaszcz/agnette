@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
 
 from agnette.agl.diagnostics import Diagnostic, SourceSpan, warning_diagnostic
+from agnette.agl.modules.roots import RootSet
 from agnette.agl.scope.symbols import AllowRegion
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceId
 from agnette.agl.warning_policy import (
     WarningOutcome,
     WarningPolicy,
+    apply_program_policy,
     apply_warning_policy,
     named_warnings,
 )
 from agnette.agl.warnings import NOOP_PARSE_RETRIES, TAB_INDENTATION
+from agnette.packages.manifest import load_manifest
+from agnette.packages.model import PackageInfo
 
 _MODULE = SourceId("/m/a.agl")
 _OTHER = SourceId("/m/b.agl")
@@ -186,3 +194,54 @@ def test_a_source_without_regions_has_none_once_scope_resolved_the_whole_program
     assert failed.reported == () and failed.denied == ()
     assert _lines(resolved.reported) == [(2, "noop-parse-retries")]
     assert _lines(resolved.denied) == [(1, "tab-indentation")]
+
+
+def _installed_package(root: Path) -> PackageInfo:
+    (root / "src").mkdir(parents=True)
+    (root / "package.toml").write_text('[package]\nname = "dep"\nversion = "1.0.0"\n')
+    package = PackageInfo(root, load_manifest(root / "package.toml"))
+    return replace(package, installed=True)
+
+
+def test_program_policy_caps_the_sources_the_roots_call_installed(tmp_path: Path) -> None:
+    package = _installed_package(tmp_path / "dep")
+    roots = RootSet(roots=frozenset(), packages=(package,))
+    installed = SourceId(str(package.module_root / "lib.agl"))
+    policy = WarningPolicy({"tab-indentation": "deny"})
+
+    for scope_complete in (True, False):
+        outcome = apply_program_policy(
+            [_tab(1, source=installed), _tab(2, source=_MODULE)],
+            [],
+            policy,
+            scope_complete=scope_complete,
+            roots=roots,
+        )
+
+        assert [d.line for d in outcome.denied] == ([2] if scope_complete else [])
+        assert outcome.reported == ()
+
+
+def test_program_policy_classifies_only_absolute_labels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A synthetic label never names a file, wherever the working directory is."""
+    package = _installed_package(tmp_path / "dep")
+    roots = RootSet(roots=frozenset(), packages=(package,))
+    monkeypatch.chdir(package.module_root)
+
+    outcome = apply_program_policy(
+        [_tab(1, source=SourceId("<stdlib-import>")), _tab(2, source=SourceId("main.agl"))],
+        [],
+        WarningPolicy(),
+        scope_complete=True,
+        roots=roots,
+    )
+
+    assert [d.line for d in outcome.reported] == [1, 2]
+
+
+def test_program_policy_without_roots_caps_nothing() -> None:
+    outcome = apply_program_policy([_tab(1)], [], WarningPolicy(), scope_complete=True, roots=None)
+
+    assert [d.line for d in outcome.reported] == [1]

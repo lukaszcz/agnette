@@ -134,6 +134,9 @@ Inputs:
 - `process_environment` — the `std/env::environ` snapshot, replacing the real environment.
 - `module_roots` — library roots relative to `tests/agl/`, run through the module graph;
   `stdlib_root` replaces the standard library root; `no_stdlib` disables the prelude.
+  `packages` mounts package roots (with a `package.toml`) as development checkouts and
+  `installed_packages` as store-installed ones; `stdlib_installed` makes `stdlib_root` an
+  installed library. Warnings anchored in installed modules are capped.
 - `inline_entry` — no `program def`: run through the same synthetic-entry transform as
   `agm exec -c`.
 - `warning_levels` — static-warning levels by name (`allow`, `warn`, `deny`), simulating
@@ -214,7 +217,7 @@ Expectations:
 
 The program must be rejected statically with nothing executed, with a diagnostic on `line`
 (1-based, optional) containing the `message_contains` fragments (case-insensitive,
-optional). `module_roots`, `stdlib_root` and `warning_levels` work as in scenarios; the
+optional). `module_roots`, `packages`, `stdlib_root` and `warning_levels` work as in scenarios; the
 optional `"warning"` names a denied warning the matching diagnostic must carry.
 
 ## Rejection categories

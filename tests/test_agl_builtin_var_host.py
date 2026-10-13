@@ -23,6 +23,7 @@ from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.commands import exec as exec_command
 from agnette.agm.commands import exec_program as exec_engine
 from agnette.config.context import ConfigContext
+from agnette.packages.stdlib import StdlibSelection
 from tests._agl_helpers import write_file_program
 from tests.conftest import FakeAgentTransport
 from tests.test_agent_rpc import RpcStub
@@ -111,8 +112,8 @@ class TestCommandEngineSeeding:
         config_dir.mkdir()
         (config_dir / "config.toml").write_text("[exec]\ntimeout = 0\n")
         monkeypatch.setattr(
-            "agnette.agm.cli_support.exec_roots.resolve_stdlib_root",
-            lambda *, home, anchor=None: stdlib_root,
+            "agnette.agm.cli_support.exec_roots.select_stdlib_root",
+            lambda *, home, anchor=None: StdlibSelection(stdlib_root, installed=False),
         )
         monkeypatch.setattr(
             exec_engine,
@@ -134,8 +135,8 @@ class TestCommandEngineSeeding:
         agl_file = tmp_path / "prog.agl"
         write_file_program(agl_file, "import std/config\n()\n", encoding="utf-8")
         monkeypatch.setattr(
-            "agnette.agm.cli_support.exec_roots.resolve_stdlib_root",
-            lambda *, home, anchor=None: stdlib_root,
+            "agnette.agm.cli_support.exec_roots.select_stdlib_root",
+            lambda *, home, anchor=None: StdlibSelection(stdlib_root, installed=False),
         )
         monkeypatch.setattr(
             exec_engine,

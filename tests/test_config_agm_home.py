@@ -9,7 +9,7 @@ import pytest
 import semver
 
 from agnette.config.home import agm_home_dir, agm_path_candidates
-from agnette.config.module_roots import ModuleRootsConfig, resolve_lib_root, resolve_stdlib_root
+from agnette.config.module_roots import ModuleRootsConfig, resolve_lib_root, select_stdlib_root
 from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 from agnette.packages.record import write_record
 from agnette.version import AGM_VERSION
@@ -128,12 +128,12 @@ class TestResolveStdlibRootEnvOverride:
         (home / ".agm" / "stdlib").mkdir(parents=True)
         override = tmp_path / "my-stdlib"
         override.mkdir()
-        result = resolve_stdlib_root(home=home, env={"AGM_STDLIB": str(override)})
+        result = select_stdlib_root(home=home, env={"AGM_STDLIB": str(override)}).root
         assert result == override
 
     def test_agm_stdlib_override_expands_user(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
-        result = resolve_stdlib_root(home=home, env={"AGM_STDLIB": "~/std"})
+        result = select_stdlib_root(home=home, env={"AGM_STDLIB": "~/std"}).root
         assert result == Path.home() / "std"
 
     def test_relative_override_is_made_absolute(
@@ -141,14 +141,14 @@ class TestResolveStdlibRootEnvOverride:
     ) -> None:
         home = tmp_path / "home"
         monkeypatch.chdir(tmp_path)
-        result = resolve_stdlib_root(home=home, env={"AGM_STDLIB": "rel-stdlib"})
+        result = select_stdlib_root(home=home, env={"AGM_STDLIB": "rel-stdlib"}).root
         assert result.is_absolute()
         assert result == Path.cwd() / "rel-stdlib"
 
     def test_blank_override_falls_back_to_the_repository_checkout(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
 
-        assert resolve_stdlib_root(home=home, env={"AGM_STDLIB": ""}) == (
+        assert select_stdlib_root(home=home, env={"AGM_STDLIB": ""}).root == (
             Path(__file__).resolve().parent.parent / "packages" / "stdlib"
         )
 
@@ -157,6 +157,6 @@ class TestResolveStdlibRootEnvOverride:
         override = tmp_path / "custom-agm"
         stdlib = _activate_stdlib(override)
 
-        result = resolve_stdlib_root(home=home, env={"AGM_HOME": str(override)})
+        result = select_stdlib_root(home=home, env={"AGM_HOME": str(override)}).root
 
         assert result == stdlib.resolve()

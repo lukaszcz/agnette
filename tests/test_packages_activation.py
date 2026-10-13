@@ -772,6 +772,39 @@ def test_final_root_selection_uses_development_package_for_active_requirements(
     )
 
 
+def test_only_store_tree_selections_are_installed(tmp_path: Path) -> None:
+    """Development checkouts and editable selections are live source, not installed."""
+    home = tmp_path / "agm-home"
+    _write_package(home, "alpha", "1.0.0")
+    editable = _write_development_package(tmp_path / "editable", "bravo", "1.0.0")
+    development = _write_development_package(tmp_path / "development", "charlie", "1.0.0")
+    env = {"AGM_HOME": str(home)}
+    write_activation_index(
+        ActivationIndex(
+            packages={
+                "alpha": ActivePackage(semver.Version.parse("1.0.0")),
+                "bravo": ActivePackage(semver.Version.parse("1.0.0"), editable=editable.root),
+            }
+        ),
+        home=home,
+        env=env,
+    )
+
+    packages = select_package_roots(
+        home=home,
+        proj_dir=None,
+        cwd=tmp_path,
+        development_packages=(development,),
+        env=env,
+    )
+
+    assert {package.manifest.name: package.installed for package in packages} == {
+        "alpha": True,
+        "bravo": False,
+        "charlie": False,
+    }
+
+
 def test_std_is_never_selected_as_a_package_root(tmp_path: Path) -> None:
     """``std`` is mounted only through the stdlib seam, never as a package root."""
     home = tmp_path / "agm-home"
@@ -825,6 +858,7 @@ def test_effective_exec_roots_mounts_indexed_packages_under_agm_home(
 
     assert tuple(package.manifest.name for package in roots.packages) == ("alpha",)
     assert roots.packages[0].root == package_root.resolve()
+    assert roots.is_installed(roots.packages[0].module_root / "main.agl")
 
 
 def test_effective_exec_roots_treats_stdlib_override_as_exclusive(
@@ -860,6 +894,7 @@ def test_effective_exec_roots_treats_stdlib_override_as_exclusive(
     ).roots
 
     assert roots.stdlib_roots == {override.resolve()}
+    assert not roots.is_installed(override / MODULE_TREE_DIRNAME / "prelude.agl")
     assert tuple(package.manifest.name for package in roots.packages) == ("alpha",)
     assert active_std.resolve() not in roots.roots
 
@@ -887,7 +922,9 @@ def test_effective_exec_roots_falls_back_when_active_std_tree_is_missing(
         proj_dir=None,
     ).roots
 
-    assert roots.stdlib_roots == {Path(__file__).resolve().parents[1] / "packages" / "stdlib"}
+    shipped = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
+    assert roots.stdlib_roots == {shipped}
+    assert roots.is_installed(shipped / MODULE_TREE_DIRNAME / "prelude.agl")
     assert roots.packages == ()
 
 

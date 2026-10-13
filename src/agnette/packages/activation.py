@@ -451,7 +451,7 @@ def select_package_roots(
         if not is_std_package_name(package.manifest.name)
     )
     development_names = {package.manifest.name for package in development}
-    # ``std`` is selected exclusively by ``resolve_stdlib_root`` so an
+    # ``std`` is selected exclusively by ``select_stdlib_root`` so an
     # override or source-checkout fallback cannot also mount an active tree.
     excluded_names = {*development_names, STD_PACKAGE_NAME}
     activated = _selected_active_packages(
@@ -895,7 +895,10 @@ def _with_editable_source_commands(
 def _checked_active_package(
     name: str, active: ActivePackage, root: Path, manifest: PackageManifest
 ) -> PackageInfo:
-    """Reject a resolved package whose manifest disagrees with its activation."""
+    """Return the resolved package, rejecting one whose manifest disagrees with its activation.
+
+    An editable selection is live source; any other is an installed store tree.
+    """
 
     if manifest.name != name:
         raise PackageActivationError(
@@ -905,7 +908,7 @@ def _checked_active_package(
         manifest.name, manifest.version
     ) != canonical_package_identity(name, active.version):
         raise PackageActivationError(f"active package {name!r} has a mismatched installed version")
-    return PackageInfo(root, manifest)
+    return PackageInfo(root, manifest, installed=active.editable is None)
 
 
 def _resolved_index_packages(

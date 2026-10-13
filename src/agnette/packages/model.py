@@ -74,11 +74,17 @@ class PackageInfo:
     A command host that owns the selected program completes it on demand
     (:func:`agnette.packages.source_commands.package_with_source_commands_or_declared`),
     which always returns a package with this true.
+
+    ``installed`` is true for an immutable store tree and false for live source
+    (a development checkout or an editable selection). It is the package's
+    origin, decided where the package is resolved, and is what makes its
+    warnings the user's non-concern (:mod:`agnette.agl.warning_policy`).
     """
 
     root: Path
     manifest: PackageManifest
     commands_complete: bool = True
+    installed: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", self.root.resolve())

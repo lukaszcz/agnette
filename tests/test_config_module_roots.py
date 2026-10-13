@@ -15,7 +15,7 @@ from agnette.config.module_roots import (
     StdlibVersionMismatchError,
     load_module_roots,
     resolve_lib_root,
-    resolve_stdlib_root,
+    select_stdlib_root,
 )
 from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 from agnette.packages.record import write_record
@@ -298,7 +298,7 @@ class TestResolveStdlibRoot:
         home = tmp_path / "home"
         store_stdlib = _activate_stdlib(home, AGM_VERSION)
 
-        assert resolve_stdlib_root(home=home, env={}) == store_stdlib.resolve()
+        assert select_stdlib_root(home=home, env={}).root == store_stdlib.resolve()
 
     def test_incompatible_active_store_stdlib_requires_the_managed_refresh(
         self, tmp_path: Path
@@ -310,7 +310,7 @@ class TestResolveStdlibRoot:
         _activate_stdlib(home, installed_version)
 
         with pytest.raises(StdlibVersionMismatchError):
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
     def test_active_store_stdlib_version_mismatch_names_versions_and_remediation(
         self, tmp_path: Path
@@ -320,7 +320,7 @@ class TestResolveStdlibRoot:
         _activate_stdlib(home, installed_version)
 
         with pytest.raises(StdlibVersionMismatchError) as exc_info:
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
         message = str(exc_info.value)
         assert installed_version in message
@@ -335,7 +335,7 @@ class TestResolveStdlibRoot:
             env={},
         )
 
-        assert resolve_stdlib_root(home=home, env={}) == _REPO_ROOT / "packages" / "stdlib"
+        assert select_stdlib_root(home=home, env={}).root == _REPO_ROOT / "packages" / "stdlib"
 
     def test_unreadable_active_store_stdlib_manifest_reports_a_resolution_error(
         self, tmp_path: Path
@@ -345,7 +345,7 @@ class TestResolveStdlibRoot:
         (store_stdlib / "package.toml").write_text("not valid = [", encoding="utf-8")
 
         with pytest.raises(StdlibResolutionError, match="manifest"):
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
     def test_malformed_activation_is_a_stdlib_resolution_error(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -354,7 +354,7 @@ class TestResolveStdlibRoot:
         index_path.write_text("not valid = [", encoding="utf-8")
 
         with pytest.raises(StdlibResolutionError, match="activation"):
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
     def test_editable_active_stdlib_is_rejected(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -369,7 +369,7 @@ class TestResolveStdlibRoot:
         )
 
         with pytest.raises(StdlibResolutionError, match="editable"):
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
     def test_active_stdlib_store_path_rejects_a_symlink(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -385,7 +385,7 @@ class TestResolveStdlibRoot:
         )
 
         with pytest.raises(StdlibResolutionError, match="symlink"):
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
     def test_active_stdlib_store_path_must_be_a_directory(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -399,7 +399,7 @@ class TestResolveStdlibRoot:
         )
 
         with pytest.raises(StdlibResolutionError, match="directory"):
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
     def test_active_stdlib_manifest_must_match_the_activation(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -409,15 +409,15 @@ class TestResolveStdlibRoot:
         )
 
         with pytest.raises(StdlibResolutionError, match="activation"):
-            resolve_stdlib_root(home=home, env={})
+            select_stdlib_root(home=home, env={})
 
     def test_agm_stdlib_override_is_returned_unchecked(self, tmp_path: Path) -> None:
         synthetic_stdlib = tmp_path / "synthetic_stdlib"
         synthetic_stdlib.mkdir()
 
-        result = resolve_stdlib_root(
+        result = select_stdlib_root(
             home=tmp_path / "home", env={"AGM_STDLIB": str(synthetic_stdlib)}
-        )
+        ).root
 
         assert result == synthetic_stdlib
 
@@ -425,7 +425,7 @@ class TestResolveStdlibRoot:
         home = tmp_path / "home"
         home.mkdir()
 
-        assert resolve_stdlib_root(home=home, env={}) == _REPO_ROOT / "packages" / "stdlib"
+        assert select_stdlib_root(home=home, env={}).root == _REPO_ROOT / "packages" / "stdlib"
 
     def test_missing_shipped_stdlib_fails_cleanly(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -435,7 +435,7 @@ class TestResolveStdlibRoot:
         monkeypatch.setattr(stdlib_locator, "__file__", str(locator))
 
         with pytest.raises(StdlibResolutionError, match="shipped"):
-            resolve_stdlib_root(home=tmp_path / "home", env={})
+            select_stdlib_root(home=tmp_path / "home", env={})
 
     def test_clean_wheel_context_falls_back_to_bundled_stdlib(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -445,7 +445,7 @@ class TestResolveStdlibRoot:
         bundled_stdlib.mkdir(parents=True)
         monkeypatch.setattr(stdlib_locator, "__file__", str(locator))
 
-        assert resolve_stdlib_root(home=tmp_path / "home", env={}) == bundled_stdlib
+        assert select_stdlib_root(home=tmp_path / "home", env={}).root == bundled_stdlib
 
 
 def _write_std_checkout(root: Path, version: str) -> Path:
@@ -467,7 +467,7 @@ class TestResolveStdlibRootFromAnchor:
         home.mkdir()
         checkout = _write_std_checkout(tmp_path / "checkout", AGM_VERSION)
 
-        selected = resolve_stdlib_root(home=home, env={}, anchor=checkout / "src" / "agent.agl")
+        selected = select_stdlib_root(home=home, env={}, anchor=checkout / "src" / "agent.agl").root
 
         assert selected == checkout.resolve()
 
@@ -479,7 +479,7 @@ class TestResolveStdlibRootFromAnchor:
         _activate_stdlib(home, "0.0.1")
         checkout = _write_std_checkout(tmp_path / "checkout", "9.9.9")
 
-        selected = resolve_stdlib_root(home=home, env={}, anchor=checkout / "src" / "agent.agl")
+        selected = select_stdlib_root(home=home, env={}, anchor=checkout / "src" / "agent.agl").root
 
         assert selected == checkout.resolve()
 
@@ -494,7 +494,7 @@ class TestResolveStdlibRootFromAnchor:
         )
 
         with pytest.raises(StdlibVersionMismatchError):
-            resolve_stdlib_root(home=home, env={}, anchor=store_stdlib / "src" / "prelude.agl")
+            select_stdlib_root(home=home, env={}, anchor=store_stdlib / "src" / "prelude.agl")
 
     def test_agm_stdlib_override_outranks_a_development_std_checkout(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -503,11 +503,11 @@ class TestResolveStdlibRootFromAnchor:
         override = tmp_path / "override"
         override.mkdir()
 
-        selected = resolve_stdlib_root(
+        selected = select_stdlib_root(
             home=home,
             env={"AGM_STDLIB": str(override)},
             anchor=checkout / "src" / "agent.agl",
-        )
+        ).root
 
         assert selected == override
 
@@ -522,7 +522,7 @@ class TestResolveStdlibRootFromAnchor:
             '[package]\nname = "alpha"\nversion = "1.0.0"\n', encoding="utf-8"
         )
 
-        selected = resolve_stdlib_root(home=home, env={}, anchor=alpha / "src" / "main.agl")
+        selected = select_stdlib_root(home=home, env={}, anchor=alpha / "src" / "main.agl").root
 
         assert selected == store_stdlib.resolve()
 
@@ -534,7 +534,7 @@ class TestResolveStdlibRootFromAnchor:
         broken.mkdir()
         (broken / "package.toml").write_text("not valid = [", encoding="utf-8")
 
-        selected = resolve_stdlib_root(home=home, env={}, anchor=broken / "main.agl")
+        selected = select_stdlib_root(home=home, env={}, anchor=broken / "main.agl").root
 
         assert selected == store_stdlib.resolve()
 
@@ -547,8 +547,42 @@ class TestResolveStdlibRootFromAnchor:
         unrelated = _write_std_checkout(tmp_path / "work", "9.9.9")
         (unrelated / "notes").mkdir()
 
-        beside = resolve_stdlib_root(home=home, env={}, anchor=unrelated / "notes" / "main.agl")
-        at_the_root = resolve_stdlib_root(home=home, env={}, anchor=unrelated)
+        beside = select_stdlib_root(home=home, env={}, anchor=unrelated / "notes" / "main.agl").root
+        at_the_root = select_stdlib_root(home=home, env={}, anchor=unrelated).root
 
         assert beside == store_stdlib.resolve()
         assert at_the_root == store_stdlib.resolve()
+
+
+class TestStdlibOrigin:
+    """The selection says whether the library is installed (store or shipped) or local."""
+
+    def test_the_active_store_package_is_installed(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        store_stdlib = _activate_stdlib(home, AGM_VERSION)
+
+        selection = select_stdlib_root(home=home, env={})
+
+        assert (selection.root, selection.installed) == (store_stdlib.resolve(), True)
+
+    def test_the_shipped_tree_is_installed(self, tmp_path: Path) -> None:
+        selection = select_stdlib_root(home=tmp_path / "home", env={})
+
+        assert (selection.root, selection.installed) == (_REPO_ROOT / "packages" / "stdlib", True)
+
+    def test_a_development_std_checkout_is_local(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        _activate_stdlib(home, AGM_VERSION)
+        checkout = _write_std_checkout(tmp_path / "checkout", AGM_VERSION)
+
+        selection = select_stdlib_root(home=home, env={}, anchor=checkout / "src" / "agent.agl")
+
+        assert (selection.root, selection.installed) == (checkout.resolve(), False)
+
+    def test_the_agm_stdlib_override_is_local(self, tmp_path: Path) -> None:
+        override = tmp_path / "override"
+        override.mkdir()
+
+        selection = select_stdlib_root(home=tmp_path / "home", env={"AGM_STDLIB": str(override)})
+
+        assert (selection.root, selection.installed) == (override, False)

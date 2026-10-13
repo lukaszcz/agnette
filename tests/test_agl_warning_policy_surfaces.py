@@ -3,16 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from agnette.agl import PipelineDriver, artifact_cache
 from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import RunResult
 from agnette.agl.repl.session import ReplSession
 from agnette.agl.warning_policy import WarningPolicy
-from tests._agl_helpers import agl_roots, prepare_inline_code, repl_session_with_root
+from agnette.packages.model import PackageInfo
+from tests._agl_helpers import (
+    REPO_STDLIB_ROOT,
+    agl_roots,
+    package_roots,
+    prepare_inline_code,
+    repl_session_with_root,
+)
+from tests._package_helpers import package_info
 
 _TAB = "# a comment carrying a TAB:\there\n"
 _PROGRAM = _TAB + 'print "ran"\n'
@@ -338,3 +348,109 @@ def test_repl_reports_the_warnings_of_a_library_module_once_when_it_first_loads(
     assert _names(loaded.warnings) == [("warning", "noop-parse-retries")]
     assert _names(tabby.warnings) == [("warning", "tab-indentation")]
     assert all(entry.ok and entry.warnings == [] for entry in later)
+
+
+def _tabbed_package(root: Path, *, installed: bool) -> PackageInfo:
+    """A package ``tabbed`` whose one module carries a TAB warning."""
+    (root / "src").mkdir(parents=True)
+    (root / "package.toml").write_text('[package]\nname = "tabbed"\nversion = "1.0.0"\n')
+    (root / "src" / "lib.agl").write_text(_TABBY_LIBRARY)
+    return replace(package_info(root), installed=installed)
+
+
+def _tabbed_roots(tmp_path: Path, *, installed: bool) -> RootSet:
+    return package_roots(_tabbed_package(tmp_path / "tabbed", installed=installed), cwd=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "import tabbed/lib::*\n",
+        "import tabbed/lib::*\nundefined\n",
+        "import tabbed/lib::*\nlet x: int = true\n",
+    ],
+    ids=["ok", "scope-failure", "type-failure"],
+)
+def test_installed_package_warnings_are_capped_whichever_pass_fails(
+    tmp_path: Path, entry: str
+) -> None:
+    roots = _tabbed_roots(tmp_path, installed=True)
+
+    result = _driver(_DENY_TAB).run_prepared(prepare_inline_code(entry, roots=roots))
+
+    assert all(d.warning_name is None for d in result.diagnostics)
+    assert result.warnings == []
+    assert result.ok is entry.endswith("*\n")
+
+
+@pytest.mark.parametrize(
+    "entry", ["import tabbed/lib::*\n", "import tabbed/lib::*\nlet x: int = true\n"]
+)
+def test_development_package_warnings_are_reported_whichever_pass_fails(
+    tmp_path: Path, entry: str
+) -> None:
+    roots = _tabbed_roots(tmp_path, installed=False)
+
+    result = _driver(_DENY_TAB).run_prepared(prepare_inline_code(entry, roots=roots))
+
+    denied = [d for d in result.diagnostics if d.warning_name is not None]
+    assert [(d.line, d.warning_name) for d in denied] == [(2, "tab-indentation")]
+
+
+def test_an_entry_inside_an_installed_package_is_capped(tmp_path: Path) -> None:
+    package = _tabbed_package(tmp_path / "tabbed", installed=True)
+    roots = package_roots(package, cwd=tmp_path)
+    entry = package.module_root / "lib.agl"
+
+    prepared = PipelineDriver.prepare_program(entry.read_text(), entry_path=entry, roots=roots)
+    result = _driver(_DENY_TAB).check_prepared(prepared)
+
+    assert result.ok and result.diagnostics == [] and result.warnings == []
+
+
+def test_a_loose_entry_is_local(tmp_path: Path) -> None:
+    entry = tmp_path / "loose.agl"
+    entry.write_text(_TABBY_LIBRARY)
+    roots = _tabbed_roots(tmp_path, installed=True)
+
+    prepared = PipelineDriver.prepare_program(entry.read_text(), entry_path=entry, roots=roots)
+    result = _driver(_DENY_TAB).check_prepared(prepared)
+
+    assert [(d.line, d.warning_name) for d in result.diagnostics] == [(2, "tab-indentation")]
+
+
+@pytest.mark.parametrize("installed", [True, False])
+def test_repl_caps_only_installed_package_warnings(tmp_path: Path, installed: bool) -> None:
+    session = ReplSession(
+        warning_policy=_DENY_TAB,
+        cwd=tmp_path,
+        stdlib_root=REPO_STDLIB_ROOT,
+        package_roots=[_tabbed_package(tmp_path / "tabbed", installed=installed)],
+    )
+
+    result = session.eval_entry("import tabbed/lib::*\n")
+
+    assert result.ok is installed
+    assert result.warnings == []
+    assert [d.warning_name for d in result.diagnostics] == (
+        [] if installed else ["tab-indentation"]
+    )
+
+
+@pytest.mark.parametrize("installed", [True, False])
+def test_repl_caps_only_an_installed_standard_library(tmp_path: Path, installed: bool) -> None:
+    (tmp_path / "stdlib" / "src").mkdir(parents=True)
+    (tmp_path / "stdlib" / "src" / "prelude.agl").write_text(_TABBY_LIBRARY)
+    session = ReplSession(
+        warning_policy=_DENY_TAB,
+        cwd=tmp_path,
+        stdlib_root=tmp_path / "stdlib",
+        stdlib_installed=installed,
+    )
+
+    result = session.eval_entry("1\n")
+
+    assert result.ok is installed
+    assert [d.warning_name for d in result.diagnostics] == (
+        [] if installed else ["tab-indentation"]
+    )

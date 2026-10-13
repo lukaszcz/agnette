@@ -293,6 +293,7 @@ class ReplSession:
         host_settings_policy: "HostSettingsPolicy | None" = None,
         cwd: "Path | None" = None,
         stdlib_root: "Path | None" = None,
+        stdlib_installed: bool = False,
         lib_root: "Path | None" = None,
         configured_roots: "Iterable[tuple[str, Path]]" = (),
         package_roots: "Iterable[PackageInfo]" = (),
@@ -448,6 +449,7 @@ class ReplSession:
         # every other module-loading failure already goes through
         # (:meth:`open`, :meth:`eval_entry`).
         self._stdlib_root: Path | None = stdlib_root
+        self._stdlib_installed = stdlib_installed
         self._lib_root: Path | None = lib_root
         self._configured_roots: tuple[tuple[str, Path], ...] = tuple(configured_roots)
         self._package_roots: tuple[PackageInfo, ...] = tuple(package_roots)
@@ -488,8 +490,8 @@ class ReplSession:
         same way here as everywhere else. A stdlib version mismatch therefore
         surfaces from inside the caller's own try/except
         (:meth:`open`, :meth:`eval_entry`) instead of from
-        construction; it is raised as an ``AglError``. The resolved path is
-        cached back onto ``_stdlib_root`` once found, so a later :reset --
+        construction; it is raised as an ``AglError``. The resolved selection is
+        cached back onto ``_stdlib_root`` and ``_stdlib_installed``, so a later :reset --
         which only clears ``_roots`` -- reuses it rather than re-resolving.
         """
         if self._roots is not None:
@@ -498,19 +500,22 @@ class ReplSession:
 
         from agnette.agl.modules.roots import assemble_roots
         from agnette.config.context import current_config_context
-        from agnette.config.module_roots import StdlibResolutionError, resolve_stdlib_root
+        from agnette.config.module_roots import StdlibResolutionError, select_stdlib_root
 
         cwd = self._cwd if self._cwd is not None else Path.cwd()
         if self._stdlib_root is None:
             try:
-                self._stdlib_root = resolve_stdlib_root(
+                selection = select_stdlib_root(
                     home=current_config_context(cwd=cwd).home, anchor=cwd
                 )
             except StdlibResolutionError as exc:
                 raise AglError(str(exc)) from exc
+            self._stdlib_root = selection.root
+            self._stdlib_installed = selection.installed
         self._roots = assemble_roots(
             invocation_root=cwd,
             stdlib_root=self._stdlib_root,
+            stdlib_installed=self._stdlib_installed,
             lib_root=self._lib_root,
             configured=self._configured_roots,
             cli=(),
@@ -948,11 +953,15 @@ class ReplSession:
 
         *modules* are those scope resolved for the entry, whichever pass then failed;
         *scope_complete* is whether it resolved the whole program.
-        The one call site of the policy in the session, and where the dependency cap's
-        sources (from the session's roots) enter.
+        The one call site of the policy in the session; the dependency cap reads the
+        session's roots (none yet if no entry has loaded a module).
         """
         return apply_program_policy(
-            warnings, modules, self._warning_policy, scope_complete=scope_complete
+            warnings,
+            modules,
+            self._warning_policy,
+            scope_complete=scope_complete,
+            roots=self._roots,
         )
 
     def _fail_static_governed(

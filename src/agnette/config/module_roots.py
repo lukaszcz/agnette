@@ -32,8 +32,8 @@ from agnette.config.home import agm_home_dir, expand_env_root
 from agnette.core.env import resolve_env
 from agnette.core.toml import load_toml_file, toml_dict
 from agnette.packages.stdlib import StdlibResolutionError as StdlibResolutionError
+from agnette.packages.stdlib import StdlibSelection, select_std_package
 from agnette.packages.stdlib import StdlibVersionMismatchError as StdlibVersionMismatchError
-from agnette.packages.stdlib import resolve_std_package_root
 from agnette.util.interp import interp_preserving
 
 
@@ -136,18 +136,19 @@ def resolve_lib_root(
     return agm_home_dir(home=default_home, env=env) / "lib"
 
 
-def resolve_stdlib_root(
+def select_stdlib_root(
     *, home: Path, env: Mapping[str, str] | None = None, anchor: Path | None = None
-) -> Path:
-    """Return the selected AgL standard-library module root.
+) -> StdlibSelection:
+    """Select the AgL standard library: its module root and whether it is installed.
 
     ``AGM_STDLIB`` is an unchecked escape hatch for synthetic and in-progress
-    trees. Otherwise this delegates to the package domain, which prefers a
-    development ``std`` checkout whose modules contain *anchor* (the entry file
-    or the working directory), then an active immutable store ``std`` package
-    matching the running AgM version, then the shipped standard library.
+    trees, and is never installed. Otherwise this delegates to the package
+    domain, which prefers a development ``std`` checkout whose modules contain
+    *anchor* (the entry file or the working directory), then an active
+    immutable store ``std`` package matching the running AgM version, then the
+    shipped standard library.
     """
     override = resolve_env(env).get("AGM_STDLIB")
     if override is not None and override.strip():
-        return expand_env_root(override)
-    return resolve_std_package_root(home=home, env=env, anchor=anchor)
+        return StdlibSelection(expand_env_root(override), installed=False)
+    return select_std_package(home=home, env=env, anchor=anchor)

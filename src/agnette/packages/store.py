@@ -144,7 +144,7 @@ def iter_installed_packages(
                 raise StoreIdentityError(
                     f"installed package at {version_dir} does not match its store identity"
                 )
-            yield PackageInfo(version_dir, manifest)
+            yield PackageInfo(version_dir, manifest, installed=True)
 
 
 def satisfying_from_store(

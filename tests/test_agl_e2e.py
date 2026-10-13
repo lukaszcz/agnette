@@ -39,7 +39,7 @@ import json
 import re
 import unittest.mock
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, get_args
@@ -78,6 +78,7 @@ from tests._agl_helpers import (
 )
 from tests._http_helpers import fake_session
 from tests._jev_helpers import install_jev_transport, jev_roots
+from tests._package_helpers import package_info
 from tests._process_helpers import FakeShell
 
 AGL_DIR = Path(__file__).parent / "agl"
@@ -136,14 +137,28 @@ def test_invalid_warning_levels_are_rejected_in_fixtures(levels: dict[str, Any])
 
 
 def _fixture_roots(spec: dict[str, Any]) -> Any | None:
-    """Build the module roots selected by one scenario or rejection fixture."""
+    """Build the module roots selected by one scenario or rejection fixture.
+
+    ``packages`` mount as development checkouts and ``installed_packages`` as store-installed
+    ones; ``stdlib_installed`` marks the ``stdlib_root`` as an installed standard library.
+    """
     module_root_paths = [(AGL_DIR / str(root)).resolve() for root in spec.get("module_roots", [])]
-    if "stdlib_root" in spec:
+    packages = tuple(
+        replace(package_info(AGL_DIR / str(root)), installed=installed)
+        for key, installed in (("packages", False), ("installed_packages", True))
+        for root in spec.get(key, [])
+    )
+    if "stdlib_root" in spec or packages:
         from agnette.agl.modules.roots import RootSet
 
+        stdlib_root = (
+            AGL_DIR / str(spec["stdlib_root"]) if "stdlib_root" in spec else REPO_STDLIB_ROOT
+        ).resolve()
         return RootSet(
             roots=frozenset(module_root_paths),
-            stdlib_roots=frozenset({(AGL_DIR / str(spec["stdlib_root"])).resolve()}),
+            packages=packages,
+            stdlib_roots=frozenset({stdlib_root}),
+            installed_stdlib_roots=frozenset({stdlib_root} if spec.get("stdlib_installed") else ()),
         )
     if module_root_paths:
         return agl_roots(*module_root_paths)
@@ -2063,6 +2078,8 @@ def _scenario_params() -> list[Any]:
                     "filesystem",
                     "sandbox_home",
                     "module_roots",
+                    "packages",
+                    "installed_packages",
                     "stdlib_root",
                     "jev",
                     "warning_levels",

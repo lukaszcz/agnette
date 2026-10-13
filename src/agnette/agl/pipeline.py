@@ -898,13 +898,13 @@ class PipelineDriver:
                 ModuleRootsConfig,
                 StdlibResolutionError,
                 resolve_lib_root,
-                resolve_stdlib_root,
+                select_stdlib_root,
             )
 
             cwd = Path.cwd()
             entry_directory = entry_path.resolve().parent if entry_path is not None else cwd
             try:
-                default_stdlib_root = resolve_stdlib_root(home=Path.home(), anchor=entry_directory)
+                stdlib = select_stdlib_root(home=Path.home(), anchor=entry_directory)
             except StdlibResolutionError as exc:
                 return PreparedProgram(
                     RootSet(roots=frozenset()),
@@ -914,7 +914,8 @@ class PipelineDriver:
                 )
             roots = assemble_roots(
                 invocation_root=entry_directory,
-                stdlib_root=default_stdlib_root,
+                stdlib_root=stdlib.root,
+                stdlib_installed=stdlib.installed,
                 lib_root=resolve_lib_root(
                     ModuleRootsConfig(lib_root=None, extra=()), home=Path.home()
                 ),
@@ -1512,8 +1513,7 @@ class PipelineDriver:
         keep unfiltered; the policy runs on every invocation, whichever pass failed,
         with the regions of every module scope resolved. Callers append the denied
         errors after the errors of the failing pass. The one call site of the policy
-        in this driver, and where the dependency cap's sources (from ``prepared.roots``)
-        enter.
+        in this driver; the dependency cap reads the invocation's ``prepared.roots``.
         """
         raw = (*prepared.warnings, *(() if checked is None else checked.warnings))
         return apply_program_policy(
@@ -1521,6 +1521,7 @@ class PipelineDriver:
             prepared.resolutions,
             self._warning_policy,
             scope_complete=prepared.resolved is not None,
+            roots=prepared.roots,
         )
 
     @property

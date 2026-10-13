@@ -31,6 +31,12 @@ class RootSet:
     error).  Use :meth:`sorted_roots` for deterministic output in diagnostics
     and :meth:`module_tree_roots` for the mounts a resolution consults.
 
+    A module's *origin* is installed or local. A file in the module tree of an
+    installed package (:attr:`PackageInfo.installed`) is installed, as is a file
+    of a standard-library root listed in :attr:`installed_stdlib_roots` (the store
+    or shipped tree); everything else — development checkouts, a host override,
+    loose roots — is local. The innermost owning package decides.
+
     The mount table is derived once here in ``__post_init__``, since a module
     id is resolved against the same :class:`RootSet` many times (once per
     import edge, and once per matched file during wildcard expansion).
@@ -39,6 +45,7 @@ class RootSet:
     roots: frozenset[Path]
     packages: tuple[PackageInfo, ...] = ()
     stdlib_roots: frozenset[Path] = frozenset()
+    installed_stdlib_roots: frozenset[Path] = frozenset()
     _sorted_roots: tuple[Path, ...] = field(init=False, repr=False, compare=False)
     _module_trees: dict[str, tuple[Path, ...]] = field(init=False, repr=False, compare=False)
 
@@ -86,6 +93,18 @@ class RootSet:
             return None
         return ModuleId(segments=package.module_id_segments(path))
 
+    def is_installed(self, path: Path) -> bool:
+        """Return whether the module file *path* is part of an installed dependency.
+
+        The origin the dependency warning cap keys on
+        (:mod:`agnette.agl.warning_policy`).
+        """
+        package = owning_package(path, self.packages)
+        if package is not None:
+            return package.installed
+        canonical_path = path.resolve()
+        return any(canonical_path.is_relative_to(root) for root in self.installed_stdlib_roots)
+
     def is_standard_library_path(self, path: Path) -> bool:
         """Return whether *path* belongs to a host-selected standard-library root.
 
@@ -111,6 +130,7 @@ def assemble_roots(
     cli: Iterable[str],
     cwd: Path,
     package_roots: Iterable[PackageInfo] = (),
+    stdlib_installed: bool = False,
 ) -> RootSet:
     """Assemble a :class:`RootSet` from all root sources.
 
@@ -145,6 +165,9 @@ def assemble_roots(
         here only when *stdlib_root* already selected that very tree, so the
         standard library keeps exactly one mount while still owning the files
         under it.
+    stdlib_installed:
+        Whether *stdlib_root* is an installed tree (the store or shipped
+        library) rather than live source; see :meth:`RootSet.is_installed`.
 
     Loose roots are user-expanded, made absolute, and canonicalized before
     de-duplication.  Non-existent roots and packages are dropped silently
@@ -195,8 +218,10 @@ def assemble_roots(
         package for package in package_roots if _canonicalize(package.root).exists()
     )
 
+    selected_stdlib_roots = frozenset(stdlib_roots)
     return RootSet(
         roots=frozenset(canonical_roots),
         packages=mounted_packages,
-        stdlib_roots=frozenset(stdlib_roots),
+        stdlib_roots=selected_stdlib_roots,
+        installed_stdlib_roots=selected_stdlib_roots if stdlib_installed else frozenset(),
     )

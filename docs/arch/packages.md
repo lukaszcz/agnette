@@ -6,6 +6,7 @@ A package is a portable, versioned AgL module collection: a `package.toml` manif
 
 - **Identity** is the package name plus its complete canonical version; semantic precedence governs minimums and highest-version selection.
 - **Dependencies** are floors: installation picks the highest installed version meeting each floor (else installs its path or URL source), and activation keeps one version per name — development checkouts before the store. A `std` floor must fall within the running AgM release line.
+- **Origin.** A package is *installed* (an immutable store tree) or *local* (a development checkout or editable selection); this decides whether its warnings are reported ([agl/hosting.md](agl/hosting.md)).
 - **Development packages** are live checkouts found as the nearest ancestor `package.toml` of the entry file (or working directory); discovery mounts it and its path dependencies, and the rest come from the active selection.
 - **Import visibility** is enforced by the AgL module loader ([agl/modules.md](agl/modules.md)): a package module may import only its own tree, its declared dependencies, and the standard library. Loose roots are unrestricted.
 - **Manifest `[config]`** holds package-author defaults for programs the package owns, keyed by root and by registered command paths ([config.md](config.md)).

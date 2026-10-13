@@ -16,7 +16,7 @@ A source directory ships as its *distribution*: the normalized manifest plus fil
 
 ## The Managed `std` Package
 
-The standard library ships as a managed store package whose version must exactly match the running AgM; only the shipped source can be installed, and it cannot be uninstalled. A development `std` checkout containing the anchored path outranks it; otherwise `agnette.stdlib_locator` supplies the shipped tree when the store is unpopulated. The selected tree's `src/` mounts as `std`.
+The standard library ships as a managed store package whose version must exactly match the running AgM; only the shipped source can be installed, and it cannot be uninstalled. A development `std` checkout containing the anchored path outranks it; otherwise `agnette.stdlib_locator` supplies the shipped tree when the store is unpopulated. The selected tree's `src/` mounts as `std`. The selection carries its origin: the store and shipped trees are installed, a development checkout and `AGM_STDLIB` are local.
 
 ## Code Entry Points
 

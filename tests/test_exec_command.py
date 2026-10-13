@@ -31,6 +31,7 @@ import agnette.agm.commands.exec as exec_command
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.commands import exec_program as exec_engine
 from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.stdlib import StdlibSelection
 from tests._agl_helpers import write_file_program
 from tests._help_helpers import assert_lists_execution_options, execution_options_is_last
 
@@ -2996,11 +2997,11 @@ class TestExecModuleRoots:
         entry = tmp_path / "prog.agl"
         write_file_program(entry, "let x = 1\nx\n")
 
-        def fake_resolve_stdlib_root(*, home: Path, anchor: Path | None = None) -> Path:
+        def fake_select_stdlib_root(*, home: Path, anchor: Path | None = None) -> StdlibSelection:
             raise StdlibVersionMismatchError("0.0.1", "0.1.0")
 
         monkeypatch.setattr(
-            "agnette.agm.cli_support.exec_roots.resolve_stdlib_root", fake_resolve_stdlib_root
+            "agnette.agm.cli_support.exec_roots.select_stdlib_root", fake_select_stdlib_root
         )
 
         with pytest.raises(SystemExit) as exc_info:

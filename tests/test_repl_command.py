@@ -42,6 +42,7 @@ from agnette.agl.runtime.types import ParamBindingInfo
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.config.general import GeneralConfig
 from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.stdlib import StdlibSelection
 from agnette.sandbox.request import SandboxLimits
 
 
@@ -1098,10 +1099,10 @@ class TestReplRun:
 
         _isolated_home(monkeypatch, tmp_path)
 
-        def fake_resolve_stdlib_root(*, home: Path, anchor: Path | None = None) -> Path:
+        def fake_select_stdlib_root(*, home: Path, anchor: Path | None = None) -> StdlibSelection:
             raise StdlibVersionMismatchError("0.0.1", "0.1.0")
 
-        monkeypatch.setattr(repl_command, "resolve_stdlib_root", fake_resolve_stdlib_root)
+        monkeypatch.setattr(repl_command, "select_stdlib_root", fake_select_stdlib_root)
 
         with pytest.raises(SystemExit) as exc_info:
             repl_command.run(_args())
@@ -1134,7 +1135,11 @@ class TestReplRun:
             config_agl.read_text(encoding="utf-8") + '\nlet broken: int = "text"\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr(repl_command, "resolve_stdlib_root", lambda **_kwargs: stdlib)
+        monkeypatch.setattr(
+            repl_command,
+            "select_stdlib_root",
+            lambda **_kwargs: StdlibSelection(stdlib, installed=False),
+        )
 
         with pytest.raises(SystemExit) as exc_info:
             repl_command.run(_args())

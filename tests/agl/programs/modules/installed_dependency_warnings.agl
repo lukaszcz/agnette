@@ -1,0 +1,6 @@
+# A warning anchored in an installed package never reaches the user, at any
+# level; one in a package under development does.
+import tabbed/lib::*
+
+program def main() -> unit =
+  print(answer())

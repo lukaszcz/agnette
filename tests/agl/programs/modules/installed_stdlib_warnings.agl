@@ -1,0 +1,4 @@
+# The cap covers the standard library too: an installed one is silent, one
+# under development or overridden by the host is not.
+program def main() -> unit =
+  print(answer())

@@ -15,9 +15,10 @@ import pytest
 import agnette.config.module_roots as module_roots
 from agnette.agl.pipeline import PipelineDriver
 from agnette.config.module_roots import StdlibResolutionError, StdlibVersionMismatchError
+from agnette.packages.stdlib import StdlibSelection
 
 
-def _raise_version_mismatch(*, home: Path, anchor: Path | None = None) -> Path:
+def _raise_version_mismatch(*, home: Path, anchor: Path | None = None) -> StdlibSelection:
     raise StdlibVersionMismatchError("0.0.1", "0.1.0")
 
 
@@ -26,7 +27,7 @@ class TestPrepareProgramDefaultRootsVersionMismatch:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``prepare_program(source)`` with ``roots=None`` must not raise."""
-        monkeypatch.setattr(module_roots, "resolve_stdlib_root", _raise_version_mismatch)
+        monkeypatch.setattr(module_roots, "select_stdlib_root", _raise_version_mismatch)
 
         prepared = PipelineDriver.prepare_program("program def main() -> unit = ()")
 
@@ -37,10 +38,10 @@ class TestPrepareProgramDefaultRootsVersionMismatch:
     def test_activation_resolution_error_is_captured_as_a_diagnostic_not_raised(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        def raise_resolution_error(*, home: Path, anchor: Path | None = None) -> Path:
+        def raise_resolution_error(*, home: Path, anchor: Path | None = None) -> StdlibSelection:
             raise StdlibResolutionError("corrupt active std package")
 
-        monkeypatch.setattr(module_roots, "resolve_stdlib_root", raise_resolution_error)
+        monkeypatch.setattr(module_roots, "select_stdlib_root", raise_resolution_error)
 
         prepared = PipelineDriver.prepare_program("program def main() -> unit = ()")
 
@@ -52,7 +53,7 @@ class TestPrepareProgramDefaultRootsVersionMismatch:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``discover_programs`` reports why its default stdlib could not load."""
-        monkeypatch.setattr(module_roots, "resolve_stdlib_root", _raise_version_mismatch)
+        monkeypatch.setattr(module_roots, "select_stdlib_root", _raise_version_mismatch)
 
         prepared = PipelineDriver.prepare_program("program def main() -> unit = ()")
         discovery = PipelineDriver(
@@ -69,7 +70,7 @@ class TestDiscoverProgramDeclarationsFromSourceVersionMismatch:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The ``--help``/completion path degrades gracefully on a mismatch."""
-        monkeypatch.setattr(module_roots, "resolve_stdlib_root", _raise_version_mismatch)
+        monkeypatch.setattr(module_roots, "select_stdlib_root", _raise_version_mismatch)
         from tests._agl_helpers import discover_program_declarations_from_source
 
         programs = discover_program_declarations_from_source("program def main() -> unit = ()")

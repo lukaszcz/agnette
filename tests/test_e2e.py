@@ -8855,8 +8855,10 @@ class TestWarningLevels:
         assert from_cwd.stdout == "ran\n"
         assert from_cwd.stderr == ""
 
-    def _install_tab_command(self, tmp_path: Path, env: dict[str, str]) -> None:
-        """Install an editable package whose command ``live`` runs a TAB-warning program."""
+    def _install_tab_command(
+        self, tmp_path: Path, env: dict[str, str], *, editable: bool = True
+    ) -> None:
+        """Install a package whose command ``live`` runs a TAB-warning program."""
         env["AGM_HOME"] = str(tmp_path / "agm-home")
         package = _write_store_test_package(tmp_path / "tools-source", "tools", "1.0.0")
         (package / "package.toml").write_text(
@@ -8868,7 +8870,11 @@ class TestWarningLevels:
             '# a comment carrying a TAB:\there\nprogram def main() -> unit = print "ran"\n',
             encoding="utf-8",
         )
-        run_agm(["pkg", "install", "--editable", str(package)], env=env, cwd=tmp_path)
+        (package / "src" / "lib.agl").write_text(
+            "# a comment carrying a TAB:\there\ndef one() -> int = 1\n", encoding="utf-8"
+        )
+        flags = ["--editable"] if editable else []
+        run_agm(["pkg", "install", *flags, str(package)], env=env, cwd=tmp_path)
 
     def test_registered_commands_honor_the_configured_levels(
         self, tmp_path: Path, env: dict[str, str]
@@ -8883,6 +8889,41 @@ class TestWarningLevels:
         assert f"[{self._TAB_WARNING}]" in reported.stderr
         assert denied.returncode == 1
         assert denied.stdout == ""
+
+    _USE_LIB = "import tools/lib\nprint (tools/lib::one())"
+
+    def test_an_installed_package_stays_capped_under_every_deny(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        self._install_tab_command(tmp_path, env, editable=False)
+        self._configure(tmp_path, f'[warnings]\n{self._TAB_WARNING} = "deny"\n')
+
+        command = run_agm(["live"], env=env, cwd=tmp_path)
+        by_config = run_agm(["exec", "-c", self._USE_LIB], env=env, cwd=tmp_path)
+        by_flag = run_agm(
+            ["exec", "--warning", f"{self._TAB_WARNING}=deny", "-c", self._USE_LIB],
+            env=env,
+            cwd=tmp_path,
+        )
+
+        assert command.stdout == "ran\n"
+        assert by_config.stdout == by_flag.stdout == "1\n"
+        assert command.stderr == by_config.stderr == by_flag.stderr == ""
+
+    def test_a_development_package_is_not_capped_under_deny(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        self._install_tab_command(tmp_path, env, editable=True)
+
+        result = run_agm(
+            ["exec", "--warning", f"{self._TAB_WARNING}=deny", "-c", self._USE_LIB],
+            env=env,
+            cwd=tmp_path,
+            check=False,
+        )
+
+        assert result.returncode == 1
+        assert f"[{self._TAB_WARNING}]" in result.stderr
 
     def test_registered_commands_reject_an_invalid_warnings_table(
         self, tmp_path: Path, env: dict[str, str]

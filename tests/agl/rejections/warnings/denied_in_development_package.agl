@@ -1,0 +1,4 @@
+import tabbed/lib::*
+
+program def main() -> unit =
+  print(answer())

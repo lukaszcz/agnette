@@ -11251,12 +11251,13 @@ class TestDeferredStdlibResolution:
     ) -> None:
         import agnette.config.module_roots as module_roots
         from agnette.config.module_roots import StdlibVersionMismatchError
+        from agnette.packages.stdlib import StdlibSelection
 
-        def _raise_version_mismatch(*, home: Path, anchor: Path | None = None) -> Path:
+        def _raise_version_mismatch(*, home: Path, anchor: Path | None = None) -> StdlibSelection:
             raise StdlibVersionMismatchError("0.0.1", "0.1.0")
 
         monkeypatch.delenv("AGM_STDLIB", raising=False)
-        monkeypatch.setattr(module_roots, "resolve_stdlib_root", _raise_version_mismatch)
+        monkeypatch.setattr(module_roots, "select_stdlib_root", _raise_version_mismatch)
 
         # Must not raise: resolution has not happened yet.
         s = ReplSession()
