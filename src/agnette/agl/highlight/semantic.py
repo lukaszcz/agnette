@@ -58,6 +58,7 @@ from agnette.agl.syntax.nodes import (
     VariantRef,
     VarPattern,
     VarRef,
+    pattern_binder_candidates,
 )
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.types import AppliedT, NameT
@@ -153,11 +154,17 @@ class _Names:
         return start
 
     def mark_after_keyword(
-        self, node: SpannedNode, keyword: str, name: str, category: Category
+        self,
+        node: SpannedNode,
+        keyword: str,
+        name: str,
+        category: Category,
+        *,
+        occurrence: int = 0,
     ) -> int:
         ends = self.keyword_ends[keyword]
-        end = ends[bisect_left(ends, node.span.start_offset)]
-        return self.mark(node, name, category, start_at=end)
+        first = bisect_left(ends, node.span.start_offset)
+        return self.mark(node, name, category, start_at=ends[first + occurrence])
 
     def member(
         self,
@@ -287,7 +294,12 @@ def name_occurrences(
                     start_at=end,
                 )
         elif isinstance(node, AsPattern):
-            names.mark(node, node.name, Category.LOCAL, after=(node.pattern.span,))
+            nested_binders = sum(
+                candidate.is_as_pattern for candidate in pattern_binder_candidates(node.pattern)
+            )
+            names.mark_after_keyword(
+                node, "as", node.name, Category.LOCAL, occurrence=nested_binders
+            )
         elif isinstance(node, Loop) and node.for_var is not None:
             names.mark(
                 node,

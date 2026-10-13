@@ -128,8 +128,14 @@ def _find(
     return definitions(prepared.resolved, checked, source, _cursor(source, needle, delta))
 
 
-def _at(tmp_path: Path, name: str, needle: str, delta: int = 0) -> Location:
-    text = _FILES[name]
+def _at(
+    tmp_path: Path,
+    name: str,
+    needle: str,
+    delta: int = 0,
+    files: dict[str, str] = _FILES,
+) -> Location:
+    text = files[name]
     offset = _cursor(text, needle, delta)
     line = text.count("\n", 0, offset) + 1
     line_start = text.rfind("\n", 0, offset) + 1
@@ -251,6 +257,23 @@ def test_definitions_ignore_unresolved_positions(
     tmp_path: Path, entry: str, needle: str, delta: int
 ) -> None:
     assert _find(tmp_path, entry, needle, delta) == []
+
+
+def test_definitions_locate_outer_binder_in_chained_as_pattern(tmp_path: Path) -> None:
+    files = {
+        "main.agl": """\
+enum Shape
+  | Rect(w: int, h: int)
+
+def example(shape: Shape) -> Shape =
+  case shape of
+    | Rect(w, h) as rect as whole => whole
+"""
+    }
+
+    assert _find(tmp_path, "main.agl", "=> whole", 3, files) == [
+        _at(tmp_path, "main.agl", "as whole", 3, files=files)
+    ]
 
 
 def test_definitions_locate_repeated_declarations_in_scoped_members() -> None:
