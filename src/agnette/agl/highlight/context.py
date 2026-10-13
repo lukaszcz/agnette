@@ -76,6 +76,12 @@ def fence_opening(line: str) -> tuple[MarkdownContainer, str, str] | None:
     return container, fence.group("delimiter"), fence.group("header")
 
 
+def _fence_closes(delimiter: str, content: str) -> bool:
+    return (
+        re.fullmatch(rf"{re.escape(delimiter[0])}{{{len(delimiter)},}}[ \t]*", content) is not None
+    )
+
+
 def _agl_header(header: str) -> bool:
     header = header.strip(" \t")
     if _LANGUAGE.fullmatch(header):
@@ -113,12 +119,7 @@ class FenceMetadata:
 
     def closes(self, content: str) -> bool:
         """Accept matching closing fences at least as long as the opening."""
-        return (
-            re.fullmatch(
-                rf"{re.escape(self.delimiter[0])}{{{len(self.delimiter)},}}[ \t]*", content
-            )
-            is not None
-        )
+        return _fence_closes(self.delimiter, content)
 
     def with_option(self, line: str, option: str) -> str:
         """Inject an option into either superfences header form."""
@@ -181,21 +182,25 @@ def agl_fences(lines: Sequence[str]) -> Iterator[AglFence]:
     """Yield AgL fences in order; a container boundary ends an unclosed body."""
     index = 0
     while index < len(lines):
-        metadata = fence_metadata(lines, index)
-        if metadata is None:
+        opening = fence_opening(lines[index])
+        if opening is None:
             index += 1
             continue
+        container, delimiter, header = opening
+        metadata = fence_metadata(lines, index) if _agl_header(header) else None
+        body_container = MarkdownContainer(container.continuation)
         end = index + 1
         closed = False
         while end < len(lines):
-            content = metadata.container.content(lines[end])
+            content = body_container.content(lines[end])
             if content is None:
                 break
-            if metadata.closes(content):
+            if _fence_closes(delimiter, content):
                 closed = True
                 break
             end += 1
-        yield AglFence(metadata, index, end, closed)
+        if metadata is not None:
+            yield AglFence(metadata, index, end, closed)
         index = end + closed
 
 

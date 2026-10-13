@@ -250,6 +250,23 @@ def test_attribute_language_matches_markdown_lexical_semantics(attributes: str) 
     assert (metadata is not None) == (language == "agl")
 
 
+def test_agl_fences_ignore_blocks_inside_other_fences() -> None:
+    lines = [
+        "````text",
+        "~~~agl",
+        "let fake = 1",
+        "~~~",
+        "````",
+        "```agl",
+        "let real = 2",
+        "```",
+    ]
+
+    fences = list(agl_fences(lines))
+
+    assert [(fence.opening, fence.body(lines)) for fence in fences] == [(5, ["let real = 2"])]
+
+
 def test_agl_fences_locate_closed_and_unclosed_bodies() -> None:
     lines = [
         "> ```agl",
