@@ -14,8 +14,9 @@ The standard library resolves from `AGM_STDLIB` (unchecked override), then a dev
 
 ## Highlighting and Editor Assets
 
-`just install` also refreshes generated definitions in `<AgM home>/highlighting/`
-and the KDE XDG data directory, preserving existing Pandoc defaults unless forced.
+`just install` also refreshes the editor modes and generated definitions in
+`<AgM home>/highlighting/` and the KDE XDG data directory, preserving existing
+Pandoc defaults unless forced.
 Prefix installs isolate AgM home and XDG destinations. Emacs packages a generated
 vocabulary with hand-written font-lock; micro remains hand-written.
 See [highlighting](highlighting.md) for components and

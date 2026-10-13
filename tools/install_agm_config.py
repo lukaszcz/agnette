@@ -50,25 +50,14 @@ def _install_file(*, source: Path, destination: Path, force: bool) -> bool:
     return True
 
 
-def _install_directory_files(
-    *,
-    source_dir: Path,
-    destination_dir: Path,
-    force: bool,
-    installed: list[Path],
-    skipped: list[Path],
-) -> None:
-    """Copy files directly under *source_dir* into *destination_dir*."""
+def _refresh_directory_files(*, source_dir: Path, destination_dir: Path) -> list[Path]:
+    """Replace the files directly under *destination_dir* with *source_dir*'s."""
+    installed: list[Path] = []
     for source in sorted(source_dir.iterdir()):
-        if not source.is_file():
-            continue
-        relative = source.relative_to(source_dir)
-        destination = destination_dir / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if _install_file(source=source, destination=destination, force=force):
-            installed.append(destination)
-        else:
-            skipped.append(destination)
+        if source.is_file():
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            installed.append(Path(shutil.copy2(source, destination_dir / source.name)))
+    return installed
 
 
 def install_user_config(
@@ -107,15 +96,10 @@ def install_user_config(
     stdlib = refresh_managed_stdlib(repo_root / "packages" / "stdlib", home=install_root, env=env)
     installed.append(stdlib.root)
 
-    micro_source_dir = repo_root / "config" / "micro"
-    if micro_source_dir.exists():
-        _install_directory_files(
-            source_dir=micro_source_dir,
-            destination_dir=micro_syntax_dir,
-            force=force,
-            installed=installed,
-            skipped=skipped,
-        )
+    # Editor modes belong to Agnette, not to the user, so they always refresh.
+    installed += _refresh_directory_files(
+        source_dir=repo_root / "config" / "micro", destination_dir=micro_syntax_dir
+    )
 
     return InstallUserConfigResult(installed=installed, skipped=skipped)
 

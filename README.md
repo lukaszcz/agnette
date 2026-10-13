@@ -43,8 +43,9 @@ just install --force        # replace differing config files, keeping <file>.bak
 config files and sandbox templates into the AgM home, refreshes the managed standard
 library, reinstalls the repository packages under `packages/`, syncs their Python
 requirements, and installs the AgL editor modes (Micro, and Emacs when available — see
-[config/emacs/README.md](config/emacs/README.md)). It replaces any existing `agm` executable;
-`--force` controls replacement of differing config files and existing Pandoc defaults.
+[config/emacs/README.md](config/emacs/README.md)). It replaces any existing `agm` executable
+and always refreshes the editor modes and highlighting definitions; `--force` controls
+replacement of differing config files and existing Pandoc defaults.
 
 [AgL highlighting](docs/commands/dev.md) installs for Kate, TextMate, Emacs, and Pandoc (`pandoc -d agl`).
 
