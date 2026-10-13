@@ -52,6 +52,14 @@ alias = "codex --yolo --no-daemon"
 # echo = true        # echo entry results automatically
 # echo-unit = false  # also echo unit-typed entries (silent by default)
 
+# [warnings] — levels of named static AgL warnings, by name: "allow" (drop),
+# "warn" (report; the default) or "deny" (report as an error). `--warning
+# NAME=LEVEL` on agm exec, check and repl overrides these.
+#
+# [warnings]
+# unquoted-exec-hole = "deny"
+# tab-indentation = "allow"
+
 # [packages] — pins for installed package versions. In this home-level template,
 # uncommented pins apply globally; project or workspace config can override them.
 #

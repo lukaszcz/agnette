@@ -28,12 +28,16 @@ __all__ = [
     "UNQUOTED_EXEC_HOLE",
     "WARNING_CATALOG",
     "WARNING_DEFAULT_LEVELS",
+    "WARNING_LEVELS",
     "StaticWarning",
     "WarningLevel",
+    "warning_level_setting",
 ]
 
 #: How a warning is treated: ``allow`` drops it, ``warn`` reports it, ``deny`` makes it an error.
 type WarningLevel = Literal["allow", "warn", "deny"]
+
+WARNING_LEVELS: tuple[WarningLevel, ...] = ("allow", "warn", "deny")
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,3 +68,16 @@ WARNING_DEFAULT_LEVELS: Mapping[str, WarningLevel] = MappingProxyType(
 
 #: The warnings a function may declare its call results exempt from.
 EXEMPTABLE_WARNINGS = frozenset(name for name, entry in WARNING_CATALOG.items() if entry.exemptable)
+
+
+def warning_level_setting(name: str, level: object) -> WarningLevel:
+    """Validate one configured level: *name* must be a catalog warning, *level* a level.
+
+    The one validator behind ``[warnings]`` and ``--warning``; raises :class:`ValueError`.
+    """
+    if name not in WARNING_CATALOG:
+        raise ValueError(f"unknown warning {name!r}")
+    for known in WARNING_LEVELS:
+        if known == level:
+            return known
+    raise ValueError(f"{name}: level must be one of {', '.join(WARNING_LEVELS)}")

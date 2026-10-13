@@ -26,7 +26,7 @@ See [highlighting](highlighting.md) for components and
 
 General configuration merges from least to most specific: install prefix, AgM home, project config directory, then the invocation directory's `.agm/config.toml`. Tables merge by key. Path-valued settings resolve relative to their defining file (else the invocation directory when that path does not exist) and interpolate `%{VAR}` *leniently* — an unresolved hole stays verbatim, so an irrelevant section never prevents loading.
 
-Sections are consumed by specific features: `[run]`, `[exec]`, `[repl]`, `[agent]` ([agents.md](agents.md)), `[modules]`, `[packages]` (exact package-version pins), `[deps]` (workspace dependency branches). The `agm config` group copies project config into a workspace, prints its environment, and creates missing files.
+Sections are consumed by specific features: `[run]`, `[exec]`, `[repl]`, `[agent]` ([agents.md](agents.md)), `[modules]`, `[packages]` (exact package-version pins), `[deps]` (workspace dependency branches), `[warnings]` (static-warning levels by name, merged by key). The `agm config` group copies project config into a workspace, prints its environment, and creates missing files.
 
 ## AgL Settings
 
@@ -35,10 +35,12 @@ A **program route** is the selected program's qualified config table; a **module
 | Kind | Precedence (highest first) |
 | --- | --- |
 | Engine settings (`std/config` builtin vars) | source write > CLI flag > program route > `@config` > manifest `[config]` > `[exec]` > default |
+| Static-warning levels (`[warnings]`) | source `@allow` > `--warning` (`exec`, `check`, `repl`) > `[warnings]` > catalog default |
 | Program arguments (`program def` parameters) | CLI flag > `@opt-env` > program route > signature default |
 | Module parameters (`@param` bindings) | CLI flag > `@opt-env` > program route > `@config` > manifest `[config]` > module route > initializer |
 
 - `config/engine_keys.py` is the pure catalog of engine settings (kind, default, path-ness, validity rule); CLI flags, the checker, IR validation, and the evaluator all derive from it. `cli_support/engine_seeds.py` resolves the CLI-over-config tiers once per run.
+- `config/general.py::warning_levels_from_merged` validates `[warnings]` (an unknown name or level is a host configuration error); `agm/cli_support/warning_levels.py` resolves flags over it into the invocation's `WarningPolicy` ([agl/hosting.md](agl/hosting.md)). Registered commands pass no flags. `warnings` is a schema section, never a module route.
 - `config/qualified_keys.py` routes a table to a module by path suffix (ambiguous suffixes are errors) and keeps layer provenance. A package-registered program is also addressed by its command path (`[dv.review]`), with each path prefix as a lower-specificity inherited group table. AgM's own section names are excluded from module routing.
 - `cli_support/param_config.py` resolves module parameters across both routes; unused-key diagnostics treat registered command tables as program routes, even when a module route collides. `commands/exec_program.py` resolves program arguments and engine settings from the program route; [agl/hosting.md](agl/hosting.md) describes how hosts seed the resolved values.
 

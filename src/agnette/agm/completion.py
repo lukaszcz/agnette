@@ -125,6 +125,19 @@ def complete_highlight_target(ctx: click.Context, incomplete: str) -> list[str]:
     return _match(list(TARGETS), incomplete)
 
 
+def complete_warning(incomplete: str) -> list[str]:
+    """Complete ``--warning`` with whole ``NAME=LEVEL`` pairs.
+
+    Pairs, not bare names, so a single match is a finished value rather than one
+    the shell would stall on after appending a space.
+    """
+    from agnette.agl.warnings import WARNING_CATALOG, WARNING_LEVELS
+
+    return _match(
+        [f"{name}={level}" for name in WARNING_CATALOG for level in WARNING_LEVELS], incomplete
+    )
+
+
 def _resolve_project_repo_dir() -> Path | None:
     try:
         project_dir = discover_current_project_dir()
@@ -660,23 +673,32 @@ def _positional_candidates(
 _EXEC_PROGRAM_META_KEY = "exec_completion_program"
 
 
-def _exec_selection_inputs(ctx: click.Context) -> tuple[ExecProgramDiscovery, ExecTail]:
-    """Return one discovery for ``agm exec``'s parsed options and the tail split it settles."""
+def _exec_discovery(params: dict[str, object]) -> ExecProgramDiscovery:
+    """Return a discovery for ``agm exec``'s parsed options, governed by their warning policy."""
     from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
-    from agnette.agm.cli_support.program_options import split_exec_tail
+    from agnette.agm.cli_support.warning_levels import advisory_warning_policy
 
-    params = cast(dict[str, object], ctx.params)
     raw_code = params.get("code")
     raw_program = params.get("program")
-    # One discovery for this completion: the FILE derivation below may
-    # probe several candidate tokens with it, and the selection it settles
-    # on is then read back without a second static pipeline pass.
-    discovery = ExecProgramDiscovery(
+    return ExecProgramDiscovery(
         code=raw_code if isinstance(raw_code, str) else None,
         requested_program=raw_program if isinstance(raw_program, str) else None,
         module_paths=_string_list(params.get("module_paths")),
         no_stdlib=bool(params.get("no_stdlib")),
+        warning_policy=advisory_warning_policy(_string_list(params.get("warning"))),
     )
+
+
+def _exec_selection_inputs(ctx: click.Context) -> tuple[ExecProgramDiscovery, ExecTail]:
+    """Return one discovery for ``agm exec``'s parsed options and the tail split it settles."""
+    from agnette.agm.cli_support.program_options import split_exec_tail
+
+    params = cast(dict[str, object], ctx.params)
+    raw_code = params.get("code")
+    # One discovery for this completion: the FILE derivation below may
+    # probe several candidate tokens with it, and the selection it settles
+    # on is then read back without a second static pipeline pass.
+    discovery = _exec_discovery(params)
     # The FILE selector comes from the same derivation execution uses, so
     # completion offers a program's own parameters for exactly the
     # invocations that would run it.
@@ -751,7 +773,6 @@ class ExecCommand(TyperCommand):
         ``split_exec_tail`` consumes the survivor only when it is what names
         the FILE, and otherwise forwards it to the program.
         """
-        from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
         from agnette.agm.cli_support.program_options import (
             option_value_map,
             protect_host_option_values,
@@ -782,13 +803,7 @@ class ExecCommand(TyperCommand):
         )
         preview_params = cast(dict[str, object], preview_ctx.params)
         raw_code = preview_params.get("code")
-        raw_program = preview_params.get("program")
-        discovery = ExecProgramDiscovery(
-            code=raw_code if isinstance(raw_code, str) else None,
-            requested_program=raw_program if isinstance(raw_program, str) else None,
-            module_paths=_string_list(preview_params.get("module_paths")),
-            no_stdlib=bool(preview_params.get("no_stdlib")),
-        )
+        discovery = _exec_discovery(preview_params)
         selected = split_exec_tail(
             _string_list(preview_params.get("tail")),
             program_command_for_file=(

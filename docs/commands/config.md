@@ -27,6 +27,23 @@ eval "$(agm config env)"
 the project config directory, updates dependency config entries, and commits generated
 changes to the config repo with message `chore: update config`.
 
+## Warnings
+
+The `[warnings]` table sets the level of each named static warning for `agm exec`, `agm check`, `agm repl` and registered
+package commands. Each key is a warning name and each value `"allow"` (drop the warning),
+`"warn"` (report it; the default) or `"deny"` (report it as an error, so `agm exec` runs nothing
+and exits 1):
+
+```toml
+[warnings]
+unquoted-exec-hole = "deny"
+tab-indentation = "allow"
+```
+
+Layers merge by key, the most specific layer winning. `--warning NAME=LEVEL` on the command line
+overrides the table, and a source `@allow` outranks both ([`agm exec`](agl.md#agm-exec)). An
+unknown warning name or a level other than the three is a host configuration error (exit 1).
+
 ## Path-valued settings
 
 Path-valued `config.toml` fields (e.g. `[modules] lib_root`, `roots`) expand `%{VAR}`

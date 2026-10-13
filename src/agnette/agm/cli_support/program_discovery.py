@@ -281,7 +281,10 @@ def registered_program_command(
 
     For the surfaces that only describe a registered command; the dispatching
     command keeps its own discovery, whose artifacts it reuses to execute.
+    *warning_policy* defaults to the configured one (:func:`advisory_warning_policy`),
+    which is what the command itself runs under.
     """
+    from agnette.agm.cli_support.warning_levels import advisory_warning_policy
     from agnette.agm.commands.exec_program import registered_program_declaration
 
     artifacts: list[ProgramDiscoveryArtifacts] = []
@@ -290,7 +293,9 @@ def registered_program_command(
         package_name,
         artifact_sink=artifacts,
         context=context,
-        warning_policy=warning_policy,
+        warning_policy=(
+            advisory_warning_policy(context=context) if warning_policy is None else warning_policy
+        ),
     )
     return declaration, registered_command_for(declaration, artifacts[0] if artifacts else None)
 

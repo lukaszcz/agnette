@@ -12,7 +12,7 @@ agm exec [--echo|--no-echo] [--strict-json|--no-strict-json]
          [--timeout DURATION|--no-timeout]
          [--trace|--trace-file PATH|--no-trace]
          [--debug|--no-debug] [--parse-error-retries N]
-         [--no-stdlib]
+         [--no-stdlib] [--warning NAME=LEVEL]...
          [-I DIR]... [-p PATH]
          (FILE | PACKAGE/MODULE::PROGRAM | -c SOURCE) [ARG]... [--NAME VALUE]...
 ```
@@ -91,6 +91,10 @@ a direct `agm repl` entry is a static error.
   modules. Regardless of this flag, a module whose explicit import expansion includes
   `std/prelude` gets that contribution instead of the automatic prelude, so plain
   `import std/prelude` leaves prelude names qualified-only.
+- `--warning NAME=LEVEL` (repeatable): Set a named static warning's level — `allow` (drop it),
+  `warn` (report it), or `deny` (report it as an error). Overrides the `[warnings]` config table;
+  a source `@allow` region outranks both. An unknown name or level, or one name given two
+  different levels, is a usage error (exit 1).
 - `--strict-json`: Agents must return exactly one bare JSON value (no fences, prose, or repair).
 - `--no-strict-json` (default): Recover exactly one JSON value from chatty output (stripping
   fences/prose, repairing trivially malformed JSON), then validate it strictly against the
@@ -186,7 +190,7 @@ program for execution fails, while `--help` and shell completion silently fall b
 `agm exec`'s own help and no completions. `agm exec` reserves:
 
 - its own options: `--help`/`-h`, `--program`/`-p`, `--code`/`-c`, `--module-path`/`-I`,
-  `--max-call-depth`, `--no-stdlib`, `--echo`/`--no-echo`;
+  `--max-call-depth`, `--no-stdlib`, `--warning`, `--echo`/`--no-echo`;
 - every engine-setting flag in both polarities: `--default-agent`, `--default-sandbox`,
   `--strict-json`/`--no-strict-json`, `--timeout`/`--no-timeout`,
   `--trace`/`--no-trace`, `--trace-file`, `--debug`/`--no-debug`, `--parse-error-retries`
@@ -604,7 +608,7 @@ drives shell execution.
 | Code | Meaning |
 |------|---------|
 | `0` | The workflow completed successfully, or `std/os::exit(0)` requested success |
-| `1` | Pre-execution failure: unreadable file, static language diagnostics (including invalid `case` coverage), host configuration error (including an invalid engine setting from the CLI, a config table, `@config`, or the manifest), or program-argument validation failure; it can also be requested with `std/os::exit(1)` |
+| `1` | Pre-execution failure: unreadable file, static language diagnostics (including invalid `case` coverage and a `deny`-level warning), host configuration error (including an invalid engine setting from the CLI, a config table, `@config`, or the manifest, or an invalid `[warnings]` table), or program-argument validation failure; it can also be requested with `std/os::exit(1)` |
 | `2` | The workflow executed but ended with an uncaught AgL exception; it can also be requested with `std/os::exit(2)` |
 | `3`–`255` | Requested by `std/os::exit(code)` |
 | `128+N` | Terminated by signal `N` (SIGTERM → `143`, SIGHUP → `129`), after the run's cleanup |
@@ -620,8 +624,12 @@ the status; an out-of-range value is a runtime error, not a termination.
 - Agent transport failures include the captured stderr tail in the exception message,
   even when agent output echo and tracing are disabled.
 - Advisory **warnings** go to stderr as `path:line:col: warning: message [NAME]`, ending in
-  the warning's name (`tab-indentation`, `noop-parse-retries`), and never affect the exit
-  code; the program runs to completion.
+  the warning's name (`tab-indentation`, `noop-parse-retries`); at the default `warn` level
+  they never affect the exit code and the program runs to completion.
+- Warning levels come from `--warning`, then the `[warnings]` [config table](config.md#warnings),
+  then the default `warn`; a source `@allow` outranks both. A `deny`-level warning is printed
+  as `error: message [NAME]`, exits 1, and nothing runs. A [registered package
+  command](pkg.md#registered-commands) has no `--warning` flag and uses `[warnings]` only.
 - Program `print` output goes to stdout, free of diagnostics.
 
 ### Compilation cache
@@ -635,7 +643,7 @@ disposable: deleting it or making it unavailable does not prevent execution.
 ## `agm check`
 
 ```text
-agm check [-I DIR]... [--no-stdlib] FILE...
+agm check [-I DIR]... [--no-stdlib] [--warning NAME=LEVEL]... FILE...
 ```
 
 Run the full **static** pipeline (parse, module loading, scope resolution, type checking, match
@@ -664,13 +672,14 @@ fresh per `FILE`, since they anchor at the checked file.
 
 - `-I DIR`, `--module-path DIR`, `--no-stdlib`: As for `agm exec`, per checked file and its
   library modules.
+- `--warning NAME=LEVEL` (repeatable): As for `agm exec`; a `deny`-level warning is an error.
 
 ### Exit codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | No `FILE` produced an error-severity diagnostic |
-| `1` | Some `FILE` produced an error-severity diagnostic, was unreadable or missing, or had an invalid module-root configuration |
+| `1` | Some `FILE` produced an error-severity diagnostic (a `deny`-level warning included), was unreadable or missing, or had an invalid module-root or `[warnings]` configuration |
 
 ### Diagnostics and warnings
 
@@ -685,8 +694,9 @@ path:line:col-endline:endcol: error: message
 ```
 
 Related notes are indented two spaces under their diagnostic. A diagnostic from an imported
-module carries that module's path. **Warnings** (e.g. a TAB-indented line) never affect the exit
-code; each ends in its name in brackets:
+module carries that module's path. **Warnings** (e.g. a TAB-indented line) do not affect the
+exit code unless denied (`--warning NAME=deny` or `[warnings]`), which turns one into an error; each
+ends in its name in brackets:
 
 ```text
 path:line:col: warning: message [tab-indentation]
@@ -720,7 +730,7 @@ agm repl [--strict-json|--no-strict-json]
          [--timeout DURATION|--no-timeout]
          [--trace|--trace-file PATH|--no-trace]
          [--debug|--no-debug] [--parse-error-retries N]
-         [--quiet] [--no-stdlib] [--plain]
+         [--quiet] [--no-stdlib] [--plain] [--warning NAME=LEVEL]...
 ```
 
 Interactive AgL. Unlike `agm exec`, which runs a whole program in a fresh environment, the REPL
@@ -845,6 +855,8 @@ Meta-commands start with `:`, which never collides with AgL syntax:
 - `--trace` / `--trace-file PATH` / `--no-trace`: As for `agm exec`; with `--trace-file`, each evaluated
   entry appends its JSONL records to `PATH` as one trace *run*.
 - `--plain`: Force the plain [front end](#front-ends). There is no `--no-plain`.
+- `--warning NAME=LEVEL` (repeatable): As for `agm exec`; a `deny`-level warning rejects its entry
+  with an inline error.
 
 ### Evaluation notes
 
@@ -892,7 +904,7 @@ exiting.
 | Code | Meaning |
 |------|---------|
 | `0` | The session ended normally (`:quit`/`:exit` or Ctrl-D) |
-| `1` | Pre-loop setup failure, reported before the prompt appears: an invalid engine setting from the CLI or `[exec]` (such as a blank or unreadable `default-agent`/`default-sandbox`, a negative `parse-error-retries`, or a non-bool `strict-json`, `trace`, or `debug`), another invalid `[exec]` value, or an unwritable `--trace-file` |
+| `1` | Pre-loop setup failure, reported before the prompt appears: an invalid engine setting from the CLI or `[exec]` (such as a blank or unreadable `default-agent`/`default-sandbox`, a negative `parse-error-retries`, or a non-bool `strict-json`, `trace`, or `debug`), another invalid `[exec]` value, an invalid `[warnings]` table, or an unwritable `--trace-file` |
 
 ### Examples
 

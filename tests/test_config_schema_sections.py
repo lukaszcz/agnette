@@ -21,7 +21,7 @@ from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
 from tests._package_helpers import install_directory
 
-_SCHEMA_SECTIONS = ("agent", "deps", "modules", "packages", "params")
+_SCHEMA_SECTIONS = ("agent", "deps", "modules", "packages", "params", "warnings")
 
 
 def _package(tmp_path: Path, name: str, command_path: str) -> PackageInfo:

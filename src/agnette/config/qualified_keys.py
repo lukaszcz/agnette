@@ -375,11 +375,12 @@ def route_table_paths(
     address one of its nested declaration tables: a command section holds its
     own settings as leaf keys, so a table one level below it is free. A
     section keyed by AgM's own schema (:data:`SCHEMA_CONFIG_SECTION_NAMES`) is
-    excluded at every depth, because its nested tables already belong to
-    user-chosen names, so a loose file named ``packages.agl`` -- or a command
-    registered as ``agent review`` -- has no config table for its programs at
-    all. Value resolution and leaf enumeration both start from this exact-route
-    list before either adds any inherited group-table paths of its own.
+    excluded at every depth, because its keys are AgM's own or user-chosen
+    names (``[warnings]`` validates every key as a warning name), so a loose
+    file named ``packages.agl`` -- or a command registered as ``agent review``
+    -- has no config table for its programs at all. Value resolution and leaf
+    enumeration both start from this exact-route list before either adds any
+    inherited group-table paths of its own.
     """
     suffix_paths = [
         (*module_segments[-depth:], *scope_path) for depth in range(1, len(module_segments) + 1)

@@ -61,7 +61,7 @@ review-tools/
 The package name is one AgL identifier segment and not a reserved keyword. `pkg check`,
 `pkg create`, and `pkg install` also reject a name AgM reserves: a built-in command or root alias
 (`wsp`, `wt`), or one of AgM's own config sections (`agent`, `deps`, `modules`, `packages`,
-`params`). Package modules may
+`params`, `warnings`). Package modules may
 import only their own tree, packages declared in `[dependencies]`, and `std`.
 
 ## Manifest
@@ -144,8 +144,8 @@ program = "review-tools/main::batch"
   cannot start with a built-in command or root alias (`wsp`, `wt`). `pkg check`/`create`/`install`
   also reject a path (including an `@command` path) starting with one of AgM's config sections,
   like a package name; an already-installed registration still loads, dispatches, and uninstalls,
-  but one starting with a schema section (`agent`, `deps`, `modules`, `packages`, `params`) gets
-  no command-path config table, exact or inherited.
+  but one starting with a schema section (`agent`, `deps`, `modules`, `packages`, `params`,
+  `warnings`) gets no command-path config table, exact or inherited.
 - `program` names the `program def` to run as `<module>::<program>`: `review-tools/main::review` is
   program `review` in module `review-tools/main`, file `review-tools/src/main.agl`. Must belong to
   this package, take no type parameters, return unit; its signature arguments and closure module
@@ -269,6 +269,8 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   `--default-agent`, `--default-sandbox`, `--timeout`/`--no-timeout`, `--trace`/`--no-trace`,
   `--trace-file`, `--debug`/`--no-debug`, `--parse-error-retries`) and `--max-call-depth` work
   as for [`agm exec`](agl.md#agm-exec), anywhere after the command path.
+  There is no `--warning` flag: warning levels come from the [`[warnings]`](config.md#warnings)
+  config table only.
 - **Configuration.** Omitted signature arguments and engine settings use the program route:
   the program's qualified table (e.g. `[review-tools.main.review]` for
   `review-tools/main::review`) or a registered command path (`[pr-review]`, or `[dv.review]`

@@ -23,6 +23,10 @@ _MODULE_PATH_ROW = (
     "                         working directory).\n"
 )
 _NO_STDLIB_ROW = "  --no-stdlib            Disable the automatic `import std/prelude::*`.\n"
+_WARNING_ROW = (
+    "  --warning NAME=LEVEL   Set a static warning's level: allow, warn, or deny\n"
+    "                         (repeatable; overrides [warnings] config).\n"
+)
 
 _HELP_TEXTS: dict[str, str] = {
     "dev": textwrap.dedent("""\
@@ -252,11 +256,13 @@ _HELP_TEXTS: dict[str, str] = {
         """)
     + _MODULE_PATH_ROW
     + _NO_STDLIB_ROW
+    + _WARNING_ROW
     + textwrap.dedent("""\
 
         Exit codes:
-          0  No errors (warnings do not count).
-          1  An error diagnostic, an unreadable FILE, or invalid module roots.
+          0  No errors (warnings do not count; denied ones are errors).
+          1  An error diagnostic, an unreadable FILE, invalid module roots, or an
+             invalid [warnings] config.
     """),
     "help": textwrap.dedent("""\
         agm help [COMMAND...]
@@ -282,7 +288,8 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
               -p, --program PATH     Select a `program def` by declaration path.
             """)
         + _MODULE_PATH_ROW
-        + _NO_STDLIB_ROW,
+        + _NO_STDLIB_ROW
+        + _WARNING_ROW,
         textwrap.dedent("""\
             Execution options override config files; a `std/config::KEY := VALUE`
             write overrides both from its program point.
@@ -305,7 +312,7 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
             Exit codes:
               0  Success.
               1  Failure before execution: unreadable source, static error, or
-                 invalid config or arguments.
+                 invalid config or arguments, or a denied warning.
               2  Uncaught AgL exception.
         """),
     ),
@@ -317,11 +324,12 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
             declarations accumulate, and each entry runs exactly once.
 
             Options:
-              --quiet      Do not echo entry results.
-              --plain      Use the plain line front end even on a terminal.
-              --no-stdlib  Disable the automatic `import std/prelude::*`; kept by
-                           :reset.
-            """),
+              --quiet                Do not echo entry results.
+              --plain                Use the plain line front end even on a terminal.
+              --no-stdlib            Disable the automatic `import std/prelude::*`;
+                                     kept by :reset.
+            """)
+        + _WARNING_ROW,
         textwrap.dedent("""\
             Execution options override [exec] config; a `std/config::KEY := VALUE`
             entry holds for the session until :reset.
@@ -334,8 +342,8 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
 
             Exit codes:
               0  Normal exit.
-              1  Setup failure before the prompt: invalid [exec] config or
-                 execution option, or an unwritable --trace-file.
+              1  Setup failure before the prompt: invalid [exec] or [warnings]
+                 config, invalid execution option, or an unwritable --trace-file.
         """),
     ),
 }

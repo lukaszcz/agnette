@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Generic, TypeVar
 
+from agnette.agl.warnings import WarningLevel, warning_level_setting
 from agnette.agm.project.layout import project_config_dir
 from agnette.config.engine_keys import ENGINE_KEY_KINDS, PATH_ENGINE_KEYS
 from agnette.config.home import agm_home_dir, agm_path_candidates
@@ -411,6 +412,24 @@ def exec_config_from_merged(
         debug=resolved_debug,
         parse_error_retries=resolved_parse_error_retries,
     )
+
+
+def warning_levels_from_merged(merged: TomlDict) -> dict[str, WarningLevel]:
+    """Read the ``[warnings]`` table of *merged*: static-warning levels by name.
+
+    Layers have merged key by key already. An unknown warning name, or a level
+    other than ``allow``/``warn``/``deny``, raises :class:`ValueError`.
+    """
+    table = merged.get("warnings", {})
+    if not isinstance(table, dict):
+        raise ValueError("[warnings] must be a table of warning names to levels")
+    levels: dict[str, WarningLevel] = {}
+    for name, value in table.items():
+        try:
+            levels[name] = warning_level_setting(name, value)
+        except ValueError as exc:
+            raise ValueError(f"[warnings] {exc}") from exc
+    return levels
 
 
 @dataclass(frozen=True)

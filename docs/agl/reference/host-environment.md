@@ -436,7 +436,7 @@ ambiguity checks but is exempt from undeclared-key warnings, since a
 descendant command may consume it.
 
 AgM's own schema sections — `[agent]`, `[deps]`, `[modules]`, `[packages]`,
-and `[params]` — keep their own meaning at every depth, so no route passes
+`[params]`, and `[warnings]` — keep their own meaning at every depth, so no route passes
 through one: a module whose stem is `agent` has no `[agent.<program>]` route,
 and a package command whose first word is a section name is rejected.
 

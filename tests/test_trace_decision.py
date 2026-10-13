@@ -280,7 +280,7 @@ class TestExecLogFlagParsing:
     def recorded_runs(self, monkeypatch: pytest.MonkeyPatch) -> list[object]:
         calls: list[object] = []
 
-        def fake_run(args: object) -> None:
+        def fake_run(args: object, **_: object) -> None:
             calls.append(args)
 
         monkeypatch.setattr(exec_command, "run", fake_run)
@@ -332,7 +332,7 @@ class TestReplLogFlagParsing:
     def recorded_runs(self, monkeypatch: pytest.MonkeyPatch) -> list[object]:
         calls: list[object] = []
 
-        def fake_run(args: object) -> None:
+        def fake_run(args: object, **_: object) -> None:
             calls.append(args)
 
         monkeypatch.setattr(repl_command, "run", fake_run)

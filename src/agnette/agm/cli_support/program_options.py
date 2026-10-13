@@ -401,6 +401,7 @@ _BUILTIN_EXEC_FLAGS: frozenset[str] = frozenset(
         "--help",
         "-h",
         "--no-stdlib",
+        "--warning",
     }
 )
 

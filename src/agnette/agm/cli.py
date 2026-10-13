@@ -294,6 +294,16 @@ def _no_stdlib_option() -> bool:
     return typer.Option(False, "--no-stdlib", help="Disable the automatic import std/prelude::*.")
 
 
+def _warning_option() -> list[str]:
+    return typer.Option(
+        [],
+        "--warning",
+        metavar="NAME=LEVEL",
+        help="Set a static warning's level: allow, warn, or deny (repeatable).",
+        autocompletion=completion.complete_warning,
+    )
+
+
 def _missing_arguments(command_path: Sequence[str], names: Sequence[str]) -> NoReturn:
     joined = ", ".join(names)
     exit_with_usage_error(command_path, f"error: the following arguments are required: {joined}")
@@ -867,6 +877,7 @@ def exec_cmd(
     no_timeout: bool = _no_timeout_option(),
     debug: bool | None = _debug_option(),
     parse_error_retries: int | None = _parse_error_retries_option(),
+    warning: list[str] = _warning_option(),
 ) -> None:
     # ``_RUN_CONTEXT_SETTINGS`` disables Click's built-in ``--help`` interception
     # (``help_option_names: []``) and lets unknown options through, so the whole
@@ -875,6 +886,10 @@ def exec_cmd(
     # place that says which token is the FILE and which the program reads.
     from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
     from agnette.agm.cli_support.program_options import split_exec_tail
+    from agnette.agm.cli_support.warning_levels import (
+        advisory_warning_policy,
+        command_warning_policy,
+    )
 
     # One discovery for the whole invocation: the tail split probes candidate
     # FILE tokens with it, and the help surface below then asks about the
@@ -889,6 +904,7 @@ def exec_cmd(
             requested_program=program,
             module_paths=module_paths,
             no_stdlib=no_stdlib,
+            warning_policy=advisory_warning_policy(warning),
         )
     )
     selected = split_exec_tail(
@@ -931,11 +947,14 @@ def exec_cmd(
         pipeline_cache=discovery.cached_artifacts(file),
     )
     _reject_run_option_conflict("exec", execution_option_conflict(exec_args))
+    # Resolved once after help, so a bad flag or table never blocks help; the
+    # discovery above was governed by the same policy, so the run reuses it.
+    warning_policy = command_warning_policy(["exec"], warning)
     # Imported lazily: pulls in the AgL DSL (runtime, codec, jsonschema), which
     # would otherwise slow every non-AgL ``agm`` invocation's startup.
     import agnette.agm.commands.exec as exec_command
 
-    exec_command.run(exec_args)
+    exec_command.run(exec_args, warning_policy=warning_policy)
 
 
 @app.command(name="repl")
@@ -958,6 +977,7 @@ def repl_cmd(
     no_timeout: bool = _no_timeout_option(),
     debug: bool | None = _debug_option(),
     parse_error_retries: int | None = _parse_error_retries_option(),
+    warning: list[str] = _warning_option(),
     plain: bool = typer.Option(
         False,
         "--plain",
@@ -987,8 +1007,9 @@ def repl_cmd(
     # Imported lazily: pulls in the AgL DSL (runtime, repl console), which would
     # otherwise slow every non-AgL ``agm`` invocation's startup.
     import agnette.agm.commands.repl as repl_command
+    from agnette.agm.cli_support.warning_levels import command_warning_policy
 
-    repl_command.run(repl_args)
+    repl_command.run(repl_args, warning_policy=command_warning_policy(["repl"], warning))
 
 
 @app.command(name="check")
@@ -1000,6 +1021,7 @@ def check_cmd(
     ),
     module_paths: list[str] = _module_path_option(),
     no_stdlib: bool = _no_stdlib_option(),
+    warning: list[str] = _warning_option(),
     _help: bool = _help_option(),
 ) -> None:
     del _help
@@ -1008,13 +1030,15 @@ def check_cmd(
     # Imported lazily: pulls in the AgL DSL (runtime, jsonschema), which would
     # otherwise slow every non-AgL ``agm`` invocation's startup.
     import agnette.agm.commands.check as check_command
+    from agnette.agm.cli_support.warning_levels import command_warning_policy
 
     check_command.run(
         CheckArgs(
             files=file,
             module_paths=module_paths,
             no_stdlib=no_stdlib,
-        )
+        ),
+        warning_policy=command_warning_policy(["check"], warning),
     )
 
 

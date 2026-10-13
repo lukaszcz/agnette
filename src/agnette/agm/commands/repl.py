@@ -41,6 +41,7 @@ from agnette.agl.repl.plain_console import plain_mode_engaged
 from agnette.agl.runtime.agents import value_driven_agent_factory
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import ParamBindingInfo
+from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.agm.cli_support.engine_seeds import (
     build_host_engine_seeds,
@@ -85,8 +86,8 @@ def _resolve_param_seeds(
         raise AglError(str(exc)) from exc
 
 
-def run(args: ReplArgs) -> None:
-    """Run the ``agm repl`` command."""
+def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
+    """Run the ``agm repl`` command; every entry is governed by *warning_policy*."""
     ctx = current_config_context()
     try:
         general_config = load_general_config(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
@@ -185,6 +186,7 @@ def run(args: ReplArgs) -> None:
             package_roots=package_roots,
             default_stdlib=not args.no_stdlib,
             param_seed_resolver=partial(_resolve_param_seeds, general_config),
+            warning_policy=warning_policy,
         )
 
         with preserve_primary_error(session.close, label="companion state cleanup"):

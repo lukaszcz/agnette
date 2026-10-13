@@ -46,11 +46,11 @@ RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(COMMAND_NAMES) | frozenset(CO
 LEGACY_RESERVED_COMMAND_NAMES: frozenset[str] = RESERVED_COMMAND_NAMES - {"dev"}
 
 # Top-level config sections that describe AgM's configuration schema rather than
-# AgL modules, and key their own nested tables by user-chosen names -- an agent
-# CLI, a dependency, a module root, a package pin. ``params`` is reserved and
-# cannot be interpreted as an AgL module route.
+# AgL modules: their keys are AgM's own or user-chosen names (an agent CLI, a
+# dependency, a module root, a package pin), so no AgL route nests under them.
+# ``warnings`` validates every key as a warning name; ``params`` is reserved.
 SCHEMA_CONFIG_SECTION_NAMES: frozenset[str] = frozenset(
-    {"agent", "deps", "modules", "packages", "params"}
+    {"agent", "deps", "modules", "packages", "params", "warnings"}
 )
 
 # Every top-level config section name AgM owns. A validated package's name and

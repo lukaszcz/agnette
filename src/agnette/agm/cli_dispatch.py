@@ -311,6 +311,7 @@ class RegisteredProgramCommand(TyperCommand):
         self,
     ) -> "tuple[ProgramDeclInfo | None, ProgramDiscoveryArtifacts | None]":
         """Discover the declaration and retain its reusable static artifacts."""
+        from agnette.agm.cli_support.warning_levels import advisory_warning_policy
         from agnette.agm.commands.exec_program import registered_program_declaration
 
         artifacts: list[ProgramDiscoveryArtifacts] = []
@@ -318,6 +319,7 @@ class RegisteredProgramCommand(TyperCommand):
             self._program,
             self._registration.package,
             artifact_sink=artifacts,
+            warning_policy=advisory_warning_policy(),
         )
         return program, artifacts[0] if artifacts else None
 
@@ -364,8 +366,11 @@ class RegisteredProgramCommand(TyperCommand):
         if conflict is not None:
             declaration, command = program_command()
             self._usage_error(conflict, declaration, command)
+        from agnette.agm.cli_support.warning_levels import command_warning_policy
         from agnette.agm.commands.exec_program import RegisteredProgramUsageError, run_registered
 
+        # Registered commands take no ``--warning``: only ``[warnings]`` applies.
+        warning_policy = command_warning_policy([self._path_name])
         try:
             run_registered(
                 self._program,
@@ -373,6 +378,7 @@ class RegisteredProgramCommand(TyperCommand):
                 package=self._registration.package,
                 command_path=self._path_name,
                 pipeline_cache=cached_pipeline,
+                warning_policy=warning_policy,
             )
         except ProgramHelpRequested as exc:
             # A help request Click recognized only while parsing the program's

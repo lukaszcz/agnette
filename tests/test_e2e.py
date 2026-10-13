@@ -8702,6 +8702,284 @@ class TestReplCommand:
         assert any(line.split()[-1:] == ["42"] for line in result.stdout.splitlines())
 
 
+class TestWarningLevels:
+    """``--warning`` and ``[warnings]`` set static-warning levels for exec, check, repl."""
+
+    _TAB_WARNING = "tab-indentation"
+    _SOURCE = '# a comment carrying a TAB:\there\nprogram def main() -> unit = print "ran"\n'
+
+    def _program(self, tmp_path: Path) -> Path:
+        work = tmp_path / "work"
+        work.mkdir(exist_ok=True)
+        program = work / "tabby.agl"
+        program.write_text(self._SOURCE, encoding="utf-8")
+        return program
+
+    def _configure(self, directory: Path, body: str) -> None:
+        """Write the invocation-directory config layer of *directory*."""
+        (directory / ".agm").mkdir(exist_ok=True)
+        (directory / ".agm" / "config.toml").write_text(body, encoding="utf-8")
+
+    def test_a_warning_is_reported_with_its_name_and_the_program_runs_by_default(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        program = self._program(tmp_path)
+
+        result = run_agm(["exec", str(program)], env=env, cwd=program.parent)
+
+        assert result.stdout == "ran\n"
+        assert "warning:" in result.stderr
+        assert f"[{self._TAB_WARNING}]" in result.stderr
+
+    def test_exec_flag_denies_a_warning_and_runs_nothing(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        program = self._program(tmp_path)
+
+        result = run_agm(
+            ["exec", "--warning", f"{self._TAB_WARNING}=deny", str(program)],
+            env=env,
+            cwd=program.parent,
+            check=False,
+        )
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "error:" in result.stderr
+        assert f"[{self._TAB_WARNING}]" in result.stderr
+
+    def test_exec_flag_allows_a_warning(self, tmp_path: Path, env: dict[str, str]) -> None:
+        program = self._program(tmp_path)
+
+        result = run_agm(
+            ["exec", "--warning", f"{self._TAB_WARNING}=allow", str(program)],
+            env=env,
+            cwd=program.parent,
+        )
+
+        assert result.stdout == "ran\n"
+        assert result.stderr == ""
+
+    def test_exec_flag_applies_to_inline_source(self, tmp_path: Path, env: dict[str, str]) -> None:
+        result = run_agm(
+            ["exec", f"--warning={self._TAB_WARNING}=deny", "-c", self._SOURCE],
+            env=env,
+            cwd=tmp_path,
+            check=False,
+        )
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+
+    def test_check_flag_denies_a_warning(self, tmp_path: Path, env: dict[str, str]) -> None:
+        program = self._program(tmp_path)
+
+        reported = run_agm(["check", str(program)], env=env, cwd=program.parent)
+        denied = run_agm(
+            ["check", "--warning", f"{self._TAB_WARNING}=deny", str(program)],
+            env=env,
+            cwd=program.parent,
+            check=False,
+        )
+        allowed = run_agm(
+            ["check", "--warning", f"{self._TAB_WARNING}=allow", str(program)],
+            env=env,
+            cwd=program.parent,
+        )
+
+        assert reported.returncode == 0
+        assert f"[{self._TAB_WARNING}]" in reported.stderr
+        assert denied.returncode == 1
+        assert "error:" in denied.stderr
+        assert allowed.stderr == ""
+
+    def test_repl_flag_denies_an_entry_and_keeps_the_session_going(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        entries = 'print "ran" # a TAB:\there\n1 + 2\n:quit\n'
+
+        reported = run_agm(["repl"], env=env, cwd=tmp_path, input=entries)
+        denied = run_agm(
+            ["repl", "--warning", f"{self._TAB_WARNING}=deny"],
+            env=env,
+            cwd=tmp_path,
+            input=entries,
+        )
+
+        # The REPL prints diagnostics on its output stream.
+        assert "warning: " in reported.stdout
+        assert f"[{self._TAB_WARNING}]" in reported.stdout
+        assert any(line.split()[-1:] == ["ran"] for line in reported.stdout.splitlines())
+        assert denied.returncode == 0
+        assert "error: " in denied.stdout
+        assert f"[{self._TAB_WARNING}]" in denied.stdout
+        assert not any(line.split()[-1:] == ["ran"] for line in denied.stdout.splitlines())
+        assert any(line.split()[-1:] == ["3"] for line in denied.stdout.splitlines())
+
+    def test_config_sets_levels_and_the_flag_overrides_it(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        program = self._program(tmp_path)
+        self._configure(program.parent, f'[warnings]\n{self._TAB_WARNING} = "deny"\n')
+
+        configured = run_agm(["exec", str(program)], env=env, cwd=program.parent, check=False)
+        checked = run_agm(["check", str(program)], env=env, cwd=program.parent, check=False)
+        overridden = run_agm(
+            ["exec", "--warning", f"{self._TAB_WARNING}=warn", str(program)],
+            env=env,
+            cwd=program.parent,
+        )
+
+        assert configured.returncode == 1
+        assert configured.stdout == ""
+        assert checked.returncode == 1
+        assert overridden.stdout == "ran\n"
+        assert f"[{self._TAB_WARNING}]" in overridden.stderr
+
+    def test_config_layers_merge_by_key_with_the_invocation_directory_winning(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        program = self._program(tmp_path)
+        home_config = Path(env["HOME"]) / ".agm"
+        home_config.mkdir(parents=True, exist_ok=True)
+        (home_config / "config.toml").write_text(
+            f'[warnings]\n{self._TAB_WARNING} = "deny"\nnoop-parse-retries = "allow"\n',
+            encoding="utf-8",
+        )
+
+        from_home = run_agm(["exec", str(program)], env=env, cwd=program.parent, check=False)
+        self._configure(program.parent, f'[warnings]\n{self._TAB_WARNING} = "allow"\n')
+        from_cwd = run_agm(["exec", str(program)], env=env, cwd=program.parent)
+
+        assert from_home.returncode == 1
+        assert from_cwd.stdout == "ran\n"
+        assert from_cwd.stderr == ""
+
+    def _install_tab_command(self, tmp_path: Path, env: dict[str, str]) -> None:
+        """Install an editable package whose command ``live`` runs a TAB-warning program."""
+        env["AGM_HOME"] = str(tmp_path / "agm-home")
+        package = _write_store_test_package(tmp_path / "tools-source", "tools", "1.0.0")
+        (package / "package.toml").write_text(
+            '[package]\nname = "tools"\nversion = "1.0.0"\n\n'
+            '[commands]\nlive = { program = "tools/main::main" }\n',
+            encoding="utf-8",
+        )
+        (package / "src" / "main.agl").write_text(
+            '# a comment carrying a TAB:\there\nprogram def main() -> unit = print "ran"\n',
+            encoding="utf-8",
+        )
+        run_agm(["pkg", "install", "--editable", str(package)], env=env, cwd=tmp_path)
+
+    def test_registered_commands_honor_the_configured_levels(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        self._install_tab_command(tmp_path, env)
+
+        reported = run_agm(["live"], env=env, cwd=tmp_path)
+        self._configure(tmp_path, f'[warnings]\n{self._TAB_WARNING} = "deny"\n')
+        denied = run_agm(["live"], env=env, cwd=tmp_path, check=False)
+
+        assert reported.stdout == "ran\n"
+        assert f"[{self._TAB_WARNING}]" in reported.stderr
+        assert denied.returncode == 1
+        assert denied.stdout == ""
+
+    def test_registered_commands_reject_an_invalid_warnings_table(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        self._install_tab_command(tmp_path, env)
+        self._configure(tmp_path, '[warnings]\nno-such-warning = "deny"\n')
+
+        result = run_agm(["live"], env=env, cwd=tmp_path, check=False)
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "Traceback" not in result.stderr
+
+    @pytest.mark.parametrize(
+        ("flags", "body"),
+        (
+            (["--warning", "no-such-warning=deny"], ""),
+            ([], '[warnings]\nno-such-warning = "deny"\n'),
+            ([], "[warnings\nbroken"),
+        ),
+        ids=("invalid-flag", "invalid-table", "malformed-toml"),
+    )
+    @pytest.mark.parametrize("help_flag", ("--help", "-h"))
+    def test_exec_help_survives_invalid_warning_settings(
+        self, tmp_path: Path, env: dict[str, str], flags: list[str], body: str, help_flag: str
+    ) -> None:
+        program = self._program(tmp_path)
+        self._configure(program.parent, body)
+
+        result = run_agm(
+            ["exec", *flags, str(program), help_flag], env=env, cwd=program.parent, check=False
+        )
+
+        assert result.returncode == 0
+        assert "agm exec" in result.stdout
+        assert "Traceback" not in result.stderr
+
+    @pytest.mark.parametrize(
+        "command",
+        (["exec"], ["check"], ["repl"]),
+        ids=("exec", "check", "repl"),
+    )
+    @pytest.mark.parametrize(
+        "flags",
+        (
+            ["--warning", "no-such-warning=deny"],
+            ["--warning", "tab-indentation=loud"],
+            ["--warning", "tab-indentation"],
+            ["--warning", "tab-indentation=deny", "--warning", "tab-indentation=allow"],
+        ),
+        ids=("unknown-name", "unknown-level", "no-level", "conflicting-levels"),
+    )
+    def test_invalid_flags_are_usage_errors(
+        self, tmp_path: Path, env: dict[str, str], command: list[str], flags: list[str]
+    ) -> None:
+        program = self._program(tmp_path)
+        target = [] if command == ["repl"] else [str(program)]
+
+        result = run_agm(
+            [*command, *flags, *target],
+            env=env,
+            cwd=program.parent,
+            input=":quit\n",
+            check=False,
+        )
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "usage:" in result.stderr
+
+    @pytest.mark.parametrize("command", (["exec"], ["check"], ["repl"]), ids=lambda c: c[0])
+    @pytest.mark.parametrize(
+        "body",
+        (
+            '[warnings]\nno-such-warning = "deny"\n',
+            '[warnings]\ntab-indentation = "loud"\n',
+            "[warnings]\ntab-indentation = true\n",
+            "[warnings\nbroken",
+        ),
+        ids=("unknown-name", "unknown-level", "not-text", "malformed-toml"),
+    )
+    def test_invalid_configuration_is_a_host_error(
+        self, tmp_path: Path, env: dict[str, str], command: list[str], body: str
+    ) -> None:
+        program = self._program(tmp_path)
+        self._configure(program.parent, body)
+        target = [] if command == ["repl"] else [str(program)]
+
+        result = run_agm(
+            [*command, *target], env=env, cwd=program.parent, input=":quit\n", check=False
+        )
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "Traceback" not in result.stderr
+
+
 class TestDevHighlight:
     def test_exports_emacs_inventory(self, tmp_path: Path, env: dict[str, str]) -> None:
         output = tmp_path / "generated" / "emacs" / "agl-inventory.el"

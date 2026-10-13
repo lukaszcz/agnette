@@ -61,7 +61,7 @@ def make_recorder(
 ) -> list[RecordedArgs]:
     calls: list[RecordedArgs] = []
 
-    def record(args: RecordedArgs) -> None:
+    def record(args: RecordedArgs, **_: object) -> None:
         calls.append(args)
 
     monkeypatch.setattr(target, attribute, record)
@@ -631,7 +631,7 @@ class TestSync:
     ) -> None:
         observed: list[bool] = []
 
-        def record(args: object) -> None:
+        def record(args: object, **_: object) -> None:
             del args
             observed.append(dry_run_state.enabled())
 
@@ -661,7 +661,7 @@ class TestSync:
     ) -> None:
         observed: list[bool] = []
 
-        def record(args: object) -> None:
+        def record(args: object, **_: object) -> None:
             del args
             observed.append(dry_run_state.enabled())
 
@@ -687,7 +687,7 @@ class TestDryRun:
     ) -> None:
         observed: list[bool] = []
 
-        def record(args: RecordedArgs) -> None:
+        def record(args: RecordedArgs, **_: object) -> None:
             observed.append(dry_run_state.enabled())
             assert args.branch == "repo"
 
@@ -1485,7 +1485,7 @@ class TestConfigCopyCommand:
     def test_config_copy_via_cli(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[object] = []
 
-        def record(args: object) -> None:
+        def record(args: object, **_: object) -> None:
             calls.append(args)
 
         monkeypatch.setattr(config_copy_command, "run", record)
@@ -1528,7 +1528,7 @@ class TestExecModulePathOption:
         import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
+        monkeypatch.setattr(exec_mod, "run", lambda a, **_: calls.append(a))
 
         agl_file = tmp_path / "prog.agl"
         agl_file.write_text("let x = 1\n")
@@ -1546,7 +1546,7 @@ class TestExecModulePathOption:
         import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
+        monkeypatch.setattr(exec_mod, "run", lambda a, **_: calls.append(a))
 
         agl_file = tmp_path / "prog.agl"
         agl_file.write_text("let x = 1\n")
@@ -1569,7 +1569,7 @@ class TestExecModulePathOption:
         import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
+        monkeypatch.setattr(exec_mod, "run", lambda a, **_: calls.append(a))
 
         agl_file = tmp_path / "prog.agl"
         agl_file.write_text("let x = 1\n")
@@ -1636,7 +1636,7 @@ class TestReplStdlibOption:
         import agnette.agm.commands.repl as repl_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(repl_mod, "run", lambda a: calls.append(a))
+        monkeypatch.setattr(repl_mod, "run", lambda a, **_: calls.append(a))
 
         result = invoke(runner, ["repl", "--no-stdlib"])
 
@@ -1654,7 +1654,7 @@ class TestMaxCallDepthOption:
         import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
+        monkeypatch.setattr(exec_mod, "run", lambda a, **_: calls.append(a))
 
         agl_file = tmp_path / "prog.agl"
         agl_file.write_text("let x = 1\n")
@@ -1670,7 +1670,7 @@ class TestMaxCallDepthOption:
         import agnette.agm.commands.exec as exec_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(exec_mod, "run", lambda a: calls.append(a))
+        monkeypatch.setattr(exec_mod, "run", lambda a, **_: calls.append(a))
 
         agl_file = tmp_path / "prog.agl"
         agl_file.write_text("let x = 1\n")
@@ -1686,7 +1686,7 @@ class TestMaxCallDepthOption:
         import agnette.agm.commands.repl as repl_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(repl_mod, "run", lambda a: calls.append(a))
+        monkeypatch.setattr(repl_mod, "run", lambda a, **_: calls.append(a))
 
         result = invoke(runner, ["repl", "--max-call-depth", "7"])
         assert result.exit_code == 0, result.output
@@ -1719,7 +1719,11 @@ class TestParseErrorRetriesOption:
         import agnette.agm.commands.repl as repl_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(exec_mod if command == "exec" else repl_mod, "run", calls.append)
+        monkeypatch.setattr(
+            exec_mod if command == "exec" else repl_mod,
+            "run",
+            lambda args, **_: calls.append(args),
+        )
         agl_file = tmp_path / "prog.agl"
         agl_file.write_text("let x = 1\n")
         target = [str(agl_file)] if command == "exec" else []

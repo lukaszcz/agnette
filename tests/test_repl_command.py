@@ -63,7 +63,7 @@ def recorded_runs(monkeypatch: pytest.MonkeyPatch) -> list[object]:
     """Patch ``repl.run`` to record its ``ReplArgs`` instead of starting a REPL."""
     calls: list[object] = []
 
-    def fake_run(args: object) -> None:
+    def fake_run(args: object, **_: object) -> None:
         calls.append(args)
 
     monkeypatch.setattr(repl_command, "run", fake_run)

@@ -382,7 +382,7 @@ def recorded_runs(monkeypatch: pytest.MonkeyPatch) -> list[object]:
 
     calls: list[object] = []
 
-    def fake_run(args: object) -> None:
+    def fake_run(args: object, **_: object) -> None:
         calls.append(args)
 
     monkeypatch.setattr(exec_mod, "run", fake_run)
