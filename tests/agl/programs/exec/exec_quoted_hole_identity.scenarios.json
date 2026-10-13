@@ -1,0 +1,36 @@
+{
+  "scenarios": [
+    {
+      "name": "quoting_call_is_identified_by_declaration_not_spelling",
+      "params": {
+        "value": "v"
+      },
+      "shell": [
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo 'v'"
+        },
+        {
+          "command": "echo \"x\" ''v''"
+        }
+      ],
+      "expect": {
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "shell-quoted-hole",
+            "line": 12,
+            "column": 16
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 15,
+            "column": 16
+          }
+        ]
+      }
+    }
+  ]
+}

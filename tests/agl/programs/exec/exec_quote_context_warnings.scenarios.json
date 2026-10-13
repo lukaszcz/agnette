@@ -1,0 +1,651 @@
+{
+  "scenarios": [
+    {
+      "name": "quoting_holes_warn_only_inside_modelled_quotes",
+      "params": {
+        "value": "v",
+        "other": "o",
+        "n": 2
+      },
+      "process_environment": {
+        "HOME": "/h"
+      },
+      "shell": [
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"'v'\""
+        },
+        {
+          "command": "echo 'a b' \"c d\" 'e 'v' f' \"g '/h' h\""
+        },
+        {
+          "command": "echo ''v'' \"'v'\" ''v''"
+        },
+        {
+          "command": "echo \"an escaped \\\" quote stays inside 'v'\""
+        },
+        {
+          "command": "echo \"'v'\""
+        },
+        {
+          "command": "echo 'x'\necho \"'v'\""
+        },
+        {
+          "command": "echo 'a' \"b\" ''v'' \"'o'\""
+        },
+        {
+          "command": "echo \"'v'\" \"'o'\""
+        },
+        {
+          "command": "echo 'v' \"v\""
+        },
+        {
+          "command": "echo 'v' \"v\""
+        },
+        {
+          "command": "echo '2' \"build\""
+        },
+        {
+          "command": "echo 'a''v'\"b\"'o'"
+        },
+        {
+          "command": "echo '' \"\" 'v'"
+        },
+        {
+          "command": "echo 'it'\\''s' 'v'"
+        },
+        {
+          "command": "echo \\' 'v' \\'"
+        },
+        {
+          "command": "echo \\\" 'v'"
+        },
+        {
+          "command": "echo \"a\\\\\" 'v'"
+        },
+        {
+          "command": "echo 'a\\' 'v'"
+        },
+        {
+          "command": "echo $(date) ''v''"
+        },
+        {
+          "command": "echo `date` ''v''"
+        },
+        {
+          "command": "echo ${HOME} ''v''"
+        },
+        {
+          "command": "echo \"$(date)\" ''v''"
+        },
+        {
+          "command": "cat <<EOF ''v''"
+        },
+        {
+          "command": "echo ok # it's ''v''"
+        },
+        {
+          "command": "echo ''v'' # it's ''v''"
+        },
+        {
+          "command": "echo \\\n''v''"
+        },
+        {
+          "command": "echo \"$\\\n(echo '\"')\" 'v'"
+        },
+        {
+          "command": "echo 'v'# ''v''"
+        },
+        {
+          "command": "cat <<EOF ''v''"
+        },
+        {
+          "command": "echo $(date) ''v''"
+        },
+        {
+          "command": "echo a#b ''v''"
+        },
+        {
+          "command": "echo '#' \"#\" ''v''"
+        },
+        {
+          "command": "echo '''v''"
+        },
+        {
+          "command": "echo # ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"build\" ''v''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo /h ''o''"
+        },
+        {
+          "command": "echo 1 ''v''"
+        },
+        {
+          "command": "echo 2 ''v''"
+        },
+        {
+          "command": "echo 'v'  ''o''"
+        },
+        {
+          "command": "echo [\"a\", \"b\"] ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"v\""
+        }
+      ],
+      "expect": {
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "shell-quoted-hole",
+            "line": 24,
+            "column": 16
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 25,
+            "column": 16
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 26,
+            "column": 31
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 26,
+            "column": 48
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 27,
+            "column": 16
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 27,
+            "column": 40
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 27,
+            "column": 65
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 28,
+            "column": 49
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 29,
+            "column": 34
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 29,
+            "column": 64
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 32,
+            "column": 11
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 34,
+            "column": 24
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 34,
+            "column": 36
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 35,
+            "column": 16
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 35,
+            "column": 28
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 41,
+            "column": 16
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 41,
+            "column": 27
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 64,
+            "column": 16
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 74,
+            "column": 20
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 75,
+            "column": 24
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 80,
+            "column": 26
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 81,
+            "column": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 86,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 87,
+            "column": 15
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 88,
+            "column": 21
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 89,
+            "column": 21
+          },
+          {
+            "name": "shell-quoted-hole",
+            "line": 90,
+            "column": 47
+          }
+        ]
+      }
+    },
+    {
+      "name": "quoted_hole_level_allow_keeps_plain_hole_warnings",
+      "params": {
+        "value": "v",
+        "other": "o",
+        "n": 2
+      },
+      "process_environment": {
+        "HOME": "/h"
+      },
+      "shell": [
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"'v'\""
+        },
+        {
+          "command": "echo 'a b' \"c d\" 'e 'v' f' \"g '/h' h\""
+        },
+        {
+          "command": "echo ''v'' \"'v'\" ''v''"
+        },
+        {
+          "command": "echo \"an escaped \\\" quote stays inside 'v'\""
+        },
+        {
+          "command": "echo \"'v'\""
+        },
+        {
+          "command": "echo 'x'\necho \"'v'\""
+        },
+        {
+          "command": "echo 'a' \"b\" ''v'' \"'o'\""
+        },
+        {
+          "command": "echo \"'v'\" \"'o'\""
+        },
+        {
+          "command": "echo 'v' \"v\""
+        },
+        {
+          "command": "echo 'v' \"v\""
+        },
+        {
+          "command": "echo '2' \"build\""
+        },
+        {
+          "command": "echo 'a''v'\"b\"'o'"
+        },
+        {
+          "command": "echo '' \"\" 'v'"
+        },
+        {
+          "command": "echo 'it'\\''s' 'v'"
+        },
+        {
+          "command": "echo \\' 'v' \\'"
+        },
+        {
+          "command": "echo \\\" 'v'"
+        },
+        {
+          "command": "echo \"a\\\\\" 'v'"
+        },
+        {
+          "command": "echo 'a\\' 'v'"
+        },
+        {
+          "command": "echo $(date) ''v''"
+        },
+        {
+          "command": "echo `date` ''v''"
+        },
+        {
+          "command": "echo ${HOME} ''v''"
+        },
+        {
+          "command": "echo \"$(date)\" ''v''"
+        },
+        {
+          "command": "cat <<EOF ''v''"
+        },
+        {
+          "command": "echo ok # it's ''v''"
+        },
+        {
+          "command": "echo ''v'' # it's ''v''"
+        },
+        {
+          "command": "echo \\\n''v''"
+        },
+        {
+          "command": "echo \"$\\\n(echo '\"')\" 'v'"
+        },
+        {
+          "command": "echo 'v'# ''v''"
+        },
+        {
+          "command": "cat <<EOF ''v''"
+        },
+        {
+          "command": "echo $(date) ''v''"
+        },
+        {
+          "command": "echo a#b ''v''"
+        },
+        {
+          "command": "echo '#' \"#\" ''v''"
+        },
+        {
+          "command": "echo '''v''"
+        },
+        {
+          "command": "echo # ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"build\" ''v''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo /h ''o''"
+        },
+        {
+          "command": "echo 1 ''v''"
+        },
+        {
+          "command": "echo 2 ''v''"
+        },
+        {
+          "command": "echo 'v'  ''o''"
+        },
+        {
+          "command": "echo [\"a\", \"b\"] ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"v\""
+        }
+      ],
+      "warning_levels": {
+        "shell-quoted-hole": "allow"
+      },
+      "expect": {
+        "stdout": "",
+        "warnings": [
+          {
+            "name": "unquoted-exec-hole",
+            "line": 41,
+            "column": 16
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 41,
+            "column": 27
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 86,
+            "column": 15
+          },
+          {
+            "name": "unquoted-exec-hole",
+            "line": 87,
+            "column": 15
+          }
+        ]
+      }
+    },
+    {
+      "name": "both_levels_allow_drops_every_warning",
+      "params": {
+        "value": "v",
+        "other": "o",
+        "n": 2
+      },
+      "process_environment": {
+        "HOME": "/h"
+      },
+      "shell": [
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"'v'\""
+        },
+        {
+          "command": "echo 'a b' \"c d\" 'e 'v' f' \"g '/h' h\""
+        },
+        {
+          "command": "echo ''v'' \"'v'\" ''v''"
+        },
+        {
+          "command": "echo \"an escaped \\\" quote stays inside 'v'\""
+        },
+        {
+          "command": "echo \"'v'\""
+        },
+        {
+          "command": "echo 'x'\necho \"'v'\""
+        },
+        {
+          "command": "echo 'a' \"b\" ''v'' \"'o'\""
+        },
+        {
+          "command": "echo \"'v'\" \"'o'\""
+        },
+        {
+          "command": "echo 'v' \"v\""
+        },
+        {
+          "command": "echo 'v' \"v\""
+        },
+        {
+          "command": "echo '2' \"build\""
+        },
+        {
+          "command": "echo 'a''v'\"b\"'o'"
+        },
+        {
+          "command": "echo '' \"\" 'v'"
+        },
+        {
+          "command": "echo 'it'\\''s' 'v'"
+        },
+        {
+          "command": "echo \\' 'v' \\'"
+        },
+        {
+          "command": "echo \\\" 'v'"
+        },
+        {
+          "command": "echo \"a\\\\\" 'v'"
+        },
+        {
+          "command": "echo 'a\\' 'v'"
+        },
+        {
+          "command": "echo $(date) ''v''"
+        },
+        {
+          "command": "echo `date` ''v''"
+        },
+        {
+          "command": "echo ${HOME} ''v''"
+        },
+        {
+          "command": "echo \"$(date)\" ''v''"
+        },
+        {
+          "command": "cat <<EOF ''v''"
+        },
+        {
+          "command": "echo ok # it's ''v''"
+        },
+        {
+          "command": "echo ''v'' # it's ''v''"
+        },
+        {
+          "command": "echo \\\n''v''"
+        },
+        {
+          "command": "echo \"$\\\n(echo '\"')\" 'v'"
+        },
+        {
+          "command": "echo 'v'# ''v''"
+        },
+        {
+          "command": "cat <<EOF ''v''"
+        },
+        {
+          "command": "echo $(date) ''v''"
+        },
+        {
+          "command": "echo a#b ''v''"
+        },
+        {
+          "command": "echo '#' \"#\" ''v''"
+        },
+        {
+          "command": "echo '''v''"
+        },
+        {
+          "command": "echo # ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"build\" ''v''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo v ''o''"
+        },
+        {
+          "command": "echo /h ''o''"
+        },
+        {
+          "command": "echo 1 ''v''"
+        },
+        {
+          "command": "echo 2 ''v''"
+        },
+        {
+          "command": "echo 'v'  ''o''"
+        },
+        {
+          "command": "echo [\"a\", \"b\"] ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo ''v''"
+        },
+        {
+          "command": "echo \"v\""
+        }
+      ],
+      "warning_levels": {
+        "shell-quoted-hole": "allow",
+        "unquoted-exec-hole": "allow"
+      },
+      "expect": {
+        "stdout": "",
+        "warnings": []
+      }
+    }
+  ]
+}

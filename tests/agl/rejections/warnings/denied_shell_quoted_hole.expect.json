@@ -1,0 +1,1 @@
+{"diagnostic": {"line": 2, "warning": "shell-quoted-hole"}, "warning_levels": {"shell-quoted-hole": "deny"}}

@@ -34,7 +34,7 @@ Package companions run in AgM's own interpreter. `core/pyenv.py` classifies PEP 
 
 ## Generic Utilities
 
-`util/` is a dependency-free leaf usable from any layer: graph algorithms, newline and Unicode scalar-text rules, the AgL identifier grammar, `%{name}` interpolation, `ContextVar` scoping, a thread-safe recursion-limit raise, and the pinned AgL decimal context.
+`util/` is a dependency-free leaf usable from any layer: graph algorithms, newline and Unicode scalar-text rules, the AgL identifier grammar, `%{name}` interpolation, a conservative POSIX shell quote-state scan, `ContextVar` scoping, a thread-safe recursion-limit raise, and the pinned AgL decimal context.
 
 ## Code Entry Points
 

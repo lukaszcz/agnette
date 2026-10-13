@@ -1,0 +1,99 @@
+# A quoting hole (`%!{…}`, `%!${…}`, `shell-quote`, `shell-join`) inside the command's own `'…'`
+# or `"…"` warns (`shell-quoted-hole`); `shell-raw` and `@exempts` helpers do not. A plain hole
+# there stays an `unquoted-exec-hole`. The quote scan stops judging at constructs it does not
+# model exactly and after any hole whose text it cannot know.
+import std/exec
+
+@exempts("unquoted-exec-hole")
+def vetted(value: text) -> text = value
+
+@allow("shell-quoted-hole")
+def allowed-def(value: text) -> unit =
+  exec $ echo '%!{value}'
+
+let fixed = "build"
+let q = "'"
+let hash = "#"
+let nothing = ""
+let list = ["a", "b"]
+
+program def main(value: text, other: text, n: int) -> unit =
+  let words: array[text] = []
+
+  # Warns: a quoting hole inside single or double quotes.
+  exec $ echo '%!{value}'
+  exec $ echo "%!{value}"
+  exec "echo 'a b' \"c d\" 'e %!{value} f' \"g %!${HOME} h\""
+  exec $ echo '%{shell-quote(value)}' "%{shell-join([value])}" '%{std/exec::shell-quote(value)}'
+  exec $ echo "an escaped \" quote stays inside %!{value}"
+  exec (if value == "" => "echo '%!{value}'" | else => "echo \"%!{value}\"")
+  exec '''
+    echo 'x'
+    echo "%!{value}"
+    '''
+  exec $ echo 'a' "b" '%!{value}' "%!{other}"
+  exec $ echo "%!{value}" "%!{other}"
+
+  # Not quoting functions: no warning inside quotes.
+  exec $ echo '%{shell-raw(value)}' "%{vetted(value)}"
+
+  # Warns `unquoted-exec-hole`: a plain hole inside quotes.
+  exec $ echo '%{value}' "%{value}"
+
+  # Scalar and constant holes inside quotes are fine.
+  exec $ echo '%{n}' "%{fixed}"
+
+  # Quoted state ends at the closing quote.
+  exec $ echo 'a'%!{value}"b"%!{other}
+  exec $ echo '' "" %!{value}
+  exec $ echo 'it'\''s' %!{value}
+
+  # Escaped quotes do not open a quoted state; the hole is unquoted.
+  exec $ echo \' %!{value} \'
+  exec $ echo \" %!{value}
+  exec $ echo "a\\" %!{value}
+  exec $ echo 'a\' %!{value}
+
+  # Unmodeled constructs stop the judgement for the rest of the template.
+  exec $ echo $(date) '%!{value}'
+  exec $ echo `date` '%!{value}'
+  exec $ echo ${HOME} '%!{value}'
+  exec $ echo "$(date)" '%!{value}'
+  exec $ cat <<EOF '%!{value}'
+  exec $ echo ok # it's '%!{value}'
+  exec $ echo '%!{value}' # it's '%!{value}'
+  exec "echo \\\n'%!{value}'"
+  exec "echo \"$\\\n(echo '\"')\" %!{value}"
+  exec $ echo %!{value}# '%!{value}'
+
+  # A hole can be empty, so it can join the text around it into a construct.
+  exec $ cat <%{shell-join(words)}<EOF '%!{value}'
+  exec $ echo $%{shell-join(words)}(date) '%!{value}'
+
+  # `#` inside a word is not a comment.
+  exec $ echo a#b '%!{value}'
+  exec $ echo '#' "#" '%!{value}'
+
+  # Constant holes are judged by their text.
+  exec $ echo '%{q}%!{value}'
+  exec $ echo %{hash} '%!{value}'
+  exec $ echo %{nothing}'%!{value}'
+  exec $ echo "%{fixed}" '%!{value}'
+
+  # A hole of unknown text stops the judgement after itself; scalar and quoting holes do not.
+  exec $ echo %{shell-raw(value)} '%!{other}'
+  exec $ echo %{vetted(value)} '%!{other}'
+  exec $ echo %{value} '%!{other}'
+  exec $ echo %${HOME} '%!{other}'
+  exec $ echo %{1} '%!{value}'
+  exec $ echo %{n} '%!{value}'
+  exec $ echo %!{value} %{shell-join(words)} '%!{other}'
+  exec $ echo %{list} '%!{value}'
+
+  # Suppressed by `@allow` on the declaration.
+  allowed-def(value)
+  @allow("shell-quoted-hole")
+  let allowed = exec::[text] $ echo '%!{value}'
+  @allow("unquoted-exec-hole")
+  let plain-allowed = exec::[text] $ echo "%{value}"
+  ()

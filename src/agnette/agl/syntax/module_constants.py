@@ -101,7 +101,7 @@ from agnette.agl.syntax.types import (
 )
 from agnette.agl.value_syntax.lexical import scalar_text
 
-__all__ = ["FoldFailure", "ModuleConstants", "constant_key"]
+__all__ = ["FoldFailure", "ModuleConstants", "constant_key", "fold_hole_text"]
 
 #: What a hole may fold to: the value kinds AgL spells as plain text.
 Scalar = str | int | decimal.Decimal | bool
@@ -227,6 +227,40 @@ def _field_name(item: tuple[str, Hashable]) -> str:
     return item[0]
 
 
+def _fold_through_initializers(
+    expr: Expr, *, initializer_for: Callable[[int], tuple[Expr, TypeExpr | None] | None]
+) -> Scalar | FoldFailure:
+    """Fold *expr* to a scalar, following each constant reference to its initializer.
+
+    ``initializer_for`` resolves a constant ``VarRef``'s ``node_id`` to its initializer and
+    declared type, or ``None`` when it names no fixed (non-``var``, non-``@param``) binding.
+    """
+
+    def resolve_ref(ref: VarRef) -> Scalar | FoldFailure:
+        resolved = initializer_for(ref.node_id)
+        if resolved is None:
+            return FoldFailure(f"{_spelling(ref)!r} names no constant", ref.span)
+        target, annotation = resolved
+        if (failure := _annotation_failure(ref, annotation)) is not None:
+            return failure
+        return fold_scalar(target, resolve_ref=resolve_ref)
+
+    return fold_scalar(expr, resolve_ref=resolve_ref)
+
+
+def fold_hole_text(
+    expr: Expr, *, initializer_for: Callable[[int], tuple[Expr, TypeExpr | None] | None]
+) -> str | FoldFailure:
+    """Fold a constant *expr* to the text an interpolation hole renders it as.
+
+    ``initializer_for`` is as for :func:`_fold_through_initializers`.
+    """
+    folded = _fold_through_initializers(expr, initializer_for=initializer_for)
+    if isinstance(folded, (str, FoldFailure)):
+        return folded
+    return scalar_text(folded)
+
+
 def constant_key(
     expr: Expr,
     *,
@@ -277,15 +311,6 @@ def constant_key(
             call_binding=call_binding,
         )
 
-    def resolve_ref(ref: VarRef) -> Scalar | FoldFailure:
-        resolved = initializer_for(ref.node_id)
-        if resolved is None:
-            return FoldFailure(f"{_spelling(ref)!r} names no constant", ref.span)
-        target, annotation = resolved
-        if (failure := _annotation_failure(ref, annotation)) is not None:
-            return failure
-        return fold_scalar(target, resolve_ref=resolve_ref)
-
     if isinstance(expr, NullLit):
         return _NullKey()
     if isinstance(expr, VarRef):
@@ -300,7 +325,7 @@ def constant_key(
             return None
         identity, bound = binding
         return _call_key(identity, bound, recur)
-    folded = fold_scalar(expr, resolve_ref=resolve_ref)
+    folded = _fold_through_initializers(expr, initializer_for=initializer_for)
     if isinstance(folded, FoldFailure):
         return None
     # ``True == 1``, so a bool needs its own key; text, int, and decimal already

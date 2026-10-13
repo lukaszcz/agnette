@@ -1,0 +1,1 @@
+{"diagnostic": {"line": 2, "warning": "unquoted-exec-hole", "message_contains": ["do not protect"]}, "warning_levels": {"unquoted-exec-hole": "deny"}}

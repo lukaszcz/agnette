@@ -124,7 +124,7 @@ program def main() -> unit =
   print(found)
 ```
 
-### Unquoted-hole warning
+### Hole warnings
 
 A hole in an `exec` command that inserts runtime text verbatim is reported as the
 `unquoted-exec-hole` warning. Exempt are holes of type `int`, `decimal` or `bool`,
@@ -135,6 +135,22 @@ environment hole `%${NAME}` is reported, and so is a reference to a `var` or an
 `@param let`, directly or through other bindings: only fixed `let` bindings count as
 constant here, since the others change at run time. The warning is anchored at the hole, and
 `@allow("unquoted-exec-hole")` hides it within a declaration.
+
+A call of `shell-quote` or `shell-join` (so every `%!{…}` and `%!${NAME}` hole) placed
+inside quotes the command text itself opens is reported as the `shell-quoted-hole`
+warning, anchored at the hole: in `'%!{value}'` or `"%!{value}"` the hole's own quotes
+cancel or join the surrounding ones and the value is not protected. `shell-raw` and
+other `@exempts` functions never warn here, since a raw splice inside quotes can be
+deliberate. A plain hole inside quotes keeps the `unquoted-exec-hole` warning, noting
+that the surrounding quotes do not protect its value.
+
+Quote state is judged conservatively from the literal text: `'…'`, `"…"` and backslash
+escapes, with each constant hole counted as its text and each `int`, `decimal`, `bool`
+or quoting-function hole as words. Judging stops for the rest of the command at a hole of
+unknown text, a command or parameter expansion (`$(`, a backtick, `${`), `$'`, a heredoc
+(`<<`), a comment (`#` at the start of a word), a backslash-newline outside `'…'`, or a
+`\`, `$` or `<` directly before a hole (which, if empty, could join the next text).
+`@allow("shell-quoted-hole")` hides the warning within a declaration.
 
 Only the template literal given as the command is checked: directly, through
 parentheses, as the result of an `if` or `case` arm, of a block's final item, or

@@ -1,0 +1,18 @@
+# `shell-quoted-hole` follows the resolved declaration of a quoting call, not its spelling: a
+# renamed import of `std/exec::shell-quote` warns inside quotes, a local function of the same
+# name is a plain hole. A constant that does not fold to text stays opaque.
+import std/exec::{shell-quote as sq}
+
+def shell-quote(value: text) -> text = value
+
+let tagged: json = "x"
+
+program def main(value: text) -> unit =
+  # Warns `shell-quoted-hole`: the imported function under another name.
+  exec $ echo '%{sq(value)}'
+
+  # Warns `unquoted-exec-hole`: the local function is not a quoting function.
+  exec $ echo '%{shell-quote(value)}'
+
+  # The json-typed constant is opaque, so the quote after it is not judged.
+  exec $ echo %{tagged} '%!{value}'
