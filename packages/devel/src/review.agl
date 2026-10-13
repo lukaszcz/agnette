@@ -95,7 +95,7 @@ def refine(scope: text, aspects: text, review-agent: Agent, revise-agent: Agent,
     log::info(review-json)
     log::info-nl()
     if save-reviews =>
-      fs::write(utils::new-path("review", ".json"), "%{review-json}")
+      fs::write(utils::new-path("reviews/review", ".json"), "%{review-json}")
     let ct = revise-agent.revise-review(review)
   until not ct
 
