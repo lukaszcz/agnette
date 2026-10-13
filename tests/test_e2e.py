@@ -8715,4 +8715,19 @@ class TestDevHighlight:
         assert "agl-keywords" in inventory
 
 
+class TestDevDefinition:
+    def test_jumps_from_a_use_to_its_imported_declaration(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        library = tmp_path / "lib.agl"
+        library.write_text("def double(n: int) -> int = n * 2\n", encoding="utf-8")
+        program = tmp_path / "main.agl"
+        program.write_text("import lib::*\n\nlet x = double(1)\n", encoding="utf-8")
+
+        result = run_agm(["dev", "definition", "main.agl", "3", "9"], env=env, cwd=tmp_path)
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.startswith(f"{library.resolve()}:1:5: def double")
+
+
 # ── the e2e command-coverage gate ────────────────────────────────────────────

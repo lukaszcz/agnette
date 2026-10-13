@@ -2,11 +2,14 @@
 
 from bisect import bisect_left
 from collections.abc import Iterable
+from dataclasses import dataclass
 from itertools import chain as iter_chain
+from typing import Protocol, runtime_checkable
 
 from agnette.agl.highlight.categories import Category, Span
 from agnette.agl.highlight.context import HiddenContext
 from agnette.agl.highlight.lexical import _source_offsets, lexical_spans
+from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import PipelineDriver
 from agnette.agl.scope.program import ResolvedProgram
@@ -61,7 +64,7 @@ from agnette.agl.syntax.types import AppliedT, NameT
 from agnette.agl.syntax.visitor import walk
 from agnette.util.text import normalize_newlines
 
-__all__ = ["semantic_spans"]
+__all__ = ["NameOccurrence", "SpannedNode", "name_occurrences", "semantic_spans"]
 
 _NAME_CATEGORIES = frozenset(
     {Category.NAME, Category.TYPE, Category.CONSTRUCTOR, Category.BUILTIN_CALL, Category.MODULE}
@@ -83,6 +86,31 @@ def _binding_category(ref: BindingRef, resolved: ModuleResolution) -> Category:
     return Category.PARAMETER if ref.is_param else _BINDING_CATEGORIES.get(ref.kind, Category.LOCAL)
 
 
+@runtime_checkable
+class SpannedNode(Protocol):
+    """An AST node a name occurrence belongs to."""
+
+    @property
+    def span(self) -> SourceSpan: ...
+
+    @property
+    def node_id(self) -> int: ...
+
+
+@dataclass(frozen=True, slots=True)
+class NameOccurrence:
+    """The spelling *name* at offset *start*, written as part of *node*."""
+
+    start: int
+    name: str
+    category: Category
+    node: SpannedNode
+
+    @property
+    def end(self) -> int:
+        return self.start + len(self.name)
+
+
 class _Names:
     """Locate a spelling after its syntactic prefixes, never inside another name node."""
 
@@ -97,18 +125,21 @@ class _Names:
                     self.starts.setdefault(spelling[:-2], []).append(start)
             elif category == Category.KEYWORD:
                 self.keyword_ends.setdefault(text[start:end], []).append(end)
-        self.overrides: dict[int, Category] = {}
+        self.occurrences: dict[int, NameOccurrence] = {}
 
     def mark(
         self,
-        span: SourceSpan,
+        node: SpannedNode,
         name: str,
         category: Category,
         *,
+        span: SourceSpan | None = None,
         after: Iterable[SourceSpan] = (),
         before: int | None = None,
         start_at: int | None = None,
     ) -> int:
+        """Record *name* in *span* (default: *node*'s), returning the search resume offset."""
+        span = node.span if span is None else span
         start = max((s.end_offset for s in after), default=span.start_offset)
         if start_at is not None:
             start = max(start, start_at)
@@ -117,22 +148,32 @@ class _Names:
         first = bisect_left(starts, start)
         if first < len(starts) and starts[first] < end:
             start = starts[first]
-            self.overrides[start] = category
+            self.occurrences[start] = NameOccurrence(start, name, category, node)
             return start + len(name)
         return start
 
     def mark_after_keyword(
-        self, span: SourceSpan, keyword: str, name: str, category: Category
+        self, node: SpannedNode, keyword: str, name: str, category: Category
     ) -> int:
         ends = self.keyword_ends[keyword]
-        end = ends[bisect_left(ends, span.start_offset)]
-        return self.mark(span, name, category, start_at=end)
+        end = ends[bisect_left(ends, node.span.start_offset)]
+        return self.mark(node, name, category, start_at=end)
 
     def member(
-        self, span: SourceSpan, name: str, category: Category, chain: QualifierChain | None
+        self,
+        node: SpannedNode,
+        name: str,
+        category: Category,
+        chain: QualifierChain | None,
+        *,
+        span: SourceSpan | None = None,
     ) -> None:
         self.mark(
-            span, name, category, after=(() if chain is None else (s.span for s in chain.segments))
+            node,
+            name,
+            category,
+            span=span,
+            after=(() if chain is None else (s.span for s in chain.segments)),
         )
 
 
@@ -147,9 +188,14 @@ def _import_category(origins: Iterable[QName], program: ResolvedProgram) -> Cate
     return _binding_category(resolved.declarations[key], resolved)
 
 
-def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> list[Span]:
-    """Overlay scope verdicts; candidates awaiting type checking stay neutral."""
-    module = program.modules[program.entry_id]
+def name_occurrences(
+    text: str, spans: list[Span], program: ResolvedProgram, module_id: ModuleId
+) -> list[NameOccurrence]:
+    """Locate *module_id*'s names in its *text*, in source order, with scope verdicts.
+
+    *spans* are *text*'s lexical spans. Candidates awaiting type checking stay neutral.
+    """
+    module = program.modules[module_id]
     resolved = module.resolved
     names = _Names(text, spans)
     parameters: set[int] = set()
@@ -170,7 +216,7 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
             and isinstance(resolved.owner_declarations.get(chain.node_id), OwnerMemberSelection)
         ):
             owner = chain.segments[-1]
-            names.mark(owner.span, owner.name, Category.TYPE)
+            names.mark(chain, owner.name, Category.TYPE, span=owner.span)
 
     def classify(node: object) -> None:
         if isinstance(node, (FuncDef, Lambda)):
@@ -207,44 +253,44 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                     if node.node_id in resolved.attributes.params
                     else Category.LOCAL
                 )
-            end = names.mark(node.span, node.name, category, after=prefixes)
+            end = names.mark(node, node.name, category, after=prefixes)
             if isinstance(node, (FuncDef, RecordDef, EnumDef, ExceptionDef, TypeAlias)):
                 for param in node.type_params:
-                    end = names.mark(node.span, param, Category.TYPE, start_at=end)
+                    end = names.mark(node, param, Category.TYPE, start_at=end)
             if isinstance(node, ExceptionDef) and node.base is not None:
-                names.mark(node.span, node.base, Category.TYPE, start_at=end)
+                names.mark(node, node.base, Category.TYPE, start_at=end)
         elif isinstance(node, Param):
             names.mark(
-                node.span,
+                node,
                 node.name,
                 Category.PARAMETER if node.node_id in parameters else Category.NAME,
                 after=(a.span for a in node.attributes),
             )
         elif isinstance(node, (FieldAccess, FieldTarget)):
-            names.mark(node.span, node.field, Category.NAME, after=(node.obj.span,))
+            names.mark(node, node.field, Category.NAME, after=(node.obj.span,))
         elif isinstance(node, (NamedArg, PatternField)):
-            names.mark(node.span, node.name, Category.NAME)
+            names.mark(node, node.name, Category.NAME)
         elif isinstance(node, Constraint):
-            end = names.mark(node.span, node.kind.value, Category.NAME)
-            names.mark(node.span, node.param, Category.TYPE, start_at=end)
+            end = names.mark(node, node.kind.value, Category.NAME)
+            names.mark(node, node.param, Category.TYPE, start_at=end)
         elif isinstance(node, ScopeRegion):
             regions.setdefault(node.span, []).append(node)
         elif isinstance(node, ScopeSegment):
-            names.mark(node.span, node.name, reference_category(node.node_id, node.name))
+            names.mark(node, node.name, reference_category(node.node_id, node.name))
         elif isinstance(node, InfixDecl):
-            end = names.mark(node.span, node.name, reference_category(node.node_id, node.name))
+            end = names.mark(node, node.name, reference_category(node.node_id, node.name))
             if node.priority_base is not None:
                 names.mark(
-                    node.span,
+                    node,
                     node.priority_base,
                     reference_category(node.node_id, node.priority_base),
                     start_at=end,
                 )
         elif isinstance(node, AsPattern):
-            names.mark(node.span, node.name, Category.LOCAL, after=(node.pattern.span,))
+            names.mark(node, node.name, Category.LOCAL, after=(node.pattern.span,))
         elif isinstance(node, Loop) and node.for_var is not None:
             names.mark(
-                node.span,
+                node,
                 node.for_var,
                 Category.LOCAL,
                 before=node.for_iter.span.start_offset if node.for_iter is not None else None,
@@ -253,11 +299,11 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
             end = node.span.start_offset
             if node.exc_type is not None:
                 end = names.mark(
-                    node.span, node.exc_type, Category.TYPE, before=node.body.span.start_offset
+                    node, node.exc_type, Category.TYPE, before=node.body.span.start_offset
                 )
             if node.binding is not None:
                 names.mark(
-                    node.span,
+                    node,
                     node.binding,
                     Category.LOCAL,
                     start_at=end,
@@ -266,10 +312,11 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
         elif isinstance(node, AssignStmt) and isinstance(node.target, NameTarget):
             mark_type_owner(node.target.qualifier)
             names.member(
-                node.target.span,
+                node,
                 node.target.name,
                 _binding_category(resolved.resolution[node.node_id], resolved),
                 node.target.qualifier,
+                span=node.target.span,
             )
         elif isinstance(node, (ImportDecl, ExportDecl, UseDecl)):
             items: tuple[ImportItem | ExportItem, ...]
@@ -278,19 +325,17 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                 if node.alias is not None:
                     origins = resolved.name_references.get((node.node_id, node.target[-1].name), ())
                     category = _import_category(origins, program) if origins else Category.MODULE
-                    names.mark(node.span, node.alias, category, after=(s.span for s in node.target))
+                    names.mark(node, node.alias, category, after=(s.span for s in node.target))
             else:
                 items = node.items if isinstance(node, ExportDecl) else node.tail or ()
                 if isinstance(node, ImportDecl) and node.alias is not None:
-                    names.mark_after_keyword(node.span, "as", node.alias, Category.MODULE)
+                    names.mark_after_keyword(node, "as", node.alias, Category.MODULE)
             hidden: tuple[ImportItem | ExportItem, ...] = node.hidden
             for item in iter_chain(items, hidden):
                 category = reference_category(item.node_id, item.name)
-                end = names.mark(
-                    item.span, item.name, category, after=(s.span for s in item.scope_path)
-                )
+                end = names.mark(item, item.name, category, after=(s.span for s in item.scope_path))
                 if item.rename is not None:
-                    names.mark(item.span, item.rename, category, start_at=end)
+                    names.mark(item, item.rename, category, start_at=end)
         elif isinstance(node, VariantRef):
             category = (
                 Category.TYPE
@@ -298,14 +343,14 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                 else Category.NAME
             )
             mark_type_owner(node.chain)
-            names.member(node.span, node.chain.member, category, node.chain)
+            names.member(node, node.chain.member, category, node.chain)
         elif isinstance(node, IsTest):
             mark_type_owner(node.qualifier)
             category = (
                 Category.CONSTRUCTOR if node.node_id in resolved.constructor_refs else Category.NAME
             )
             names.mark(
-                node.span,
+                node,
                 node.variant,
                 category,
                 after=(node.expr.span, *(s.span for s in node.qualifier.segments))
@@ -313,7 +358,7 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                 else (node.expr.span,),
             )
         elif isinstance(node, QualifierSegment) and node.type_args is not None:
-            names.mark(node.span, node.name, Category.TYPE)
+            names.mark(node, node.name, Category.TYPE)
         elif isinstance(node, (VarRef, ConstructorPattern, VarPattern, NameT, AppliedT)):
             ref = resolved.resolution.get(node.node_id)
             chain = None if isinstance(node, VarPattern) else node.qualifier
@@ -333,19 +378,19 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
             else:
                 category = Category.NAME
             mark_type_owner(chain)
-            names.member(node.span, node.name, category, chain)
+            names.member(node, node.name, category, chain)
 
     walk(resolved.program, classify)
     # Multi-segment headers share a normalized region span; closers have no AST nodes.
     for span, group in regions.items():
 
-        def segment_start(segment: ScopeSegment) -> int:
-            return segment.span.start_offset
+        def segment_start(region: ScopeRegion) -> int:
+            return region.segment.span.start_offset
 
-        segments = sorted((region.segment for region in group), key=segment_start)
+        ordered = sorted(group, key=segment_start)
         end = max(
             (
-                *(s.span.end_offset for s in segments),
+                *(region.segment.span.end_offset for region in ordered),
                 *(
                     item.span.end_offset
                     for region in group
@@ -354,9 +399,9 @@ def _overlay_names(text: str, spans: list[Span], program: ResolvedProgram) -> li
                 ),
             )
         )
-        for segment in segments:
-            end = names.mark(span, segment.name, Category.NAME, start_at=end)
-    return [(a, b, names.overrides.get(a, c)) for a, b, c in spans]
+        for region in ordered:
+            end = names.mark(region, region.segment.name, Category.NAME, start_at=end)
+    return [names.occurrences[start] for start in sorted(names.occurrences)]
 
 
 def semantic_spans(
@@ -381,7 +426,13 @@ def semantic_spans(
         if prepared.resolved is None:
             return fallback
         lexical = fallback if text == source else lexical_spans(text, types, constructors)
-        spans = _overlay_names(text, lexical, prepared.resolved)
+        overrides = {
+            occurrence.start: occurrence.category
+            for occurrence in name_occurrences(
+                text, lexical, prepared.resolved, prepared.resolved.entry_id
+            )
+        }
+        spans = [(a, b, overrides.get(a, c)) for a, b, c in lexical]
         offsets = _source_offsets(combined)
         return context.body_spans([(offsets[a], offsets[b], c) for a, b, c in spans])
     except Exception:

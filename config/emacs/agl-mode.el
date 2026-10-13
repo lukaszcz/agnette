@@ -1464,11 +1464,13 @@ function."
   (setq-local electric-indent-inhibit t)
   (add-hook 'post-self-insert-hook #'agl-indent-post-self-insert nil t)
   (agl-flymake-setup)
+  (agl-xref-setup)
   (agl-repl-setup-reload-on-save))
 
 ;; Loaded after the mode definition: these require this file.
 (require 'agl-indent)
 (require 'agl-flymake)
+(require 'agl-xref)
 (require 'agl-run)
 (require 'agl-repl)
 
@@ -1494,7 +1496,8 @@ function."
     ["Send buffer to REPL" agl-send-buffer t]
     ["Reset and reload buffer in REPL" agl-repl-reload-buffer t]
     "---"
-    ["Show diagnostics" flymake-show-buffer-diagnostics t]))
+    ["Show diagnostics" flymake-show-buffer-diagnostics t]
+    ["Go to definition" xref-find-definitions t]))
 
 (provide 'agl-mode)
 ;;; agl-mode.el ends here

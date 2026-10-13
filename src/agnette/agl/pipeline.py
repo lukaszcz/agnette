@@ -1217,6 +1217,11 @@ class PipelineDriver:
         """
         return self.run_prepared(prepared, check_only=True)
 
+    @staticmethod
+    def typecheck_resolved(resolved: "ResolvedProgram") -> "CheckedProgram | None":
+        """Type-check *resolved*, or return ``None`` when type checking failed."""
+        return _run_typecheck_program(resolved)[0]
+
     def _lower_and_record(
         self,
         prepared: PreparedProgram,

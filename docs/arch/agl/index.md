@@ -64,6 +64,7 @@ A **program** is the entry module plus its transitive import and re-export depen
 | Host runtime services and FFI | `src/agnette/agl/runtime/` |
 | Module loading | `src/agnette/agl/modules/` |
 | REPL | `src/agnette/agl/repl/` |
+| Editor navigation (go-to-definition) | `src/agnette/agl/navigation.py` |
 | Pipeline orchestrator and host leaves | `src/agnette/agl/pipeline.py`, `diagnostics.py`, `type_schema.py`, `artifact_cache.py`, `artifact_storage.py`, `self_validation.py` |
 
 ## Layering
@@ -72,7 +73,7 @@ A test enforces the import contract:
 
 - The IR's data modules and the vocabulary leaves are the foundation; `semantics` builds on them; `syntax` is an AST-only leaf.
 - `typecheck` reaches only scope's output and lower layers; `matchcompile` imports nothing downstream.
-- The IR depends only on its own data, the engine-key catalog, and the vocabulary leaves; the evaluator imports no frontend module directly; the runtime is eval-free; the pipeline sits on top.
+- The IR depends only on its own data, the engine-key catalog, and the vocabulary leaves; the evaluator imports no frontend module directly; the runtime is eval-free; the pipeline sits on top. Outside `highlight`, only the REPL and navigation import it.
 - Vocabulary leaves below every pass: `value_syntax/` (literal rules and the value-syntax reader), `keywords.py`, `operator_names.py` (operator spelling), `zones.py`, `attributes.py` (built-in attribute catalog), `modules/ids.py`, `constraints.py` (`Eq`/`Hashable` kinds). They let scope, typecheck, and the IR share names without importing each other.
 - `artifact_storage.py` is the disk-cache envelope shared by the module cache, artifact serialization, and companion bytecode.
 

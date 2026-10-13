@@ -73,6 +73,37 @@ names with lexical fallback. See [highlighting architecture](../arch/highlightin
 for native recovery and target restrictions. `agm help dev highlight` documents the
 same targets and output option; there are no semantic or theme export flags.
 
+## Find a declaration
+
+```text
+agm dev definition [-I DIR] [--no-stdlib] [--stdin] FILE LINE COLUMN
+```
+
+Prints where the AgL name at LINE and COLUMN (1-based, counted in characters) of
+FILE is declared, as `path:line:col: text` with an absolute path and the declaration's
+source line. Editors use it for go-to-definition; the Emacs mode binds it to `M-.`.
+
+The compiler resolves the name, so the answer follows imports, aliases, re-exports,
+scopes, and shadowing exactly. Locals, parameters, pattern and loop binders, functions,
+types, constructors, scopes, modules, operators, record fields, and methods resolve;
+fields and methods need the file to type-check, everything else only to load and
+resolve its names. Builtin types, type parameters, named arguments, and `use` targets
+find nothing.
+
+| Option | Meaning |
+| ------ | ------- |
+| `-I`, `--module-path DIR` | Add a module search root (repeatable) |
+| `--no-stdlib` | Disable the automatic `import std/prelude::*` |
+| `--stdin` | Read FILE's text from stdin, e.g. an unsaved buffer; imports still resolve from FILE's location |
+
+Exit status is 0 when a declaration was found, otherwise 1: no declaration, an
+unreadable FILE, a position outside it, invalid module roots, or a load or scope error
+(diagnostics go to stderr).
+
+```sh
+agm dev definition src/main.agl 12 9
+```
+
 ## Exact documentation highlighting
 
 The `highlight` extra registers the Pygments `agl` lexer and Python-Markdown

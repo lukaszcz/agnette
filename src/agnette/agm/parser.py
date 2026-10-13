@@ -31,7 +31,8 @@ _HELP_TEXTS: dict[str, str] = {
         Development and integration tooling.
 
         Commands:
-          highlight TARGET  Export portable AgL highlighting definitions.
+          definition FILE LINE COLUMN  Find the declaration of an AgL name.
+          highlight TARGET             Export portable AgL highlighting definitions.
     """),
     "open": textwrap.dedent("""\
         agm open [-d] [-n PANES] [-p PARENT] [--fetch | --no-fetch] [--dry-run] TARGET
@@ -354,6 +355,28 @@ _PATH_ALIASES: dict[tuple[str, ...], tuple[str, ...]] = {
 }
 
 _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
+    ("dev", "definition"): textwrap.dedent("""\
+        agm dev definition [OPTIONS] FILE LINE COLUMN
+
+        Find the declaration of the AgL name at LINE and COLUMN (1-based, in
+        characters) of FILE. Prints one `path:line:col: text` line per
+        declaration, with an absolute path and the declaration's source line.
+        FILE must resolve its imports; type checking refines field, method, and
+        pattern lookups when it succeeds.
+
+        Options:
+          --stdin                Read FILE's text from stdin (e.g. an unsaved
+                                 buffer); imports still resolve from FILE.
+        """)
+    + _MODULE_PATH_ROW
+    + _NO_STDLIB_ROW
+    + textwrap.dedent("""\
+
+        Exit codes:
+          0  A declaration was found.
+          1  None was found, or an unreadable FILE, a position outside it,
+             invalid module roots, or a load or scope error.
+    """),
     ("dev", "highlight"): textwrap.dedent("""\
         agm dev highlight TARGET [--output PATH]
 

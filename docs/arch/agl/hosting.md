@@ -10,6 +10,7 @@
 - **`@config`.** A selected program's `@config` entries are evaluated as constants during preflight and folded into the module-parameter and engine-setting precedence chains at their own rank ([config.md](../config.md)).
 - **Execution.** `run_prepared` passes module-parameter seeds and engine seeds to the interpreter; a seed replaces only that binding's initializer. Timeout- and config-dependent services (agent dispatcher, session host, sandbox context, agent defaults) are built only after preflight succeeds. Hosts run under `core.process.terminating_signals_exit`, so SIGTERM/SIGHUP exit through normal cleanup.
 - **Check only.** `agm check` (`check_prepared`) stops after lowering: it binds no program arguments and imports no companions.
+- **Navigation.** `agm dev definition` runs load/scope and `typecheck_resolved` (`None` on failure), then `agl/navigation.py` maps a source position to declaration locations from scope side tables, refined by type-check results for fields, methods, and patterns. Name occurrences come from the semantic highlighter ([highlighting.md](../highlighting.md)).
 
 The REPL accepts an optional parameter-seed resolver, invoked once per entry for the modules that entry first loads ([repl.md](repl.md)).
 
@@ -29,5 +30,6 @@ Compiler self-checks (checker closure, match artifacts, deep IR validation, FFI 
 
 - `src/agnette/agl/pipeline.py` — `PipelineDriver`: preparation, discovery, preflight, execution.
 - `src/agnette/agl/diagnostics.py`, `recursion.py`, `self_validation.py` — host-facing leaves.
+- `src/agnette/agl/navigation.py` — position → declaration locations for editors.
 - `src/agnette/agl/runtime/arguments.py`, `value_decode.py`, `engine_config.py` — argument binding, host-value decoding, engine settings.
 - `src/agnette/agm/commands/exec_program.py`, `check.py`, `repl.py` — the CLI hosts; `src/agnette/agm/cli_support/` — discovery, parameter routes, engine seeds.

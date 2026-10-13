@@ -1,12 +1,14 @@
-"""Shared effective module-root assembly for ``agm exec`` and ``agm check``."""
+"""Shared effective module-root assembly for the AgL commands."""
 
 from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agnette.agl.modules.roots import RootSet, assemble_roots
+from agnette.config.context import current_config_context
 from agnette.config.module_roots import (
     StdlibResolutionError,
     load_module_roots,
@@ -17,6 +19,9 @@ from agnette.packages.activation import select_package_roots
 from agnette.packages.development import discover_development_packages
 from agnette.packages.manifest import ManifestError, load_manifest
 from agnette.packages.model import PackageInfo, is_std_package_name, owning_package
+
+if TYPE_CHECKING:
+    from agnette.agl.pipeline import PreparedProgram
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,3 +147,29 @@ def effective_exec_roots_or_none(
     except (StdlibResolutionError, ValueError) as exc:
         print(f"Error: invalid module roots configuration: {exc}", file=sys.stderr)
         return None
+
+
+def prepare_entry_file(
+    entry_path: Path, source: str, *, module_paths: list[str], no_stdlib: bool
+) -> PreparedProgram | None:
+    """Parse, load, and scope-resolve *source* as the entry *entry_path*.
+
+    Uses the effective module roots of the current invocation; returns ``None``
+    after reporting an invalid roots configuration.
+    """
+    from agnette.agl import PipelineDriver
+
+    ctx = current_config_context()
+    exec_roots = effective_exec_roots_or_none(
+        entry_path=entry_path,
+        module_paths=module_paths,
+        cwd=ctx.cwd,
+        home=ctx.home,
+        proj_dir=ctx.proj_dir,
+    )
+    if exec_roots is None:
+        return None
+    parsed = PipelineDriver.parse_entry(source, entry_path=entry_path)
+    return PipelineDriver.prepare_parsed_entry(
+        parsed, roots=exec_roots.roots, default_stdlib=not no_stdlib
+    )

@@ -2,8 +2,8 @@
 
 An Emacs major mode for AgL (Agnette Language), the agent workflow DSL of Agnette
 (Agentic Notation & Execution Toolkit). It provides syntax highlighting, layout-aware
-indentation, declaration navigation, on-save diagnostics through `agm check`, and an
-inferior `agm repl`.
+indentation, declaration navigation, go-to-definition through `agm dev definition`,
+on-save diagnostics through `agm check`, and an inferior `agm repl`.
 
 ## Files
 
@@ -13,6 +13,7 @@ inferior `agm repl`.
 | `agl-mode.el` | Entry point: syntax table, `syntax-propertize`, font-lock, imenu, defun motion, keymap |
 | `agl-indent.el` | Indentation engine |
 | `agl-flymake.el` | Flymake backend over `agm check` |
+| `agl-xref.el` | xref go-to-definition backend over `agm dev definition` |
 | `agl-run.el` | `agl-run` / `agl-check` through `compile` |
 | `agl-repl.el` | Inferior AgL REPL over `agm repl` |
 | `tests/` | ERT suites; not part of the installed package |
@@ -57,6 +58,7 @@ Then load both directories:
 | `M-RET` | `agl-send-region` |
 | `C-c C-b` | `agl-send-buffer` |
 | `C-c C-l` | `flymake-show-buffer-diagnostics` — list this file's diagnostics |
+| `M-.` / `M-,` | `xref-find-definitions` / `xref-go-back` — jump to the declaration of the name at point and back |
 
 The **AgL** menu offers the same actions. Set `help-at-pt-display-when-idle` to echo the
 diagnostic under point in the minibuffer.
@@ -68,8 +70,8 @@ final prompt appear. REPL input is highlighted like source buffers.
 ## Customization
 
 - `agl-indent-offset` — block indentation, default 2.
-- `agl-exec-command`, `agl-check-command`, `agl-repl-command` — command vectors the
-  integrations run; put any flags here.
+- `agl-exec-command`, `agl-check-command`, `agl-repl-command`, `agl-definition-command` —
+  command vectors the integrations run; put any flags here.
 - `agl-flymake-enable` — enable `flymake-mode` with the mode.
 - `agl-repl-reload-on-save` — reset and reload the buffer after each save; off by default
   because it clears values entered at the REPL prompt.
@@ -80,6 +82,10 @@ final prompt appear. REPL input is highlighted like source buffers.
 
 - Diagnostics describe the **saved** file: imports resolve from the entry file's real path,
   so unsaved edits are not checked.
+- Go-to-definition sends the unsaved buffer but needs it to load and resolve its names;
+  fields and methods also need it to type-check. It looks names up by position, so a name
+  typed at the `C-u M-.` prompt finds nothing; `use` targets, named arguments, builtin
+  types, and type parameters have no declaration to jump to.
 - Completed `%{…}` holes receive code font-lock; incomplete holes may retain the
   host literal's face.
 - Constructor use-sites in expressions are unfaced: capitalization carries no meaning in

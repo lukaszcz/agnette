@@ -102,7 +102,7 @@ Agent calls run inside the `agm run` sandbox by default. See the
 | `agm sync` | Fetch and merge the project's repositories | [workspaces](docs/commands/workspaces.md) |
 | `agm exec`, `agm check`, `agm repl` | Run, check, or explore AgL | [agl](docs/commands/agl.md) |
 | `agm pkg` | Create, check, install, and manage AgL packages | [pkg](docs/commands/pkg.md) |
-| `agm dev highlight` | Export AgL highlighting definitions | [dev](docs/commands/dev.md) |
+| `agm dev` | Export AgL highlighting definitions; find AgL declarations | [dev](docs/commands/dev.md) |
 | `agm config` | Copy config files, print workspace env, update config | [config](docs/commands/config.md) |
 | `agm dep` | Manage dependency checkouts | [dependencies](docs/commands/dependencies.md) |
 | `agm run` | Run a command, sandboxed by default | [run](docs/commands/run.md) |

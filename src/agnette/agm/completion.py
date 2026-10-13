@@ -109,7 +109,7 @@ _HELP_TREE: dict[tuple[str, ...], list[str]] = {
     ("dep",): ["list", "new", "switch", "rm", "remove"],
     ("pkg",): ["init", "check", "create", "install", "uninstall", "list", "info", "sync"],
     ("tmux",): ["open", "close", "layout"],
-    ("dev",): ["highlight"],
+    ("dev",): ["definition", "highlight"],
 }
 
 

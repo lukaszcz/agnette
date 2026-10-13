@@ -358,13 +358,16 @@ def test_execution_packages_do_not_import_the_inference_engine(package: str) -> 
 
 
 def test_highlighting_dependency_fences() -> None:
-    """Keep highlighting above the frontend and optional adapters above its pure tiers."""
+    """Keep highlighting above the frontend and optional adapters above its pure tiers.
+
+    Only the REPL and editor navigation, which reuses semantic name occurrences, sit above it.
+    """
     highlight = AGL_ROOT / "highlight"
     assert highlight.is_dir()
     violations = [
         f"{path.relative_to(AGL_ROOT)} imports {module}"
         for path in AGL_ROOT.rglob("*.py")
-        if path.relative_to(AGL_ROOT).parts[0] not in {"highlight", "repl"}
+        if path.relative_to(AGL_ROOT).parts[0] not in {"highlight", "repl", "navigation.py"}
         for module in _agnette_imports_of_file(path)
         if _is_allowed(module, ("agnette.agl.highlight",))
     ]

@@ -23,6 +23,16 @@ class DevHighlightArgs:
 
 
 @dataclass(slots=True)
+class DevDefinitionArgs:
+    file: str
+    line: int
+    column: int
+    module_paths: list[str] = field(default_factory=list)
+    no_stdlib: bool = False
+    stdin: bool = False
+
+
+@dataclass(slots=True)
 class PkgCheckArgs:
     directory: str | None
 

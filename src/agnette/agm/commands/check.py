@@ -37,8 +37,7 @@ import sys
 from pathlib import Path
 
 from agnette.agm.cli_support.args import CheckArgs
-from agnette.agm.cli_support.exec_roots import effective_exec_roots_or_none
-from agnette.config.context import current_config_context
+from agnette.agm.cli_support.exec_roots import prepare_entry_file
 from agnette.core.fs import read_text_arg_or_none
 
 
@@ -47,7 +46,6 @@ def run(args: CheckArgs) -> None:
     from agnette.agl import PipelineDriver
     from agnette.agl.diagnostics import format_diagnostic
 
-    ctx = current_config_context()
     runtime = PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None)
     had_error = False
 
@@ -61,25 +59,14 @@ def run(args: CheckArgs) -> None:
             had_error = True
             continue
 
-        exec_roots = effective_exec_roots_or_none(
-            entry_path=entry_path,
-            module_paths=args.module_paths,
-            cwd=ctx.cwd,
-            home=ctx.home,
-            proj_dir=ctx.proj_dir,
+        prepared = prepare_entry_file(
+            entry_path, source, module_paths=args.module_paths, no_stdlib=args.no_stdlib
         )
-        if exec_roots is None:
-            # ``effective_exec_roots_or_none`` already printed the canonical
+        if prepared is None:
+            # ``prepare_entry_file`` already printed the canonical
             # "Error: invalid module roots configuration ..." message.
             had_error = True
             continue
-
-        parsed = PipelineDriver.parse_entry(source, entry_path=entry_path)
-        prepared = PipelineDriver.prepare_parsed_entry(
-            parsed,
-            roots=exec_roots.roots,
-            default_stdlib=not args.no_stdlib,
-        )
         result = runtime.check_prepared(prepared)
 
         for diag in result.warnings:

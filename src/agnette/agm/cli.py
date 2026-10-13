@@ -20,6 +20,7 @@ from agnette.agm.cli_support.args import (
     DepNewArgs,
     DepRemoveArgs,
     DepSwitchArgs,
+    DevDefinitionArgs,
     DevHighlightArgs,
     ExecArgs,
     InitArgs,
@@ -1205,6 +1206,37 @@ def dev_callback(
 ) -> None:
     del _help
     _group_help(ctx, "dev")
+
+
+@dev_app.command(name="definition")
+def dev_definition(
+    file: str | None = typer.Argument(
+        None,
+        metavar="FILE",
+        autocompletion=completion.complete_agl_file,
+    ),
+    line: int | None = typer.Argument(None, metavar="LINE"),
+    column: int | None = typer.Argument(None, metavar="COLUMN"),
+    module_paths: list[str] = _module_path_option(),
+    no_stdlib: bool = _no_stdlib_option(),
+    stdin: bool = typer.Option(False, "--stdin"),
+    _help: bool = _help_option(),
+) -> None:
+    del _help
+    if file is None or line is None or column is None:
+        _missing_arguments(["dev", "definition"], ["FILE", "LINE", "COLUMN"])
+    import agnette.agm.commands.dev.definition as definition_command
+
+    definition_command.run(
+        DevDefinitionArgs(
+            file=file,
+            line=line,
+            column=column,
+            module_paths=module_paths,
+            no_stdlib=no_stdlib,
+            stdin=stdin,
+        )
+    )
 
 
 @dev_app.command(name="highlight")

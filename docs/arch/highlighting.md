@@ -14,7 +14,8 @@ punctuation, placeholders, and errors. Each front end owns its style mapping.
 - `semantic.py` overlays scope-resolved names through `PipelineDriver` load/scope,
   reusing library artifacts without typechecking or evaluation. Scope side tables
   supply name identities; type-directed alternatives stay neutral. Failure falls
-  back to lexical spans seeded from hidden context.
+  back to lexical spans seeded from hidden context. `name_occurrences` exposes each
+  name with its owning AST node, which editor navigation (`agl/navigation.py`) reuses.
 - `context.py` prepends hidden source and projects spans back onto the displayed body.
 - `repl/console.py` supplies session names and maps lexical categories to
   prompt_toolkit styles. Its compatibility adapter retains legacy error fallback
