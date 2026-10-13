@@ -236,6 +236,8 @@ def _fold_through_initializers(
     declared type, or ``None`` when it names no fixed (non-``var``, non-``@param``) binding.
     """
 
+    folded_initializers: dict[int, Scalar | FoldFailure] = {}
+
     def resolve_ref(ref: VarRef) -> Scalar | FoldFailure:
         resolved = initializer_for(ref.node_id)
         if resolved is None:
@@ -243,7 +245,12 @@ def _fold_through_initializers(
         target, annotation = resolved
         if (failure := _annotation_failure(ref, annotation)) is not None:
             return failure
-        return fold_scalar(target, resolve_ref=resolve_ref)
+        cached = folded_initializers.get(target.node_id)
+        if cached is not None:
+            return cached
+        folded = fold_scalar(target, resolve_ref=resolve_ref)
+        folded_initializers[target.node_id] = folded
+        return folded
 
     return fold_scalar(expr, resolve_ref=resolve_ref)
 

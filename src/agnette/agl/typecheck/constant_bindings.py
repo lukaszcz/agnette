@@ -49,6 +49,7 @@ class ModuleConstantBindings:
         self._is_constructor = is_constructor
         self._is_constant_builtin = is_constant_builtin
         self._constant: dict[int, bool] = {}
+        self._fixed: dict[int, bool] = {}
         self._folding: list[int] = []
 
     def is_constant_reference(self, node_id: int) -> bool:
@@ -64,7 +65,12 @@ class ModuleConstantBindings:
 
     def is_fixed(self, expr: Expr) -> bool:
         """Whether *expr* is constant through fixed bindings only (see ``initializer_for``)."""
-        return self._is_constant(expr, self._is_fixed_reference)
+        cached = self._fixed.get(expr.node_id)
+        if cached is not None:
+            return cached
+        fixed = self._is_constant(expr, self._is_fixed_reference)
+        self._fixed[expr.node_id] = fixed
+        return fixed
 
     def _is_constant(self, expr: Expr, is_module_constant: Callable[[int], bool]) -> bool:
         return is_constant_expression(
