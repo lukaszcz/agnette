@@ -410,6 +410,16 @@ Otherwise the block stays open and swallows the following code."
     (should (agl-test--in-string-p (agl-test--pos-after "x %${HOME}")))
     (should-not (agl-test--in-string-p (agl-test--pos-after "let b")))))
 
+(ert-deftest agl-syntax-environment-hole-quotes-do-not-close-single-template ()
+  (agl-test--with-buffer "let s = \"%${a\"b} tail\"\n"
+    (should (agl-test--in-string-p (agl-test--pos-after "tail")))
+    (should-not (agl-test--in-string-p (agl-test--pos-after "tail\"")))))
+
+(ert-deftest agl-syntax-environment-hole-triple-quotes-do-not-close-triple-template ()
+  (agl-test--with-buffer "let s = \"\"\"%${a\"\"\"b} tail\"\"\"\nlet x = 1\n"
+    (should (agl-test--in-string-p (agl-test--pos-after "tail")))
+    (should-not (agl-test--in-string-p (agl-test--pos-after "let x")))))
+
 (ert-deftest agl-syntax-template-escaped-percent-brace-is-literal ()
   (agl-test--with-buffer "let a = \"cost is \\%{100}\"\nlet b = 1\n"
     (should (agl-test--in-string-p (agl-test--pos-after "cost is")))

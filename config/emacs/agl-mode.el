@@ -296,28 +296,31 @@ ordinary quote character stays outside a template's payload."
       (agl--propertize-verbatim-inline))))
 
 (defun agl--skip-template-hole ()
-  "Skip forward over a `%{...}' or `%!{...}' code hole.
+  "Skip forward over a complete template hole.
 
-Point must be at the `%' of an unescaped code hole.  Advance past the
-matching close brace, counting nested braces, so the template scanner
-does not mistake a quote or brace inside the hole -- e.g. the nested
-call in `%{f(\"x\")}' -- for its own delimiter.  A hole may itself span
-multiple lines.  If no matching close brace is found, stop at the end
-of the buffer."
-  (looking-at agl--code-hole-open-re)
-  (goto-char (match-end 0))
-  (let ((body-start (point)) (depth 1))
-    (while (and (> depth 0) (not (eobp)))
-      (cond
-       ((eq (char-after) ?\{) (setq depth (1+ depth)) (forward-char 1))
-       ((eq (char-after) ?\}) (setq depth (1- depth)) (forward-char 1))
-       (t (forward-char 1))))
-    (when (= depth 0)
-      (put-text-property body-start (1- (point)) 'agl-interpolation-code t))))
+Point must be at the `%' of an environment or code hole.  Consume an
+environment hole atomically; for a code hole, advance past the matching
+close brace, counting nested braces, so the template scanner does not
+mistake a quote or brace inside it -- e.g. the nested call in
+`%{f(\"x\")}' -- for its own delimiter.  A code hole may span multiple
+lines.  If no matching close brace is found, stop at the end of the
+buffer."
+  (if (looking-at agl--env-hole-re)
+      (goto-char (match-end 0))
+    (looking-at agl--code-hole-open-re)
+    (goto-char (match-end 0))
+    (let ((body-start (point)) (depth 1))
+      (while (and (> depth 0) (not (eobp)))
+        (cond
+         ((eq (char-after) ?\{) (setq depth (1+ depth)) (forward-char 1))
+         ((eq (char-after) ?\}) (setq depth (1- depth)) (forward-char 1))
+         (t (forward-char 1))))
+      (when (= depth 0)
+        (put-text-property body-start (1- (point)) 'agl-interpolation-code t)))))
 
 (defun agl--template-hole-start-p ()
-  "Return non-nil if point is at the `%' of an unescaped code hole."
-  (looking-at-p agl--code-hole-open-re))
+  "Return non-nil if point is at the `%' of an unescaped template hole."
+  (looking-at-p agl--hole-start-re))
 
 (defun agl--propertize-single-quoted (quote-char)
   "Propertize the single-line template opened by QUOTE-CHAR at point.
@@ -327,7 +330,7 @@ both delimiters with string-quote syntax and move point past the
 close quote.  Otherwise the template is unterminated: leave the
 opener with its default (punctuation) syntax and advance one
 character, so the template does not swallow the following lines.  A
-code hole is skipped whole (see `agl--skip-template-hole'), which
+template hole is skipped whole (see `agl--skip-template-hole'), which
 may carry the scan past the line-end limit if the hole spans multiple
 lines."
   (let ((open (point))
@@ -358,7 +361,7 @@ closing delimiter with generic-string-fence syntax (python-mode's
 technique for triple quotes), so inner single quotes and `#' are
 inert.  If unterminated, fence the opener and treat the rest of the
 buffer as inside the string, matching standard
-unterminated-multiline-string handling.  A code hole is skipped
+unterminated-multiline-string handling.  A template hole is skipped
 whole (see `agl--skip-template-hole')."
   (let ((open (point)))
     (forward-char 3)
