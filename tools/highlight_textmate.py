@@ -16,13 +16,14 @@ from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.targets.textmate import TEXTMATE_SCOPES
 from tools.highlight_engine_support import (
     CORPUS,
+    REPO_ROOT,
     CorpusCase,
     EngineResult,
     assert_result,
     spans_from_categories,
 )
 
-TOKENIZER = Path(__file__).resolve().parents[1] / "config/textmate/tests/tokenize.cjs"
+TOKENIZER = REPO_ROOT / "config/textmate/tests/tokenize.cjs"
 SCOPE_CATEGORIES = {scope: category for category, scope in TEXTMATE_SCOPES.items()}
 
 

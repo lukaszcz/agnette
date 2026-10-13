@@ -35,7 +35,8 @@ punctuation, placeholders, and errors. Each front end owns its style mapping.
 ## Document Context
 
 `context.fence_metadata` shares adjacent `agl-context`/`agl-check` parsing across
-Markdown rendering, snippet compilation, and `tools/agl_style.py`. It preserves AgL
+Markdown rendering, snippet compilation, and `tools/agl_style.py`; `context.agl_fences`
+walks fence bodies for the latter two and the engine corpus. It preserves AgL
 indentation and Markdown list/blockquote boundaries. Hidden context participates in
 compilation; layout-style checks apply only to displayed bodies. Authoring rules
 are in `docs/agl/AGENTS.md`.
@@ -75,7 +76,7 @@ does not change the exact Pygments/REPL path.
 `targets.TARGETS` registers pure `Grammar → str` generators: KDE XML (also Pandoc),
 TextMate JSON (`source.agl`), Sublime YAML (TextMate scopes; also bat), and Emacs
 vocabulary (`agl-inventory`). CLI help and
-completion use registry keys; grammar construction is deferred until export.
+completion use registry keys; generator imports and grammar construction are deferred until export.
 Generic target restrictions are narrower than the model: KDE requires lowerable
 linear captures, safe native transitions and PCRE2/XML-compatible patterns;
 TextMate requires consuming push/match rules, pop-first frames, no switch/base pop,

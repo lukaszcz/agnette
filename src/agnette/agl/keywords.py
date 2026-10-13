@@ -121,6 +121,12 @@ KEYWORDS: frozenset[str] = frozenset(
     }
 )
 
+#: Reserved words naming literal constants.
+CONSTANT_KEYWORDS: frozenset[str] = frozenset({KW_TRUE, KW_FALSE, KW_NULL})
+
+#: Reserved words opening a type declaration.
+TYPE_DECLARATION_KEYWORDS: frozenset[str] = frozenset({KW_RECORD, KW_ENUM, KW_EXCEPTION, KW_TYPE})
+
 #: Operator words promoted when they follow an operand.
 INFIX_SOFT_KEYWORDS: frozenset[str] = frozenset(
     {

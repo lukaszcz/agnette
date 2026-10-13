@@ -6,8 +6,8 @@ declare its call results exempt from it (a warning about the value in a hole).
 The catalog is data only — the analyses that raise each warning live in the
 pass that owns it, and a :class:`~agnette.agl.diagnostics.Diagnostic` carries
 just the entry's name. ``WARNING_CATALOG`` is the one lookup (a name is valid
-iff it is a key); ``WARNING_DEFAULT_LEVELS`` and ``EXEMPTABLE_WARNINGS`` are the
-derived views the level policy and ``@exempts`` validation read.
+iff it is a key); ``EXEMPTABLE_WARNINGS`` is the derived view ``@exempts``
+validation reads.
 
 It is a top-level leaf importing nothing under ``agnette``, so any layer may
 name a warning without pulling a pass in with it.
@@ -15,7 +15,6 @@ name a warning without pulling a pass in with it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
@@ -27,7 +26,6 @@ __all__ = [
     "TAB_INDENTATION",
     "UNQUOTED_EXEC_HOLE",
     "WARNING_CATALOG",
-    "WARNING_DEFAULT_LEVELS",
     "WARNING_LEVELS",
     "StaticWarning",
     "WarningLevel",
@@ -59,11 +57,6 @@ WARNING_CATALOG = MappingProxyType(
         entry.name: entry
         for entry in (TAB_INDENTATION, NOOP_PARSE_RETRIES, UNQUOTED_EXEC_HOLE, SHELL_QUOTED_HOLE)
     }
-)
-
-#: Each warning's level before any configuration.
-WARNING_DEFAULT_LEVELS: Mapping[str, WarningLevel] = MappingProxyType(
-    {name: entry.default_level for name, entry in WARNING_CATALOG.items()}
 )
 
 #: The warnings a function may declare its call results exempt from.

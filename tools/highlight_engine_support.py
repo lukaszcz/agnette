@@ -2,12 +2,12 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from itertools import groupby
+from itertools import groupby, islice
 from pathlib import Path
 
 from agnette.agl.highlight.agl_grammar import AGL_GRAMMAR
 from agnette.agl.highlight.categories import Category, Span
-from agnette.agl.highlight.context import fence_metadata
+from agnette.agl.highlight.context import agl_fences
 from agnette.agl.highlight.grammar import Grammar
 from agnette.agl.highlight.grammar_eval import evaluate
 
@@ -130,25 +130,10 @@ NEWLINE_CASES = tuple(
 
 def _doc_cases(root: Path, relative: str, limit: int) -> list[CorpusCase]:
     lines = (root / relative).read_text(encoding="utf-8").splitlines()
-    cases: list[CorpusCase] = []
-    index = 0
-    while index < len(lines) and len(cases) < limit:
-        metadata = fence_metadata(lines, index)
-        if metadata is None:
-            index += 1
-            continue
-        opening = index
-        index += 1
-        body: list[str] = []
-        while index < len(lines):
-            content = metadata.container.content(lines[index])
-            if content is None or metadata.closes(content):
-                break
-            body.append(content)
-            index += 1
-        cases.append(CorpusCase(f"{relative}:{opening + 1}", "\n".join(body)))
-        index += 1
-    return cases
+    return [
+        CorpusCase(f"{relative}:{fence.opening + 1}", "\n".join(fence.body(lines)))
+        for fence in islice(agl_fences(lines), limit)
+    ]
 
 
 def collect_corpus(root: Path = REPO_ROOT) -> tuple[CorpusCase, ...]:

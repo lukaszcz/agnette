@@ -62,7 +62,7 @@ from pathlib import Path
 from lark.lexer import Token
 
 from agnette.agl.diagnostics import AglError
-from agnette.agl.highlight.context import fence_metadata
+from agnette.agl.highlight.context import agl_fences
 from agnette.agl.lexer import LexError, lex_comment_spans, tokenize
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.syntax.nodes import Program
@@ -827,41 +827,22 @@ def restyle_markdown(source: str, path: Path, *, fields: bool) -> tuple[str, lis
     """
     lines = source.split("\n")
     violations: list[Violation] = []
-    added = 0  # lines restyling has added so far, to report against the original
-    index = 0
-    while index < len(lines):
-        metadata = fence_metadata(lines, index)
-        if metadata is None:
-            index += 1
+    output: list[str] = []
+    copied = 0  # original lines already copied to the output
+    for fence in agl_fences(lines):
+        if not fence.closed:
             continue
-        margin = metadata.prefix
-        opening = index
-        index += 1
-        body: list[str] = []
-        closed = False
-        while index < len(lines):
-            content = metadata.container.content(lines[index])
-            if content is None:
-                break
-            if metadata.closes(content):
-                closed = True
-                break
-            body.append(lines[index])
-            index += 1
-        if not closed:
-            continue
-        block = "\n".join(metadata.body_line(line) for line in body)
-        styled, found = restyle(block, fields=fields)
+        styled, found = restyle("\n".join(fence.body(lines)), fields=fields)
         if found:
-            violations.extend(_relocate(found, path, opening + 1 - added))
-            replacement = [
+            violations.extend(_relocate(found, path, fence.opening + 1))
+            margin = fence.metadata.prefix
+            output += lines[copied : fence.opening + 1]
+            output += [
                 margin + line if line or ">" in margin else line for line in styled.split("\n")
             ]
-            lines[opening + 1 : index] = replacement
-            added += len(replacement) - len(body)
-            index = opening + 1 + len(replacement)
-        index += 1
-    return "\n".join(lines), violations
+            copied = fence.end
+    output += lines[copied:]
+    return "\n".join(output), violations
 
 
 # ---------------------------------------------------------------------------

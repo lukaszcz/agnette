@@ -22,8 +22,9 @@ from agnette.agl.highlight.context import (
     fence_opening,
 )
 from agnette.agl.highlight.pygments_lexer import document_context
+from agnette.util.text import normalize_newlines
 
-_COMMENT = re.compile(r"<!--|-->")
+_DELIMITER = re.compile(r"`+|<!--|-->")
 _BACKTICKS = re.compile(r"`+")
 _OPTION = "agl_context"
 _BLOCK_PREFIX = re.compile(r"(?: {0,3}>[ \t]?| {0,3}(?:[-+*]|[0-9]+[.)])[ \t]+)")
@@ -117,32 +118,29 @@ def _scan_comments(
     """
     line = lines[line_index]
     index = 0
-    while index < len(line):
-        ticks = _BACKTICKS.match(line, index)
-        if code_span is not None:
-            if ticks is not None:
-                if len(ticks.group()) == code_span:
+    while (delimiter := _DELIMITER.search(line, index)) is not None:
+        index = delimiter.start()
+        token = delimiter.group()
+        if token.startswith("`"):
+            if code_span is not None:
+                if len(token) == code_span:
                     code_span = None
-                index = ticks.end()
-            else:
+            elif (
+                comment_depth
+                or _is_escaped(line, index)
+                or not _has_code_span_closer(lines, line_index, delimiter.end(), len(token))
+            ):
+                # The rest of the run may still open a span.
                 index += 1
-            continue
-        if ticks is not None and not comment_depth and not _is_escaped(line, index):
-            count = len(ticks.group())
-            if _has_code_span_closer(lines, line_index, ticks.end(), count):
-                code_span = count
-                index = ticks.end()
                 continue
-
-        comment = _COMMENT.match(line, index)
-        if comment is None:
-            index += 1
-            continue
-        if comment.group() == "-->":
-            comment_depth = max(0, comment_depth - 1)
-        elif comment_depth or not _is_escaped(line, index):
-            comment_depth += 1
-        index = comment.end()
+            else:
+                code_span = len(token)
+        elif code_span is None:
+            if token == "-->":
+                comment_depth = max(0, comment_depth - 1)
+            elif comment_depth or not _is_escaped(line, index):
+                comment_depth += 1
+        index = delimiter.end()
     return comment_depth, code_span
 
 
@@ -177,7 +175,7 @@ class ContextPreprocessor(Preprocessor):
         )
 
     def run(self, lines: list[str]) -> list[str]:
-        lines = "\n".join(lines).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        lines = normalize_newlines("\n".join(lines)).split("\n")
         removed: set[int] = set()
         body: FenceMetadata | None = None
         comment_depth = 0

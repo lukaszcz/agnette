@@ -13,7 +13,14 @@ from collections.abc import Sequence
 from lark.lexer import Token
 
 from agnette.agl.highlight.categories import Category, Span
-from agnette.agl.keywords import KEYWORDS, OPERATOR_SOFT_KEYWORDS
+from agnette.agl.keywords import (
+    CONSTANT_KEYWORDS,
+    KEYWORDS,
+    KW_EXCEPTION,
+    KW_RECORD,
+    OPERATOR_SOFT_KEYWORDS,
+    TYPE_DECLARATION_KEYWORDS,
+)
 from agnette.agl.lexer import (
     IncompleteInputError,
     _tokenize_recover,
@@ -35,8 +42,7 @@ from agnette.util.text import normalize_newlines
 
 _LAYOUT_TOKENS = frozenset({"_NEWLINE", "_INDENT", "_DEDENT"})
 _KEYWORD_TOKENS = KEYWORDS | SOFT_KEYWORD_TOKENS
-_DECL_TYPE_KEYWORDS = frozenset({"record", "enum", "exception", "type"})
-_DECL_CONSTRUCTOR_KEYWORDS = frozenset({"record", "exception"})
+_DECL_CONSTRUCTOR_KEYWORDS = frozenset({KW_RECORD, KW_EXCEPTION})
 _CALL_LOOKAHEAD = frozenset({"LPAR", "DCOLON"})
 _OPERATOR_TOKENS = frozenset(
     {
@@ -85,7 +91,7 @@ def _category_for(
 ) -> Category:
     """Classify references; declaration and attribute sites override this result."""
     if token_type in _KEYWORD_TOKENS:
-        if token_text in {"true", "false", "null"}:
+        if token_text in CONSTANT_KEYWORDS:
             return Category.KEYWORD_CONSTANT
         if token_text in OPERATOR_SOFT_KEYWORDS:
             return Category.OPERATOR_WORD
@@ -190,7 +196,7 @@ def _decl_site_styles(
             infix_state = None
         if is_name:
             name = text[token.start_pos : token.end_pos]
-            if expect in _DECL_TYPE_KEYWORDS:
+            if expect in TYPE_DECLARATION_KEYWORDS:
                 forced[index] = Category.TYPE
                 types.add(name)
                 if expect in _DECL_CONSTRUCTOR_KEYWORDS:
@@ -204,7 +210,7 @@ def _decl_site_styles(
             # The qualified declaration name still follows this scope prefix.
             pass
         elif ttype in KEYWORDS:
-            expect = ttype if ttype in _DECL_TYPE_KEYWORDS else None
+            expect = ttype if ttype in TYPE_DECLARATION_KEYWORDS else None
             in_enum_variants = False
             if ttype in {"infixl", "infixr"}:
                 infix_state = "expect_op"
@@ -390,16 +396,6 @@ def lexical_spans(
             text, result.tokens, result.comments, type_names, constructor_names
         )
     ]
-
-
-def open_string_start(source: str) -> int | None:
-    """Preserve raw-quote completion policy via the recovery scanner.
-
-    Unlike AgL syntax, this legacy policy recognizes quotes in verbatim text,
-    treats interpolation as literal, and allows single quotes across newlines.
-    Comments are skipped only outside quotes.
-    """
-    return lex_open_quote_start(source)
 
 
 def repl_spans(

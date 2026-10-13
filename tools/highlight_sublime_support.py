@@ -11,6 +11,7 @@ from agnette.agl.highlight.agl_grammar import AGL_GRAMMAR
 from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.grammar import Grammar
 from agnette.agl.highlight.targets.textmate import TEXTMATE_SCOPES
+from agnette.util.text import normalize_newlines
 from tools.highlight_engine_support import (
     CORPUS,
     CorpusCase,
@@ -105,7 +106,7 @@ def run_corpus(
         env |= {"BAT_CACHE_PATH": str(cache), "BAT_CONFIG_PATH": os.devnull}
         env["COLORTERM"] = "truecolor"
         for case in cases:
-            source = case.source.replace("\r\n", "\n").replace("\r", "\n")
+            source = normalize_newlines(case.source)
             process = subprocess.run(
                 [
                     bat,

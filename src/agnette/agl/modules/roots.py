@@ -33,8 +33,8 @@ class RootSet:
 
     A module's *origin* is installed or local. A file in the module tree of an
     installed package (:attr:`PackageInfo.installed`) is installed, as is a file
-    of a standard-library root listed in :attr:`installed_stdlib_roots` (the store
-    or shipped tree); everything else — development checkouts, a host override,
+    of a standard-library root when :attr:`stdlib_installed` (the store or
+    shipped tree); everything else — development checkouts, a host override,
     loose roots — is local. The innermost owning package decides.
 
     The mount table is derived once here in ``__post_init__``, since a module
@@ -45,7 +45,7 @@ class RootSet:
     roots: frozenset[Path]
     packages: tuple[PackageInfo, ...] = ()
     stdlib_roots: frozenset[Path] = frozenset()
-    installed_stdlib_roots: frozenset[Path] = frozenset()
+    stdlib_installed: bool = False
     _sorted_roots: tuple[Path, ...] = field(init=False, repr=False, compare=False)
     _module_trees: dict[str, tuple[Path, ...]] = field(init=False, repr=False, compare=False)
 
@@ -102,8 +102,7 @@ class RootSet:
         package = owning_package(path, self.packages)
         if package is not None:
             return package.installed
-        canonical_path = path.resolve()
-        return any(canonical_path.is_relative_to(root) for root in self.installed_stdlib_roots)
+        return self.stdlib_installed and self.is_standard_library_path(path)
 
     def is_standard_library_path(self, path: Path) -> bool:
         """Return whether *path* belongs to a host-selected standard-library root.
@@ -218,10 +217,9 @@ def assemble_roots(
         package for package in package_roots if _canonicalize(package.root).exists()
     )
 
-    selected_stdlib_roots = frozenset(stdlib_roots)
     return RootSet(
         roots=frozenset(canonical_roots),
         packages=mounted_packages,
-        stdlib_roots=selected_stdlib_roots,
-        installed_stdlib_roots=selected_stdlib_roots if stdlib_installed else frozenset(),
+        stdlib_roots=frozenset(stdlib_roots),
+        stdlib_installed=stdlib_installed,
     )

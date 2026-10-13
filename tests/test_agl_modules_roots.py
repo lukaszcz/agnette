@@ -775,14 +775,3 @@ class TestIsInstalled:
         )
 
         assert roots.is_installed(stdlib / MODULE_TREE_DIRNAME / "prelude.agl") is installed
-
-    def test_installed_is_decided_per_standard_library_root(self, tmp_path: Path) -> None:
-        installed, local = tmp_path / "installed", tmp_path / "local"
-        roots = RootSet(
-            roots=frozenset(),
-            stdlib_roots=frozenset({installed, local}),
-            installed_stdlib_roots=frozenset({installed}),
-        )
-
-        assert roots.is_installed(installed / MODULE_TREE_DIRNAME / "prelude.agl")
-        assert not roots.is_installed(local / MODULE_TREE_DIRNAME / "prelude.agl")

@@ -145,6 +145,17 @@ def import_item_path(item: ImportItem | ExportItem) -> ScopePath:
     return (*(segment.name for segment in item.scope_path), item.name)
 
 
+def import_item_spellings(
+    items: Iterable[ImportItem | ExportItem],
+) -> Iterator[tuple[int, ScopePath]]:
+    """Each item's scope-path segments, then its name, with the path prefix each spells."""
+    for item in items:
+        path = import_item_path(item)
+        for end, segment in enumerate(item.scope_path, 1):
+            yield segment.node_id, path[:end]
+        yield item.node_id, path
+
+
 # ---------------------------------------------------------------------------
 # BuiltinKind — classification of a built-in Call node
 # ---------------------------------------------------------------------------

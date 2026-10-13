@@ -17,7 +17,6 @@ from agnette.agl.warning_policy import (
     WarningPolicy,
     apply_program_policy,
     apply_warning_policy,
-    named_warnings,
 )
 from agnette.agl.warnings import NOOP_PARSE_RETRIES, TAB_INDENTATION
 from agnette.packages.manifest import load_manifest
@@ -66,7 +65,7 @@ def _apply(
     capped_sources: frozenset[str] = frozenset(),
 ) -> WarningOutcome:
     return apply_warning_policy(
-        named_warnings(warnings),
+        warnings,
         regions,
         policy,
         scope_complete=scope_complete,
@@ -91,6 +90,12 @@ def test_warn_level_reports_in_order_and_denies_nothing() -> None:
 
     assert _lines(outcome.reported) == [(3, "tab-indentation"), (1, "noop-parse-retries")]
     assert outcome.denied == ()
+
+
+def test_unnamed_diagnostics_are_not_policy_warnings() -> None:
+    outcome = _apply([replace(_tab(1), warning_name=None), _noop(2)], _known(), WarningPolicy())
+
+    assert _lines(outcome.reported) == [(2, "noop-parse-retries")]
 
 
 def test_allow_level_drops_only_that_warning() -> None:

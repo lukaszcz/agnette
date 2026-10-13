@@ -24,9 +24,10 @@ from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.output import Output
 
-from agnette.agl.highlight import Category
-from agnette.agl.highlight.lexical import open_string_start, repl_spans
+from agnette.agl.highlight.categories import Category
+from agnette.agl.highlight.lexical import repl_spans
 from agnette.agl.keywords import KEYWORDS, SOFT_KEYWORDS
+from agnette.agl.lexer import lex_open_quote_start
 from agnette.agl.repl import meta as meta_mod
 from agnette.agl.repl.loop import CONTINUATION, PROMPT, is_incomplete, run_repl_loop
 from agnette.agl.repl.themes import get_style
@@ -183,7 +184,7 @@ class AglCompleter(Completer):
                 yield Completion(name, start_position=-len(word))
 
     def _word_completions(self, document: Document) -> Iterable[Completion]:
-        if open_string_start(document.text_before_cursor) is not None:
+        if lex_open_quote_start(document.text_before_cursor) is not None:
             return
         word = _completion_word_before_cursor(document.text_before_cursor)
         if word is None:

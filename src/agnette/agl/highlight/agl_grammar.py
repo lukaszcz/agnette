@@ -15,8 +15,15 @@ from agnette.agl.highlight.grammar import (
     character_class,
     keyword_rule,
 )
-from agnette.agl.keywords import KEYWORDS, OPERATOR_SOFT_KEYWORDS, SOFT_KEYWORDS
-from agnette.agl.operator_names import is_operator_name_char
+from agnette.agl.keywords import (
+    CONSTANT_KEYWORDS,
+    KEYWORDS,
+    OPERATOR_SOFT_KEYWORDS,
+    SOFT_KEYWORDS,
+    TYPE_DECLARATION_KEYWORDS,
+)
+from agnette.agl.lexer import RESERVED_OPERATOR_SPELLINGS
+from agnette.agl.operator_names import is_operator_name, is_operator_name_char
 from agnette.agl.scope.symbols import BUILTIN_CALL_NAMES
 from agnette.agl.syntax import BUILTIN_TYPE_NAMES
 from agnette.agl.value_syntax.lexical import ESCAPE_DECODE
@@ -41,18 +48,14 @@ _ESCAPE = Rule(
     r"|u(?:[0-9a-cA-Ce-fE-F][0-9a-fA-F]{3}|[dD][0-7][0-9a-fA-F]{2}))",
     Category.STRING_ESCAPE,
 )
-_CONSTANTS = frozenset({"true", "false", "null"})
-_RESERVED_OPERATORS = frozenset(
-    {"=>", "==", "=", "!=", "<=", "<", ">=", ">", "->", "-", "+", "*", "/", "|"}
-)
+# `?` is a placeholder, highlighted by its own rules.
+_RESERVED_OPERATORS = frozenset(filter(is_operator_name, RESERVED_OPERATOR_SPELLINGS)) - {"?"}
 _OPERATOR_END = f"(?!{_OPERATOR})"
 _CALL = keyword_rule(BUILTIN_CALL_NAMES, Category.BUILTIN_CALL, token_start=True)
 _RESERVED = keyword_rule(KEYWORDS, Category.KEYWORD, token_start=True).pattern
 _PLAIN = f"(?!{_RESERVED}){_NAME}"
 _QUALIFIER = r"::(?![ \t]*\[)"  # Type arguments are core call syntax, not paths.
-_DECLARATION = keyword_rule(
-    KEYWORDS & {"record", "enum", "type", "exception"}, Category.KEYWORD, token_start=True
-).pattern
+_DECLARATION = keyword_rule(TYPE_DECLARATION_KEYWORDS, Category.KEYWORD, token_start=True).pattern
 
 # These same-line captures deliberately do not track declarations, enum owners,
 # attribute arguments, module headers, or softword/layout promotion windows.
@@ -87,8 +90,8 @@ _CODE = (
     Rule(r"\$", Category.VERBATIM, action=Push("verbatim")),
     *_CONTEXT,
     # Rules run only at token starts: names are consumed whole, including a+b.
-    keyword_rule(_CONSTANTS, Category.KEYWORD_CONSTANT, token_start=True),
-    keyword_rule(KEYWORDS - _CONSTANTS, Category.KEYWORD, token_start=True),
+    keyword_rule(CONSTANT_KEYWORDS, Category.KEYWORD_CONSTANT, token_start=True),
+    keyword_rule(KEYWORDS - CONSTANT_KEYWORDS, Category.KEYWORD, token_start=True),
     # Inventory coloring is intentionally independent of layout/promotion history.
     keyword_rule(SOFT_KEYWORDS - OPERATOR_SOFT_KEYWORDS, Category.KEYWORD, token_start=True),
     keyword_rule(OPERATOR_SOFT_KEYWORDS, Category.OPERATOR_WORD, token_start=True),

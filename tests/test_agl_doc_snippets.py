@@ -39,7 +39,7 @@ from pathlib import Path
 import pytest
 
 from agnette.agl import PipelineDriver
-from agnette.agl.highlight.context import HiddenContext, fence_metadata
+from agnette.agl.highlight.context import HiddenContext, agl_fences
 from agnette.agl.runtime.agents import AgentRequest
 
 _REFERENCE_DIR = Path(__file__).resolve().parents[1] / "docs" / "agl" / "reference"
@@ -64,33 +64,17 @@ def _discover_snippets(directory: Path = _REFERENCE_DIR) -> list[Snippet]:
     snippets: list[Snippet] = []
     for path in sorted(directory.glob("*.md")):
         lines = path.read_text(encoding="utf-8").splitlines()
-        index = 0
-        while index < len(lines):
-            metadata = fence_metadata(lines, index)
-            if metadata is None:
-                index += 1
-                continue
-            fence_line = index + 1
-            body: list[str] = []
-            index += 1
-            while index < len(lines):
-                content = metadata.container.content(lines[index])
-                if content is None:
-                    break
-                index += 1
-                if metadata.closes(content):
-                    break
-                body.append(content)
-            snippets.append(
-                Snippet(
-                    path=path,
-                    line=fence_line,
-                    marker=metadata.check,
-                    source=HiddenContext(metadata.context).prepend(
-                        textwrap.dedent("\n".join(body))
-                    ),
-                )
+        snippets.extend(
+            Snippet(
+                path=path,
+                line=fence.opening + 1,
+                marker=fence.metadata.check,
+                source=HiddenContext(fence.metadata.context).prepend(
+                    textwrap.dedent("\n".join(fence.body(lines)))
+                ),
             )
+            for fence in agl_fences(lines)
+        )
     return snippets
 
 

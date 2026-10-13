@@ -8,6 +8,7 @@ from agnette.agl.highlight.agl_grammar import AGL_GRAMMAR
 from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.grammar import Grammar
 from agnette.agl.highlight.targets.kde import KDE_STYLES
+from agnette.util.text import normalize_newlines
 from tools.highlight_engine_support import (
     CORPUS,
     CorpusCase,
@@ -125,10 +126,7 @@ def run_corpus(
     Normalize before both Pandoc and reference evaluation, not in the shared
     engine-neutral contract: other engines can retain original delimiters.
     """
-    cases = tuple(
-        CorpusCase(case.name, case.source.replace("\r\n", "\n").replace("\r", "\n"))
-        for case in cases
-    )
+    cases = tuple(CorpusCase(case.name, normalize_newlines(case.source)) for case in cases)
     # A final sentinel keeps terminal blank lines (and empty inputs) inside the
     # fence: Pandoc normally drops a fence's terminal LF. Never compare its style.
     markdown = "\n".join(

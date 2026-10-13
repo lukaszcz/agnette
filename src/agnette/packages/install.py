@@ -53,6 +53,7 @@ from agnette.packages.manifest import (
     ManifestError,
     PackageManifest,
     distribution_manifest,
+    load_installed_manifest,
     load_manifest,
 )
 from agnette.packages.model import (
@@ -429,7 +430,7 @@ def _uninstall_package(target: str, *, home: Path, env: Mapping[str, str] | None
             root = canonical_package_store_path(name, active.version, home=home, env=env)
             if not root.exists() and tombstone.exists():
                 entries = read_record(tombstone)
-                manifest = load_manifest(tombstone / "package.toml", allow_legacy_dev_aliases=True)
+                manifest = load_installed_manifest(tombstone / "package.toml")
                 if canonical_package_identity(manifest.name, manifest.version) != (
                     name,
                     str(active.version),
@@ -491,7 +492,7 @@ def _uninstall_inactive_version(
     if not root.is_dir():
         raise PackageInstallError(f"package {name!r} version {version} is not installed")
     try:
-        manifest = load_manifest(root / "package.toml", allow_legacy_dev_aliases=True)
+        manifest = load_installed_manifest(root / "package.toml")
         if canonical_package_identity(manifest.name, manifest.version) != (name, str(version)):
             raise RecordError("installed package identity does not match its store location")
         read_record(root)
@@ -1112,7 +1113,7 @@ def _verify_existing_install(root: Path, manifest: PackageManifest, package_hash
     self-consistency; trust comes from comparing the content hash to *package_hash*.
     """
     try:
-        installed = load_manifest(root / "package.toml", allow_legacy_dev_aliases=True)
+        installed = load_installed_manifest(root / "package.toml")
         if canonical_package_identity(
             installed.name, installed.version
         ) != canonical_package_identity(
@@ -1354,7 +1355,7 @@ def _finish_uninstall(
         raise PackageInstallError(f"cannot remove package {name!r}: invalid uninstall tombstone")
     if version is None and (tombstone / "package.toml").is_file():
         try:
-            manifest = load_manifest(tombstone / "package.toml", allow_legacy_dev_aliases=True)
+            manifest = load_installed_manifest(tombstone / "package.toml")
         except ManifestError as exc:
             raise PackageInstallError(f"cannot remove package {name!r}: {exc}") from exc
         version = manifest.version

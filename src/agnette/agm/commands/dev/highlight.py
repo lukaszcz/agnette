@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agnette.agl.highlight.targets import TARGETS
 from agnette.agm.cli_support.args import DevHighlightArgs
+from agnette.core import fs
 
 
 def run(args: DevHighlightArgs) -> None:
@@ -16,5 +17,5 @@ def run(args: DevHighlightArgs) -> None:
         sys.stdout.write(rendered)
     else:
         output = Path(args.output)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered, encoding="utf-8")
+        fs.mkdir(output.parent)
+        fs.write_text(output, rendered)

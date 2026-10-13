@@ -3,7 +3,7 @@
 import pytest
 from markdown.extensions.attr_list import get_attrs
 
-from agnette.agl.highlight.context import fence_metadata
+from agnette.agl.highlight.context import agl_fences, fence_metadata
 
 
 @pytest.mark.parametrize(
@@ -248,3 +248,27 @@ def test_attribute_language_matches_markdown_lexical_semantics(attributes: str) 
     language = next((value for key, value in parsed if key == "."), "")
     metadata = fence_metadata(["```{" + attributes + "}"], 0)
     assert (metadata is not None) == (language == "agl")
+
+
+def test_agl_fences_locate_closed_and_unclosed_bodies() -> None:
+    lines = [
+        "> ```agl",
+        "> let a = 1",
+        "> ```",
+        "```python",
+        "x",
+        "```",
+        "> ```agl",
+        "> let b = 2",
+        "prose ends the quote",
+        "```agl",
+        "let c = 3",
+    ]
+    fences = [
+        (fence.opening, fence.end, fence.closed, fence.body(lines)) for fence in agl_fences(lines)
+    ]
+    assert fences == [
+        (0, 2, True, ["let a = 1"]),
+        (6, 8, False, ["let b = 2"]),
+        (9, 11, False, ["let c = 3"]),
+    ]

@@ -102,7 +102,7 @@ from agnette.agl.warnings import TAB_INDENTATION
 from agnette.util.ident import is_identifier_start
 from agnette.util.interp import INTERP_TRIGGER
 from agnette.util.text import normalize_newlines
-from agnette.util.unicode import surrogate_index
+from agnette.util.unicode import SURROGATE, surrogate_index
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -175,6 +175,8 @@ _RESERVED_OPERATOR_NAMES: dict[str, str] = {
     "?": PLACEHOLDER,
     **_SINGLE_OPS,
 }
+#: Spellings the scanner retypes from a maximal-munch operator run or punctuation.
+RESERVED_OPERATOR_SPELLINGS: frozenset[str] = frozenset(_RESERVED_OPERATOR_NAMES)
 
 # ---------------------------------------------------------------------------
 # Triple-quoted template segments (typed union)
@@ -1265,12 +1267,9 @@ class _Scanner:
         if surrogate_at is not None:
             while self._pos < surrogate_at:
                 self._advance()
-            start_line, start_col, start_pos = self._line, self._col, self._pos
+            start = self._pos, self._line, self._col
             self._advance()
-            span = SourceSpan(start_line, start_col, self._line, self._col, start_pos, self._pos)
-            raise LexError(
-                f"Invalid character in source: U+{ord(self._src[surrogate_at]):04X}", span=span
-            )
+            raise self._surrogate_error(start)
         try:
             yield from self._scan_code()
         except LexError:
@@ -1360,16 +1359,23 @@ class _Scanner:
             # its signal after closing holes so layout sees the next CODE item.
             yield self._make_token(NEWLINE, str(self._col - 1), self._pos, self._line, self._col)
 
+    def _surrogate_error(self, start: tuple[int, int, int]) -> LexError:
+        """Reject the surrogate just advanced over from *start* ``(pos, line, col)``."""
+        pos, line, col = start
+        return LexError(
+            f"Invalid character in source: U+{ord(self._src[pos]):04X}",
+            span=SourceSpan(line, col, self._line, self._col, pos, self._pos),
+        )
+
     def _scan_recover(self) -> Iterator[Token]:
         """Scan with Unicode preflight and deferred diagnostics kept recoverable."""
         original = self._src
         surrogate_tokens: list[Token] = []
         saved_state = self._pos, self._line, self._col, self._line_start_pos
-        first_surrogate = surrogate_index(original)
         offsets = (
-            [index for index, ch in enumerate(original) if 0xD800 <= ord(ch) <= 0xDFFF]
-            if first_surrogate is not None
-            else []
+            []
+            if surrogate_index(original) is None
+            else [match.start() for match in SURROGATE.finditer(original)]
         )
         for offset in offsets:
             while self._pos < offset:
@@ -1378,17 +1384,12 @@ class _Scanner:
             self._advance(in_string=True)
             token = self._make_token(ERROR, original[offset : offset + 1], *start)
             surrogate_tokens.append(token)
-            self.errors.append(
-                LexError(
-                    f"Invalid character in source: U+{ord(original[offset]):04X}",
-                    span=SourceSpan(start[1], start[2], self._line, self._col, start[0], self._pos),
-                )
-            )
+            self.errors.append(self._surrogate_error(start))
         self._pos, self._line, self._col, self._line_start_pos = saved_state
         # Surrogates become inert whitespace for scanning, including inside
         # comments/literals; their original spans are restored as errors below.
         if surrogate_tokens:
-            self._src = "".join(" " if 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in original)
+            self._src = SURROGATE.sub(" ", original)
         preflight_errors = list(self.errors)
         # Buffer tokens for surrogate/deferred flags, but replay diagnostics at
         # the token where strict scanning would fail. Layout's lookahead then

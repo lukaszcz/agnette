@@ -158,7 +158,7 @@ def _fixture_roots(spec: dict[str, Any]) -> Any | None:
             roots=frozenset(module_root_paths),
             packages=packages,
             stdlib_roots=frozenset({stdlib_root}),
-            installed_stdlib_roots=frozenset({stdlib_root} if spec.get("stdlib_installed") else ()),
+            stdlib_installed=bool(spec.get("stdlib_installed")),
         )
     if module_root_paths:
         return agl_roots(*module_root_paths)

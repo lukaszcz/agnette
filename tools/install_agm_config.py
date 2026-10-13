@@ -14,7 +14,7 @@ from agnette.core.fs import backup_file
 from agnette.packages.install import refresh_managed_stdlib
 
 
-class _InstallArgs(Protocol):
+class InstallArgs(Protocol):
     force: bool
     prefix: str | None
 
@@ -105,7 +105,7 @@ def install_user_config(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = cast(_InstallArgs, build_parser().parse_args(argv))
+    args = cast(InstallArgs, build_parser().parse_args(argv))
     result = install_user_config(
         repo_root=Path(__file__).resolve().parents[1],
         install_root=Path.home() if args.prefix is None else Path(args.prefix),

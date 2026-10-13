@@ -9,19 +9,14 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Protocol, cast
+from typing import cast
 
 # Keep direct script execution and module execution on the same package imports.
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agnette.config.home import agm_home_dir
-from tools.install_agm_config import build_parser
-
-
-class _InstallArgs(Protocol):
-    force: bool
-    prefix: str | None
+from tools.install_agm_config import InstallArgs, build_parser
 
 
 def bat_executable() -> str | None:
@@ -49,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python tools/install_highlighting.py", parents=[build_parser()], add_help=False
     )
-    args = cast(_InstallArgs, parser.parse_args(argv))
+    args = cast(InstallArgs, parser.parse_args(argv))
     if args.prefix is None:
         home = agm_home_dir(home=Path.home())
         data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")

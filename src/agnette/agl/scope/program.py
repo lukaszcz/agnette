@@ -87,6 +87,7 @@ from agnette.agl.scope.symbols import (
     TypeSelection,
     UnknownMemberError,
     builtin_type_static_kind,
+    import_item_spellings,
 )
 from agnette.agl.scope.symbols import import_item_path as _item_path
 from agnette.agl.scope.symbols import to_bare_atom as _atom
@@ -1429,11 +1430,8 @@ def resolve_program(
                 references[node_id, name] = frozenset(origins)
 
             hidden: tuple[ImportItem | ExportItem, ...] = decl.hidden
-            for item in iter_chain(items, hidden):
-                path = _item_path(item)
-                for end, segment in enumerate(item.scope_path, 1):
-                    record(segment.node_id, segment.name, path[:end])
-                record(item.node_id, item.name, path)
+            for node_id, path in import_item_spellings(iter_chain(items, hidden)):
+                record(node_id, path[-1], path)
         return references
 
     for mid, resolver in resolvers.items():

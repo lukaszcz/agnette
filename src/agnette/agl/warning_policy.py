@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE
-from agnette.agl.warnings import WARNING_DEFAULT_LEVELS, WarningLevel
+from agnette.agl.warnings import WARNING_CATALOG, WarningLevel
 
 if TYPE_CHECKING:
     from agnette.agl.modules.roots import RootSet
@@ -36,13 +36,11 @@ if TYPE_CHECKING:
     from agnette.agl.scope.symbols import AllowRegion
 
 __all__ = [
-    "NamedWarning",
     "WarningOutcome",
     "WarningPolicy",
     "apply_program_policy",
     "apply_warning_policy",
     "installed_sources",
-    "named_warnings",
     "regions_by_source",
 ]
 
@@ -54,27 +52,7 @@ class WarningPolicy:
     overrides: Mapping[str, WarningLevel] = field(default_factory=dict)
 
     def level(self, name: str) -> WarningLevel:
-        return self.overrides.get(name, WARNING_DEFAULT_LEVELS[name])
-
-
-class NamedWarning(NamedTuple):
-    """A static warning with its catalog name."""
-
-    name: str
-    diagnostic: Diagnostic
-
-
-def named_warnings(diagnostics: Iterable[Diagnostic]) -> list[NamedWarning]:
-    """Pair each warning among *diagnostics* with its catalog name.
-
-    Every static warning is built by :func:`~agnette.agl.diagnostics.warning_diagnostic`,
-    so none is unnamed.
-    """
-    return [
-        NamedWarning(diagnostic.warning_name, diagnostic)
-        for diagnostic in diagnostics
-        if diagnostic.warning_name is not None
-    ]
+        return self.overrides.get(name, WARNING_CATALOG[name].default_level)
 
 
 class WarningOutcome(NamedTuple):
@@ -96,7 +74,7 @@ def regions_by_source(modules: Iterable[ResolvedModule]) -> dict[str, list[Allow
     return by_source
 
 
-def installed_sources(warnings: Iterable[NamedWarning], roots: RootSet | None) -> frozenset[str]:
+def installed_sources(warnings: Iterable[Diagnostic], roots: RootSet | None) -> frozenset[str]:
     """The source labels of *warnings* anchored in installed modules.
 
     A file module's label is its canonical absolute path, so *roots* tells its
@@ -107,7 +85,7 @@ def installed_sources(warnings: Iterable[NamedWarning], roots: RootSet | None) -
     """
     if roots is None:
         return frozenset()
-    paths = {label: Path(label) for _, w in warnings if (label := w.source_label) is not None}
+    paths = {label: Path(label) for w in warnings if (label := w.source_label) is not None}
     return frozenset(
         label for label, path in paths.items() if path.is_absolute() and roots.is_installed(path)
     )
@@ -128,25 +106,25 @@ def apply_program_policy(
     the warnings of any other module are withheld. *roots* are the invocation's
     module roots, whose installed modules the dependency cap drops.
     """
-    named = named_warnings(warnings)
+    warnings = tuple(warnings)
     return apply_warning_policy(
-        named,
+        warnings,
         regions_by_source(modules),
         policy,
         scope_complete=scope_complete,
-        capped_sources=installed_sources(named, roots),
+        capped_sources=installed_sources(warnings, roots),
     )
 
 
 def apply_warning_policy(
-    warnings: Iterable[NamedWarning],
+    warnings: Iterable[Diagnostic],
     regions: Mapping[str, Sequence[AllowRegion]],
     policy: WarningPolicy,
     *,
     scope_complete: bool,
     capped_sources: frozenset[str] = frozenset(),
 ) -> WarningOutcome:
-    """Apply the policy steps to *warnings*, keeping their order.
+    """Apply the policy steps to the named *warnings*, keeping their order.
 
     *regions* maps the source label of each module whose regions are known to
     them. A warning anchored in any other source is withheld, unless
@@ -156,7 +134,10 @@ def apply_warning_policy(
     """
     reported: list[Diagnostic] = []
     denied: list[Diagnostic] = []
-    for name, warning in warnings:
+    for warning in warnings:
+        name = warning.warning_name
+        if name is None:
+            continue
         label = UNKNOWN_SOURCE.label if warning.source_label is None else warning.source_label
         module_regions = regions.get(label, () if scope_complete else None)
         if (

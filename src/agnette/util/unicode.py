@@ -20,6 +20,7 @@ from typing import cast
 from agnette.util.decimal import parse_json_decimal, reject_json_constant
 
 __all__ = [
+    "SURROGATE",
     "LoneSurrogateError",
     "holds_surrogate",
     "loads_exact_json",
@@ -28,6 +29,9 @@ __all__ = [
     "surrogate_index",
     "visible_text",
 ]
+
+#: One surrogate code point.
+SURROGATE = re.compile("[\ud800-\udfff]")
 
 # A JSON escape that can denote a surrogate: ``\uD800``-``\uDFFF``.
 _SURROGATE_ESCAPE = re.compile(r"\\u[dD][89a-fA-F]")

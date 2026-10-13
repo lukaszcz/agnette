@@ -174,9 +174,7 @@ class _Navigator:
 
     def index(self, module_id: ModuleId) -> _ModuleIndex:
         if module_id not in self.indices:
-            path = self.path(module_id)
-            assert path is not None, "only an inline entry has no file"
-            text = normalize_newlines(path.read_text(encoding="utf-8"))
+            text = normalize_newlines(self.program.modules[module_id].source_text)
             self.indices[module_id] = _ModuleIndex(self.program, module_id, text)
         return self.indices[module_id]
 

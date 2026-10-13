@@ -417,24 +417,23 @@ def semantic_spans(
     ``roots=None`` uses the driver's default standard-library resolver.
     """
     types, constructors = context.declared_names
-    fallback = lexical_spans(source, types, constructors)
     try:
         combined = context.prepend(source)
         text = normalize_newlines(combined)
         parsed = PipelineDriver.parse_entry(text)
         prepared = PipelineDriver.prepare_parsed_entry(parsed, roots=roots)
-        if prepared.resolved is None:
-            return fallback
-        lexical = fallback if text == source else lexical_spans(text, types, constructors)
-        overrides = {
-            occurrence.start: occurrence.category
-            for occurrence in name_occurrences(
-                text, lexical, prepared.resolved, prepared.resolved.entry_id
-            )
-        }
-        spans = [(a, b, overrides.get(a, c)) for a, b, c in lexical]
-        offsets = _source_offsets(combined)
-        return context.body_spans([(offsets[a], offsets[b], c) for a, b, c in spans])
+        if prepared.resolved is not None:
+            lexical = lexical_spans(text, types, constructors)
+            overrides = {
+                occurrence.start: occurrence.category
+                for occurrence in name_occurrences(
+                    text, lexical, prepared.resolved, prepared.resolved.entry_id
+                )
+            }
+            spans = [(a, b, overrides.get(a, c)) for a, b, c in lexical]
+            offsets = _source_offsets(combined)
+            return context.body_spans([(offsets[a], offsets[b], c) for a, b, c in spans])
     except Exception:
         # Highlighting is optional presentation, including for arbitrary fragments.
-        return fallback
+        pass
+    return lexical_spans(source, types, constructors)

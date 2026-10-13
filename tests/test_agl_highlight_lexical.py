@@ -9,14 +9,14 @@ from unittest.mock import patch
 import pytest
 from lark.lexer import Token
 
-from agnette.agl.highlight import Category, Span, lexical_spans
+from agnette.agl.highlight.categories import Category, Span
 from agnette.agl.highlight.lexical import (
     _attribute_styles,
     declared_names,
-    open_string_start,
+    lexical_spans,
     repl_spans,
 )
-from agnette.agl.lexer import _RecoveryResult, tokenize_recover
+from agnette.agl.lexer import _RecoveryResult, lex_open_quote_start, tokenize_recover
 from tests._agl_corpus import lexical_corpus
 
 
@@ -289,7 +289,7 @@ def test_corpus_partitions() -> None:
     ],
 )
 def test_recovery_based_open_string_check(source: str, expected: int | None) -> None:
-    assert open_string_start(source) == expected
+    assert lex_open_quote_start(source) == expected
 
 
 def test_positionless_synthetic_tokens_leave_the_source_intact() -> None:

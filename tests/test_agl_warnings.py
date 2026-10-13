@@ -11,7 +11,6 @@ from agnette.agl.warnings import (
     TAB_INDENTATION,
     UNQUOTED_EXEC_HOLE,
     WARNING_CATALOG,
-    WARNING_DEFAULT_LEVELS,
     StaticWarning,
 )
 
@@ -43,7 +42,7 @@ def test_catalog_lists_exactly_the_four_warnings() -> None:
 
 
 def test_derived_views_follow_the_entries() -> None:
-    assert set(WARNING_DEFAULT_LEVELS.items()) == {(name, "warn") for name in WARNING_CATALOG}
+    assert {entry.default_level for entry in WARNING_CATALOG.values()} == {"warn"}
     assert EXEMPTABLE_WARNINGS == {"unquoted-exec-hole"}
 
 

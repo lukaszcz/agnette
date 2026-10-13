@@ -30,7 +30,7 @@ from agnette.packages.manifest import (
     ManifestError,
     PackageManifest,
     expanded_commands,
-    load_manifest,
+    load_installed_manifest,
     validate_package_name,
 )
 from agnette.packages.model import (
@@ -77,10 +77,9 @@ def active_package_version(active: ActivePackage) -> semver.Version:
         return active.version
     # Live source: only the version is read, so its command table may still
     # be waiting on the commands its own programs register.
-    return load_manifest(
+    return load_installed_manifest(
         active.editable / "package.toml",
         commands_complete=False,
-        allow_legacy_dev_aliases=True,
     ).version
 
 
@@ -1047,10 +1046,9 @@ def _load_installed_manifest(root: Path, *, commands_complete: bool = True) -> P
     validates the command set once that merge has happened.
     """
     try:
-        return load_manifest(
+        return load_installed_manifest(
             root / "package.toml",
             commands_complete=commands_complete,
-            allow_legacy_dev_aliases=True,
         )
     except ManifestError as exc:
         raise PackageActivationError(f"cannot load active package at {root}: {exc}") from exc

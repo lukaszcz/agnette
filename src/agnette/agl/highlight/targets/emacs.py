@@ -4,10 +4,8 @@ import json
 
 from agnette.agl.highlight.grammar import Grammar
 from agnette.agl.keywords import (
+    CONSTANT_KEYWORDS,
     KEYWORDS,
-    KW_FALSE,
-    KW_NULL,
-    KW_TRUE,
     OPERATOR_SOFT_KEYWORDS,
     SOFT_KEYWORDS,
 )
@@ -20,7 +18,7 @@ def generate(grammar: Grammar) -> str:
     """Export deterministic Lisp data; grammar topology does not affect inventories."""
     inventories = {
         "agl-keywords": KEYWORDS,
-        "agl-constant-keywords": {KW_TRUE, KW_FALSE, KW_NULL},
+        "agl-constant-keywords": CONSTANT_KEYWORDS,
         "agl-operator-keywords": OPERATOR_SOFT_KEYWORDS,
         "agl-soft-keywords": SOFT_KEYWORDS,
         "agl-contextual-builtins": set(BUILTIN_CALL_NAMES),

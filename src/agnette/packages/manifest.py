@@ -215,12 +215,7 @@ def distribution_manifest(manifest: PackageManifest) -> PackageManifest:
     return replace(manifest, dependencies=dependencies)
 
 
-def load_manifest(
-    path: Path,
-    *,
-    commands_complete: bool = True,
-    allow_legacy_dev_aliases: bool = False,
-) -> PackageManifest:
+def load_manifest(path: Path, *, commands_complete: bool = True) -> PackageManifest:
     """Load and validate the ``package.toml`` at *path*.
 
     ``commands_complete=False`` defers :func:`validate_command_set`'s
@@ -232,10 +227,22 @@ def load_manifest(
     must a caller that reads only a live tree's identity and never its
     command table. A manifest that is already complete — a store tree's, an
     archive's — must load with the default so a corrupt one is still caught
-    here. Installed-package readers may set ``allow_legacy_dev_aliases`` to
-    accept aliases that predate AgM's built-in ``dev`` command.
+    here.
     """
+    return _load_manifest(path, commands_complete=commands_complete, allow_legacy_dev_aliases=False)
 
+
+def load_installed_manifest(path: Path, *, commands_complete: bool = True) -> PackageManifest:
+    """:func:`load_manifest` for an accepted package (store or live tree).
+
+    Accepts aliases that predate AgM's built-in ``dev`` command.
+    """
+    return _load_manifest(path, commands_complete=commands_complete, allow_legacy_dev_aliases=True)
+
+
+def _load_manifest(
+    path: Path, *, commands_complete: bool, allow_legacy_dev_aliases: bool
+) -> PackageManifest:
     try:
         raw = load_toml_file(path)
     except (OSError, TOMLKitError, UnicodeDecodeError) as exc:

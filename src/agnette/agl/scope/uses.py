@@ -46,6 +46,7 @@ from agnette.agl.scope.symbols import (
     UnknownQualifierError,
     atom_under_prefix,
     contribution_origin,
+    import_item_spellings,
     reject_unreadable_binding_name,
 )
 from agnette.agl.scope.symbols import declaration_qname as _key_qname
@@ -535,11 +536,8 @@ class UseReader:
             for end, segment in enumerate(decl.target, 1):
                 record(segment.node_id, target[:end])
             references[decl.node_id, target[-1]] = references[decl.target[-1].node_id, target[-1]]
-            for item in (*(decl.tail or ()), *decl.hidden):
-                path = _item_path(item)
-                for end, segment in enumerate(item.scope_path, 1):
-                    record(segment.node_id, (*target, *path[:end]), len(target))
-                record(item.node_id, (*target, *path), len(target))
+            for node_id, path in import_item_spellings((*(decl.tail or ()), *decl.hidden)):
+                record(node_id, (*target, *path), len(target))
         return references
 
     def _use_path_reached(

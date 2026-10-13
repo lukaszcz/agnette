@@ -1,7 +1,7 @@
 """Hidden AgL source, body-offset projection, and adjacent Markdown fence metadata."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from agnette.agl.highlight.categories import Span
@@ -161,6 +161,42 @@ def fence_metadata(lines: Sequence[str], opening: int) -> FenceMetadata | None:
         if previous_container.has_list:
             break
     return FenceMetadata(check, "\n".join(reversed(context)), start, prefix, delimiter)
+
+
+@dataclass(frozen=True, slots=True)
+class AglFence:
+    """An AgL fenced block located in Markdown lines."""
+
+    metadata: FenceMetadata
+    opening: int  # 0-based opening fence line
+    end: int  # closing fence line, or the line ending an unclosed body
+    closed: bool
+
+    def body(self, lines: Sequence[str]) -> list[str]:
+        """Body lines without their container prefix."""
+        return [self.metadata.body_line(line) for line in lines[self.opening + 1 : self.end]]
+
+
+def agl_fences(lines: Sequence[str]) -> Iterator[AglFence]:
+    """Yield AgL fences in order; a container boundary ends an unclosed body."""
+    index = 0
+    while index < len(lines):
+        metadata = fence_metadata(lines, index)
+        if metadata is None:
+            index += 1
+            continue
+        end = index + 1
+        closed = False
+        while end < len(lines):
+            content = metadata.container.content(lines[end])
+            if content is None:
+                break
+            if metadata.closes(content):
+                closed = True
+                break
+            end += 1
+        yield AglFence(metadata, index, end, closed)
+        index = end + closed
 
 
 @dataclass(frozen=True, slots=True)

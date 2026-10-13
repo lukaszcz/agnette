@@ -10,6 +10,7 @@ Public API
 - :func:`tokenize` — strict token iterator for tests and tooling.
 - :func:`tokenize_recover` — tokens plus diagnostics from every lexer stage;
   rejected scanner spans carry recovery-only error or incomplete-tail tokens.
+- :data:`RESERVED_OPERATOR_SPELLINGS` — operator spellings with their own token types.
 - :func:`lex_comment_spans` — offsets of the ``#`` comments the scan skipped
   for standalone consumers (comments carry no token).
 - :func:`lex_open_quote_start` — recovery scanner recognition under the REPL's
@@ -41,9 +42,16 @@ from agnette.agl.lexer.lexer import (
     token_collector,
     unclosed_scope_path,
 )
-from agnette.agl.lexer.scanner import _Scanner, lex_comment_spans, lex_open_quote_start, scan
+from agnette.agl.lexer.scanner import (
+    RESERVED_OPERATOR_SPELLINGS,
+    _Scanner,
+    lex_comment_spans,
+    lex_open_quote_start,
+    scan,
+)
 
 __all__ = [
+    "RESERVED_OPERATOR_SPELLINGS",
     "IncompleteInputError",
     "LexError",
     "UnterminatedTripleQuotedStringError",
