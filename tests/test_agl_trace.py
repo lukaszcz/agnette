@@ -1469,14 +1469,15 @@ class TestTraceStoreProperties:
         records = _load_jsonl(p)
         assert "run_id" not in records[0]
 
-    def test_trace_store_records_without_span(self, tmp_path: Path) -> None:
-        """Methods called with span=None still emit valid JSONL with null location fields."""
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_trace_store_records_without_span(self, tmp_path: Path, enabled: bool) -> None:
+        """Spanless calls emit records with null locations only while tracing is enabled."""
         import json as _json
 
         from agnette.agl.runtime.trace import TraceStore
 
         p = tmp_path / "t.jsonl"
-        ts = TraceStore(path=p)
+        ts = TraceStore(path=p if enabled else None)
         ts.run_start()
         ts.agent_request(
             agent={"variant": "AgentCommand", "payload": {"command": "x"}},
@@ -1507,8 +1508,15 @@ class TestTraceStoreProperties:
         ts.exception(type_name="Abort", message="stop", span=None)
         ts.run_end(ok=True)
 
+        if not enabled:
+            assert not p.exists()
+            ts.activate(p)
+            ts.run_start()
+
         lines = p.read_text(encoding="utf-8").splitlines()
         records = [_json.loads(ln) for ln in lines if ln.strip()]
+        if not enabled:
+            assert [record["kind"] for record in records] == ["run_start"]
         # The location slots remain stable even when no source span is known.
         for rec in records:
             assert rec["file"] is None

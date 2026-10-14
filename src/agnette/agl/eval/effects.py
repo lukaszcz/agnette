@@ -660,20 +660,21 @@ class EffectHandlers:
         json_schema: object | None,
     ) -> str:
         """Trace, dispatch, and map one request sent through a session."""
-        self._ctx._trace.agent_request(
-            agent=self._agent_trace_value(agent_value),
-            effective_agent=agent_spec_shape(request.agent),
-            attempt=request.attempt,
-            max_attempts=max_attempts,
-            prompt=request.prompt,
-            target_type=target_type,
-            codec=codec,
-            strict_json=strict_json,
-            json_schema=json_schema,
-            sandbox=self._sandbox_trace_value(request.permission_mode, request.sandbox),
-            transport=request.transport.value,
-            span=node.location,
-        )
+        if self._ctx._trace.path is not None:
+            self._ctx._trace.agent_request(
+                agent=self._agent_trace_value(agent_value),
+                effective_agent=agent_spec_shape(request.agent),
+                attempt=request.attempt,
+                max_attempts=max_attempts,
+                prompt=request.prompt,
+                target_type=target_type,
+                codec=codec,
+                strict_json=strict_json,
+                json_schema=json_schema,
+                sandbox=self._sandbox_trace_value(request.permission_mode, request.sandbox),
+                transport=request.transport.value,
+                span=node.location,
+            )
         metadata: dict[str, object] = {}
         call_info: dict[str, object] | None = None
         try:

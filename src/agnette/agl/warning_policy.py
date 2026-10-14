@@ -85,9 +85,11 @@ def installed_sources(warnings: Iterable[Diagnostic], roots: RootSet | None) -> 
     """
     if roots is None:
         return frozenset()
-    paths = {label: Path(label) for w in warnings if (label := w.source_label) is not None}
+    labels = {w.source_label for w in warnings if w.source_label is not None}
     return frozenset(
-        label for label, path in paths.items() if path.is_absolute() and roots.is_installed(path)
+        label
+        for label in labels
+        if (path := Path(label)).is_absolute() and roots.is_installed(path)
     )
 
 

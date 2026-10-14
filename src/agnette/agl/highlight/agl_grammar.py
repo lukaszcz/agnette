@@ -148,12 +148,11 @@ _INTERPOLATION_CODE = (
 )
 
 
-def _verbatim_rules() -> tuple[Rule, ...]:
-    return (
-        Rule(r"\\%", Category.VERBATIM),  # escapes a following hole opener
-        _ENV,
-        _HOLE,
-    )
+_VERBATIM_RULES = (
+    Rule(r"\\%", Category.VERBATIM),  # escapes a following hole opener
+    _ENV,
+    _HOLE,
+)
 
 
 AGL_GRAMMAR = Grammar(
@@ -195,7 +194,7 @@ AGL_GRAMMAR = Grammar(
         State("rejected-template", (Rule(r"$", action=Pop()),), Category.ERROR),
         State(
             "verbatim",
-            (Rule(r"$|(?=[ \t]+$)", action=Pop()), *_verbatim_rules()),
+            (Rule(r"$|(?=[ \t]+$)", action=Pop()), *_VERBATIM_RULES),
             Category.VERBATIM,
         ),
         State(
@@ -203,7 +202,7 @@ AGL_GRAMMAR = Grammar(
             (
                 Rule(r"^(?=[^ \t\r\n])", action=Pop()),
                 Rule(r"^[ \t]+$"),
-                *_verbatim_rules(),
+                *_VERBATIM_RULES,
             ),
             Category.VERBATIM,
         ),
