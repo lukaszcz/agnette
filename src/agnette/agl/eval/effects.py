@@ -145,16 +145,16 @@ class EffectCtx(Protocol):
 
 
 def _decode_exec_streams(stdout: CapturedOutput, stderr: CapturedOutput) -> tuple[str, str, str]:
-    """Decode both streams for an ``ExecError``'s fields; return them and a note.
+    """Decode both streams as-is; return them and a decode note.
 
-    An undecodable stream's field is ``""`` -- an escaped rendering would be
+    An undecodable stream's text is ``""`` -- an escaped rendering would be
     text the process never printed -- and the note, empty when both decode,
     names each failing stream and its first invalid byte.
     """
     stdout_text, stdout_note = stdout.text_or_note("stdout")
     stderr_text, stderr_note = stderr.text_or_note("stderr")
     notes = [note for note in (stdout_note, stderr_note) if note is not None]
-    return stdout_text.rstrip("\n"), stderr_text.rstrip("\n"), "; ".join(notes)
+    return stdout_text, stderr_text, "; ".join(notes)
 
 
 def _contract_json_schema(contract: ContractRequest) -> str | None:
@@ -1033,7 +1033,8 @@ class EffectHandlers:
         """Raise the builtin ``ExecError`` carrying one shell invocation's outcome.
 
         Every ``exec`` failure — spawn, timeout, non-zero exit, and typed-output
-        parse failure — reports through this one shape.
+        parse failure — reports through this one shape. The ``stdout`` and
+        ``stderr`` fields have trailing newlines stripped.
         """
         raise AglRaise(
             _make_exc_value(
@@ -1043,8 +1044,8 @@ class EffectHandlers:
                 fields={
                     "command": TextValue(command),
                     "exit-code": IntValue(exit_code),
-                    "stdout": TextValue(stdout),
-                    "stderr": TextValue(stderr),
+                    "stdout": TextValue(stdout.rstrip("\n")),
+                    "stderr": TextValue(stderr.rstrip("\n")),
                     "timed-out": BoolValue(timed_out),
                 },
             )

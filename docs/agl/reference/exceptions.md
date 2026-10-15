@@ -319,8 +319,8 @@ process is started.
 command: text     # the rendered command
 exit-code: int    # -1 for spawn failure, sandbox preparation failure, or a
                   # timeout without an exit status
-stdout: text      # "" if captured but not valid UTF-8
-stderr: text      # "" if captured but not valid UTF-8
+stdout: text      # trailing newlines stripped; "" if captured but not valid UTF-8
+stderr: text      # trailing newlines stripped; "" if captured but not valid UTF-8
 timed-out: bool
 ```
 

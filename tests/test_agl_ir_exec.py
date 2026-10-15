@@ -144,6 +144,18 @@ def test_t3_structured_exec() -> None:
     assert ir["r"].nominal == program.builtin_nominals.resolve("ExecResult")
 
 
+def test_structured_exec_returns_streams_as_is() -> None:
+    """The structured form keeps trailing newlines in stdout and stderr."""
+    source = 'let r: ExecResult = exec("cmd")\nr'
+    commands = {"cmd": _fail(2, stdout="a\n\n", stderr="e\n")}
+    ir = evaluate_ir_with_shell(source, commands)
+    from agnette.agl.semantics.values import RecordValue, TextValue
+
+    assert isinstance(ir["r"], RecordValue)
+    assert ir["r"].fields["stdout"] == TextValue("a\n\n")
+    assert ir["r"].fields["stderr"] == TextValue("e\n")
+
+
 # ---------------------------------------------------------------------------
 # Non-zero exit with text contract raises ExecError
 # ---------------------------------------------------------------------------

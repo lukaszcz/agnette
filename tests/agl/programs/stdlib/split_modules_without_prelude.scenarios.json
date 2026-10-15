@@ -19,7 +19,7 @@
       "shell": [
         {
           "command": "echo hi",
-          "stdout": "hi\n"
+          "stdout": "hi"
         }
       ],
       "expect": {

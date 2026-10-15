@@ -2464,7 +2464,7 @@ def test_scoped_stdlib_arrangement_runs_end_to_end(
         '  raise Std::RangeError(message = "boom")\n'
     )
 
-    shell = FakeShell([{"command": "echo hi", "stdout": "hi\n"}])
+    shell = FakeShell([{"command": "echo hi", "stdout": "hi"}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(
@@ -2503,7 +2503,7 @@ def test_scoped_stdlib_arrangement_structured_exec_result_is_the_scoped_nominal(
         '  let r: Std::ExecResult = Std::exec("echo hi")\n  Std::print(r.stdout)\n'
     )
 
-    shell = FakeShell([{"command": "echo hi", "stdout": "hi\n"}])
+    shell = FakeShell([{"command": "echo hi", "stdout": "hi"}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(
@@ -2746,7 +2746,7 @@ def test_builtin_exec_value_uses_ambient_defaults(
         "  let run: text -> ExecResult = exec\n"
         '  print(run("answer").stdout)\n'
     )
-    shell = FakeShell([{"command": "answer", "stdout": "42\n"}])
+    shell = FakeShell([{"command": "answer", "stdout": "42"}])
 
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run_source_entry(

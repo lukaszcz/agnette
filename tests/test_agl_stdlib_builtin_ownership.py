@@ -249,7 +249,7 @@ def test_an_uncaught_standard_exception_still_spells_its_bare_name(
 def test_exec_dispatches_to_the_declaration_in_its_own_standard_module(
     split_stdlib: RootSet, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    shell = FakeShell([{"command": "echo hi", "stdout": "hi\n"}])
+    shell = FakeShell([{"command": "echo hi", "stdout": "hi"}])
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
         result = _run(
             'let r = exec("echo hi")\nprint(r.stdout)\nprint(r.exit-code)\n', split_stdlib
