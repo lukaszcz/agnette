@@ -22,6 +22,7 @@ import std/option::Option
 import std/path
 import std/path::path
 import std/text::{++}
+import std/text::join
 
 @doc("Any revision: branch, tag, hash, `HEAD~2`, `stash@{0}`, `FETCH_HEAD`.")
 type ref = text
@@ -65,7 +66,6 @@ enum Change
   | TypeChanged
   | Unmerged
   | Renamed(source: path, similarity: int)
-  | Copied(source: path, similarity: int)
 
 @doc("A path and how it changed.")
 record FileChange
@@ -315,6 +315,93 @@ scope GitInternals
       records.push(items.slice(start, start + size))
       start := start + size
     records
+
+  @doc("Parse the text after the first character as an int, as in `+3` or `R100`.")
+  def tail-int(code: text) -> int = code.slice(1, code.size()) as int
+
+  @doc("""
+    Decode a status letter; `source` and `similarity` apply to `R`.
+
+    `U` is the only letter left, so it is the fallback.
+  """)
+  def change-of(letter: text, source: path, similarity: int) -> Change =
+    case letter of
+      | "." => Unmodified
+      | "A" => Added
+      | "M" => Modified
+      | "D" => Deleted
+      | "T" => TypeChanged
+      | "R" => Renamed(source, similarity)
+      | _ => Unmerged
+
+  @doc("""
+    Decode the `XY` code of an unmerged entry; git emits only seven.
+
+    `UU` is the only code left, so it is the fallback.
+  """)
+  def conflict-kind-of(code: text) -> ConflictKind =
+    case code of
+      | "AA" => BothAdded
+      | "DD" => BothDeleted
+      | "AU" => AddedByUs
+      | "UA" => AddedByThem
+      | "DU" => DeletedByUs
+      | "UD" => DeletedByThem
+      | _ => BothModified
+
+  @doc("Return the path in `fields` after the first `skip` fields, rejoining its spaces.")
+  def field-path(fields: array[text], skip: int) -> path = join(fields.drop(skip), " ")
+
+  @doc("""
+    Build the entry of a tracked status line from its `XY` code.
+
+    `source` and `similarity` describe the rename or copy of a `2` line.
+  """)
+  def tracked-entry(xy: text, p: path, source: path, similarity: int) -> StatusEntry =
+    let staged = change-of(xy.slice(0, 1), source, similarity)
+    let unstaged = change-of(xy.slice(1, 2), source, similarity)
+    StatusEntry(p, Tracked(staged, unstaged))
+
+  @doc("Return `Some(value)`, or `None` when `value` is git's `placeholder`.")
+  def named(value: text, placeholder: text) -> Option[ref] =
+    if value == placeholder =>
+      None
+    else =>
+      Some(value)
+
+  @doc("Parse `status --porcelain=v2 -z --branch` output.")
+  def parse-status(out: text) -> Status =
+    let items = split-nul(out)
+    var head: Option[ref] = None
+    var branch: Option[ref] = None
+    var upstream: Option[ref] = None
+    var divergence: Option[Divergence] = None
+    var entries: array[StatusEntry] = []
+    var i = 0
+    while i < items.size() do
+      let item = items[i]
+      let fields = item.split(" ")
+      case fields[0] of
+        | "#" =>
+          case fields[1] of
+            | "branch.oid" => head := named(fields[2], "(initial)")
+            | "branch.head" => branch := named(fields[2], "(detached)")
+            | "branch.upstream" => upstream := Some(fields[2])
+            | "branch.ab" =>
+              divergence := Some(Divergence(tail-int(fields[2]), tail-int(fields[3])))
+            | _ => ()
+        | "1" => entries.push(tracked-entry(fields[1], field-path(fields, 8), "", 0))
+        | "2" =>
+          i := i + 1
+          let entry = tracked-entry(fields[1], field-path(fields, 9), items[i], tail-int(fields[8]))
+          entries.push(entry)
+        | "u" =>
+          entries.push(StatusEntry(field-path(fields, 10), Conflict(conflict-kind-of(fields[1]))))
+        | "?" => entries.push(StatusEntry(item.slice(2, item.size()), Untracked))
+        | "!" => entries.push(StatusEntry(item.slice(2, item.size()), Ignored))
+        | _ => ()
+      i := i + 1
+    Status(head, branch, upstream, divergence, entries)
 end GitInternals
 
 @doc("""
@@ -387,3 +474,37 @@ def resolve(rev: ref, repo: path = ".") -> ref =
 def resolve?(rev: ref, repo: path = ".") -> Option[ref] =
   let args = ["rev-parse", "-q", "--verify", "--end-of-options", rev ++ "^{commit}"]
   GitInternals::optional(repo, args).map(fn(res: ExecResult) => res.stdout.trim())
+
+@doc("""
+  Return the branch state and changed paths of the work tree containing `repo`.
+
+  `untracked` includes untracked files individually; `ignored` includes ignored files, an ignored
+  directory as `dir/`. Paths are root-relative. Staged renames are detected, copies are not.
+""")
+def status(untracked: bool = true, ignored: bool = false, repo: path = ".") -> Status =
+  # `--ignored` needs untracked scanning, so untracked entries are dropped afterwards.
+  let scan = if untracked or ignored => "all" else => "no"
+  let mode = if ignored => "matching" else => "no"
+  # `--no-renames` resets configured copy detection, `--find-renames` then enables renames only;
+  # `--ignore-submodules=none` overrides configured submodule hiding.
+  let args = [
+    "status",
+    "--porcelain=v2",
+    "-z",
+    "--branch",
+    "--no-renames",
+    "--find-renames",
+    "--ignore-submodules=none",
+    "--untracked-files=%{scan}",
+    "--ignored=%{mode}",
+  ]
+  let parsed = GitInternals::parse-status(GitInternals::run(repo, args).stdout)
+  if untracked =>
+    parsed
+  else =>
+    let kept = parsed.entries.select(fn(e: StatusEntry) => e.state is not Untracked)
+    parsed with entries = kept
+
+@doc("Check if the work tree has no changes; `untracked` counts untracked files as changes.")
+def is-clean(untracked: bool = true, repo: path = ".") -> bool =
+  status(untracked, false, repo).entries.is-empty()

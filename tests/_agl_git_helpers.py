@@ -34,3 +34,17 @@ def run_git_program(
     monkeypatch.chdir(cwd)
     result = run_program(source, process_environment=dict(os.environ))
     return capsys.readouterr().out, result
+
+
+def agl_check(name: str, actual: str, expected: str) -> str:
+    """Return AgL statements printing ``ok`` when *actual* equals *expected*, else *actual*.
+
+    *name* labels the binding, so statements built from different calls can share one scope.
+    """
+    return f"""
+let {name} = {actual}
+if {name} == {expected} =>
+  print("ok")
+else =>
+  print({name})
+"""
