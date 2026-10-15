@@ -774,6 +774,7 @@ scope GitInternals
         let message = row[5].slice(0, row[5].size() - row[6].size())
         tags.push(Tag(row[0], target, Some(trim-newlines(message))))
     tags
+
   @doc("Build a stash entry from a `stash::list` row: its `stash@{n}` name, hash and subject.")
   def stash-of(row: array[text]) -> StashEntry =
     # `stash@{` is 7 characters; git writes no date selector here, whatever `log.date` says.
@@ -845,6 +846,80 @@ scope GitInternals
       else =>
         lines.push(item)
     found
+
+  @doc("Split newline-terminated output into its lines.")
+  def split-lines(out: text) -> array[text] =
+    if out.is-empty() =>
+      []
+    else =>
+      chomp(out).split("\n")
+
+  @doc("The `remote` arguments for `subcommand` with `--push` when `push`, then the `operands`.")
+  def remote-args(subcommand: text, push: bool, operands: array[text]) -> array[text] =
+    var args = ["remote", subcommand]
+    if push =>
+      args.push("--push")
+    args.concat(["--end-of-options"]).concat(operands)
+
+  @doc("""
+    Return the fetch URL of the remote `name` as git reads it, after `insteadOf` rewriting.
+
+    Exit 2 is `None`: git-remote(1) reports no such remote, so the repository's own
+    configuration does not define `name`. A remote without a `url` reads as its name.
+  """)
+  def fetch-url?(repo: path, name: text) -> Option[text] =
+    let args = remote-args("get-url", false, [name])
+    let res = attempt(repo, args)
+    if res.exit-code == 2 =>
+      None
+    else =>
+      Some(chomp(check(scoped(repo, args), res).stdout))
+
+  @doc("Return the push URL of the remote `name` as git reads it, after `pushInsteadOf`.")
+  def push-url(repo: path, name: text) -> text =
+    chomp(run(repo, remote-args("get-url", true, [name])).stdout)
+
+  @doc("Build the remote `name`, or return `None` when the repository does not define it.")
+  def remote-of(repo: path, name: text) -> Option[Remote] =
+    fetch-url?(repo, name).map(fn(fetch: text) => Remote(name, fetch, push-url(repo, name)))
+
+  @doc("The `config` arguments that read `key` with the options `flags`.")
+  def config-get-args(flags: array[text], key: text) -> array[text] =
+    ["config"].concat(flags).concat(["--get", "--end-of-options", key])
+
+  @doc("""
+    Read the effective value of `key` with `config --get`; exit 1 reports a missing key.
+
+    Exit 1 also reports an invalid key. A `--default` read tells them apart without reading
+    messages: git accepts it only for a valid key. Any other outcome raises `GitError` for the
+    first read.
+  """)
+  def config-read(repo: path, key: text) -> Option[text] =
+    let args = config-get-args(["-z"], key)
+    let res = attempt(repo, args)
+    let probe = config-get-args(["--default", ""], key)
+    if res.exit-code == 0 =>
+      Some(config-value(res))
+    else =>
+      if res.exit-code == 1 and attempt(repo, probe).exit-code == 0 =>
+        None
+      else =>
+        fail(scoped(repo, args), res)
+
+  @doc("Return the value in the `-z` result of a successful `config-read`.")
+  def config-value(res: ExecResult) -> text = split-nul(res.stdout)[0]
+
+  @doc("The `config` option that selects the file of `level`.")
+  def config-level(level: ConfigScope) -> text =
+    case level of
+      | Local => "--local"
+      | Global => "--global"
+
+  @doc("Run `config` on the file of `level` with the options `flags`, then the `operands`.")
+  def config-edit(repo: path, level: ConfigScope, flags: array[text],
+                  operands: array[text]) -> unit =
+    let args = ["config", config-level(level)].concat(flags).concat(["--end-of-options"])
+    let _ = run(repo, args.concat(operands))
 end GitInternals
 
 @doc("""
@@ -1510,7 +1585,8 @@ scope branch
     Rename the branch `old` to `new`, moving its upstream configuration; `force` replaces an
     existing `new`.
 
-    Raises `GitError` when `old` does not exist or `new` is invalid or taken.
+    Raises `GitError` when `old` is not defined in the repository's configuration or `new` is
+    invalid or taken.
   """)
   def rename(old: ref, new: ref, force: bool = false, repo: path = ".") -> unit =
     let flag = if force => "-M" else => "-m"
@@ -1777,3 +1853,102 @@ scope worktree
   def prune(repo: path = ".") -> unit =
     let _ = GitInternals::run(repo, ["worktree", "prune"])
 end worktree
+
+scope remote
+  @doc("""
+    Return the remotes, ordered by name.
+
+    A remote counts only when the repository's own configuration defines it; settings for a
+    name in the global or system file alone do not. Each URL is the first one configured, in
+    whichever file, as `insteadOf` and `pushInsteadOf` rewrite it. A remote without a push URL
+    pushes to its fetch URL, and one without a `url` reports its name as the fetch URL.
+
+    Raises `GitError` when `repo` is not inside a repository.
+  """)
+  def list(repo: path = ".") -> array[Remote] =
+    GitInternals::split-lines(GitInternals::run(repo, ["remote"]).stdout)
+      .map(fn(name: text) => GitInternals::remote-of(repo, name))
+      .select(fn(remote: Option[Remote]) => remote.is-some())
+      .map(fn(remote: Option[Remote]) => remote.unwrap())
+
+  @doc("""
+    Add the remote `name` fetching from `url`, which is stored as given and not fetched.
+
+    Settings for `name` in the global or system file still apply to it.
+
+    Raises `GitError` when `name` is invalid or taken.
+  """)
+  def add(name: text, url: text, repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["remote", "add", "--end-of-options", name, url])
+
+  @doc("""
+    Remove the remote `name`, its configuration, and its remote-tracking branches.
+
+    Raises `GitError` when it is not defined in the repository's configuration.
+  """)
+  def remove(name: text, repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["remote", "remove", "--end-of-options", name])
+
+  @doc("""
+    Rename the remote `old` to `new`, moving its remote-tracking branches and the branch
+    configuration that refers to it.
+
+    Raises `GitError` when `old` does not exist or `new` is invalid or taken.
+  """)
+  def rename(old: text, new: text, repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["remote", "rename", "--end-of-options", old, new])
+
+  @doc("""
+    Set the fetch URL of `name` in the repository's configuration, or its push URL when `push`.
+
+    `url` is stored as given. A push URL is added when the remote has none.
+
+    Raises `GitError` when the remote is not defined in the repository's configuration or has
+    several such URLs there.
+  """)
+  def set-url(name: text, url: text, push: bool = false, repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, GitInternals::remote-args("set-url", push, [name, url]))
+end remote
+
+scope config
+  @doc("""
+    Return the effective value of `key`, such as `user.name`: the last one set, in the system,
+    global, local and work tree files, then the environment.
+
+    Included files apply, and so does configuration the environment supplies (`GIT_CONFIG_COUNT`,
+    `GIT_CONFIG_GLOBAL`, ...). A value is read as written, without conversion; a key without a
+    value reads as empty. `repo` may be outside a repository, which has no local file.
+
+    Raises `GitError` when `key` is not set, is invalid, or git cannot read the configuration.
+  """)
+  def get(key: text, repo: path = ".") -> text =
+    GitInternals::config-value(GitInternals::run(repo, GitInternals::config-get-args(["-z"], key)))
+
+  @doc("""
+    Return the effective value of `key` as `get` does, or `None` when `key` is not set.
+
+    Raises `GitError` when `key` is invalid, or git cannot read the configuration.
+  """)
+  def get?(key: text, repo: path = ".") -> Option[text] = GitInternals::config-read(repo, key)
+
+  @doc("""
+    Set `key` to `value` in the file of `scope`, replacing its value there.
+
+    `Local` is the repository's own file, `Global` the user's (`GIT_CONFIG_GLOBAL` redirects it).
+    `value` is stored as given and may span lines.
+
+    Raises `GitError` when `key` is invalid or has several values in that file, `Local` has no
+    repository, or git cannot write the file.
+  """)
+  def set(key: text, value: text, scope: ConfigScope = Local, repo: path = ".") -> unit =
+    GitInternals::config-edit(repo, scope, [], [key, value])
+
+  @doc("""
+    Remove `key` from the file of `scope`.
+
+    A value from another file or an included one stays. Raises `GitError` when `key` is not set in
+    that file, is invalid or has several values there, or git cannot write the file.
+  """)
+  def unset(key: text, scope: ConfigScope = Local, repo: path = ".") -> unit =
+    GitInternals::config-edit(repo, scope, ["--unset"], [key])
+end config

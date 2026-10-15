@@ -1,7 +1,8 @@
-"""Family scopes of ``std/git``: ``branch``, ``tag``, ``stash`` and ``worktree``."""
+"""Family scopes of ``std/git``: branch, tag, stash, worktree, remote and config."""
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -1002,3 +1003,343 @@ def test_worktree_add_ignores_submodule_branch_propagation(
     assert result.ok, result.error
     assert git_refs(repo, env, "heads").keys() == {"main", "topic"}
     assert git_refs(repo / "s", env, "heads").keys() == {"main"}
+
+
+def _global_config(*args: str) -> str:
+    """Return the output of ``git config --global`` run in the test's isolated process home."""
+    return git_output(Path(os.environ["HOME"]), ["config", "--global", *args], dict(os.environ))
+
+
+def _remote(name: str, fetch: str, push: str | None = None) -> str:
+    """Return the AgL ``Remote`` literal; the push URL defaults to the fetch URL."""
+    return f'Remote("{name}", "{fetch}", "{fetch if push is None else push}")'
+
+
+def _remote_list(name: str, *remotes: str, repo: str = "repo") -> str:
+    """Return AgL checking that ``remote::list`` of *repo* is exactly *remotes*."""
+    return agl_check(name, f'git::remote::list("{repo}")', _agl_array(list(remotes)))
+
+
+def test_remote_add_set_url_rename_and_remove(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    head = git_rev(repo, env)
+    git_run(repo, ["config", "url.ssh://x/.insteadOf", "/srv/a/"], env)
+    git_run(repo, ["config", "url.ssh://p/.pushInsteadOf", "/srv/c/"], env)
+    for name in ("up", "pushy"):
+        git_run(repo, ["update-ref", f"refs/remotes/{name}/main", head], env)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    out, result = run_git_program(
+        agl_check("none", 'git::remote::list("repo").size()', "0")
+        + 'git::remote::add("origin", "/srv/o", "repo")\n'
+        'git::remote::add("up", "/srv/u", "repo")\n'
+        'git::remote::add("mirror", "/srv/a/m", "repo")\n'
+        'git::remote::add("pushy", "/srv/c/q", "repo")\n'
+        + _remote_list(
+            "added",
+            _remote("mirror", "ssh://x/m"),
+            _remote("origin", "/srv/o"),
+            _remote("pushy", "/srv/c/q", "ssh://p/q"),
+            _remote("up", "/srv/u"),
+        )
+        + 'git::remote::set-url("origin", "/srv/o2", repo = "repo")\n'
+        'git::remote::set-url("mirror", "/srv/a/m2", false, "repo")\n'
+        + _remote_list(
+            "urls",
+            _remote("mirror", "ssh://x/m2"),
+            _remote("origin", "/srv/o2"),
+            _remote("pushy", "/srv/c/q", "ssh://p/q"),
+            _remote("up", "/srv/u"),
+        )
+        + 'git::remote::set-url("origin", "/srv/push", true, "repo")\n'
+        + agl_check(
+            "push-only",
+            'git::remote::list("repo")[1]',
+            _remote("origin", "/srv/o2", "/srv/push"),
+        )
+        + 'git::remote::rename("up", "down", "repo")\n'
+        + agl_check(
+            "renamed",
+            'git::remote::list("repo").map(fn(r: Remote) => r.name)',
+            '["down", "mirror", "origin", "pushy"]',
+        )
+        + 'git::remote::remove("pushy", "repo")\n'
+        + agl_check(
+            "removed",
+            'git::remote::list("repo").map(fn(r: Remote) => r.name)',
+            '["down", "mirror", "origin"]',
+        )
+        + agl_raises('git::remote::add("origin", "/srv/other", "repo")')
+        + agl_raises('git::remote::remove("nope", "repo")')
+        + agl_raises('git::remote::rename("nope", "other", "repo")')
+        + agl_raises('git::remote::rename("origin", "mirror", "repo")')
+        + agl_raises('git::remote::set-url("nope", "/srv/x", false, "repo")')
+        + agl_raises('git::remote::set-url("nope", "/srv/x", true, "repo")')
+        + agl_raises('git::remote::list("plain")')
+        + agl_raises('git::remote::add("a", "/srv/a", "plain")')
+        + agl_raises('git::remote::list("absent")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 6 + ["raised"] * 9
+    # Stored URLs stay as given: `insteadOf` rewriting applies only when reading them.
+    assert git_lines(repo, ["config", "--get-all", "remote.mirror.url"], env) == ["/srv/a/m2"]
+    assert git_lines(repo, ["config", "--get-all", "remote.origin.pushurl"], env) == ["/srv/push"]
+    # Renaming moved the remote-tracking refs and the fetch refspec; removing deleted its refs.
+    assert git_refs(repo, env, "remotes") == {"down/main": head}
+    fetch = git_output(repo, ["config", "--get", "remote.down.fetch"], env)
+    assert fetch == "+refs/heads/*:refs/remotes/down/*"
+    for name in ("up", "pushy"):
+        git_fails(repo, ["config", "--get-all", f"remote.{name}.url"], env)
+
+
+def test_remote_operands_are_never_options(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    # Git accepts these names and URLs, so read as options they would act or fail: `--all` and
+    # `--tags` are options of `get-url` and `add`, `--push` of `set-url`.
+    git_run(repo, ["config", "remote.--all.url", "/srv/o"], env)
+
+    out, result = run_git_program(
+        _remote_list("listed", _remote("--all", "/srv/o"))
+        + 'git::remote::add("--tags", "-u", "repo")\n'
+        + _remote_list("added", _remote("--all", "/srv/o"), _remote("--tags", "-u"))
+        + 'git::remote::set-url("--tags", "--push", true, "repo")\n'
+        + _remote_list("push", _remote("--all", "/srv/o"), _remote("--tags", "-u", "--push"))
+        + 'git::remote::set-url("--all", "--mirror", false, "repo")\n'
+        + 'git::remote::rename("--tags", "--new", "repo")\n'
+        + _remote_list("renamed", _remote("--all", "--mirror"), _remote("--new", "-u", "--push"))
+        + 'git::remote::remove("--all", "repo")\n'
+        + _remote_list("removed", _remote("--new", "-u", "--push")),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 5
+    # `--tags` was a name, not the option that would have set `tagopt`.
+    git_fails(repo, ["config", "--get", "remote.--new.tagopt"], env)
+    git_fails(repo, ["config", "--get", "remote.--all.url"], env)
+
+
+def test_remote_list_counts_only_remotes_the_repository_defines(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    # `git remote` names `origin` for these settings alone, though the repository lacks it.
+    _global_config("remote.origin.prune", "true")
+    git_run(repo, ["config", "remote.only-push.pushurl", "/srv/push"], env)
+
+    out, result = run_git_program(
+        _remote_list("global-only", _remote("only-push", "only-push", "/srv/push"))
+        + 'git::remote::add("up", "/srv/u", "repo")\n'
+        + _remote_list(
+            "local",
+            _remote("only-push", "only-push", "/srv/push"),
+            _remote("up", "/srv/u"),
+        )
+        + agl_raises('git::remote::remove("origin", "repo")')
+        + agl_raises('git::remote::rename("origin", "other", "repo")')
+        + agl_raises('git::remote::set-url("origin", "/srv/x", false, "repo")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 2 + ["raised"] * 3
+
+
+def test_config_get_set_and_unset_by_scope(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    (tmp_path / "plain").mkdir()
+    git_run(repo, ["config", "--add", "multi.key", "first"], env)
+    git_run(repo, ["config", "--add", "multi.key", "last"], env)
+
+    out, result = run_git_program(
+        agl_check("missing", 'git::config::get?("test.key", "repo")', "None::[text]")
+        + agl_raises('git::config::get("test.key", "repo")')
+        + agl_raises('git::config::get?("nodots", "repo")')
+        + agl_raises('git::config::get?("test.bad key", "repo")')
+        + agl_raises('git::config::get("nodots", "repo")')
+        + 'git::config::set("test.key", "global", Global, "repo")\n'
+        + agl_check("global", 'git::config::get("test.key", "repo")', '"global"')
+        + 'git::config::set("test.key", "local", repo = "repo")\n'
+        + agl_check("local-wins", 'git::config::get("test.key", "repo")', '"local"')
+        + agl_check("optional", 'git::config::get?("TEST.Key", "repo")', 'Some("local")')
+        + agl_check("outside", 'git::config::get?("test.key", "plain")', 'Some("global")')
+        + agl_raises('git::config::set("multi.key", "new", repo = "repo")')
+        + agl_raises('git::config::unset("multi.key", repo = "repo")')
+        + 'git::config::unset("test.key", repo = "repo")\n'
+        + agl_check("unset-local", 'git::config::get("test.key", "repo")', '"global"')
+        + agl_raises('git::config::unset("test.key", repo = "repo")')
+        + 'git::config::unset("test.key", Global, "repo")\n'
+        + agl_check("unset-global", 'git::config::get?("test.key", "repo")', "None::[text]")
+        + agl_raises('git::config::unset("test.key", Global, "repo")')
+        + agl_raises('git::config::unset("nodots", repo = "repo")')
+        + 'git::config::set("test.home", "h", Global, "plain")\n'
+        + agl_check("global-outside", 'git::config::get("test.home", "plain")', '"h"')
+        + agl_raises('git::config::set("test.home", "l", Local, "plain")')
+        + agl_raises('git::config::set("nodots", "v", repo = "repo")')
+        + agl_raises('git::config::set("test.key", "v", repo = "absent")')
+        + agl_raises('git::config::get("test.key", "absent")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == (
+        ["ok"]
+        + ["raised"] * 4
+        + ["ok"] * 4
+        + ["raised"] * 2
+        + ["ok", "raised", "ok"]
+        + ["raised"] * 2
+        + ["ok"]
+        + ["raised"] * 4
+    )
+    # Each scope wrote its own file, and the failed multi-value writes changed nothing.
+    assert _global_config("--get", "test.home") == "h"
+    assert git_lines(repo, ["config", "--local", "--get-all", "multi.key"], env) == [
+        "first",
+        "last",
+    ]
+    git_fails(repo, ["config", "--local", "--get", "test.home"], env)
+    git_fails(repo, ["config", "--local", "--get", "test.key"], env)
+    git_fails(repo, ["config", "--global", "--get", "test.key"], dict(os.environ))
+
+
+def test_config_get_optional_error_reports_the_original_read(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    init_repo(tmp_path / "repo", env)
+
+    out, result = run_git_program(
+        """
+try
+  let _ = git::config::get?("nodots", "repo")
+  print("returned")
+catch GitError as e =>
+  print(e.args == ["-C", "repo", "config", "-z", "--get", "--end-of-options", "nodots"])
+""",
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["true"]
+
+
+def test_config_value_forms(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    # Configuration the environment supplies is part of the effective value `get` reads.
+    for name, value in (
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "env.key"),
+        ("GIT_CONFIG_VALUE_0", "from env"),
+    ):
+        monkeypatch.setenv(name, value)
+    included = tmp_path / "included.cfg"
+    git_run(repo, ["config", "--file", str(included), "inc.key", "from include"], env)
+    git_run(repo, ["config", "include.path", str(included)], env)
+    # A key written without a value is read as empty text.
+    with (repo / ".git" / "config").open("a", encoding="utf-8") as config:
+        config.write("[flag]\n\tbare\n")
+    git_run(repo, ["config", "--add", "multi.key", "first"], env)
+    git_run(repo, ["config", "--add", "multi.key", "last"], env)
+    # A setting the library pins for its own git calls must not leak into the value read back.
+    git_run(repo, ["config", "submodule.propagateBranches", "true"], env)
+    text = '  quoted \\"q\\" \\\\ back ; # not a comment\\n\\nthird line'
+
+    out, result = run_git_program(
+        'git::config::set("test.empty", "", repo = "repo")\n'
+        + agl_check("empty", 'git::config::get?("test.empty", "repo")', 'Some("")')
+        + agl_check("flag", 'git::config::get("flag.bare", "repo")', '""')
+        + f'git::config::set("test.text", "{text}", repo = "repo")\n'
+        + agl_check("text", 'git::config::get("test.text", "repo")', f'"{text}"')
+        + 'git::config::set("branch.feat/x.remote", "up", repo = "repo")\n'
+        + agl_check("sub", 'git::config::get("branch.feat/x.remote", "repo")', '"up"')
+        + agl_check("included", 'git::config::get("inc.key", "repo")', '"from include"')
+        + agl_check("environment", 'git::config::get("env.key", "repo")', '"from env"')
+        + agl_check("last", 'git::config::get("multi.key", "repo")', '"last"')
+        + agl_check("pins", 'git::config::get("submodule.propagateBranches", "repo")', '"true"'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 8
+    assert git_output(repo, ["config", "--local", "--get", "test.empty"], env) == ""
+
+
+def test_config_operands_are_never_options(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    git_run(repo, ["config", "test.keep", "kept"], env)
+    before = git_output(repo, ["config", "--list", "--local"], env).splitlines()
+
+    out, result = run_git_program(
+        # Read as an option, the key `--unset` would delete `test.keep`.
+        agl_raises('git::config::set("--unset", "test.keep", repo = "repo")')
+        # `--x.y` is a valid key: as an option, each of these would fail instead.
+        + 'git::config::set("--x.y", "v", repo = "repo")\n'
+        + agl_check("get", 'git::config::get("--x.y", "repo")', '"v"')
+        + agl_check("missing", 'git::config::get?("--x.z", "repo")', "None::[text]")
+        + 'git::config::unset("--x.y", repo = "repo")\n'
+        + 'git::config::set("test.opt", "--unset", repo = "repo")\n'
+        + agl_check("value", 'git::config::get("test.opt", "repo")', '"--unset"')
+        + 'git::config::set("test.dash", "-1", repo = "repo")\n'
+        + agl_check("dash", 'git::config::get("test.dash", "repo")', '"-1"'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised", "ok", "ok", "ok", "ok"]
+    after = git_output(repo, ["config", "--list", "--local"], env).splitlines()
+    assert after == [*before, "test.opt=--unset", "test.dash=-1"]
