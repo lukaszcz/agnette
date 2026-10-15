@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from tests._agl_git_helpers import run_git_program
-from tests._git_helpers import commit_file, git_output, git_run, init_repo
+from tests._git_helpers import commit_file, conflicted_merge, git_output, git_run, init_repo
 
 
 def test_is_repo_and_root_distinguish_work_trees_from_everything_else(
@@ -145,14 +144,7 @@ def test_files_lists_an_unmerged_path_once(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    repo = init_repo(tmp_path / "repo", env)
-    commit_file(repo, env, name="clash.txt", content="base\n")
-    git_run(repo, ["checkout", "-b", "other", "-q"], env)
-    commit_file(repo, env, name="clash.txt", content="other\n")
-    git_run(repo, ["checkout", "main", "-q"], env)
-    commit_file(repo, env, name="clash.txt", content="main\n")
-    merge = subprocess.run(["git", "merge", "other", "-q"], cwd=repo, env=env, capture_output=True)
-    assert merge.returncode != 0
+    conflicted_merge(tmp_path / "repo", env, name="clash.txt")
 
     out, result = run_git_program(
         """

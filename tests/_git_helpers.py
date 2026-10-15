@@ -17,6 +17,13 @@ def git_run(cwd: Path | None, args: Sequence[str], env: dict[str, str]) -> None:
     subprocess.run(["git", *args], cwd=cwd, env=env, check=True)
 
 
+def git_fails(cwd: Path, args: Sequence[str], env: dict[str, str]) -> None:
+    """Run a git command that is expected to exit nonzero, as a conflicting merge does."""
+
+    result = subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True)
+    assert result.returncode != 0
+
+
 def _git_stdout(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
     """Return the raw stdout of a successful git command."""
 
@@ -41,6 +48,12 @@ def git_lines(cwd: Path, args: Sequence[str], env: dict[str, str]) -> list[str]:
     """Return the unstripped stdout lines of a successful git command."""
 
     return _git_stdout(cwd, args, env).splitlines()
+
+
+def git_head(repo: Path, env: dict[str, str]) -> str:
+    """Return the full hash of ``HEAD``."""
+
+    return git_output(repo, ["rev-parse", "HEAD"], env)
 
 
 def lines_of(name: str) -> str:
@@ -71,6 +84,25 @@ def commit_file(
     (repo / name).write_text(content, encoding="utf-8")
     git_run(repo, ["add", name], env)
     git_run(repo, ["commit", "-m", message, "-q"], env)
+
+
+def conflicting_branches(repo: Path, env: dict[str, str], *, name: str = "f.txt") -> None:
+    """Leave ``main`` and ``other`` changing *name* differently, with ``main`` checked out."""
+
+    commit_file(repo, env, name=name, content="base\n", message="base")
+    git_run(repo, ["checkout", "-qb", "other"], env)
+    commit_file(repo, env, name=name, content="theirs\n", message="theirs")
+    git_run(repo, ["checkout", "-q", "main"], env)
+    commit_file(repo, env, name=name, content="ours\n", message="ours")
+
+
+def conflicted_merge(path: Path, env: dict[str, str], *, name: str = "f.txt") -> Path:
+    """Create a repository at *path* stopped mid-merge of ``other`` with *name* conflicted."""
+
+    repo = init_repo(path, env)
+    conflicting_branches(repo, env, name=name)
+    git_fails(repo, ["merge", "other"], env)
+    return repo
 
 
 def clone_local_remote(

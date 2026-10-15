@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -12,6 +11,8 @@ from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
 from tests._git_helpers import (
     clone_local_remote,
     commit_file,
+    git_fails,
+    git_head,
     git_lines,
     git_output,
     git_run,
@@ -112,8 +113,7 @@ def test_status_reports_every_conflict_kind(
     git_run(repo, ["mv", "f.txt", "g.txt"], env)
     git_run(repo, ["add", "-A"], env)
     git_run(repo, ["commit", "-qm", "main"], env)
-    merge = subprocess.run(["git", "merge", "other"], cwd=repo, env=env, capture_output=True)
-    assert merge.returncode != 0
+    git_fails(repo, ["merge", "other"], env)
 
     out, result = run_git_program(
         agl_check(
@@ -203,10 +203,7 @@ def test_status_branch_upstream_and_divergence(
     commit_file(source, env, name="remote.txt", message="remote")
     commit_file(source, env, name="remote2.txt", message="remote 2")
     git_run(repo, ["fetch", "-q"], env)
-    heads = {
-        name: git_output(tmp_path / name, ["rev-parse", "HEAD"], env)
-        for name in ("repo", "synced", "local", "gone")
-    }
+    heads = {name: git_head(tmp_path / name, env) for name in ("repo", "synced", "local", "gone")}
 
     def state(name: str, branch: str, upstream: str, divergence: str) -> str:
         return agl_check(
@@ -241,7 +238,7 @@ def test_status_of_unborn_and_detached_head(
     git_run(tmp_path / "unborn", ["add", "new.txt"], env)
     detached = init_repo(tmp_path / "detached", env)
     git_run(detached, ["checkout", "-q", "--detach"], env)
-    head = git_output(detached, ["rev-parse", "HEAD"], env)
+    head = git_head(detached, env)
 
     out, result = run_git_program(
         agl_check(
@@ -272,7 +269,7 @@ def test_status_of_branch_named_with_leading_parenthesis(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = init_repo(tmp_path / "paren", env, branch="(x")
-    head = git_output(repo, ["rev-parse", "HEAD"], env)
+    head = git_head(repo, env)
 
     out, result = run_git_program(
         agl_check(
@@ -297,7 +294,7 @@ def test_status_ignores_submodule_ignore_configuration(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
-    head = git_output(repo, ["rev-parse", "HEAD"], env)
+    head = git_head(repo, env)
     git_run(repo, ["update-index", "--add", "--cacheinfo", f"160000,{head},sub"], env)
     git_run(repo, ["commit", "-qm", "gitlink"], env)
     git_run(repo, ["config", "diff.ignoreSubmodules", "all"], env)
@@ -522,7 +519,7 @@ def test_checkout_switches_to_local_branches_and_detaches_otherwise(
     git_run(repo, ["tag", "v1", "HEAD~1"], env)
     git_run(repo, ["tag", "same", "HEAD~1"], env)
     git_run(repo, ["branch", "same", "HEAD"], env)
-    head = git_output(repo, ["rev-parse", "HEAD"], env)
+    head = git_head(repo, env)
     first = git_output(repo, ["rev-parse", "HEAD~1"], env)
 
     def step(index: int, target: str, branch: str | None, commit: str) -> str:
@@ -629,7 +626,7 @@ def test_reset_moves_head_and_applies_each_mode(
     assert result.ok, result.error
 
     for mode, repo in repos.items():
-        assert git_output(repo, ["rev-parse", "HEAD"], env) == targets[mode], mode
+        assert git_head(repo, env) == targets[mode], mode
     states = {
         mode: (git_lines(repo, ["status", "--porcelain"], env), (repo / "a.txt").read_text("utf-8"))
         for mode, repo in repos.items()
@@ -658,7 +655,7 @@ def test_reset_works_when_a_file_is_named_like_the_target_hash(
     )
 
     assert result.ok, result.error
-    assert git_output(repo, ["rev-parse", "HEAD"], env) == target
+    assert git_head(repo, env) == target
 
 
 def test_reset_keep_refuses_to_lose_local_changes(
@@ -668,7 +665,7 @@ def test_reset_keep_refuses_to_lose_local_changes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = _reset_repo(tmp_path / "repo", env)
-    head = git_output(repo, ["rev-parse", "HEAD"], env)
+    head = git_head(repo, env)
 
     out, result = run_git_program(
         agl_raises('git::reset("HEAD~3", Keep, "repo")'),
@@ -680,7 +677,7 @@ def test_reset_keep_refuses_to_lose_local_changes(
 
     assert result.ok, result.error
     assert out.splitlines() == ["raised"]
-    assert git_output(repo, ["rev-parse", "HEAD"], env) == head
+    assert git_head(repo, env) == head
     assert git_lines(repo, ["status", "--porcelain"], env) == [" M k.txt"]
 
 

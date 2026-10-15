@@ -10,7 +10,16 @@ from pathlib import Path
 import pytest
 
 from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
-from tests._git_helpers import commit_file, git_lines, git_output, git_run, init_repo, lines_of
+from tests._git_helpers import (
+    commit_file,
+    conflicted_merge,
+    git_head,
+    git_lines,
+    git_output,
+    git_run,
+    init_repo,
+    lines_of,
+)
 
 _IMPORTS = ("std/git::*", "std/text::join")
 
@@ -311,7 +320,7 @@ def test_resolve_returns_full_commit_hashes_and_resolve_option_none_for_unknown_
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="second.txt")
-    head = git_output(repo, ["rev-parse", "HEAD"], env)
+    head = git_head(repo, env)
     parent = git_output(repo, ["rev-parse", "HEAD~1"], env)
 
     out, result = run_git_program(
@@ -521,27 +530,13 @@ def test_diff_paths_are_root_relative_literal_and_filter_from_a_subdirectory(
     assert out.splitlines() == ["ok"] * 6
 
 
-def _conflicted_repo(tmp_path: Path, env: dict[str, str]) -> Path:
-    """Build a repository stopped mid-merge with `m.txt` conflicted."""
-
-    repo = init_repo(tmp_path / "repo", env)
-    commit_file(repo, env, name="m.txt", content="base\n")
-    git_run(repo, ["checkout", "-qb", "other"], env)
-    commit_file(repo, env, name="m.txt", content="theirs\n")
-    git_run(repo, ["checkout", "-q", "main"], env)
-    commit_file(repo, env, name="m.txt", content="ours\n")
-    merge = subprocess.run(["git", "merge", "other"], cwd=repo, env=env, capture_output=True)
-    assert merge.returncode != 0
-    return repo
-
-
 def test_diff_and_diff_stat_report_unmerged_paths_during_a_conflict(
     tmp_path: Path,
     env: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _conflicted_repo(tmp_path, env)
+    conflicted_merge(tmp_path / "repo", env, name="m.txt")
     unmerged = 'FileChange("m.txt", Unmerged)'
     unmerged_stat = 'FileStat("m.txt", Some(0), Some(0))'
 
@@ -763,7 +758,7 @@ def test_diffs_ignore_user_configuration(
         commit_file(repo, env, name=name, content=lines_of(name), message=name)
     commit_file(repo, env, name=".gitattributes", content="*.conv diff=up\n")
     commit_file(repo, env, name="doc.conv", content="lower\n")
-    head = git_output(repo, ["rev-parse", "HEAD"], env)
+    head = git_head(repo, env)
     git_run(repo, ["update-index", "--add", "--cacheinfo", f"160000,{head},lib"], env)
     git_run(repo, ["commit", "-qm", "gitlink"], env)
 

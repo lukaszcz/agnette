@@ -18,7 +18,10 @@
 import std/array
 import std/env
 import std/errors::Exception
+import std/fs::exists
+import std/fs::read
 import std/option::Option
+import std/pair::Pair
 import std/path
 import std/path::path
 import std/text::{++}
@@ -240,19 +243,23 @@ scope GitInternals
   def invoke(argv: array[text]) -> ExecResult =
     exec("git %{shell-join(argv)}", env = environment())
 
+  @doc("Raise `GitError` for the failed `res` of `argv`.")
+  def fail[T](argv: array[text], res: ExecResult) -> T =
+    let command = shell-join(argv)
+    raise GitError(
+      argv,
+      res.exit-code,
+      res.stdout,
+      res.stderr,
+      message = "git %{command} failed with exit code %{res.exit-code}: %{res.stderr.trim()}",
+    )
+
   @doc("Return `res` when it succeeded; otherwise raise `GitError` for `argv`.")
   def check(argv: array[text], res: ExecResult) -> ExecResult =
     if res.exit-code == 0 =>
       res
     else =>
-      let command = shell-join(argv)
-      raise GitError(
-        argv,
-        res.exit-code,
-        res.stdout,
-        res.stderr,
-        message = "git %{command} failed with exit code %{res.exit-code}: %{res.stderr.trim()}",
-      )
+      fail(argv, res)
 
   @doc("Return `args` prefixed with `-C repo`.")
   def scoped(repo: path, args: array[text]) -> array[text] = ["-C", repo].concat(args)
@@ -565,6 +572,107 @@ scope GitInternals
         stats.push(FileStat(p, count-of(fields[0]), count-of(fields[1])))
         i := i + 1
     stats
+
+  @doc("""
+    Return the root-relative paths with unmerged index entries, in git's path order.
+
+    A deleted-by-one-side path is included; the diff flags are pinned as for `diff-output`.
+  """)
+  def unmerged(repo: path) -> array[path] =
+    let format = ["--name-only", "-z", "--diff-filter=U"]
+    split-nul(diff-output(repo, format, IndexToWorktree, [], false))
+
+  @doc("The git command that drives `op`.")
+  def command-of(op: Operation) -> text =
+    case op of
+      | Merging => "merge"
+      | Rebasing => "rebase"
+      | CherryPicking => "cherry-pick"
+      | Reverting => "revert"
+
+  @doc("""
+    Run git with `args` for the operation `op` and classify the result.
+
+    Exit 0 is `Completed` when `resuming`; otherwise `UpToDate` when `HEAD` did not move,
+    `FastForwarded` when it landed on `target`, else `Completed`. A nonzero exit is `Conflicted`
+    only when `op` is left in progress with unmerged paths, and was not already in progress unless
+    `resuming`; any other failure raises `GitError`. That keeps a refusal (dirty tree, another
+    operation in progress, unmerged paths left by e.g. `stash apply`) from reading as a conflict.
+
+    `rerere.autoUpdate` is overridden: it would stage a replayed resolution and so turn a conflict
+    into a failure.
+  """)
+  def outcome(op: Operation, repo: path, args: array[text], target: Option[ref],
+              resuming: bool) -> Outcome =
+    let before: Option[ref] = if resuming => None else => resolve?("HEAD", repo)
+    let fresh = if resuming => true else => operation(repo).is-none()
+    let goal = target.map(fn(rev: ref) => resolve(rev, repo))
+    let pinned = ["-c", "rerere.autoUpdate=false"].concat(args)
+    let res = attempt(repo, pinned)
+    if res.exit-code == 0 =>
+      let after = resolve("HEAD", repo)
+      if resuming =>
+        Completed(after)
+      else =>
+        if before == Some(after) =>
+          UpToDate
+        else =>
+          if goal == Some(after) =>
+            FastForwarded(after)
+          else =>
+            Completed(after)
+    else =>
+      let paths = unmerged(repo)
+      if not paths.is-empty() and (resuming or fresh) and operation(repo) == Some(op) =>
+        Conflicted(paths)
+      else =>
+        fail(scoped(repo, pinned), res)
+
+  @doc("""
+    Replay `commits` with the git command of `op`, using `flags`, and classify the result.
+
+    Each of `commits` is resolved first, so git reads none of them as an option or a range.
+  """)
+  def replay(op: Operation, flags: array[text], commits: array[ref], repo: path) -> Outcome =
+    if commits.is-empty() =>
+      UpToDate
+    else =>
+      let hashes = commits.map(fn(rev: ref) => resolve(rev, repo))
+      let args = config-of(op)
+        .concat([command-of(op)])
+        .concat(flags)
+        .concat(["--end-of-options"])
+        .concat(hashes)
+      outcome(op, repo, args, None, false)
+
+  @doc("""
+    The configuration that git commands of `op` are run with, in place of the user's.
+
+    A merge or rebase commits with `commit.cleanup=scissors`: with no editing, that cleans up
+    whitespace, keeps `#` lines, and drops everything from git's scissors line on. The sequencer of
+    a cherry-pick or revert forces its own cleanup. A revert gets no `revert.reference` title.
+  """)
+  def config-of(op: Operation) -> array[text] =
+    case op of
+      | Merging => ["-c", "commit.cleanup=scissors"]
+      | Rebasing => ["-c", "commit.cleanup=scissors"]
+      | CherryPicking => []
+      | Reverting => ["-c", "revert.reference=false"]
+
+  @doc("The git arguments that continue `op`.")
+  def continuation(op: Operation) -> array[text] =
+    config-of(op).concat([command-of(op), "--continue"])
+
+  @doc("""
+    Return the operation whose command opens the sequencer todo file `todo`.
+
+    Git writes `pick` for a cherry-pick and `revert` for a revert; an empty file gives `None`.
+  """)
+  def sequencer-operation(todo: path) -> Option[Operation] =
+    case read(todo).split(" ")[0] of
+      | "pick" => Some(CherryPicking)
+      | "revert" => Some(Reverting)
+      | _ => None
 end GitInternals
 
 @doc("""
@@ -931,6 +1039,142 @@ def clean(paths: array[path] = [], directories: bool = true, ignored: bool = fal
     let _ = GitInternals::run(root(repo), args)
   else =>
     let _ = GitInternals::run(repo, args.concat(["--"]).concat(GitInternals::tree-specs(paths)))
+
+@doc("""
+  Merge the commit `target` names into the current branch.
+
+  `ff` says whether to fast-forward when possible (`Allow`), only fast-forward (`Only`), or always
+  create a merge commit (`Never`); `message` is the merge commit's message, with whitespace cleaned
+  up. Its `#` lines are kept, also by `resume(Merging)` after a conflict. Local configuration of
+  these, of autostashing and of the merge log summary is overridden.
+
+  A conflict leaves the merge in progress: resolve the paths, `add` them, and `resume(Merging)`, or
+  `abort(Merging)`.
+
+  Raises `GitError` when `target` names no commit, `Only` cannot fast-forward, or git refuses, as
+  for local changes the merge would overwrite or an operation already in progress. An error after
+  the merge started may leave it in progress; see `operation`.
+""")
+def merge(target: ref, ff: FastForward = Allow, message: Option[text] = None,
+          repo: path = ".") -> Outcome =
+  let mode = case ff of
+    | Allow => "--ff"
+    | Only => "--ff-only"
+    | Never => "--no-ff"
+  var args = ["merge", "--no-edit", "--no-log", "--no-autostash", "--cleanup=scissors", mode]
+  case message of
+    | Some(value) => args.concat!(["-m", value])
+    | None => ()
+  args.concat!(["--end-of-options", target])
+  GitInternals::outcome(Merging, repo, args, Some(target), false)
+
+@doc("""
+  Replay the commits of the current branch that `onto` lacks on top of the commit `onto` names.
+
+  Commits already in `onto` are dropped, and merge commits are flattened. Replayed messages get
+  whitespace cleanup and keep their `#` lines. A conflict leaves the rebase in progress: resolve
+  the paths, `add` them, and `resume(Rebasing)`, or `abort(Rebasing)`. Local configuration of
+  autostashing, the backend, ref updating, merge rebasing and message cleanup is overridden.
+
+  Raises `GitError` when `onto` names no commit or git refuses, as for local changes or an operation
+  already in progress. An error after the rebase started, as for an untracked file a replayed commit
+  would overwrite, may leave it in progress; see `operation`.
+""")
+def rebase(onto: ref, repo: path = ".") -> Outcome =
+  let pins = ["-c", "rebase.updateRefs=false", "-c", "rebase.rebaseMerges=false"]
+  let flags = ["rebase", "-q", "--merge", "--no-autostash", "--end-of-options", onto]
+  let args = pins.concat(GitInternals::config-of(Rebasing)).concat(flags)
+  GitInternals::outcome(Rebasing, repo, args, Some(onto), false)
+
+@doc("""
+  Apply the changes of `commits`, in order, as new commits on the current branch.
+
+  Each keeps the message of its original, verbatim.
+
+  Does nothing for no commits. Each of them names a single commit, not a range. A conflict leaves
+  the pick in progress: resolve the paths, `add` them, and `resume(CherryPicking)` to continue with
+  the remaining commits, or `abort(CherryPicking)`. A commit that `resume` commits after a conflict
+  has its `#` lines removed, as git's sequencer always strips them.
+
+  Raises `GitError` when a commit is not a commit, is a merge, or git refuses, as for local changes
+  or an operation already in progress. A commit whose changes `HEAD` already has stops the pick as
+  an error, leaving it in progress to `abort`. Any error after the pick started may leave it in
+  progress; see `operation`.
+""")
+def cherry-pick(commits: array[ref], repo: path = ".") -> Outcome =
+  GitInternals::replay(CherryPicking, ["--cleanup=verbatim"], commits, repo)
+
+@doc("""
+  Undo the changes of `commits`, in order, with new commits on the current branch.
+
+  The arguments, conflicts and errors are as for `cherry-pick`, with `Reverting` in place of
+  `CherryPicking`. Local configuration of the reverted commit reference is overridden.
+""")
+def revert(commits: array[ref], repo: path = ".") -> Outcome =
+  GitInternals::replay(Reverting, ["--no-edit"], commits, repo)
+
+@doc("""
+  Return the operation in progress in the work tree containing `repo`, if any.
+
+  Precedence is rebase, merge, cherry-pick, revert. A multi-commit cherry-pick or revert that
+  stopped without a conflict is found from the first command of its sequencer. A linked work tree
+  has its own state. Detection reads git's state files, so it assumes the files ref backend: the
+  reftable backend keeps `CHERRY_PICK_HEAD` and `REVERT_HEAD` as refs.
+
+  Raises `GitError` when `repo` is not inside a repository.
+""")
+def operation(repo: path = ".") -> Option[Operation] =
+  let states: array[Pair[text, Operation]] = [
+    Pair::[text, Operation]("rebase-merge", Rebasing),
+    Pair::[text, Operation]("rebase-apply", Rebasing),
+    Pair::[text, Operation]("MERGE_HEAD", Merging),
+    Pair::[text, Operation]("CHERRY_PICK_HEAD", CherryPicking),
+    Pair::[text, Operation]("REVERT_HEAD", Reverting),
+  ]
+  var args = ["rev-parse", "--path-format=absolute", "--git-path", "sequencer/todo"]
+  for state in states do
+    args.concat!(["--git-path", state.first])
+  let paths = GitInternals::run(repo, args).stdout.split("\n")
+  let found = states.zip(paths.drop(1)).find(fn(entry: Pair[Pair[text, Operation], text]) =>
+    exists(entry.second))
+  case found of
+    | Some(value) => Some(value.first.second)
+    | None =>
+      if exists(paths[0]) =>
+        GitInternals::sequencer-operation(paths[0])
+      else =>
+        None
+
+@doc("""
+  Abandon the `operation` in progress and restore the state before it started.
+
+  `CherryPicking` and `Reverting` abort either sequencer operation. A cherry-pick or revert of
+  several commits whose `HEAD` was moved manually is ended without being rewound. A `git am`
+  session is reported by `operation` as `Rebasing`, but `abort(Rebasing)` cannot abort it.
+
+  Raises `GitError` when `operation` is not in progress or git refuses.
+""")
+def abort(operation: Operation, repo: path = ".") -> unit =
+  let _ = GitInternals::run(repo, [GitInternals::command-of(operation), "--abort"])
+
+@doc("""
+  Continue the `operation` in progress after its conflicts are resolved and `add`ed.
+
+  Returns `Completed` once it finishes, or `Conflicted` when paths are still unresolved or the next
+  commit conflicts. A rebase drops a commit that the resolution emptied.
+
+  The message of a merge or rebase commit is whitespace-cleaned, keeping its `#` lines whatever
+  `commit.cleanup` says, but truncated at git's scissors line:
+  `# ------------------------ >8 ------------------------`. A merge that `merge` did not start
+  keeps the `# Conflicts:` comment lines git added.
+
+  Raises `GitError` when `operation` is not in progress or git refuses, as for a cherry-pick or
+  revert commit emptied by the resolution, which stays in progress to `abort`. `CherryPicking` and
+  `Reverting` share git's sequencer: give the one `operation` reports. With the other, a single
+  pending commit may be completed, while several raise `GitError`.
+""")
+def resume(operation: Operation, repo: path = ".") -> Outcome =
+  GitInternals::outcome(operation, repo, GitInternals::continuation(operation), None, true)
 
 scope branch
   @doc("Check if the local branch `name` exists; a tag or remote-tracking name is not one.")
