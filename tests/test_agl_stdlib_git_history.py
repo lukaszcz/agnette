@@ -1,7 +1,8 @@
-"""History functions of ``std/git``: ``log``, ``show``, ``read-file``, ``resolve``, ancestry."""
+"""History functions of ``std/git``: ``log``, ``show``, ``read-file``, ancestry, diffs."""
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
-from tests._git_helpers import commit_file, git_lines, git_output, git_run, init_repo
+from tests._git_helpers import commit_file, git_lines, git_output, git_run, init_repo, lines_of
 
 _IMPORTS = ("std/git::*", "std/text::join")
 
@@ -339,3 +340,489 @@ catch GitError as e =>
 
     assert result.ok, result.error
     assert out.splitlines() == [head, parent, "40", head, *["true"] * 6]
+
+
+def _edit(repo: Path, name: str, content: str) -> None:
+    (repo / name).write_text(content, encoding="utf-8")
+
+
+def _diff_repo(tmp_path: Path, env: dict[str, str]) -> Path:
+    """Build two commits (`HEAD~1` -> `HEAD`) plus staged and unstaged changes on top.
+
+    `HEAD~1` -> `HEAD` adds, deletes, modifies, renames and type-changes a file, changes a binary
+    file and adds paths containing a tab and a newline. Above `HEAD`, `staged.txt` is staged,
+    `both.txt` is staged and then edited again, and `unstaged.txt`, `sub/inner.txt`, `star*.txt`
+    and `starx.txt` are edited in the work tree only.
+    """
+
+    repo = init_repo(tmp_path / "repo", env)
+    (repo / "sub").mkdir()
+    names = (
+        "mod",
+        "del",
+        "ren",
+        "kind",
+        "staged",
+        "both",
+        "unstaged",
+        "star*",
+        "starx",
+        "sub/inner",
+    )
+    for name in names:
+        commit_file(repo, env, name=f"{name}.txt", content=lines_of(name), message=name)
+    (repo / "blob.bin").write_bytes(b"\x00\x01\x02")
+    git_run(repo, ["add", "blob.bin"], env)
+    git_run(repo, ["commit", "-qm", "blob"], env)
+
+    # No trailing newline, so patches carry git's "no newline" marker.
+    _edit(repo, "mod.txt", lines_of("mod") + "more")
+    git_run(repo, ["rm", "-q", "del.txt"], env)
+    git_run(repo, ["mv", "ren.txt", "renamed.txt"], env)
+    _edit(repo, "renamed.txt", lines_of("ren") + "edited\n")
+    (repo / "kind.txt").unlink()
+    os.symlink("README.md", repo / "kind.txt")
+    _edit(repo, "added.txt", lines_of("added"))
+    _edit(repo, "tab\tname.txt", "tab\n")
+    _edit(repo, "new\nline.txt", "newline\n")
+    (repo / "blob.bin").write_bytes(b"\x00\x01\x02\x03")
+    git_run(repo, ["add", "-A"], env)
+    git_run(repo, ["commit", "-qm", "changes"], env)
+
+    _edit(repo, "staged.txt", lines_of("staged") + "staged\n")
+    _edit(repo, "both.txt", lines_of("both") + "staged\n")
+    git_run(repo, ["add", "staged.txt", "both.txt"], env)
+    _edit(repo, "both.txt", lines_of("both") + "staged\nunstaged\n")
+    for name in ("unstaged.txt", "sub/inner.txt", "star*.txt", "starx.txt"):
+        _edit(repo, name, (repo / name).read_text(encoding="utf-8") + "unstaged\n")
+    return repo
+
+
+_COMMITTED_CHANGES = """[
+  FileChange("added.txt", Added),
+  FileChange("blob.bin", Modified),
+  FileChange("del.txt", Deleted),
+  FileChange("kind.txt", TypeChanged),
+  FileChange("mod.txt", Modified),
+  FileChange("new\\nline.txt", Added),
+  FileChange("renamed.txt", Renamed("ren.txt", 97)),
+  FileChange("tab\\tname.txt", Added),
+]"""
+
+_UNCOMMITTED_PATHS = ("both.txt", "star*.txt", "starx.txt", "sub/inner.txt", "unstaged.txt")
+
+
+def _modified(*paths: str) -> str:
+    """Return the AgL array of `Modified` changes of *paths*."""
+
+    return "[" + ", ".join(f'FileChange("{p}", Modified)' for p in paths) + "]"
+
+
+def test_diff_lists_file_changes_for_every_diff_member(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _diff_repo(tmp_path, env)
+
+    body = agl_check("worktree", 'git::diff(repo = "repo")', _modified(*_UNCOMMITTED_PATHS))
+    body += agl_check(
+        "staged",
+        'git::diff(CommitToIndex(), repo = "repo")',
+        _modified("both.txt", "staged.txt"),
+    )
+    body += agl_check(
+        "staged-old",
+        'git::diff(CommitToIndex("HEAD~1"), ["added.txt", "staged.txt"], repo = "repo")',
+        '[FileChange("added.txt", Added), FileChange("staged.txt", Modified)]',
+    )
+    body += agl_check(
+        "head",
+        'git::diff(CommitToWorktree(), repo = "repo")',
+        _modified("both.txt", "staged.txt", *_UNCOMMITTED_PATHS[1:]),
+    )
+    body += agl_check(
+        "head-old",
+        'git::diff(CommitToWorktree("HEAD~1"), ["added.txt", "unstaged.txt"], repo = "repo")',
+        '[FileChange("added.txt", Added), FileChange("unstaged.txt", Modified)]',
+    )
+    body += agl_check(
+        "commits", 'git::diff(CommitToCommit("HEAD~1", "HEAD"), repo = "repo")', _COMMITTED_CHANGES
+    )
+    body += agl_check(
+        "reverse",
+        'git::diff(CommitToCommit("HEAD", "HEAD~1"), ["renamed.txt", "ren.txt"], repo = "repo")',
+        '[FileChange("ren.txt", Renamed("renamed.txt", 97))]',
+    )
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 7
+
+
+def test_diff_renames_can_be_turned_off_and_need_both_paths_in_the_filter(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _diff_repo(tmp_path, env)
+    commits = 'CommitToCommit("HEAD~1", "HEAD")'
+
+    body = agl_check(
+        "off",
+        f'git::diff({commits}, ["ren.txt", "renamed.txt"], renames = false, repo = "repo")',
+        '[FileChange("ren.txt", Deleted), FileChange("renamed.txt", Added)]',
+    )
+    body += agl_check(
+        "on",
+        f'git::diff({commits}, ["ren.txt", "renamed.txt"], repo = "repo")',
+        '[FileChange("renamed.txt", Renamed("ren.txt", 97))]',
+    )
+    body += agl_check(
+        "half",
+        f'git::diff({commits}, ["renamed.txt"], repo = "repo")',
+        '[FileChange("renamed.txt", Added)]',
+    )
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 3
+
+
+def test_diff_paths_are_root_relative_literal_and_filter_from_a_subdirectory(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _diff_repo(tmp_path, env)
+
+    body = agl_check(
+        "sub", 'git::diff(paths = ["sub"], repo = "repo/sub")', _modified("sub/inner.txt")
+    )
+    body += agl_check("root", 'git::diff(repo = "repo/sub")', _modified(*_UNCOMMITTED_PATHS))
+    body += agl_check(
+        "dot", 'git::diff(paths = ["."], repo = "repo/sub")', _modified(*_UNCOMMITTED_PATHS)
+    )
+    body += agl_check(
+        "literal", 'git::diff(paths = ["star*.txt"], repo = "repo")', _modified("star*.txt")
+    )
+    body += agl_check(
+        "many",
+        'git::diff(paths = ["sub", "starx.txt", "no-such"], repo = "repo/sub")',
+        _modified("starx.txt", "sub/inner.txt"),
+    )
+    body += agl_check("none", 'git::diff(paths = ["no-such"], repo = "repo").is-empty()', "true")
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 6
+
+
+def _conflicted_repo(tmp_path: Path, env: dict[str, str]) -> Path:
+    """Build a repository stopped mid-merge with `m.txt` conflicted."""
+
+    repo = init_repo(tmp_path / "repo", env)
+    commit_file(repo, env, name="m.txt", content="base\n")
+    git_run(repo, ["checkout", "-qb", "other"], env)
+    commit_file(repo, env, name="m.txt", content="theirs\n")
+    git_run(repo, ["checkout", "-q", "main"], env)
+    commit_file(repo, env, name="m.txt", content="ours\n")
+    merge = subprocess.run(["git", "merge", "other"], cwd=repo, env=env, capture_output=True)
+    assert merge.returncode != 0
+    return repo
+
+
+def test_diff_and_diff_stat_report_unmerged_paths_during_a_conflict(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _conflicted_repo(tmp_path, env)
+    unmerged = 'FileChange("m.txt", Unmerged)'
+    unmerged_stat = 'FileStat("m.txt", Some(0), Some(0))'
+
+    body = agl_check("index", 'git::diff(CommitToIndex(), repo = "repo")', f"[{unmerged}]")
+    body += agl_check(
+        "worktree",
+        'git::diff(repo = "repo")',
+        f'[{unmerged}, FileChange("m.txt", Modified)]',
+    )
+    body += agl_check(
+        "index-stat", 'git::diff-stat(CommitToIndex(), repo = "repo")', f"[{unmerged_stat}]"
+    )
+    body += agl_check(
+        "worktree-stat",
+        'git::diff-stat(repo = "repo")',
+        f'[{unmerged_stat}, FileStat("m.txt", Some(4), Some(0))]',
+    )
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 4
+
+
+def test_diff_operands_cannot_act_as_options_and_must_name_commits(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = _diff_repo(tmp_path, env)
+
+    body = "".join(
+        agl_raises(call)
+        for call in (
+            'git::diff(CommitToWorktree("--output=pwned"), repo = "repo")',
+            'git::diff(CommitToWorktree("--cached"), repo = "repo")',
+            'git::diff(CommitToIndex("no-such-ref"), repo = "repo")',
+            'git::diff(CommitToCommit("HEAD", "--stat"), repo = "repo")',
+            'git::diff(CommitToWorktree("HEAD~1..HEAD"), repo = "repo")',
+            'git::diff(CommitToCommit("HEAD^{tree}", "HEAD"), repo = "repo")',
+            'git::diff-stat(CommitToWorktree("--output=pwned"), repo = "repo")',
+            'git::patch(CommitToWorktree("--output=pwned"), repo = "repo")',
+        )
+    )
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised"] * 8
+    assert not (repo / "pwned").exists()
+
+
+def test_diff_stat_counts_lines_for_every_diff_member(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _diff_repo(tmp_path, env)
+
+    body = agl_check(
+        "worktree",
+        'git::diff-stat(repo = "repo")',
+        """[
+  FileStat("both.txt", Some(1), Some(0)),
+  FileStat("star*.txt", Some(1), Some(0)),
+  FileStat("starx.txt", Some(1), Some(0)),
+  FileStat("sub/inner.txt", Some(1), Some(0)),
+  FileStat("unstaged.txt", Some(1), Some(0)),
+]""",
+    )
+    body += agl_check(
+        "staged",
+        'git::diff-stat(CommitToIndex(), repo = "repo")',
+        '[FileStat("both.txt", Some(1), Some(0)), FileStat("staged.txt", Some(1), Some(0))]',
+    )
+    body += agl_check(
+        "head",
+        'git::diff-stat(CommitToWorktree(), ["both.txt", "staged.txt"], repo = "repo")',
+        '[FileStat("both.txt", Some(2), Some(0)), FileStat("staged.txt", Some(1), Some(0))]',
+    )
+    body += agl_check(
+        "head-old",
+        'git::diff-stat(CommitToWorktree("HEAD~1"), ["added.txt", "mod.txt"], repo = "repo")',
+        '[FileStat("added.txt", Some(20), Some(0)), FileStat("mod.txt", Some(1), Some(0))]',
+    )
+    body += agl_check(
+        "commits",
+        'git::diff-stat(CommitToCommit("HEAD~1", "HEAD"), repo = "repo")',
+        """[
+  FileStat("added.txt", Some(20), Some(0)),
+  FileStat("blob.bin", None, None),
+  FileStat("del.txt", Some(0), Some(20)),
+  FileStat("kind.txt", Some(1), Some(20)),
+  FileStat("mod.txt", Some(1), Some(0)),
+  FileStat("new\\nline.txt", Some(1), Some(0)),
+  FileStat("renamed.txt", Some(1), Some(0)),
+  FileStat("tab\\tname.txt", Some(1), Some(0)),
+]""",
+    )
+    body += agl_check(
+        "root",
+        'git::diff-stat(CommitToCommit("HEAD~1", "HEAD"), ["sub", "mod.txt"], repo = "repo/sub")',
+        '[FileStat("mod.txt", Some(1), Some(0))]',
+    )
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 6
+
+
+def test_diff_stat_reports_binary_files_and_renames_with_or_without_detection(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _diff_repo(tmp_path, env)
+    pair = '["ren.txt", "renamed.txt", "blob.bin"]'
+    commits = 'CommitToCommit("HEAD~1", "HEAD")'
+
+    body = agl_check(
+        "on",
+        f'git::diff-stat({commits}, {pair}, repo = "repo")',
+        '[FileStat("blob.bin", None, None), FileStat("renamed.txt", Some(1), Some(0))]',
+    )
+    body += agl_check(
+        "off",
+        f'git::diff-stat({commits}, {pair}, renames = false, repo = "repo")',
+        """[
+  FileStat("blob.bin", None, None),
+  FileStat("ren.txt", Some(0), Some(20)),
+  FileStat("renamed.txt", Some(21), Some(0)),
+]""",
+    )
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 2
+
+
+_PATCH_SEPARATOR = "=" * 8
+
+
+def _print_patches(*calls: str) -> str:
+    """Return AgL printing the text each of *calls* returns, each followed by a separator line.
+
+    `print` adds a newline, so a patch ending in one is followed by an empty line.
+    """
+
+    return "".join(f'print({call})\nprint("{_PATCH_SEPARATOR}")\n' for call in calls)
+
+
+def _git_patches(repo: Path, env: dict[str, str], *arg_lists: list[str]) -> list[str]:
+    """Return the `git diff` lines of each of *arg_lists*, in the form `_print_patches` prints."""
+
+    lines: list[str] = []
+    for args in arg_lists:
+        lines += [*git_lines(repo, ["diff", "--no-color", "-M", *args], env), "", _PATCH_SEPARATOR]
+    return lines
+
+
+def test_patch_returns_git_diff_text_for_every_diff_member_and_filter(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = _diff_repo(tmp_path, env)
+    commits = 'CommitToCommit("HEAD~1", "HEAD")'
+    star = ":(top,literal)star*.txt"
+
+    body = _print_patches(
+        'git::patch(repo = "repo")',
+        'git::patch(CommitToIndex(), repo = "repo")',
+        'git::patch(CommitToIndex("HEAD~1"), repo = "repo")',
+        'git::patch(CommitToWorktree(), repo = "repo")',
+        'git::patch(CommitToWorktree("HEAD~1"), repo = "repo")',
+        f'git::patch({commits}, repo = "repo")',
+        f'git::patch({commits}, context = 0, repo = "repo")',
+        f'git::patch({commits}, context = -1, repo = "repo")',
+        f'git::patch({commits}, renames = false, repo = "repo")',
+        f'git::patch({commits}, ["ren.txt", "blob.bin"], repo = "repo/sub")',
+        'git::patch(paths = ["sub", "star*.txt"], repo = "repo/sub")',
+        'git::patch(paths = ["no-such"], repo = "repo")',
+    )
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    expected = _git_patches(
+        repo,
+        env,
+        [],
+        ["--cached", "HEAD"],
+        ["--cached", "HEAD~1"],
+        ["HEAD"],
+        ["HEAD~1"],
+        ["HEAD~1", "HEAD"],
+        ["-U0", "HEAD~1", "HEAD"],
+        ["-U0", "HEAD~1", "HEAD"],
+        ["--no-renames", "HEAD~1", "HEAD"],
+        ["HEAD~1", "HEAD", "--", ":(top,literal)ren.txt", ":(top,literal)blob.bin"],
+        ["--", ":(top,literal)sub", star],
+        ["--", ":(top,literal)no-such"],
+    )
+    assert out.splitlines() == expected
+    assert "No newline at end of file" in "\n".join(expected)
+    assert "Binary files" in "\n".join(expected)
+
+
+def test_diffs_ignore_user_configuration(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    (repo / "sub").mkdir()
+    for name in ("old.txt", "sub/inner.txt"):
+        commit_file(repo, env, name=name, content=lines_of(name), message=name)
+    commit_file(repo, env, name=".gitattributes", content="*.conv diff=up\n")
+    commit_file(repo, env, name="doc.conv", content="lower\n")
+    head = git_output(repo, ["rev-parse", "HEAD"], env)
+    git_run(repo, ["update-index", "--add", "--cacheinfo", f"160000,{head},lib"], env)
+    git_run(repo, ["commit", "-qm", "gitlink"], env)
+
+    git_run(repo, ["mv", "old.txt", "new.txt"], env)
+    inner = (repo / "sub/inner.txt").read_text(encoding="utf-8")
+    _edit(repo, "sub/copy.txt", inner)
+    git_run(repo, ["add", "sub/copy.txt"], env)
+    _edit(repo, "sub/inner.txt", inner.replace("line 10", "LINE 10"))
+    _edit(repo, "doc.conv", "changed\n")
+    commit_file(init_repo(repo / "lib", env), env, name="more.txt")
+    expected_patch = _git_patches(repo, env, ["HEAD"])
+
+    external = tmp_path / "external.sh"
+    external.write_text("#!/bin/sh\necho EXTERNAL\n", encoding="utf-8")
+    external.chmod(0o755)
+    order = tmp_path / "order"
+    order.write_text("sub/inner.txt\nsub/copy.txt\nnew.txt\nlib\ndoc.conv\n", encoding="utf-8")
+    settings = {
+        "diff.orderFile": str(order),
+        "diff.submodule": "log",
+        "diff.renames": "copies",
+        "diff.relative": "true",
+        "diff.noprefix": "true",
+        "diff.context": "7",
+        "diff.external": str(external),
+        "diff.up.textconv": "tr a-z A-Z <",
+        "diff.ignoreSubmodules": "all",
+        "color.ui": "always",
+        "color.diff": "always",
+    }
+    for name, value in settings.items():
+        git_run(repo, ["config", name, value], env)
+
+    monkeypatch.setenv("GIT_DIFF_OPTS", "-u5")
+    side = 'CommitToWorktree("HEAD")'
+    body = agl_check(
+        "changes",
+        f'git::diff({side}, repo = "repo/sub")',
+        """[
+  FileChange("doc.conv", Modified),
+  FileChange("lib", Modified),
+  FileChange("new.txt", Renamed("old.txt", 100)),
+  FileChange("sub/copy.txt", Added),
+  FileChange("sub/inner.txt", Modified),
+]""",
+    )
+    body += agl_check(
+        "stats",
+        f'git::diff-stat({side}, repo = "repo/sub")',
+        """[
+  FileStat("doc.conv", Some(1), Some(1)),
+  FileStat("lib", Some(1), Some(1)),
+  FileStat("new.txt", Some(0), Some(0)),
+  FileStat("sub/copy.txt", Some(20), Some(0)),
+  FileStat("sub/inner.txt", Some(1), Some(1)),
+]""",
+    )
+    body += _print_patches(f'git::patch({side}, repo = "repo/sub")')
+    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok", "ok", *expected_patch]

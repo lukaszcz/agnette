@@ -43,6 +43,12 @@ def git_lines(cwd: Path, args: Sequence[str], env: dict[str, str]) -> list[str]:
     return _git_stdout(cwd, args, env).splitlines()
 
 
+def lines_of(name: str) -> str:
+    """Return 20 lines unique to *name*, so rename detection pairs only near-equal files."""
+
+    return "".join(f"{name} line {n}\n" for n in range(20))
+
+
 def init_repo(path: Path, env: dict[str, str], *, branch: str = "main") -> Path:
     """Initialize a git repo at *path* with one commit on *branch*."""
 

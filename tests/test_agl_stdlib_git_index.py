@@ -16,13 +16,8 @@ from tests._git_helpers import (
     git_output,
     git_run,
     init_repo,
+    lines_of,
 )
-
-
-def _lines(name: str) -> str:
-    """Return 20 lines unique to *name*, so rename detection pairs only near-equal files."""
-
-    return "".join(f"{name} line {n}\n" for n in range(20))
 
 
 def test_status_reports_every_change_letter_with_rename_source_and_no_copies(
@@ -34,15 +29,15 @@ def test_status_reports_every_change_letter_with_rename_source_and_no_copies(
     repo = init_repo(tmp_path / "repo", env)
     git_run(repo, ["config", "status.renames", "copies"], env)
     for name in ("mm", "sm", "um", "del-s", "del-u", "ts", "tu", "cp-src", "ren a", "ren-c"):
-        commit_file(repo, env, name=f"{name}.txt", content=_lines(name), message=name)
-    commit_file(repo, env, name="sp ace.txt", content=_lines("sp"), message="sp")
+        commit_file(repo, env, name=f"{name}.txt", content=lines_of(name), message=name)
+    commit_file(repo, env, name="sp ace.txt", content=lines_of("sp"), message="sp")
 
-    (repo / "mm.txt").write_text(_lines("mm") + "staged\n", encoding="utf-8")
+    (repo / "mm.txt").write_text(lines_of("mm") + "staged\n", encoding="utf-8")
     git_run(repo, ["add", "mm.txt"], env)
-    (repo / "mm.txt").write_text(_lines("mm") + "staged\nunstaged\n", encoding="utf-8")
-    (repo / "sm.txt").write_text(_lines("sm") + "staged\n", encoding="utf-8")
+    (repo / "mm.txt").write_text(lines_of("mm") + "staged\nunstaged\n", encoding="utf-8")
+    (repo / "sm.txt").write_text(lines_of("sm") + "staged\n", encoding="utf-8")
     git_run(repo, ["add", "sm.txt"], env)
-    (repo / "um.txt").write_text(_lines("um") + "unstaged\n", encoding="utf-8")
+    (repo / "um.txt").write_text(lines_of("um") + "unstaged\n", encoding="utf-8")
     git_run(repo, ["rm", "-q", "del-s.txt"], env)
     (repo / "del-u.txt").unlink()
     (repo / "ts.txt").unlink()
@@ -50,15 +45,15 @@ def test_status_reports_every_change_letter_with_rename_source_and_no_copies(
     git_run(repo, ["add", "ts.txt"], env)
     (repo / "tu.txt").unlink()
     os.symlink("README.md", repo / "tu.txt")
-    (repo / "sp ace.txt").write_text(_lines("sp") + "unstaged\n", encoding="utf-8")
-    (repo / "add.txt").write_text(_lines("add"), encoding="utf-8")
+    (repo / "sp ace.txt").write_text(lines_of("sp") + "unstaged\n", encoding="utf-8")
+    (repo / "add.txt").write_text(lines_of("add"), encoding="utf-8")
     git_run(repo, ["add", "add.txt"], env)
     git_run(repo, ["mv", "ren a.txt", "ren b.txt"], env)
     (repo / "ren-c.txt").rename(repo / "ren-d.txt")
-    (repo / "ren-d.txt").write_text(_lines("ren-c") + "edited\n", encoding="utf-8")
+    (repo / "ren-d.txt").write_text(lines_of("ren-c") + "edited\n", encoding="utf-8")
     git_run(repo, ["add", "-A", "ren-c.txt", "ren-d.txt"], env)
-    (repo / "cp-src.txt").write_text(_lines("cp-src") + "edited\n", encoding="utf-8")
-    (repo / "cp-dst.txt").write_text(_lines("cp-src"), encoding="utf-8")
+    (repo / "cp-src.txt").write_text(lines_of("cp-src") + "edited\n", encoding="utf-8")
+    (repo / "cp-dst.txt").write_text(lines_of("cp-src"), encoding="utf-8")
     git_run(repo, ["add", "cp-src.txt", "cp-dst.txt"], env)
 
     out, result = run_git_program(
@@ -100,7 +95,7 @@ def test_status_reports_every_conflict_kind(
     repo = init_repo(tmp_path / "repo", env)
     for name in ("m", "du", "ud"):
         commit_file(repo, env, name=f"{name}.txt", content="base\n")
-    commit_file(repo, env, name="f.txt", content=_lines("f"))
+    commit_file(repo, env, name="f.txt", content=lines_of("f"))
     git_run(repo, ["checkout", "-qb", "other"], env)
     (repo / "m.txt").write_text("theirs\n", encoding="utf-8")
     (repo / "aa.txt").write_text("theirs\n", encoding="utf-8")

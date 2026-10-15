@@ -79,9 +79,9 @@ record FileChange
 @doc("Added and deleted line counts of a path.")
 record FileStat
   path: path
-  @doc("`None` for a binary file.")
+  @doc("`None` for a binary file, also one marked binary by attributes.")
   added: Option[int]
-  @doc("`None` for a binary file.")
+  @doc("`None` for a binary file, also one marked binary by attributes.")
   deleted: Option[int]
 
 @doc("How the two sides of a conflict changed the path, from `ours` (current) and `theirs`.")
@@ -225,9 +225,16 @@ record Remote
   push-url: text
 
 scope GitInternals
-  @doc("The environment git runs in: ambient, with prompts and editors disabled.")
+  @doc("""
+    The environment git runs in: ambient, with prompts and editors disabled and `GIT_DIFF_OPTS`,
+    which overrides the diff context, cleared.
+  """)
   def environment() -> std/env::Environ =
-    std/env::environ.extended({"GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true"})
+    std/env::environ.extended({
+      "GIT_TERMINAL_PROMPT": "0",
+      "GIT_EDITOR": "true",
+      "GIT_DIFF_OPTS": "",
+    })
 
   @doc("Run `git argv` and return its result, whatever the exit code.")
   def invoke(argv: array[text]) -> ExecResult =
@@ -326,7 +333,8 @@ scope GitInternals
   @doc("""
     Decode a status letter; `source` and `similarity` apply to `R`.
 
-    `U` is the only letter left, so it is the fallback.
+    `U` is the only letter left, so it is the fallback: `C` and `B` cannot occur, as copy and
+    break detection are never enabled.
   """)
   def change-of(letter: text, source: path, similarity: int) -> Change =
     case letter of
@@ -353,8 +361,9 @@ scope GitInternals
       | "UD" => DeletedByThem
       | _ => BothModified
 
-  @doc("Return the path in `fields` after the first `skip` fields, rejoining its spaces.")
-  def field-path(fields: array[text], skip: int) -> path = join(fields.drop(skip), " ")
+  @doc("Return the path in `fields` after the first `skip` fields, rejoining it with `sep`.")
+  def field-path(fields: array[text], skip: int, sep: text = " ") -> path =
+    join(fields.drop(skip), sep)
 
   @doc("""
     Build the entry of a tracked status line from its `XY` code.
@@ -460,6 +469,102 @@ scope GitInternals
     let args = pinned.concat(flags).concat(["--end-of-options"]).concat(revs).concat(["--"])
     let out = run(repo, args.concat(specs)).stdout
     chunks(split-nul(out), log-fields()).map(commit-of)
+
+  @doc("The `diff` option that selects the two sides, before `--end-of-options`.")
+  def diff-flags(sides: Diff) -> array[text] =
+    case sides of
+      | CommitToIndex(_) => ["--cached"]
+      | _ => []
+
+  @doc("""
+    The commit operands that select the two sides of `sides`, as full hashes.
+
+    Resolving them rejects what `diff` would read as other operands: a range or a tree.
+  """)
+  def diff-revs(repo: path, sides: Diff) -> array[ref] =
+    case sides of
+      | IndexToWorktree => []
+      | CommitToIndex(base) => [resolve(base, repo)]
+      | CommitToWorktree(base) => [resolve(base, repo)]
+      | CommitToCommit(base, target) => [resolve(base, repo), resolve(target, repo)]
+
+  @doc("""
+    Return the stdout of `git diff` with `format` for `sides`, filtered to `paths`.
+
+    The flags pin every setting that changes the parsed output or the patch's meaning, so user
+    configuration cannot: no color, external diff, text conversion, or relative paths; `a/` and
+    `b/` path prefixes; git's path order; submodule changes always shown, as commit ids; and
+    renames, never copies, detected only when `renames`.
+  """)
+  def diff-output(repo: path, format: array[text], sides: Diff, paths: array[path],
+                  renames: bool) -> text =
+    let pinned = [
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-relative",
+      # An empty order file keeps git's path order, whatever `diff.orderFile` says.
+      "-O/dev/null",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      "--ignore-submodules=none",
+      "--submodule=short",
+      # `-M` also overrides a configured `diff.renames=copies`.
+      if renames => "-M" else => "--no-renames",
+    ]
+    let args = pinned.concat(format)
+      .concat(diff-flags(sides))
+      .concat(["--end-of-options"])
+      .concat(diff-revs(repo, sides))
+      .concat(["--"])
+      .concat(pathspecs(paths))
+    run(repo, args).stdout
+
+  # `C` (copy) and `B` (break) letters cannot occur: copy and break detection are never enabled,
+  # so `change-of` falls back to `U` only for unmerged paths.
+  @doc("Parse `diff --name-status -z` output; a rename lists its similarity, source, destination.")
+  def parse-name-status(out: text) -> array[FileChange] =
+    let items = split-nul(out)
+    var changes: array[FileChange] = []
+    var i = 0
+    while i < items.size() do
+      let code = items[i]
+      if code.starts-with("R") =>
+        changes.push(FileChange(items[i + 2], Renamed(items[i + 1], tail-int(code))))
+        i := i + 3
+      else =>
+        changes.push(FileChange(items[i + 1], change-of(code, "", 0)))
+        i := i + 2
+    changes
+
+  @doc("Return a `numstat` count, or `None` for git's `-` placeholder of a binary file.")
+  def count-of(field: text) -> Option[int] =
+    if field == "-" =>
+      None
+    else =>
+      Some(field as int)
+
+  @doc("""
+    Parse `diff --numstat -z` output.
+
+    A rename has an empty path field, followed by its source and destination records; it yields
+    the destination.
+  """)
+  def parse-numstat(out: text) -> array[FileStat] =
+    let items = split-nul(out)
+    var stats: array[FileStat] = []
+    var i = 0
+    while i < items.size() do
+      let fields = items[i].split("\t")
+      let p = field-path(fields, 2, "\t")
+      if p.is-empty() =>
+        stats.push(FileStat(items[i + 2], count-of(fields[0]), count-of(fields[1])))
+        i := i + 3
+      else =>
+        stats.push(FileStat(p, count-of(fields[0]), count-of(fields[1])))
+        i := i + 1
+    stats
 end GitInternals
 
 @doc("""
@@ -606,6 +711,53 @@ def merge-base(a: ref, b: ref, repo: path = ".") -> Option[ref] =
 def is-ancestor(ancestor: ref, descendant: ref, repo: path = ".") -> bool =
   let args = ["merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant]
   GitInternals::optional(repo, args).is-some()
+
+@doc("""
+  Return the files that differ between the two `sides`, in git's path order.
+
+  `paths` keeps the matching files, and `renames` detects renames, whose source and similarity
+  `Renamed` carries; copies are never detected. A rename is detected only when `paths` keep both
+  its paths. A conflicted path is `Unmerged`, and `IndexToWorktree` may list it a second time with
+  its own work tree change. Untracked files are not compared.
+
+  Raises `GitError` when a `base` or `target` revision names no commit, as for a range or a
+  tree.
+""")
+def diff(sides: Diff = IndexToWorktree, paths: array[path] = [], renames: bool = true,
+         repo: path = ".") -> array[FileChange] =
+  let out = GitInternals::diff-output(repo, ["--name-status", "-z"], sides, paths, renames)
+  GitInternals::parse-name-status(out)
+
+@doc("""
+  Return the added and deleted line counts of the files that differ between the two `sides`.
+
+  A renamed file is listed under its destination path. An unmerged path counts 0 and 0, and
+  `IndexToWorktree` may list it a second time with its own work tree counts. The arguments are as
+  for `diff`.
+
+  Raises `GitError` when a revision names no commit.
+""")
+def diff-stat(sides: Diff = IndexToWorktree, paths: array[path] = [], renames: bool = true,
+              repo: path = ".") -> array[FileStat] =
+  let out = GitInternals::diff-output(repo, ["--numstat", "-z"], sides, paths, renames)
+  GitInternals::parse-numstat(out)
+
+@doc("""
+  Return the unified diff between the two `sides`, verbatim, with `context` lines around changes.
+
+  A binary file appears as a `Binary files … differ` line. The arguments are as for `diff`,
+  treating a negative `context` as zero.
+
+  Raises `GitError` when a revision names no commit; a diff that is not valid UTF-8 raises
+  `ExecError`.
+""")
+def patch(sides: Diff = IndexToWorktree, paths: array[path] = [], context: int = 3,
+          renames: bool = true, repo: path = ".") -> text =
+  # Settings that only change layout stay unpinned, as the patch remains applicable:
+  # `diff.interHunkContext`, `diff.indentHeuristic`, `diff.algorithm`, `diff.suppressBlankEmpty`,
+  # and `core.quotePath` (header quoting).
+  let lines = if context < 0 => 0 else => context
+  GitInternals::diff-output(repo, ["-U%{lines}"], sides, paths, renames)
 
 @doc("""
   Return the branch state and changed paths of the work tree containing `repo`.
