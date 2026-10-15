@@ -219,22 +219,3 @@ catch GitError as e =>
 
     assert result.ok, result.error
     assert out.splitlines() == ["-C", "missing", "128", "true", "false"]
-
-
-# `chunks` has no public caller yet; this direct test moves to workflow coverage once one uses it.
-def test_chunks_groups_items_into_records(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    out, result = run_git_program(
-        """
-print(git::GitInternals::chunks(["a", "b", "c", "d", "e"], 2).map(fn(c: array[text]) => c.size()))
-""",
-        tmp_path,
-        monkeypatch,
-        capsys,
-    )
-
-    assert result.ok, result.error
-    assert out.strip() == "[2, 2, 1]"

@@ -48,7 +48,11 @@ record Signature
   @doc("Git's `±HHMM` offset.")
   timezone: text
 
-@doc("A commit; `hash` is the full hash and `body` excludes the `subject` line.")
+@doc("""
+  A commit; `hash` is the full hash and `body` excludes the `subject` line.
+
+  `body` has no trailing newline.
+""")
 record Commit
   hash: ref
   parents: array[ref]
@@ -402,6 +406,60 @@ scope GitInternals
         | _ => ()
       i := i + 1
     Status(head, branch, upstream, divergence, entries)
+
+  @doc("The `log` format: one NUL-separated record of `log-fields` fields per commit.")
+  def log-format() -> text =
+    "--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%ad%x00%cn%x00%ce%x00%ct%x00%cd%x00%s%x00%b"
+
+  @doc("The number of fields `log-format` emits per commit.")
+  def log-fields() -> int = log-format().split("%x00").size()
+
+  @doc("Build a signature from its name, email, epoch-seconds, and `%z` offset fields.")
+  def signature-of(fields: array[text]) -> Signature =
+    Signature(fields[0], fields[1], fields[2] as decimal, fields[3])
+
+  @doc("Remove all trailing newlines.")
+  def trim-newlines(out: text) -> text =
+    let trimmed = chomp(out)
+    if trimmed == out =>
+      out
+    else =>
+      trim-newlines(trimmed)
+
+  @doc("Build a commit from one `log-format` record; only trailing newlines leave the body.")
+  def commit-of(fields: array[text]) -> Commit =
+    let parents = if fields[1].is-empty() => [] else => fields[1].split(" ")
+    Commit(
+      fields[0],
+      parents,
+      signature-of(fields.slice(2, 6)),
+      signature-of(fields.slice(6, 10)),
+      fields[10],
+      trim-newlines(fields[11]),
+    )
+
+  @doc("""
+    Return the commits `log` lists for `flags`, `revs`, and the pathspecs `specs`.
+
+    The flags pin every setting the parser depends on, so user configuration cannot change the
+    output: no color, signature, decoration, or `--follow` rename tracking, and UTF-8 text.
+  """)
+  def history(repo: path, flags: array[text], revs: array[ref],
+              specs: array[text]) -> array[Commit] =
+    let pinned = [
+      "log",
+      "-z",
+      "--no-color",
+      "--no-show-signature",
+      "--no-decorate",
+      "--no-follow",
+      "--encoding=UTF-8",
+      "--date=format:%z",
+      log-format(),
+    ]
+    let args = pinned.concat(flags).concat(["--end-of-options"]).concat(revs).concat(["--"])
+    let out = run(repo, args.concat(specs)).stdout
+    chunks(split-nul(out), log-fields()).map(commit-of)
 end GitInternals
 
 @doc("""
@@ -464,16 +522,90 @@ def files(paths: array[path] = [], repo: path = ".") -> array[path] =
 @doc("""
   Return the full hash of the commit `rev` names.
 
-  Raises `GitError` when `rev` does not name a commit.
+  Raises `GitError` when `rev` does not name a commit, as for a range, a negated revision, or a
+  tree.
 """)
 def resolve(rev: ref, repo: path = ".") -> ref =
-  let args = ["rev-parse", "--verify", "--end-of-options", rev ++ "^{commit}"]
-  GitInternals::run(repo, args).stdout.trim()
+  # One-argument `merge-base --octopus` prints the commit `rev` names and rejects ranges, negations
+  # and non-commits, unlike `rev-parse --verify`, which accepts a negated `^rev`.
+  GitInternals::run(repo, ["merge-base", "--octopus", "--end-of-options", rev]).stdout.trim()
 
-@doc("Return the full hash of the commit `rev` names, or `None` when it names none.")
+@doc("""
+  Return the full hash of the commit `rev` names, or `None` when it names none, as for a negated
+  revision. A `:/text` search is not supported.
+""")
 def resolve?(rev: ref, repo: path = ".") -> Option[ref] =
   let args = ["rev-parse", "-q", "--verify", "--end-of-options", rev ++ "^{commit}"]
+  GitInternals::optional(repo, args)
+    .map(fn(res: ExecResult) => res.stdout.trim())
+    .select(fn(hash: ref) => not hash.starts-with("^"))
+
+@doc("""
+  Return the commits reachable from `include` but not from `exclude`, in git's default order
+  (newest first).
+
+  `paths` keeps the commits that change them, `max-count` caps the count, and `first-parent`
+  follows only the first parent of merges. Empty `include` and `exclude` list `HEAD`.
+
+  Each `include` and `exclude` entry names a single revision, which must peel to a commit.
+
+  A `:/text` search is not supported.
+
+  Raises `GitError` when a revision names no commit.
+""")
+def log(include: array[ref] = ["HEAD"], exclude: array[ref] = [], paths: array[path] = [],
+        max-count: Option[int] = None, first-parent: bool = false,
+        repo: path = ".") -> array[Commit] =
+  var flags: array[text] = []
+  case max-count of
+    | Some(value) => flags.push("--max-count=%{value}")
+    | None => ()
+  if first-parent =>
+    flags.push("--first-parent")
+  # Without `^{commit}`, tree and blob revisions exit 0 with silently wrong results.
+  let revs = include.map(fn(rev: ref) => rev ++ "^{commit}")
+    .concat(exclude.map(fn(rev: ref) => "^" ++ rev ++ "^{commit}"))
+  GitInternals::history(repo, flags, revs, GitInternals::pathspecs(paths))
+
+@doc("""
+  Return the commit `rev` names, without its ancestors.
+
+  Raises `GitError` when `rev` does not name a commit, as for a range or a tree.
+""")
+def show(rev: ref = "HEAD", repo: path = ".") -> Commit =
+  GitInternals::history(repo, ["--max-count=1", "--no-walk"], [resolve(rev, repo)], [])[0]
+
+@doc("""
+  Return the content of the file `path` at `rev`, verbatim.
+
+  `path` is relative to the repository root, and `rev` must not contain `:`.
+
+  Raises `GitError` when `rev` or `path` does not exist, `path` is not a file, or `path` leaves
+  the tree. A file that is not valid UTF-8 raises `ExecError`.
+""")
+def read-file(path: path, rev: ref = "HEAD", repo: path = ".") -> text =
+  # `-C root(repo)`: `rev:../p` resolves relative to the current directory, so from a subdirectory
+  # it would escape the tree silently.
+  let spec = "%{rev}:%{std/path::normalize(path)}"
+  GitInternals::run(root(repo), ["cat-file", "blob", "--end-of-options", spec]).stdout
+
+@doc("""
+  Return the best common ancestor of `a` and `b`, or `None` when their histories are unrelated.
+
+  Raises `GitError` when a revision names no commit.
+""")
+def merge-base(a: ref, b: ref, repo: path = ".") -> Option[ref] =
+  let args = ["merge-base", "--end-of-options", a, b]
   GitInternals::optional(repo, args).map(fn(res: ExecResult) => res.stdout.trim())
+
+@doc("""
+  Check if `ancestor` is reachable from `descendant`; a commit is its own ancestor.
+
+  Raises `GitError` when a revision names no commit.
+""")
+def is-ancestor(ancestor: ref, descendant: ref, repo: path = ".") -> bool =
+  let args = ["merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant]
+  GitInternals::optional(repo, args).is-some()
 
 @doc("""
   Return the branch state and changed paths of the work tree containing `repo`.
