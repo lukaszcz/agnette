@@ -24,12 +24,12 @@ def run_git_program(
     *,
     imports: tuple[str, ...] = (),
 ) -> tuple[str, RunResult]:
-    """Run *body* as ``main`` with ``std/git`` imported and the process cwd set to *cwd*.
+    """Run *body* as ``main`` with ``std/git`` and ``GitError`` imported and cwd set to *cwd*.
 
     ``std/env::environ`` is seeded from the current (isolated) ``os.environ``, as ``agm exec``
     does. *imports* adds further ``import`` lines. Returns the program's stdout and its result.
     """
-    header = "".join(f"import {name}\n" for name in ("std/git", *imports))
+    header = "".join(f"import {name}\n" for name in ("std/git", "std/git::GitError", *imports))
     source = f"{header}program def main() -> unit =\n{textwrap.indent(body.strip(), '  ')}\n"
     monkeypatch.chdir(cwd)
     result = run_program(source, process_environment=dict(os.environ))
@@ -47,4 +47,15 @@ if {name} == {expected} =>
   print("ok")
 else =>
   print({name})
+"""
+
+
+def agl_raises(call: str) -> str:
+    """Return AgL printing ``raised`` if *call* raises ``GitError``, else ``returned``."""
+    return f"""
+try
+  let _ = {call}
+  print("returned")
+catch GitError =>
+  print("raised")
 """

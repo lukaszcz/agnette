@@ -17,8 +17,8 @@ def git_run(cwd: Path | None, args: Sequence[str], env: dict[str, str]) -> None:
     subprocess.run(["git", *args], cwd=cwd, env=env, check=True)
 
 
-def git_output(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
-    """Return the stripped stdout of a successful git command."""
+def _git_stdout(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
+    """Return the raw stdout of a successful git command."""
 
     result = subprocess.run(
         ["git", *args],
@@ -28,7 +28,19 @@ def git_output(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
         capture_output=True,
         text=True,
     )
-    return result.stdout.strip()
+    return result.stdout
+
+
+def git_output(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
+    """Return the stripped stdout of a successful git command."""
+
+    return _git_stdout(cwd, args, env).strip()
+
+
+def git_lines(cwd: Path, args: Sequence[str], env: dict[str, str]) -> list[str]:
+    """Return the unstripped stdout lines of a successful git command."""
+
+    return _git_stdout(cwd, args, env).splitlines()
 
 
 def init_repo(path: Path, env: dict[str, str], *, branch: str = "main") -> Path:

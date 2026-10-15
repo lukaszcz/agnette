@@ -36,7 +36,6 @@ catch GitError as e =>
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::GitError",),
     )
 
     assert result.ok, result.error

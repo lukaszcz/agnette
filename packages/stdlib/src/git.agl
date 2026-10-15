@@ -508,3 +508,149 @@ def status(untracked: bool = true, ignored: bool = false, repo: path = ".") -> S
 @doc("Check if the work tree has no changes; `untracked` counts untracked files as changes.")
 def is-clean(untracked: bool = true, repo: path = ".") -> bool =
   status(untracked, false, repo).entries.is-empty()
+
+@doc("""
+  Stage `paths`, deletions included; `"."` stages the whole tree.
+
+  Does nothing for no paths. Raises `GitError` for an ignored or missing path.
+""")
+def add(paths: array[path], repo: path = ".") -> unit =
+  if not paths.is-empty() =>
+    let _ = GitInternals::run(repo, ["add", "--"].concat(GitInternals::pathspecs(paths)))
+
+@doc("""
+  Remove `paths` from the index and the work tree, directories recursively.
+
+  `cached` keeps the files on disk; `force` also removes files with local modifications. Does
+  nothing for no paths. Raises `GitError` for an untracked path or a modified file without `force`.
+""")
+def remove(paths: array[path], cached: bool = false, force: bool = false,
+           repo: path = ".") -> unit =
+  if not paths.is-empty() =>
+    var args = ["rm", "-q", "-r"]
+    if cached =>
+      args.push("--cached")
+    if force =>
+      args.push("-f")
+    args.push("--")
+    args.concat!(GitInternals::pathspecs(paths))
+    let _ = GitInternals::run(repo, args)
+
+@doc("""
+  Move or rename the tracked path `source` to `destination`, both relative to the work-tree root.
+
+  An existing directory `destination` receives `source`. Raises `GitError` when git refuses the
+  move.
+""")
+def move(source: path, destination: path, repo: path = ".") -> unit =
+  let _ = GitInternals::run(root(repo), ["mv", "--", source, destination])
+
+@doc("""
+  Commit the index with `message`, and return the new `HEAD`.
+
+  `all` first stages modifications and deletions of tracked files, `amend` replaces the last
+  commit, `allow-empty` permits a commit without changes, and `verify` runs the pre-commit and
+  commit-msg hooks. Whitespace in `message` is cleaned up; `#` lines are kept.
+
+  Raises `GitError` when there is nothing to commit or a hook fails.
+""")
+def commit(message: text, all: bool = false, amend: bool = false, allow-empty: bool = false,
+           verify: bool = true, repo: path = ".") -> ref =
+  var args = ["commit", "-q", "--cleanup=whitespace", "-m", message]
+  if all =>
+    args.push("--all")
+  if amend =>
+    args.push("--amend")
+  if allow-empty =>
+    args.push("--allow-empty")
+  if not verify =>
+    args.push("--no-verify")
+  let _ = GitInternals::run(repo, args)
+  resolve("HEAD", repo)
+
+@doc("""
+  Switch to `target`: the local branch of that name when there is one, else a detached `HEAD` at
+  the commit it names.
+
+  A `target` that is not a local branch, `"HEAD"` included, detaches.
+
+  Raises `GitError` when `target` names no commit or local changes would be overwritten.
+""")
+def checkout(target: ref, repo: path = ".") -> unit =
+  let mode = if branch::exists(target, repo) => "--no-guess" else => "--detach"
+  let _ = GitInternals::run(repo, ["switch", "-q", mode, "--end-of-options", target])
+
+@doc("""
+  Restore `paths` in the work tree from the index, or with a `source` in the index and the work
+  tree from that commit.
+
+  A path in the index but absent from `source` is deleted from the index and the work tree.
+
+  Does nothing for no paths. Raises `GitError` when a path matches nothing in the index or
+  `source`.
+""")
+def checkout-files(paths: array[path], source: Option[ref] = None, repo: path = ".") -> unit =
+  if not paths.is-empty() =>
+    var args = ["restore"]
+    case source of
+      | Some(value) => args.concat!(["--source=%{value}", "--staged", "--worktree"])
+      | None => args.push("--worktree")
+    args.push("--")
+    args.concat!(GitInternals::pathspecs(paths))
+    let _ = GitInternals::run(repo, args)
+
+@doc("""
+  Move the current branch to the commit `target` names, as far as `mode` says.
+
+  `Soft` keeps the index and work tree, `Mixed` resets the index, `Hard` the work tree too, and
+  `Keep` the work tree except for local changes.
+
+  Raises `GitError` when `target` names no commit or `Keep` would lose local changes.
+""")
+def reset(target: ref = "HEAD", mode: ResetMode = Mixed, repo: path = ".") -> unit =
+  let flag = case mode of
+    | Soft => "--soft"
+    | Mixed => "--mixed"
+    | Hard => "--hard"
+    | Keep => "--keep"
+  let _ = GitInternals::run(repo, ["reset", "-q", flag, resolve(target, repo), "--"])
+
+@doc("""
+  Reset the index entries of `paths` to the commit `source` names, leaving the work tree alone.
+
+  A path absent from `source` is unstaged, leaving the file as an untracked addition.
+
+  Does nothing for no paths. Raises `GitError` when `source` names no commit or a path matches
+  nothing in the index or `source`.
+""")
+def reset-files(paths: array[path], source: ref = "HEAD", repo: path = ".") -> unit =
+  if not paths.is-empty() =>
+    let args = ["restore", "--staged", "--source=%{source}", "--"]
+    let _ = GitInternals::run(repo, args.concat(GitInternals::pathspecs(paths)))
+
+@doc("""
+  Delete untracked files under `paths`, or in the whole tree when `paths` is empty.
+
+  `ignored` also deletes ignored files. `directories` includes untracked directories, but only
+  when `paths` is empty: with `paths`, untracked directories at or under them are deleted
+  regardless.
+""")
+def clean(paths: array[path] = [], directories: bool = true, ignored: bool = false,
+          repo: path = ".") -> unit =
+  var args = ["clean", "-f", "-q"]
+  if directories =>
+    args.push("-d")
+  if ignored =>
+    args.push("-x")
+  # Git ignores `-d` when given a pathspec, so the whole tree is cleaned from the root with none.
+  if paths.is-empty() =>
+    let _ = GitInternals::run(root(repo), args)
+  else =>
+    let _ = GitInternals::run(repo, args.concat(["--"]).concat(GitInternals::tree-specs(paths)))
+
+scope branch
+  @doc("Check if the local branch `name` exists; a tag or remote-tracking name is not one.")
+  def exists(name: ref, repo: path = ".") -> bool =
+    let args = ["show-ref", "--verify", "-q", "--end-of-options", "refs/heads/%{name}"]
+    GitInternals::optional(repo, args).is-some()
+end branch
