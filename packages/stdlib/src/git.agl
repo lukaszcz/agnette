@@ -1,0 +1,389 @@
+# Git repositories, driven by the `git` executable (minimum git 2.36).
+#
+# Paths: every repository-content path, argument or result, is relative to the work-tree root and
+# matched literally (no globbing). `repo` names any directory inside the target work tree and, like
+# every filesystem location, resolves relative to the process working directory; for `init` and
+# `clone` it is the directory to create.
+#
+# Refs: a `ref` is any revision text git accepts. Functions that pass it to git do so in a form
+# that cannot be read as an option.
+#
+# Errors: every failed git invocation raises `GitError`; failures are never classified by message
+# text. An operation that can stop on conflicts returns an outcome with a `Conflicted` member and
+# leaves the repository mid-operation. `exec` failures (timeout, undecodable output) propagate as
+# `ExecError`.
+#
+# Git runs with the ambient `std/env::environ` and `std/config::timeout`, plus fixed
+# non-interactive overrides.
+import std/array
+import std/env
+import std/errors::Exception
+import std/option::Option
+import std/path
+import std/path::path
+import std/text::{++}
+
+@doc("Any revision: branch, tag, hash, `HEAD~2`, `stash@{0}`, `FETCH_HEAD`.")
+type ref = text
+
+@doc("""
+  A failed git invocation.
+
+  `args` is the full git argument vector, including `-C repo`; `exit-code` is 127 when `git` is not
+  installed.
+""")
+exception GitError extends Exception
+  args: array[text]
+  exit-code: int
+  stdout: text
+  stderr: text
+
+@doc("A commit's author or committer identity and timestamp.")
+record Signature
+  name: text
+  email: text
+  @doc("Unix epoch seconds.")
+  time: decimal
+  @doc("Git's `±HHMM` offset.")
+  timezone: text
+
+@doc("A commit; `hash` is the full hash and `body` excludes the `subject` line.")
+record Commit
+  hash: ref
+  parents: array[ref]
+  author: Signature
+  committer: Signature
+  subject: text
+  body: text
+
+@doc("How a path differs between two states; `similarity` is a percentage.")
+enum Change
+  | Unmodified
+  | Added
+  | Modified
+  | Deleted
+  | TypeChanged
+  | Unmerged
+  | Renamed(source: path, similarity: int)
+  | Copied(source: path, similarity: int)
+
+@doc("A path and how it changed.")
+record FileChange
+  path: path
+  change: Change
+
+@doc("Added and deleted line counts of a path.")
+record FileStat
+  path: path
+  @doc("`None` for a binary file.")
+  added: Option[int]
+  @doc("`None` for a binary file.")
+  deleted: Option[int]
+
+@doc("How the two sides of a conflict changed the path, from `ours` (current) and `theirs`.")
+enum ConflictKind
+  | BothModified
+  | BothAdded
+  | BothDeleted
+  | AddedByUs
+  | AddedByThem
+  | DeletedByUs
+  | DeletedByThem
+
+@doc("""
+  The state of a path in `Status`.
+
+  `Tracked` gives the change staged in the index and the unstaged change in the work tree.
+""")
+enum EntryState
+  | Tracked(staged: Change, unstaged: Change)
+  | Conflict(kind: ConflictKind)
+  | Untracked
+  | Ignored
+
+@doc("A path and its state.")
+record StatusEntry
+  path: path
+  state: EntryState
+
+@doc("Commits the branch has that its upstream lacks (`ahead`) and the reverse (`behind`).")
+record Divergence
+  ahead: int
+  behind: int
+
+@doc("The work tree's branch state and changed paths.")
+record Status
+  @doc("`None` on an unborn branch.")
+  head: Option[ref]
+  @doc("`None` when `HEAD` is detached.")
+  branch: Option[ref]
+  upstream: Option[ref]
+  @doc("`None` without a live upstream.")
+  divergence: Option[Divergence]
+  entries: array[StatusEntry]
+
+@doc("The two sides a diff compares; `base` defaults to `HEAD`.")
+enum Diff
+  | IndexToWorktree
+  | CommitToIndex(base: ref = "HEAD")
+  | CommitToWorktree(base: ref = "HEAD")
+  | CommitToCommit(base: ref, target: ref)
+
+@doc("An operation stopped on conflicts in `paths`, leaving the repository mid-operation.")
+record Conflicted
+  paths: array[path]
+
+@doc("The result of an integrating operation; `head` is the new `HEAD`.")
+enum Outcome
+  | UpToDate
+  | FastForwarded(head: ref)
+  | Completed(head: ref)
+  | ::Conflicted
+
+@doc("The result of applying a stash entry.")
+enum ApplyResult = Applied | ::Conflicted
+
+@doc("A multi-step operation that can be in progress.")
+enum Operation = Merging | Rebasing | CherryPicking | Reverting
+
+@doc("Whether a merge may fast-forward: `Allow` when possible, `Only` or `Never`.")
+enum FastForward = Allow | Only | Never
+
+@doc("How `pull` integrates fetched commits.")
+enum PullMode = Merge(ff: FastForward = Allow) | Rebase
+
+@doc("What `reset` moves; `Keep` is `--keep`, a hard reset that preserves local changes.")
+enum ResetMode = Soft | Mixed | Hard | Keep
+
+@doc("Push overwrite policy; `WithLease` refuses when the remote ref moved unexpectedly.")
+enum Force = NoForce | WithLease | Forced
+
+@doc("The configuration file level.")
+enum ConfigScope = Local | Global
+
+@doc("Git's default peer for the current branch.")
+record Upstream
+
+@doc("What `fetch` retrieves; `AllRemotes` covers every remote, empty `refspecs` the defaults.")
+enum FetchSource = ::Upstream | AllRemotes | FetchFrom(remote: text, refspecs: array[text] = [])
+
+@doc("What `pull` integrates.")
+enum PullSource = ::Upstream | PullFrom(remote: text, branch: ref)
+
+@doc("Where `push` sends; empty `refspecs` use the defaults.")
+enum PushTarget = ::Upstream | PushTo(remote: text, refspecs: array[text] = [])
+
+@doc("A local or remote-tracking branch.")
+record Branch
+  @doc("`main`, or `origin/main` for a remote-tracking branch.")
+  name: ref
+  commit: ref
+  @doc("The tracked branch, or `None` when it has none.")
+  upstream: Option[ref]
+  @doc("Whether the branch is checked out in this work tree.")
+  current: bool
+
+@doc("A stash entry.")
+record StashEntry
+  index: int
+  @doc("`stash@{n}`.")
+  name: ref
+  commit: ref
+  @doc("The reflog subject, e.g. `On main: wip`.")
+  message: text
+
+@doc("A work tree of the repository.")
+record Worktree
+  @doc("Absolute path.")
+  path: path
+  @doc("`None` for a bare entry.")
+  head: Option[ref]
+  @doc("`None` when detached or bare.")
+  branch: Option[ref]
+  bare: bool
+  @doc("The lock reason, which may be empty.")
+  locked: Option[text]
+  @doc("The reason `worktree prune` would remove it, or `None` when it is not prunable.")
+  prunable: Option[text]
+
+@doc("A tag.")
+record Tag
+  name: ref
+  @doc("The peeled object hash.")
+  target: ref
+  @doc("`Some` for an annotated tag.")
+  message: Option[text]
+
+@doc("A configured remote.")
+record Remote
+  name: text
+  fetch-url: text
+  push-url: text
+
+scope GitInternals
+  @doc("The environment git runs in: ambient, with prompts and editors disabled.")
+  def environment() -> std/env::Environ =
+    std/env::environ.extended({"GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true"})
+
+  @doc("Run `git argv` and return its result, whatever the exit code.")
+  def invoke(argv: array[text]) -> ExecResult =
+    exec("git %{shell-join(argv)}", env = environment())
+
+  @doc("Return `res` when it succeeded; otherwise raise `GitError` for `argv`.")
+  def check(argv: array[text], res: ExecResult) -> ExecResult =
+    if res.exit-code == 0 =>
+      res
+    else =>
+      let command = shell-join(argv)
+      raise GitError(
+        argv,
+        res.exit-code,
+        res.stdout,
+        res.stderr,
+        message = "git %{command} failed with exit code %{res.exit-code}: %{res.stderr.trim()}",
+      )
+
+  @doc("Return `args` prefixed with `-C repo`.")
+  def scoped(repo: path, args: array[text]) -> array[text] = ["-C", repo].concat(args)
+
+  @doc("Run git in `repo`, returning the result whatever the exit code.")
+  def attempt(repo: path, args: array[text]) -> ExecResult = invoke(scoped(repo, args))
+
+  @doc("Run git in `repo`; a nonzero exit raises `GitError`.")
+  def run(repo: path, args: array[text]) -> ExecResult =
+    let argv = scoped(repo, args)
+    check(argv, invoke(argv))
+
+  @doc("Run git without `-C`, for commands that create their own repository.")
+  def run-unscoped(args: array[text]) -> ExecResult = check(args, invoke(args))
+
+  @doc("""
+    Run git in `repo`, mapping the documented negative exit code 1 to `None`.
+
+    Any other nonzero exit raises `GitError`.
+  """)
+  def optional(repo: path, args: array[text]) -> Option[ExecResult] =
+    let argv = scoped(repo, args)
+    let res = invoke(argv)
+    if res.exit-code == 1 =>
+      None
+    else =>
+      Some(check(argv, res))
+
+  @doc("""
+    Return the literal root-relative pathspec for `p`.
+
+    A path that normalizes to `.` is the whole tree.
+  """)
+  def pathspec(p: path) -> text =
+    let normalized = std/path::normalize(p)
+    if normalized == "." =>
+      ":(top)"
+    else =>
+      ":(top,literal)" ++ normalized
+
+  @doc("Map each path to its pathspec.")
+  def pathspecs(paths: array[path]) -> array[text] = paths.map(pathspec)
+
+  @doc("Return the pathspecs of `paths`, or the whole tree when `paths` is empty.")
+  def tree-specs(paths: array[path]) -> array[text] =
+    if paths.is-empty() =>
+      [":(top)"]
+    else =>
+      pathspecs(paths)
+
+  @doc("Remove one trailing newline.")
+  def chomp(out: text) -> text =
+    if out.ends-with("\n") =>
+      out.slice(0, -1)
+    else =>
+      out
+
+  @doc("Split NUL-terminated output into its records.")
+  def split-nul(out: text) -> array[text] =
+    let parts = out.split("\u0000")
+    if parts.last() == "" =>
+      parts.take(parts.size() - 1)
+    else =>
+      parts
+
+  @doc("Group `items` into consecutive records of `size` items.")
+  def chunks(items: array[text], size: int) -> array[array[text]] =
+    var records: array[array[text]] = []
+    var start = 0
+    while start < items.size() do
+      records.push(items.slice(start, start + size))
+      start := start + size
+    records
+end GitInternals
+
+@doc("""
+  Check if `repo` is inside a work tree.
+
+  A bare repository, a git directory, or any failure is `false`.
+""")
+def is-repo(repo: path = ".") -> bool =
+  let res = GitInternals::attempt(repo, ["rev-parse", "--is-inside-work-tree"])
+  res.exit-code == 0 and res.stdout.trim() == "true"
+
+@doc("""
+  Return the absolute root of the work tree containing `repo`.
+
+  Raises `GitError` when `repo` is not inside a work tree.
+""")
+def root(repo: path = ".") -> path =
+  GitInternals::chomp(GitInternals::run(repo, ["rev-parse", "--show-toplevel"]).stdout)
+
+@doc("""
+  Create a repository at `repo`, with `branch` as its initial branch when given.
+
+  A `bare` repository has no work tree.
+""")
+def init(repo: path = ".", branch: Option[ref] = None, bare: bool = false) -> unit =
+  var args = ["init", "-q"]
+  case branch of
+    | Some(value) => args.push("--initial-branch=%{value}")
+    | None => ()
+  if bare =>
+    args.push("--bare")
+  args.concat!(["--end-of-options", repo])
+  let _ = GitInternals::run-unscoped(args)
+
+@doc("""
+  Clone `url` into `repo`.
+
+  `branch` checks out that branch, `depth` makes a shallow clone, and `bare` omits the work tree.
+""")
+def clone(url: text, repo: path, branch: Option[ref] = None, depth: Option[int] = None,
+          bare: bool = false) -> unit =
+  var args = ["clone", "-q"]
+  case branch of
+    | Some(value) => args.push("--branch=%{value}")
+    | None => ()
+  case depth of
+    | Some(value) => args.concat!(["--no-local", "--depth=%{value}"])
+    | None => ()
+  if bare =>
+    args.push("--bare")
+  args.concat!(["--end-of-options", url, repo])
+  let _ = GitInternals::run-unscoped(args)
+
+@doc("Return the tracked files under `paths`, or all of them when `paths` is empty.")
+def files(paths: array[path] = [], repo: path = ".") -> array[path] =
+  let base = ["ls-files", "-z", "--full-name", "--deduplicate", "--"]
+  let args = base.concat(GitInternals::tree-specs(paths))
+  GitInternals::split-nul(GitInternals::run(repo, args).stdout)
+
+@doc("""
+  Return the full hash of the commit `rev` names.
+
+  Raises `GitError` when `rev` does not name a commit.
+""")
+def resolve(rev: ref, repo: path = ".") -> ref =
+  let args = ["rev-parse", "--verify", "--end-of-options", rev ++ "^{commit}"]
+  GitInternals::run(repo, args).stdout.trim()
+
+@doc("Return the full hash of the commit `rev` names, or `None` when it names none.")
+def resolve?(rev: ref, repo: path = ".") -> Option[ref] =
+  let args = ["rev-parse", "-q", "--verify", "--end-of-options", rev ++ "^{commit}"]
+  GitInternals::optional(repo, args).map(fn(res: ExecResult) => res.stdout.trim())

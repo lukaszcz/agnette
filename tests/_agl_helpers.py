@@ -934,12 +934,14 @@ def run_program(
     *,
     seed: "dict[str, Value] | None" = None,
     host_settings_policy: object | None = None,
+    process_environment: Mapping[str, str] | None = None,
 ) -> RunResult:
     """Run inline *source* through the shared inline-entry transform.
 
-    Asserts the result is a full :class:`RunResult` (not an argument-preflight
-    failure). Shared by the engine-setting test suites (``default-agent``,
-    ``default-sandbox``, the generic restamp tests).
+    *process_environment* seeds ``std/env::environ`` (empty when ``None``). Asserts the
+    result is a full :class:`RunResult` (not an argument-preflight failure). Shared by the
+    engine-setting test suites (``default-agent``, ``default-sandbox``, the generic restamp
+    tests).
     """
     result = run_inline_code(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
@@ -947,6 +949,7 @@ def run_program(
         roots=agl_roots(),
         builtin_host_settings=seed,
         host_settings_policy=host_settings_policy,
+        process_environment=process_environment,
     )
     assert isinstance(result, RunResult)
     return result
