@@ -14,7 +14,9 @@
 # `ExecError`.
 #
 # Git runs with the ambient `std/env::environ` and `std/config::timeout`, plus fixed
-# non-interactive overrides.
+# non-interactive overrides: git's terminal prompts are off, while credential helpers and askpass
+# programs of the environment still apply. ssh's own prompts (host key, passphrase on /dev/tty) are
+# not covered by `GIT_TERMINAL_PROMPT`.
 import std/array
 import std/env
 import std/errors::Exception
@@ -673,6 +675,44 @@ scope GitInternals
       | "pick" => Some(CherryPicking)
       | "revert" => Some(Reverting)
       | _ => None
+
+  @doc("The trailing `fetch` or `push` arguments naming `remote` (a name or URL) and `refspecs`.")
+  def remote-operands(remote: text, refspecs: array[text]) -> array[text] =
+    ["--end-of-options", remote].concat(refspecs)
+
+  @doc("""
+    Raise `GitError` unless the current branch has a configured upstream.
+
+    The upstream counts even when its remote-tracking branch does not exist, as after a prune.
+    Nothing is fetched.
+  """)
+  def require-upstream(repo: path) -> unit =
+    let head = run(repo, ["symbolic-ref", "-q", "HEAD"]).stdout.trim()
+    let args = ["for-each-ref", "--format=%(upstream)", head]
+    let res = run(repo, args)
+    if res.stdout.trim().is-empty() =>
+      fail(scoped(repo, args), res)
+
+  @doc("The `fetch` arguments that select `source`.")
+  def fetch-selector(source: FetchSource) -> array[text] =
+    case source of
+      | Upstream => ["--no-all"]
+      | AllRemotes => ["--all"]
+      | FetchFrom(remote, refspecs) => remote-operands(remote, refspecs)
+
+  @doc("""
+    Fetch `source` into the repository of `repo`.
+
+    Flags override the configuration that would change the outcome: submodules are not fetched,
+    and `prune` is explicit. `Upstream` fetches one remote whatever `fetch.all` says.
+  """)
+  def fetch-from(repo: path, source: FetchSource, prune: bool, tags: bool) -> unit =
+    let pruning = if prune => "--prune" else => "--no-prune"
+    var args = ["fetch", "-q", "--no-recurse-submodules", "--no-prune-tags", pruning]
+    if tags =>
+      args.push("--tags")
+    args.concat!(fetch-selector(source))
+    let _ = run(repo, args)
 end GitInternals
 
 @doc("""
@@ -1175,6 +1215,102 @@ def abort(operation: Operation, repo: path = ".") -> unit =
 """)
 def resume(operation: Operation, repo: path = ".") -> Outcome =
   GitInternals::outcome(operation, repo, GitInternals::continuation(operation), None, true)
+
+@doc("""
+  Download the objects and refs `source` names, without changing the work tree or any local
+  branch.
+
+  `Upstream` fetches the remote of the current branch, else `origin`; `AllRemotes` fetches every
+  remote; `FetchFrom` fetches the remote `remote` (a name or URL) with the `refspecs` given, or
+  its configured ones. `prune` deletes the local refs, mapped by the refspecs, that the remote no
+  longer has: remote-tracking branches, and tags only when a refspec, explicit or configured (as
+  in mirror clones), names them. `tags` fetches every tag; otherwise only the tags on fetched history are followed, as the
+  remote's `tagOpt` says. Submodules are not fetched. Configuration of pruning is overridden.
+
+  Raises `GitError` when git cannot fetch, as for an unknown remote or refspec, or a remote it
+  cannot reach or authenticate with: git's terminal prompts are off, credential helpers are used.
+""")
+def fetch(source: FetchSource = Upstream, prune: bool = false, tags: bool = false,
+          repo: path = ".") -> unit =
+  GitInternals::fetch-from(repo, source, prune, tags)
+
+@doc("""
+  Fetch, then merge or rebase the current branch onto the fetched commit, as `mode` says.
+
+  `Upstream` fetches as `fetch` does and integrates the upstream branch; `PullFrom` fetches just
+  `branch` of the remote `remote` and integrates it, whether or not it is the upstream. The
+  integration is `merge` or `rebase`, so the `Outcome` is theirs, `Conflicted` included, and
+  `pull.rebase`, `pull.ff` and `branch.<name>.rebase` do not apply.
+
+  Raises `GitError` when `Upstream` finds no upstream branch, `branch` is not a plain ref name or
+  is missing on the remote, or git refuses to fetch, merge or rebase, as for local changes the
+  integration would overwrite. An invalid `branch` and a missing upstream fail before any fetch;
+  any other error comes after it. An error after the integration started may leave it in
+  progress; see `operation`.
+""")
+def pull(source: PullSource = Upstream, mode: PullMode = Merge(Allow),
+         repo: path = ".") -> Outcome =
+  let target = case source of
+    | Upstream =>
+      GitInternals::require-upstream(repo)
+      GitInternals::fetch-from(repo, Upstream, false, false)
+      "@{upstream}"
+    | PullFrom(remote, branch) =>
+      # A refspec in `branch` would update local refs; `refs/` makes a plain name a valid ref.
+      let _ = GitInternals::run(repo, ["check-ref-format", "refs/" ++ branch])
+      GitInternals::fetch-from(repo, FetchFrom(remote, [branch]), false, false)
+      "FETCH_HEAD"
+  case mode of
+    | Merge(ff) => merge(target, ff, None, repo)
+    | Rebase => rebase(target, repo)
+
+@doc("""
+  Send commits to a remote, as `target` says.
+
+  `Upstream` pushes the current branch to its upstream branch, whatever its name, even when the
+  remote-tracking branch is gone; as git does with no refspecs, the remote's configured push
+  refspecs (`remote.<r>.push`) and mirror setting (`remote.<r>.mirror`) still apply. `PushTo`
+  pushes the `refspecs` to the remote `remote` (a name or URL); with none, it pushes the current
+  branch to the branch of the same name, or as the remote's configured refspecs or mirror setting
+  say. `WithLease` overwrites remote history only if the remote-tracking branch still matches
+  the remote, so it overwrites commits fetched but not integrated; `Forced` overwrites
+  regardless. `set-upstream` makes the pushed
+  branch track its remote branch. `tags` also pushes every tag, and without `refspecs`, as for
+  `Upstream`, only the tags. Configuration of the default push, followed tags, signing,
+  force-if-includes and submodules is overridden; `push.autoSetupRemote` still sets the upstream
+  when `PushTo` without `refspecs` pushes a new branch.
+
+  Raises `GitError` when `Upstream` finds no upstream branch, or `remote.pushDefault` or
+  `branch.<name>.pushRemote` names another remote, or the remote refuses the update, as for a
+  non-fast-forward without force, or git cannot reach or authenticate with it: terminal prompts
+  are off, credential helpers are used.
+""")
+def push(target: PushTarget = Upstream, force: Force = NoForce, set-upstream: bool = false,
+         tags: bool = false, repo: path = ".") -> unit =
+  var default = "upstream"
+  var operands: array[text] = []
+  case target of
+    | Upstream =>
+      # With `push.autoSetupRemote` git would create a missing upstream; no flag prevents that.
+      GitInternals::require-upstream(repo)
+    | PushTo(remote, refspecs) =>
+      default := "current"
+      operands := GitInternals::remote-operands(remote, refspecs)
+  # An empty `push.pushOption` resets the list: the remote need not support push options.
+  var args = [
+    "-c", "push.default=%{default}", "-c", "push.pushOption=", "push", "-q", "--no-follow-tags",
+    "--no-signed", "--no-recurse-submodules",
+  ]
+  case force of
+    | NoForce => ()
+    | WithLease => args.concat!(["--force-with-lease", "--no-force-if-includes"])
+    | Forced => args.push("--force")
+  if set-upstream =>
+    args.push("--set-upstream")
+  if tags =>
+    args.push("--tags")
+  args.concat!(operands)
+  let _ = GitInternals::run(repo, args)
 
 scope branch
   @doc("Check if the local branch `name` exists; a tag or remote-tracking name is not one.")

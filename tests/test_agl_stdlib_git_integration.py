@@ -1,4 +1,4 @@
-"""Local integration of ``std/git``: merge, rebase, cherry-pick, revert, and operation state."""
+"""Integration of ``std/git``: merge, rebase, cherry-pick, revert, operation state, and remotes."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import pytest
 from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
 from tests._git_helpers import (
     add_linked_worktree,
+    clone_bare_remote,
     commit_file,
     conflicted_merge,
     conflicting_branches,
@@ -1089,3 +1090,682 @@ def test_error_after_the_operation_started_leaves_it_in_progress(
 
     assert result.ok, result.error
     assert out.splitlines() == ["raised", "ok"]
+
+
+# Remote synchronization: `fetch`, `pull` and `push` against local bare remotes.
+
+
+def _clone_of(tmp_path: Path, env: dict[str, str], bare: Path, name: str) -> Path:
+    git_run(None, ["clone", "-q", str(bare), str(tmp_path / name)], env)
+    return tmp_path / name
+
+
+def _peer(tmp_path: Path, env: dict[str, str], name: str) -> Path:
+    """Clone the bare remote of ``name`` as its collaborator ``<name>-peer``."""
+    return _clone_of(tmp_path, env, tmp_path / f"{name}-origin.git", f"{name}-peer")
+
+
+def _remote_pair(
+    tmp_path: Path,
+    env: dict[str, str],
+    name: str,
+    *,
+    ahead: int = 0,
+    behind: int = 0,
+    conflict: bool = False,
+) -> tuple[Path, Path]:
+    """Create bare remote ``<name>-origin.git`` and clone ``name``, then diverge them.
+
+    The clone gets ``ahead`` local commits, the remote ``behind`` commits pushed by a peer. With
+    ``conflict`` (at most one commit each) both change ``f.txt``. Returns remote and clone.
+    """
+    source = init_repo(tmp_path / f"{name}-source", env)
+    if conflict:
+        commit_file(source, env, name="f.txt", content="base\n", message="base")
+    bare, repo = clone_bare_remote(source, tmp_path, env, name=name)
+    for n in range(ahead):
+        commit_file(
+            repo,
+            env,
+            name="f.txt" if conflict else f"local{n}.txt",
+            content=f"ours {n}\n",
+            message=f"local {n}",
+        )
+    if behind:
+        peer = _peer(tmp_path, env, name)
+        for n in range(behind):
+            commit_file(
+                peer,
+                env,
+                name="f.txt" if conflict else f"remote{n}.txt",
+                content=f"theirs {n}\n",
+                message=f"remote {n}",
+            )
+        git_run(peer, ["push", "-q", "origin", "main"], env)
+    return bare, repo
+
+
+def _tip(repo: Path, env: dict[str, str], rev: str = "main") -> str:
+    return git_output(repo, ["rev-parse", rev], env)
+
+
+def _parents(repo: Path, env: dict[str, str], rev: str = "HEAD") -> list[str]:
+    return git_output(repo, ["rev-list", "--parents", "-n1", rev], env).split()[1:]
+
+
+def _refs(repo: Path, env: dict[str, str], namespace: str) -> dict[str, str]:
+    """Map each ref of *repo* under ``refs/<namespace>/`` to its hash, except symbolic ``HEAD``.
+
+    Names are relative to the namespace: ``main`` for ``heads``, ``origin/main`` for ``remotes``.
+    """
+    lines = git_lines(
+        repo, ["for-each-ref", "--format=%(refname) %(objectname)", f"refs/{namespace}"], env
+    )
+    prefix = f"refs/{namespace}/"
+    refs = {name.removeprefix(prefix): oid for name, oid in (line.split(" ") for line in lines)}
+    return {name: oid for name, oid in refs.items() if not name.endswith("/HEAD")}
+
+
+def test_fetch_updates_the_refs_of_each_source(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = init_repo(tmp_path / "source", env)
+    origin, _ = clone_bare_remote(source, tmp_path, env, name="up")
+    fork = tmp_path / "fork.git"
+    git_run(None, ["clone", "--bare", "-q", str(origin), str(fork)], env)
+    names = ("up", "from", "spec", "all")
+    for name in names[1:]:
+        _clone_of(tmp_path, env, origin, name)
+    for name in names:
+        git_run(tmp_path / name, ["remote", "add", "fork", str(fork)], env)
+    # Since git 2.44 this would make a plain fetch fetch every remote.
+    git_run(tmp_path / "up", ["config", "fetch.all", "true"], env)
+    old = _tip(origin, env)
+    peer = _peer(tmp_path, env, "up")
+    commit_file(peer, env, name="new.txt", message="new")
+    git_run(peer, ["push", "-q", "origin", "main"], env)
+    git_run(peer, ["checkout", "-qb", "feat"], env)
+    commit_file(peer, env, name="feat.txt", message="feat")
+    git_run(peer, ["push", "-q", "origin", "feat"], env)
+    git_run(peer, ["remote", "add", "fork", str(fork)], env)
+    git_run(peer, ["checkout", "-qb", "ffeat", "main"], env)
+    commit_file(peer, env, name="ffeat.txt", message="ffeat")
+    git_run(peer, ["push", "-q", "fork", "ffeat"], env)
+    new = _tip(origin, env)
+    feat = _tip(origin, env, "feat")
+    ffeat = _tip(fork, env, "ffeat")
+
+    out, result = run_git_program(
+        'git::fetch(repo = "up")\n'
+        'git::fetch(FetchFrom("fork"), repo = "from")\n'
+        'git::fetch(FetchFrom("origin", ["refs/heads/feat:refs/remotes/origin/feat"]), '
+        'repo = "spec")\n'
+        'git::fetch(AllRemotes, repo = "all")',
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    assert out == ""
+    assert _refs(tmp_path / "up", env, "remotes") == {"origin/main": new, "origin/feat": feat}
+    assert _refs(tmp_path / "from", env, "remotes") == {
+        "origin/main": old,
+        "fork/main": old,
+        "fork/ffeat": ffeat,
+    }
+    assert _refs(tmp_path / "spec", env, "remotes") == {"origin/main": old, "origin/feat": feat}
+    assert _refs(tmp_path / "all", env, "remotes") == {
+        "origin/main": new,
+        "origin/feat": feat,
+        "fork/main": old,
+        "fork/ffeat": ffeat,
+    }
+    # `fetch` never touches the work tree or the local branches.
+    assert _tip(tmp_path / "all", env) == old
+    assert git_output(tmp_path / "all", ["status", "--porcelain"], env) == ""
+
+
+def test_fetch_prune_and_tags(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = init_repo(tmp_path / "source", env)
+    git_run(source, ["branch", "gone"], env)
+    origin, _ = clone_bare_remote(source, tmp_path, env, name="keep")
+    names = ("keep", "prune", "both", "plain", "tagged")
+    for name in names[1:]:
+        _clone_of(tmp_path, env, origin, name)
+    git_run(origin, ["branch", "-qD", "gone"], env)
+    # A tag on a commit no branch reaches is fetched only on request.
+    peer = _peer(tmp_path, env, "keep")
+    git_run(peer, ["checkout", "-q", "--detach"], env)
+    commit_file(peer, env, name="tagged.txt", message="tagged")
+    git_run(peer, ["tag", "-a", "remote-tag", "-m", "remote"], env)
+    git_run(peer, ["push", "-q", "origin", "remote-tag"], env)
+    # Configuration that would make a plain fetch prune, or `--prune` also prune tags.
+    for name in ("keep", "prune", "both"):
+        repo = tmp_path / name
+        git_run(repo, ["config", "fetch.pruneTags", "true"], env)
+        git_run(repo, ["tag", "local-tag"], env)
+    git_run(tmp_path / "keep", ["config", "fetch.prune", "true"], env)
+    git_run(tmp_path / "keep", ["config", "remote.origin.prune", "true"], env)
+
+    out, result = run_git_program(
+        'git::fetch(repo = "keep")\n'
+        'git::fetch(prune = true, repo = "prune")\n'
+        'git::fetch(prune = true, tags = true, repo = "both")\n'
+        'git::fetch(repo = "plain")\n'
+        'git::fetch(tags = true, repo = "tagged")',
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    stale = {"origin/main", "origin/gone"}
+    expected = {
+        "keep": (stale, ["local-tag"]),
+        "prune": ({"origin/main"}, ["local-tag"]),
+        "both": ({"origin/main"}, ["local-tag", "remote-tag"]),
+        "plain": (stale, []),
+        "tagged": (stale, ["remote-tag"]),
+    }
+    for name, (branches, tags) in expected.items():
+        repo = tmp_path / name
+        assert (set(_refs(repo, env, "remotes")), git_lines(repo, ["tag"], env)) == (branches, tags)
+
+
+def _with_submodule(tmp_path: Path, env: dict[str, str], name: str) -> tuple[Path, Path, Path]:
+    """Create a bare remote whose ``main`` has submodule ``sub``, and a clone with it checked out.
+
+    Returns the remote, the clone and the submodule's source repository.
+    """
+    allow = ["-c", "protocol.file.allow=always"]
+    submodule = init_repo(tmp_path / f"{name}-sub", env)
+    source = init_repo(tmp_path / f"{name}-source", env)
+    git_run(source, [*allow, "submodule", "add", "-q", str(submodule), "sub"], env)
+    git_run(source, ["commit", "-qm", "add sub"], env)
+    bare, repo = clone_bare_remote(source, tmp_path, env, name=name)
+    git_run(repo, [*allow, "submodule", "update", "--init", "-q"], env)
+    return bare, repo, submodule
+
+
+def _allow_file_submodules(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let the git that AgL runs clone and fetch submodules from local paths."""
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+
+
+def test_fetch_ignores_configuration_that_changes_what_it_fetches(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _allow_file_submodules(monkeypatch)
+    bare, fetcher, submodule = _with_submodule(tmp_path, env, "fetcher")
+    commit_file(submodule, env, name="s2.txt", message="s2")
+    inner = git_head(submodule, env)
+    peer = _peer(tmp_path, env, "fetcher")
+    git_run(peer, ["update-index", "--add", "--cacheinfo", f"160000,{inner},sub"], env)
+    git_run(peer, ["commit", "-qm", "bump sub"], env)
+    git_run(peer, ["push", "-q", "origin", "main"], env)
+    git_run(fetcher, ["config", "fetch.recurseSubmodules", "true"], env)
+
+    out, result = run_git_program(
+        'git::fetch(repo = "fetcher")', tmp_path, monkeypatch, capsys, imports=("std/git::*",)
+    )
+
+    assert result.ok, result.error
+    assert _refs(fetcher, env, "remotes") == {"origin/main": _tip(bare, env)}
+    git_fails(fetcher / "sub", ["cat-file", "-e", inner], env)
+
+
+def test_pull_integrates_per_mode_ignoring_pull_configuration(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shapes = {
+        "utd": (0, 0),
+        "ff": (0, 2),
+        "ffr": (0, 2),
+        "never": (0, 1),
+        "only": (1, 1),
+        "div": (1, 1),
+        "divr": (1, 1),
+    }
+    bares = {}
+    for name, (ahead, behind) in shapes.items():
+        bares[name], repo = _remote_pair(tmp_path, env, name, ahead=ahead, behind=behind)
+        # `pull` follows `mode`, whatever `git pull` would be configured to do.
+        merging = name in ("div", "only")
+        git_run(repo, ["config", "pull.rebase", "true" if merging else "false"], env)
+        git_run(repo, ["config", "pull.ff", "only" if merging else "false"], env)
+        git_run(repo, ["config", "branch.main.rebase", "true" if merging else "false"], env)
+    tips = {name: _tip(bare, env) for name, bare in bares.items()}
+    heads = {name: git_head(tmp_path / name, env) for name in shapes}
+
+    out, result = run_git_program(
+        agl_check("utd", 'git::pull(repo = "utd")', "UpToDate")
+        + agl_check("utd-rebase", 'git::pull(mode = Rebase, repo = "utd")', "UpToDate")
+        + agl_check("ff", 'git::pull(repo = "ff")', f'FastForwarded("{tips["ff"]}")')
+        + agl_check(
+            "ffr", 'git::pull(mode = Rebase, repo = "ffr")', f'FastForwarded("{tips["ffr"]}")'
+        )
+        + _completed("never", 'git::pull(mode = Merge(Never), repo = "never")')
+        + agl_raises('git::pull(mode = Merge(Only), repo = "only")')
+        + _completed("div", 'git::pull(repo = "div")')
+        + _completed("divr", 'git::pull(mode = Rebase, repo = "divr")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        git_head(tmp_path / "never", env),
+        "raised",
+        git_head(tmp_path / "div", env),
+        git_head(tmp_path / "divr", env),
+    ]
+    assert git_head(tmp_path / "utd", env) == heads["utd"]
+    assert git_head(tmp_path / "ff", env) == tips["ff"]
+    assert git_head(tmp_path / "ffr", env) == tips["ffr"]
+    assert _parents(tmp_path / "never", env) == [heads["never"], tips["never"]]
+    assert git_head(tmp_path / "only", env) == heads["only"]
+    assert _parents(tmp_path / "div", env) == [heads["div"], tips["div"]]
+    assert _parents(tmp_path / "divr", env) == [tips["divr"]]
+
+
+def test_pull_conflicts_stop_the_operation_and_refusals_are_errors(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for name in ("merge", "rebase"):
+        _remote_pair(tmp_path, env, name, ahead=1, behind=1, conflict=True)
+    for name in ("dirty", "dirty-rebase"):
+        _, repo = _remote_pair(tmp_path, env, name, behind=1)
+        # The incoming commit would overwrite this file.
+        (repo / "remote0.txt").write_text("mine\n", encoding="utf-8")
+    _, solo = _remote_pair(tmp_path, env, "solo")
+    git_run(solo, ["checkout", "-qb", "lonely"], env)
+    _, detached = _remote_pair(tmp_path, env, "detached")
+    git_run(detached, ["checkout", "-q", "--detach"], env)
+    rebase_head = git_head(tmp_path / "rebase", env)
+    heads = {name: git_head(tmp_path / name, env) for name in ("dirty", "dirty-rebase", "solo")}
+    heads["detached"] = git_head(detached, env)
+
+    out, result = run_git_program(
+        agl_check("merge", 'git::pull(repo = "merge")', CONFLICTED)
+        + agl_check("merging", 'git::operation("merge")', "Some::[Operation](Merging)")
+        + _resolve("merge")
+        + _completed("resumed", 'git::resume(Merging, "merge")')
+        + agl_check("rebase", 'git::pull(mode = Rebase, repo = "rebase")', CONFLICTED)
+        + agl_check("rebasing", 'git::operation("rebase")', "Some::[Operation](Rebasing)")
+        + 'git::abort(Rebasing, "rebase")'
+        + agl_raises('git::pull(repo = "dirty")')
+        + agl_raises('git::pull(mode = Rebase, repo = "dirty-rebase")')
+        + agl_raises('git::pull(repo = "solo")')
+        + agl_raises('git::pull(mode = Rebase, repo = "solo")')
+        + agl_raises('git::pull(repo = "detached")')
+        + agl_check("idle", 'git::operation("dirty")', "None::[Operation]")
+        + agl_check("idle-rebase", 'git::operation("dirty-rebase")', "None::[Operation]"),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*", "std/fs"),
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == [
+        "ok",
+        "ok",
+        git_head(tmp_path / "merge", env),
+        "ok",
+        "ok",
+        *["raised"] * 5,
+        "ok",
+        "ok",
+    ]
+    assert git_output(tmp_path / "merge", ["show", "HEAD:f.txt"], env) == "resolved"
+    assert _parent_count(tmp_path / "merge", env) == 2
+    assert git_head(tmp_path / "rebase", env) == rebase_head
+    assert git_output(tmp_path / "rebase", ["status", "--porcelain"], env) == ""
+    for name, head in heads.items():
+        assert git_head(tmp_path / name, env) == head
+    # A missing upstream is found before anything is fetched.
+    for name in ("solo", "detached"):
+        assert not (tmp_path / name / ".git" / "FETCH_HEAD").exists()
+    assert (tmp_path / "dirty" / "remote0.txt").read_text(encoding="utf-8") == "mine\n"
+
+
+def _with_feature(
+    tmp_path: Path, env: dict[str, str], name: str, *, ahead: int = 0
+) -> tuple[Path, Path, str]:
+    """Create a remote and clone ``name`` as in :func:`_remote_pair`, then publish ``feat``.
+
+    ``feat`` has two commits on top of ``main`` and an annotated tag on its tip, which a fetch
+    follows into ``FETCH_HEAD`` as a not-for-merge entry. Returns the remote, the clone, and the
+    tip of ``feat``.
+    """
+    bare, repo = _remote_pair(tmp_path, env, name, ahead=ahead)
+    peer = _peer(tmp_path, env, name)
+    git_run(peer, ["checkout", "-qb", "feat", "main"], env)
+    for n in range(2):
+        commit_file(peer, env, name=f"feat{n}.txt", message=f"feat {n}")
+    git_run(peer, ["tag", "-a", "feat-tag", "-m", "feat"], env)
+    git_run(peer, ["push", "-q", "origin", "feat", "feat-tag"], env)
+    return bare, repo, _tip(bare, env, "feat")
+
+
+def test_pull_from_integrates_the_named_branch(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _, named, tip = _with_feature(tmp_path, env, "named")
+    _, rebased, rebased_tip = _with_feature(tmp_path, env, "rebased", ahead=1)
+    bare, url, url_tip = _with_feature(tmp_path, env, "url")
+    git_run(named, ["config", "remote.origin.tagOpt", "--tags"], env)
+    named_head = git_head(named, env)
+    url_head = git_head(url, env)
+
+    out, result = run_git_program(
+        agl_raises('git::pull(PullFrom("origin", "nope"), repo = "named")')
+        + agl_raises('git::pull(PullFrom("origin", "main:other"), repo = "named")')
+        + agl_raises('git::pull(PullFrom("origin", "refs/heads/*:refs/heads/*"), repo = "named")')
+        + agl_check(
+            "named-up-to-date", 'git::pull(PullFrom("origin", "main"), repo = "named")', "UpToDate"
+        )
+        + agl_check(
+            "named",
+            'git::pull(PullFrom("origin", "feat"), repo = "named")',
+            f'FastForwarded("{tip}")',
+        )
+        + _completed("rebased", 'git::pull(PullFrom("origin", "feat"), Rebase, "rebased")')
+        + _completed("url", f'git::pull(PullFrom("{bare}", "feat"), Merge(Never), "url")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == [
+        "raised",
+        "raised",
+        "raised",
+        "ok",
+        "ok",
+        git_head(rebased, env),
+        git_head(url, env),
+    ]
+    # The remote's tag policy lists tags next to the branch in `FETCH_HEAD`; only the branch merges.
+    assert "not-for-merge" in (named / ".git" / "FETCH_HEAD").read_text(encoding="utf-8")
+    # A branch name that is a refspec is rejected before git sees it, so no branch is created.
+    assert set(_refs(named, env, "heads")) == {"main"}
+    assert git_head(named, env) == tip != named_head
+    assert _parents(rebased, env) == [rebased_tip]
+    assert _parents(url, env) == [url_head, url_tip]
+    # Pulling a branch does not change what the current branch tracks.
+    assert git_output(named, ["rev-parse", "--abbrev-ref", "main@{upstream}"], env) == "origin/main"
+
+
+def test_push_sends_to_each_target(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bares = {}
+    for name in ("up", "topic", "to", "refs", "setup", "unset", "solo", "triangle", "gone", "url"):
+        bares[name], repo = _remote_pair(tmp_path, env, name, ahead=1)
+        # Git's own `push` would push every matching branch.
+        git_run(repo, ["config", "push.default", "matching"], env)
+    base = {name: _tip(bare, env) for name, bare in bares.items()}
+    # `Upstream` pushes to the upstream branch, whatever its name.
+    topic = tmp_path / "topic"
+    git_run(topic, ["checkout", "-q", "-B", "topic", "--track", "origin/main"], env)
+    git_run(topic, ["config", "push.default", "simple"], env)
+    commit_file(topic, env, name="topic.txt", message="topic")
+    # Pushing to a remote without refspecs pushes the current branch only.
+    to = tmp_path / "to"
+    git_run(to, ["branch", "side", "main~1"], env)
+    git_run(to, ["push", "-q", "origin", "side"], env)
+    git_run(to, ["checkout", "-q", "side"], env)
+    commit_file(to, env, name="side.txt", message="side")
+    git_run(to, ["checkout", "-q", "main"], env)
+    commit_file(to, env, name="more.txt", message="more")
+    side = _tip(bares["to"], env, "side")
+    refs = tmp_path / "refs"
+    commit_file(refs, env, name="second.txt", message="second")
+    for name in ("setup", "unset", "solo"):
+        git_run(tmp_path / name, ["checkout", "-qb", "feat"], env)
+    # Git would create the missing upstream of `solo`.
+    git_run(tmp_path / "solo", ["config", "push.default", "simple"], env)
+    git_run(tmp_path / "solo", ["config", "push.autoSetupRemote", "true"], env)
+    # The upstream is configured, but its remote-tracking branch is gone; git recreates the branch.
+    git_run(tmp_path / "gone", ["update-ref", "-d", "refs/remotes/origin/main"], env)
+    # Git refuses to push the upstream branch to a remote that is not its upstream's.
+    fork = tmp_path / "fork.git"
+    git_run(None, ["clone", "--bare", "-q", str(bares["triangle"]), str(fork)], env)
+    git_run(tmp_path / "triangle", ["remote", "add", "fork", str(fork)], env)
+    git_run(tmp_path / "triangle", ["config", "remote.pushDefault", "fork"], env)
+
+    out, result = run_git_program(
+        'git::push(repo = "up")\n'
+        'git::push(repo = "topic")\n'
+        'git::push(PushTo("origin"), repo = "to")\n'
+        'git::push(PushTo("origin", ["HEAD:refs/heads/new", "HEAD~1:refs/heads/old"]), '
+        'repo = "refs")\n'
+        'git::push(PushTo("origin", [":refs/heads/old"]), repo = "refs")\n'
+        'git::push(PushTo("origin"), set-upstream = true, repo = "setup")\n'
+        'git::push(PushTo("origin"), repo = "unset")\n'
+        'git::push(repo = "gone")\n'
+        f'git::push(PushTo("{bares["url"]}"), repo = "url")'
+        + agl_raises('git::push(repo = "solo")')
+        + agl_raises('git::push(repo = "triangle")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised"] * 2
+    assert _refs(bares["up"], env, "heads") == {"main": git_head(tmp_path / "up", env)}
+    assert _refs(bares["topic"], env, "heads") == {"main": git_head(topic, env)}
+    assert _refs(bares["to"], env, "heads") == {"main": git_head(to, env), "side": side}
+    assert _refs(bares["refs"], env, "heads") == {
+        "main": base["refs"],
+        "new": git_head(refs, env),
+    }
+    assert _refs(bares["setup"], env, "heads") == {
+        "main": base["setup"],
+        "feat": git_head(tmp_path / "setup", env),
+    }
+    assert _refs(bares["unset"], env, "heads") == {
+        "main": base["unset"],
+        "feat": git_head(tmp_path / "unset", env),
+    }
+    assert (
+        git_output(tmp_path / "setup", ["rev-parse", "--abbrev-ref", "feat@{upstream}"], env)
+        == "origin/feat"
+    )
+    git_fails(tmp_path / "unset", ["rev-parse", "--abbrev-ref", "feat@{upstream}"], env)
+    for name in ("gone", "url"):
+        assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+    assert _refs(bares["solo"], env, "heads") == {"main": base["solo"]}
+    assert _refs(bares["triangle"], env, "heads") == {"main": base["triangle"]}
+    assert _refs(fork, env, "heads") == {"main": base["triangle"]}
+
+
+def test_push_force_modes(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bares = {}
+    for name in ("amend", "rejected", "fetched", "forced"):
+        diverged = int(name != "amend")
+        bares[name], _ = _remote_pair(tmp_path, env, name, ahead=diverged, behind=diverged)
+    git_run(tmp_path / "amend", ["commit", "--amend", "-qm", "amended"], env)
+    # Git would also refuse to overwrite a commit that this branch's history lacks.
+    git_run(tmp_path / "amend", ["config", "push.useForceIfIncludes", "true"], env)
+    # A lease holds for what the remote-tracking branch says, so a fetch renews it.
+    git_run(tmp_path / "fetched", ["fetch", "-q"], env)
+    theirs = {name: _tip(bare, env) for name, bare in bares.items()}
+
+    out, result = run_git_program(
+        agl_raises('git::push(repo = "amend")')
+        + 'git::push(force = WithLease, repo = "amend")\n'
+        + agl_raises('git::push(force = NoForce, repo = "rejected")')
+        + agl_raises('git::push(force = WithLease, repo = "rejected")')
+        + agl_raises('git::push(repo = "fetched")')
+        + 'git::push(force = WithLease, repo = "fetched")\n'
+        + 'git::push(force = Forced, repo = "forced")',
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised"] * 4
+    assert _refs(bares["rejected"], env, "heads") == {"main": theirs["rejected"]}
+    for name in ("amend", "fetched", "forced"):
+        assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+        assert theirs[name] not in git_lines(tmp_path / name, ["rev-list", "HEAD"], env)
+
+
+def test_push_tags(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bares = {}
+    for name in ("up", "to", "with-refs"):
+        bares[name], repo = _remote_pair(tmp_path, env, name, ahead=1)
+        git_run(repo, ["tag", f"light-{name}"], env)
+        git_run(repo, ["tag", "-a", f"ann-{name}", "-m", "ann"], env)
+    base = {name: _tip(bare, env) for name, bare in bares.items()}
+
+    out, result = run_git_program(
+        'git::push(tags = true, repo = "up")\n'
+        'git::push(PushTo("origin"), tags = true, repo = "to")\n'
+        'git::push(PushTo("origin", ["main"]), tags = true, repo = "with-refs")',
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    # Without refspecs, git pushes only the tags.
+    for name in ("up", "to"):
+        assert git_lines(bares[name], ["tag"], env) == [f"ann-{name}", f"light-{name}"]
+        assert _refs(bares[name], env, "heads") == {"main": base[name]}
+    name = "with-refs"
+    assert git_lines(bares[name], ["tag"], env) == [f"ann-{name}", f"light-{name}"]
+    assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+
+
+def test_push_ignores_configuration_that_changes_what_it_sends(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _allow_file_submodules(monkeypatch)
+    bares = {}
+    for name in ("follow", "signed", "options"):
+        bares[name], repo = _remote_pair(tmp_path, env, name, ahead=1)
+    follow = tmp_path / "follow"
+    git_run(follow, ["tag", "-a", "annotated", "-m", "annotated"], env)
+    git_run(follow, ["config", "push.followTags", "true"], env)
+    # The remote advertises no signed pushes, so a signed push is an error.
+    git_run(tmp_path / "signed", ["config", "push.gpgSign", "true"], env)
+    # The remote does not advertise push options, so sending one is an error.
+    git_run(tmp_path / "options", ["config", "push.pushOption", "x"], env)
+    # A superproject commit whose submodule commit is on no remote is refused when checked.
+    bares["pusher"], pusher, _ = _with_submodule(tmp_path, env, "pusher")
+    commit_file(pusher / "sub", env, name="s2.txt", message="s2")
+    git_run(pusher, ["commit", "-qam", "bump sub"], env)
+    git_run(pusher, ["config", "push.recurseSubmodules", "check"], env)
+
+    out, result = run_git_program(
+        "".join(
+            f'git::push(repo = "{name}")\n' for name in ("follow", "signed", "options", "pusher")
+        ),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    assert git_lines(bares["follow"], ["tag"], env) == []
+    for name in ("follow", "signed", "options", "pusher"):
+        assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+
+
+def test_option_like_operands_never_act_as_options(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bare, repo = _remote_pair(tmp_path, env, "repo", ahead=1)
+    git_run(repo, ["branch", "extra"], env)
+    marker = tmp_path / "marker"
+    upload = f"--upload-pack=touch {marker}"
+    receive = f"--receive-pack=touch {marker}"
+    calls = [
+        f'git::fetch(FetchFrom("{upload}"), repo = "repo")',
+        f'git::fetch(FetchFrom("origin", ["{upload}"]), repo = "repo")',
+        f'git::pull(PullFrom("{upload}", "main"), repo = "repo")',
+        f'git::pull(PullFrom("origin", "{upload}"), repo = "repo")',
+        'git::pull(PullFrom("origin", "--upload-pack=x"), repo = "repo")',
+        f'git::push(PushTo("{receive}"), repo = "repo")',
+        f'git::push(PushTo("--exec=touch {marker}"), repo = "repo")',
+        f'git::push(PushTo("origin", ["{receive}"]), repo = "repo")',
+        'git::push(PushTo("origin", ["--all"]), repo = "repo")',
+    ]
+    before = _refs(bare, env, "heads")
+    head = git_head(repo, env)
+
+    out, result = run_git_program(
+        "".join(agl_raises(call) for call in calls),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=("std/git::*",),
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised"] * len(calls)
+    assert not marker.exists()
+    assert _refs(bare, env, "heads") == before
+    assert git_head(repo, env) == head
+    assert set(_refs(repo, env, "heads")) == {"extra", "main"}

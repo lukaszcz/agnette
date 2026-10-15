@@ -1454,7 +1454,7 @@
   "packages/stdlib/src/exec.agl": "1082d24e4206141bb126c40c403adffb83f485f69e785c97036cfaa2911a83e1",
   "packages/stdlib/src/fs.agl": "604792f86186633048fcaada88c37a53afa23afb9d1d9793aef425fa43d4e066",
   "packages/stdlib/src/fun.agl": "4380a29214d995f758610e4ef4aedc1be14da990c1976365b5e97a9105d2151e",
-  "packages/stdlib/src/git.agl": "db7b7e68284588412de038b1ffcd7a2b5847b20b9387b8cb0af4d0684cdff150",
+  "packages/stdlib/src/git.agl": "139e3ae7d7baa377efc43eb321850c8ee6abedd3e66a8fdc7829073982819d94",
   "packages/stdlib/src/http.agl": "3bb6d2c5b599c612fccd89947aaedd9cd875f629f1c7f011da01074f8228217b",
   "packages/stdlib/src/io.agl": "11a96eef202e65d2a28295df92edb709a6860ac1b3ea882075233c6a5cb334e2",
   "packages/stdlib/src/json.agl": "6ee461d9d5de17ff6f3d76bd4c72c1370b95ff33670504343902b212263d14bc",

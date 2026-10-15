@@ -130,6 +130,22 @@ def clone_local_remote(
     return source, clone
 
 
+def clone_bare_remote(
+    source: Path, parent: Path, env: dict[str, str], *, name: str = "repo"
+) -> tuple[Path, Path]:
+    """Publish *source* as the bare repo ``parent/<name>-origin.git`` and clone it as ``name``.
+
+    Unlike a clone of a non-bare repo, the bare remote accepts pushes to its checked-out branch.
+    Returns the bare remote and the clone, whose ``main`` tracks ``origin/main``.
+    """
+
+    bare = parent / f"{name}-origin.git"
+    git_run(None, ["clone", "--bare", "-q", str(source), str(bare)], env)
+    clone = parent / name
+    git_run(None, ["clone", "-q", str(bare), str(clone)], env)
+    return bare, clone
+
+
 def add_linked_worktree(repo: Path, worktree: Path, env: dict[str, str], *, branch: str) -> Path:
     """Create a linked worktree of *repo* at *worktree*, on a new *branch*."""
 
