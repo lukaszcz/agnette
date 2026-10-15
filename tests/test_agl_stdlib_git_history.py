@@ -16,6 +16,7 @@ from tests._git_helpers import (
     git_head,
     git_lines,
     git_output,
+    git_rev,
     git_run,
     init_repo,
     lines_of,
@@ -38,10 +39,6 @@ def _hashes(call: str) -> str:
     """Return AgL printing the space-joined hashes of the commits *call* returns."""
 
     return f'print(join({call}.map(fn(c: Commit) => c.hash), " "))\n'
-
-
-def _rev(repo: Path, env: dict[str, str], rev: str) -> str:
-    return git_output(repo, ["rev-parse", rev], env)
 
 
 def _revs(repo: Path, env: dict[str, str], *args: str) -> str:
@@ -140,10 +137,10 @@ def test_log_parses_signatures_parents_subject_and_multi_line_bodies(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = _history_repo(tmp_path, env)
-    initial = _rev(repo, env, "main~4")
-    c1 = _rev(repo, env, "main~3")
-    side = _rev(repo, env, "side")
-    c2 = _rev(repo, env, "main~2")
+    initial = git_rev(repo, env, "main~4")
+    c1 = git_rev(repo, env, "main~3")
+    side = git_rev(repo, env, "side")
+    c2 = git_rev(repo, env, "main~2")
 
     body = agl_check(
         "pinned",
@@ -187,8 +184,8 @@ def test_log_ignores_user_configuration(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = _history_repo(tmp_path, env)
-    c1 = _rev(repo, env, "main~3")
-    initial = _rev(repo, env, "main~4")
+    c1 = git_rev(repo, env, "main~3")
+    initial = git_rev(repo, env, "main~4")
     settings = {
         "log.showSignature": "true",
         "log.follow": "true",
@@ -207,7 +204,9 @@ def test_log_ignores_user_configuration(
     git_run(repo, ["commit", "-q", *(["-S"] if sign else []), "-m", "rename b"], commit_env)
 
     body = agl_check("renamed", 'git::log(paths = ["sub/c.txt"], repo = "repo").size()', "1")
-    body += agl_check("signed", 'git::log(repo = "repo")[0].hash', f'"{_rev(repo, env, "HEAD")}"')
+    body += agl_check(
+        "signed", 'git::log(repo = "repo")[0].hash', f'"{git_rev(repo, env, "HEAD")}"'
+    )
     body += agl_check(
         "c",
         f'git::log(["{c1}"], paths = ["a.txt"], max-count = Some(1), repo = "repo")[0]',
@@ -255,7 +254,7 @@ def test_read_file_returns_blob_content_at_a_revision(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = _history_repo(tmp_path, env)
-    merge = _rev(repo, env, "main~1")
+    merge = git_rev(repo, env, "main~1")
     commit_file(repo, env, name="sub/ünï.txt", content="no trailing newline", message="unicode")
     commit_file(repo, env, name="blank.txt", content="text\n\n\n", message="blank lines")
     (repo / "a.txt").write_text("worktree only\n", encoding="utf-8")
@@ -289,12 +288,14 @@ def test_merge_base_and_is_ancestor_answer_for_related_and_unrelated_histories(
     git_run(repo, ["checkout", "-q", "--orphan", "unrelated"], env)
     git_run(repo, ["commit", "-q", "--allow-empty", "-m", "unrelated root"], env)
     git_run(repo, ["checkout", "-q", "main"], env)
-    fork = _rev(repo, env, "main~3")
+    fork = git_rev(repo, env, "main~3")
 
     body = agl_check("fork", 'git::merge-base("main~2", "side", "repo")', f'Some("{fork}")')
     body += agl_check("swap", 'git::merge-base("side", "main~2", "repo")', f'Some("{fork}")')
     body += agl_check(
-        "same", 'git::merge-base("side", "side", "repo/sub")', f'Some("{_rev(repo, env, "side")}")'
+        "same",
+        'git::merge-base("side", "side", "repo/sub")',
+        f'Some("{git_rev(repo, env, "side")}")',
     )
     body += agl_check("none", 'git::merge-base("main", "unrelated", "repo")', "None")
     body += agl_raises('git::merge-base("main", "no-such-ref", "repo")')

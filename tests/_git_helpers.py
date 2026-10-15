@@ -24,13 +24,16 @@ def git_fails(cwd: Path, args: Sequence[str], env: dict[str, str]) -> None:
     assert result.returncode != 0
 
 
-def _git_stdout(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
-    """Return the raw stdout of a successful git command."""
+def _git_stdout(
+    cwd: Path, args: Sequence[str], env: dict[str, str], stdin: str | None = None
+) -> str:
+    """Return the raw stdout of a successful git command that reads *stdin*."""
 
     result = subprocess.run(
         ["git", *args],
         cwd=cwd,
         env=env,
+        input=stdin,
         check=True,
         capture_output=True,
         text=True,
@@ -38,10 +41,12 @@ def _git_stdout(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
     return result.stdout
 
 
-def git_output(cwd: Path, args: Sequence[str], env: dict[str, str]) -> str:
-    """Return the stripped stdout of a successful git command."""
+def git_output(
+    cwd: Path, args: Sequence[str], env: dict[str, str], *, stdin: str | None = None
+) -> str:
+    """Return the stripped stdout of a successful git command that reads *stdin*."""
 
-    return _git_stdout(cwd, args, env).strip()
+    return _git_stdout(cwd, args, env, stdin).strip()
 
 
 def git_lines(cwd: Path, args: Sequence[str], env: dict[str, str]) -> list[str]:
@@ -54,6 +59,24 @@ def git_head(repo: Path, env: dict[str, str]) -> str:
     """Return the full hash of ``HEAD``."""
 
     return git_output(repo, ["rev-parse", "HEAD"], env)
+
+
+def git_rev(repo: Path, env: dict[str, str], rev: str = "HEAD") -> str:
+    """Return the full hash *rev* resolves to."""
+
+    return git_output(repo, ["rev-parse", rev], env)
+
+
+def git_refs(repo: Path, env: dict[str, str], namespace: str) -> dict[str, str]:
+    """Map each ref of *repo* under ``refs/<namespace>/`` to its hash, except symbolic ``HEAD``.
+
+    Names are relative to the namespace: ``main`` for ``heads``, ``origin/main`` for ``remotes``.
+    """
+
+    format_ = "--format=%(refname:lstrip=2) %(objectname)"
+    lines = git_lines(repo, ["for-each-ref", format_, f"refs/{namespace}"], env)
+    refs = dict(line.split(" ") for line in lines)
+    return {name: oid for name, oid in refs.items() if not name.endswith("/HEAD")}
 
 
 def lines_of(name: str) -> str:

@@ -220,7 +220,7 @@ record Tag
   name: ref
   @doc("The peeled object hash.")
   target: ref
-  @doc("`Some` for an annotated tag.")
+  @doc("`Some` for an annotated tag: its message without any signature, trailing newlines trimmed.")
   message: Option[text]
 
 @doc("A configured remote.")
@@ -713,6 +713,61 @@ scope GitInternals
       args.push("--tags")
     args.concat!(fetch-selector(source))
     let _ = run(repo, args)
+
+  @doc("Remove `prefix` from the start of `name` when it has it.")
+  def without-prefix(name: text, prefix: text) -> text =
+    if name.starts-with(prefix) =>
+      name.slice(prefix.size(), name.size())
+    else =>
+      name
+
+  @doc("""
+    Return one row per ref under `namespace`, each with the values of `atoms`, ordered by ref
+    name.
+
+    Each row's format ends with `%00`, so git's trailing newline leads the next row's
+    first field. Git does not read `branch.sort` or `tag.sort` here.
+  """)
+  def ref-rows(repo: path, namespace: text, atoms: array[text]) -> array[array[text]] =
+    let format = "--format=" ++ join(atoms, "%00") ++ "%00"
+    let items = split-nul(run(repo, ["for-each-ref", format, namespace]).stdout)
+    let fields = if items.is-empty() => items else => items.take(items.size() - 1)
+    chunks(fields, atoms.size()).map(fn(row: array[text]) =>
+      [without-prefix(row[0], "\n")].concat(row.drop(1)))
+
+  @doc("Build a branch from a `branch::list` row.")
+  def branch-of(row: array[text]) -> Branch =
+    let upstream: Option[ref] = if row[2].is-empty() => None else => Some(row[2])
+    Branch(row[0], row[1], upstream, row[3] == "*")
+
+  @doc("""
+    Build the tags of the `tag::list` rows.
+
+    A tag of a tag is peeled through every level. Only an annotated tag has a message, which
+    excludes its signature.
+  """)
+  def tags-of(repo: path, rows: array[array[text]]) -> array[Tag] =
+    let nested = rows
+      .select(fn(row: array[text]) => row[1] == "tag" and row[4] == "tag")
+      .map(fn(row: array[text]) => "refs/tags/%{row[0]}^{}")
+    # No `--end-of-options`: without `--verify`, `rev-parse` would print it as an operand.
+    let peeled = if nested.is-empty() =>
+      []
+    else =>
+      run(repo, ["rev-parse"].concat(nested)).stdout.trim().split("\n")
+    var tags: array[Tag] = []
+    var next = 0
+    for row in rows do
+      if row[1] != "tag" =>
+        tags.push(Tag(row[0], row[2], None))
+      else =>
+        var target = row[3]
+        if row[4] == "tag" =>
+          target := peeled[next]
+          next := next + 1
+        let message = row[5].slice(0, row[5].size() - row[6].size())
+        tags.push(Tag(row[0], target, Some(trim-newlines(message))))
+    tags
 end GitInternals
 
 @doc("""
@@ -1224,8 +1279,9 @@ def resume(operation: Operation, repo: path = ".") -> Outcome =
   remote; `FetchFrom` fetches the remote `remote` (a name or URL) with the `refspecs` given, or
   its configured ones. `prune` deletes the local refs, mapped by the refspecs, that the remote no
   longer has: remote-tracking branches, and tags only when a refspec, explicit or configured (as
-  in mirror clones), names them. `tags` fetches every tag; otherwise only the tags on fetched history are followed, as the
-  remote's `tagOpt` says. Submodules are not fetched. Configuration of pruning is overridden.
+  in mirror clones), names them. `tags` fetches every tag; otherwise only the tags on fetched
+  history are followed, as the remote's `tagOpt` says. Submodules are not fetched. Configuration
+  of pruning is overridden.
 
   Raises `GitError` when git cannot fetch, as for an unknown remote or refspec, or a remote it
   cannot reach or authenticate with: git's terminal prompts are off, credential helpers are used.
@@ -1317,4 +1373,158 @@ scope branch
   def exists(name: ref, repo: path = ".") -> bool =
     let args = ["show-ref", "--verify", "-q", "--end-of-options", "refs/heads/%{name}"]
     GitInternals::optional(repo, args).is-some()
+
+  @doc("""
+    Return the local branches, or the remote-tracking branches when `remote`, ordered by name.
+
+    A symbolic ref such as `origin/HEAD` is skipped. `upstream` is set from the configuration even
+    when the tracked branch no longer exists.
+  """)
+  def list(remote: bool = false, repo: path = ".") -> array[Branch] =
+    let namespace = if remote => "refs/remotes" else => "refs/heads"
+    let atoms = [
+      "%(refname:lstrip=2)",
+      "%(objectname)",
+      "%(upstream:lstrip=2)",
+      "%(HEAD)",
+      "%(symref)",
+    ]
+    GitInternals::ref-rows(repo, namespace, atoms)
+      .select(fn(row: array[text]) => row[4].is-empty())
+      .map(GitInternals::branch-of)
+
+  @doc("""
+    Return the branch `HEAD` is on, or `None` when it is detached.
+
+    An unborn branch counts: it is named before it has a commit.
+  """)
+  def current(repo: path = ".") -> Option[ref] =
+    GitInternals::optional(repo, ["symbolic-ref", "-q", "HEAD"])
+      .map(fn(res: ExecResult) =>
+        GitInternals::without-prefix(GitInternals::chomp(res.stdout), "refs/heads/"))
+
+  @doc("""
+    Create the branch `name` at `start`, without tracking anything.
+
+    `force` moves an existing branch, except the one checked out.
+
+    Raises `GitError` when `start` names no commit or `name` is invalid or taken.
+  """)
+  def create(name: ref, start: ref = "HEAD", force: bool = false, repo: path = ".") -> unit =
+    # `--no-track` overrides `branch.autoSetupMerge` and `branch.autoSetupRebase`; git would
+    # otherwise create the branch in submodules too, given `submodule.propagateBranches`.
+    var args = ["-c", "submodule.propagateBranches=false", "branch", "--no-track"]
+    if force =>
+      args.push("-f")
+    args.concat!(["--end-of-options", name, start])
+    let _ = GitInternals::run(repo, args)
+
+  @doc("""
+    Delete the branch `name`, which must be merged into its upstream, or `HEAD` without one,
+    unless `force`.
+
+    Raises `GitError` when the branch does not exist, is checked out, or is not merged.
+  """)
+  def delete(name: ref, force: bool = false, repo: path = ".") -> unit =
+    let flag = if force => "-D" else => "-d"
+    let _ = GitInternals::run(repo, ["branch", flag, "--end-of-options", name])
+
+  @doc("""
+    Rename the branch `old` to `new`, moving its upstream configuration; `force` replaces an
+    existing `new`.
+
+    Raises `GitError` when `old` does not exist or `new` is invalid or taken.
+  """)
+  def rename(old: ref, new: ref, force: bool = false, repo: path = ".") -> unit =
+    let flag = if force => "-M" else => "-m"
+    let _ = GitInternals::run(repo, ["branch", flag, "--end-of-options", old, new])
+
+  @doc("""
+    Return the branch the local branch `name` tracks, or `None` when it tracks none or does not
+    exist.
+
+    The result is as in `list`: a remote-tracking branch such as `origin/main`, or a local one.
+  """)
+  def upstream(name: ref, repo: path = ".") -> Option[ref] =
+    list(false, repo)
+      .find(fn(branch: Branch) => branch.name == name)
+      .and-then(fn(branch: Branch) => branch.upstream)
+
+  @doc("""
+    Make the branch `name` track `upstream`, a local or remote-tracking branch.
+
+    Only the remote and merge settings are written: `branch.autoSetupRebase` is overridden.
+
+    Raises `GitError` when `name` does not exist or `upstream` is not a branch.
+  """)
+  def set-upstream(name: ref, upstream: ref, repo: path = ".") -> unit =
+    let pin = ["-c", "branch.autoSetupRebase=never"]
+    let args = pin.concat(["branch", "--set-upstream-to=%{upstream}", "--end-of-options", name])
+    let _ = GitInternals::run(repo, args)
+
+  @doc("""
+    Stop the branch `name` tracking anything.
+
+    Raises `GitError` when `name` does not exist or tracks nothing.
+  """)
+  def unset-upstream(name: ref, repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["branch", "--unset-upstream", "--end-of-options", name])
+
+  @doc("""
+    Count the commits only `branch` has (`ahead`) and those only `base` has (`behind`).
+
+    Raises `GitError` when `branch` or `base` names no commit, or is itself a range.
+  """)
+  def compare(branch: ref, base: ref, repo: path = ".") -> Divergence =
+    let args = ["rev-list", "--left-right", "--count", "--end-of-options", "%{branch}...%{base}"]
+    let counts = GitInternals::run(repo, args).stdout.trim().split("\t")
+    Divergence(counts[0] as int, counts[1] as int)
 end branch
+
+scope tag
+  @doc("""
+    Return the tags ordered by name.
+
+    `target` is the object a tag finally points to, however many annotated tags lead to it.
+    `message` is `Some` for an annotated tag: it excludes any signature and has its trailing
+    newlines trimmed.
+  """)
+  def list(repo: path = ".") -> array[Tag] =
+    let atoms = [
+      "%(refname:lstrip=2)",
+      "%(objecttype)",
+      "%(objectname)",
+      "%(*objectname)",
+      "%(*objecttype)",
+      "%(contents)",
+      "%(contents:signature)",
+    ]
+    GitInternals::tags-of(repo, GitInternals::ref-rows(repo, "refs/tags", atoms))
+
+  @doc("""
+    Create the tag `name` at `target`: annotated when `message` is `Some`, else lightweight.
+
+    `force` moves an existing tag. The message is whitespace-cleaned, keeping `#` lines. The tag
+    is never signed, whatever `tag.gpgSign` says.
+
+    Raises `GitError` when `target` names no object or `name` is invalid or taken.
+  """)
+  def create(name: ref, target: ref = "HEAD", message: Option[text] = None, force: bool = false,
+             repo: path = ".") -> unit =
+    var args = ["tag", "--no-sign"]
+    case message of
+      | Some(value) => args.concat!(["-a", "--cleanup=whitespace", "-m", value])
+      | None => ()
+    if force =>
+      args.push("-f")
+    args.concat!(["--end-of-options", name, target])
+    let _ = GitInternals::run(repo, args)
+
+  @doc("""
+    Delete the tag `name`.
+
+    Raises `GitError` when it does not exist.
+  """)
+  def delete(name: ref, repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["tag", "-d", "--end-of-options", name])
+end tag

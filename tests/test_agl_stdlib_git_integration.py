@@ -19,6 +19,8 @@ from tests._git_helpers import (
     git_head,
     git_lines,
     git_output,
+    git_refs,
+    git_rev,
     git_run,
     init_repo,
 )
@@ -462,7 +464,7 @@ def test_abort_restores_the_state_before_the_operation(
 
 
 @pytest.mark.parametrize("name", SCENARIOS)
-def test_operation_in_progress_refuses_other_calls_and_option_like_refs(
+def test_operation_in_progress_refuses_other_calls_and_option_likegit_refs(
     name: str,
     tmp_path: Path,
     env: dict[str, str],
@@ -1145,25 +1147,8 @@ def _remote_pair(
     return bare, repo
 
 
-def _tip(repo: Path, env: dict[str, str], rev: str = "main") -> str:
-    return git_output(repo, ["rev-parse", rev], env)
-
-
 def _parents(repo: Path, env: dict[str, str], rev: str = "HEAD") -> list[str]:
     return git_output(repo, ["rev-list", "--parents", "-n1", rev], env).split()[1:]
-
-
-def _refs(repo: Path, env: dict[str, str], namespace: str) -> dict[str, str]:
-    """Map each ref of *repo* under ``refs/<namespace>/`` to its hash, except symbolic ``HEAD``.
-
-    Names are relative to the namespace: ``main`` for ``heads``, ``origin/main`` for ``remotes``.
-    """
-    lines = git_lines(
-        repo, ["for-each-ref", "--format=%(refname) %(objectname)", f"refs/{namespace}"], env
-    )
-    prefix = f"refs/{namespace}/"
-    refs = {name.removeprefix(prefix): oid for name, oid in (line.split(" ") for line in lines)}
-    return {name: oid for name, oid in refs.items() if not name.endswith("/HEAD")}
 
 
 def test_fetch_updates_the_refs_of_each_source(
@@ -1183,7 +1168,7 @@ def test_fetch_updates_the_refs_of_each_source(
         git_run(tmp_path / name, ["remote", "add", "fork", str(fork)], env)
     # Since git 2.44 this would make a plain fetch fetch every remote.
     git_run(tmp_path / "up", ["config", "fetch.all", "true"], env)
-    old = _tip(origin, env)
+    old = git_rev(origin, env, "main")
     peer = _peer(tmp_path, env, "up")
     commit_file(peer, env, name="new.txt", message="new")
     git_run(peer, ["push", "-q", "origin", "main"], env)
@@ -1194,9 +1179,9 @@ def test_fetch_updates_the_refs_of_each_source(
     git_run(peer, ["checkout", "-qb", "ffeat", "main"], env)
     commit_file(peer, env, name="ffeat.txt", message="ffeat")
     git_run(peer, ["push", "-q", "fork", "ffeat"], env)
-    new = _tip(origin, env)
-    feat = _tip(origin, env, "feat")
-    ffeat = _tip(fork, env, "ffeat")
+    new = git_rev(origin, env, "main")
+    feat = git_rev(origin, env, "feat")
+    ffeat = git_rev(fork, env, "ffeat")
 
     out, result = run_git_program(
         'git::fetch(repo = "up")\n'
@@ -1212,21 +1197,21 @@ def test_fetch_updates_the_refs_of_each_source(
 
     assert result.ok, result.error
     assert out == ""
-    assert _refs(tmp_path / "up", env, "remotes") == {"origin/main": new, "origin/feat": feat}
-    assert _refs(tmp_path / "from", env, "remotes") == {
+    assert git_refs(tmp_path / "up", env, "remotes") == {"origin/main": new, "origin/feat": feat}
+    assert git_refs(tmp_path / "from", env, "remotes") == {
         "origin/main": old,
         "fork/main": old,
         "fork/ffeat": ffeat,
     }
-    assert _refs(tmp_path / "spec", env, "remotes") == {"origin/main": old, "origin/feat": feat}
-    assert _refs(tmp_path / "all", env, "remotes") == {
+    assert git_refs(tmp_path / "spec", env, "remotes") == {"origin/main": old, "origin/feat": feat}
+    assert git_refs(tmp_path / "all", env, "remotes") == {
         "origin/main": new,
         "origin/feat": feat,
         "fork/main": old,
         "fork/ffeat": ffeat,
     }
     # `fetch` never touches the work tree or the local branches.
-    assert _tip(tmp_path / "all", env) == old
+    assert git_rev(tmp_path / "all", env, "main") == old
     assert git_output(tmp_path / "all", ["status", "--porcelain"], env) == ""
 
 
@@ -1280,7 +1265,10 @@ def test_fetch_prune_and_tags(
     }
     for name, (branches, tags) in expected.items():
         repo = tmp_path / name
-        assert (set(_refs(repo, env, "remotes")), git_lines(repo, ["tag"], env)) == (branches, tags)
+        assert (set(git_refs(repo, env, "remotes")), git_lines(repo, ["tag"], env)) == (
+            branches,
+            tags,
+        )
 
 
 def _with_submodule(tmp_path: Path, env: dict[str, str], name: str) -> tuple[Path, Path, Path]:
@@ -1326,7 +1314,7 @@ def test_fetch_ignores_configuration_that_changes_what_it_fetches(
     )
 
     assert result.ok, result.error
-    assert _refs(fetcher, env, "remotes") == {"origin/main": _tip(bare, env)}
+    assert git_refs(fetcher, env, "remotes") == {"origin/main": git_rev(bare, env, "main")}
     git_fails(fetcher / "sub", ["cat-file", "-e", inner], env)
 
 
@@ -1353,7 +1341,7 @@ def test_pull_integrates_per_mode_ignoring_pull_configuration(
         git_run(repo, ["config", "pull.rebase", "true" if merging else "false"], env)
         git_run(repo, ["config", "pull.ff", "only" if merging else "false"], env)
         git_run(repo, ["config", "branch.main.rebase", "true" if merging else "false"], env)
-    tips = {name: _tip(bare, env) for name, bare in bares.items()}
+    tips = {name: git_rev(bare, env, "main") for name, bare in bares.items()}
     heads = {name: git_head(tmp_path / name, env) for name in shapes}
 
     out, result = run_git_program(
@@ -1473,7 +1461,7 @@ def _with_feature(
         commit_file(peer, env, name=f"feat{n}.txt", message=f"feat {n}")
     git_run(peer, ["tag", "-a", "feat-tag", "-m", "feat"], env)
     git_run(peer, ["push", "-q", "origin", "feat", "feat-tag"], env)
-    return bare, repo, _tip(bare, env, "feat")
+    return bare, repo, git_rev(bare, env, "feat")
 
 
 def test_pull_from_integrates_the_named_branch(
@@ -1522,7 +1510,7 @@ def test_pull_from_integrates_the_named_branch(
     # The remote's tag policy lists tags next to the branch in `FETCH_HEAD`; only the branch merges.
     assert "not-for-merge" in (named / ".git" / "FETCH_HEAD").read_text(encoding="utf-8")
     # A branch name that is a refspec is rejected before git sees it, so no branch is created.
-    assert set(_refs(named, env, "heads")) == {"main"}
+    assert set(git_refs(named, env, "heads")) == {"main"}
     assert git_head(named, env) == tip != named_head
     assert _parents(rebased, env) == [rebased_tip]
     assert _parents(url, env) == [url_head, url_tip]
@@ -1541,7 +1529,7 @@ def test_push_sends_to_each_target(
         bares[name], repo = _remote_pair(tmp_path, env, name, ahead=1)
         # Git's own `push` would push every matching branch.
         git_run(repo, ["config", "push.default", "matching"], env)
-    base = {name: _tip(bare, env) for name, bare in bares.items()}
+    base = {name: git_rev(bare, env, "main") for name, bare in bares.items()}
     # `Upstream` pushes to the upstream branch, whatever its name.
     topic = tmp_path / "topic"
     git_run(topic, ["checkout", "-q", "-B", "topic", "--track", "origin/main"], env)
@@ -1555,7 +1543,7 @@ def test_push_sends_to_each_target(
     commit_file(to, env, name="side.txt", message="side")
     git_run(to, ["checkout", "-q", "main"], env)
     commit_file(to, env, name="more.txt", message="more")
-    side = _tip(bares["to"], env, "side")
+    side = git_rev(bares["to"], env, "side")
     refs = tmp_path / "refs"
     commit_file(refs, env, name="second.txt", message="second")
     for name in ("setup", "unset", "solo"):
@@ -1592,18 +1580,18 @@ def test_push_sends_to_each_target(
 
     assert result.ok, result.error
     assert out.splitlines() == ["raised"] * 2
-    assert _refs(bares["up"], env, "heads") == {"main": git_head(tmp_path / "up", env)}
-    assert _refs(bares["topic"], env, "heads") == {"main": git_head(topic, env)}
-    assert _refs(bares["to"], env, "heads") == {"main": git_head(to, env), "side": side}
-    assert _refs(bares["refs"], env, "heads") == {
+    assert git_refs(bares["up"], env, "heads") == {"main": git_head(tmp_path / "up", env)}
+    assert git_refs(bares["topic"], env, "heads") == {"main": git_head(topic, env)}
+    assert git_refs(bares["to"], env, "heads") == {"main": git_head(to, env), "side": side}
+    assert git_refs(bares["refs"], env, "heads") == {
         "main": base["refs"],
         "new": git_head(refs, env),
     }
-    assert _refs(bares["setup"], env, "heads") == {
+    assert git_refs(bares["setup"], env, "heads") == {
         "main": base["setup"],
         "feat": git_head(tmp_path / "setup", env),
     }
-    assert _refs(bares["unset"], env, "heads") == {
+    assert git_refs(bares["unset"], env, "heads") == {
         "main": base["unset"],
         "feat": git_head(tmp_path / "unset", env),
     }
@@ -1613,10 +1601,10 @@ def test_push_sends_to_each_target(
     )
     git_fails(tmp_path / "unset", ["rev-parse", "--abbrev-ref", "feat@{upstream}"], env)
     for name in ("gone", "url"):
-        assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
-    assert _refs(bares["solo"], env, "heads") == {"main": base["solo"]}
-    assert _refs(bares["triangle"], env, "heads") == {"main": base["triangle"]}
-    assert _refs(fork, env, "heads") == {"main": base["triangle"]}
+        assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+    assert git_refs(bares["solo"], env, "heads") == {"main": base["solo"]}
+    assert git_refs(bares["triangle"], env, "heads") == {"main": base["triangle"]}
+    assert git_refs(fork, env, "heads") == {"main": base["triangle"]}
 
 
 def test_push_force_modes(
@@ -1634,7 +1622,7 @@ def test_push_force_modes(
     git_run(tmp_path / "amend", ["config", "push.useForceIfIncludes", "true"], env)
     # A lease holds for what the remote-tracking branch says, so a fetch renews it.
     git_run(tmp_path / "fetched", ["fetch", "-q"], env)
-    theirs = {name: _tip(bare, env) for name, bare in bares.items()}
+    theirs = {name: git_rev(bare, env, "main") for name, bare in bares.items()}
 
     out, result = run_git_program(
         agl_raises('git::push(repo = "amend")')
@@ -1652,9 +1640,9 @@ def test_push_force_modes(
 
     assert result.ok, result.error
     assert out.splitlines() == ["raised"] * 4
-    assert _refs(bares["rejected"], env, "heads") == {"main": theirs["rejected"]}
+    assert git_refs(bares["rejected"], env, "heads") == {"main": theirs["rejected"]}
     for name in ("amend", "fetched", "forced"):
-        assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+        assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
         assert theirs[name] not in git_lines(tmp_path / name, ["rev-list", "HEAD"], env)
 
 
@@ -1669,7 +1657,7 @@ def test_push_tags(
         bares[name], repo = _remote_pair(tmp_path, env, name, ahead=1)
         git_run(repo, ["tag", f"light-{name}"], env)
         git_run(repo, ["tag", "-a", f"ann-{name}", "-m", "ann"], env)
-    base = {name: _tip(bare, env) for name, bare in bares.items()}
+    base = {name: git_rev(bare, env, "main") for name, bare in bares.items()}
 
     out, result = run_git_program(
         'git::push(tags = true, repo = "up")\n'
@@ -1685,10 +1673,10 @@ def test_push_tags(
     # Without refspecs, git pushes only the tags.
     for name in ("up", "to"):
         assert git_lines(bares[name], ["tag"], env) == [f"ann-{name}", f"light-{name}"]
-        assert _refs(bares[name], env, "heads") == {"main": base[name]}
+        assert git_refs(bares[name], env, "heads") == {"main": base[name]}
     name = "with-refs"
     assert git_lines(bares[name], ["tag"], env) == [f"ann-{name}", f"light-{name}"]
-    assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+    assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
 
 
 def test_push_ignores_configuration_that_changes_what_it_sends(
@@ -1727,7 +1715,7 @@ def test_push_ignores_configuration_that_changes_what_it_sends(
     assert result.ok, result.error
     assert git_lines(bares["follow"], ["tag"], env) == []
     for name in ("follow", "signed", "options", "pusher"):
-        assert _refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+        assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
 
 
 def test_option_like_operands_never_act_as_options(
@@ -1752,7 +1740,7 @@ def test_option_like_operands_never_act_as_options(
         f'git::push(PushTo("origin", ["{receive}"]), repo = "repo")',
         'git::push(PushTo("origin", ["--all"]), repo = "repo")',
     ]
-    before = _refs(bare, env, "heads")
+    before = git_refs(bare, env, "heads")
     head = git_head(repo, env)
 
     out, result = run_git_program(
@@ -1766,6 +1754,6 @@ def test_option_like_operands_never_act_as_options(
     assert result.ok, result.error
     assert out.splitlines() == ["raised"] * len(calls)
     assert not marker.exists()
-    assert _refs(bare, env, "heads") == before
+    assert git_refs(bare, env, "heads") == before
     assert git_head(repo, env) == head
-    assert set(_refs(repo, env, "heads")) == {"extra", "main"}
+    assert set(git_refs(repo, env, "heads")) == {"extra", "main"}
