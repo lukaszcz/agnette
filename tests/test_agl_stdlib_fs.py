@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -97,6 +98,7 @@ program def main() -> unit =
         ('fs::is-file("invalid\\u0000path")', "invalid\x00path", "is-file"),
         ('fs::is-dir("invalid\\u0000path")', "invalid\x00path", "is-dir"),
         ('fs::glob("invalid\\u0000*.txt")', "invalid\x00*.txt", "glob"),
+        ('fs::glob("*", "invalid\\u0000dir")', "invalid\x00dir", "glob"),
         ('fs::mkdir("invalid\\u0000path")', "invalid\x00path", "mkdir"),
         ('fs::remove("invalid\\u0000path")', "invalid\x00path", "remove"),
         ('fs::copy("invalid\\u0000path", "other.txt")', "invalid\x00path", "copy"),
@@ -363,3 +365,64 @@ program def main() -> unit =
 
     assert result.ok
     assert capsys.readouterr().out == "Package prompt.\n\n"
+
+
+def test_fs_glob_matches_under_a_base_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base = tmp_path / "base"
+    (base / "sub").mkdir(parents=True)
+    for name in ("a.txt", ".hidden", "{a,b}.txt"):
+        (base / name).write_text("x", encoding="utf-8")
+    (base / "sub" / "b.txt").write_text("b", encoding="utf-8")
+    (tmp_path / "outside.txt").write_text("o", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = _run_file(
+        f"""import std/fs
+program def main() -> unit =
+  print(fs::glob("**/*.txt", "base"))
+  print(fs::glob("{(base / "*.txt").as_posix()}", "elsewhere"))
+  print(fs::glob("*.txt", "missing"))
+  print(fs::glob("*", "base/sub"))
+  print(fs::glob(".*", "base"))
+  print(fs::glob("{{a,b}}.txt", "base"))
+""",
+        tmp_path / "main.agl",
+        roots=agl_roots(),
+    )
+
+    assert result.ok
+    expected = [
+        ["a.txt", os.path.join("sub", "b.txt"), "{a,b}.txt"],
+        [str(base / "a.txt"), str(base / "{a,b}.txt")],
+        [],
+        ["b.txt"],
+        [".hidden"],
+        ["{a,b}.txt"],
+    ]
+    assert capsys.readouterr().out == "".join(json.dumps(r) + "\n" for r in expected)
+
+
+def test_fs_glob_results_are_sorted_regardless_of_directory_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Permuted creation order: reverse order reads back sorted on tmpfs.
+    names = [f"f{(i * 37) % 64:02}.txt" for i in range(64)]
+    for name in names:
+        (tmp_path / name).write_text("", encoding="utf-8")
+    if os.listdir(tmp_path) == sorted(names):
+        pytest.skip("filesystem lists entries sorted, so sorting cannot be observed")
+    monkeypatch.chdir(tmp_path)
+
+    result = _run_file(
+        """import std/fs
+program def main() -> unit =
+  print(fs::glob("*.txt"))
+""",
+        tmp_path / "main.agl",
+        roots=agl_roots(),
+    )
+
+    assert result.ok
+    assert capsys.readouterr().out == json.dumps(sorted(names)) + "\n"

@@ -65,11 +65,15 @@ extern def copy(source: path, destination: path) -> unit
 extern def move(source: path, destination: path) -> unit
 
 @doc("""
-  Return paths matching a shell-style `pattern`.
+  Return paths matching a shell-style `pattern` under `dir`.
+
+  Supports `*`, `?`, `[...]` and recursive `**`, without brace expansion. A hidden entry matches
+  only when its pattern segment starts with `.`. Results are relative to `dir` (an absolute
+  pattern yields absolute results) and sorted by code point. A missing `dir` matches nothing.
 
   Raises `FsError` if any match's name is not valid Unicode.
 """)
-extern def glob(pattern: text) -> array[path]
+extern def glob(pattern: text, dir: path = ".") -> array[path]
 
 @extern-name("temp_file")
 @doc("""

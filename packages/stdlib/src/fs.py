@@ -159,14 +159,15 @@ def move(source: str, destination: str) -> None:
     run_fs_action(FsError, source, "move", do)
 
 
-def glob(pattern: str) -> object:
-    """Return paths matching a shell-style *pattern*."""
-    return run_fs_action(
-        FsError,
-        pattern,
-        "glob",
-        lambda: array(_scalar_entries(pattern, "glob", glob_module.glob(pattern, recursive=True))),
-    )
+def glob(pattern: str, dir: str = ".") -> object:
+    """Return paths matching *pattern* under *dir*, relative to *dir* and sorted."""
+
+    def do() -> object:
+        matches = glob_module.glob(pattern, root_dir=dir, recursive=True)
+        return array(_scalar_entries(pattern, "glob", sorted(matches)))
+
+    # The inner call blames *dir* for a bad directory, the outer blames *pattern*.
+    return run_fs_action(FsError, pattern, "glob", lambda: run_fs_action(FsError, dir, "glob", do))
 
 
 def _checked_temp_root(operation: str) -> str:
