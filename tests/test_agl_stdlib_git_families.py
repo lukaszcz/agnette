@@ -1,17 +1,21 @@
-"""Family scopes of ``std/git``: ``branch`` and ``tag``."""
+"""Family scopes of ``std/git``: ``branch``, ``tag``, ``stash`` and ``worktree``."""
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 
 from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
 from tests._git_helpers import (
+    add_linked_worktree,
     clone_bare_remote,
     clone_local_remote,
     commit_file,
+    conflicting_branches,
     git_fails,
+    git_lines,
     git_output,
     git_refs,
     git_rev,
@@ -464,3 +468,536 @@ for name in ["main", "feature/x", "a-tag", "feat", "origin/feat", "--force", "no
         "nope false",
         "raised",
     ]
+
+
+_FS_IMPORTS = ("std/git::*", "std/fs")
+
+
+def _stash_entry(index: int, message: str) -> str:
+    """Return the AgL ``StashEntry`` literal of ``stash@{index}`` in ``repo``."""
+    name = f"stash@{{{index}}}"
+    return f'StashEntry({index}, "{name}", git::resolve("{name}", "repo"), "{message}")'
+
+
+def _modified(path: str) -> str:
+    return f'StatusEntry("{path}", Tracked(Unmodified, Modified))'
+
+
+def _staged(path: str) -> str:
+    return f'StatusEntry("{path}", Tracked(Modified, Unmodified))'
+
+
+def _untracked(path: str) -> str:
+    return f'StatusEntry("{path}", Untracked)'
+
+
+def _repo_status(name: str, *entries: str) -> str:
+    """Return AgL checking that the status entries of ``repo`` are exactly *entries*."""
+    if not entries:
+        return agl_check(name, 'git::status(repo = "repo").entries.size()', "0")
+    return agl_check(name, 'git::status(repo = "repo").entries', _agl_array(list(entries)))
+
+
+def _stash_list(repo: Path, env: dict[str, str]) -> list[str]:
+    return git_lines(repo, ["stash", "list", "--format=%gs"], env)
+
+
+def test_stash_push_list_and_drop(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    commit_file(repo, env, name="a.txt", content="a\n")
+    commit_file(repo, env, name="b.txt", content="b\n")
+    # The default message of a push: the branch, the abbreviated `HEAD` and its subject.
+    wip = f"WIP on main: {git_output(repo, ['rev-parse', '--short', 'HEAD'], env)} commit"
+    # Output in a non-UTF-8 encoding would not decode.
+    git_run(repo, ["config", "i18n.logOutputEncoding", "latin1"], env)
+
+    out, result = run_git_program(
+        agl_check("nothing", 'git::stash::push(repo = "repo")', "None::[StashEntry]")
+        + agl_check("no-entries", 'git::stash::list("repo").size()', "0")
+        + 'fs::write("repo/a.txt", "one\\n")\n'
+        + 'fs::write("repo/b.txt", "two\\n")\n'
+        + 'fs::write("repo/u.txt", "new\\n")\n'
+        + agl_check(
+            "paths",
+            'git::stash::push(Some("café"), ["a.txt"], repo = "repo")',
+            f"Some({_stash_entry(0, 'On main: café')})",
+        )
+        + _repo_status("after-paths", _modified("b.txt"), _untracked("u.txt"))
+        + agl_check("only-one", 'git::stash::list("repo").size()', "1")
+        + agl_check(
+            "untracked",
+            'git::stash::push(None, [], true, false, "repo")',
+            f"Some({_stash_entry(0, wip)})",
+        )
+        + _repo_status("after-untracked")
+        + agl_check("u-gone", 'fs::exists("repo/u.txt")', "false")
+        + agl_check("older", 'git::stash::list("repo")[1]', _stash_entry(1, "On main: café"))
+        + agl_check("newer", 'git::stash::list("repo")[0].name', '"stash@{0}"')
+        + 'fs::write("repo/a.txt", "three\\n")\n'
+        + 'git::add(["a.txt"], "repo")\n'
+        + 'fs::write("repo/b.txt", "four\\n")\n'
+        + agl_check(
+            "kept",
+            'git::stash::push(None, [], false, true, "repo")',
+            f"Some({_stash_entry(0, wip)})",
+        )
+        + _repo_status("after-keep", _staged("a.txt"))
+        + agl_check("three", 'git::stash::list("repo").size()', "3")
+        + 'git::stash::drop("stash@{1}", "repo")\n'
+        + agl_check("dropped", 'git::stash::list("repo")[1]', _stash_entry(1, "On main: café"))
+        + 'git::stash::drop(repo = "repo")\n'
+        + agl_check(
+            "default", 'git::stash::list("repo")', _agl_array([_stash_entry(0, "On main: café")])
+        )
+        + 'git::stash::clear("repo")\n'
+        + agl_check("cleared", 'git::stash::list("repo").size()', "0")
+        + agl_raises('git::stash::drop("stash@{0}", "repo")')
+        + agl_raises('git::stash::push(None, ["nope.txt"], repo = "repo")')
+        + agl_raises('git::stash::push(repo = "absent")')
+        + agl_raises('git::stash::list("absent")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_FS_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 16 + ["raised"] * 4
+
+
+_RESET_HARD = 'git::reset("HEAD", Hard, "repo")\n'
+
+
+def test_stash_apply_and_pop(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    commit_file(repo, env, name="a.txt", content="a\n")
+    (repo / "a.txt").write_text("old\n", encoding="utf-8")
+    git_run(repo, ["stash", "push", "-q", "-m", "old"], env)
+    (repo / "a.txt").write_text("new\n", encoding="utf-8")
+    git_run(repo, ["add", "a.txt"], env)
+    git_run(repo, ["stash", "push", "-q", "-m", "new"], env)
+
+    out, result = run_git_program(
+        agl_check("old", 'git::stash::apply("stash@{1}", repo = "repo")', "Applied")
+        + _repo_status("old-status", _modified("a.txt"))
+        + agl_check("old-text", 'fs::read("repo/a.txt")', '"old\\n"')
+        + agl_check("kept", 'git::stash::list("repo").size()', "2")
+        + _RESET_HARD
+        + agl_check("plain", 'git::stash::apply(repo = "repo")', "Applied")
+        + _repo_status("plain-status", _modified("a.txt"))
+        + _RESET_HARD
+        + agl_check("indexed", 'git::stash::apply("stash@{0}", true, "repo")', "Applied")
+        + _repo_status("indexed-status", _staged("a.txt"))
+        + _RESET_HARD
+        + agl_check("popped", 'git::stash::pop(repo = "repo")', "Applied")
+        + agl_check("new-text", 'fs::read("repo/a.txt")', '"new\\n"')
+        + agl_check(
+            "one-left", 'git::stash::list("repo")', _agl_array([_stash_entry(0, "On main: old")])
+        )
+        + _RESET_HARD
+        + agl_check("popped-old", 'git::stash::pop("stash@{0}", false, "repo")', "Applied")
+        + agl_check("none-left", 'git::stash::list("repo").size()', "0")
+        + agl_raises('git::stash::apply(repo = "repo")')
+        + agl_raises('git::stash::pop(repo = "repo")')
+        + agl_raises('git::stash::apply(repo = "absent")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_FS_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 13 + ["raised"] * 3
+
+
+def test_stash_conflicts_keep_the_entry(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    conflicting_branches(repo, env)
+    # Record how to resolve the conflict between `ours` and `theirs`; a replay of that resolution
+    # is staged, not left as a conflict, when `rerere.autoUpdate` is set.
+    for key in ("rerere.enabled", "rerere.autoUpdate"):
+        git_run(repo, ["config", key, "true"], env)
+    git_fails(repo, ["merge", "other"], env)
+    (repo / "f.txt").write_text("resolved\n", encoding="utf-8")
+    git_run(repo, ["add", "f.txt"], env)
+    git_run(repo, ["commit", "-qm", "merged"], env)
+    git_run(repo, ["reset", "-q", "--hard", "HEAD~1"], env)
+    git_run(repo, ["checkout", "-qb", "stasher", "main~1"], env)
+    (repo / "f.txt").write_text("theirs\n", encoding="utf-8")
+    git_run(repo, ["stash", "push", "-q", "-m", "theirs"], env)
+    git_run(repo, ["checkout", "-q", "main"], env)
+
+    out, result = run_git_program(
+        'fs::write("repo/f.txt", "dirty\\n")\n'
+        + agl_raises('git::stash::apply(repo = "repo")')
+        + agl_raises('git::stash::pop(repo = "repo")')
+        + _RESET_HARD
+        + agl_check("popped", 'git::stash::pop(repo = "repo")', 'Conflicted(["f.txt"])')
+        + agl_check("kept", 'git::stash::list("repo").size()', "1")
+        + agl_check("status", 'git::status(repo = "repo").entries.size()', "1")
+        + agl_raises('git::stash::apply(repo = "repo")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_FS_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised", "raised", "ok", "ok", "ok", "raised"]
+    assert git_output(repo, ["status", "--porcelain"], env) == "UU f.txt"
+    assert _stash_list(repo, env) == ["On stasher: theirs"]
+
+
+def test_stash_pop_of_a_commit_hash_changes_nothing(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    commit_file(repo, env, name="a.txt", content="a\n")
+    (repo / "a.txt").write_text("stashed\n", encoding="utf-8")
+    git_run(repo, ["stash", "push", "-q", "-m", "kept"], env)
+    entry = git_rev(repo, env, "stash@{0}")
+
+    out, result = run_git_program(
+        agl_raises(f'git::stash::pop("{entry}", repo = "repo")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_FS_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised"]
+    assert git_output(repo, ["status", "--porcelain"], env) == ""
+    assert (repo / "a.txt").read_text(encoding="utf-8") == "a\n"
+    assert _stash_list(repo, env) == ["On main: kept"]
+
+
+def test_stash_push_identical_to_the_newest_entry_returns_none(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    commit_file(repo, env, name="a.txt", content="a\n")
+    # With one timestamp, the same changes stash to the same commit, as within one second.
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
+
+    out, result = run_git_program(
+        'fs::write("repo/a.txt", "one\\n")\n'
+        + agl_check(
+            "first",
+            'git::stash::push(Some("m"), repo = "repo")',
+            f"Some({_stash_entry(0, 'On main: m')})",
+        )
+        + 'fs::write("repo/a.txt", "one\\n")\n'
+        + agl_check("same", 'git::stash::push(Some("m"), repo = "repo")', "None::[StashEntry]"),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_FS_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok", "ok"]
+    # The changes were stashed all the same: git logs no second entry for an unchanged ref.
+    assert _stash_list(repo, env) == ["On main: m"]
+    assert git_output(repo, ["status", "--porcelain"], env) == ""
+
+
+def test_stash_operands_are_never_options(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    commit_file(repo, env, name="a.txt", content="a\n")
+    (repo / "a.txt").write_text("stashed\n", encoding="utf-8")
+    git_run(repo, ["stash", "push", "-q"], env)
+    (repo / "u.txt").write_text("untracked\n", encoding="utf-8")
+    # Read as options, `--quiet` would drop `stash@{0}` and `--index` would apply it.
+    calls = [
+        'drop("--quiet", repo = "repo")',
+        'apply("--index", repo = "repo")',
+        'pop("--index", repo = "repo")',
+        'push(None, ["--all"], repo = "repo")',
+    ]
+
+    out, result = run_git_program(
+        "".join(agl_raises(f"git::stash::{call}") for call in calls)
+        + 'fs::write("repo/a.txt", "changed\\n")\n'
+        + agl_check(
+            "message",
+            'git::stash::push(Some("--include-untracked"), repo = "repo")',
+            f"Some({_stash_entry(0, 'On main: --include-untracked')})",
+        ),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_FS_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["raised"] * len(calls) + ["ok"]
+    messages = _stash_list(repo, env)
+    assert len(messages) == 2
+    assert messages[0] == "On main: --include-untracked"
+    assert (repo / "u.txt").exists()
+
+
+def _worktree(
+    path: Path,
+    head: str | None,
+    branch: str | None,
+    *,
+    bare: bool = False,
+    locked: str | None = None,
+) -> str:
+    """Return the AgL ``Worktree`` literal; *head* is an AgL ``ref`` expression, or ``None``."""
+    head_ = "None" if head is None else f"Some({head})"
+    branch_ = "None" if branch is None else f'Some("{branch}")'
+    locked_ = "None" if locked is None else f'Some("{locked}")'
+    return f'Worktree("{path}", {head_}, {branch_}, {str(bare).lower()}, {locked_}, None)'
+
+
+def _find_worktree(path: Path, repo: str = "repo") -> str:
+    """Return the AgL expression finding the work tree of *repo* at *path*."""
+    return f'git::worktree::list("{repo}").find(fn(w: Worktree) => w.path == "{path}")'
+
+
+def _worktree_at(name: str, path: Path, expected: str, repo: str = "repo") -> str:
+    """Return AgL checking that the work tree at *path* is exactly *expected*."""
+    return agl_check(name, _find_worktree(path, repo), f"Some({expected})")
+
+
+def _no_worktree_at(name: str, path: Path, repo: str = "repo") -> str:
+    return agl_check(name, _find_worktree(path, repo), "None::[Worktree]")
+
+
+def test_worktree_add_move_lock_and_remove(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _, repo = clone_local_remote(tmp_path, env, branches=["feat"])
+    git_run(repo, ["branch", "other"], env)
+    # Configuration that would make a new branch track its start point, or guess a remote.
+    for key, value in (
+        ("branch.autoSetupMerge", "always"),
+        ("branch.autoSetupRebase", "always"),
+        ("worktree.guessRemote", "true"),
+    ):
+        git_run(repo, ["config", key, value], env)
+    root = tmp_path.resolve()
+    head = 'git::resolve("HEAD", "repo")'
+    feat = 'git::resolve("origin/feat", "repo")'
+    detached = _worktree(root / "wt-det", head, None)
+    topic = _worktree(root / "wt-new", head, "topic")
+    moved = _worktree(root / "wt-moved", head, "topic")
+    locked = _worktree(root / "wt-moved", head, "topic", locked="why not\\nsecond")
+    other = _worktree(root / "wt-other", head, "other", locked="")
+    lock_only = _worktree(root / "wt-det", head, None, locked="")
+    duplicate = _worktree(root / "wt-dup", head, "other")
+    remote = _worktree(root / "wt-remote", feat, None)
+    guarded = [
+        'add("wt-x", "-f", repo = "repo")',
+        'add("wt-y", "--detach", repo = "repo")',
+        'add("wt-z", "HEAD", Some("--force"), repo = "repo")',
+        # Only `origin/feat` exists: without `--detach`, git would create a tracking `feat`.
+        'add("wt-g", "feat", repo = "repo")',
+    ]
+
+    out, result = run_git_program(
+        agl_check(
+            "initial",
+            'git::worktree::list("repo")',
+            _agl_array([_worktree(root / "repo", head, "main")]),
+        )
+        + 'git::worktree::add("wt-det", repo = "repo")\n'
+        + _worktree_at("detached", root / "wt-det", detached)
+        + 'git::worktree::add("wt-new", "origin/main", Some("topic"), repo = "repo")\n'
+        + _worktree_at("new-branch", root / "wt-new", topic)
+        + 'git::worktree::add("wt-other", "other", repo = "repo")\n'
+        + agl_raises('git::worktree::add("wt-dup", "other", repo = "repo")')
+        + 'git::worktree::add("wt-dup", "other", None, true, "repo")\n'
+        + _worktree_at("duplicate", root / "wt-dup", duplicate)
+        + 'git::worktree::add("wt-remote", "origin/feat", repo = "repo")\n'
+        + _worktree_at("remote", root / "wt-remote", remote)
+        + agl_check("six", 'git::worktree::list("repo").size()', "6")
+        + "".join(agl_raises(f"git::worktree::{call}") for call in guarded)
+        + agl_check("still-six", 'git::worktree::list("repo").size()', "6")
+        + 'git::worktree::move("wt-new", "wt-moved", "repo")\n'
+        + _no_worktree_at("old-path", root / "wt-new")
+        + _worktree_at("moved", root / "wt-moved", moved)
+        + agl_raises('git::worktree::move("repo", "wt-main", "repo")')
+        + 'git::worktree::lock("./wt-moved", Some("why not\\nsecond"), "repo")\n'
+        + 'git::worktree::lock("wt-other", Some(""), "repo")\n'
+        + 'git::worktree::lock("wt-det", repo = "repo")\n'
+        + agl_raises('git::worktree::lock("wt-det", repo = "repo")')
+        + _worktree_at("reason", root / "wt-moved", locked)
+        + _worktree_at("empty-reason", root / "wt-other", other)
+        + _worktree_at("no-reason", root / "wt-det", lock_only)
+        + agl_raises('git::worktree::remove("wt-det", repo = "repo")')
+        + agl_raises('git::worktree::remove("wt-det", true, "repo")')
+        + agl_raises('git::worktree::move("wt-det", "wt-gone", "repo")')
+        + 'git::worktree::unlock("./wt-det", "repo")\n'
+        + _worktree_at("unlocked", root / "wt-det", detached)
+        + agl_raises('git::worktree::unlock("wt-det", "repo")')
+        + 'git::worktree::remove("./wt-det", repo = "repo")\n'
+        + _no_worktree_at("removed", root / "wt-det")
+        + 'fs::write("wt-remote/extra.txt", "untracked\\n")\n'
+        + agl_raises('git::worktree::remove("wt-remote", repo = "repo")')
+        + 'git::worktree::remove("wt-remote", true, "repo")\n'
+        + _no_worktree_at("forced", root / "wt-remote")
+        + agl_raises('git::worktree::remove("wt-nope", repo = "repo")')
+        + agl_raises('git::worktree::list("absent")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_FS_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == (
+        ["ok"] * 3
+        + ["raised"]
+        + ["ok"] * 3
+        + ["raised"] * 4
+        + ["ok"] * 3
+        + ["raised"] * 2
+        + ["ok"] * 3
+        + ["raised"] * 3
+        + ["ok", "raised", "ok", "raised", "ok"]
+        + ["raised"] * 2
+    )
+    assert "feat" not in git_refs(repo, env, "heads")
+    for key in ("remote", "merge", "rebase"):
+        git_fails(repo, ["config", "--get", f"branch.topic.{key}"], env)
+
+
+def test_worktree_move_into_an_existing_directory(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    add_linked_worktree(repo, tmp_path / "wt-a", env, branch="a")
+    add_linked_worktree(repo, tmp_path / "wt-b", env, branch="b")
+    (tmp_path / "dir").mkdir()
+    (tmp_path / "taken").mkdir()
+    (tmp_path / "taken" / "wt-b").mkdir()
+    (tmp_path / "taken" / "wt-b" / "file").write_text("x\n", encoding="utf-8")
+    root = tmp_path.resolve()
+    head = 'git::resolve("HEAD", "repo")'
+
+    out, result = run_git_program(
+        'git::worktree::move("wt-a", "dir", "repo")\n'
+        + _worktree_at("inside", root / "dir" / "wt-a", _worktree(root / "dir" / "wt-a", head, "a"))
+        + agl_raises('git::worktree::move("wt-b", "taken", "repo")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok", "raised"]
+    assert (tmp_path / "wt-b").is_dir()
+
+
+def test_worktree_list_bare_prunable_and_unborn(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bare, _ = clone_bare_remote(init_repo(tmp_path / "source", env), tmp_path, env)
+    add_linked_worktree(bare, tmp_path / "wt-live", env, branch="live")
+    add_linked_worktree(bare, tmp_path / "wt-stale", env, branch="stale")
+    shutil.rmtree(tmp_path / "wt-stale")
+    git_run(tmp_path, ["init", "-q", "-b", "fresh", "unborn"], env)
+    root = tmp_path.resolve()
+    name = bare.name
+    live = _worktree(root / "wt-live", f'git::resolve("live", "{name}")', "live")
+    entry = _worktree(root / name, None, None, bare=True)
+    stale = _find_worktree(root / "wt-stale", name)
+
+    out, result = run_git_program(
+        agl_check(
+            "bare",
+            f'git::worktree::list("{name}").find(fn(w: Worktree) => w.bare)',
+            f"Some({entry})",
+        )
+        + _worktree_at("live", root / "wt-live", live, name)
+        + agl_check("listed", f'git::worktree::list("{name}").size()', "3")
+        + agl_check(
+            "prunable",
+            stale + ".map(fn(w: Worktree) => w.prunable.is-some())",
+            "Some(true)",
+        )
+        + f'git::worktree::prune("{name}")\n'
+        + _no_worktree_at("pruned", root / "wt-stale", name)
+        + agl_check("remaining", f'git::worktree::list("{name}").size()', "2")
+        + agl_check(
+            "unborn",
+            'git::worktree::list("unborn")',
+            _agl_array([_worktree(root / "unborn", None, "fresh")]),
+        )
+        + agl_raises('git::worktree::prune("absent")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert out.splitlines() == ["ok"] * 7 + ["raised"]
+
+
+def test_worktree_add_ignores_submodule_branch_propagation(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    sub = init_repo(tmp_path / "sub", env)
+    git_run(
+        repo, ["-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub), "s"], env
+    )
+    git_run(repo, ["commit", "-qm", "add submodule"], env)
+    for key in ("submodule.recurse", "submodule.propagateBranches"):
+        git_run(repo, ["config", key, "true"], env)
+
+    _, result = run_git_program(
+        'git::worktree::add("wt", "HEAD", Some("topic"), repo = "repo")',
+        tmp_path,
+        monkeypatch,
+        capsys,
+        imports=_IMPORTS,
+    )
+
+    assert result.ok, result.error
+    assert git_refs(repo, env, "heads").keys() == {"main", "topic"}
+    assert git_refs(repo / "s", env, "heads").keys() == {"main"}

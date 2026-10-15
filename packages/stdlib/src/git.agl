@@ -203,14 +203,14 @@ record StashEntry
 
 @doc("A work tree of the repository.")
 record Worktree
-  @doc("Absolute path.")
+  @doc("Absolute path, with symlinks resolved as git reports it.")
   path: path
-  @doc("`None` for a bare entry.")
+  @doc("`None` for a bare entry or an unborn branch.")
   head: Option[ref]
   @doc("`None` when detached or bare.")
   branch: Option[ref]
   bare: bool
-  @doc("The lock reason, which may be empty.")
+  @doc("Git's trimmed lock reason, which may be empty.")
   locked: Option[text]
   @doc("The reason `worktree prune` would remove it, or `None` when it is not prunable.")
   prunable: Option[text]
@@ -593,6 +593,12 @@ scope GitInternals
       | Reverting => "revert"
 
   @doc("""
+    The configuration overriding `rerere.autoUpdate`, which would stage a replayed conflict
+    resolution and so turn a conflict into a failure.
+  """)
+  def no-rerere-staging() -> array[text] = ["-c", "rerere.autoUpdate=false"]
+
+  @doc("""
     Run git with `args` for the operation `op` and classify the result.
 
     Exit 0 is `Completed` when `resuming`; otherwise `UpToDate` when `HEAD` did not move,
@@ -609,7 +615,7 @@ scope GitInternals
     let before: Option[ref] = if resuming => None else => resolve?("HEAD", repo)
     let fresh = if resuming => true else => operation(repo).is-none()
     let goal = target.map(fn(rev: ref) => resolve(rev, repo))
-    let pinned = ["-c", "rerere.autoUpdate=false"].concat(args)
+    let pinned = no-rerere-staging().concat(args)
     let res = attempt(repo, pinned)
     if res.exit-code == 0 =>
       let after = resolve("HEAD", repo)
@@ -768,6 +774,77 @@ scope GitInternals
         let message = row[5].slice(0, row[5].size() - row[6].size())
         tags.push(Tag(row[0], target, Some(trim-newlines(message))))
     tags
+  @doc("Build a stash entry from a `stash::list` row: its `stash@{n}` name, hash and subject.")
+  def stash-of(row: array[text]) -> StashEntry =
+    # `stash@{` is 7 characters; git writes no date selector here, whatever `log.date` says.
+    StashEntry(row[0].slice(7, row[0].size() - 1) as int, row[0], row[1], row[2])
+
+  @doc("""
+    Run `git stash <subcommand>` (`apply` or `pop`) on `entry` and classify the result.
+
+    Conflicts are `Conflicted` only when no unmerged paths were present beforehand, which make git
+    refuse. A conflicted entry is kept by both subcommands.
+  """)
+  def stash-restore(subcommand: text, entry: ref, index: bool, repo: path) -> ApplyResult =
+    let fresh = unmerged(repo).is-empty()
+    var args = no-rerere-staging().concat(["stash", subcommand, "-q"])
+    if index =>
+      args.push("--index")
+    args.concat!(["--end-of-options", entry])
+    let res = attempt(repo, args)
+    if res.exit-code == 0 =>
+      Applied
+    else =>
+      let paths = unmerged(repo)
+      if fresh and not paths.is-empty() =>
+        Conflicted(paths)
+      else =>
+        fail(scoped(repo, args), res)
+
+  @doc("The value of the porcelain attribute `line` named `key`: empty when it has none.")
+  def attribute-value(line: text, key: text) -> text =
+    without-prefix(without-prefix(line, key), " ")
+
+  @doc("""
+    Build a work tree from the porcelain attribute lines of one `worktree list` record.
+
+    A bare entry has no `HEAD`, and an unborn branch has the all-zero one: both give no head.
+  """)
+  def worktree-of(lines: array[text]) -> Worktree =
+    var location: path = ""
+    var head: Option[ref] = None
+    var branch: Option[ref] = None
+    var bare = false
+    var locked: Option[text] = None
+    var prunable: Option[text] = None
+    for line in lines do
+      let key = line.split(" ")[0]
+      let value = attribute-value(line, key)
+      case key of
+        | "worktree" => location := value
+        | "HEAD" => head := named(value, "0".repeat(value.size()))
+        | "branch" => branch := Some(without-prefix(value, "refs/heads/"))
+        | "bare" => bare := true
+        | "locked" => locked := Some(value)
+        | "prunable" => prunable := Some(value)
+        | _ => ()
+    Worktree(location, head, branch, bare, locked, prunable)
+
+  @doc("""
+    Parse `worktree list --porcelain -z` output.
+
+    Each record is a run of NUL-terminated attribute lines followed by an empty one.
+  """)
+  def parse-worktrees(out: text) -> array[Worktree] =
+    var found: array[Worktree] = []
+    var lines: array[text] = []
+    for item in split-nul(out) do
+      if item.is-empty() =>
+        found.push(worktree-of(lines))
+        lines := []
+      else =>
+        lines.push(item)
+    found
 end GitInternals
 
 @doc("""
@@ -1528,3 +1605,175 @@ scope tag
   def delete(name: ref, repo: path = ".") -> unit =
     let _ = GitInternals::run(repo, ["tag", "-d", "--end-of-options", name])
 end tag
+
+scope stash
+  @doc("""
+    Stash the local changes, restoring the work tree to `HEAD`, and return the new entry.
+
+    `paths` limits the stash to them, `untracked` includes untracked files, and `keep-index` leaves
+    the staged changes in place as well. Returns `None` when `refs/stash` is unchanged: there was
+    nothing to stash, or the push is identical to the newest entry and made within the same second,
+    when the changes were stashed all the same (they are in that entry).
+
+    Raises `GitError` when `HEAD` is unborn, unmerged paths are present, or a path matches nothing
+    git knows.
+  """)
+  def push(message: Option[text] = None, paths: array[path] = [], untracked: bool = false,
+           keep-index: bool = false, repo: path = ".") -> Option[StashEntry] =
+    let before = resolve?("refs/stash", repo)
+    var args = ["stash", "push", "-q"]
+    case message of
+      | Some(value) => args.push("--message=%{value}")
+      | None => ()
+    if untracked =>
+      args.push("--include-untracked")
+    if keep-index =>
+      args.push("--keep-index")
+    args.push("--")
+    args.concat!(GitInternals::pathspecs(paths))
+    let _ = GitInternals::run(repo, args)
+    if resolve?("refs/stash", repo) == before =>
+      None
+    else =>
+      Some(list(repo)[0])
+
+  @doc("Return the stash entries, newest first.")
+  def list(repo: path = ".") -> array[StashEntry] =
+    # `--encoding` keeps the output UTF-8 whatever `i18n.logOutputEncoding` says.
+    let args = ["stash", "list", "-z", "--encoding=UTF-8", "--format=%gd%x00%H%x00%gs"]
+    GitInternals::chunks(GitInternals::split-nul(GitInternals::run(repo, args).stdout), 3)
+      .map(GitInternals::stash-of)
+
+  @doc("""
+    Apply the changes of `entry` to the work tree, keeping the entry.
+
+    `index` also restores the staged changes. Returns `Conflicted` when the changes conflict with
+    the work tree; the entry is kept either way, and the unmerged paths are left to resolve.
+
+    Raises `GitError` when `entry` is not a stash entry, local changes would be overwritten,
+    unmerged paths are already present, or `index` cannot restore the staged changes.
+    `rerere.autoUpdate` is overridden: it would stage a replayed resolution and so turn a conflict
+    into a failure.
+  """)
+  def apply(entry: ref = "stash@{0}", index: bool = false, repo: path = ".") -> ApplyResult =
+    GitInternals::stash-restore("apply", entry, index, repo)
+
+  @doc("""
+    Apply `entry` as `apply` does, then drop it unless it conflicted.
+
+    A conflicted entry is kept.
+
+    Raises `GitError` as `apply` does, and when `entry` is not a `stash@{n}` reference, without
+    applying anything.
+  """)
+  def pop(entry: ref = "stash@{0}", index: bool = false, repo: path = ".") -> ApplyResult =
+    GitInternals::stash-restore("pop", entry, index, repo)
+
+  @doc("""
+    Remove `entry` from the stash.
+
+    Raises `GitError` when `entry` is not a `stash@{n}` reference of an existing entry.
+  """)
+  def drop(entry: ref = "stash@{0}", repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["stash", "drop", "-q", "--end-of-options", entry])
+
+  @doc("Remove every stash entry.")
+  def clear(repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["stash", "clear"])
+end stash
+
+scope worktree
+  @doc("""
+    Return the work trees of the repository: the main one first, then the linked ones in git's
+    order.
+
+    The main entry of a bare repository is `bare`. `locked` is `Some` for a locked work tree, and
+    `prunable` for one whose directory is gone or whose administrative files are stale.
+  """)
+  def list(repo: path = ".") -> array[Worktree] =
+    let args = ["worktree", "list", "--porcelain", "-z"]
+    GitInternals::parse-worktrees(GitInternals::run(repo, args).stdout)
+
+  @doc("""
+    Create the linked work tree `path`.
+
+    With `new-branch`, it creates that branch at `target` and checks it out, tracking nothing.
+    Otherwise a local branch `target` is checked out, and anything else is checked out detached.
+    `force` allows a branch that is checked out elsewhere. Git's `post-checkout` hook runs, and its
+    failure raises `GitError` although the work tree exists.
+
+    Raises `GitError` when `target` names no commit, `new-branch` is invalid or taken, or `path`
+    exists and is not an empty directory. Configuration of branch tracking and of creating
+    branches in submodules is overridden.
+  """)
+  def add(path: path, target: ref = "HEAD", new-branch: Option[ref] = None, force: bool = false,
+          repo: path = ".") -> unit =
+    # `--no-track` overrides `branch.autoSetupMerge` and `branch.autoSetupRebase`; an explicit
+    # `target` leaves `worktree.guessRemote` out of play.
+    var args = ["-c", "submodule.propagateBranches=false", "worktree", "add", "-q"]
+    if force =>
+      args.push("--force")
+    let operands = ["--end-of-options", std/path::absolute(path), target]
+    case new-branch of
+      | Some(value) =>
+        args.concat!(["--no-track", "-b", value])
+        args.concat!(operands)
+      | None =>
+        if not branch::exists(target, repo) =>
+          args.push("--detach")
+        args.concat!(operands)
+    let _ = GitInternals::run(repo, args)
+
+  @doc("""
+    Delete the linked work tree `path` and its administrative files.
+
+    `force` also deletes one with untracked or modified files.
+
+    Raises `GitError` when `path` is not a linked work tree, is locked, or has untracked or modified
+    files without `force`.
+  """)
+  def remove(path: path, force: bool = false, repo: path = ".") -> unit =
+    var args = ["worktree", "remove"]
+    if force =>
+      args.push("--force")
+    args.concat!(["--end-of-options", std/path::absolute(path)])
+    let _ = GitInternals::run(repo, args)
+
+  @doc("""
+    Move the linked work tree `path` to `destination`.
+
+    An existing directory `destination` receives it as `destination/<name of path>`.
+
+    Raises `GitError` when `path` is the main or a locked work tree, or the target exists and is
+    not an empty directory.
+  """)
+  def move(path: path, destination: path, repo: path = ".") -> unit =
+    let operands = [std/path::absolute(path), std/path::absolute(destination)]
+    let _ = GitInternals::run(repo, ["worktree", "move", "--end-of-options"].concat(operands))
+
+  @doc("""
+    Lock the work tree `path` against pruning, removal and moving, with the given `reason`.
+
+    Raises `GitError` when `path` is not a linked work tree or is already locked.
+  """)
+  def lock(path: path, reason: Option[text] = None, repo: path = ".") -> unit =
+    var args = ["worktree", "lock"]
+    case reason of
+      | Some(value) => args.push("--reason=%{value}")
+      | None => ()
+    args.concat!(["--end-of-options", std/path::absolute(path)])
+    let _ = GitInternals::run(repo, args)
+
+  @doc("""
+    Unlock the work tree `path`.
+
+    Raises `GitError` when `path` is not a linked work tree or is not locked.
+  """)
+  def unlock(path: path, repo: path = ".") -> unit =
+    let args = ["worktree", "unlock", "--end-of-options", std/path::absolute(path)]
+    let _ = GitInternals::run(repo, args)
+
+  @doc("Delete the administrative files of the work trees `list` reports as prunable.")
+  def prune(repo: path = ".") -> unit =
+    let _ = GitInternals::run(repo, ["worktree", "prune"])
+end worktree
