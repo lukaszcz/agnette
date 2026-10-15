@@ -698,7 +698,8 @@ def test_stash_push_identical_to_the_newest_entry_returns_none(
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="a.txt", content="a\n")
-    # With one timestamp, the same changes stash to the same commit, as within one second.
+    # With both dates fixed, the same changes stash to the same commit, as within one second.
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2020-01-01T00:00:00Z")
     monkeypatch.setenv("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
 
     out, result = run_git_program(

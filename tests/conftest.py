@@ -323,8 +323,9 @@ def isolate_host_environment(
     or fail depending on the machine.  Point ``HOME`` (and the XDG roots git
     consults) at a per-test directory, supply git identity explicitly so an
     empty home can still commit, and drop the project/terminal variables an agm
-    workspace shell exports, and drop inherited proxy settings so HTTP clients
-    can initialize before their fake transport takes over.
+    workspace shell exports, drop every inherited ``GIT_*`` variable (``GIT_DIR``,
+    ``GIT_CONFIG_*``, ...) that would redirect or reconfigure git, and drop inherited
+    proxy settings so HTTP clients can initialize before their fake transport takes over.
 
     Tests that need a populated home build one and pass it explicitly, as
     ``home=`` or in an ``env`` mapping.  The home lives outside the test's own
@@ -335,6 +336,9 @@ def isolate_host_environment(
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))
+    for name in tuple(os.environ):
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name)
     for name, value in GIT_IDENTITY.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", _git_ceiling_directories(tmp_path_factory))
@@ -491,6 +495,8 @@ def env(tmp_path: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, s
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     e["HOME"] = str(fake_home)
+    e["XDG_CONFIG_HOME"] = str(fake_home / ".config")
+    e["XDG_DATA_HOME"] = str(fake_home / ".local" / "share")
     return e
 
 

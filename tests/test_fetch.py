@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -12,8 +11,7 @@ import agnette.agm.commands.sync.fetch as fetch_cmd
 def _init_git_repo(path: Path) -> None:
     """Initialize a minimal git repository at *path* (no commits needed)."""
     path.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
-    subprocess.run(["git", "-C", str(path), "init", "-q"], check=True, env=env)
+    subprocess.run(["git", "-C", str(path), "init", "-q"], check=True)
 
 
 class TestFetchProjectRepos:

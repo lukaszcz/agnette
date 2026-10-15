@@ -21,7 +21,7 @@ from agnette.config.context import current_config_context
 from agnette.config.home import agm_home_dir
 from agnette.packages.activation import load_activation_index
 from tests._git_helpers import git_output, init_repo
-from tests.conftest import LAUNCH_ENVIRONMENT, isolate_host_environment
+from tests.conftest import GIT_IDENTITY, LAUNCH_ENVIRONMENT, isolate_host_environment
 
 
 def test_the_suite_does_not_run_against_the_launching_home() -> None:
@@ -90,6 +90,21 @@ def test_git_identity_does_not_depend_on_a_personal_gitconfig() -> None:
     assert os.environ["GIT_AUTHOR_NAME"]
     assert os.environ["GIT_COMMITTER_EMAIL"]
     assert not (Path(os.environ["HOME"]) / ".gitconfig").exists()
+
+
+def test_inherited_git_variables_are_dropped(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("GIT_DIR", "/nonexistent/git-dir")
+        patch.setenv("GIT_CONFIG_GLOBAL", "/nonexistent/gitconfig")
+        patch.setenv("GIT_CONFIG_PARAMETERS", "'commit.gpgsign'='true'")
+        isolate_host_environment.__wrapped__(None, tmp_path_factory, patch)
+
+        assert {name for name in os.environ if name.startswith("GIT_")} == {
+            *GIT_IDENTITY,
+            "GIT_CEILING_DIRECTORIES",
+        }
 
 
 def test_git_discovery_cannot_climb_into_a_repository_the_temp_root_sits_inside(

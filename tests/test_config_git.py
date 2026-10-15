@@ -197,7 +197,6 @@ class TestCommitConfigDirChangesRealRepo:
             encoding="utf-8",
         )
         env = {**os.environ, "HOME": str(home)}
-        env.pop("GIT_CONFIG_GLOBAL", None)
 
         project_dir = tmp_path / "proj"
         config_dir = project_dir / "config"
