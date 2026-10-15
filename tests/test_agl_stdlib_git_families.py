@@ -8,19 +8,28 @@ from pathlib import Path
 
 import pytest
 
-from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
+from tests._agl_git_helpers import (
+    agl_array,
+    agl_check,
+    agl_raises,
+    run_git_program,
+    tracked_entry,
+    untracked_entry,
+)
 from tests._git_helpers import (
     add_linked_worktree,
     clone_bare_remote,
     clone_local_remote,
     commit_file,
     conflicting_branches,
+    forge_object,
     git_fails,
     git_lines,
     git_output,
     git_refs,
     git_rev,
     git_run,
+    global_git_config,
     init_repo,
 )
 
@@ -31,10 +40,6 @@ def _branch(name: str, commit: str, upstream: str | None = None, current: bool =
     """Return the AgL ``Branch`` literal."""
     tracked = "None" if upstream is None else f'Some("{upstream}")'
     return f'Branch("{name}", "{commit}", {tracked}, {str(current).lower()})'
-
-
-def _agl_array(items: list[str]) -> str:
-    return "[" + ", ".join(items) + "]"
 
 
 def _tracking_clone(tmp_path: Path, env: dict[str, str]) -> Path:
@@ -65,17 +70,15 @@ def test_branch_list_current_and_upstream(
     gone = git_rev(repo, env, "gone")
 
     def local(current: str | None) -> str:
-        return _agl_array(
-            [
-                _branch("feat", feat, "origin/feat", current == "feat"),
-                _branch("gone", gone, "origin/gone", current == "gone"),
-                _branch("loc", main, "main", current == "loc"),
-                _branch("main", main, "origin/main", current == "main"),
-                _branch("solo", main, None, current == "solo"),
-            ]
+        return agl_array(
+            _branch("feat", feat, "origin/feat", current == "feat"),
+            _branch("gone", gone, "origin/gone", current == "gone"),
+            _branch("loc", main, "main", current == "loc"),
+            _branch("main", main, "origin/main", current == "main"),
+            _branch("solo", main, None, current == "solo"),
         )
 
-    remote = _agl_array([_branch("origin/feat", feat), _branch("origin/main", main)])
+    remote = agl_array(_branch("origin/feat", feat), _branch("origin/main", main))
     git_run(tmp_path, ["init", "-q", "-b", "trunk", "fresh"], env)
 
     out, result = run_git_program(
@@ -209,12 +212,10 @@ def test_branch_names_may_look_like_other_namespaces(
     git_run(repo, ["branch", "refs/remotes/x"], env)
     git_run(repo, ["branch", "--track", "y", "refs/heads/refs/remotes/x"], env)
     git_run(repo, ["symbolic-ref", "HEAD", "refs/heads/refs/remotes/x"], env)
-    expected = _agl_array(
-        [
-            _branch("main", main),
-            _branch("refs/remotes/x", main, None, True),
-            _branch("y", main, "refs/remotes/x"),
-        ]
+    expected = agl_array(
+        _branch("main", main),
+        _branch("refs/remotes/x", main, None, True),
+        _branch("y", main, "refs/remotes/x"),
     )
 
     out, result = run_git_program(
@@ -315,9 +316,7 @@ def _forge_signed_tag(repo: Path, env: dict[str, str], name: str, commit: str) -
         f"object {commit}\ntype commit\ntag {name}\ntagger T <t@example.com> 1700000000 +0000\n"
         f"\nsigned\n\nmessage\n{signature}"
     )
-    args = ["hash-object", "-t", "tag", "-w", "--stdin", "--literally"]
-    tag = git_output(repo, args, env, stdin=content)
-    git_run(repo, ["update-ref", f"refs/tags/{name}", tag], env)
+    forge_object(repo, env, "tag", content, f"refs/tags/{name}")
 
 
 def test_tag_create_list_and_delete(
@@ -348,7 +347,7 @@ def test_tag_create_list_and_delete(
     multi = "subject\\n\\nbody # kept\\n# also kept\\n\\nlast"
 
     def listing(name: str, *tags: str) -> str:
-        return agl_check(name, 'git::tag::list("repo")', _agl_array(list(tags)))
+        return agl_check(name, 'git::tag::list("repo")', agl_array(*tags))
 
     expected_before = [
         _tag("inner", second, "inner message"),
@@ -423,7 +422,7 @@ def test_tag_force_and_operands_are_never_options(
         + agl_check(
             "tags",
             'git::tag::list("repo")',
-            _agl_array([_tag("ann", second, "new"), _tag("light", second)]),
+            agl_array(_tag("ann", second, "new"), _tag("light", second)),
         ),
         tmp_path,
         monkeypatch,
@@ -481,22 +480,18 @@ def _stash_entry(index: int, message: str) -> str:
 
 
 def _modified(path: str) -> str:
-    return f'StatusEntry("{path}", Tracked(Unmodified, Modified))'
+    return tracked_entry(path, unstaged="Modified")
 
 
 def _staged(path: str) -> str:
-    return f'StatusEntry("{path}", Tracked(Modified, Unmodified))'
-
-
-def _untracked(path: str) -> str:
-    return f'StatusEntry("{path}", Untracked)'
+    return tracked_entry(path, staged="Modified")
 
 
 def _repo_status(name: str, *entries: str) -> str:
     """Return AgL checking that the status entries of ``repo`` are exactly *entries*."""
     if not entries:
         return agl_check(name, 'git::status(repo = "repo").entries.size()', "0")
-    return agl_check(name, 'git::status(repo = "repo").entries', _agl_array(list(entries)))
+    return agl_check(name, 'git::status(repo = "repo").entries', agl_array(*entries))
 
 
 def _stash_list(repo: Path, env: dict[str, str]) -> list[str]:
@@ -528,7 +523,7 @@ def test_stash_push_list_and_drop(
             'git::stash::push(Some("café"), ["a.txt"], repo = "repo")',
             f"Some({_stash_entry(0, 'On main: café')})",
         )
-        + _repo_status("after-paths", _modified("b.txt"), _untracked("u.txt"))
+        + _repo_status("after-paths", _modified("b.txt"), untracked_entry("u.txt"))
         + agl_check("only-one", 'git::stash::list("repo").size()', "1")
         + agl_check(
             "untracked",
@@ -553,7 +548,7 @@ def test_stash_push_list_and_drop(
         + agl_check("dropped", 'git::stash::list("repo")[1]', _stash_entry(1, "On main: café"))
         + 'git::stash::drop(repo = "repo")\n'
         + agl_check(
-            "default", 'git::stash::list("repo")', _agl_array([_stash_entry(0, "On main: café")])
+            "default", 'git::stash::list("repo")', agl_array(_stash_entry(0, "On main: café"))
         )
         + 'git::stash::clear("repo")\n'
         + agl_check("cleared", 'git::stash::list("repo").size()', "0")
@@ -603,7 +598,7 @@ def test_stash_apply_and_pop(
         + agl_check("popped", 'git::stash::pop(repo = "repo")', "Applied")
         + agl_check("new-text", 'fs::read("repo/a.txt")', '"new\\n"')
         + agl_check(
-            "one-left", 'git::stash::list("repo")', _agl_array([_stash_entry(0, "On main: old")])
+            "one-left", 'git::stash::list("repo")', agl_array(_stash_entry(0, "On main: old"))
         )
         + _RESET_HARD
         + agl_check("popped-old", 'git::stash::pop("stash@{0}", false, "repo")', "Applied")
@@ -833,7 +828,7 @@ def test_worktree_add_move_lock_and_remove(
         agl_check(
             "initial",
             'git::worktree::list("repo")',
-            _agl_array([_worktree(root / "repo", head, "main")]),
+            agl_array(_worktree(root / "repo", head, "main")),
         )
         + 'git::worktree::add("wt-det", repo = "repo")\n'
         + _worktree_at("detached", root / "wt-det", detached)
@@ -964,7 +959,7 @@ def test_worktree_list_bare_prunable_and_unborn(
         + agl_check(
             "unborn",
             'git::worktree::list("unborn")',
-            _agl_array([_worktree(root / "unborn", None, "fresh")]),
+            agl_array(_worktree(root / "unborn", None, "fresh")),
         )
         + agl_raises('git::worktree::prune("absent")'),
         tmp_path,
@@ -1005,11 +1000,6 @@ def test_worktree_add_ignores_submodule_branch_propagation(
     assert git_refs(repo / "s", env, "heads").keys() == {"main"}
 
 
-def _global_config(*args: str) -> str:
-    """Return the output of ``git config --global`` run in the test's isolated process home."""
-    return git_output(Path(os.environ["HOME"]), ["config", "--global", *args], dict(os.environ))
-
-
 def _remote(name: str, fetch: str, push: str | None = None) -> str:
     """Return the AgL ``Remote`` literal; the push URL defaults to the fetch URL."""
     return f'Remote("{name}", "{fetch}", "{fetch if push is None else push}")'
@@ -1017,7 +1007,7 @@ def _remote(name: str, fetch: str, push: str | None = None) -> str:
 
 def _remote_list(name: str, *remotes: str, repo: str = "repo") -> str:
     """Return AgL checking that ``remote::list`` of *repo* is exactly *remotes*."""
-    return agl_check(name, f'git::remote::list("{repo}")', _agl_array(list(remotes)))
+    return agl_check(name, f'git::remote::list("{repo}")', agl_array(*remotes))
 
 
 def test_remote_add_set_url_rename_and_remove(
@@ -1146,7 +1136,7 @@ def test_remote_list_counts_only_remotes_the_repository_defines(
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     # `git remote` names `origin` for these settings alone, though the repository lacks it.
-    _global_config("remote.origin.prune", "true")
+    global_git_config("remote.origin.prune", "true")
     git_run(repo, ["config", "remote.only-push.pushurl", "/srv/push"], env)
 
     out, result = run_git_program(
@@ -1226,7 +1216,7 @@ def test_config_get_set_and_unset_by_scope(
         + ["raised"] * 4
     )
     # Each scope wrote its own file, and the failed multi-value writes changed nothing.
-    assert _global_config("--get", "test.home") == "h"
+    assert global_git_config("--get", "test.home") == "h"
     assert git_lines(repo, ["config", "--local", "--get-all", "multi.key"], env) == [
         "first",
         "last",

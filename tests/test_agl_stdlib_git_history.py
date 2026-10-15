@@ -20,6 +20,7 @@ from tests._git_helpers import (
     git_run,
     init_repo,
     lines_of,
+    write_file,
 )
 
 _IMPORTS = ("std/git::*", "std/text::join")
@@ -352,10 +353,6 @@ catch GitError as e =>
     assert out.splitlines() == [head, parent, "40", head, *["true"] * 6]
 
 
-def _edit(repo: Path, name: str, content: str) -> None:
-    (repo / name).write_text(content, encoding="utf-8")
-
-
 def _diff_repo(tmp_path: Path, env: dict[str, str]) -> Path:
     """Build two commits (`HEAD~1` -> `HEAD`) plus staged and unstaged changes on top.
 
@@ -386,25 +383,25 @@ def _diff_repo(tmp_path: Path, env: dict[str, str]) -> Path:
     git_run(repo, ["commit", "-qm", "blob"], env)
 
     # No trailing newline, so patches carry git's "no newline" marker.
-    _edit(repo, "mod.txt", lines_of("mod") + "more")
+    write_file(repo, "mod.txt", lines_of("mod") + "more")
     git_run(repo, ["rm", "-q", "del.txt"], env)
     git_run(repo, ["mv", "ren.txt", "renamed.txt"], env)
-    _edit(repo, "renamed.txt", lines_of("ren") + "edited\n")
+    write_file(repo, "renamed.txt", lines_of("ren") + "edited\n")
     (repo / "kind.txt").unlink()
     os.symlink("README.md", repo / "kind.txt")
-    _edit(repo, "added.txt", lines_of("added"))
-    _edit(repo, "tab\tname.txt", "tab\n")
-    _edit(repo, "new\nline.txt", "newline\n")
+    write_file(repo, "added.txt", lines_of("added"))
+    write_file(repo, "tab\tname.txt", "tab\n")
+    write_file(repo, "new\nline.txt", "newline\n")
     (repo / "blob.bin").write_bytes(b"\x00\x01\x02\x03")
     git_run(repo, ["add", "-A"], env)
     git_run(repo, ["commit", "-qm", "changes"], env)
 
-    _edit(repo, "staged.txt", lines_of("staged") + "staged\n")
-    _edit(repo, "both.txt", lines_of("both") + "staged\n")
+    write_file(repo, "staged.txt", lines_of("staged") + "staged\n")
+    write_file(repo, "both.txt", lines_of("both") + "staged\n")
     git_run(repo, ["add", "staged.txt", "both.txt"], env)
-    _edit(repo, "both.txt", lines_of("both") + "staged\nunstaged\n")
+    write_file(repo, "both.txt", lines_of("both") + "staged\nunstaged\n")
     for name in ("unstaged.txt", "sub/inner.txt", "star*.txt", "starx.txt"):
-        _edit(repo, name, (repo / name).read_text(encoding="utf-8") + "unstaged\n")
+        write_file(repo, name, (repo / name).read_text(encoding="utf-8") + "unstaged\n")
     return repo
 
 
@@ -765,10 +762,10 @@ def test_diffs_ignore_user_configuration(
 
     git_run(repo, ["mv", "old.txt", "new.txt"], env)
     inner = (repo / "sub/inner.txt").read_text(encoding="utf-8")
-    _edit(repo, "sub/copy.txt", inner)
+    write_file(repo, "sub/copy.txt", inner)
     git_run(repo, ["add", "sub/copy.txt"], env)
-    _edit(repo, "sub/inner.txt", inner.replace("line 10", "LINE 10"))
-    _edit(repo, "doc.conv", "changed\n")
+    write_file(repo, "sub/inner.txt", inner.replace("line 10", "LINE 10"))
+    write_file(repo, "doc.conv", "changed\n")
     commit_file(init_repo(repo / "lib", env), env, name="more.txt")
     expected_patch = _git_patches(repo, env, ["HEAD"])
 

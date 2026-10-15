@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
+from tests._agl_git_helpers import agl_check, agl_completed, agl_raises, run_git_program
 from tests._git_helpers import (
     add_linked_worktree,
     clone_bare_remote,
@@ -48,16 +48,6 @@ def _merge_branches(repo: Path, env: dict[str, str]) -> str:
     commit_file(repo, env, name="ff2.txt", message="ff2")
     git_run(repo, ["checkout", "-q", "main"], env)
     return tip
-
-
-def _completed(label: str, call: str) -> str:
-    """Return AgL printing the new ``HEAD`` when *call* is ``Completed``, else ``not completed``."""
-    return f"""
-let {label} = {call}
-case {label} of
-  | Completed(head) => print(head)
-  | _ => print("not completed")
-"""
 
 
 def _resolve(repo: str, content: str = "resolved") -> str:
@@ -146,7 +136,7 @@ def test_merge_reports_up_to_date_fast_forward_and_completed(
     out, result = run_git_program(
         agl_check("up", 'git::merge("HEAD~1", repo = "repo")', "UpToDate")
         + agl_check("ff", 'git::merge("ff", repo = "repo")', f'FastForwarded("{tip}")')
-        + _completed(
+        + agl_completed(
             "merged", 'git::merge("div", message = Some("# custom subject"), repo = "repo")'
         ),
         tmp_path,
@@ -173,7 +163,7 @@ def test_merge_fast_forward_modes(
     out, result = run_git_program(
         agl_raises('git::merge("div", Only, repo = "repo")')
         + agl_check("only", 'git::merge("ff", Only, repo = "repo")', f'FastForwarded("{tip}")')
-        + _completed("never", 'git::merge("ff2", Never, repo = "repo")'),
+        + agl_completed("never", 'git::merge("ff2", Never, repo = "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -201,7 +191,7 @@ def test_merge_pins_fast_forward_mode_against_configuration(
 
     out, result = run_git_program(
         agl_check("ff", 'git::merge("ff", repo = "no-ff")', f'FastForwarded("{tips["no-ff"]}")')
-        + _completed("merged", 'git::merge("div", repo = "ff-only")'),
+        + agl_completed("merged", 'git::merge("div", repo = "ff-only")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -276,8 +266,8 @@ def test_cherry_pick_and_revert_complete_cleanly(
 
     out, result = run_git_program(
         agl_check("none", 'git::cherry-pick([], "plain")', "UpToDate")
-        + _completed("picked", 'git::cherry-pick(["feat"], "repo")')
-        + _completed("reverted", 'git::revert(["HEAD"], "repo")'),
+        + agl_completed("picked", 'git::cherry-pick(["feat"], "repo")')
+        + agl_completed("reverted", 'git::revert(["HEAD"], "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -305,7 +295,7 @@ def test_cherry_pick_sequence_resumes_with_the_remaining_commits(
         agl_check("started", SEQUENCE.format("repo"), CONFLICTED)
         + agl_check("state", 'git::operation("repo")', "Some::[Operation](CherryPicking)")
         + _resolve("repo")
-        + _completed("resumed", 'git::resume(CherryPicking, "repo")'),
+        + agl_completed("resumed", 'git::resume(CherryPicking, "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -376,7 +366,7 @@ git::checkout("main", "repo")
 """
         + agl_check("ff", 'git::rebase("feat", "repo")', f'FastForwarded("{tip}")')
         + 'git::checkout("topic", "repo")'
-        + _completed("replayed", 'git::rebase("main", "repo")')
+        + agl_completed("replayed", 'git::rebase("main", "repo")')
         + 'git::checkout("dup", "repo")'
         + agl_check("dropped", 'git::rebase("main", "repo")', f'FastForwarded("{tip}")'),
         tmp_path,
@@ -415,7 +405,7 @@ def test_conflict_stops_the_operation_until_resolved_and_resumed(
         + agl_check("state", 'git::operation("repo")', f"Some::[Operation]({state})")
         + agl_check("again", f'git::resume({state}, "repo")', CONFLICTED)
         + _resolve("repo")
-        + _completed("resumed", f'git::resume({state}, "repo")')
+        + agl_completed("resumed", f'git::resume({state}, "repo")')
         + agl_check("finished", 'git::operation("repo")', "None::[Operation]"),
         tmp_path,
         monkeypatch,
@@ -704,10 +694,10 @@ def test_conflict_resume_messages_ignore_cleanup_configuration(
             "merge", 'git::merge("other", message = Some("# subject"), repo = "merge")', CONFLICTED
         )
         + _resolve("merge")
-        + _completed("merged", 'git::resume(Merging, "merge")')
+        + agl_completed("merged", 'git::resume(Merging, "merge")')
         + agl_check("rebase", 'git::rebase("main", "rebase")', CONFLICTED)
         + _resolve("rebase")
-        + _completed("rebased", 'git::resume(Rebasing, "rebase")'),
+        + agl_completed("rebased", 'git::resume(Rebasing, "rebase")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -745,12 +735,12 @@ def test_resume_truncates_at_the_scissors_line_and_keeps_foreign_conflict_commen
             CONFLICTED,
         )
         + _resolve("merge")
-        + _completed("merged", 'git::resume(Merging, "merge")')
+        + agl_completed("merged", 'git::resume(Merging, "merge")')
         + agl_check("rebase", 'git::rebase("main", "rebase")', CONFLICTED)
         + _resolve("rebase")
-        + _completed("rebased", 'git::resume(Rebasing, "rebase")')
+        + agl_completed("rebased", 'git::resume(Rebasing, "rebase")')
         + _resolve("foreign")
-        + _completed("continued", 'git::resume(Merging, "foreign")'),
+        + agl_completed("continued", 'git::resume(Merging, "foreign")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -821,7 +811,7 @@ def test_cherry_picking_and_reverting_share_the_sequencer(
         + _resolve("done")
         + agl_raises('git::resume(Reverting, "done")')
         + agl_check("state", 'git::operation("done")', "Some::[Operation](CherryPicking)")
-        + _completed("sequence", 'git::resume(CherryPicking, "done")')
+        + agl_completed("sequence", 'git::resume(CherryPicking, "done")')
         # Either operation aborts the sequence.
         + agl_check("stopped", SEQUENCE.format("stopped"), CONFLICTED)
         + 'git::abort(Reverting, "stopped")'
@@ -829,10 +819,10 @@ def test_cherry_picking_and_reverting_share_the_sequencer(
         # A single pending commit can be completed by either.
         + agl_check("pick", 'git::cherry-pick(["other"], repo = "pick")', CONFLICTED)
         + _resolve("pick")
-        + _completed("reverting", 'git::resume(Reverting, "pick")')
+        + agl_completed("reverting", 'git::resume(Reverting, "pick")')
         + agl_check("revert", 'git::revert(["HEAD~1"], repo = "revert")', CONFLICTED)
         + _resolve("revert")
-        + _completed("picking", 'git::resume(CherryPicking, "revert")')
+        + agl_completed("picking", 'git::resume(CherryPicking, "revert")')
         + agl_check("done-idle", 'git::operation("revert")', "None::[Operation]"),
         tmp_path,
         monkeypatch,
@@ -865,7 +855,7 @@ def test_resumed_revert_sequence_pins_reference_configuration(
     out, result = run_git_program(
         agl_check("started", 'git::revert(["HEAD~2", "HEAD~1"], repo = "repo")', CONFLICTED)
         + _resolve("repo")
-        + _completed("resumed", 'git::resume(Reverting, "repo")'),
+        + agl_completed("resumed", 'git::resume(Reverting, "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -1020,8 +1010,8 @@ def test_rebase_pins_configuration_that_changes_its_meaning(
     git_run(backend, ["config", "rebase.backend", "apply"], env)
 
     out, result = run_git_program(
-        _completed("refs", 'git::rebase("main", repo = "refs")')
-        + _completed("merges", 'git::rebase("main", repo = "merges")')
+        agl_completed("refs", 'git::rebase("main", repo = "refs")')
+        + agl_completed("merges", 'git::rebase("main", repo = "merges")')
         + agl_check("backend", 'git::rebase("main", repo = "backend")', CONFLICTED),
         tmp_path,
         monkeypatch,
@@ -1351,10 +1341,10 @@ def test_pull_integrates_per_mode_ignoring_pull_configuration(
         + agl_check(
             "ffr", 'git::pull(mode = Rebase, repo = "ffr")', f'FastForwarded("{tips["ffr"]}")'
         )
-        + _completed("never", 'git::pull(mode = Merge(Never), repo = "never")')
+        + agl_completed("never", 'git::pull(mode = Merge(Never), repo = "never")')
         + agl_raises('git::pull(mode = Merge(Only), repo = "only")')
-        + _completed("div", 'git::pull(repo = "div")')
-        + _completed("divr", 'git::pull(mode = Rebase, repo = "divr")'),
+        + agl_completed("div", 'git::pull(repo = "div")')
+        + agl_completed("divr", 'git::pull(mode = Rebase, repo = "divr")'),
         tmp_path,
         monkeypatch,
         capsys,
@@ -1405,7 +1395,7 @@ def test_pull_conflicts_stop_the_operation_and_refusals_are_errors(
         agl_check("merge", 'git::pull(repo = "merge")', CONFLICTED)
         + agl_check("merging", 'git::operation("merge")', "Some::[Operation](Merging)")
         + _resolve("merge")
-        + _completed("resumed", 'git::resume(Merging, "merge")')
+        + agl_completed("resumed", 'git::resume(Merging, "merge")')
         + agl_check("rebase", 'git::pull(mode = Rebase, repo = "rebase")', CONFLICTED)
         + agl_check("rebasing", 'git::operation("rebase")', "Some::[Operation](Rebasing)")
         + 'git::abort(Rebasing, "rebase")'
@@ -1489,8 +1479,8 @@ def test_pull_from_integrates_the_named_branch(
             'git::pull(PullFrom("origin", "feat"), repo = "named")',
             f'FastForwarded("{tip}")',
         )
-        + _completed("rebased", 'git::pull(PullFrom("origin", "feat"), Rebase, "rebased")')
-        + _completed("url", f'git::pull(PullFrom("{bare}", "feat"), Merge(Never), "url")'),
+        + agl_completed("rebased", 'git::pull(PullFrom("origin", "feat"), Rebase, "rebased")')
+        + agl_completed("url", f'git::pull(PullFrom("{bare}", "feat"), Merge(Never), "url")'),
         tmp_path,
         monkeypatch,
         capsys,

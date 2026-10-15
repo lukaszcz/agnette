@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
+from tests._agl_git_helpers import (
+    agl_check,
+    agl_raises,
+    run_git_program,
+    tracked_entry,
+    untracked_entry,
+)
 from tests._git_helpers import (
     clone_local_remote,
     commit_file,
@@ -158,10 +164,9 @@ def test_status_untracked_and_ignored_switches(
     (repo / "build" / "out.o").write_text("x", encoding="utf-8")
     git_run(repo, ["config", "status.showUntrackedFiles", "no"], env)
 
-    tracked = 'StatusEntry("tracked.txt", Tracked(Unmodified, Modified))'
-    untracked = (
-        'StatusEntry("a  b\\nc.txt", Untracked), StatusEntry("dir/inner.txt", Untracked), '
-        'StatusEntry("new file.txt", Untracked)'
+    tracked = tracked_entry("tracked.txt", unstaged="Modified")
+    untracked = ", ".join(
+        untracked_entry(name) for name in ("a  b\\nc.txt", "dir/inner.txt", "new file.txt")
     )
     ignored = 'StatusEntry("a.log", Ignored), StatusEntry("build/", Ignored)'
     out, result = run_git_program(
@@ -245,7 +250,7 @@ def test_status_of_unborn_and_detached_head(
             "unborn",
             'git::status(repo = "unborn")',
             'Status(None, Some("trunk"), None, None, '
-            '[StatusEntry("new.txt", Tracked(Added, Unmodified))])',
+            f"[{tracked_entry('new.txt', staged='Added')}])",
         )
         + agl_check(
             "detached",
@@ -305,7 +310,7 @@ def test_status_ignores_submodule_ignore_configuration(
         agl_check(
             "entries",
             'git::status(repo = "repo").entries',
-            '[StatusEntry("sub", Tracked(Unmodified, Modified))]',
+            f"[{tracked_entry('sub', unstaged='Modified')}]",
         ),
         tmp_path,
         monkeypatch,

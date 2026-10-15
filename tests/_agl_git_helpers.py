@@ -59,3 +59,28 @@ try
 catch GitError =>
   print("raised")
 """
+
+
+def agl_completed(label: str, call: str) -> str:
+    """Return AgL printing the new ``HEAD`` when *call* is ``Completed``, else ``not completed``."""
+    return f"""
+let {label} = {call}
+case {label} of
+  | Completed(head) => print(head)
+  | _ => print("not completed")
+"""
+
+
+def agl_array(*items: str) -> str:
+    """Return the AgL array literal of the AgL expressions *items*."""
+    return "[" + ", ".join(items) + "]"
+
+
+def tracked_entry(path: str, staged: str = "Unmodified", unstaged: str = "Unmodified") -> str:
+    """Return the AgL ``StatusEntry`` literal of a tracked *path* with the given ``Change``s."""
+    return f'StatusEntry("{path}", Tracked({staged}, {unstaged}))'
+
+
+def untracked_entry(path: str) -> str:
+    """Return the AgL ``StatusEntry`` literal of an untracked *path*."""
+    return f'StatusEntry("{path}", Untracked)'

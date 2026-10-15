@@ -6,6 +6,7 @@ is shared instead of repeated per test module.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -79,6 +80,15 @@ def git_refs(repo: Path, env: dict[str, str], namespace: str) -> dict[str, str]:
     return {name: oid for name, oid in refs.items() if not name.endswith("/HEAD")}
 
 
+def global_git_config(*args: str) -> str:
+    """Return the output of ``git config --global`` run in the test's isolated process home.
+
+    Unlike the ``env`` fixture's home, this is the home programs run by the test inherit.
+    """
+
+    return git_output(Path(os.environ["HOME"]), ["config", "--global", *args], dict(os.environ))
+
+
 def lines_of(name: str) -> str:
     """Return 20 lines unique to *name*, so rename detection pairs only near-equal files."""
 
@@ -94,6 +104,23 @@ def init_repo(path: Path, env: dict[str, str], *, branch: str = "main") -> Path:
     return path
 
 
+def write_file(repo: Path, name: str, content: str) -> None:
+    """Write *content* to the file *name* in *repo*, replacing any previous content."""
+
+    (repo / name).write_text(content, encoding="utf-8")
+
+
+def forge_object(repo: Path, env: dict[str, str], type_: str, content: str, ref: str) -> None:
+    """Store a raw object of *type_* and point *ref* at it, bypassing git's own validation.
+
+    Lets tests build objects git would not create itself, such as a commit or tag carrying a
+    fake signature.
+    """
+
+    args = ["hash-object", "-t", type_, "-w", "--stdin", "--literally"]
+    git_run(repo, ["update-ref", ref, git_output(repo, args, env, stdin=content)], env)
+
+
 def commit_file(
     repo: Path,
     env: dict[str, str],
@@ -104,7 +131,7 @@ def commit_file(
 ) -> None:
     """Write *name* in *repo* and commit it on the current branch."""
 
-    (repo / name).write_text(content, encoding="utf-8")
+    write_file(repo, name, content)
     git_run(repo, ["add", name], env)
     git_run(repo, ["commit", "-m", message, "-q"], env)
 
