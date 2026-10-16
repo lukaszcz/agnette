@@ -1,4 +1,4 @@
-"""Cross-cutting guarantees of ``std/git``: paths, operands, editors, and user configuration."""
+"""Cross-cutting guarantees of ``std/git``: paths, operands, and editors."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from tests._agl_git_helpers import (
-    agl_array,
     agl_check,
     agl_completed,
     agl_raises,
@@ -22,18 +21,14 @@ from tests._git_helpers import (
     commit_file,
     conflicted_merge,
     conflicting_branches,
-    forge_object,
     git_fails,
     git_lines,
     git_output,
     git_rev,
     git_run,
-    global_git_config,
     init_repo,
-    lines_of,
     worktree_files,
     write_file,
-    write_script,
 )
 
 
@@ -292,120 +287,3 @@ def test_failing_editors_do_not_affect_merge_revert_and_resume(
 
     assert out.splitlines() == [git_rev(repo, env) for repo in repos] + ["ok"] * len(repos)
     assert [git_lines(repo, ["status", "--porcelain"], env) for repo in repos] == [[]] * 4
-
-
-# Settings that change unpinned git output which `std/git` parses.
-_PINNED_SETTINGS = {
-    "color.ui": "always",
-    "color.diff": "always",
-    "diff.relative": "true",
-    "status.showUntrackedFiles": "no",
-    "log.showSignature": "true",
-    "diff.renames": "false",
-    "commit.cleanup": "verbatim",
-}
-_MESSAGE = "subject\n\n# kept\n\nbody  \n\n"
-
-
-def _fake_gpg(tmp_path: Path) -> Path:
-    """Return a stand-in for ``gpg`` that reports a good signature and prints a line."""
-    return write_script(
-        tmp_path,
-        "fake-gpg",
-        '#!/bin/sh\necho "[GNUPG:] GOODSIG 0123456789ABCDEF Fake"\necho "gpg says hello" >&2\n',
-    )
-
-
-def _signed_head(repo: Path, env: dict[str, str]) -> None:
-    """Add a commit with a (fake) signature on top of ``HEAD``, changing no file."""
-    signature = "-----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----"
-    stamp = "Test <test@test.com> 1700000000 +0000"
-    commit = (
-        f"tree {git_output(repo, ['rev-parse', 'HEAD^{tree}'], env)}\n"
-        f"parent {git_rev(repo, env)}\nauthor {stamp}\ncommitter {stamp}\n"
-        f"gpgsig {signature}\n\nsigned\n"
-    )
-    forge_object(repo, env, "commit", commit, "HEAD")
-
-
-def _pinning_repo(tmp_path: Path, env: dict[str, str]) -> Path:
-    """Return a repo whose changes each depend on one of the ``_PINNED_SETTINGS``.
-
-    ``old.txt`` is renamed in the index; ``sub/in.txt`` and ``top.txt`` are modified; a file is
-    untracked inside and outside ``sub``; the newest commit carries a signature.
-    """
-    repo = init_repo(tmp_path / "repo", env)
-    (repo / "sub").mkdir()
-    for name in ("sub/in.txt", "old.txt", "top.txt"):
-        commit_file(repo, env, name=name, content=lines_of(name), message=name)
-    _signed_head(repo, env)
-    git_run(repo, ["mv", "old.txt", "new.txt"], env)
-    for name in ("sub/in.txt", "top.txt"):
-        write_file(repo, name, lines_of(name) + "edited\n")
-    for name in ("sub/untracked.txt", "loose.txt"):
-        write_file(repo, name, "new\n")
-    return repo
-
-
-def test_user_configuration_does_not_change_parsed_results(
-    tmp_path: Path,
-    env: dict[str, str],
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    repo = _pinning_repo(tmp_path, env)
-    init_repo(tmp_path / "msgs", env)
-    head = git_rev(repo, env)
-    settings = {**_PINNED_SETTINGS, "gpg.program": str(_fake_gpg(tmp_path))}
-    calls = {
-        "status": 'status(repo = "repo/sub")',
-        "staged": 'diff(CommitToIndex("HEAD"), repo = "repo/sub")',
-        "unstaged": 'diff(repo = "repo/sub")',
-        "stat": 'diff-stat(CommitToWorktree("HEAD"), repo = "repo/sub")',
-        "patch": 'patch(CommitToWorktree("HEAD"), repo = "repo/sub")',
-        "log": 'log(repo = "repo/sub")',
-        "show": 'show(repo = "repo/sub")',
-    }
-
-    def results(suffix: str) -> str:
-        return "".join(f"let {name}-{suffix} = git::{call}\n" for name, call in calls.items())
-
-    def message(label: str) -> str:
-        """Return AgL committing ``_MESSAGE`` to ``msgs`` and checking the stored message."""
-        literal = _MESSAGE.replace("\n", "\\n")
-        return (
-            f'let _ = git::commit("{literal}", allow-empty = true, repo = "msgs")\n'
-            + agl_check(f"subject-{label}", 'git::show(repo = "msgs").subject', '"subject"')
-            + agl_check(f"body-{label}", 'git::show(repo = "msgs").body', '"# kept\\n\\nbody"')
-        )
-
-    explicit = {
-        "status": status_literal(
-            head,
-            tracked_entry("new.txt", staged='Renamed("old.txt", 100)'),
-            tracked_entry("sub/in.txt", unstaged="Modified"),
-            tracked_entry("top.txt", unstaged="Modified"),
-            untracked_entry("loose.txt"),
-            untracked_entry("sub/untracked.txt"),
-        ),
-        "staged": '[FileChange("new.txt", Renamed("old.txt", 100))]',
-        "unstaged": '[FileChange("sub/in.txt", Modified), FileChange("top.txt", Modified)]',
-        "stat": agl_array(
-            'FileStat("new.txt", Some(0), Some(0))',
-            'FileStat("sub/in.txt", Some(1), Some(0))',
-            'FileStat("top.txt", Some(1), Some(0))',
-        ),
-    }
-    body = results("plain") + message("plain")
-    body += "".join(agl_check(f"{k}-explicit", f"{k}-plain", v) for k, v in explicit.items())
-    body += "".join(
-        f'git::config::set("{key}", "{value}", Global, "repo")\n' for key, value in settings.items()
-    )
-    body += results("pinned") + message("pinned")
-    body += "".join(agl_check(f"{n}-same", f"{n}-pinned", f"{n}-plain") for n in calls)
-
-    out = run_git_program(body, tmp_path, monkeypatch, capsys)
-
-    assert out.splitlines() == ["ok"] * (2 + len(explicit) + 2 + len(calls))
-    configured = global_git_config("--list").splitlines()
-    assert sorted(configured) == sorted(f"{k.lower()}={v}" for k, v in settings.items())

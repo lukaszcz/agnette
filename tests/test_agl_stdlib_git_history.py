@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,6 +11,7 @@ from tests._agl_git_helpers import agl_array, agl_check, agl_raises, run_git_pro
 from tests._git_helpers import (
     commit_file,
     conflicted_merge,
+    forge_object,
     git_lines,
     git_output,
     git_rev,
@@ -184,22 +183,31 @@ def test_log_ignores_user_configuration(
     repo = _history_repo(tmp_path, env)
     c1 = git_rev(repo, env, "main~3")
     initial = git_rev(repo, env, "main~4")
+    # A stand-in `gpg` that reports a good signature and writes to stderr.
+    gpg = write_script(
+        tmp_path,
+        "fake-gpg",
+        '#!/bin/sh\necho "[GNUPG:] GOODSIG 0123456789ABCDEF Fake"\necho "gpg says hello" >&2\n',
+    )
     settings = {
         "log.showSignature": "true",
         "log.follow": "true",
         "log.date": "iso",
         "i18n.logOutputEncoding": "ISO-8859-1",
+        "gpg.program": str(gpg),
     }
-    sign = shutil.which("ssh-keygen") is not None  # Signature output is the only part needing it.
-    if sign:
-        key = tmp_path / "key"
-        subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(key), "-q"], check=True)
-        settings |= {"gpg.format": "ssh", "user.signingkey": str(tmp_path / "key.pub")}
     for name, value in settings.items():
         git_run(repo, ["config", name, value], env)
     git_run(repo, ["mv", "sub/b.txt", "sub/c.txt"], env)
-    commit_env = {**env, "SSH_AUTH_SOCK": ""}  # Never reach the developer's ssh agent.
-    git_run(repo, ["commit", "-q", *(["-S"] if sign else []), "-m", "rename b"], commit_env)
+    git_run(repo, ["commit", "-q", "-m", "rename b"], env)
+    signature = "-----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----"
+    stamp = "Test <test@test.com> 1700000000 +0000"
+    signed = (
+        f"tree {git_output(repo, ['rev-parse', 'HEAD^{tree}'], env)}\n"
+        f"parent {git_rev(repo, env)}\nauthor {stamp}\ncommitter {stamp}\n"
+        f"gpgsig {signature}\n\nsigned\n"
+    )
+    forge_object(repo, env, "commit", signed, "HEAD")
 
     body = agl_check("renamed", 'git::log(paths = ["sub/c.txt"], repo = "repo").size()', "1")
     body += agl_check("signed", 'git::log(repo = "repo")[0].hash', f'"{git_rev(repo, env)}"')

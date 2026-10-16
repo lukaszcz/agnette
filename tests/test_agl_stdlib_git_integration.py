@@ -1051,10 +1051,13 @@ def _remote_pair(
 
     The clone gets ``ahead`` local commits, the remote ``behind`` commits pushed by a peer. With
     ``conflict`` (at most one commit each) both change ``f.txt``. Returns remote and clone.
+    The pairs of a test share one source repository per ``conflict`` value.
     """
-    source = init_repo(tmp_path / f"{name}-source", env)
-    if conflict:
-        commit_file(source, env, name="f.txt", content="base\n", message="base")
+    source = tmp_path / ("pair-conflict-source" if conflict else "pair-source")
+    if not source.exists():
+        init_repo(source, env)
+        if conflict:
+            commit_file(source, env, name="f.txt", content="base\n", message="base")
     bare, repo = clone_bare_remote(source, tmp_path, env, name=name)
     for n in range(ahead):
         commit_file(
