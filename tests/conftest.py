@@ -507,7 +507,9 @@ class FakeAgentTransport:
     Every dispatched ``(prompt, runner argv)`` pair is recorded on ``calls``.
     Queue responses built with :meth:`success` / :meth:`failure` via
     :meth:`queue` to script what consecutive dispatches return, in order.  A
-    transport that was never scripted answers every dispatch with a placeholder
+    queued callable is called when its dispatch happens and returns that
+    dispatch's response, letting a test act as the agent would.  A transport
+    that was never scripted answers every dispatch with a placeholder
     success; once scripted, a dispatch past the last queued response fails the
     test rather than inventing one.
     """
@@ -517,7 +519,10 @@ class FakeAgentTransport:
     _scripted: bool = False
 
     def queue(self, *responses: object) -> None:
-        """Append *responses* to the FIFO consumed one-per-dispatch."""
+        """Append *responses* to the FIFO consumed one-per-dispatch.
+
+        A callable takes no arguments and returns the response, after any side effects.
+        """
         self._scripted = True
         self._responses.extend(responses)
 
@@ -555,7 +560,8 @@ class FakeAgentTransport:
 
     def _next_response(self) -> object:
         if self._responses:
-            return self._responses.pop(0)
+            response = self._responses.pop(0)
+            return response() if callable(response) else response
         if self._scripted:
             raise AssertionError("agent dispatched more times than there were queued responses")
         return self.success()

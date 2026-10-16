@@ -935,18 +935,23 @@ def run_program(
     seed: "dict[str, Value] | None" = None,
     host_settings_policy: object | None = None,
     process_environment: Mapping[str, str] | None = None,
+    runtime: PipelineDriver | None = None,
+    roots: RootSet | None = None,
 ) -> RunResult:
     """Run inline *source* through the shared inline-entry transform.
 
-    *process_environment* seeds ``std/env::environ`` (empty when ``None``). Asserts the
+    *process_environment* seeds ``std/env::environ`` (empty when ``None``). *runtime* and *roots*
+    replace the default agentless driver and the repository standard library roots. Asserts the
     result is a full :class:`RunResult` (not an argument-preflight failure). Shared by the
     engine-setting test suites (``default-agent``, ``default-sandbox``, the generic restamp
     tests).
     """
     result = run_inline_code(
-        PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
+        PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        if runtime is None
+        else runtime,
         source,
-        roots=agl_roots(),
+        roots=agl_roots() if roots is None else roots,
         builtin_host_settings=seed,
         host_settings_policy=host_settings_policy,
         process_environment=process_environment,

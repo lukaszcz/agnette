@@ -19,6 +19,7 @@ from tests._git_helpers import (
     git_head,
     git_lines,
     git_output,
+    git_parents,
     git_refs,
     git_rev,
     git_run,
@@ -1137,10 +1138,6 @@ def _remote_pair(
     return bare, repo
 
 
-def _parents(repo: Path, env: dict[str, str], rev: str = "HEAD") -> list[str]:
-    return git_output(repo, ["rev-list", "--parents", "-n1", rev], env).split()[1:]
-
-
 def test_fetch_updates_the_refs_of_each_source(
     tmp_path: Path,
     env: dict[str, str],
@@ -1365,10 +1362,10 @@ def test_pull_integrates_per_mode_ignoring_pull_configuration(
     assert git_head(tmp_path / "utd", env) == heads["utd"]
     assert git_head(tmp_path / "ff", env) == tips["ff"]
     assert git_head(tmp_path / "ffr", env) == tips["ffr"]
-    assert _parents(tmp_path / "never", env) == [heads["never"], tips["never"]]
+    assert git_parents(tmp_path / "never", env) == [heads["never"], tips["never"]]
     assert git_head(tmp_path / "only", env) == heads["only"]
-    assert _parents(tmp_path / "div", env) == [heads["div"], tips["div"]]
-    assert _parents(tmp_path / "divr", env) == [tips["divr"]]
+    assert git_parents(tmp_path / "div", env) == [heads["div"], tips["div"]]
+    assert git_parents(tmp_path / "divr", env) == [tips["divr"]]
 
 
 def test_pull_conflicts_stop_the_operation_and_refusals_are_errors(
@@ -1502,8 +1499,8 @@ def test_pull_from_integrates_the_named_branch(
     # A branch name that is a refspec is rejected before git sees it, so no branch is created.
     assert set(git_refs(named, env, "heads")) == {"main"}
     assert git_head(named, env) == tip != named_head
-    assert _parents(rebased, env) == [rebased_tip]
-    assert _parents(url, env) == [url_head, url_tip]
+    assert git_parents(rebased, env) == [rebased_tip]
+    assert git_parents(url, env) == [url_head, url_tip]
     # Pulling a branch does not change what the current branch tracks.
     assert git_output(named, ["rev-parse", "--abbrev-ref", "main@{upstream}"], env) == "origin/main"
 

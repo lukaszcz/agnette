@@ -68,6 +68,12 @@ def git_rev(repo: Path, env: dict[str, str], rev: str = "HEAD") -> str:
     return git_output(repo, ["rev-parse", rev], env)
 
 
+def git_parents(repo: Path, env: dict[str, str], rev: str = "HEAD") -> list[str]:
+    """Return the hashes of the parents of the commit *rev* resolves to."""
+
+    return git_output(repo, ["rev-list", "--parents", "-n1", rev], env).split()[1:]
+
+
 def git_refs(repo: Path, env: dict[str, str], namespace: str) -> dict[str, str]:
     """Map each ref of *repo* under ``refs/<namespace>/`` to its hash, except symbolic ``HEAD``.
 

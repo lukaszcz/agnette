@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.pipeline import RunResult
+from agnette.agl.modules.roots import RootSet
+from agnette.agl.pipeline import PipelineDriver, RunResult
 from tests._agl_helpers import run_program
 
 
@@ -23,16 +24,20 @@ def run_git_program(
     capsys: pytest.CaptureFixture[str],
     *,
     imports: tuple[str, ...] = (),
+    runtime: PipelineDriver | None = None,
+    roots: RootSet | None = None,
 ) -> tuple[str, RunResult]:
     """Run *body* as ``main`` with ``std/git`` and ``GitError`` imported and cwd set to *cwd*.
 
     ``std/env::environ`` is seeded from the current (isolated) ``os.environ``, as ``agm exec``
-    does. *imports* adds further ``import`` lines. Returns the program's stdout and its result.
+    does. *imports* adds further ``import`` lines; *runtime* and *roots* replace the default driver
+    and roots (see :func:`~tests._agl_helpers.run_program`). Returns the program's stdout and its
+    result.
     """
     header = "".join(f"import {name}\n" for name in ("std/git", "std/git::GitError", *imports))
     source = f"{header}program def main() -> unit =\n{textwrap.indent(body.strip(), '  ')}\n"
     monkeypatch.chdir(cwd)
-    result = run_program(source, process_environment=dict(os.environ))
+    result = run_program(source, process_environment=dict(os.environ), runtime=runtime, roots=roots)
     return capsys.readouterr().out, result
 
 

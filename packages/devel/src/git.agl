@@ -1,13 +1,24 @@
 # Agent-enhanced git operations
 
 import std/config
+import std/git
 
-def Agent::merge(self, ref: text) -> unit =
-  let res = exec $ git merge %!{ref}
-  if res.exit-code == 1 =>
-    self.ask """
-      Fix all conflicts and finish the merge. Make sure to preserve functionality from both branches.
-    """
+@doc("""
+  Merge `ref` into the current branch, asking the agent to resolve conflicts.
+
+  Merge configuration such as `merge.ff`, `merge.autoStash` and `merge.log` does not apply; see
+  `std/git::merge`.
+
+  Raises `GitError` when git cannot merge `ref`.
+""")
+def Agent::merge(self, ref: git::ref) -> unit =
+  case git::merge(ref) of
+    | git::Conflicted(_) =>
+      self.ask """
+        Fix all conflicts and finish the merge.
+        Make sure to preserve functionality from both branches.
+      """
+    | _ => ()
 
 def Agent::commit(self) -> unit =
   self.ask("Commit changes on the current branch.")
