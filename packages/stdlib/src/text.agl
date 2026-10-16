@@ -45,7 +45,7 @@ extern def text::size(self) -> int
 @doc("Return the characters as individual text values.")
 extern def text::chars(self) -> array[text]
 
-@doc("Split the text into lines, removing line endings.")
+@doc("Split into lines at each `\\n` or `\\r\\n`, removing it; a final one ends the last line.")
 extern def text::lines(self) -> array[text]
 
 @doc("Split the text at each occurrence of the separator.")

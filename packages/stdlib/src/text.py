@@ -27,7 +27,10 @@ def chars(value: str) -> object:
 
 
 def lines(value: str) -> object:
-    return array(value.splitlines())
+    """Split at ``\\n`` and ``\\r\\n`` only, unlike ``str.splitlines``."""
+    parts = value.split("\n")
+    last = parts.pop()
+    return array([part.removesuffix("\r") for part in parts] + ([last] if last else []))
 
 
 def join(values: object, separator: str) -> str:

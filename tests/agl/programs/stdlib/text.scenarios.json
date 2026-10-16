@@ -43,6 +43,11 @@
       "expect": {"stdout": "alpha|beta\n", "calls": {}}
     },
     {
+      "name": "lines_split_only_at_newlines_dropping_a_crlf_carriage_return",
+      "params": {"mode": 8},
+      "expect": {"stdout": "[1, 1, 0, 9]\n[0]\n[4]\n", "calls": {}}
+    },
+    {
       "name": "split_on_an_empty_separator_surfaces_a_typed_extern_error",
       "params": {"mode": 7},
       "expect": {

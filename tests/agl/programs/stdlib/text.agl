@@ -63,6 +63,11 @@ program def main(mode: int) -> unit =
     | 6 =>
         let result = " alpha \n beta \n".lines() |> (fn(lines: array[text]) => lines.map(fn(line: text) => line.trim())) |> (fn(lines: array[text]) => text::join(lines, "|"))
         print(result)
+    | 8 =>
+        let sizes = fn(value: text) => value.lines().map(fn(line: text) => line.size())
+        print(sizes("a\r\nb\n\nc\u2028d\re\u000cf\u0085g\n"))
+        print(sizes("\n"))
+        print(sizes("last"))
     | _ =>
         let _ = "a,b".split("")
         ()
