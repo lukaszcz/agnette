@@ -7,7 +7,7 @@
         "mode": "none"
       },
       "expect": {
-        "stdout": "5\n8\n7\n"
+        "stdout": "5\n8\n5\n7\n"
       }
     },
     {
@@ -23,7 +23,7 @@
         }
       ],
       "expect": {
-        "stdout": "5\n8\n7\nhi\n"
+        "stdout": "5\n8\n5\n7\nhi\n"
       }
     },
     {
@@ -38,7 +38,7 @@
         ]
       },
       "expect": {
-        "stdout": "5\n8\n7\nLooks good\n",
+        "stdout": "5\n8\n5\n7\nLooks good\n",
         "calls": {
           "reviewer": 1
         }
@@ -51,7 +51,7 @@
         "mode": "raise"
       },
       "expect": {
-        "stdout": "5\n8\n7\ncaught out of range\n"
+        "stdout": "5\n8\n5\n7\ncaught out of range\n"
       }
     }
   ]

@@ -21,6 +21,7 @@ def double(x: int) -> int = x * 2
 program def main(mode: text) -> unit =
   print(render(increment <| 2 |> double))
   print(render((increment >> double)(3)))
+  print(render(identity(increment)(4)))
   let copied: Box = copy(Box(value = 7))
   print(render(copied.value))
   if

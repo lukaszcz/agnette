@@ -1803,7 +1803,7 @@ scope remote
   def list(repo: path = ".") -> array[Remote] =
     let found = GitInternals::run(repo, ["remote"]).stdout.lines()
       .map(fn(name: text) => GitInternals::remote-of(repo, name))
-    array::map-some(found, fn(remote: Remote) => remote)
+    array::map-some(found, identity)
 
   @doc("""
     Add the remote `name` fetching from `url`, which is stored as given and not fetched.
