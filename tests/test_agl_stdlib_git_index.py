@@ -377,6 +377,44 @@ for name in ["clean", "ignored", "untracked", "modified", "staged"] do
     ]
 
 
+def test_is_clean_handles_untracked_and_tracked_submodule_changes(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = init_repo(tmp_path / "source", env)
+    commit_file(source, env, name="tracked.txt")
+    repo = init_repo(tmp_path / "repo", env)
+    git_run(
+        repo,
+        ["-c", "protocol.file.allow=always", "submodule", "add", "-q", str(source), "nested"],
+        env,
+    )
+    git_run(repo, ["commit", "-qm", "add submodule"], env)
+    write_file(repo, "nested/untracked.txt", "x")
+
+    out = run_git_program(
+        agl_check("ignored", 'git::is-clean(false, "repo")', "true")
+        + agl_check("counted", 'git::is-clean(true, "repo")', "false"),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == ["ok", "ok"]
+
+    write_file(repo, "nested/tracked.txt", "changed\n")
+    out = run_git_program(
+        agl_check("changed", 'git::is-clean(false, "repo")', "false"),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == ["ok"]
+
+
 def test_add_stages_literal_paths_and_dot_stages_deletions(
     tmp_path: Path,
     env: dict[str, str],

@@ -1084,8 +1084,9 @@ def status(untracked: bool = true, ignored: bool = false, repo: path = ".") -> S
   # `--ignored` needs untracked scanning, so untracked entries are dropped afterwards.
   let scan = if untracked or ignored => "all" else => "no"
   let mode = if ignored => "matching" else => "no"
+  let submodules = if untracked => "none" else => "untracked"
   # `--no-renames` resets configured copy detection, `--find-renames` then enables renames only;
-  # `--ignore-submodules=none` overrides configured submodule hiding.
+  # the submodule setting overrides configured hiding while respecting `untracked`.
   let args = [
     "status",
     "--porcelain=v2",
@@ -1093,7 +1094,7 @@ def status(untracked: bool = true, ignored: bool = false, repo: path = ".") -> S
     "--branch",
     "--no-renames",
     "--find-renames",
-    "--ignore-submodules=none",
+    "--ignore-submodules=%{submodules}",
     "--untracked-files=%{scan}",
     "--ignored=%{mode}",
   ]
