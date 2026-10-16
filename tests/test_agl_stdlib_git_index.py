@@ -266,6 +266,29 @@ def test_status_of_unborn_and_detached_head(
     assert out.splitlines() == ["ok"] * 2
 
 
+def test_status_of_branch_named_detached_sentinel(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env, branch="(detached)")
+    head = git_rev(repo, env)
+
+    out = run_git_program(
+        agl_check(
+            "status",
+            'git::status(repo = "repo")',
+            status_literal(head, branch="(detached)"),
+        ),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == ["ok"]
+
+
 def test_status_of_branch_named_with_leading_parenthesis(
     tmp_path: Path,
     env: dict[str, str],

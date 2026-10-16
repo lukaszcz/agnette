@@ -396,8 +396,8 @@ scope GitInternals
     else =>
       Some(value)
 
-  @doc("Parse `status --porcelain=v2 -z --branch` output.")
-  def parse-status(out: text) -> Status =
+  @doc("Parse `status --porcelain=v2 -z --branch` output, using symbolic `HEAD` to resolve its sentinel.")
+  def parse-status(out: text, symbolic-head: Option[ref]) -> Status =
     let items = split-nul(out)
     var head: Option[ref] = None
     var branch: Option[ref] = None
@@ -412,7 +412,11 @@ scope GitInternals
         | "#" =>
           case fields[1] of
             | "branch.oid" => head := named(fields[2], "(initial)")
-            | "branch.head" => branch := named(fields[2], "(detached)")
+            | "branch.head" =>
+              if fields[2] == "(detached)" =>
+                branch := symbolic-head
+              else =>
+                branch := Some(fields[2])
             | "branch.upstream" => upstream := Some(fields[2])
             | "branch.ab" =>
               divergence := Some(Divergence(tail-int(fields[2]), tail-int(fields[3])))
@@ -1082,7 +1086,11 @@ def status(untracked: bool = true, ignored: bool = false, repo: path = ".") -> S
     "--untracked-files=%{scan}",
     "--ignored=%{mode}",
   ]
-  let parsed = GitInternals::parse-status(GitInternals::run(repo, args).stdout)
+  let out = GitInternals::run(repo, args).stdout
+  let symbolic-head: Option[ref] =
+    if out.contains("# branch.head (detached)") => branch::current(repo)
+    else => None
+  let parsed = GitInternals::parse-status(out, symbolic-head)
   if untracked =>
     parsed
   else =>
