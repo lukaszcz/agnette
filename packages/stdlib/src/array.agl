@@ -172,6 +172,13 @@ extern def array[E]::enumerate(self) -> array[Pair[int, E]]
 @doc("Concatenate the nested arrays into one array.")
 extern def flatten[T](values: array[array[T]]) -> array[T]
 
+@doc("Apply the function to each present value in order, skipping `None`.")
+def map-some[T, U](values: array[Option[T]], function: (T) -> U) -> array[U] =
+  var results: array[U] = []
+  for value in values do
+    value.each(fn(present: T) => results.push(function(present)))
+  results
+
 @doc("Split an array of pairs into a pair of arrays.")
 extern def unzip[A, B](values: array[Pair[A, B]]) -> Pair[array[A], array[B]]
 

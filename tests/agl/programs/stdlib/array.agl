@@ -127,6 +127,13 @@ program def main(mode: int) -> unit =
         print(values)
         print(values.remove-at(-1))
         print(values)
+    | 14 =>
+        let mixed: array[Option[int]] = [Some(1), None, Some(2)]
+        let absent: array[Option[int]] = [None, None]
+        print(array::map-some(mixed, fn(x: int) => x + 1))
+        print(array::map-some(absent, fn(x: int) => x + 1))
+        let words: array[Option[text]] = [Some("ab")]
+        print(array::map-some(words, fn(x: text) => x.size()))
     | _ =>
         let by-key = fn(left: Entry, right: Entry) => left.key - right.key
         let entries = [

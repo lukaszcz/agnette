@@ -102,6 +102,11 @@
       }
     },
     {
+      "name": "map_some_applies_the_function_to_present_values_only",
+      "params": {"mode": 14},
+      "expect": {"stdout": "[2, 3]\n[]\n[2]\n", "calls": {}}
+    },
+    {
       "name": "sort_and_sort_in_place_are_stable_for_equal_keys",
       "params": {"mode": 13},
       "expect": {

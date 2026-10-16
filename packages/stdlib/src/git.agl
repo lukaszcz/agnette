@@ -1801,10 +1801,9 @@ scope remote
     Raises `GitError` when `repo` is not inside a repository.
   """)
   def list(repo: path = ".") -> array[Remote] =
-    GitInternals::run(repo, ["remote"]).stdout.lines()
+    let found = GitInternals::run(repo, ["remote"]).stdout.lines()
       .map(fn(name: text) => GitInternals::remote-of(repo, name))
-      .select(fn(remote: Option[Remote]) => remote.is-some())
-      .map(fn(remote: Option[Remote]) => remote.unwrap())
+    array::map-some(found, fn(remote: Remote) => remote)
 
   @doc("""
     Add the remote `name` fetching from `url`, which is stored as given and not fetched.
