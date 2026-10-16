@@ -689,17 +689,26 @@ scope GitInternals
     ["--end-of-options", remote].concat(refspecs)
 
   @doc("""
-    Raise `GitError` unless the current branch has a configured upstream.
+    Return the upstream's remote name, source ref, and local tracking ref.
 
-    The upstream counts even when its remote-tracking branch does not exist, as after a prune.
-    Nothing is fetched.
+    A configured upstream counts even when its local tracking ref does not exist.
   """)
-  def require-upstream(repo: path) -> unit =
+  def upstream(repo: path) -> array[text] =
     let head = run(repo, ["symbolic-ref", "-q", "HEAD"]).stdout.trim()
-    let args = ["for-each-ref", "--format=%(upstream)", head]
+    let args = [
+      "for-each-ref",
+      "--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream)%00",
+      head,
+    ]
     let res = run(repo, args)
-    if res.stdout.trim().is-empty() =>
+    let refs = split-nul(res.stdout)
+    if refs[0].is-empty() =>
       fail-in(repo, args, res)
+    refs.take(3)
+
+  @doc("Raise `GitError` unless the current branch has a configured upstream.")
+  def require-upstream(repo: path) -> unit =
+    let _ = upstream(repo)
 
   @doc("The `fetch` arguments that select `source`.")
   def fetch-selector(source: FetchSource) -> array[text] =
@@ -1403,14 +1412,15 @@ def fetch(source: FetchSource = Upstream, prune: bool = false, tags: bool = fals
 @doc("""
   Fetch, then merge or rebase the current branch onto the fetched commit, as `mode` says.
 
-  `Upstream` fetches as `fetch` does and integrates the upstream branch; `PullFrom` fetches just
+  `Upstream` fetches the configured upstream branch and integrates it; `PullFrom` fetches just
   `branch` of the remote `remote` and integrates it, whether or not it is the upstream. The
   integration is `merge` or `rebase`, so the `Outcome` is theirs, `Conflicted` included, and
   `pull.rebase`, `pull.ff` and `branch.<name>.rebase` do not apply.
 
-  Raises `GitError` when `Upstream` finds no upstream branch, `branch` is not a plain ref name or
-  is missing on the remote, or git refuses to fetch, merge or rebase, as for local changes the
-  integration would overwrite. An invalid `branch` and a missing upstream fail before any fetch;
+  Raises `GitError` when `Upstream` has no configured upstream or its remote branch is missing,
+  `branch` is not a plain ref name or is missing on the remote, or git refuses to fetch, merge or
+  rebase, as for local changes the integration would overwrite. An invalid `branch` and no
+  configured upstream fail before any fetch;
   any other error comes after it. An error after the integration started may leave it in
   progress; see `operation`.
 """)
@@ -1418,9 +1428,14 @@ def pull(source: PullSource = Upstream, mode: PullMode = Merge(Allow),
          repo: path = ".") -> Outcome =
   let target = case source of
     | Upstream =>
-      GitInternals::require-upstream(repo)
-      fetch(Upstream, false, false, repo)
-      "@{upstream}"
+      let upstream = GitInternals::upstream(repo)
+      fetch(
+        FetchFrom(upstream[0], ["+" ++ upstream[1] ++ ":" ++ upstream[2]]),
+        false,
+        false,
+        repo,
+      )
+      upstream[2]
     | PullFrom(remote, branch) =>
       # A refspec in `branch` would update local refs; `refs/` makes a plain name a valid ref.
       let _ = GitInternals::run(repo, ["check-ref-format", "refs/" ++ branch])

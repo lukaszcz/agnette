@@ -1358,6 +1358,29 @@ def test_pull_integrates_per_mode_ignoring_pull_configuration(
     assert git_parents(tmp_path / "divr", env) == [tips["divr"]]
 
 
+def test_pull_rejects_a_deleted_upstream_branch(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    remote, repo = _remote_pair(tmp_path, env, "deleted-upstream")
+    peer = _peer(tmp_path, env, "deleted-upstream")
+    git_run(peer, ["checkout", "-qb", "side"], env)
+    commit_file(peer, env, name="side.txt", message="side")
+    git_run(peer, ["push", "-q", "origin", "side"], env)
+    head = git_rev(repo, env)
+    git_run(remote, ["update-ref", "-d", "refs/heads/main"], env)
+
+    out = run_git_program(
+        agl_raises('git::pull(repo = "deleted-upstream")'), tmp_path, monkeypatch, capsys
+    )
+
+    assert out == "raised\n"
+    assert git_rev(repo, env) == head
+    assert git_refs(repo, env, "remotes")["origin/main"] == head
+
+
 def test_pull_conflicts_stop_the_operation_and_refusals_are_errors(
     tmp_path: Path,
     env: dict[str, str],
