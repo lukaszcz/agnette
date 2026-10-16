@@ -962,9 +962,9 @@ def log(include: array[ref] = ["HEAD"], exclude: array[ref] = [], paths: array[p
   max-count.each(fn(value: int) => flags.push("--max-count=%{value}"))
   if first-parent =>
     flags.push("--first-parent")
-  # Without `^{commit}`, tree and blob revisions exit 0 with silently wrong results.
-  let revs = include.map(fn(rev: ref) => rev ++ "^{commit}")
-    .concat(exclude.map(fn(rev: ref) => "^" ++ rev ++ "^{commit}"))
+  # Resolve before adding `^`, so ranges and negated refs cannot become revision-list syntax.
+  let revs = include.map(fn(rev: ref) => resolve(rev, repo))
+    .concat(exclude.map(fn(rev: ref) => "^" ++ resolve(rev, repo)))
   GitInternals::history(repo, flags, revs, GitInternals::pathspecs(paths))
 
 @doc("""

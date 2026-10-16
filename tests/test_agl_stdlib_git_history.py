@@ -108,6 +108,10 @@ def test_log_selects_commits_by_revisions_paths_count_and_first_parent(
     body += agl_raises('git::log(["no-such-ref"], repo = "repo")')
     body += agl_raises('git::log(["HEAD^{tree}"], repo = "repo")')
     body += agl_raises('git::log(["HEAD"], ["HEAD^{tree}"], repo = "repo")')
+    body += agl_raises('git::log(["HEAD~1..HEAD"], repo = "repo")')
+    body += agl_raises('git::log(["^HEAD"], repo = "repo")')
+    body += agl_raises('git::log([], ["HEAD~1..HEAD"], repo = "repo")')
+    body += agl_raises('git::log([], ["^HEAD"], repo = "repo")')
     out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
     assert out.splitlines() == [
@@ -122,6 +126,10 @@ def test_log_selects_commits_by_revisions_paths_count_and_first_parent(
         _revs(repo, env, "-2"),
         _revs(repo, env, "--first-parent"),
         "",
+        "raised",
+        "raised",
+        "raised",
+        "raised",
         "raised",
         "raised",
         "raised",
