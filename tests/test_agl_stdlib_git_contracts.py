@@ -92,6 +92,37 @@ def test_status_paths_are_root_relative_and_feed_add_from_any_subdirectory(
     assert git_lines(repo, ["diff", "--cached", "--name-only"], env) == []
 
 
+@pytest.mark.parametrize("pathspec_env", ["GIT_LITERAL_PATHSPECS", "GIT_ICASE_PATHSPECS"])
+def test_pathspec_environment_does_not_override_literal_paths(
+    pathspec_env: str,
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    commit_file(repo, env, name="a*.txt", message="lowercase")
+    commit_file(repo, env, name="A*.txt", message="uppercase")
+    write_file(repo, "a*.txt", "changed\n")
+    write_file(repo, "A*.txt", "changed\n")
+    monkeypatch.setenv(pathspec_env, "1")
+
+    body = agl_check("files", 'git::files(["a*.txt"], "repo")', '["a*.txt"]')
+    body += agl_check(
+        "diff",
+        'git::diff(paths = ["a*.txt"], repo = "repo").map(fn(c: FileChange) => c.path)',
+        '["a*.txt"]',
+    )
+    body += agl_check(
+        "log",
+        'git::log(paths = ["a*.txt"], repo = "repo").map(fn(c: Commit) => c.subject)',
+        '["lowercase"]',
+    )
+    out = run_git_program(body, tmp_path, monkeypatch, capsys)
+
+    assert out.splitlines() == ["ok"] * 3
+
+
 def test_paths_are_matched_literally(
     tmp_path: Path,
     env: dict[str, str],

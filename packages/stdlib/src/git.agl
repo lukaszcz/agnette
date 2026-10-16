@@ -232,14 +232,16 @@ record Remote
 
 scope GitInternals
   @doc("""
-    The environment git runs in: ambient, with prompts and editors disabled and `GIT_DIFF_OPTS`,
-    which overrides the diff context, cleared.
+    The environment git runs in: ambient, with prompts and editors disabled, diff context fixed,
+    and pathspec environment overrides disabled.
   """)
   def environment() -> std/env::Environ =
     std/env::environ.extended({
       "GIT_TERMINAL_PROMPT": "0",
       "GIT_EDITOR": "true",
       "GIT_DIFF_OPTS": "",
+      "GIT_LITERAL_PATHSPECS": "0",
+      "GIT_ICASE_PATHSPECS": "0",
     })
 
   @doc("Run `git argv` and return its result, whatever the exit code.")
