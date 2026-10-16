@@ -32,6 +32,7 @@ from tests._git_helpers import (
     init_repo,
     record_rerere_resolution,
     write_file,
+    write_script,
 )
 
 
@@ -1082,6 +1083,46 @@ def test_remote_operands_are_never_options(
     # `--tags` was a name, not the option that would have set `tagopt`.
     git_fails(repo, ["config", "--get", "remote.--new.tagopt"], env)
     git_fails(repo, ["config", "--get", "remote.--all.url"], env)
+
+
+def test_remote_remove_avoids_unsupported_end_of_options(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    git_run(repo, ["remote", "add", "--end-of-options", "--all", "/srv/o"], env)
+    real_git = shutil.which("git")
+    assert real_git is not None
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    write_script(
+        bin_dir,
+        "git",
+        f"""#!/usr/bin/env python3
+import os
+import sys
+
+args = sys.argv[1:]
+remote = args.index("remote") if "remote" in args else -1
+if remote >= 0 and remote + 1 < len(args) and args[remote + 1] == "remove":
+    if "--end-of-options" in args:
+        raise SystemExit(129)
+os.execv({real_git!r}, [{real_git!r}, *args])
+""",
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    out = run_git_program(
+        'git::remote::remove("--all", "repo")\n'
+        + agl_check("removed", 'git::remote::list("repo").size()', "0"),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == ["ok"]
 
 
 def test_remote_list_counts_only_remotes_the_repository_defines(

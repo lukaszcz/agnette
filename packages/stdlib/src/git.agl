@@ -1850,7 +1850,7 @@ scope remote
     Raises `GitError` when it is not defined in the repository's configuration.
   """)
   def remove(name: text, repo: path = ".") -> unit =
-    let _ = GitInternals::run(repo, ["remote", "remove", "--end-of-options", name])
+    let _ = GitInternals::run(repo, ["remote", "remove", "--", name])
 
   @doc("""
     Rename the remote `old` to `new`, moving its remote-tracking branches and the branch
