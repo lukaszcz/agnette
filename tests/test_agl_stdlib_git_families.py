@@ -275,6 +275,7 @@ def test_branch_compare_counts_commits_on_each_side(
     git_run(repo, ["checkout", "-q", "main"], env)
     commit_file(repo, env, name="m1.txt", message="m1")
     git_run(repo, ["checkout", "-q", "--detach", "base"], env)
+    (repo / "main...main").touch()
 
     out = run_git_program(
         agl_check("ahead", 'git::branch::compare("topic", "main", "repo")', "Divergence(2, 1)")
