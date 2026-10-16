@@ -583,6 +583,11 @@ scope GitInternals
     let format = ["--name-only", "-z", "--diff-filter=U"]
     split-nul(diff-output(repo, format, IndexToWorktree, [], false))
 
+  @doc("Return an absolute git path, removing only git's final output newline.")
+  def absolute-git-path(repo: path, name: path) -> path =
+    let output = run(repo, ["rev-parse", "--path-format=absolute", "--git-path", name]).stdout
+    output.slice(0, output.size() - 1)
+
   @doc("The git command that drives `op`.")
   def command-of(op: Operation) -> text =
     case op of
@@ -1318,10 +1323,8 @@ def operation(repo: path = ".") -> Option[Operation] =
     Pair::[text, Operation]("CHERRY_PICK_HEAD", CherryPicking),
     Pair::[text, Operation]("REVERT_HEAD", Reverting),
   ]
-  var args = ["rev-parse", "--path-format=absolute", "--git-path", "sequencer/todo"]
-  for state in states do
-    args.concat!(["--git-path", state.first])
-  let paths = GitInternals::run(repo, args).stdout.split("\n")
+  let names = ["sequencer/todo"].concat(states.map(fn(state: Pair[text, Operation]) => state.first))
+  let paths = names.map(fn(name: text) => GitInternals::absolute-git-path(repo, name))
   let found = states.zip(paths.drop(1)).find(fn(entry: Pair[Pair[text, Operation], text]) =>
     exists(entry.second))
   case found of

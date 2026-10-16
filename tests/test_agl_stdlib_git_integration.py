@@ -435,6 +435,30 @@ def test_conflict_stops_the_operation_until_resolved_and_resumed(
     assert len(git_parents(repo, env)) == scenario.parents
 
 
+def test_merge_reports_conflict_when_repo_path_contains_newline(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo\nwith-newline"
+    conflicting_branches(init_repo(repo, env), env)
+
+    out = run_git_program(
+        agl_check("merge", 'git::merge("other", repo = "repo\\nwith-newline")', CONFLICTED)
+        + agl_check(
+            "state",
+            'git::operation("repo\\nwith-newline")',
+            "Some::[Operation](Merging)",
+        ),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == ["ok", "ok"]
+
+
 @pytest.mark.parametrize("name", SCENARIOS)
 def test_abort_restores_the_state_before_the_operation(
     name: str,
