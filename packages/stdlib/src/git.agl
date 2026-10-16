@@ -1232,8 +1232,9 @@ def clean(paths: array[path] = [], directories: bool = true, ignored: bool = fal
 
   `ff` says whether to fast-forward when possible (`Allow`), only fast-forward (`Only`), or always
   create a merge commit (`Never`); `message` is the merge commit's message, with whitespace cleaned
-  up. Its `#` lines are kept, also by `resume(Merging)` after a conflict. Local configuration of
-  these, of autostashing and of the merge log summary is overridden.
+  up. Its `#` lines are kept, also by `resume(Merging)` after a conflict. Fast-forward,
+  commit/squash, autostash and log-summary behavior is pinned against local configuration, including
+  `branch.<name>.mergeOptions`.
 
   A conflict leaves the merge in progress: resolve the paths, `add` them, and `resume(Merging)`, or
   `abort(Merging)`.
@@ -1248,7 +1249,8 @@ def merge(target: ref, ff: FastForward = Allow, message: Option[text] = None,
     | Allow => "--ff"
     | Only => "--ff-only"
     | Never => "--no-ff"
-  var args = ["merge", "--no-edit", "--no-log", "--no-autostash", "--cleanup=scissors", mode]
+  var args = ["merge", "--no-edit", "--no-log", "--no-autostash", "--commit", "--no-squash",
+              "--cleanup=scissors", mode]
   message.each(fn(value: text) => args.concat!(["-m", value]))
   args.concat!(["--end-of-options", target])
   GitInternals::outcome(Merging, repo, args, Some(target), false)

@@ -199,6 +199,38 @@ def test_merge_pins_fast_forward_mode_against_configuration(
     )
 
 
+def test_merge_pins_commit_and_squash_mode_against_configuration(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    no_commit = init_repo(tmp_path / "no-commit", env)
+    _merge_branches(no_commit, env)
+    git_run(no_commit, ["config", "branch.main.mergeOptions", "--no-commit"], env)
+
+    squash = init_repo(tmp_path / "squash", env)
+    tip = _merge_branches(squash, env)
+    git_run(squash, ["config", "branch.main.mergeOptions", "--squash"], env)
+
+    out = run_git_program(
+        agl_completed("committed", 'git::merge("div", repo = "no-commit")')
+        + agl_check(
+            "fast-forward", 'git::merge("ff", Only, repo = "squash")', f'FastForwarded("{tip}")'
+        ),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == [git_rev(no_commit, env), "ok"]
+    assert len(git_parents(no_commit, env)) == 2
+    assert git_output(no_commit, ["status", "--porcelain"], env) == ""
+    assert git_rev(squash, env) == tip
+    assert len(git_parents(squash, env)) == 1
+    assert git_output(squash, ["status", "--porcelain"], env) == ""
+
+
 def test_conflict_paths_are_root_relative_from_a_subdirectory(
     tmp_path: Path,
     env: dict[str, str],
