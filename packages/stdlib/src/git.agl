@@ -266,6 +266,10 @@ scope GitInternals
   @doc("Return `args` prefixed with `-C repo`.")
   def scoped(repo: path, args: array[text]) -> array[text] = ["-C", repo].concat(args)
 
+  @doc("Raise `GitError` for the failed `res` of `args` run in `repo`.")
+  def fail-in[T](repo: path, args: array[text], res: ExecResult) -> T =
+    fail(scoped(repo, args), res)
+
   @doc("Run git in `repo`, returning the result whatever the exit code.")
   def attempt(repo: path, args: array[text]) -> ExecResult = invoke(scoped(repo, args))
 
@@ -278,14 +282,14 @@ scope GitInternals
   def run-unscoped(args: array[text]) -> ExecResult = check(args, invoke(args))
 
   @doc("""
-    Run git in `repo`, mapping the documented negative exit code 1 to `None`.
+    Run git in `repo`, mapping the documented negative exit code `absent` to `None`.
 
     Any other nonzero exit raises `GitError`.
   """)
-  def optional(repo: path, args: array[text]) -> Option[ExecResult] =
+  def optional(repo: path, args: array[text], absent: int = 1) -> Option[ExecResult] =
     let argv = scoped(repo, args)
     let res = invoke(argv)
-    if res.exit-code == 1 =>
+    if res.exit-code == absent =>
       None
     else =>
       Some(check(argv, res))
@@ -548,11 +552,7 @@ scope GitInternals
     changes
 
   @doc("Return a `numstat` count, or `None` for git's `-` placeholder of a binary file.")
-  def count-of(field: text) -> Option[int] =
-    if field == "-" =>
-      None
-    else =>
-      Some(field as int)
+  def count-of(field: text) -> Option[int] = named(field, "-").map(fn(n: text) => n as int)
 
   @doc("""
     Parse `diff --numstat -z` output.
@@ -567,12 +567,10 @@ scope GitInternals
     while i < items.size() do
       let fields = items[i].split("\t")
       let p = field-path(fields, 2, "\t")
-      if p.is-empty() =>
-        stats.push(FileStat(items[i + 2], count-of(fields[0]), count-of(fields[1])))
-        i := i + 3
-      else =>
-        stats.push(FileStat(p, count-of(fields[0]), count-of(fields[1])))
-        i := i + 1
+      let renamed = p.is-empty()
+      stats.push(FileStat(if renamed => items[i + 2] else => p, count-of(fields[0]),
+                          count-of(fields[1])))
+      i := i + (if renamed => 3 else => 1)
     stats
 
   @doc("""
@@ -619,22 +617,16 @@ scope GitInternals
     let res = attempt(repo, pinned)
     if res.exit-code == 0 =>
       let after = resolve("HEAD", repo)
-      if resuming =>
-        Completed(after)
-      else =>
-        if before == Some(after) =>
-          UpToDate
-        else =>
-          if goal == Some(after) =>
-            FastForwarded(after)
-          else =>
-            Completed(after)
+      if
+        | before == Some(after) => UpToDate
+        | goal == Some(after) => FastForwarded(after)
+        | else => Completed(after)
     else =>
       let paths = unmerged(repo)
-      if not paths.is-empty() and (resuming or fresh) and operation(repo) == Some(op) =>
+      if not paths.is-empty() and fresh and operation(repo) == Some(op) =>
         Conflicted(paths)
       else =>
-        fail(scoped(repo, pinned), res)
+        fail-in(repo, pinned, res)
 
   @doc("""
     Replay `commits` with the git command of `op`, using `flags`, and classify the result.
@@ -697,7 +689,7 @@ scope GitInternals
     let args = ["for-each-ref", "--format=%(upstream)", head]
     let res = run(repo, args)
     if res.stdout.trim().is-empty() =>
-      fail(scoped(repo, args), res)
+      fail-in(repo, args, res)
 
   @doc("The `fetch` arguments that select `source`.")
   def fetch-selector(source: FetchSource) -> array[text] =
@@ -705,20 +697,6 @@ scope GitInternals
       | Upstream => ["--no-all"]
       | AllRemotes => ["--all"]
       | FetchFrom(remote, refspecs) => remote-operands(remote, refspecs)
-
-  @doc("""
-    Fetch `source` into the repository of `repo`.
-
-    Flags override the configuration that would change the outcome: submodules are not fetched,
-    and `prune` is explicit. `Upstream` fetches one remote whatever `fetch.all` says.
-  """)
-  def fetch-from(repo: path, source: FetchSource, prune: bool, tags: bool) -> unit =
-    let pruning = if prune => "--prune" else => "--no-prune"
-    var args = ["fetch", "-q", "--no-recurse-submodules", "--no-prune-tags", pruning]
-    if tags =>
-      args.push("--tags")
-    args.concat!(fetch-selector(source))
-    let _ = run(repo, args)
 
   @doc("Remove `prefix` from the start of `name` when it has it.")
   def without-prefix(name: text, prefix: text) -> text =
@@ -743,8 +721,7 @@ scope GitInternals
 
   @doc("Build a branch from a `branch::list` row.")
   def branch-of(row: array[text]) -> Branch =
-    let upstream: Option[ref] = if row[2].is-empty() => None else => Some(row[2])
-    Branch(row[0], row[1], upstream, row[3] == "*")
+    Branch(row[0], row[1], named(row[2], ""), row[3] == "*")
 
   @doc("""
     Build the tags of the `tag::list` rows.
@@ -800,7 +777,7 @@ scope GitInternals
       if fresh and not paths.is-empty() =>
         Conflicted(paths)
       else =>
-        fail(scoped(repo, args), res)
+        fail-in(repo, args, res)
 
   @doc("The value of the porcelain attribute `line` named `key`: empty when it has none.")
   def attribute-value(line: text, key: text) -> text =
@@ -868,12 +845,8 @@ scope GitInternals
     configuration does not define `name`. A remote without a `url` reads as its name.
   """)
   def fetch-url?(repo: path, name: text) -> Option[text] =
-    let args = remote-args("get-url", false, [name])
-    let res = attempt(repo, args)
-    if res.exit-code == 2 =>
-      None
-    else =>
-      Some(chomp(check(scoped(repo, args), res).stdout))
+    optional(repo, remote-args("get-url", false, [name]), 2)
+      .map(fn(res: ExecResult) => chomp(res.stdout))
 
   @doc("Return the push URL of the remote `name` as git reads it, after `pushInsteadOf`.")
   def push-url(repo: path, name: text) -> text =
@@ -887,26 +860,7 @@ scope GitInternals
   def config-get-args(flags: array[text], key: text) -> array[text] =
     ["config"].concat(flags).concat(["--get", "--end-of-options", key])
 
-  @doc("""
-    Read the effective value of `key` with `config --get`; exit 1 reports a missing key.
-
-    Exit 1 also reports an invalid key. A `--default` read tells them apart without reading
-    messages: git accepts it only for a valid key. Any other outcome raises `GitError` for the
-    first read.
-  """)
-  def config-read(repo: path, key: text) -> Option[text] =
-    let args = config-get-args(["-z"], key)
-    let res = attempt(repo, args)
-    let probe = config-get-args(["--default", ""], key)
-    if res.exit-code == 0 =>
-      Some(config-value(res))
-    else =>
-      if res.exit-code == 1 and attempt(repo, probe).exit-code == 0 =>
-        None
-      else =>
-        fail(scoped(repo, args), res)
-
-  @doc("Return the value in the `-z` result of a successful `config-read`.")
+  @doc("Return the value in the `-z` result of a successful `config --get`.")
   def config-value(res: ExecResult) -> text = split-nul(res.stdout)[0]
 
   @doc("The `config` option that selects the file of `level`.")
@@ -946,9 +900,7 @@ def root(repo: path = ".") -> path =
 """)
 def init(repo: path = ".", branch: Option[ref] = None, bare: bool = false) -> unit =
   var args = ["init", "-q"]
-  case branch of
-    | Some(value) => args.push("--initial-branch=%{value}")
-    | None => ()
+  branch.each(fn(value: ref) => args.push("--initial-branch=%{value}"))
   if bare =>
     args.push("--bare")
   args.concat!(["--end-of-options", repo])
@@ -962,12 +914,8 @@ def init(repo: path = ".", branch: Option[ref] = None, bare: bool = false) -> un
 def clone(url: text, repo: path, branch: Option[ref] = None, depth: Option[int] = None,
           bare: bool = false) -> unit =
   var args = ["clone", "-q"]
-  case branch of
-    | Some(value) => args.push("--branch=%{value}")
-    | None => ()
-  case depth of
-    | Some(value) => args.concat!(["--no-local", "--depth=%{value}"])
-    | None => ()
+  branch.each(fn(value: ref) => args.push("--branch=%{value}"))
+  depth.each(fn(value: int) => args.concat!(["--no-local", "--depth=%{value}"]))
   if bare =>
     args.push("--bare")
   args.concat!(["--end-of-options", url, repo])
@@ -1017,9 +965,7 @@ def log(include: array[ref] = ["HEAD"], exclude: array[ref] = [], paths: array[p
         max-count: Option[int] = None, first-parent: bool = false,
         repo: path = ".") -> array[Commit] =
   var flags: array[text] = []
-  case max-count of
-    | Some(value) => flags.push("--max-count=%{value}")
-    | None => ()
+  max-count.each(fn(value: int) => flags.push("--max-count=%{value}"))
   if first-parent =>
     flags.push("--first-parent")
   # Without `^{commit}`, tree and blob revisions exit 0 with silently wrong results.
@@ -1285,7 +1231,7 @@ def clean(paths: array[path] = [], directories: bool = true, ignored: bool = fal
   if paths.is-empty() =>
     let _ = GitInternals::run(root(repo), args)
   else =>
-    let _ = GitInternals::run(repo, args.concat(["--"]).concat(GitInternals::tree-specs(paths)))
+    let _ = GitInternals::run(repo, args.concat(["--"]).concat(GitInternals::pathspecs(paths)))
 
 @doc("""
   Merge the commit `target` names into the current branch.
@@ -1309,9 +1255,7 @@ def merge(target: ref, ff: FastForward = Allow, message: Option[text] = None,
     | Only => "--ff-only"
     | Never => "--no-ff"
   var args = ["merge", "--no-edit", "--no-log", "--no-autostash", "--cleanup=scissors", mode]
-  case message of
-    | Some(value) => args.concat!(["-m", value])
-    | None => ()
+  message.each(fn(value: text) => args.concat!(["-m", value]))
   args.concat!(["--end-of-options", target])
   GitInternals::outcome(Merging, repo, args, Some(target), false)
 
@@ -1440,7 +1384,14 @@ def resume(operation: Operation, repo: path = ".") -> Outcome =
 """)
 def fetch(source: FetchSource = Upstream, prune: bool = false, tags: bool = false,
           repo: path = ".") -> unit =
-  GitInternals::fetch-from(repo, source, prune, tags)
+  let pruning = if prune => "--prune" else => "--no-prune"
+  # Flags override the configuration that would change the outcome; `--no-all` keeps `Upstream`
+  # to one remote whatever `fetch.all` says.
+  var args = ["fetch", "-q", "--no-recurse-submodules", "--no-prune-tags", pruning]
+  if tags =>
+    args.push("--tags")
+  args.concat!(GitInternals::fetch-selector(source))
+  let _ = GitInternals::run(repo, args)
 
 @doc("""
   Fetch, then merge or rebase the current branch onto the fetched commit, as `mode` says.
@@ -1461,12 +1412,12 @@ def pull(source: PullSource = Upstream, mode: PullMode = Merge(Allow),
   let target = case source of
     | Upstream =>
       GitInternals::require-upstream(repo)
-      GitInternals::fetch-from(repo, Upstream, false, false)
+      fetch(Upstream, false, false, repo)
       "@{upstream}"
     | PullFrom(remote, branch) =>
       # A refspec in `branch` would update local refs; `refs/` makes a plain name a valid ref.
       let _ = GitInternals::run(repo, ["check-ref-format", "refs/" ++ branch])
-      GitInternals::fetch-from(repo, FetchFrom(remote, [branch]), false, false)
+      fetch(FetchFrom(remote, [branch]), false, false, repo)
       "FETCH_HEAD"
   case mode of
     | Merge(ff) => merge(target, ff, None, repo)
@@ -1665,9 +1616,7 @@ scope tag
   def create(name: ref, target: ref = "HEAD", message: Option[text] = None, force: bool = false,
              repo: path = ".") -> unit =
     var args = ["tag", "--no-sign"]
-    case message of
-      | Some(value) => args.concat!(["-a", "--cleanup=whitespace", "-m", value])
-      | None => ()
+    message.each(fn(value: text) => args.concat!(["-a", "--cleanup=whitespace", "-m", value]))
     if force =>
       args.push("-f")
     args.concat!(["--end-of-options", name, target])
@@ -1698,9 +1647,7 @@ scope stash
            keep-index: bool = false, repo: path = ".") -> Option[StashEntry] =
     let before = resolve?("refs/stash", repo)
     var args = ["stash", "push", "-q"]
-    case message of
-      | Some(value) => args.push("--message=%{value}")
-      | None => ()
+    message.each(fn(value: text) => args.push("--message=%{value}"))
     if untracked =>
       args.push("--include-untracked")
     if keep-index =>
@@ -1789,15 +1736,12 @@ scope worktree
     var args = ["-c", "submodule.propagateBranches=false", "worktree", "add", "-q"]
     if force =>
       args.push("--force")
-    let operands = ["--end-of-options", std/path::absolute(path), target]
     case new-branch of
-      | Some(value) =>
-        args.concat!(["--no-track", "-b", value])
-        args.concat!(operands)
+      | Some(value) => args.concat!(["--no-track", "-b", value])
       | None =>
         if not branch::exists(target, repo) =>
           args.push("--detach")
-        args.concat!(operands)
+    args.concat!(["--end-of-options", std/path::absolute(path), target])
     let _ = GitInternals::run(repo, args)
 
   @doc("""
@@ -1834,9 +1778,7 @@ scope worktree
   """)
   def lock(path: path, reason: Option[text] = None, repo: path = ".") -> unit =
     var args = ["worktree", "lock"]
-    case reason of
-      | Some(value) => args.push("--reason=%{value}")
-      | None => ()
+    reason.each(fn(value: text) => args.push("--reason=%{value}"))
     args.concat!(["--end-of-options", std/path::absolute(path)])
     let _ = GitInternals::run(repo, args)
 
@@ -1929,7 +1871,16 @@ scope config
 
     Raises `GitError` when `key` is invalid, or git cannot read the configuration.
   """)
-  def get?(key: text, repo: path = ".") -> Option[text] = GitInternals::config-read(repo, key)
+  def get?(key: text, repo: path = ".") -> Option[text] =
+    let args = GitInternals::config-get-args(["-z"], key)
+    let res = GitInternals::attempt(repo, args)
+    # Exit 1 reports a missing or an invalid key; git accepts a `--default` read only for a valid
+    # one, which tells them apart without reading messages.
+    let probe = GitInternals::config-get-args(["--default", ""], key)
+    if
+      | res.exit-code == 0 => Some(GitInternals::config-value(res))
+      | res.exit-code == 1 and GitInternals::attempt(repo, probe).exit-code == 0 => None
+      | else => GitInternals::fail-in(repo, args, res)
 
   @doc("""
     Set `key` to `value` in the file of `scope`, replacing its value there.

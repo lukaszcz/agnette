@@ -14,6 +14,7 @@ from tests._agl_git_helpers import (
     agl_completed,
     agl_raises,
     run_git_program,
+    status_literal,
     tracked_entry,
     untracked_entry,
 )
@@ -23,22 +24,17 @@ from tests._git_helpers import (
     conflicting_branches,
     forge_object,
     git_fails,
-    git_head,
     git_lines,
     git_output,
+    git_rev,
     git_run,
     global_git_config,
     init_repo,
     lines_of,
+    worktree_files,
     write_file,
+    write_script,
 )
-
-_IMPORTS = ("std/git::*",)
-
-
-def _status(head: str, *entries: str) -> str:
-    """Return the AgL ``Status`` of ``main`` without an upstream at *head*."""
-    return f'Status(Some("{head}"), Some("main"), None, None, [{", ".join(entries)}])'
 
 
 def test_status_paths_are_root_relative_and_feed_add_from_any_subdirectory(
@@ -52,7 +48,7 @@ def test_status_paths_are_root_relative_and_feed_add_from_any_subdirectory(
         (repo / directory).mkdir(parents=True)
     commit_file(repo, env, name="sub/deep/tracked.txt", content="one\n")
     commit_file(repo, env, name="sub/keep.txt")
-    head = git_head(repo, env)
+    head = git_rev(repo, env)
     write_file(repo, "sub/deep/tracked.txt", "two\n")
     for name in ("top.txt", "other/far.txt", "sub/deep/leaf.txt", "sub/sp ace.txt"):
         write_file(repo, name, "new\n")
@@ -62,7 +58,7 @@ def test_status_paths_are_root_relative_and_feed_add_from_any_subdirectory(
         changes = {n: tracked_entry(n, staged="Added") for n in names}
         changes["sub/deep/tracked.txt"] = tracked_entry("sub/deep/tracked.txt", staged="Modified")
         entries = [changes[n] for n in sorted(changes)]
-        return _status(head, *entries, *(untracked_entry(n) for n in untracked))
+        return status_literal(head, *entries, *(untracked_entry(n) for n in untracked))
 
     sub_paths = (
         f'git::status(repo = "{deep}").entries'
@@ -95,9 +91,8 @@ def test_status_paths_are_root_relative_and_feed_add_from_any_subdirectory(
     body += 'git::reset-files(staged.map(fn(c: FileChange) => c.path), "HEAD", "repo/sub")\n'
     body += agl_check("restored", f'git::status(repo = "{deep}")', "initial")
 
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 3
     assert git_lines(repo, ["diff", "--cached", "--name-only"], env) == []
 
@@ -111,14 +106,14 @@ def test_paths_are_matched_literally(
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="a*", content="star\n", message="add a*")
     commit_file(repo, env, name="ab", content="ab\n", message="add ab")
-    head = git_head(repo, env)
+    head = git_rev(repo, env)
     write_file(repo, "a*", "star edited\n")
     write_file(repo, "ab", "ab edited\n")
     write_file(repo, "u*", "u\n")
     write_file(repo, "ux", "u\n")
 
     def status(*entries: str) -> str:
-        return _status(head, *entries)
+        return status_literal(head, *entries)
 
     star = tracked_entry("a*", unstaged="Modified")
     other = tracked_entry("ab", unstaged="Modified")
@@ -164,9 +159,8 @@ def test_paths_are_matched_literally(
         status(tracked_entry("a*", staged="Deleted"), other, pending[3]),
     )
 
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 13
     assert sorted(p.name for p in repo.iterdir() if p.name != ".git") == [
         "README.md",
@@ -181,20 +175,15 @@ _OPERATION_STATE = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-mer
 
 def _snapshot(repo: Path, env: dict[str, str]) -> dict[str, object]:
     """Return everything an operation could change in *repo*, as plain comparable values."""
-    tree = {
-        str(p.relative_to(repo)): p.read_text(encoding="utf-8")
-        for p in sorted(repo.rglob("*"))
-        if p.is_file() and ".git" not in p.relative_to(repo).parts
-    }
     return {
-        "head": git_head(repo, env),
+        "head": git_rev(repo, env),
         "head-ref": git_output(repo, ["rev-parse", "--symbolic-full-name", "HEAD"], env),
         "refs": git_lines(repo, ["for-each-ref", "--format=%(refname) %(objectname)"], env),
         "config": git_lines(repo, ["config", "--local", "--list"], env),
         "status": git_lines(repo, ["status", "--porcelain=v2", "--branch", "-uall"], env),
         "index": git_lines(repo, ["ls-files", "--stage"], env),
         "stash": git_lines(repo, ["stash", "list", "--format=%H %gs"], env),
-        "files": tree,
+        "files": worktree_files(repo),
         "operation": [name for name in _OPERATION_STATE if (repo / ".git" / name).exists()],
     }
 
@@ -237,9 +226,8 @@ def test_option_like_operands_never_act_as_options(
         for operand in operands
     )
 
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys)
 
-    assert result.ok, result.error
     assert (_snapshot(repo, env), _snapshot(merging, env)) == before
     assert out.splitlines() == ["raised"] * sum(len(operands) for _, operands in calls)
 
@@ -288,7 +276,7 @@ def test_failing_editors_do_not_affect_merge_revert_and_resume(
     for name, value in failing.items():
         monkeypatch.setenv(name, value)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_completed("merged", 'git::merge("other", Never, repo = "merge")')
         + agl_completed("reverted", 'git::revert(["HEAD"], "revert")')
         + agl_completed("resumed-merge", 'git::resume(Merging, "resume-merge")')
@@ -300,11 +288,9 @@ def test_failing_editors_do_not_affect_merge_revert_and_resume(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == [git_head(repo, env) for repo in repos] + ["ok"] * len(repos)
+    assert out.splitlines() == [git_rev(repo, env) for repo in repos] + ["ok"] * len(repos)
     assert [git_lines(repo, ["status", "--porcelain"], env) for repo in repos] == [[]] * 4
 
 
@@ -323,13 +309,11 @@ _MESSAGE = "subject\n\n# kept\n\nbody  \n\n"
 
 def _fake_gpg(tmp_path: Path) -> Path:
     """Return a stand-in for ``gpg`` that reports a good signature and prints a line."""
-    script = tmp_path / "fake-gpg"
-    script.write_text(
+    return write_script(
+        tmp_path,
+        "fake-gpg",
         '#!/bin/sh\necho "[GNUPG:] GOODSIG 0123456789ABCDEF Fake"\necho "gpg says hello" >&2\n',
-        encoding="utf-8",
     )
-    script.chmod(0o755)
-    return script
 
 
 def _signed_head(repo: Path, env: dict[str, str]) -> None:
@@ -338,7 +322,7 @@ def _signed_head(repo: Path, env: dict[str, str]) -> None:
     stamp = "Test <test@test.com> 1700000000 +0000"
     commit = (
         f"tree {git_output(repo, ['rev-parse', 'HEAD^{tree}'], env)}\n"
-        f"parent {git_head(repo, env)}\nauthor {stamp}\ncommitter {stamp}\n"
+        f"parent {git_rev(repo, env)}\nauthor {stamp}\ncommitter {stamp}\n"
         f"gpgsig {signature}\n\nsigned\n"
     )
     forge_object(repo, env, "commit", commit, "HEAD")
@@ -371,7 +355,7 @@ def test_user_configuration_does_not_change_parsed_results(
 ) -> None:
     repo = _pinning_repo(tmp_path, env)
     init_repo(tmp_path / "msgs", env)
-    head = git_head(repo, env)
+    head = git_rev(repo, env)
     settings = {**_PINNED_SETTINGS, "gpg.program": str(_fake_gpg(tmp_path))}
     calls = {
         "status": 'status(repo = "repo/sub")',
@@ -396,7 +380,7 @@ def test_user_configuration_does_not_change_parsed_results(
         )
 
     explicit = {
-        "status": _status(
+        "status": status_literal(
             head,
             tracked_entry("new.txt", staged='Renamed("old.txt", 100)'),
             tracked_entry("sub/in.txt", unstaged="Modified"),
@@ -420,9 +404,8 @@ def test_user_configuration_does_not_change_parsed_results(
     body += results("pinned") + message("pinned")
     body += "".join(agl_check(f"{n}-same", f"{n}-pinned", f"{n}-plain") for n in calls)
 
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * (2 + len(explicit) + 2 + len(calls))
     configured = global_git_config("--list").splitlines()
     assert sorted(configured) == sorted(f"{k.lower()}={v}" for k, v in settings.items())

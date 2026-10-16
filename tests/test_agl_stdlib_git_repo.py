@@ -8,7 +8,14 @@ from pathlib import Path
 import pytest
 
 from tests._agl_git_helpers import run_git_program
-from tests._git_helpers import commit_file, conflicted_merge, git_output, git_run, init_repo
+from tests._git_helpers import (
+    commit_file,
+    conflicted_merge,
+    git_output,
+    git_run,
+    init_repo,
+    write_file,
+)
 
 
 def test_is_repo_and_root_distinguish_work_trees_from_everything_else(
@@ -22,7 +29,7 @@ def test_is_repo_and_root_distinguish_work_trees_from_everything_else(
     (tmp_path / "plain").mkdir()
     git_run(None, ["init", "--bare", "-q", str(tmp_path / "bare.git")], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         """
 print(git::is-repo("repo"))
 print(git::is-repo("repo/sub"))
@@ -36,8 +43,6 @@ print(git::root("repo/sub"))
         capsys,
     )
 
-    assert result.ok, result.error
-    assert result.warnings == []
     assert out.splitlines() == [
         "true",
         "true",
@@ -61,7 +66,7 @@ def test_init_and_clone_honor_branch_depth_and_bare(
     commit_file(source, env, name="dev2.txt", message="dev commit 2")
     git_run(source, ["checkout", "main", "-q"], env)
 
-    _, result = run_git_program(
+    run_git_program(
         f"""
 git::init("fresh", Some("trunk"))
 git::init("fresh-bare", None, true)
@@ -76,7 +81,6 @@ git::clone("{source}", "mirror", None, None, true)
         capsys,
     )
 
-    assert result.ok, result.error
     assert git_output(tmp_path / "fresh", ["symbolic-ref", "--short", "HEAD"], env) == "trunk"
     assert git_output(tmp_path / "fresh-bare", ["rev-parse", "--is-bare-repository"], env) == "true"
     assert (
@@ -102,9 +106,9 @@ def test_files_lists_tracked_paths_relative_to_the_root(
     commit_file(repo, env, name="sub/b c.txt")
     commit_file(repo, env, name="a*")
     commit_file(repo, env, name="ab")
-    (repo / "untracked.txt").write_text("x", encoding="utf-8")
+    write_file(repo, "untracked.txt", "x")
 
-    out, result = run_git_program(
+    out = run_git_program(
         """
 print(git::files([], "repo").size())
 for path in git::files(["sub"], "repo/sub") do
@@ -121,7 +125,6 @@ print(git::files(["./"], "repo/sub").size())
         capsys,
     )
 
-    assert result.ok, result.error
     sub = '["sub/a.txt", "sub/b c.txt"]'
     assert out.splitlines() == [
         "5",
@@ -146,7 +149,7 @@ def test_files_lists_an_unmerged_path_once(
 ) -> None:
     conflicted_merge(tmp_path / "repo", env, name="clash.txt")
 
-    out, result = run_git_program(
+    out = run_git_program(
         """
 print(git::files([], "repo"))
 """,
@@ -155,7 +158,6 @@ print(git::files([], "repo"))
         capsys,
     )
 
-    assert result.ok, result.error
     assert out.strip() == '["README.md", "clash.txt"]'
 
 
@@ -171,7 +173,7 @@ def test_missing_git_executable_raises_git_error_127(
     (only_sh / "sh").symlink_to(shell)
     monkeypatch.setenv("PATH", str(only_sh))
 
-    out, result = run_git_program(
+    out = run_git_program(
         """
 try
   print(git::is-repo("."))
@@ -184,7 +186,6 @@ catch GitError as e =>
         capsys,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["false", "127"]
 
 
@@ -193,7 +194,7 @@ def test_git_error_carries_the_failed_invocation(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    out, result = run_git_program(
+    out = run_git_program(
         """
 try
   print(git::root("missing"))
@@ -209,5 +210,4 @@ catch GitError as e =>
         capsys,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["-C", "missing", "128", "true", "false"]

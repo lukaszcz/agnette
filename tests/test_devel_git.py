@@ -45,7 +45,7 @@ def _run_merge(
         ),
         get_sandbox_context=None,
     )
-    out, result = run_git_program(
+    out = run_git_program(
         _BODY % ref,
         repo,
         monkeypatch,
@@ -54,7 +54,6 @@ def _run_merge(
         runtime=runtime,
         roots=package_roots(package_info(_DEVEL_ROOT), cwd=_DEVEL_ROOT),
     )
-    assert result.ok, result.diagnostics
     return out.strip()
 
 

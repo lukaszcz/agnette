@@ -21,7 +21,6 @@ from tests._git_helpers import (
     clone_bare_remote,
     clone_local_remote,
     commit_file,
-    conflicting_branches,
     forge_object,
     git_fails,
     git_lines,
@@ -31,9 +30,9 @@ from tests._git_helpers import (
     git_run,
     global_git_config,
     init_repo,
+    record_rerere_resolution,
+    write_file,
 )
-
-_IMPORTS = ("std/git::*",)
 
 
 def _branch(name: str, commit: str, upstream: str | None = None, current: bool = False) -> str:
@@ -81,7 +80,7 @@ def test_branch_list_current_and_upstream(
     remote = agl_array(_branch("origin/feat", feat), _branch("origin/main", main))
     git_run(tmp_path, ["init", "-q", "-b", "trunk", "fresh"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("local", 'git::branch::list(repo = "repo")', local("main"))
         + agl_check("remote", 'git::branch::list(true, "repo")', remote)
         + agl_check("current", 'git::branch::current("repo")', 'Some("main")')
@@ -101,10 +100,8 @@ def test_branch_list_current_and_upstream(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 12 + ["raised", "raised"]
 
 
@@ -115,9 +112,9 @@ def test_branch_create_delete_rename_and_upstream(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _, repo = clone_bare_remote(init_repo(tmp_path / "source", env), tmp_path, env)
-    published = git_rev(repo, env, "HEAD")
+    published = git_rev(repo, env)
     commit_file(repo, env, name="more.txt", message="more")
-    tip = git_rev(repo, env, "HEAD")
+    tip = git_rev(repo, env)
     git_run(repo, ["branch", "keep"], env)
     git_run(repo, ["checkout", "-qb", "unmerged"], env)
     commit_file(repo, env, name="unmerged.txt", message="unmerged")
@@ -126,7 +123,7 @@ def test_branch_create_delete_rename_and_upstream(
     git_run(repo, ["config", "branch.autoSetupMerge", "always"], env)
     git_run(repo, ["config", "branch.autoSetupRebase", "always"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         'git::branch::create("a", repo = "repo")\n'
         'git::branch::create("b", "origin/main", repo = "repo")\n'
         + agl_raises('git::branch::create("a", "origin/main", repo = "repo")')
@@ -151,10 +148,8 @@ def test_branch_create_delete_rename_and_upstream(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == [
         "raised",
         "raised",
@@ -188,15 +183,13 @@ def test_branch_create_ignores_submodule_branch_propagation(
     for key in ("submodule.recurse", "submodule.propagateBranches"):
         git_run(repo, ["config", key, "true"], env)
 
-    _, result = run_git_program(
+    run_git_program(
         'git::branch::create("topic", repo = "repo")',
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert git_refs(repo, env, "heads").keys() == {"main", "topic"}
     assert git_refs(repo / "s", env, "heads").keys() == {"main"}
 
@@ -218,17 +211,15 @@ def test_branch_names_may_look_like_other_namespaces(
         _branch("y", main, "refs/remotes/x"),
     )
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("all", 'git::branch::list(repo = ".")', expected)
         + agl_check("current", 'git::branch::current(".")', 'Some("refs/remotes/x")')
         + agl_check("upstream", 'git::branch::upstream("y", ".")', 'Some("refs/remotes/x")'),
         repo,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 3
 
 
@@ -257,15 +248,13 @@ def test_branch_operands_are_never_options(
         'compare("main", "--all", "repo")',
     ]
 
-    out, result = run_git_program(
+    out = run_git_program(
         "".join(agl_raises(f"git::branch::{call}") for call in calls),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * len(calls)
     after = (git_refs(repo, env, "heads"), git_output(repo, ["config", "--list", "--local"], env))
     assert after == before
@@ -286,7 +275,7 @@ def test_branch_compare_counts_commits_on_each_side(
     commit_file(repo, env, name="m1.txt", message="m1")
     git_run(repo, ["checkout", "-q", "--detach", "base"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("ahead", 'git::branch::compare("topic", "main", "repo")', "Divergence(2, 1)")
         + agl_check("behind", 'git::branch::compare("main", "topic", "repo")', "Divergence(1, 2)")
         + agl_check("same", 'git::branch::compare("main", "main", "repo")', "Divergence(0, 0)")
@@ -296,10 +285,8 @@ def test_branch_compare_counts_commits_on_each_side(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "ok", "ok", "ok", "raised", "raised"]
 
 
@@ -326,9 +313,9 @@ def test_tag_create_list_and_delete(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
-    first = git_rev(repo, env, "HEAD")
+    first = git_rev(repo, env)
     commit_file(repo, env, name="more.txt", message="a\n\nbody of the commit")
-    second = git_rev(repo, env, "HEAD")
+    second = git_rev(repo, env)
     git_run(repo, ["tag", "-a", "inner", "-m", "inner message"], env)
     git_run(repo, ["tag", "-a", "outer", "-m", "outer message", "inner"], env)
     # A second nested tag, of the older commit, shows the peeled targets stay in step.
@@ -370,7 +357,7 @@ def test_tag_create_list_and_delete(
         _tag("wrapped", first, "wrapped message"),
     ]
 
-    out, result = run_git_program(
+    out = run_git_program(
         listing("before", *expected_before)
         + 'git::tag::create("light", repo = "repo")\n'
         + agl_raises('git::tag::create("light", repo = "repo")')
@@ -387,10 +374,8 @@ def test_tag_create_list_and_delete(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "raised", "raised", "raised", "ok", "raised"]
     types = {name: git_output(repo, ["cat-file", "-t", name], env) for name in ("light", "ann1")}
     assert types == {"light": "commit", "ann1": "tag"}
@@ -404,7 +389,7 @@ def test_tag_force_and_operands_are_never_options(
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="more.txt", message="more")
-    second = git_rev(repo, env, "HEAD")
+    second = git_rev(repo, env)
     git_run(repo, ["tag", "light", "HEAD~1"], env)
     git_run(repo, ["tag", "-a", "ann", "-m", "old", "HEAD~1"], env)
     calls = [
@@ -415,7 +400,7 @@ def test_tag_force_and_operands_are_never_options(
         'delete("-i", "repo")',
     ]
 
-    out, result = run_git_program(
+    out = run_git_program(
         'git::tag::create("light", "HEAD", None, true, "repo")\n'
         'git::tag::create("ann", "HEAD", Some("new"), true, "repo")\n'
         + "".join(agl_raises(f"git::tag::{call}") for call in calls)
@@ -427,10 +412,8 @@ def test_tag_force_and_operands_are_never_options(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * len(calls) + ["ok"]
     assert git_refs(repo, env, "tags").keys() == {"light", "ann"}
 
@@ -446,7 +429,7 @@ def test_branch_exists_is_true_only_for_local_branches(
     git_run(repo, ["tag", "a-tag"], env)
     (tmp_path / "plain").mkdir()
 
-    out, result = run_git_program(
+    out = run_git_program(
         """
 for name in ["main", "feature/x", "a-tag", "feat", "origin/feat", "--force", "nope"] do
   print("%{name} %{git::branch::exists(name, "repo")}")
@@ -457,7 +440,6 @@ for name in ["main", "feature/x", "a-tag", "feat", "origin/feat", "--force", "no
         capsys,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == [
         "main true",
         "feature/x true",
@@ -470,7 +452,7 @@ for name in ["main", "feature/x", "a-tag", "feat", "origin/feat", "--force", "no
     ]
 
 
-_FS_IMPORTS = ("std/git::*", "std/fs")
+_FS_IMPORTS = ("std/fs",)
 
 
 def _stash_entry(index: int, message: str) -> str:
@@ -512,7 +494,7 @@ def test_stash_push_list_and_drop(
     # Output in a non-UTF-8 encoding would not decode.
     git_run(repo, ["config", "i18n.logOutputEncoding", "latin1"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("nothing", 'git::stash::push(repo = "repo")', "None::[StashEntry]")
         + agl_check("no-entries", 'git::stash::list("repo").size()', "0")
         + 'fs::write("repo/a.txt", "one\\n")\n'
@@ -562,7 +544,6 @@ def test_stash_push_list_and_drop(
         imports=_FS_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 16 + ["raised"] * 4
 
 
@@ -577,13 +558,13 @@ def test_stash_apply_and_pop(
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="a.txt", content="a\n")
-    (repo / "a.txt").write_text("old\n", encoding="utf-8")
+    write_file(repo, "a.txt", "old\n")
     git_run(repo, ["stash", "push", "-q", "-m", "old"], env)
-    (repo / "a.txt").write_text("new\n", encoding="utf-8")
+    write_file(repo, "a.txt", "new\n")
     git_run(repo, ["add", "a.txt"], env)
     git_run(repo, ["stash", "push", "-q", "-m", "new"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("old", 'git::stash::apply("stash@{1}", repo = "repo")', "Applied")
         + _repo_status("old-status", _modified("a.txt"))
         + agl_check("old-text", 'fs::read("repo/a.txt")', '"old\\n"')
@@ -612,7 +593,6 @@ def test_stash_apply_and_pop(
         imports=_FS_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 13 + ["raised"] * 3
 
 
@@ -623,22 +603,13 @@ def test_stash_conflicts_keep_the_entry(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
-    conflicting_branches(repo, env)
-    # Record how to resolve the conflict between `ours` and `theirs`; a replay of that resolution
-    # is staged, not left as a conflict, when `rerere.autoUpdate` is set.
-    for key in ("rerere.enabled", "rerere.autoUpdate"):
-        git_run(repo, ["config", key, "true"], env)
-    git_fails(repo, ["merge", "other"], env)
-    (repo / "f.txt").write_text("resolved\n", encoding="utf-8")
-    git_run(repo, ["add", "f.txt"], env)
-    git_run(repo, ["commit", "-qm", "merged"], env)
-    git_run(repo, ["reset", "-q", "--hard", "HEAD~1"], env)
+    record_rerere_resolution(repo, env)
     git_run(repo, ["checkout", "-qb", "stasher", "main~1"], env)
-    (repo / "f.txt").write_text("theirs\n", encoding="utf-8")
+    write_file(repo, "f.txt", "theirs\n")
     git_run(repo, ["stash", "push", "-q", "-m", "theirs"], env)
     git_run(repo, ["checkout", "-q", "main"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         'fs::write("repo/f.txt", "dirty\\n")\n'
         + agl_raises('git::stash::apply(repo = "repo")')
         + agl_raises('git::stash::pop(repo = "repo")')
@@ -653,7 +624,6 @@ def test_stash_conflicts_keep_the_entry(
         imports=_FS_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised", "raised", "ok", "ok", "ok", "raised"]
     assert git_output(repo, ["status", "--porcelain"], env) == "UU f.txt"
     assert _stash_list(repo, env) == ["On stasher: theirs"]
@@ -667,11 +637,11 @@ def test_stash_pop_of_a_commit_hash_changes_nothing(
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="a.txt", content="a\n")
-    (repo / "a.txt").write_text("stashed\n", encoding="utf-8")
+    write_file(repo, "a.txt", "stashed\n")
     git_run(repo, ["stash", "push", "-q", "-m", "kept"], env)
     entry = git_rev(repo, env, "stash@{0}")
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_raises(f'git::stash::pop("{entry}", repo = "repo")'),
         tmp_path,
         monkeypatch,
@@ -679,7 +649,6 @@ def test_stash_pop_of_a_commit_hash_changes_nothing(
         imports=_FS_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"]
     assert git_output(repo, ["status", "--porcelain"], env) == ""
     assert (repo / "a.txt").read_text(encoding="utf-8") == "a\n"
@@ -698,7 +667,7 @@ def test_stash_push_identical_to_the_newest_entry_returns_none(
     monkeypatch.setenv("GIT_AUTHOR_DATE", "2020-01-01T00:00:00Z")
     monkeypatch.setenv("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
 
-    out, result = run_git_program(
+    out = run_git_program(
         'fs::write("repo/a.txt", "one\\n")\n'
         + agl_check(
             "first",
@@ -713,7 +682,6 @@ def test_stash_push_identical_to_the_newest_entry_returns_none(
         imports=_FS_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "ok"]
     # The changes were stashed all the same: git logs no second entry for an unchanged ref.
     assert _stash_list(repo, env) == ["On main: m"]
@@ -728,9 +696,9 @@ def test_stash_operands_are_never_options(
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="a.txt", content="a\n")
-    (repo / "a.txt").write_text("stashed\n", encoding="utf-8")
+    write_file(repo, "a.txt", "stashed\n")
     git_run(repo, ["stash", "push", "-q"], env)
-    (repo / "u.txt").write_text("untracked\n", encoding="utf-8")
+    write_file(repo, "u.txt", "untracked\n")
     # Read as options, `--quiet` would drop `stash@{0}` and `--index` would apply it.
     calls = [
         'drop("--quiet", repo = "repo")',
@@ -739,7 +707,7 @@ def test_stash_operands_are_never_options(
         'push(None, ["--all"], repo = "repo")',
     ]
 
-    out, result = run_git_program(
+    out = run_git_program(
         "".join(agl_raises(f"git::stash::{call}") for call in calls)
         + 'fs::write("repo/a.txt", "changed\\n")\n'
         + agl_check(
@@ -753,7 +721,6 @@ def test_stash_operands_are_never_options(
         imports=_FS_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * len(calls) + ["ok"]
     messages = _stash_list(repo, env)
     assert len(messages) == 2
@@ -824,7 +791,7 @@ def test_worktree_add_move_lock_and_remove(
         'add("wt-g", "feat", repo = "repo")',
     ]
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check(
             "initial",
             'git::worktree::list("repo")',
@@ -874,7 +841,6 @@ def test_worktree_add_move_lock_and_remove(
         imports=_FS_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == (
         ["ok"] * 3
         + ["raised"]
@@ -904,21 +870,19 @@ def test_worktree_move_into_an_existing_directory(
     (tmp_path / "dir").mkdir()
     (tmp_path / "taken").mkdir()
     (tmp_path / "taken" / "wt-b").mkdir()
-    (tmp_path / "taken" / "wt-b" / "file").write_text("x\n", encoding="utf-8")
+    write_file(tmp_path, "taken/wt-b/file", "x\n")
     root = tmp_path.resolve()
     head = 'git::resolve("HEAD", "repo")'
 
-    out, result = run_git_program(
+    out = run_git_program(
         'git::worktree::move("wt-a", "dir", "repo")\n'
         + _worktree_at("inside", root / "dir" / "wt-a", _worktree(root / "dir" / "wt-a", head, "a"))
         + agl_raises('git::worktree::move("wt-b", "taken", "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "raised"]
     assert (tmp_path / "wt-b").is_dir()
 
@@ -940,7 +904,7 @@ def test_worktree_list_bare_prunable_and_unborn(
     entry = _worktree(root / name, None, None, bare=True)
     stale = _find_worktree(root / "wt-stale", name)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check(
             "bare",
             f'git::worktree::list("{name}").find(fn(w: Worktree) => w.bare)',
@@ -965,10 +929,8 @@ def test_worktree_list_bare_prunable_and_unborn(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 7 + ["raised"]
 
 
@@ -987,15 +949,13 @@ def test_worktree_add_ignores_submodule_branch_propagation(
     for key in ("submodule.recurse", "submodule.propagateBranches"):
         git_run(repo, ["config", key, "true"], env)
 
-    _, result = run_git_program(
+    run_git_program(
         'git::worktree::add("wt", "HEAD", Some("topic"), repo = "repo")',
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert git_refs(repo, env, "heads").keys() == {"main", "topic"}
     assert git_refs(repo / "s", env, "heads").keys() == {"main"}
 
@@ -1025,7 +985,7 @@ def test_remote_add_set_url_rename_and_remove(
     plain = tmp_path / "plain"
     plain.mkdir()
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("none", 'git::remote::list("repo").size()', "0")
         + 'git::remote::add("origin", "/srv/o", "repo")\n'
         'git::remote::add("up", "/srv/u", "repo")\n'
@@ -1077,10 +1037,8 @@ def test_remote_add_set_url_rename_and_remove(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 6 + ["raised"] * 9
     # Stored URLs stay as given: `insteadOf` rewriting applies only when reading them.
     assert git_lines(repo, ["config", "--get-all", "remote.mirror.url"], env) == ["/srv/a/m2"]
@@ -1104,7 +1062,7 @@ def test_remote_operands_are_never_options(
     # `--tags` are options of `get-url` and `add`, `--push` of `set-url`.
     git_run(repo, ["config", "remote.--all.url", "/srv/o"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         _remote_list("listed", _remote("--all", "/srv/o"))
         + 'git::remote::add("--tags", "-u", "repo")\n'
         + _remote_list("added", _remote("--all", "/srv/o"), _remote("--tags", "-u"))
@@ -1118,10 +1076,8 @@ def test_remote_operands_are_never_options(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 5
     # `--tags` was a name, not the option that would have set `tagopt`.
     git_fails(repo, ["config", "--get", "remote.--new.tagopt"], env)
@@ -1139,7 +1095,7 @@ def test_remote_list_counts_only_remotes_the_repository_defines(
     global_git_config("remote.origin.prune", "true")
     git_run(repo, ["config", "remote.only-push.pushurl", "/srv/push"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         _remote_list("global-only", _remote("only-push", "only-push", "/srv/push"))
         + 'git::remote::add("up", "/srv/u", "repo")\n'
         + _remote_list(
@@ -1153,10 +1109,8 @@ def test_remote_list_counts_only_remotes_the_repository_defines(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 2 + ["raised"] * 3
 
 
@@ -1171,7 +1125,7 @@ def test_config_get_set_and_unset_by_scope(
     git_run(repo, ["config", "--add", "multi.key", "first"], env)
     git_run(repo, ["config", "--add", "multi.key", "last"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("missing", 'git::config::get?("test.key", "repo")', "None::[text]")
         + agl_raises('git::config::get("test.key", "repo")')
         + agl_raises('git::config::get?("nodots", "repo")')
@@ -1201,10 +1155,8 @@ def test_config_get_set_and_unset_by_scope(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == (
         ["ok"]
         + ["raised"] * 4
@@ -1234,7 +1186,7 @@ def test_config_get_optional_error_reports_the_original_read(
 ) -> None:
     init_repo(tmp_path / "repo", env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         """
 try
   let _ = git::config::get?("nodots", "repo")
@@ -1245,10 +1197,8 @@ catch GitError as e =>
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["true"]
 
 
@@ -1278,7 +1228,7 @@ def test_config_value_forms(
     git_run(repo, ["config", "submodule.propagateBranches", "true"], env)
     text = '  quoted \\"q\\" \\\\ back ; # not a comment\\n\\nthird line'
 
-    out, result = run_git_program(
+    out = run_git_program(
         'git::config::set("test.empty", "", repo = "repo")\n'
         + agl_check("empty", 'git::config::get?("test.empty", "repo")', 'Some("")')
         + agl_check("flag", 'git::config::get("flag.bare", "repo")', '""')
@@ -1293,10 +1243,8 @@ def test_config_value_forms(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 8
     assert git_output(repo, ["config", "--local", "--get", "test.empty"], env) == ""
 
@@ -1311,7 +1259,7 @@ def test_config_operands_are_never_options(
     git_run(repo, ["config", "test.keep", "kept"], env)
     before = git_output(repo, ["config", "--list", "--local"], env).splitlines()
 
-    out, result = run_git_program(
+    out = run_git_program(
         # Read as an option, the key `--unset` would delete `test.keep`.
         agl_raises('git::config::set("--unset", "test.keep", repo = "repo")')
         # `--x.y` is a valid key: as an option, each of these would fail instead.
@@ -1326,10 +1274,8 @@ def test_config_operands_are_never_options(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=_IMPORTS,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised", "ok", "ok", "ok", "ok"]
     after = git_output(repo, ["config", "--list", "--local"], env).splitlines()
     assert after == [*before, "test.opt=--unset", "test.dash=-1"]

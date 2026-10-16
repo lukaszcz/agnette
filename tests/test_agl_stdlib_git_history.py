@@ -9,11 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from tests._agl_git_helpers import agl_check, agl_raises, run_git_program
+from tests._agl_git_helpers import agl_array, agl_check, agl_raises, run_git_program
 from tests._git_helpers import (
     commit_file,
     conflicted_merge,
-    git_head,
     git_lines,
     git_output,
     git_rev,
@@ -21,9 +20,10 @@ from tests._git_helpers import (
     init_repo,
     lines_of,
     write_file,
+    write_script,
 )
 
-_IMPORTS = ("std/git::*", "std/text::join")
+_IMPORTS = ("std/text::join",)
 
 # Author and committer differ in name, time and offset, so a mix-up of the two is visible.
 _PINNED = {
@@ -64,7 +64,7 @@ def _history_repo(tmp_path: Path, env: dict[str, str]) -> Path:
     """
 
     repo = init_repo(tmp_path / "repo", env)
-    (repo / "a.txt").write_text("one\n", encoding="utf-8")
+    write_file(repo, "a.txt", "one\n")
     git_run(repo, ["add", "a.txt"], env)
     pinned = {**env, **_PINNED}
     git_run(
@@ -109,9 +109,8 @@ def test_log_selects_commits_by_revisions_paths_count_and_first_parent(
     body += agl_raises('git::log(["no-such-ref"], repo = "repo")')
     body += agl_raises('git::log(["HEAD^{tree}"], repo = "repo")')
     body += agl_raises('git::log(["HEAD"], ["HEAD^{tree}"], repo = "repo")')
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == [
         _revs(repo, env),
         _revs(repo, env, "side"),
@@ -154,9 +153,8 @@ def test_log_parses_signatures_parents_subject_and_multi_line_bodies(
     )
     body += agl_check("subject", 'git::log(["main~1"], repo = "repo")[0].subject', '"merge side"')
     body += agl_check("empty", 'git::log(["main~1"], repo = "repo")[0].body', '""')
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 5
 
 
@@ -167,14 +165,13 @@ def test_log_body_drops_only_trailing_newlines(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
-    (repo / "a.txt").write_text("one\n", encoding="utf-8")
+    write_file(repo, "a.txt", "one\n")
     git_run(repo, ["add", "a.txt"], env)
     git_run(repo, ["commit", "-q", "--cleanup=verbatim", "-m", "subject\n\nbody  \t\n\n"], env)
 
     body = agl_check("body", 'git::show(repo = "repo").body', '"body  \\t"')
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"]
 
 
@@ -205,17 +202,14 @@ def test_log_ignores_user_configuration(
     git_run(repo, ["commit", "-q", *(["-S"] if sign else []), "-m", "rename b"], commit_env)
 
     body = agl_check("renamed", 'git::log(paths = ["sub/c.txt"], repo = "repo").size()', "1")
-    body += agl_check(
-        "signed", 'git::log(repo = "repo")[0].hash', f'"{git_rev(repo, env, "HEAD")}"'
-    )
+    body += agl_check("signed", 'git::log(repo = "repo")[0].hash', f'"{git_rev(repo, env)}"')
     body += agl_check(
         "c",
         f'git::log(["{c1}"], paths = ["a.txt"], max-count = Some(1), repo = "repo")[0]',
         _c1_commit(c1, initial),
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 3
 
 
@@ -242,9 +236,8 @@ def test_show_returns_one_commit_without_walking_history(
     body += agl_raises('git::show("HEAD:a.txt", "repo")')
     body += agl_raises('git::show("^HEAD", "repo")')
     body += agl_raises('git::show("main~2..main", "repo")')
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 4 + ["raised"] * 6
 
 
@@ -258,7 +251,7 @@ def test_read_file_returns_blob_content_at_a_revision(
     merge = git_rev(repo, env, "main~1")
     commit_file(repo, env, name="sub/ünï.txt", content="no trailing newline", message="unicode")
     commit_file(repo, env, name="blank.txt", content="text\n\n\n", message="blank lines")
-    (repo / "a.txt").write_text("worktree only\n", encoding="utf-8")
+    write_file(repo, "a.txt", "worktree only\n")
 
     body = agl_check("head", 'git::read-file("a.txt", repo = "repo")', '"two\\n"')
     body += agl_check("old", f'git::read-file("a.txt", "{merge}", "repo")', '"one\\n"')
@@ -273,9 +266,8 @@ def test_read_file_returns_blob_content_at_a_revision(
     body += agl_raises('git::read-file("sub", repo = "repo")')
     body += agl_raises('git::read-file("a.txt", "--help", "repo")')
     body += agl_raises('git::read-file("../a.txt", repo = "repo/sub")')
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 6 + ["raised"] * 5
 
 
@@ -308,9 +300,8 @@ def test_merge_base_and_is_ancestor_answer_for_related_and_unrelated_histories(
     body += agl_check("orphan", 'git::is-ancestor("unrelated", "main", "repo")', "false")
     body += agl_raises('git::is-ancestor("no-such-ref", "main", "repo")')
     body += agl_raises('git::is-ancestor("--all", "main", "repo")')
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 4 + ["raised"] * 2 + ["ok"] * 5 + ["raised"] * 2
 
 
@@ -322,10 +313,10 @@ def test_resolve_returns_full_commit_hashes_and_resolve_option_none_for_unknown_
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     commit_file(repo, env, name="second.txt")
-    head = git_head(repo, env)
+    head = git_rev(repo, env)
     parent = git_output(repo, ["rev-parse", "HEAD~1"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         """
 print(git::resolve("HEAD", "repo"))
 print(git::resolve("main~1", "repo"))
@@ -349,7 +340,6 @@ catch GitError as e =>
         capsys,
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == [head, parent, "40", head, *["true"] * 6]
 
 
@@ -422,7 +412,7 @@ _UNCOMMITTED_PATHS = ("both.txt", "star*.txt", "starx.txt", "sub/inner.txt", "un
 def _modified(*paths: str) -> str:
     """Return the AgL array of `Modified` changes of *paths*."""
 
-    return "[" + ", ".join(f'FileChange("{p}", Modified)' for p in paths) + "]"
+    return agl_array(*(f'FileChange("{p}", Modified)' for p in paths))
 
 
 def test_diff_lists_file_changes_for_every_diff_member(
@@ -462,9 +452,8 @@ def test_diff_lists_file_changes_for_every_diff_member(
         'git::diff(CommitToCommit("HEAD", "HEAD~1"), ["renamed.txt", "ren.txt"], repo = "repo")',
         '[FileChange("ren.txt", Renamed("renamed.txt", 97))]',
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 7
 
 
@@ -492,9 +481,8 @@ def test_diff_renames_can_be_turned_off_and_need_both_paths_in_the_filter(
         f'git::diff({commits}, ["renamed.txt"], repo = "repo")',
         '[FileChange("renamed.txt", Added)]',
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 3
 
 
@@ -522,9 +510,8 @@ def test_diff_paths_are_root_relative_literal_and_filter_from_a_subdirectory(
         _modified("starx.txt", "sub/inner.txt"),
     )
     body += agl_check("none", 'git::diff(paths = ["no-such"], repo = "repo").is-empty()', "true")
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 6
 
 
@@ -552,9 +539,8 @@ def test_diff_and_diff_stat_report_unmerged_paths_during_a_conflict(
         'git::diff-stat(repo = "repo")',
         f'[{unmerged_stat}, FileStat("m.txt", Some(4), Some(0))]',
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 4
 
 
@@ -579,9 +565,8 @@ def test_diff_operands_cannot_act_as_options_and_must_name_commits(
             'git::patch(CommitToWorktree("--output=pwned"), repo = "repo")',
         )
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * 8
     assert not (repo / "pwned").exists()
 
@@ -639,9 +624,8 @@ def test_diff_stat_counts_lines_for_every_diff_member(
         'git::diff-stat(CommitToCommit("HEAD~1", "HEAD"), ["sub", "mod.txt"], repo = "repo/sub")',
         '[FileStat("mod.txt", Some(1), Some(0))]',
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 6
 
 
@@ -669,9 +653,8 @@ def test_diff_stat_reports_binary_files_and_renames_with_or_without_detection(
   FileStat("renamed.txt", Some(21), Some(0)),
 ]""",
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 2
 
 
@@ -720,9 +703,8 @@ def test_patch_returns_git_diff_text_for_every_diff_member_and_filter(
         'git::patch(paths = ["sub", "star*.txt"], repo = "repo/sub")',
         'git::patch(paths = ["no-such"], repo = "repo")',
     )
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     expected = _git_patches(
         repo,
         env,
@@ -756,7 +738,7 @@ def test_diffs_ignore_user_configuration(
         commit_file(repo, env, name=name, content=lines_of(name), message=name)
     commit_file(repo, env, name=".gitattributes", content="*.conv diff=up\n")
     commit_file(repo, env, name="doc.conv", content="lower\n")
-    head = git_head(repo, env)
+    head = git_rev(repo, env)
     git_run(repo, ["update-index", "--add", "--cacheinfo", f"160000,{head},lib"], env)
     git_run(repo, ["commit", "-qm", "gitlink"], env)
 
@@ -769,9 +751,7 @@ def test_diffs_ignore_user_configuration(
     commit_file(init_repo(repo / "lib", env), env, name="more.txt")
     expected_patch = _git_patches(repo, env, ["HEAD"])
 
-    external = tmp_path / "external.sh"
-    external.write_text("#!/bin/sh\necho EXTERNAL\n", encoding="utf-8")
-    external.chmod(0o755)
+    external = write_script(tmp_path, "external.sh", "#!/bin/sh\necho EXTERNAL\n")
     order = tmp_path / "order"
     order.write_text("sub/inner.txt\nsub/copy.txt\nnew.txt\nlib\ndoc.conv\n", encoding="utf-8")
     settings = {
@@ -815,7 +795,6 @@ def test_diffs_ignore_user_configuration(
 ]""",
     )
     body += _print_patches(f'git::patch({side}, repo = "repo/sub")')
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
+    out = run_git_program(body, tmp_path, monkeypatch, capsys, imports=_IMPORTS)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "ok", *expected_patch]

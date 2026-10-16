@@ -166,8 +166,9 @@ def glob(pattern: str, dir: str = ".") -> object:
         matches = glob_module.glob(pattern, root_dir=dir, recursive=True)
         return array(_scalar_entries(pattern, "glob", sorted(matches)))
 
-    # The inner call blames *dir* for a bad directory, the outer blames *pattern*.
-    return run_fs_action(FsError, pattern, "glob", lambda: run_fs_action(FsError, dir, "glob", do))
+    if "\x00" in pattern:
+        raise_fs_error(FsError, pattern, "glob")
+    return run_fs_action(FsError, dir, "glob", do)
 
 
 def _checked_temp_root(operation: str) -> str:

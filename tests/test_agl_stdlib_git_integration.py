@@ -12,11 +12,11 @@ from tests._agl_git_helpers import agl_check, agl_completed, agl_raises, run_git
 from tests._git_helpers import (
     add_linked_worktree,
     clone_bare_remote,
+    clone_repo,
     commit_file,
     conflicted_merge,
     conflicting_branches,
     git_fails,
-    git_head,
     git_lines,
     git_output,
     git_parents,
@@ -24,13 +24,11 @@ from tests._git_helpers import (
     git_rev,
     git_run,
     init_repo,
+    record_rerere_resolution,
+    write_file,
 )
 
 Setup = Callable[[Path, dict[str, str]], None]
-
-
-def _parent_count(repo: Path, env: dict[str, str]) -> int:
-    return len(git_output(repo, ["rev-list", "--parents", "-n1", "HEAD"], env).split()) - 1
 
 
 def _merge_branches(repo: Path, env: dict[str, str]) -> str:
@@ -44,7 +42,7 @@ def _merge_branches(repo: Path, env: dict[str, str]) -> str:
     commit_file(repo, env, name="m.txt", message="m")
     git_run(repo, ["checkout", "-qb", "ff"], env)
     commit_file(repo, env, name="ff.txt", message="ff")
-    tip = git_head(repo, env)
+    tip = git_rev(repo, env)
     git_run(repo, ["checkout", "-qb", "ff2"], env)
     commit_file(repo, env, name="ff2.txt", message="ff2")
     git_run(repo, ["checkout", "-q", "main"], env)
@@ -134,7 +132,7 @@ def test_merge_reports_up_to_date_fast_forward_and_completed(
     git_run(repo, ["config", "commit.cleanup", "strip"], env)
     git_run(repo, ["config", "merge.log", "true"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("up", 'git::merge("HEAD~1", repo = "repo")', "UpToDate")
         + agl_check("ff", 'git::merge("ff", repo = "repo")', f'FastForwarded("{tip}")')
         + agl_completed(
@@ -143,12 +141,10 @@ def test_merge_reports_up_to_date_fast_forward_and_completed(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["ok", "ok", git_head(repo, env)]
-    assert _parent_count(repo, env) == 2
+    assert out.splitlines() == ["ok", "ok", git_rev(repo, env)]
+    assert len(git_parents(repo, env)) == 2
     assert git_output(repo, ["log", "-1", "--format=%B"], env) == "# custom subject"
 
 
@@ -161,20 +157,18 @@ def test_merge_fast_forward_modes(
     repo = init_repo(tmp_path / "repo", env)
     tip = _merge_branches(repo, env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_raises('git::merge("div", Only, repo = "repo")')
         + agl_check("only", 'git::merge("ff", Only, repo = "repo")', f'FastForwarded("{tip}")')
         + agl_completed("never", 'git::merge("ff2", Never, repo = "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["raised", "ok", git_head(repo, env)]
+    assert out.splitlines() == ["raised", "ok", git_rev(repo, env)]
     assert git_output(repo, ["rev-parse", "HEAD^1"], env) == tip
-    assert _parent_count(repo, env) == 2
+    assert len(git_parents(repo, env)) == 2
 
 
 def test_merge_pins_fast_forward_mode_against_configuration(
@@ -190,18 +184,16 @@ def test_merge_pins_fast_forward_mode_against_configuration(
         git_run(repo, ["config", "merge.ff", setting], env)
         git_run(repo, ["config", "merge.log", "true"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("ff", 'git::merge("ff", repo = "no-ff")', f'FastForwarded("{tips["no-ff"]}")')
         + agl_completed("merged", 'git::merge("div", repo = "ff-only")'),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["ok", git_head(tmp_path / "ff-only", env)]
-    assert _parent_count(tmp_path / "ff-only", env) == 2
+    assert out.splitlines() == ["ok", git_rev(tmp_path / "ff-only", env)]
+    assert len(git_parents(tmp_path / "ff-only", env)) == 2
     assert git_output(tmp_path / "ff-only", ["log", "-1", "--format=%B"], env) == (
         "Merge branch 'div'"
     )
@@ -217,21 +209,21 @@ def test_conflict_paths_are_root_relative_from_a_subdirectory(
     (repo / "sub").mkdir()
     names = ("a.txt", "gone.txt", "sub/b.txt")
     for name in names:
-        (repo / name).write_text("base\n", encoding="utf-8")
+        write_file(repo, name, "base\n")
     git_run(repo, ["add", "-A"], env)
     git_run(repo, ["commit", "-qm", "base"], env)
     git_run(repo, ["checkout", "-qb", "other"], env)
     for name in names:
-        (repo / name).write_text("theirs\n", encoding="utf-8")
+        write_file(repo, name, "theirs\n")
     git_run(repo, ["commit", "-qam", "theirs"], env)
     git_run(repo, ["checkout", "-q", "main"], env)
     for name in ("a.txt", "sub/b.txt"):
-        (repo / name).write_text("ours\n", encoding="utf-8")
+        write_file(repo, name, "ours\n")
     git_run(repo, ["rm", "-q", "gone.txt"], env)
     git_run(repo, ["commit", "-qam", "ours"], env)
     git_run(repo, ["config", "diff.relative", "true"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check(
             "paths",
             'git::merge("other", repo = "repo/sub")',
@@ -240,10 +232,8 @@ def test_conflict_paths_are_root_relative_from_a_subdirectory(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"]
 
 
@@ -255,29 +245,27 @@ def test_cherry_pick_and_revert_complete_cleanly(
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
     git_run(repo, ["checkout", "-qb", "feat"], env)
-    (repo / "feat.txt").write_text("content\n", encoding="utf-8")
+    write_file(repo, "feat.txt", "content\n")
     git_run(repo, ["add", "feat.txt"], env)
     git_run(repo, ["commit", "-q", "--cleanup=verbatim", "-m", "# feat\n\nbody  "], env)
     message = git_output(repo, ["log", "-1", "--format=%B"], env)
     git_run(repo, ["checkout", "-q", "main"], env)
     git_run(repo, ["config", "commit.cleanup", "strip"], env)
     git_run(repo, ["config", "revert.reference", "true"], env)
-    main = git_head(repo, env)
+    main = git_rev(repo, env)
     (tmp_path / "plain").mkdir()
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("none", 'git::cherry-pick([], "plain")', "UpToDate")
         + agl_completed("picked", 'git::cherry-pick(["feat"], "repo")')
         + agl_completed("reverted", 'git::revert(["HEAD"], "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     picked = git_output(repo, ["rev-parse", "HEAD~1"], env)
-    assert out.splitlines() == ["ok", picked, git_head(repo, env)]
+    assert out.splitlines() == ["ok", picked, git_rev(repo, env)]
     assert git_output(repo, ["rev-parse", "HEAD~2"], env) == main
     assert git_output(repo, ["log", "-1", "--format=%B", "HEAD~1"], env) == message
     assert not (repo / "feat.txt").exists()
@@ -292,7 +280,7 @@ def test_cherry_pick_sequence_resumes_with_the_remaining_commits(
 ) -> None:
     repo = _setup_sequence(tmp_path / "repo", env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("started", SEQUENCE.format("repo"), CONFLICTED)
         + agl_check("state", 'git::operation("repo")', "Some::[Operation](CherryPicking)")
         + _resolve("repo")
@@ -300,11 +288,10 @@ def test_cherry_pick_sequence_resumes_with_the_remaining_commits(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["ok", "ok", git_head(repo, env)]
+    assert out.splitlines() == ["ok", "ok", git_rev(repo, env)]
     assert git_lines(repo, ["log", "--format=%s", "-4"], env) == ["c3", "c2", "c1", "ours"]
     assert (repo / "a.txt").exists()
     assert (repo / "b.txt").exists()
@@ -321,9 +308,9 @@ def test_cherry_pick_of_an_applied_commit_is_an_error_that_leaves_the_pick_open(
     commit_file(repo, env, name="feat.txt", message="feat")
     git_run(repo, ["checkout", "-q", "main"], env)
     git_run(repo, ["cherry-pick", "feat"], env)
-    before = git_head(repo, env)
+    before = git_rev(repo, env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_raises('git::cherry-pick(["feat"], "repo")')
         + agl_check("state", 'git::operation("repo")', "Some::[Operation](CherryPicking)")
         + 'git::abort(CherryPicking, "repo")\n'
@@ -331,12 +318,10 @@ def test_cherry_pick_of_an_applied_commit_is_an_error_that_leaves_the_pick_open(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised", "ok", "ok"]
-    assert git_head(repo, env) == before
+    assert git_rev(repo, env) == before
 
 
 def test_rebase_reports_every_outcome(
@@ -354,13 +339,13 @@ def test_rebase_reports_every_outcome(
     git_run(repo, ["cherry-pick", "dup"], env)
     git_run(repo, ["checkout", "-qb", "feat"], env)
     commit_file(repo, env, name="f1.txt", message="f1")
-    tip = git_head(repo, env)
+    tip = git_rev(repo, env)
     git_run(repo, ["checkout", "-qb", "topic", "old"], env)
     commit_file(repo, env, name="t1.txt", message="# t1  ")
     git_run(repo, ["checkout", "-q", "feat"], env)
     git_run(repo, ["config", "commit.cleanup", "strip"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("up", 'git::rebase("main", "repo")', "UpToDate")
         + """
 git::checkout("main", "repo")
@@ -373,10 +358,8 @@ git::checkout("main", "repo")
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     topic = git_output(repo, ["rev-parse", "topic"], env)
     assert out.splitlines() == ["ok", "ok", topic, "ok"]
     assert git_output(repo, ["rev-parse", "topic^"], env) == tip
@@ -400,7 +383,7 @@ def test_conflict_stops_the_operation_until_resolved_and_resumed(
     monkeypatch.setenv("GIT_EDITOR", "false")
     git_run(repo, ["config", "core.editor", "false"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("idle", 'git::operation("repo")', "None::[Operation]")
         + agl_check("started", scenario.start(scenario.ref), CONFLICTED)
         + agl_check("state", 'git::operation("repo")', f"Some::[Operation]({state})")
@@ -411,14 +394,13 @@ def test_conflict_stops_the_operation_until_resolved_and_resumed(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["ok"] * 4 + [git_head(repo, env), "ok"]
+    assert out.splitlines() == ["ok"] * 4 + [git_rev(repo, env), "ok"]
     assert git_output(repo, ["show", "HEAD:f.txt"], env) == "resolved"
     assert git_output(repo, ["status", "--porcelain"], env) == ""
-    assert _parent_count(repo, env) == scenario.parents
+    assert len(git_parents(repo, env)) == scenario.parents
 
 
 @pytest.mark.parametrize("name", SCENARIOS)
@@ -432,11 +414,11 @@ def test_abort_restores_the_state_before_the_operation(
     scenario = SCENARIOS[name]
     repo = tmp_path / "repo"
     scenario.setup(repo, env)
-    before = git_head(repo, env)
+    before = git_rev(repo, env)
     branch = git_output(repo, ["symbolic-ref", "HEAD"], env)
     content = (repo / "f.txt").read_text(encoding="utf-8")
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("started", scenario.start(scenario.ref), CONFLICTED)
         + f'git::abort({scenario.state}, "repo")'
         + agl_check("idle", 'git::operation("repo")', "None::[Operation]")
@@ -444,12 +426,10 @@ def test_abort_restores_the_state_before_the_operation(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 3
-    assert git_head(repo, env) == before
+    assert git_rev(repo, env) == before
     assert git_output(repo, ["symbolic-ref", "HEAD"], env) == branch
     assert (repo / "f.txt").read_text(encoding="utf-8") == content
 
@@ -478,17 +458,15 @@ def test_operation_in_progress_refuses_other_calls_and_option_likegit_refs(
         if other_name != name
     ]
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("started", scenario.start(scenario.ref), CONFLICTED)
         + "".join(agl_raises(call) for call in refused)
         + agl_check("state", 'git::operation("repo")', f"Some::[Operation]({state})"),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] + ["raised"] * len(refused) + ["ok"]
     assert git_output(tmp_path / "repo", ["diff", "--name-only", "--diff-filter=U"], env) == "f.txt"
 
@@ -502,7 +480,7 @@ def test_resume_abort_and_start_without_an_operation_raise(
     init_repo(tmp_path / "idle", env)
     stale = init_repo(tmp_path / "stale", env)
     commit_file(stale, env, name="f.txt", content="base\n", message="base")
-    (stale / "f.txt").write_text("stashed\n", encoding="utf-8")
+    write_file(stale, "f.txt", "stashed\n")
     git_run(stale, ["stash", "push", "-q"], env)
     commit_file(stale, env, name="f.txt", content="other\n", message="other")
     git_fails(stale, ["stash", "apply"], env)
@@ -529,9 +507,8 @@ for op in ops do
     ]
     body += "".join(agl_raises(call) for call in starts)
     body += agl_check("idle", 'git::operation("stale")', "None::[Operation]")
-    out, result = run_git_program(body, tmp_path, monkeypatch, capsys, imports=("std/git::*",))
+    out = run_git_program(body, tmp_path, monkeypatch, capsys)
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * 16 + ["raised"] * len(starts) + ["ok"]
 
 
@@ -548,13 +525,13 @@ def test_dirty_tree_refusals_are_errors_even_with_autostash_configured(
     commit_file(repo, env, name="f.txt", content="other\n", message="other")
     git_run(repo, ["checkout", "-q", "main"], env)
     commit_file(repo, env, name="g.txt", content="main\n", message="main")
-    (repo / "f.txt").write_text("dirty f\n", encoding="utf-8")
-    (repo / "g.txt").write_text("dirty g\n", encoding="utf-8")
+    write_file(repo, "f.txt", "dirty f\n")
+    write_file(repo, "g.txt", "dirty g\n")
     for key in ("merge.autoStash", "rebase.autoStash"):
         git_run(repo, ["config", key, "true"], env)
-    before = git_head(repo, env)
+    before = git_rev(repo, env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         "".join(
             agl_raises(call)
             for call in (
@@ -568,12 +545,10 @@ def test_dirty_tree_refusals_are_errors_even_with_autostash_configured(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * 4 + ["ok"]
-    assert git_head(repo, env) == before
+    assert git_rev(repo, env) == before
     assert (repo / "f.txt").read_text(encoding="utf-8") == "dirty f\n"
     assert (repo / "g.txt").read_text(encoding="utf-8") == "dirty g\n"
     assert git_lines(repo, ["stash", "list"], env) == []
@@ -589,7 +564,7 @@ def test_operands_must_name_a_single_commit(
     git_run(repo, ["checkout", "-qb", "other"], env)
     commit_file(repo, env, name="o.txt", message="other")
     git_run(repo, ["checkout", "-q", "main"], env)
-    before = git_head(repo, env)
+    before = git_rev(repo, env)
 
     refs = ["HEAD^{tree}", "main..other", "--abort"]
     calls = [
@@ -602,18 +577,16 @@ def test_operands_must_name_a_single_commit(
         )
         for ref in refs
     ]
-    out, result = run_git_program(
+    out = run_git_program(
         "".join(agl_raises(call) for call in calls)
         + agl_check("idle", 'git::operation("repo")', "None::[Operation]"),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * len(calls) + ["ok"]
-    assert git_head(repo, env) == before
+    assert git_rev(repo, env) == before
     assert git_output(repo, ["status", "--porcelain"], env) == ""
 
 
@@ -626,7 +599,7 @@ def test_operation_follows_the_priority_order(
     init_repo(tmp_path / "repo", env)
 
     # Sequencer todo files, as git writes them, are covered by the merge-commit workflow below.
-    out, result = run_git_program(
+    out = run_git_program(
         'fs::write("repo/.git/REVERT_HEAD", "")'
         + agl_check("r", 'git::operation("repo")', "Some::[Operation](Reverting)")
         + 'fs::write("repo/.git/CHERRY_PICK_HEAD", "")'
@@ -642,10 +615,9 @@ def test_operation_follows_the_priority_order(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 6
 
 
@@ -659,7 +631,7 @@ def test_operation_state_is_per_linked_worktree(
     conflicting_branches(repo, env)
     add_linked_worktree(repo, tmp_path / "wt", env, branch="wt")
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("started", 'git::merge("other", repo = "wt")', CONFLICTED)
         + agl_check("linked", 'git::operation("wt")', "Some::[Operation](Merging)")
         + agl_check("primary", 'git::operation("repo")', "None::[Operation]")
@@ -668,10 +640,8 @@ def test_operation_state_is_per_linked_worktree(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 4
 
 
@@ -690,7 +660,7 @@ def test_conflict_resume_messages_ignore_cleanup_configuration(
     for repo in (merge, rebase):
         git_run(repo, ["config", "commit.cleanup", "verbatim"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check(
             "merge", 'git::merge("other", message = Some("# subject"), repo = "merge")', CONFLICTED
         )
@@ -702,11 +672,10 @@ def test_conflict_resume_messages_ignore_cleanup_configuration(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["ok", git_head(merge, env), "ok", git_head(rebase, env)]
+    assert out.splitlines() == ["ok", git_rev(merge, env), "ok", git_rev(rebase, env)]
     # Git's conflict comments never reach the message, whatever `commit.cleanup` says.
     assert git_output(merge, ["log", "-1", "--format=%B"], env) == "# subject"
     assert git_output(rebase, ["log", "-1", "--format=%B"], env) == "# topic"
@@ -729,7 +698,7 @@ def test_resume_truncates_at_the_scissors_line_and_keeps_foreign_conflict_commen
     foreign = conflicted_merge(tmp_path / "foreign", env)
     merge_message = f"subject\\n{scissors}\\ntail"
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check(
             "merge",
             f'git::merge("other", message = Some("{merge_message}"), repo = "merge")',
@@ -745,12 +714,11 @@ def test_resume_truncates_at_the_scissors_line_and_keeps_foreign_conflict_commen
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["ok", git_head(merge, env), "ok", git_head(rebase, env)] + [
-        git_head(foreign, env)
+    assert out.splitlines() == ["ok", git_rev(merge, env), "ok", git_rev(rebase, env)] + [
+        git_rev(foreign, env)
     ]
     assert git_output(merge, ["log", "-1", "--format=%B"], env) == "subject"
     assert git_output(rebase, ["log", "-1", "--format=%B"], env) == "topic"
@@ -765,18 +733,9 @@ def test_recorded_resolutions_still_report_conflicts(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = init_repo(tmp_path / "repo", env)
-    conflicting_branches(repo, env)
-    before = git_head(repo, env)
-    git_run(repo, ["config", "rerere.enabled", "true"], env)
-    git_run(repo, ["config", "rerere.autoUpdate", "true"], env)
-    # Record a resolution, which `rerere.autoUpdate` would then stage on a replayed conflict.
-    git_fails(repo, ["merge", "other"], env)
-    (repo / "f.txt").write_text("resolved\n", encoding="utf-8")
-    git_run(repo, ["add", "f.txt"], env)
-    git_run(repo, ["commit", "-q", "--no-edit"], env)
-    git_run(repo, ["reset", "-q", "--hard", before], env)
+    record_rerere_resolution(repo, env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("merge", 'git::merge("other", repo = "repo")', CONFLICTED)
         + 'git::abort(Merging, "repo")'
         + agl_check("pick", 'git::cherry-pick(["other"], repo = "repo")', CONFLICTED)
@@ -787,10 +746,8 @@ def test_recorded_resolutions_still_report_conflicts(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok"] * 3
 
 
@@ -802,11 +759,11 @@ def test_cherry_picking_and_reverting_share_the_sequencer(
 ) -> None:
     done = _setup_sequence(tmp_path / "done", env)
     stopped = _setup_sequence(tmp_path / "stopped", env)
-    before = git_head(stopped, env)
+    before = git_rev(stopped, env)
     SCENARIOS["cherry-pick"].setup(tmp_path / "pick", env)
     SCENARIOS["revert"].setup(tmp_path / "revert", env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         # Several pending commits can be resumed only as the operation `operation` reports.
         agl_check("seq", SEQUENCE.format("done"), CONFLICTED)
         + _resolve("done")
@@ -828,16 +785,15 @@ def test_cherry_picking_and_reverting_share_the_sequencer(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == [
-        *["ok", "raised", "ok", git_head(done, env), "ok", "ok"],
-        *["ok", git_head(tmp_path / "pick", env), "ok", git_head(tmp_path / "revert", env), "ok"],
+        *["ok", "raised", "ok", git_rev(done, env), "ok", "ok"],
+        *["ok", git_rev(tmp_path / "pick", env), "ok", git_rev(tmp_path / "revert", env), "ok"],
     ]
     assert git_lines(done, ["log", "--format=%s", "-4"], env) == ["c3", "c2", "c1", "ours"]
-    assert git_head(stopped, env) == before
+    assert git_rev(stopped, env) == before
     assert git_output(stopped, ["status", "--porcelain"], env) == ""
 
 
@@ -853,18 +809,17 @@ def test_resumed_revert_sequence_pins_reference_configuration(
     commit_file(repo, env, name="f.txt", content="two\n", message="two")
     git_run(repo, ["config", "revert.reference", "true"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("started", 'git::revert(["HEAD~2", "HEAD~1"], repo = "repo")', CONFLICTED)
         + _resolve("repo")
         + agl_completed("resumed", 'git::resume(Reverting, "repo")'),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == ["ok", git_head(repo, env)]
+    assert out.splitlines() == ["ok", git_rev(repo, env)]
     for rev in ("HEAD", "HEAD~1"):
         assert git_output(repo, ["log", "-1", "--format=%B", rev], env).startswith('Revert "')
 
@@ -883,12 +838,12 @@ def test_merge_commits_cannot_be_picked_or_reverted(
     commit_file(repo, env, name="a.txt", message="a")
     commit_file(repo, env, name="b.txt", message="b")
     git_run(repo, ["merge", "-q", "--no-ff", "-m", "merge", "side"], env)
-    tip = git_head(repo, env)
+    tip = git_rev(repo, env)
     pick_tip = git_output(repo, ["rev-parse", "pick"], env)
     none = "None::[Operation]"
 
     # A merge after the first commit of a sequence stops it with only the sequencer left behind.
-    out, result = run_git_program(
+    out = run_git_program(
         agl_raises('git::revert(["main"], repo = "repo")')
         + agl_check("idle-1", 'git::operation("repo")', none)
         + agl_raises('git::revert(["main~2", "main"], repo = "repo")')
@@ -905,16 +860,14 @@ def test_merge_commits_cannot_be_picked_or_reverted(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised", "ok", "raised", "ok", "ok", "raised", "ok", "raised"] + [
         "ok",
         "ok",
     ]
     assert git_output(repo, ["rev-parse", "main"], env) == tip
-    assert git_head(repo, env) == pick_tip
+    assert git_rev(repo, env) == pick_tip
 
 
 def test_resume_that_empties_a_commit_completes(
@@ -926,7 +879,7 @@ def test_resume_that_empties_a_commit_completes(
     SCENARIOS["rebase"].setup(tmp_path / "repo", env)
     main = git_output(tmp_path / "repo", ["rev-parse", "main"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("started", 'git::rebase("main", repo = "repo")', CONFLICTED)
         # Resolving to `main`'s content leaves nothing to commit, so the commit is dropped.
         + _resolve("repo", "ours")
@@ -934,12 +887,11 @@ def test_resume_that_empties_a_commit_completes(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "ok"]
-    assert git_head(tmp_path / "repo", env) == main
+    assert git_rev(tmp_path / "repo", env) == main
 
 
 def test_resume_that_empties_a_sequencer_commit_fails_and_leaves_it_in_progress(
@@ -955,7 +907,7 @@ def test_resume_that_empties_a_sequencer_commit_fails_and_leaves_it_in_progress(
         ("revert", "Reverting", 'git::revert(["HEAD~1"], repo = "revert")', "two"),
     ]
 
-    out, result = run_git_program(
+    out = run_git_program(
         "".join(
             agl_check(f"started-{repo}", start, CONFLICTED)
             # The resolution equals what `HEAD` already has.
@@ -969,10 +921,9 @@ def test_resume_that_empties_a_sequencer_commit_fails_and_leaves_it_in_progress(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "raised", "ok", "ok"] * 2
 
 
@@ -1010,18 +961,16 @@ def test_rebase_pins_configuration_that_changes_its_meaning(
     git_run(backend, ["checkout", "-q", "other"], env)
     git_run(backend, ["config", "rebase.backend", "apply"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_completed("refs", 'git::rebase("main", repo = "refs")')
         + agl_completed("merges", 'git::rebase("main", repo = "merges")')
         + agl_check("backend", 'git::rebase("main", repo = "backend")', CONFLICTED),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
-    assert out.splitlines() == [git_head(refs, env), git_head(merges, env), "ok"]
+    assert out.splitlines() == [git_rev(refs, env), git_rev(merges, env), "ok"]
     assert git_output(refs, ["rev-parse", "mid"], env) == mid
     assert git_lines(merges, ["rev-list", "--merges", "main..HEAD"], env) == []
     assert (backend / ".git" / "rebase-merge").is_dir()
@@ -1040,17 +989,15 @@ def test_operation_detects_an_apply_backend_rebase(
     git_fails(repo, ["rebase", "--apply", "main"], env)
     assert (repo / ".git" / "rebase-apply").is_dir()
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("state", 'git::operation("repo")', "Some::[Operation](Rebasing)")
         + 'git::abort(Rebasing, "repo")'
         + agl_check("idle", 'git::operation("repo")', "None::[Operation]"),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["ok", "ok"]
 
 
@@ -1069,33 +1016,26 @@ def test_error_after_the_operation_started_leaves_it_in_progress(
     commit_file(repo, env, name="m.txt", message="m")
     git_run(repo, ["checkout", "-q", "topic"], env)
     # Replaying "add x" would overwrite this file.
-    (repo / "x.txt").write_text("untracked\n", encoding="utf-8")
+    write_file(repo, "x.txt", "untracked\n")
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_raises('git::rebase("main", repo = "repo")')
         + agl_check("state", 'git::operation("repo")', "Some::[Operation](Rebasing)")
         + 'git::abort(Rebasing, "repo")',
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised", "ok"]
 
 
 # Remote synchronization: `fetch`, `pull` and `push` against local bare remotes.
 
 
-def _clone_of(tmp_path: Path, env: dict[str, str], bare: Path, name: str) -> Path:
-    git_run(None, ["clone", "-q", str(bare), str(tmp_path / name)], env)
-    return tmp_path / name
-
-
 def _peer(tmp_path: Path, env: dict[str, str], name: str) -> Path:
     """Clone the bare remote of ``name`` as its collaborator ``<name>-peer``."""
-    return _clone_of(tmp_path, env, tmp_path / f"{name}-origin.git", f"{name}-peer")
+    return clone_repo(tmp_path / f"{name}-origin.git", tmp_path / f"{name}-peer", env)
 
 
 def _remote_pair(
@@ -1150,7 +1090,7 @@ def test_fetch_updates_the_refs_of_each_source(
     git_run(None, ["clone", "--bare", "-q", str(origin), str(fork)], env)
     names = ("up", "from", "spec", "all")
     for name in names[1:]:
-        _clone_of(tmp_path, env, origin, name)
+        clone_repo(origin, tmp_path / name, env)
     for name in names:
         git_run(tmp_path / name, ["remote", "add", "fork", str(fork)], env)
     # Since git 2.44 this would make a plain fetch fetch every remote.
@@ -1170,7 +1110,7 @@ def test_fetch_updates_the_refs_of_each_source(
     feat = git_rev(origin, env, "feat")
     ffeat = git_rev(fork, env, "ffeat")
 
-    out, result = run_git_program(
+    out = run_git_program(
         'git::fetch(repo = "up")\n'
         'git::fetch(FetchFrom("fork"), repo = "from")\n'
         'git::fetch(FetchFrom("origin", ["refs/heads/feat:refs/remotes/origin/feat"]), '
@@ -1179,10 +1119,8 @@ def test_fetch_updates_the_refs_of_each_source(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out == ""
     assert git_refs(tmp_path / "up", env, "remotes") == {"origin/main": new, "origin/feat": feat}
     assert git_refs(tmp_path / "from", env, "remotes") == {
@@ -1213,7 +1151,7 @@ def test_fetch_prune_and_tags(
     origin, _ = clone_bare_remote(source, tmp_path, env, name="keep")
     names = ("keep", "prune", "both", "plain", "tagged")
     for name in names[1:]:
-        _clone_of(tmp_path, env, origin, name)
+        clone_repo(origin, tmp_path / name, env)
     git_run(origin, ["branch", "-qD", "gone"], env)
     # A tag on a commit no branch reaches is fetched only on request.
     peer = _peer(tmp_path, env, "keep")
@@ -1229,7 +1167,7 @@ def test_fetch_prune_and_tags(
     git_run(tmp_path / "keep", ["config", "fetch.prune", "true"], env)
     git_run(tmp_path / "keep", ["config", "remote.origin.prune", "true"], env)
 
-    out, result = run_git_program(
+    run_git_program(
         'git::fetch(repo = "keep")\n'
         'git::fetch(prune = true, repo = "prune")\n'
         'git::fetch(prune = true, tags = true, repo = "both")\n'
@@ -1238,10 +1176,8 @@ def test_fetch_prune_and_tags(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     stale = {"origin/main", "origin/gone"}
     expected = {
         "keep": (stale, ["local-tag"]),
@@ -1289,18 +1225,15 @@ def test_fetch_ignores_configuration_that_changes_what_it_fetches(
     _allow_file_submodules(monkeypatch)
     bare, fetcher, submodule = _with_submodule(tmp_path, env, "fetcher")
     commit_file(submodule, env, name="s2.txt", message="s2")
-    inner = git_head(submodule, env)
+    inner = git_rev(submodule, env)
     peer = _peer(tmp_path, env, "fetcher")
     git_run(peer, ["update-index", "--add", "--cacheinfo", f"160000,{inner},sub"], env)
     git_run(peer, ["commit", "-qm", "bump sub"], env)
     git_run(peer, ["push", "-q", "origin", "main"], env)
     git_run(fetcher, ["config", "fetch.recurseSubmodules", "true"], env)
 
-    out, result = run_git_program(
-        'git::fetch(repo = "fetcher")', tmp_path, monkeypatch, capsys, imports=("std/git::*",)
-    )
+    run_git_program('git::fetch(repo = "fetcher")', tmp_path, monkeypatch, capsys)
 
-    assert result.ok, result.error
     assert git_refs(fetcher, env, "remotes") == {"origin/main": git_rev(bare, env, "main")}
     git_fails(fetcher / "sub", ["cat-file", "-e", inner], env)
 
@@ -1329,9 +1262,9 @@ def test_pull_integrates_per_mode_ignoring_pull_configuration(
         git_run(repo, ["config", "pull.ff", "only" if merging else "false"], env)
         git_run(repo, ["config", "branch.main.rebase", "true" if merging else "false"], env)
     tips = {name: git_rev(bare, env, "main") for name, bare in bares.items()}
-    heads = {name: git_head(tmp_path / name, env) for name in shapes}
+    heads = {name: git_rev(tmp_path / name, env) for name in shapes}
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("utd", 'git::pull(repo = "utd")', "UpToDate")
         + agl_check("utd-rebase", 'git::pull(mode = Rebase, repo = "utd")', "UpToDate")
         + agl_check("ff", 'git::pull(repo = "ff")', f'FastForwarded("{tips["ff"]}")')
@@ -1345,25 +1278,23 @@ def test_pull_integrates_per_mode_ignoring_pull_configuration(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == [
         "ok",
         "ok",
         "ok",
         "ok",
-        git_head(tmp_path / "never", env),
+        git_rev(tmp_path / "never", env),
         "raised",
-        git_head(tmp_path / "div", env),
-        git_head(tmp_path / "divr", env),
+        git_rev(tmp_path / "div", env),
+        git_rev(tmp_path / "divr", env),
     ]
-    assert git_head(tmp_path / "utd", env) == heads["utd"]
-    assert git_head(tmp_path / "ff", env) == tips["ff"]
-    assert git_head(tmp_path / "ffr", env) == tips["ffr"]
+    assert git_rev(tmp_path / "utd", env) == heads["utd"]
+    assert git_rev(tmp_path / "ff", env) == tips["ff"]
+    assert git_rev(tmp_path / "ffr", env) == tips["ffr"]
     assert git_parents(tmp_path / "never", env) == [heads["never"], tips["never"]]
-    assert git_head(tmp_path / "only", env) == heads["only"]
+    assert git_rev(tmp_path / "only", env) == heads["only"]
     assert git_parents(tmp_path / "div", env) == [heads["div"], tips["div"]]
     assert git_parents(tmp_path / "divr", env) == [tips["divr"]]
 
@@ -1379,16 +1310,16 @@ def test_pull_conflicts_stop_the_operation_and_refusals_are_errors(
     for name in ("dirty", "dirty-rebase"):
         _, repo = _remote_pair(tmp_path, env, name, behind=1)
         # The incoming commit would overwrite this file.
-        (repo / "remote0.txt").write_text("mine\n", encoding="utf-8")
+        write_file(repo, "remote0.txt", "mine\n")
     _, solo = _remote_pair(tmp_path, env, "solo")
     git_run(solo, ["checkout", "-qb", "lonely"], env)
     _, detached = _remote_pair(tmp_path, env, "detached")
     git_run(detached, ["checkout", "-q", "--detach"], env)
-    rebase_head = git_head(tmp_path / "rebase", env)
-    heads = {name: git_head(tmp_path / name, env) for name in ("dirty", "dirty-rebase", "solo")}
-    heads["detached"] = git_head(detached, env)
+    rebase_head = git_rev(tmp_path / "rebase", env)
+    heads = {name: git_rev(tmp_path / name, env) for name in ("dirty", "dirty-rebase", "solo")}
+    heads["detached"] = git_rev(detached, env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_check("merge", 'git::pull(repo = "merge")', CONFLICTED)
         + agl_check("merging", 'git::operation("merge")', "Some::[Operation](Merging)")
         + _resolve("merge")
@@ -1406,14 +1337,13 @@ def test_pull_conflicts_stop_the_operation_and_refusals_are_errors(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*", "std/fs"),
+        imports=("std/fs",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == [
         "ok",
         "ok",
-        git_head(tmp_path / "merge", env),
+        git_rev(tmp_path / "merge", env),
         "ok",
         "ok",
         *["raised"] * 5,
@@ -1421,11 +1351,11 @@ def test_pull_conflicts_stop_the_operation_and_refusals_are_errors(
         "ok",
     ]
     assert git_output(tmp_path / "merge", ["show", "HEAD:f.txt"], env) == "resolved"
-    assert _parent_count(tmp_path / "merge", env) == 2
-    assert git_head(tmp_path / "rebase", env) == rebase_head
+    assert len(git_parents(tmp_path / "merge", env)) == 2
+    assert git_rev(tmp_path / "rebase", env) == rebase_head
     assert git_output(tmp_path / "rebase", ["status", "--porcelain"], env) == ""
     for name, head in heads.items():
-        assert git_head(tmp_path / name, env) == head
+        assert git_rev(tmp_path / name, env) == head
     # A missing upstream is found before anything is fetched.
     for name in ("solo", "detached"):
         assert not (tmp_path / name / ".git" / "FETCH_HEAD").exists()
@@ -1461,10 +1391,10 @@ def test_pull_from_integrates_the_named_branch(
     _, rebased, rebased_tip = _with_feature(tmp_path, env, "rebased", ahead=1)
     bare, url, url_tip = _with_feature(tmp_path, env, "url")
     git_run(named, ["config", "remote.origin.tagOpt", "--tags"], env)
-    named_head = git_head(named, env)
-    url_head = git_head(url, env)
+    named_head = git_rev(named, env)
+    url_head = git_rev(url, env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_raises('git::pull(PullFrom("origin", "nope"), repo = "named")')
         + agl_raises('git::pull(PullFrom("origin", "main:other"), repo = "named")')
         + agl_raises('git::pull(PullFrom("origin", "refs/heads/*:refs/heads/*"), repo = "named")')
@@ -1481,24 +1411,22 @@ def test_pull_from_integrates_the_named_branch(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == [
         "raised",
         "raised",
         "raised",
         "ok",
         "ok",
-        git_head(rebased, env),
-        git_head(url, env),
+        git_rev(rebased, env),
+        git_rev(url, env),
     ]
     # The remote's tag policy lists tags next to the branch in `FETCH_HEAD`; only the branch merges.
     assert "not-for-merge" in (named / ".git" / "FETCH_HEAD").read_text(encoding="utf-8")
     # A branch name that is a refspec is rejected before git sees it, so no branch is created.
     assert set(git_refs(named, env, "heads")) == {"main"}
-    assert git_head(named, env) == tip != named_head
+    assert git_rev(named, env) == tip != named_head
     assert git_parents(rebased, env) == [rebased_tip]
     assert git_parents(url, env) == [url_head, url_tip]
     # Pulling a branch does not change what the current branch tracks.
@@ -1546,7 +1474,7 @@ def test_push_sends_to_each_target(
     git_run(tmp_path / "triangle", ["remote", "add", "fork", str(fork)], env)
     git_run(tmp_path / "triangle", ["config", "remote.pushDefault", "fork"], env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         'git::push(repo = "up")\n'
         'git::push(repo = "topic")\n'
         'git::push(PushTo("origin"), repo = "to")\n'
@@ -1562,25 +1490,23 @@ def test_push_sends_to_each_target(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * 2
-    assert git_refs(bares["up"], env, "heads") == {"main": git_head(tmp_path / "up", env)}
-    assert git_refs(bares["topic"], env, "heads") == {"main": git_head(topic, env)}
-    assert git_refs(bares["to"], env, "heads") == {"main": git_head(to, env), "side": side}
+    assert git_refs(bares["up"], env, "heads") == {"main": git_rev(tmp_path / "up", env)}
+    assert git_refs(bares["topic"], env, "heads") == {"main": git_rev(topic, env)}
+    assert git_refs(bares["to"], env, "heads") == {"main": git_rev(to, env), "side": side}
     assert git_refs(bares["refs"], env, "heads") == {
         "main": base["refs"],
-        "new": git_head(refs, env),
+        "new": git_rev(refs, env),
     }
     assert git_refs(bares["setup"], env, "heads") == {
         "main": base["setup"],
-        "feat": git_head(tmp_path / "setup", env),
+        "feat": git_rev(tmp_path / "setup", env),
     }
     assert git_refs(bares["unset"], env, "heads") == {
         "main": base["unset"],
-        "feat": git_head(tmp_path / "unset", env),
+        "feat": git_rev(tmp_path / "unset", env),
     }
     assert (
         git_output(tmp_path / "setup", ["rev-parse", "--abbrev-ref", "feat@{upstream}"], env)
@@ -1588,7 +1514,7 @@ def test_push_sends_to_each_target(
     )
     git_fails(tmp_path / "unset", ["rev-parse", "--abbrev-ref", "feat@{upstream}"], env)
     for name in ("gone", "url"):
-        assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+        assert git_refs(bares[name], env, "heads") == {"main": git_rev(tmp_path / name, env)}
     assert git_refs(bares["solo"], env, "heads") == {"main": base["solo"]}
     assert git_refs(bares["triangle"], env, "heads") == {"main": base["triangle"]}
     assert git_refs(fork, env, "heads") == {"main": base["triangle"]}
@@ -1611,7 +1537,7 @@ def test_push_force_modes(
     git_run(tmp_path / "fetched", ["fetch", "-q"], env)
     theirs = {name: git_rev(bare, env, "main") for name, bare in bares.items()}
 
-    out, result = run_git_program(
+    out = run_git_program(
         agl_raises('git::push(repo = "amend")')
         + 'git::push(force = WithLease, repo = "amend")\n'
         + agl_raises('git::push(force = NoForce, repo = "rejected")')
@@ -1622,14 +1548,12 @@ def test_push_force_modes(
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * 4
     assert git_refs(bares["rejected"], env, "heads") == {"main": theirs["rejected"]}
     for name in ("amend", "fetched", "forced"):
-        assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+        assert git_refs(bares[name], env, "heads") == {"main": git_rev(tmp_path / name, env)}
         assert theirs[name] not in git_lines(tmp_path / name, ["rev-list", "HEAD"], env)
 
 
@@ -1646,24 +1570,22 @@ def test_push_tags(
         git_run(repo, ["tag", "-a", f"ann-{name}", "-m", "ann"], env)
     base = {name: git_rev(bare, env, "main") for name, bare in bares.items()}
 
-    out, result = run_git_program(
+    run_git_program(
         'git::push(tags = true, repo = "up")\n'
         'git::push(PushTo("origin"), tags = true, repo = "to")\n'
         'git::push(PushTo("origin", ["main"]), tags = true, repo = "with-refs")',
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     # Without refspecs, git pushes only the tags.
     for name in ("up", "to"):
         assert git_lines(bares[name], ["tag"], env) == [f"ann-{name}", f"light-{name}"]
         assert git_refs(bares[name], env, "heads") == {"main": base[name]}
     name = "with-refs"
     assert git_lines(bares[name], ["tag"], env) == [f"ann-{name}", f"light-{name}"]
-    assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+    assert git_refs(bares[name], env, "heads") == {"main": git_rev(tmp_path / name, env)}
 
 
 def test_push_ignores_configuration_that_changes_what_it_sends(
@@ -1689,20 +1611,18 @@ def test_push_ignores_configuration_that_changes_what_it_sends(
     git_run(pusher, ["commit", "-qam", "bump sub"], env)
     git_run(pusher, ["config", "push.recurseSubmodules", "check"], env)
 
-    out, result = run_git_program(
+    run_git_program(
         "".join(
             f'git::push(repo = "{name}")\n' for name in ("follow", "signed", "options", "pusher")
         ),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert git_lines(bares["follow"], ["tag"], env) == []
     for name in ("follow", "signed", "options", "pusher"):
-        assert git_refs(bares[name], env, "heads") == {"main": git_head(tmp_path / name, env)}
+        assert git_refs(bares[name], env, "heads") == {"main": git_rev(tmp_path / name, env)}
 
 
 def test_option_like_operands_never_act_as_options(
@@ -1728,19 +1648,17 @@ def test_option_like_operands_never_act_as_options(
         'git::push(PushTo("origin", ["--all"]), repo = "repo")',
     ]
     before = git_refs(bare, env, "heads")
-    head = git_head(repo, env)
+    head = git_rev(repo, env)
 
-    out, result = run_git_program(
+    out = run_git_program(
         "".join(agl_raises(call) for call in calls),
         tmp_path,
         monkeypatch,
         capsys,
-        imports=("std/git::*",),
     )
 
-    assert result.ok, result.error
     assert out.splitlines() == ["raised"] * len(calls)
     assert not marker.exists()
     assert git_refs(bare, env, "heads") == before
-    assert git_head(repo, env) == head
+    assert git_rev(repo, env) == head
     assert set(git_refs(repo, env, "heads")) == {"extra", "main"}

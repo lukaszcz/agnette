@@ -56,12 +56,6 @@ def git_lines(cwd: Path, args: Sequence[str], env: dict[str, str]) -> list[str]:
     return _git_stdout(cwd, args, env).splitlines()
 
 
-def git_head(repo: Path, env: dict[str, str]) -> str:
-    """Return the full hash of ``HEAD``."""
-
-    return git_output(repo, ["rev-parse", "HEAD"], env)
-
-
 def git_rev(repo: Path, env: dict[str, str], rev: str = "HEAD") -> str:
     """Return the full hash *rev* resolves to."""
 
@@ -110,10 +104,29 @@ def init_repo(path: Path, env: dict[str, str], *, branch: str = "main") -> Path:
     return path
 
 
+def worktree_files(repo: Path) -> dict[str, str]:
+    """Map each work-tree file of *repo* outside ``.git``, by root-relative path, to its text."""
+
+    return {
+        str(p.relative_to(repo)): p.read_text(encoding="utf-8")
+        for p in sorted(repo.rglob("*"))
+        if p.is_file() and ".git" not in p.relative_to(repo).parts
+    }
+
+
 def write_file(repo: Path, name: str, content: str) -> None:
     """Write *content* to the file *name* in *repo*, replacing any previous content."""
 
     (repo / name).write_text(content, encoding="utf-8")
+
+
+def write_script(directory: Path, name: str, content: str) -> Path:
+    """Write the executable *content* to *name* in *directory* and return its path."""
+
+    write_file(directory, name, content)
+    script = directory / name
+    script.chmod(0o755)
+    return script
 
 
 def forge_object(repo: Path, env: dict[str, str], type_: str, content: str, ref: str) -> None:
@@ -152,6 +165,22 @@ def conflicting_branches(repo: Path, env: dict[str, str], *, name: str = "f.txt"
     commit_file(repo, env, name=name, content="ours\n", message="ours")
 
 
+def record_rerere_resolution(repo: Path, env: dict[str, str]) -> None:
+    """Build :func:`conflicting_branches` with a recorded resolution of their conflict.
+
+    With ``rerere.autoUpdate`` set, a replay of that conflict is staged, not left as a conflict.
+    """
+
+    conflicting_branches(repo, env)
+    for key in ("rerere.enabled", "rerere.autoUpdate"):
+        git_run(repo, ["config", key, "true"], env)
+    git_fails(repo, ["merge", "other"], env)
+    write_file(repo, "f.txt", "resolved\n")
+    git_run(repo, ["add", "f.txt"], env)
+    git_run(repo, ["commit", "-qm", "merged"], env)
+    git_run(repo, ["reset", "-q", "--hard", "HEAD~1"], env)
+
+
 def conflicted_merge(path: Path, env: dict[str, str], *, name: str = "f.txt") -> Path:
     """Create a repository at *path* stopped mid-merge of ``other`` with *name* conflicted."""
 
@@ -159,6 +188,13 @@ def conflicted_merge(path: Path, env: dict[str, str], *, name: str = "f.txt") ->
     conflicting_branches(repo, env, name=name)
     git_fails(repo, ["merge", "other"], env)
     return repo
+
+
+def clone_repo(source: Path, clone: Path, env: dict[str, str]) -> Path:
+    """Clone *source* to *clone* and return *clone*."""
+
+    git_run(None, ["clone", "-q", str(source), str(clone)], env)
+    return clone
 
 
 def clone_local_remote(
@@ -181,9 +217,7 @@ def clone_local_remote(
         git_run(source, ["checkout", "-b", branch, "-q"], env)
         commit_file(source, env, name=f"{branch}.txt", message=f"{branch} commit")
         git_run(source, ["checkout", default_branch, "-q"], env)
-    clone = parent / clone_name
-    git_run(None, ["clone", "-q", str(source), str(clone)], env)
-    return source, clone
+    return source, clone_repo(source, parent / clone_name, env)
 
 
 def clone_bare_remote(
@@ -197,9 +231,7 @@ def clone_bare_remote(
 
     bare = parent / f"{name}-origin.git"
     git_run(None, ["clone", "--bare", "-q", str(source), str(bare)], env)
-    clone = parent / name
-    git_run(None, ["clone", "-q", str(bare), str(clone)], env)
-    return bare, clone
+    return bare, clone_repo(bare, parent / name, env)
 
 
 def add_linked_worktree(repo: Path, worktree: Path, env: dict[str, str], *, branch: str) -> Path:
@@ -250,7 +282,7 @@ def clone_with_fork_remote(
 
     repo = parent / "repo" if repo_dir is None else repo_dir
     repo.parent.mkdir(parents=True, exist_ok=True)
-    git_run(None, ["clone", "-q", str(origin), str(repo)], env)
+    clone_repo(origin, repo, env)
     git_run(repo, ["remote", "add", "fork", str(fork)], env)
     git_run(repo, ["fetch", "-q", "fork"], env)
     return repo

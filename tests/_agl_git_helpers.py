@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.pipeline import PipelineDriver, RunResult
+from agnette.agl.pipeline import PipelineDriver
 from tests._agl_helpers import run_program
 
 
@@ -26,19 +26,21 @@ def run_git_program(
     imports: tuple[str, ...] = (),
     runtime: PipelineDriver | None = None,
     roots: RootSet | None = None,
-) -> tuple[str, RunResult]:
-    """Run *body* as ``main`` with ``std/git`` and ``GitError`` imported and cwd set to *cwd*.
+) -> str:
+    """Run *body* as ``main`` with ``std/git`` and its members imported and cwd set to *cwd*.
 
     ``std/env::environ`` is seeded from the current (isolated) ``os.environ``, as ``agm exec``
     does. *imports* adds further ``import`` lines; *runtime* and *roots* replace the default driver
-    and roots (see :func:`~tests._agl_helpers.run_program`). Returns the program's stdout and its
-    result.
+    and roots (see :func:`~tests._agl_helpers.run_program`). Asserts the program succeeds without
+    warnings and returns its stdout.
     """
-    header = "".join(f"import {name}\n" for name in ("std/git", "std/git::GitError", *imports))
+    header = "".join(f"import {name}\n" for name in ("std/git", "std/git::*", *imports))
     source = f"{header}program def main() -> unit =\n{textwrap.indent(body.strip(), '  ')}\n"
     monkeypatch.chdir(cwd)
     result = run_program(source, process_environment=dict(os.environ), runtime=runtime, roots=roots)
-    return capsys.readouterr().out, result
+    assert result.ok, (result.diagnostics, result.error)
+    assert result.warnings == []
+    return capsys.readouterr().out
 
 
 def agl_check(name: str, actual: str, expected: str) -> str:
@@ -79,6 +81,18 @@ case {label} of
 def agl_array(*items: str) -> str:
     """Return the AgL array literal of the AgL expressions *items*."""
     return "[" + ", ".join(items) + "]"
+
+
+def status_literal(
+    head: str, *entries: str, branch: str = "main", upstream: str = "None", divergence: str = "None"
+) -> str:
+    """Return the AgL ``Status`` of *branch* at *head* holding the ``StatusEntry``s *entries*.
+
+    *upstream* and *divergence* are AgL ``Option`` expressions.
+    """
+    return (
+        f'Status(Some("{head}"), Some("{branch}"), {upstream}, {divergence}, {agl_array(*entries)})'
+    )
 
 
 def tracked_entry(path: str, staged: str = "Unmodified", unstaged: str = "Unmodified") -> str:
