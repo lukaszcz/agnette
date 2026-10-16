@@ -29,8 +29,8 @@ from agnette.agl.semantics.values import (
 )
 from tests._agl_helpers import repl_session_with_root
 
-_ECHO_LIB_AGL = "extern def echo[T](x: T) -> T\n"
-_ECHO_LIB_PY = "def echo(x):\n    return x\n"
+_IDENTITY_LIB_AGL = "extern def identity[T](x: T) -> T\n"
+_IDENTITY_LIB_PY = "def identity(x):\n    return x\n"
 
 
 def _write_extern_lib(root: Path, name: str, agl: str, py: str) -> None:
@@ -323,15 +323,15 @@ class TestFreshImportSeesTheCurrentDeclaration:
 
 class TestBoundaryRoundTripAcrossRedeclaration:
     def test_record_values_round_trip_for_both_old_and_new_identities(self, tmp_path: Path) -> None:
-        _write_extern_lib(tmp_path, "echo_lib", _ECHO_LIB_AGL, _ECHO_LIB_PY)
+        _write_extern_lib(tmp_path, "identity_lib", _IDENTITY_LIB_AGL, _IDENTITY_LIB_PY)
         s = repl_session_with_root(tmp_path)
         assert s.eval_entry("record Box\n  value: int").ok
         assert s.eval_entry("let old = Box(value = 1)").ok
         assert s.eval_entry("record Box\n  value: int\n  extra: int").ok
-        assert s.eval_entry("import echo_lib::*").ok
+        assert s.eval_entry("import identity_lib::*").ok
 
-        old_round_trip = s.eval_entry("echo(old)")
-        new_round_trip = s.eval_entry("let new = Box(value = 2, extra = 3)\necho(new)")
+        old_round_trip = s.eval_entry("identity(old)")
+        new_round_trip = s.eval_entry("let new = Box(value = 2, extra = 3)\nidentity(new)")
 
         assert old_round_trip.ok, old_round_trip.diagnostics
         assert new_round_trip.ok, new_round_trip.diagnostics
@@ -342,15 +342,15 @@ class TestBoundaryRoundTripAcrossRedeclaration:
         assert old_round_trip.value.nominal != new_round_trip.value.nominal
 
     def test_enum_values_round_trip_for_both_old_and_new_identities(self, tmp_path: Path) -> None:
-        _write_extern_lib(tmp_path, "echo_lib", _ECHO_LIB_AGL, _ECHO_LIB_PY)
+        _write_extern_lib(tmp_path, "identity_lib", _IDENTITY_LIB_AGL, _IDENTITY_LIB_PY)
         s = repl_session_with_root(tmp_path)
         assert s.eval_entry("enum Choice\n  | Some(value: int)\n  | Gone").ok
         assert s.eval_entry("let old = Choice::Gone").ok
         assert s.eval_entry("enum Choice\n  | Some(value: int)\n  | Other").ok
-        assert s.eval_entry("import echo_lib::*").ok
+        assert s.eval_entry("import identity_lib::*").ok
 
-        old_round_trip = s.eval_entry("echo(old)")
-        new_round_trip = s.eval_entry("let new = Choice::Other\necho(new)")
+        old_round_trip = s.eval_entry("identity(old)")
+        new_round_trip = s.eval_entry("let new = Choice::Other\nidentity(new)")
 
         assert old_round_trip.ok, old_round_trip.diagnostics
         assert new_round_trip.ok, new_round_trip.diagnostics
@@ -367,16 +367,16 @@ class TestBoundaryRoundTripAcrossRedeclaration:
     def test_exception_values_round_trip_for_both_old_and_new_identities(
         self, tmp_path: Path
     ) -> None:
-        _write_extern_lib(tmp_path, "echo_lib", _ECHO_LIB_AGL, _ECHO_LIB_PY)
+        _write_extern_lib(tmp_path, "identity_lib", _IDENTITY_LIB_AGL, _IDENTITY_LIB_PY)
         s = repl_session_with_root(tmp_path)
         assert s.eval_entry("exception Problem extends Exception\n  detail: text").ok
         assert s.eval_entry('let old = Problem(message = "old", detail = "x")').ok
         assert s.eval_entry("exception Problem extends Exception\n  detail: text\n  code: int").ok
-        assert s.eval_entry("import echo_lib::*").ok
+        assert s.eval_entry("import identity_lib::*").ok
 
-        old_round_trip = s.eval_entry("echo(old)")
+        old_round_trip = s.eval_entry("identity(old)")
         new_round_trip = s.eval_entry(
-            'let new = Problem(message = "new", detail = "y", code = 1)\necho(new)'
+            'let new = Problem(message = "new", detail = "y", code = 1)\nidentity(new)'
         )
 
         assert old_round_trip.ok, old_round_trip.diagnostics

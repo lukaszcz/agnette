@@ -22,6 +22,7 @@ import std/env
 import std/errors::Exception
 import std/fs::exists
 import std/fs::read
+import std/fun
 import std/option::Option
 import std/pair::Pair
 import std/path
@@ -1803,7 +1804,7 @@ scope remote
   def list(repo: path = ".") -> array[Remote] =
     let found = GitInternals::run(repo, ["remote"]).stdout.lines()
       .map(fn(name: text) => GitInternals::remote-of(repo, name))
-    array::map-some(found, identity)
+    array::map-some(found, fun::id)
 
   @doc("""
     Add the remote `name` fetching from `url`, which is stored as given and not fetched.

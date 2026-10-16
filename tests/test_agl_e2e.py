@@ -2221,6 +2221,20 @@ def test_pipeline_run_invokes_the_single_entry_program(capsys: pytest.CaptureFix
     assert capsys.readouterr().out == "hello\n"
 
 
+def test_fun_id_is_reached_through_its_module_not_the_prelude(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agnette.agl import PipelineDriver
+
+    driver = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+    qualified = driver.run("import std/fun\nprogram def main() -> unit = print(fun::id(3))")
+    bare = driver.run("program def main() -> unit = print(id(3))", check_only=True)
+
+    assert qualified.ok
+    assert capsys.readouterr().out == "3\n"
+    assert not bare.ok
+
+
 def test_pipeline_check_only_rejects_ambiguous_default_program() -> None:
     from agnette.agl import PipelineDriver
 

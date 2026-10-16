@@ -3,7 +3,7 @@ export std/dict::{dict}
 export std/text::{text, ++}
 export std/json::{json}
 export std/math::{int, decimal, bool}
-export std/fun
+export std/fun hiding id
 export std/errors
 export std/option
 export std/optional
