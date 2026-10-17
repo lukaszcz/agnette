@@ -1,0 +1,12 @@
+import std/errors::RangeError
+
+program def main(size: int) -> unit =
+  let values = [1, 2, 3, 4]
+  print(values.chunks(size))
+  print(["a", "b", "c"].chunks(size))
+  let empty: array[int] = []
+  print(empty.chunks(size))
+  let groups = values.chunks(size)
+  groups[0].push(9)
+  print(values)
+  print(groups[0])

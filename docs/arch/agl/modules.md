@@ -40,4 +40,4 @@ Imported modules are precompiled on demand and reused in memory and across proce
 - `src/agnette/agl/modules/` — module ids, roots, resolution, graph loading, the parsed-module and disk caches.
 - `src/agnette/agl/artifact_cache.py`, `artifact_serialization.py`, `artifact_storage.py` — cross-compilation artifact cache and its storage.
 - `src/agnette/config/module_roots.py`, `src/agnette/packages/` — configured and package-mounted roots.
-- `packages/stdlib/src/` — the standard library.
+- `packages/stdlib/src/` — the standard library; `text.agl` and `array.agl` own reusable text and collection operations, while `git.agl` owns repository operations and Git protocol parsing.

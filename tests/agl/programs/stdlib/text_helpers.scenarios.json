@@ -1,0 +1,25 @@
+{
+  "scenarios": [
+    {
+      "name": "newline_helpers_remove_only_trailing_lf_characters",
+      "params": {"mode": 1},
+      "expect": {
+        "stdout": "[\"\", \"plain\", \"\", \"é😀\\n\", \" leading \\n \", \"x\\r\", \"x\\ny\"]\n[\"\", \"plain\", \"\", \"é😀\", \" leading \\n \", \"x\\r\", \"x\\ny\"]\nx\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "without_prefix_removes_one_literal_unicode_prefix",
+      "params": {"mode": 2},
+      "expect": {"stdout": "tail\nprefix\ntext\ntext\n\n\n", "calls": {}}
+    },
+    {
+      "name": "split_nul_preserves_empty_records_but_drops_the_final_terminator",
+      "params": {"mode": 3},
+      "expect": {
+        "stdout": "[]\n[\"one\"]\n[\"one\", \"two\"]\n[\"one\", \"two\"]\n[\"\"]\n[\"\", \"a\", \"\"]\n[\"a\\nb\", \"é😀\"]\n",
+        "calls": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "scenarios": [
+    {
+      "name": "chunks_are_generic_and_independent_with_a_partial_final_chunk",
+      "params": {"size": 2},
+      "expect": {"stdout": "[[1, 2], [3, 4]]\n[[\"a\", \"b\"], [\"c\"]]\n[]\n[1, 2, 3, 4]\n[1, 2, 9]\n", "calls": {}}
+    },
+    {
+      "name": "oversized_chunks_keep_all_elements",
+      "params": {"size": 9},
+      "expect": {"stdout": "[[1, 2, 3, 4]]\n[[\"a\", \"b\", \"c\"]]\n[]\n[1, 2, 3, 4]\n[1, 2, 3, 4, 9]\n", "calls": {}}
+    },
+    {
+      "name": "zero_chunk_size_is_rejected",
+      "params": {"size": 0},
+      "expect": {"stdout": "", "raises": {"type": "RangeError"}, "calls": {}}
+    },
+    {
+      "name": "negative_chunk_size_is_rejected",
+      "params": {"size": -1},
+      "expect": {"stdout": "", "raises": {"type": "RangeError"}, "calls": {}}
+    }
+  ]
+}

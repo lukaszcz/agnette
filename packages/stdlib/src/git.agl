@@ -320,30 +320,6 @@ scope GitInternals
     else =>
       pathspecs(paths)
 
-  @doc("Remove one trailing newline.")
-  def chomp(out: text) -> text =
-    if out.ends-with("\n") =>
-      out.slice(0, -1)
-    else =>
-      out
-
-  @doc("Split NUL-terminated output into its records.")
-  def split-nul(out: text) -> array[text] =
-    let parts = out.split("\u0000")
-    if parts.last() == "" =>
-      parts.take(parts.size() - 1)
-    else =>
-      parts
-
-  @doc("Group `items` into consecutive records of `size` items.")
-  def chunks(items: array[text], size: int) -> array[array[text]] =
-    var records: array[array[text]] = []
-    var start = 0
-    while start < items.size() do
-      records.push(items.slice(start, start + size))
-      start := start + size
-    records
-
   @doc("Parse the text after the first character as an int, as in `+3` or `R100`.")
   def tail-int(code: text) -> int = code.slice(1, code.size()) as int
 
@@ -401,7 +377,7 @@ scope GitInternals
 
   @doc("Parse `status --porcelain=v2 -z --branch` output, using symbolic `HEAD` to resolve its sentinel.")
   def parse-status(out: text, symbolic-head: Option[ref]) -> Status =
-    let items = split-nul(out)
+    let items = out.split-nul()
     var head: Option[ref] = None
     var branch: Option[ref] = None
     var upstream: Option[ref] = None
@@ -448,14 +424,6 @@ scope GitInternals
   def signature-of(fields: array[text]) -> Signature =
     Signature(fields[0], fields[1], fields[2] as time, fields[3])
 
-  @doc("Remove all trailing newlines.")
-  def trim-newlines(out: text) -> text =
-    let trimmed = chomp(out)
-    if trimmed == out =>
-      out
-    else =>
-      trim-newlines(trimmed)
-
   @doc("Build a commit from one `log-format` record; only trailing newlines leave the body.")
   def commit-of(fields: array[text]) -> Commit =
     let parents = if fields[1].is-empty() => [] else => fields[1].split(" ")
@@ -465,7 +433,7 @@ scope GitInternals
       signature-of(fields.slice(2, 6)),
       signature-of(fields.slice(6, 10)),
       fields[10],
-      trim-newlines(fields[11]),
+      fields[11].trim-newlines(),
     )
 
   @doc("""
@@ -489,7 +457,7 @@ scope GitInternals
     ]
     let args = pinned.concat(flags).concat(["--end-of-options"]).concat(revs).concat(["--"])
     let out = run(repo, args.concat(specs)).stdout
-    chunks(split-nul(out), log-fields()).map(commit-of)
+    out.split-nul().chunks(log-fields()).map(commit-of)
 
   @doc("The `diff` option that selects the two sides, before `--end-of-options`.")
   def diff-flags(sides: Diff) -> array[text] =
@@ -546,7 +514,7 @@ scope GitInternals
   # so `change-of` falls back to `U` only for unmerged paths.
   @doc("Parse `diff --name-status -z` output; a rename lists its similarity, source, destination.")
   def parse-name-status(out: text) -> array[FileChange] =
-    let items = split-nul(out)
+    let items = out.split-nul()
     var changes: array[FileChange] = []
     var i = 0
     while i < items.size() do
@@ -569,7 +537,7 @@ scope GitInternals
     the destination.
   """)
   def parse-numstat(out: text) -> array[FileStat] =
-    let items = split-nul(out)
+    let items = out.split-nul()
     var stats: array[FileStat] = []
     var i = 0
     while i < items.size() do
@@ -588,12 +556,12 @@ scope GitInternals
   """)
   def unmerged(repo: path) -> array[path] =
     let format = ["--name-only", "-z", "--diff-filter=U"]
-    split-nul(diff-output(repo, format, IndexToWorktree, [], false))
+    diff-output(repo, format, IndexToWorktree, [], false).split-nul()
 
   @doc("Return an absolute git path, removing only git's final output newline.")
   def absolute-git-path(repo: path, name: path) -> path =
     let output = run(repo, ["rev-parse", "--path-format=absolute", "--git-path", name]).stdout
-    output.slice(0, output.size() - 1)
+    output.chomp()
 
   @doc("The git command that drives `op`.")
   def command-of(op: Operation) -> text =
@@ -704,7 +672,7 @@ scope GitInternals
       head,
     ]
     let res = run(repo, args)
-    let refs = split-nul(res.stdout)
+    let refs = res.stdout.split-nul()
     if refs[0].is-empty() =>
       fail-in(repo, args, res)
     refs.take(3)
@@ -720,13 +688,6 @@ scope GitInternals
       | AllRemotes => ["--all"]
       | FetchFrom(remote, refspecs) => remote-operands(remote, refspecs)
 
-  @doc("Remove `prefix` from the start of `name` when it has it.")
-  def without-prefix(name: text, prefix: text) -> text =
-    if name.starts-with(prefix) =>
-      name.slice(prefix.size(), name.size())
-    else =>
-      name
-
   @doc("""
     Return one row per ref under `namespace`, each with the values of `atoms`, ordered by ref
     name.
@@ -736,10 +697,10 @@ scope GitInternals
   """)
   def ref-rows(repo: path, namespace: text, atoms: array[text]) -> array[array[text]] =
     let format = "--format=" ++ join(atoms, "%00") ++ "%00"
-    let items = split-nul(run(repo, ["for-each-ref", format, namespace]).stdout)
+    let items = run(repo, ["for-each-ref", format, namespace]).stdout.split-nul()
     let fields = if items.is-empty() => items else => items.take(items.size() - 1)
-    chunks(fields, atoms.size()).map(fn(row: array[text]) =>
-      [without-prefix(row[0], "\n")].concat(row.drop(1)))
+    fields.chunks(atoms.size()).map(fn(row: array[text]) =>
+      [row[0].without-prefix("\n")].concat(row.drop(1)))
 
   @doc("Build a branch from a `branch::list` row.")
   def branch-of(row: array[text]) -> Branch =
@@ -771,7 +732,7 @@ scope GitInternals
           target := peeled[next]
           next := next + 1
         let message = row[5].slice(0, row[5].size() - row[6].size())
-        tags.push(Tag(row[0], target, Some(trim-newlines(message))))
+        tags.push(Tag(row[0], target, Some(message.trim-newlines())))
     tags
 
   @doc("Build a stash entry from a `stash::list` row: its `stash@{n}` name, hash and subject.")
@@ -803,7 +764,7 @@ scope GitInternals
 
   @doc("The value of the porcelain attribute `line` named `key`: empty when it has none.")
   def attribute-value(line: text, key: text) -> text =
-    without-prefix(without-prefix(line, key), " ")
+    line.without-prefix(key).without-prefix(" ")
 
   @doc("""
     Build a work tree from the porcelain attribute lines of one `worktree list` record.
@@ -823,7 +784,7 @@ scope GitInternals
       case key of
         | "worktree" => location := value
         | "HEAD" => head := named(value, "0".repeat(value.size()))
-        | "branch" => branch := Some(without-prefix(value, "refs/heads/"))
+        | "branch" => branch := Some(value.without-prefix("refs/heads/"))
         | "bare" => bare := true
         | "locked" => locked := Some(value)
         | "prunable" => prunable := Some(value)
@@ -838,7 +799,7 @@ scope GitInternals
   def parse-worktrees(out: text) -> array[Worktree] =
     var found: array[Worktree] = []
     var lines: array[text] = []
-    for item in split-nul(out) do
+    for item in out.split-nul() do
       if item.is-empty() =>
         found.push(worktree-of(lines))
         lines := []
@@ -861,11 +822,11 @@ scope GitInternals
   """)
   def fetch-url?(repo: path, name: text) -> Option[text] =
     optional(repo, remote-args("get-url", false, [name]), 2)
-      .map(fn(res: ExecResult) => chomp(res.stdout))
+      .map(fn(res: ExecResult) => res.stdout.chomp())
 
   @doc("Return the push URL of the remote `name` as git reads it, after `pushInsteadOf`.")
   def push-url(repo: path, name: text) -> text =
-    chomp(run(repo, remote-args("get-url", true, [name])).stdout)
+    run(repo, remote-args("get-url", true, [name])).stdout.chomp()
 
   @doc("Build the remote `name`, or return `None` when the repository does not define it.")
   def remote-of(repo: path, name: text) -> Option[Remote] =
@@ -876,7 +837,7 @@ scope GitInternals
     ["config"].concat(flags).concat(["--get", "--end-of-options", key])
 
   @doc("Return the value in the `-z` result of a successful `config --get`.")
-  def config-value(res: ExecResult) -> text = split-nul(res.stdout)[0]
+  def config-value(res: ExecResult) -> text = res.stdout.split-nul()[0]
 
   @doc("The `config` option that selects the file of `level`.")
   def config-level(level: ConfigScope) -> text =
@@ -906,7 +867,7 @@ def is-repo(repo: path = ".") -> bool =
   Raises `GitError` when `repo` is not inside a work tree.
 """)
 def root(repo: path = ".") -> path =
-  GitInternals::chomp(GitInternals::run(repo, ["rev-parse", "--show-toplevel"]).stdout)
+  GitInternals::run(repo, ["rev-parse", "--show-toplevel"]).stdout.chomp()
 
 @doc("""
   Create a repository at `repo`, with `branch` as its initial branch when given.
@@ -940,7 +901,7 @@ def clone(url: text, repo: path, branch: Option[ref] = None, depth: Option[int] 
 def files(paths: array[path] = [], repo: path = ".") -> array[path] =
   let base = ["ls-files", "-z", "--full-name", "--deduplicate", "--"]
   let args = base.concat(GitInternals::tree-specs(paths))
-  GitInternals::split-nul(GitInternals::run(repo, args).stdout)
+  GitInternals::run(repo, args).stdout.split-nul()
 
 @doc("""
   Return the full hash of the commit `rev` names.
@@ -1529,8 +1490,7 @@ scope branch
   """)
   def current(repo: path = ".") -> Option[ref] =
     GitInternals::optional(repo, ["symbolic-ref", "-q", "HEAD"])
-      .map(fn(res: ExecResult) =>
-        GitInternals::without-prefix(GitInternals::chomp(res.stdout), "refs/heads/"))
+      .map(fn(res: ExecResult) => res.stdout.chomp().without-prefix("refs/heads/"))
 
   @doc("""
     Create the branch `name` at `start`, without tracking anything.
@@ -1697,7 +1657,7 @@ scope stash
   def list(repo: path = ".") -> array[StashEntry] =
     # `--encoding` keeps the output UTF-8 whatever `i18n.logOutputEncoding` says.
     let args = ["stash", "list", "-z", "--encoding=UTF-8", "--format=%gd%x00%H%x00%gs"]
-    GitInternals::chunks(GitInternals::split-nul(GitInternals::run(repo, args).stdout), 3)
+    GitInternals::run(repo, args).stdout.split-nul().chunks(3)
       .map(GitInternals::stash-of)
 
   @doc("""

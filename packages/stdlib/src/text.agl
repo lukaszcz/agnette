@@ -54,6 +54,35 @@ extern def text::split(self, separator: text) -> array[text]
 @doc("Remove leading and trailing whitespace.")
 extern def text::trim(self) -> text
 
+@doc("Remove one trailing `\\n`, preserving all other characters.")
+def text::chomp(self) -> text =
+  if self.ends-with("\n") =>
+    self.slice(0, -1)
+  else =>
+    self
+
+@doc("Remove all trailing `\\n` characters, preserving other whitespace.")
+def text::trim-newlines(self) -> text =
+  var end = self.size()
+  while end > 0 and self.slice(end - 1, end) == "\n" do
+    end := end - 1
+  self.slice(0, end)
+
+@doc("Remove one occurrence of `prefix` from the start, if present.")
+def text::without-prefix(self, prefix: text) -> text =
+  if self.starts-with(prefix) =>
+    self.slice(prefix.size(), self.size())
+  else =>
+    self
+
+@doc("Split NUL-separated records, dropping one final terminator; empty text yields no records.")
+def text::split-nul(self) -> array[text] =
+  let parts = self.split("\u0000")
+  if parts.last() == "" =>
+    parts.take(parts.size() - 1)
+  else =>
+    parts
+
 @doc("Return the text converted to uppercase.")
 extern def text::upper(self) -> text
 

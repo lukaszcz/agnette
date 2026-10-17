@@ -1,0 +1,22 @@
+program def main(mode: int) -> unit =
+  case mode of
+    | 1 =>
+      let values = ["", "plain", "\n", "é😀\n\n", " leading \n \n", "x\r\n", "x\ny"]
+      print(values.map(fn(value: text) => value.chomp()))
+      print(values.map(fn(value: text) => value.trim-newlines()))
+      print(("x" ++ "\n".repeat(2000)).trim-newlines())
+    | 2 =>
+      print("é😀tail".without-prefix("é😀"))
+      print("prefixprefix".without-prefix("prefix"))
+      print("text".without-prefix(""))
+      print("text".without-prefix("missing"))
+      print("text".without-prefix("text"))
+      print("".without-prefix("x"))
+    | _ =>
+      print("".split-nul())
+      print("one".split-nul())
+      print("one\u0000two\u0000".split-nul())
+      print("one\u0000two".split-nul())
+      print("\u0000".split-nul())
+      print("\u0000a\u0000\u0000".split-nul())
+      print("a\nb\u0000é😀\u0000".split-nul())
