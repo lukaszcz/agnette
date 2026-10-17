@@ -1116,13 +1116,15 @@ def move(source: path, destination: path, repo: path = ".") -> unit =
 
   `all` first stages modifications and deletions of tracked files, `amend` replaces the last
   commit, `allow-empty` permits a commit without changes, and `verify` runs the pre-commit and
-  commit-msg hooks. Whitespace in `message` is cleaned up; `#` lines are kept.
+  commit-msg hooks. `message` is treated as UTF-8 regardless of Git's `i18n.commitEncoding`;
+  whitespace is cleaned up and `#` lines are kept.
 
   Raises `GitError` when there is nothing to commit or a hook fails.
 """)
 def commit(message: text, all: bool = false, amend: bool = false, allow-empty: bool = false,
            verify: bool = true, repo: path = ".") -> ref =
-  var args = ["commit", "-q", "--cleanup=whitespace", "-m", message]
+  var args = ["-c", "i18n.commitEncoding=UTF-8", "commit", "-q",
+              "--cleanup=whitespace", "-m", message]
   if all =>
     args.push("--all")
   if amend =>

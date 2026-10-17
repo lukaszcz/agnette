@@ -551,6 +551,28 @@ print(git::resolve("HEAD~1", "repo") == amended)
     assert git_output(repo, ["rev-list", "--count", "HEAD"], env) == "4"
 
 
+def test_commit_uses_utf8_despite_configured_commit_encoding(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = init_repo(tmp_path / "repo", env)
+    git_run(repo, ["config", "i18n.commitEncoding", "ISO-8859-1"], env)
+    write_file(repo, "tracked.txt", "content\n")
+    git_run(repo, ["add", "tracked.txt"], env)
+
+    out = run_git_program(
+        'let _ = git::commit("café", verify = false, repo = "repo")\n'
+        + agl_check("subject", 'git::show(repo = "repo").subject', '"café"'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == ["ok"]
+
+
 def test_checkout_switches_to_local_branches_and_detaches_otherwise(
     tmp_path: Path,
     env: dict[str, str],
