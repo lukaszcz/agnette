@@ -1570,12 +1570,14 @@ scope branch
     Raises `GitError` when `branch` or `base` names no commit, or is itself a range.
   """)
   def compare(branch: ref, base: ref, repo: path = ".") -> Divergence =
+    let left = resolve(branch, repo)
+    let right = resolve(base, repo)
     let args = [
       "rev-list",
       "--left-right",
       "--count",
       "--end-of-options",
-      "%{branch}...%{base}",
+      "%{left}...%{right}",
       "--",
     ]
     let counts = GitInternals::run(repo, args).stdout.trim().split("\t")

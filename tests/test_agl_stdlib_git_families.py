@@ -275,13 +275,19 @@ def test_branch_compare_counts_commits_on_each_side(
     git_run(repo, ["checkout", "-q", "main"], env)
     commit_file(repo, env, name="m1.txt", message="m1")
     git_run(repo, ["checkout", "-q", "--detach", "base"], env)
+    commit_file(repo, env, name="search.txt", message="first...subject")
     (repo / "main...main").touch()
 
     out = run_git_program(
         agl_check("ahead", 'git::branch::compare("topic", "main", "repo")', "Divergence(2, 1)")
         + agl_check("behind", 'git::branch::compare("main", "topic", "repo")', "Divergence(1, 2)")
         + agl_check("same", 'git::branch::compare("main", "main", "repo")', "Divergence(0, 0)")
-        + agl_check("head", 'git::branch::compare("HEAD", "topic", "repo")', "Divergence(0, 2)")
+        + agl_check("head", 'git::branch::compare("HEAD", "topic", "repo")', "Divergence(1, 2)")
+        + agl_check(
+            "search",
+            'git::branch::compare(":/first...subject", "main", "repo")',
+            "Divergence(1, 1)",
+        )
         + agl_raises('git::branch::compare("topic..main", "main", "repo")')
         + agl_raises('git::branch::compare("topic", "nope", "repo")'),
         tmp_path,
@@ -289,7 +295,7 @@ def test_branch_compare_counts_commits_on_each_side(
         capsys,
     )
 
-    assert out.splitlines() == ["ok", "ok", "ok", "ok", "raised", "raised"]
+    assert out.splitlines() == ["ok", "ok", "ok", "ok", "ok", "raised", "raised"]
 
 
 def _tag(name: str, target: str, message: str | None = None) -> str:
