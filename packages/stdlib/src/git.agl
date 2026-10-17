@@ -673,6 +673,8 @@ scope GitInternals
     ]
     let res = run(repo, args)
     let refs = res.stdout.split-nul()
+    if refs.is-empty() =>
+      fail-in(repo, args, res)
     if refs[0].is-empty() =>
       fail-in(repo, args, res)
     refs.take(3)

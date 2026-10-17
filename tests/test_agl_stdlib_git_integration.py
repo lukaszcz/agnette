@@ -1358,6 +1358,24 @@ def test_pull_integrates_per_mode_ignoring_pull_configuration(
     assert git_parents(tmp_path / "divr", env) == [tips["divr"]]
 
 
+def test_default_pull_and_push_report_missing_upstream_on_an_unborn_branch(
+    tmp_path: Path,
+    env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    git_run(tmp_path, ["init", "-q", "-b", "main", "unborn"], env)
+
+    out = run_git_program(
+        agl_raises('git::pull(repo = "unborn")') + agl_raises('git::push(repo = "unborn")'),
+        tmp_path,
+        monkeypatch,
+        capsys,
+    )
+
+    assert out.splitlines() == ["raised", "raised"]
+
+
 def test_pull_rejects_a_deleted_upstream_branch(
     tmp_path: Path,
     env: dict[str, str],
