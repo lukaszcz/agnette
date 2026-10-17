@@ -13,7 +13,7 @@ Import, `use`, `hiding`, re-exports, and scoped imports are resolved by scope ([
 
 ## Prelude and Built-in Declarations
 
-- Every module except `std/prelude` receives the prelude unless the host disables it; the prelude only re-exports other standard modules.
+- Every module except `std/prelude` receives the prelude unless the host disables it; the prelude only re-exports other standard modules, including transparent scalar aliases (`path`, `url`, Unix-epoch `time`).
 - The standard declaration of a built-in name is its `builtin` declaration in any standard-library module; a non-stdlib `builtin` declaration overrides it. Undeclared built-ins (e.g. under `--no-stdlib`) fall back to reserved identities.
 - Standard modules may declare host-backed `builtin var` bindings; only root `std/config` bindings are engine settings ([hosting.md](hosting.md)).
 - Modules with `extern def` declarations have Python companions ([execution/ffi.md](execution/ffi.md)).

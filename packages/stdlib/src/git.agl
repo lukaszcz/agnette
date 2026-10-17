@@ -29,6 +29,7 @@ import std/path
 import std/path::path
 import std/text::{++}
 import std/text::join
+import std/time::time
 
 @doc("Any revision: branch, tag, hash, `HEAD~2`, `stash@{0}`, `FETCH_HEAD`.")
 type ref = text
@@ -50,7 +51,7 @@ record Signature
   name: text
   email: text
   @doc("Unix epoch seconds.")
-  time: decimal
+  time: time
   @doc("Git's `±HHMM` offset.")
   timezone: text
 
@@ -445,7 +446,7 @@ scope GitInternals
 
   @doc("Build a signature from its name, email, epoch-seconds, and `%z` offset fields.")
   def signature-of(fields: array[text]) -> Signature =
-    Signature(fields[0], fields[1], fields[2] as decimal, fields[3])
+    Signature(fields[0], fields[1], fields[2] as time, fields[3])
 
   @doc("Remove all trailing newlines.")
   def trim-newlines(out: text) -> text =

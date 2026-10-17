@@ -21,6 +21,11 @@
       "expect": {"stdout": "true\ntrue\n", "calls": {}}
     },
     {
+      "name": "time_alias_works_with_decimals_git_signatures_and_parse_wrappers",
+      "params": {"mode": 6},
+      "expect": {"stdout": "1969-12-31T23:59:59.500000+00:00\ntrue\ntrue\ntrue\ntrue\n", "calls": {}}
+    },
+    {
       "name": "clock_operations_have_stable_shape_and_a_monotonic_elapsed_clock",
       "params": {"mode": 3},
       "expect": {"stdout": "true\ntrue\ntrue\ntrue\ntrue\n", "calls": {}}

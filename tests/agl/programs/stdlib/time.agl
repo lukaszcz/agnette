@@ -1,12 +1,13 @@
+import std/git::Signature
 import std/time
 import std/time::TimeParseError
 
 program def main(mode: int) -> unit =
   case mode of
     | 1 =>
-        let epoch = time::parse-iso("2024-01-02T03:04:05.123456+00:00")
+        let epoch: time = time::parse-iso("2024-01-02T03:04:05.123456+00:00")
         print(time::format-iso(epoch))
-        let parsed = time::parse("2024/01/02 03:04:05.123456 +0000", "%Y/%m/%d %H:%M:%S.%f %z")
+        let parsed: time::time = time::parse("2024/01/02 03:04:05.123456 +0000", "%Y/%m/%d %H:%M:%S.%f %z")
         print(time::format(parsed, "%Y/%m/%d %H:%M:%S.%f %z"))
         print(parsed == epoch)
     | 2 =>
@@ -25,8 +26,22 @@ program def main(mode: int) -> unit =
         let stamp = time::timestamp()
         print(stamp.size() == 22)
         print(time::try-parse(stamp, "%Y%m%d-%H%M%S-%f").is-ok())
+    | 6 =>
+        let epoch: time = -0.5
+        let seconds: decimal = epoch
+        let signature = Signature("Author", "author@example.com", epoch, "+0000")
+        let authored: time = signature.time
+        let result: Result[time, TimeParseError] = time::try-parse-iso(time::format-iso(authored))
+        let parsed: Result[time, TimeParseError] = time::try-parse("1970-01-01", "%Y-%m-%d")
+        let iso-option: Option[time] = time::parse-iso?("1969-12-31T23:59:59.500000Z")
+        let option: Option[time] = time::parse?("1970-01-01", "%Y-%m-%d")
+        print(time::format-iso(seconds))
+        print(result.ok() == iso-option)
+        print(parsed.ok() == option)
+        print(time::parse-iso?("invalid").is-none())
+        print(time::parse?("invalid", "%Y-%m-%d").is-none())
     | _ =>
-        let epoch = time::now()
+        let epoch: time = time::now()
         print(time::format-iso(epoch).contains("T"))
         print(time::now-iso().contains("T"))
         let earlier = time::monotonic()

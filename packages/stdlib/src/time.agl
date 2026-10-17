@@ -1,11 +1,14 @@
 import std/result::Result
 import std/option::Option
 
+@doc("Unix epoch seconds, including fractional seconds. A transparent alias of `decimal`.")
+type time = decimal
+
 exception TimeParseError extends Exception
   raw: text
 
 @doc("Return the current Unix epoch timestamp with nanosecond source precision.")
-extern def now() -> decimal
+extern def now() -> time
 
 @extern-name("now_iso")
 @doc("Return the current UTC time as an ISO-8601 timestamp.")
@@ -23,21 +26,21 @@ extern def sleep(seconds: decimal) -> unit
 
   Raises `TimeParseError` when the input does not match the timestamp format.
 """)
-extern def parse-iso(value: text) -> decimal
+extern def parse-iso(value: text) -> time
 
 @doc("Parse ISO-8601 text as Unix epoch seconds, returning `TimeParseError` as `Err`.")
-def try-parse-iso(value: text) -> Result[decimal, TimeParseError] =
+def try-parse-iso(value: text) -> Result[time, TimeParseError] =
   try Ok(parse-iso(value)) catch TimeParseError as e => Err(e)
 @doc("Parse ISO-8601 text as Unix epoch seconds, or return `None` on failure.")
-def parse-iso?(value: text) -> Option[decimal] =
+def parse-iso?(value: text) -> Option[time] =
   try-parse-iso(value).ok()
 
 @extern-name("format_iso")
 @doc("Format Unix epoch seconds as a UTC ISO-8601 timestamp.")
-extern def format-iso(epoch: decimal) -> text
+extern def format-iso(epoch: time) -> text
 
 @doc("Format Unix epoch seconds in UTC with a strftime format.")
-extern def format(epoch: decimal, fmt: text) -> text
+extern def format(epoch: time, fmt: text) -> text
 
 @doc("Return the current UTC timestamp in YYYYMMDD-HHMMSS-ffffff form.")
 def timestamp() -> text = format(now(), "%Y%m%d-%H%M%S-%f")
@@ -46,11 +49,11 @@ def timestamp() -> text = format(now(), "%Y%m%d-%H%M%S-%f")
 
   Raises `TimeParseError` when the input does not match the timestamp format.
 """)
-extern def parse(value: text, fmt: text) -> decimal
+extern def parse(value: text, fmt: text) -> time
 
 @doc("Parse text with a strptime format, returning `TimeParseError` as `Err`.")
-def try-parse(value: text, fmt: text) -> Result[decimal, TimeParseError] =
+def try-parse(value: text, fmt: text) -> Result[time, TimeParseError] =
   try Ok(parse(value, fmt)) catch TimeParseError as e => Err(e)
 @doc("Parse text with a strptime format, or return `None` on failure.")
-def parse?(value: text, fmt: text) -> Option[decimal] =
+def parse?(value: text, fmt: text) -> Option[time] =
   try-parse(value, fmt).ok()

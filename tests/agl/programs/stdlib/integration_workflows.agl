@@ -11,7 +11,7 @@ import std/text
 import std/time
 import std/toml
 
-def parse-schedule(path: path) -> decimal =
+def parse-schedule(path: path) -> time =
   let content = fs::read(path)
   let document = toml::parse(content)
   time::parse-iso((document.get("when") as text).slice(1, -1))
