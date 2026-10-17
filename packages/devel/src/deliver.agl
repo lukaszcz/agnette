@@ -241,3 +241,24 @@ program def implement-tasks-main(
   interactive: bool = false
 ) -> unit =
   agent.implement-tasks(plan-file, tasks-dir, impl-model, review-model, jobs, interactive)
+
+@command("devel implement-plan")
+@doc("Divide a plan into tasks and implement them in a single agent session")
+program def implement-plan-main(
+  agent: Agent = config::default-agent,
+  plan-file: path = ".agent-files/PLAN.md",
+  tasks-dir: path = default-tasks-dir,
+  @doc("Implementation model. Empty string means not specified.")
+  impl-model: text = "",
+  @doc("Review model. Empty string means not specified.")
+  review-model: text = "",
+  @opt-short("j")
+  @doc("Number of parallel jobs.")
+  jobs: int = 0,
+  @opt-short("i")
+  interactive: bool = false,
+  @doc("Extra instructions for task creation.")
+  instructions: text = ""
+) -> unit =
+  agent.make-tasks(plan-file, tasks-dir, instructions)
+  agent.implement-tasks(plan-file, tasks-dir, impl-model, review-model, jobs, interactive)
