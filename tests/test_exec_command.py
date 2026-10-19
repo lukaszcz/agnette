@@ -1449,6 +1449,22 @@ class TestExecExitCodeMapping:
         for fragment in expected_fragments:
             assert fragment in captured.err
 
+    def test_unrelated_python_runtime_error_still_propagates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.pipeline import PipelineDriver
+
+        agl_file = tmp_path / "test.agl"
+        write_file_program(agl_file, "let x = 1\nx\n")
+
+        def fail_runtime(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("internal bug")
+
+        monkeypatch.setattr(PipelineDriver, "run_prepared", fail_runtime)
+
+        with pytest.raises(RuntimeError, match="internal bug"):
+            exec_command.run(_exec_args(agl_file))
+
 
 class TestExecCommandWarnings:
     """Warning-severity diagnostics are reported but never affect the exit code.
@@ -1873,6 +1889,36 @@ class TestExecCommandExitCodes:
         with pytest.raises(SystemExit) as exc_info:
             exec_command.run(args)
         assert exc_info.value.code == 2
+
+    def test_agent_interrupt_exits_without_an_interpreter_traceback(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        runner: CliRunner,
+    ) -> None:
+        from agnette.agl.runtime.request import AgentRequest, AgentResponse
+        from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
+
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(agl_file, 'ask("hi")\n')
+
+        def interrupted_agent(_request: AgentRequest) -> AgentResponse:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(
+            exec_engine, "value_driven_agent_factory", lambda **_: interrupted_agent
+        )
+        monkeypatch.setattr(
+            exec_engine,
+            "create_agl_session_host",
+            lambda **_: AgentDispatcherSessionHost(interrupted_agent),
+        )
+
+        result = invoke(runner, ["exec", str(agl_file)])
+
+        assert result.exit_code == 130
+        assert "Agent call cancelled" in result.output
+        assert "Traceback" not in result.output
 
     def test_static_error_exits_1_not_2(self, tmp_path: Path) -> None:
         agl_file = tmp_path / "test.agl"

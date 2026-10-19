@@ -1708,7 +1708,13 @@ app.add_typer(tmux_app, name="tmux")
 
 
 def main() -> None:
-    app()
+    try:
+        app()
+    except Exception as exc:
+        from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
+
+        exit_for_agl_exception(exc)
+        raise
 
 
 if __name__ == "__main__":

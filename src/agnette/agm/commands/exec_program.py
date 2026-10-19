@@ -77,6 +77,7 @@ from agnette.agl.runtime.types import ProgramDeclInfo
 from agnette.agl.semantics.engine_keys import ENGINE_KEY_NAMES
 from agnette.agl.syntax.nodes import FuncDef, static_items
 from agnette.agl.warning_policy import WarningPolicy
+from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import (
     build_host_engine_seeds,
@@ -788,25 +789,29 @@ def run(
         terminating_signals_exit(),
         preserve_primary_error(session_host.close_all, label="agent session cleanup"),
     ):
-        result = runtime.run_prepared(
-            prepared,
-            echo_agent_output=config.echo if args.echo is None else args.echo,
-            trace_file=trace_file,
-            invoked_command=invoked_command,
-            program_function=(
-                None if selected_program is None else selected_program.declaration_path
-            ),
-            program_span=None if selected_program is None else selected_program.span,
-            # Reused from discovery and preflight: nothing is re-checked or re-lowered.
-            compiled=discovery.compiled,
-            executable=executable,
-            host_settings_policy=policy,
-            builtin_host_settings=engine_seeds,
-            process_environment=process_environment,
-            program_symbol=program_symbol,
-            arguments=arguments_bound,
-            param_seeds=param_seeds,
-        )
+        try:
+            result = runtime.run_prepared(
+                prepared,
+                echo_agent_output=config.echo if args.echo is None else args.echo,
+                trace_file=trace_file,
+                invoked_command=invoked_command,
+                program_function=(
+                    None if selected_program is None else selected_program.declaration_path
+                ),
+                program_span=None if selected_program is None else selected_program.span,
+                # Reused from discovery and preflight: nothing is re-checked or re-lowered.
+                compiled=discovery.compiled,
+                executable=executable,
+                host_settings_policy=policy,
+                builtin_host_settings=engine_seeds,
+                process_environment=process_environment,
+                program_symbol=program_symbol,
+                arguments=arguments_bound,
+                param_seeds=param_seeds,
+            )
+        except Exception as exc:
+            exit_for_agl_exception(exc)
+            raise
 
         for diag in result.warnings:
             warning_key = (

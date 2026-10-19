@@ -185,6 +185,42 @@ class TestReplMutualExclusion:
         assert recorded_runs == []
 
 
+def test_agent_cancellation_is_reported_without_traceback(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from agnette.agl.runtime.request import AgentRequest, AgentResponse
+    from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
+    from agnette.config.context import ConfigContext
+
+    monkeypatch.setattr(
+        repl_command,
+        "current_config_context",
+        lambda: ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path),
+    )
+
+    def interrupted_agent(_request: AgentRequest) -> AgentResponse:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(repl_command, "value_driven_agent_factory", lambda **_: interrupted_agent)
+    monkeypatch.setattr(
+        repl_command,
+        "create_agl_session_host",
+        lambda **_: AgentDispatcherSessionHost(interrupted_agent),
+    )
+
+    result = runner.invoke(
+        get_command(cli.app),
+        ["repl", "--plain"],
+        prog_name="agm",
+        input='ask("hi")\n',
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "Agent call cancelled" in result.output
+    assert "Traceback" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # repl.run config resolution + handoff to run_console
 # ---------------------------------------------------------------------------

@@ -186,6 +186,39 @@ def test_registered_command_dispatches_trailing_arguments(
     assert calls == [("tools/lint::main", ["--level", "strict"], "tools", "tools lint")]
 
 
+def test_registered_command_reports_agent_cancellation_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import agnette.agm.commands.exec_program as exec_program
+    from agnette.agl.runtime.request import AgentRequest, AgentResponse
+    from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
+
+    home = tmp_path / "home"
+    write_installed_package(
+        home,
+        "tools",
+        source='program def main() -> unit = ask("hi")\n',
+        commands={"tools review": "tools/main::main"},
+    )
+    monkeypatch.setenv("HOME", str(home))
+
+    def interrupted_agent(_request: AgentRequest) -> AgentResponse:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(exec_program, "value_driven_agent_factory", lambda **_: interrupted_agent)
+    monkeypatch.setattr(
+        exec_program,
+        "create_agl_session_host",
+        lambda **_: AgentDispatcherSessionHost(interrupted_agent),
+    )
+
+    result = invoke(CliRunner(), ["tools", "review"])
+
+    assert result.exit_code == 130
+    assert "Agent call cancelled" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_a_stored_manifest_field_this_build_does_not_know_still_dispatches(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -1506,6 +1506,44 @@ class TestMainEntryPoint:
         # --help exits with code 0
         assert exc_info.value.code == 0
 
+    def test_main_formats_unhandled_agl_exceptions_without_tracebacks(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from agnette.agl.diagnostics import AglError
+        from agnette.agl.ir.ids import NominalId
+        from agnette.agl.runtime.boundary import AglException
+        from agnette.agl.runtime.request import AgentCancelled
+        from agnette.agl.semantics.exceptions import AglRaise
+        from agnette.agl.semantics.values import ExceptionValue, TextValue
+
+        value = ExceptionValue(NominalId(1), {"message": TextValue("runtime failure")})
+        failures = [
+            (AglError("static failure"), 1, "static failure"),
+            (AglRaise(value), 2, "AgL exception: runtime failure"),
+            (AglException(value), 2, "AgL exception: runtime failure"),
+            (AgentCancelled("worker"), 130, "Agent call cancelled"),
+        ]
+        for failure, exit_code, message in failures:
+
+            def raise_failure(error: Exception = failure) -> None:
+                raise error
+
+            monkeypatch.setattr(cli, "app", raise_failure)
+            with pytest.raises(SystemExit) as exc_info:
+                cli.main()
+            assert exc_info.value.code == exit_code
+            captured = capsys.readouterr()
+            assert message in captured.err
+            assert "Traceback" not in captured.err
+
+    def test_main_reraises_unrelated_python_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fail() -> None:
+            raise RuntimeError("internal bug")
+
+        monkeypatch.setattr(cli, "app", fail)
+        with pytest.raises(RuntimeError, match="internal bug"):
+            cli.main()
+
     def test_main_module_entry_point(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The `if __name__ == '__main__': main()` block delegates to main()."""
         import runpy

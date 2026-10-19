@@ -610,6 +610,7 @@ drives shell execution.
 | `0` | The workflow completed successfully, or `std/os::exit(0)` requested success |
 | `1` | Pre-execution failure: unreadable file, static language diagnostics (including invalid `case` coverage and a `deny`-level warning), host configuration error (including an invalid engine setting from the CLI, a config table, `@config`, or the manifest, or an invalid `[warnings]` table), or program-argument validation failure; it can also be requested with `std/os::exit(1)` |
 | `2` | The workflow executed but ended with an uncaught AgL exception; it can also be requested with `std/os::exit(2)` |
+| `130` | An agent call was cancelled by Ctrl-C; execution unwinds through cleanup |
 | `3`–`255` | Requested by `std/os::exit(code)` |
 | `128+N` | Terminated by signal `N` (SIGTERM → `143`, SIGHUP → `129`), after the run's cleanup |
 
