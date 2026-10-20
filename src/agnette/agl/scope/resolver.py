@@ -3363,17 +3363,16 @@ class _Resolver(ModuleSources):
         self._resolve_params_and_body(node)
 
     def _resolve_params_and_body(self, node: FuncDef | Lambda) -> None:
-        """Resolve defaults (``def`` only, enclosing scope), then params + body in a child scope.
+        """Resolve defaults with earlier parameters visible, then the body with all parameters.
 
         ``_in_loop`` is reset so that neither a ``break``/``continue`` in a
         default nor one in the body can cross the function boundary.
         """
         with self._resolution_flags_ctx(in_loop=False, in_function=False):
-            for param in node.params:
-                if param.default is not None:
-                    self._resolve_expr(param.default)
             with self._child_scope(node.node_id) as param_scope:
                 for param in node.params:
+                    if param.default is not None:
+                        self._resolve_expr(param.default)
                     self._check_not_reserved(param.name, param.span)
                     ref = BindingRef(
                         name=param.name,

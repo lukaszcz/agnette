@@ -909,25 +909,13 @@ class IrInterpreter:
         assert param.default is not None, "arg omitted but param has no default (lowerer bug)"
         return self._eval_expr_in_frame(param.default, frame)
 
-    def _eval_extern_default(self, param: "IrFunctionParam") -> Value:
-        """Evaluate an omitted extern argument's default expression.
-
-        Extern closures never capture anything, so the default is evaluated
-        in a fresh empty frame — reads fall through to module (base-frame)
-        scope, mirroring how an ordinary closure's captures frame chains to
-        module scope for its own defaults.
-        """
-        return self._eval_default_in_frame(param, {})
-
     def _eval_constructor_default(
         self, descriptor: "NominalDescriptor", field_index: int, location: Location | None
     ) -> Value:
         """Evaluate an omitted constructor field's default expression.
 
-        Mirrors :meth:`_eval_extern_default`: a field default never captures
-        anything (it is a constant expression checked at the declaring
-        type's own scope), so it evaluates in a fresh empty frame. It runs in
-        the declaring module's call context, entered like any other callee's
+        A field default is constant and captures nothing, so it evaluates in an empty frame.
+        It runs in the declaring module's call context, entered like any other callee's
         (:meth:`_enter_call`), so trace spans attribute it correctly.
         """
         default = descriptor.field_defaults[field_index]
@@ -1065,6 +1053,34 @@ class IrInterpreter:
                 return site, (owner_module if site is not None else None)
         return location, (self._current_module if location is not None else None)
 
+    def _resolve_call_arguments(
+        self,
+        desc: "FunctionDescriptor",
+        arguments: "tuple[object, ...]",
+        eval_arg: "Callable[[_ArgT], Value]",
+        frame: Frame,
+        location: Location | None,
+    ) -> list[Value]:
+        """Bind in parameter order; defaults see captures and earlier bound parameters.
+
+        Supplied arguments evaluate in the caller's unchanged frame and context;
+        defaults run in the callee's call context. Non-default operands have the
+        type accepted by *eval_arg*, guaranteed by each caller's signature.
+        """
+        bound_values: list[Value] = []
+        for param, arg in zip(desc.params, arguments, strict=True):
+            if isinstance(arg, UseDefault):
+                previous_module = self._enter_call(desc.module_id, location)
+                try:
+                    val = self._eval_default_in_frame(param, frame)
+                finally:
+                    self._exit_call(previous_module)
+            else:
+                val = eval_arg(cast(_ArgT, arg))
+            frame[param.symbol] = val
+            bound_values.append(val)
+        return bound_values
+
     def _resolve_defaults_and_invoke(
         self,
         desc: "FunctionDescriptor",
@@ -1076,36 +1092,10 @@ class IrInterpreter:
         location: Location | None,
         retain_frame: bool,
     ) -> Value:
-        """Resolve each argument against the callee, in one positional pass, then invoke.
-
-        The tail shared by the IR direct-call path (:meth:`_execute_direct_call`)
-        and the program entry point (:meth:`_invoke_program`). A single loop
-        walks *arguments* in parameter order: a plain argument is turned into a
-        value by *eval_arg* (``self._eval`` in the caller frame for a direct
-        call, or the identity function for the program entry point's
-        already-evaluated arguments), and a ``UseDefault`` argument evaluates
-        that parameter's default expression in the callee's captures frame —
-        interleaved in argument order, as an omitted argument does. Every
-        non-``UseDefault`` element of *arguments* is an ``_ArgT``, matching
-        *eval_arg*'s own parameter type; the caller's own signature enforces
-        that, so the per-element cast below only restates it for the type
-        checker. *location* is this call's own site: a default expression and
-        the callee's body run inside *desc*'s call context (:meth:`_enter_call`),
-        so they see the callee's own module and this call's site on
-        ``_call_sites``; a caller-supplied argument expression evaluates in
-        the caller's own unchanged context, exactly where it is written.
-        """
-        bound_values: list[Value] = []
-        for param, arg in zip(desc.params, arguments, strict=True):
-            if isinstance(arg, UseDefault):
-                previous_module = self._enter_call(desc.module_id, location)
-                try:
-                    val = self._eval_default_in_frame(param, dict(closure_val.captures))
-                finally:
-                    self._exit_call(previous_module)
-            else:
-                val = eval_arg(cast(_ArgT, arg))
-            bound_values.append(val)
+        """Resolve arguments for a direct, indirect, or program-entry call, then invoke."""
+        bound_values = self._resolve_call_arguments(
+            desc, arguments, eval_arg, dict(closure_val.captures), location
+        )
         previous_module = self._enter_call(desc.module_id, location)
         try:
             return self._bind_and_invoke(
@@ -1128,7 +1118,7 @@ class IrInterpreter:
         AgL frame to recurse into).  Otherwise: depth check → single
         positional pass over *arguments*, evaluating each plain one in the
         caller frame and each ``UseDefault`` one against the callee's
-        captures frame (:meth:`_resolve_defaults_and_invoke`).
+        captures and earlier parameters (:meth:`_resolve_defaults_and_invoke`).
         """
         desc = self._program.functions[fn_id]
         match desc.impl:
@@ -1136,13 +1126,11 @@ class IrInterpreter:
                 # Leading target contracts precede the declared parameters' arguments.
                 contracts = arguments[: extern.target_count]
                 extern_bound_values = [self._eval(cast(IrExpr, arg)) for arg in contracts]
-                for param, arg in zip(desc.params, arguments[extern.target_count :], strict=True):
-                    val = (
-                        self._eval_extern_default(param)
-                        if isinstance(arg, UseDefault)
-                        else self._eval(arg)
+                extern_bound_values.extend(
+                    self._resolve_call_arguments(
+                        desc, arguments[extern.target_count :], self._eval, {}, location
                     )
-                    extern_bound_values.append(val)
+                )
                 return self._effects.eval_extern_call(
                     desc.module_id, extern, extern_bound_values, location=location
                 )
@@ -1173,8 +1161,7 @@ class IrInterpreter:
         1. Evaluate the callee in the current frame.
         2. Depth-limit check (AFTER callee eval, BEFORE arg binding).
         3. Evaluate each positional arg in the caller frame, NO coercion.
-        4. Use ``desc.params[i].default`` for omitted trailing params
-           (evaluated in a captures frame).
+        4. Evaluate omitted trailing defaults with captures and earlier parameters.
         5. ``_bind_and_invoke``.
         """
         callee_val = self._eval(callee_expr)
@@ -1183,43 +1170,29 @@ class IrInterpreter:
         callee_val = cast(IrClosureValue, callee_val)
 
         desc = self._program.functions[callee_val.function_id]
+        full_arguments = tuple(
+            arguments[i] if i < len(arguments) else UseDefault(param_index=i)
+            for i in range(len(desc.params))
+        )
         match desc.impl:
             case ExternFunctionBody() as extern:
-                extern_bound_values: list[Value] = []
-                for i, param in enumerate(desc.params):
-                    val = (
-                        self._eval(arguments[i])
-                        if i < len(arguments)
-                        else self._eval_extern_default(param)
-                    )
-                    extern_bound_values.append(val)
+                extern_bound_values = self._resolve_call_arguments(
+                    desc, full_arguments, self._eval, {}, location
+                )
                 return self._effects.eval_extern_call(
                     desc.module_id, extern, extern_bound_values, location=location
                 )
             case IrFunctionBody(body=body):
                 self._check_call_depth()
-
-                # Evaluate each positional argument in the CALLER frame (no
-                # coercion); a defaulted trailing one runs inside the
-                # callee's call context instead, like an ordinary default
-                # (see `_resolve_defaults_and_invoke`).
-                bound_values: list[Value] = []
-                for i, param in enumerate(desc.params):
-                    if i < len(arguments):
-                        val = self._eval(arguments[i])
-                    else:
-                        previous_module = self._enter_call(desc.module_id, location)
-                        try:
-                            val = self._eval_default_in_frame(param, dict(callee_val.captures))
-                        finally:
-                            self._exit_call(previous_module)
-                    bound_values.append(val)
-
-                previous_module = self._enter_call(desc.module_id, location)
-                try:
-                    return self._bind_and_invoke(desc, body, callee_val, bound_values)
-                finally:
-                    self._exit_call(previous_module)
+                return self._resolve_defaults_and_invoke(
+                    desc,
+                    body,
+                    callee_val,
+                    full_arguments,
+                    self._eval,
+                    location=location,
+                    retain_frame=False,
+                )
             case other:  # pragma: no cover
                 assert_never(other)
 

@@ -225,8 +225,10 @@ def test_extern_defaults_work_for_direct_calls(tmp_path: Path) -> None:
     assert result["direct"] == IntValue(3)
 
 
+@pytest.mark.parametrize("dependent", [False, True])
 def test_indirect_extern_call_uses_the_default_for_an_omitted_trailing_argument(
     tmp_path: Path,
+    dependent: bool,
 ) -> None:
     from agnette.agl.ir.ids import FunctionId, Location, SourceId, SymbolId
     from agnette.agl.ir.nodes import (
@@ -260,7 +262,10 @@ def test_indirect_extern_call_uses_the_default_for_an_omitted_trailing_argument(
         module_id=ENTRY_ID,
         params=(
             IrFunctionParam(SymbolId(4), default=None),
-            IrFunctionParam(SymbolId(5), default=IrConstInt(location, 1)),
+            IrFunctionParam(
+                SymbolId(5),
+                default=IrLoad(location, SymbolId(4)) if dependent else IrConstInt(location, 1),
+            ),
         ),
         impl=ExternFunctionBody(name="increment", companion_name="increment"),
     )
@@ -297,7 +302,9 @@ def test_indirect_extern_call_uses_the_default_for_an_omitted_trailing_argument(
 
     registry = ExternRegistry()
     registry.load_companion(ENTRY_ID, companion)
-    assert IrInterpreter(program, extern_registry=registry).run()["result"] == IntValue(11)
+    assert IrInterpreter(program, extern_registry=registry).run()["result"] == IntValue(
+        20 if dependent else 11
+    )
 
 
 def test_check_only_never_imports_the_companion(tmp_path: Path) -> None:

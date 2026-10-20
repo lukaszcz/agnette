@@ -2052,9 +2052,23 @@ class TestFuncDefMutualRecursion:
         assert ref.kind == BinderKind.function_binding
 
     def test_def_param_default_resolved_in_enclosing_scope(self) -> None:
-        """Parameter defaults are resolved in the DEFINITION scope (outer)."""
+        """Defaults can still read unshadowed bindings from the definition scope."""
         r = parse_and_resolve_repl("let base = 10\ndef f(x: int = base) -> int = x\nf()")
         assert _ref(r, "base").kind == BinderKind.let_binding
+
+    def test_def_param_default_sees_earlier_parameter(self) -> None:
+        r = parse_and_resolve("def f(x: int = 7, y: int = x) -> int = y\nf()")
+        assert _ref(r, "x").kind == BinderKind.param_binding
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "def f(x: int = x) -> int = x\nf()",
+            "def f(x: int = y, y: int = 7) -> int = x\nf()",
+        ],
+    )
+    def test_def_default_cannot_see_own_or_later_parameter(self, source: str) -> None:
+        reject_scope(source)
 
     def test_return_allowed_in_def_body(self) -> None:
         parse_and_resolve("def f(x: int) -> int =\n  return x\nf(1)")

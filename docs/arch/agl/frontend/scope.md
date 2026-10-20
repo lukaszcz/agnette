@@ -17,6 +17,7 @@ Every verdict is recorded once: bindings in `resolution`, qualified and named-ty
 
 Resolution runs in three phases over all modules: prepare (placement, declaration collection, headers), collect (constructor candidates and root bindings, once every module is prepared), and resolve (bodies in graph order). Header diagnostics of every module therefore precede body diagnostics of any.
 
+- Function defaults see enclosing bindings and earlier parameters; the body sees all parameters.
 - Module-level `let`/`var` of a static-root module (any but a REPL entry or a wrapped `-c` entry) are pre-populated like `def`s; those two keep textual visibility. Either way the name claims its scope path in the shared declaration registry, so collisions are order-independent.
 - An alias declares no scope: declaring beneath an own alias name, or a method receiver through an alias, is an error. A path beneath an alias reads literally through its target, at the alias's site, under one re-entrancy guard.
 - `TypeOwnerIndex` (`scope/type_owners.py`) holds one owner per type path: an enum owns its inline members, an alias the member table its target selects (minus its `hiding`). Inline enum members are nominal record declarations beneath the enum's scope.

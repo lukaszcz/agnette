@@ -1,0 +1,18 @@
+{
+  "scenarios": [
+    {
+      "name": "all_defaults",
+      "expect": {"stdout": "7\n8\n8\n31\n7\n8\n7\n"}
+    },
+    {
+      "name": "supplied_earlier_parameter",
+      "params": {"x": 12},
+      "expect": {"stdout": "12\n8\n13\n31\n12\n13\n12\n"}
+    },
+    {
+      "name": "supplied_dependent_parameter",
+      "params": {"x": 12, "y": 19},
+      "expect": {"stdout": "19\n8\n13\n31\n12\n13\n12\n"}
+    }
+  ]
+}

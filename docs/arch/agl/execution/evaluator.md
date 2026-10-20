@@ -9,6 +9,10 @@ The evaluator interprets the linked program and imports no frontend module direc
 - `DictValue` encapsulates its storage, with a fast representation for `text` keys and a canonical-token representation for other hashable keys.
 - Array iterators see element mutations ahead of the cursor but never run past the entry-time length; dict iteration snapshots its keys.
 
+## Calls
+
+Direct, indirect, extern, and program-entry calls share parameter-order argument binding in `eval/ir_interpreter.py`. Supplied arguments run in the caller's frame; omitted defaults run with the callee's captures and earlier bound parameters.
+
 ## Control Flow
 
 `break`, `continue`, and `return` are internal signals caught only by their owning construct, so they unwind through `try`/`catch`, which catches only AgL raises. A specific `catch` matches by nominal conformance along the `base` chain. Recursion is bounded by `max_call_depth`, raising a catchable `RecursionError` before Python's limit. A span-less raise takes the location of the innermost IR node it unwinds through.

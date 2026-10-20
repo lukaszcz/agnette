@@ -2019,14 +2019,16 @@ class TestIndirectCallInterpreter:
         assert exc.value.exc.nominal == NominalId(require_reserved_nominal_id("RecursionError"))
 
     def test_indirect_call_uses_param_default_when_arg_omitted(self) -> None:
-        """IrIndirectCall falls back to param.default when fewer args than params."""
-        # Build a function with a param that has a default; call it with zero args.
+        """Omitted indirect arguments can default to earlier defaulted parameters."""
         param = IrFunctionParam(symbol=_PARAM_SID, default=IrConstInt(_LOC, 77))
-        body = IrLoad(_LOC, _PARAM_SID)
-        fn_desc = _make_fn_descriptor(body, params=(param,))
+        second_sym = SymbolId(502)
+        second = IrFunctionParam(symbol=second_sym, default=IrLoad(_LOC, _PARAM_SID))
+        body = IrLoad(_LOC, second_sym)
+        fn_desc = _make_fn_descriptor(body, params=(param, second))
         result_sym = SymbolId(500)
         fn_closure_sym = SymbolId(501)
         symbols = {
+            second_sym: SymbolDescriptor(second_sym, False, None, _FN_ID),
             _FN_SID: _fn_sym_desc(),
             _PARAM_SID: _param_sym_desc(),
             fn_closure_sym: SymbolDescriptor(

@@ -242,9 +242,24 @@ def with-named-default(x: int, @arg-named tag: text = "ok") -> text =
   "%{tag}: %{x}"
 ```
 
-Defaults are evaluated at each call that omits them. A [record field
-default](types.md#record-types) follows the same ordering rule and is likewise
-omittable at a constructor call.
+Defaults are evaluated at each call that omits them, in parameter order.
+They can reference earlier parameters (including `self` in methods), using
+that call's supplied or defaulted values. Earlier parameters shadow enclosing
+bindings; the parameter being defaulted and later parameters are not yet in
+scope.
+
+```agl
+def f(x: int = 7, y: int = x) -> int = y
+
+program def main() -> unit =
+  print(f())       # 7
+  print(f(12))     # 12
+  print(f(y = 3))  # 3
+```
+
+A [record field default](types.md#record-types) follows the same ordering
+rule and is likewise omittable at a constructor call, but must be constant
+and cannot reference other fields.
 
 ## Methods
 

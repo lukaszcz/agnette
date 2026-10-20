@@ -1,0 +1,20 @@
+def same(x: int = 7, y: int = x, z: int = y + 1) -> int = z
+
+def identity[T](x: T, y: T = x) -> T = y
+
+record Box
+  value: int
+
+def Box::read(self, value: int = self.value) -> int = value
+
+program def main(x: int = 7, y: int = x) -> unit =
+  print(y)
+  print(same())
+  print(same(x))
+  print(same(y = 30, x = 20))
+  let narrowed: int -> int = identity::[int](?)
+  print(narrowed(x))
+  let partial = same(?)
+  print(partial(x))
+  let box = Box(value = x)
+  print(box.read())
