@@ -113,12 +113,12 @@ def select-next-task-prompt(task-file: Option[path], tasks-dir: path) -> text =
 def Session::select-next-task(self, task-file: Option[path], tasks-dir: path) -> Option[path] =
   self.ask <| select-next-task-prompt(task-file, tasks-dir)
 
-def Session::deliver-plan(self, plan-file: path, tasks-dir: path, impl-agent: Agent, review-agent: Agent, revise-agent: Agent, verify: bool, max-refine-steps: int, save-reviews: bool) -> unit =
+def Session::deliver-plan(self, plan-file: path, tasks-dir: path, exec-agent: Agent, review-agent: Agent, revise-agent: Agent, verify: bool, max-refine-steps: int, save-reviews: bool) -> unit =
   var next-task: Option[path] = self.select-next-task(None, tasks-dir)
   while next-task is Some do
     let task-file = next-task.unwrap()
     log::info-heading("Implementing task %{task-file}")
-    impl-agent.implement-task(task-file, None)
+    exec-agent.implement-task(task-file, None)
     if verify =>
       do
         log::info("Verifying task %{task-file}")
@@ -130,7 +130,7 @@ def Session::deliver-plan(self, plan-file: path, tasks-dir: path, impl-agent: Ag
           | Incomplete(reason) =>
             log::info("Task incomplete: %{reason}")
             log::info("Revising implementation of %{task-file}")
-            impl-agent.implement-task(task-file, Some(reason))
+            exec-agent.implement-task(task-file, Some(reason))
       until r is Complete
     else =>
       next-task := self.select-next-task(Some(task-file), tasks-dir)
@@ -200,11 +200,11 @@ program def deliver-main(
   @doc("Orchestrator agent - creates tasks from plan, selects next task, verifies task completion, updates progress tracker")
   agent: Agent = config::default-agent,
   @doc("Executor agent - implements the tasks")
-  impl-agent: Agent = config::default-agent,
+  exec-agent: Agent = agent,
   @doc("Review agent for post-completion task refinement")
-  review-agent: Agent = config::default-agent,
+  review-agent: Agent = agent,
   @doc("Revise agent for post-completion task refinement")
-  revise-agent: Agent = config::default-agent,
+  revise-agent: Agent = agent,
   @doc("Should the orchestrator verify task completion?")
   verify: bool = true,
   @doc("Max review-revise refinement loop steps. Default: 0")
@@ -216,12 +216,12 @@ program def deliver-main(
   log::info("plan: %{plan-file}")
   log::info("tasks-dir: %{tasks-dir}")
   log::info("orchestrator: %{agent}")
-  log::info("executor: %{impl-agent}")
+  log::info("executor: %{exec-agent}")
   if not fs::is-file("%{tasks-dir}/PROGRESS.md") =>
     log::info-heading("Preparing task files")
     agent.make-tasks(plan-file, tasks-dir)
   let session = session::Session::open(agent)
-  session.deliver-plan(plan-file, tasks-dir, impl-agent, review-agent, revise-agent, verify, max-refine-steps, save-reviews)
+  session.deliver-plan(plan-file, tasks-dir, exec-agent, review-agent, revise-agent, verify, max-refine-steps, save-reviews)
   session.close()
 
 @command("devel implement-tasks")
