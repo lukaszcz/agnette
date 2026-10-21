@@ -129,7 +129,7 @@ def Session::deliver-plan(self, plan-file: path, tasks-dir: path, exec-agent: Ag
             next-task := next-task-file
           | Incomplete(reason) =>
             log::info("Task incomplete: %{reason}")
-            log::info("Revising implementation of %{task-file}")
+            log::info("\nRevising implementation of %{task-file}")
             exec-agent.implement-task(task-file, Some(reason))
       until r is Complete
     else =>
