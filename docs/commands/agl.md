@@ -888,8 +888,8 @@ Meta-commands start with `:`, which never collides with AgL syntax:
   names as a qualifier in an entry, through imports, `use`, aliases, and regions declared in the
   session: an imported module shows its `@!doc` above `module std/fs`, a region above
   `scope a::b`. A module or region without documentation shows just its header. A spelling
-  reaching several modules lists them; one reaching a module and regions, or several regions,
-  shows each under a label naming its source. Re-opening a region in a later entry with a new
+  reaching several modules, several regions, or a mix shows each under a label naming its
+  source (`Module (lib):`, `Scope (this session):`). Re-opening a region in a later entry with a new
   `@!doc` replaces its documentation. A declaration of the same spelling takes precedence over a
   module or region, except that a lone slash route (`std/fs`, `/std/fs`) names the module.
 - **Engine settings**: import `std/config` and write a qualified target

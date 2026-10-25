@@ -1155,10 +1155,10 @@ class TestInfoDocs:
         assert "module bare" in text
         assert "@!doc" not in text
 
-    def test_ambiguous_module_spelling_lists_candidates(self, tmp_path: Path) -> None:
+    def test_several_modules_are_each_described(self, tmp_path: Path) -> None:
         for name in ("a", "b"):
             (tmp_path / name).mkdir()
-            (tmp_path / name / "lib.agl").write_text("def f() -> int = 1\n")
+            (tmp_path / name / "lib.agl").write_text(f'@!doc("Doc {name}.")\ndef f() -> int = 1\n')
         session = repl_session_with_root(tmp_path)
         session.open()
         assert session.eval_entry("import a/lib").ok
@@ -1166,8 +1166,40 @@ class TestInfoDocs:
 
         text = self._info(session, "lib")
 
-        assert "a/lib" in text
-        assert "b/lib" in text
+        assert "ambiguous" not in text
+        assert "module a/lib" in text
+        assert "module b/lib" in text
+        assert "Doc a." in text
+        assert "Doc b." in text
+
+    def test_multi_source_sections_are_highlighted_as_agl(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry("scope lib\n  def g() -> int = 1\nend lib").ok
+
+        outcome = meta_mod.dispatch_meta(":info lib", _session_ctx(session))
+
+        assert outcome.text is not None
+        code = [outcome.text[start:end] for start, end in outcome.agl_ranges[1:]]
+        assert len(code) == 2
+        assert any("module lib" in part for part in code)
+        assert any("scope lib" in part for part in code)
+
+    def test_every_emitted_section_label_is_highlightable(self) -> None:
+        from typing import get_args
+
+        from agnette.agl.repl.info_sections import SECTION_LABELS, SectionLabel
+
+        assert set(SECTION_LABELS) == set(get_args(SectionLabel.__value__))
+
+    def test_non_reference_spelling_is_no_scope(self) -> None:
+        session = _open_session()
+
+        outcome = meta_mod.dispatch_meta(":info lib()", _session_ctx(session))
+
+        assert "is a" not in (outcome.text or "")
 
     def test_module_not_imported_is_not_found(self, tmp_path: Path) -> None:
         (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")

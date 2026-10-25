@@ -15,12 +15,12 @@ completer.  Each handler takes ``(arg, ctx)`` and returns a :class:`MetaOutcome`
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agnette.agl.repl.info_sections import SECTION_BOUNDARY_RE, SECTION_RE
 from agnette.agl.repl.theme_selection import THEME_NAMES
 
 if TYPE_CHECKING:
@@ -155,17 +155,11 @@ def _info_outcome(name: str, info: str | None) -> MetaOutcome:
     return MetaOutcome(text=info, highlight_as_agl=True, agl_ranges=_info_agl_ranges(info, name))
 
 
-_INFO_SECTION_RE = re.compile(r"^(?:Binding|Signature|Type|Value|Module|Scope):\n", re.MULTILINE)
-_INFO_SECTION_BOUNDARY_RE = re.compile(
-    r"^(?:Binding|Signature|Type|Value|Module|Scope|Location):", re.MULTILINE
-)
-
-
 def _info_agl_ranges(text: str, name: str) -> tuple[tuple[int, int], ...]:
     """Return the identifier and AgL code ranges in one ``:info`` result."""
     ranges = [(0, len(name))]
-    for section in _INFO_SECTION_RE.finditer(text):
-        end_match = _INFO_SECTION_BOUNDARY_RE.search(text, section.end())
+    for section in SECTION_RE.finditer(text):
+        end_match = SECTION_BOUNDARY_RE.search(text, section.end())
         end = len(text) if end_match is None else end_match.start()
         ranges.append((section.end(), end))
     return tuple(ranges)

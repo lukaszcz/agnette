@@ -31,8 +31,8 @@ from agnette.agl.scope.lookup import (
     QualifiedTarget,
     lookup_hidden,
     lookup_reached,
-    lookup_reached_origins,
     lookup_steps,
+    spelled_origins,
 )
 from agnette.agl.scope.symbols import (
     BinderKind,
@@ -571,9 +571,12 @@ class UseReader:
     ) -> frozenset[Origin]:
         """The scopes and types *names*, spelled beneath *decl*'s anchor in region *site*, name."""
         route = _use_route(decl, names)
-        if route is not None:
-            return self._sources.module_route_origins(route, (), anchored=decl.anchored)
-        return lookup_reached_origins(self._sources, _use_chain(decl, names), site)
+        return spelled_origins(
+            self._sources,
+            _use_chain(decl, names) if route is None else route,
+            site,
+            anchored=decl.anchored,
+        )
 
     def _names_qualifier(
         self, site: ScopePath, decl: UseDecl, names: ScopePath, owners_within: int | None = None

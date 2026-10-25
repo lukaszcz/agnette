@@ -516,6 +516,23 @@ def lookup_reached_origins(
     return _chain_walk(sources, chain, scope_path, chain.span).origins()
 
 
+def spelled_origins(
+    sources: PathSources,
+    target: tuple[str, ...] | QualifierChain,
+    scope_path: ScopePath,
+    *,
+    anchored: bool = False,
+) -> frozenset[Origin]:
+    """Return the scopes and types *target* names, removed ones too.
+
+    A slash route (a tuple, ``anchored`` when written ``/a/b``) names modules; a chain
+    is walked as :func:`lookup_reached_origins` does.
+    """
+    if isinstance(target, tuple):
+        return sources.routed_origins(Route(target, anchored), ())
+    return lookup_reached_origins(sources, target, scope_path)
+
+
 def lookup_hidden(
     sources: PathSources, chain: QualifierChain, scope_path: ScopePath, owners_within: int | None
 ) -> HiddenMemberError | None:

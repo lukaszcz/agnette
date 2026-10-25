@@ -29,6 +29,7 @@ from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.repl.entry import EntryKind, EntryResult
 from agnette.agl.repl.entry_pipeline import EntryPipeline
 from agnette.agl.repl.info_docs import format_doc_attribute, module_regions
+from agnette.agl.repl.info_sections import SectionLabel, sourced_label
 from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
@@ -70,6 +71,7 @@ if TYPE_CHECKING:
         ExportDecl,
         ImportDecl,
         Program,
+        QualifierChain,
         ScopeRegion,
         TypeAlias,
         VarRef,
@@ -249,14 +251,22 @@ def _indefinite(kind: str) -> str:
 
 
 def _format_info_section(
-    label: str, code: str, location: str | None = None, doc: str | None = None
+    label: SectionLabel,
+    code: str,
+    location: str | None = None,
+    doc: str | None = None,
+    source: str | None = None,
 ) -> str:
-    """Format one labelled ``:info`` code section, headed by its ``@doc``, and a location."""
+    """Format one labelled ``:info`` code section, headed by its ``@doc``, and a location.
+
+    A *source* qualifies the label (``Module (lib):``).
+    """
     if doc is not None:
         code = f"{format_doc_attribute(doc)}\n{code}"
     indented_code = "\n".join(f"  {line}" if line else "" for line in code.splitlines())
     location_line = "" if location is None else f"\nLocation: {location}"
-    return f"{label}:\n{indented_code}{location_line}"
+    heading = label if source is None else sourced_label(label, source)
+    return f"{heading}:\n{indented_code}{location_line}"
 
 
 def _qname_order(qname: "QName") -> tuple[str, str]:
@@ -1753,19 +1763,31 @@ class ReplSession:
             return None
         if "/" in name and len(parts) == 1:
             # A lone slash route is a module before it is a declaration.
-            found = self._describe_scopes(name, None)
+            route = tuple(name.removeprefix("/").split("/"))
+            found = self._describe_scopes(name, route, anchored=name.startswith("/"))
             if found is not None:
                 return found
             return self._describe_declaration(name, self._parse_info_name(name))
         parsed = self._parse_info_name(name)
+        reference = parsed.reference
+        chain = None if reference is None else self._qualifier_of(reference)
         try:
             described = self._describe_declaration(name, parsed)
         except AglError:
-            found = self._describe_scopes(name, parsed.reference)
+            found = None if chain is None else self._describe_scopes(name, chain)
             if found is None:
                 raise
             return found
-        return described if described is not None else self._describe_scopes(name, parsed.reference)
+        return described
+
+    @staticmethod
+    def _qualifier_of(reference: "VarRef") -> "QualifierChain":
+        """Return the qualifier chain *reference* spells, a bare name being a one-name chain."""
+        from agnette.agl.syntax.nodes import QualifierChain
+
+        return reference.qualifier or QualifierChain(
+            None, (), reference.name, reference.span, reference.node_id
+        )
 
     def _describe_declaration(self, name: str, parsed: "_InfoName") -> str | None:
         """Describe the binding, function, constructor, or type *name*, parsed, selects."""
@@ -1992,38 +2014,26 @@ class ReplSession:
             return table.exception_def(typ).doc
         return table.declaration_doc(typ)
 
-    def _describe_scopes(self, name: str, reference: "VarRef | None") -> str | None:
+    def _describe_scopes(
+        self, name: str, target: "tuple[str, ...] | QualifierChain", *, anchored: bool = False
+    ) -> str | None:
         """Describe every module and scope region *name* reaches, or ``None`` if it reaches none.
 
-        Scope resolves *name* as the qualifier an entry would spell it as
-        (*reference* is its parse; ``None`` for a lone slash route): through
-        imports, uses, aliases, and the session's own regions. One source is
-        described by itself, several modules are reported ambiguous, and any
-        other several are each described under a label naming their source.
+        Scope resolves *target* (*name* as a slash route, ``anchored`` when written
+        ``/a/b``, or as a qualifier chain) as an entry would: through imports, uses,
+        aliases, and the session's own regions. One source is described by itself;
+        several are each described under a label naming their source.
         """
         from agnette.agl.modules.ids import spell_scope_path
         from agnette.agl.scope.hiding import unremoved
-        from agnette.agl.scope.lookup import lookup_reached_origins
+        from agnette.agl.scope.lookup import spelled_origins
         from agnette.agl.scope.symbols import to_bare_path
-        from agnette.agl.syntax.nodes import QualifierChain
 
         resolved = self._probe_resolve()
         sources = resolved.sources(resolved.entry_id)
-        if reference is None:
-            origins = sources.module_route_origins(
-                tuple(name.removeprefix("/").split("/")), (), anchored=name.startswith("/")
-            )
-        else:
-            chain = reference.qualifier or QualifierChain(
-                None, (), reference.name, reference.span, reference.node_id
-            )
-            origins = lookup_reached_origins(sources, chain, ())
-        reached = sorted(unremoved(origins, sources), key=_qname_order)
-        modules = [module for module, atom in reached if not to_bare_path(atom)]
-        if len(modules) > 1:
-            return f"{name} is ambiguous: {', '.join(module.path_str() for module in modules)}."
-        found: list[tuple[str, str, str]] = []
-        for module, atom in reached:
+        origins = spelled_origins(sources, target, (), anchored=anchored)
+        found: list[tuple[SectionLabel, str, str]] = []
+        for module, atom in sorted(unremoved(origins, sources), key=_qname_order):
             path = to_bare_path(atom)
             source = "this session" if module.is_entry else module.path_str()
             if not path:
@@ -2044,9 +2054,9 @@ class ReplSession:
             label, _source, code = found[0]
             return f"{name} is a {label.lower()}.\n{_format_info_section(label, code)}"
         sections = (
-            _format_info_section(f"{label} ({source})", code) for label, source, code in found
+            _format_info_section(label, code, source=source) for label, source, code in found
         )
-        return f"{name} names several scopes.\n" + "\n".join(sections)
+        return f"{name} names several modules or scopes.\n" + "\n".join(sections)
 
     def _probe_resolve(self) -> "ResolvedProgram":
         """Resolve an empty entry: the scope state an entry written now would see."""
