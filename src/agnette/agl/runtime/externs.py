@@ -49,6 +49,7 @@ from agnette.agl.runtime.boundary import (
     store_dict_entry,
     synthesize_nominal_classes,
 )
+from agnette.agl.runtime.transfer import ImageTransfer, TransferError
 from agnette.agl.runtime.type_contracts import TypeContract, build_type_contract
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.semantics.cycles import AglCyclicValue, cyclic_value_raise
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
 _COMPANION_API_NAMES = frozenset(
     {
         "AglException",
+        "TransferError",
         "TypeContract",
         "array",
         "dict",
@@ -83,6 +85,7 @@ _COMPANION_API_NAMES = frozenset(
         "option_none",
         "option_some",
         "runtime",
+        "transfer",
     }
 )
 
@@ -521,6 +524,8 @@ class ExternRegistry:
         self._exception_field_encodes: dict[NominalId, tuple[ExceptionFieldEncode, ...]] = {}
         # Keyed by request identity; the entry pins its request so the id stays unique.
         self._type_contracts: dict[int, tuple[TargetContractRequest, TypeContract]] = {}
+        # One token per registry, i.e. per host session: a forked child shares it.
+        self._transfer = ImageTransfer()
 
     def set_nominals(
         self,
@@ -615,6 +620,8 @@ class ExternRegistry:
         setattr(module, "json", AglJson)
         setattr(module, "AglException", AglException)
         setattr(module, "TypeContract", TypeContract)
+        setattr(module, "TransferError", TransferError)
+        setattr(module, "transfer", self._transfer)
         setattr(module, "runtime", _COMPANION_RUNTIME)
         nominals = ModuleType("agl.nominals")
         setattr(module, "nominals", nominals)

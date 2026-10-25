@@ -1,0 +1,70 @@
+{
+  "scenarios": [
+    {
+      "name": "plain_values_round_trip",
+      "params": {
+        "mode": "plain"
+      },
+      "expect": {
+        "stdout": "[Shape::Circle(radius = 2), Shape::Square(side = 3)]\n{\"a\": [Point(x = 1, y = 2)], \"b\": []}\n{1: \"one\", 2: \"two\"}\n7\n1.5\n"
+      }
+    },
+    {
+      "name": "copies_are_independent_but_keep_internal_sharing",
+      "params": {
+        "mode": "independent"
+      },
+      "expect": {
+        "stdout": "[[1, 2], [1, 2]]\n[1]\n"
+      }
+    },
+    {
+      "name": "cyclic_records_stay_cyclic",
+      "params": {
+        "mode": "cycle"
+      },
+      "expect": {
+        "stdout": "a\n1\n"
+      }
+    },
+    {
+      "name": "closures_carry_copied_captures",
+      "params": {
+        "mode": "closure"
+      },
+      "expect": {
+        "stdout": "12\n10\n11\n12\n"
+      }
+    },
+    {
+      "name": "transferred_exception_keeps_type_and_fields",
+      "params": {
+        "mode": "caught"
+      },
+      "expect": {
+        "stdout": "boom:kept\n"
+      }
+    },
+    {
+      "name": "deeply_nested_values_transfer",
+      "params": {
+        "mode": "deep"
+      },
+      "expect": {
+        "stdout": "12502500\n"
+      }
+    },
+    {
+      "name": "transferred_exception_keeps_its_raise_site",
+      "params": {
+        "mode": "uncaught"
+      },
+      "expect": {
+        "raises": {
+          "type": "Problem",
+          "line": 58
+        }
+      }
+    }
+  ]
+}

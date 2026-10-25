@@ -195,6 +195,11 @@ def active_function_encoder(encoder: "_FunctionEncoder") -> ScopedVar["_Function
     return ScopedVar(_ACTIVE_FUNCTION_ENCODER, encoder)
 
 
+def extern_call_active() -> bool:
+    """Whether this context is inside an extern call, the window functions may cross in."""
+    return _ACTIVE_FUNCTION_ENCODER.get() is not None
+
+
 _ContractEncoder = Callable[[ContractValue], object] | None
 
 # The target-contract encoder for the extent of one type-directed extern call,

@@ -10108,6 +10108,37 @@ class TestExternRepl:
         assert r2.ok, r2.diagnostics
         assert _int(r2.value) == 2
 
+    def test_transfer_payload_is_rejected_after_reset(self, tmp_path: Path) -> None:
+        self._write_extern_lib(
+            tmp_path,
+            "xfer_reset",
+            "extern def dump(x: int) -> text\nextern def load(data: text) -> int\n",
+            (
+                "from agl import transfer\n"
+                "def dump(x):\n    return transfer.dumps(x).hex()\n"
+                "def load(data):\n    return transfer.loads(bytes.fromhex(data))\n"
+            ),
+        )
+        s = repl_session_with_root(tmp_path)
+        roots = s._roots
+        assert s.eval_entry("import xfer_reset::*").ok
+        dumped = s.eval_entry("dump(5)")
+        assert dumped.ok, dumped.diagnostics
+        assert isinstance(dumped.value, TextValue)
+        load = f'load("{dumped.value.value}")'
+        same_session = s.eval_entry(load)
+        assert same_session.ok, same_session.diagnostics
+        assert _int(same_session.value) == 5
+
+        s.reset()
+        s._roots = roots  # :reset clears roots too; a real host re-supplies them
+        assert s.eval_entry("import xfer_reset::*").ok
+        after_reset = s.eval_entry(load)
+
+        assert not after_reset.ok
+        assert after_reset.error is not None
+        assert after_reset.error.type_name == "ExternError"
+
     # -- Extern failures surface as ExternError; the session stays usable ----
 
     def test_uncaught_extern_error_fails_the_entry_and_session_continues(

@@ -439,6 +439,46 @@ value, including a record, enum, scalar, container, callable, or arbitrary
 object, raises a Python-side `TypeError`. `str()` of an `AglException` is the
 wrapped AgL exception's `message` field.
 
+## Value transfer
+
+`agl.transfer.dumps(obj)` serializes any boundary value, or an `AglException`
+carrier, to `bytes`; `agl.transfer.loads(data)` rebuilds it. The copy is deep:
+nested arrays, dicts, and records are new objects, internal sharing and
+reference cycles are preserved, and a function value carries copies of its
+captured variables (a `var` shared by two transferred closures stays shared
+between their copies). Every value kind transfers, opaque records included; a
+carrier keeps its exception value and its source span, so `loads` returns an
+`AglException` that re-raises as the original exception, with the original
+span.
+
+```python
+from agl import AglException, transfer
+
+
+def copy(value):
+    return transfer.loads(transfer.dumps(value))
+
+
+def reraise(f):
+    try:
+        return f()
+    except AglException as error:
+        raise transfer.loads(transfer.dumps(error)) from None
+```
+
+A payload is valid in the run that produced it and in every process forked
+within that run; any other run, including a REPL session after `:reset`,
+rejects it. Sharing is preserved only within one payload: two payloads each
+carry their own copy of a `var` captured by both. Module-level bindings are not
+captures, so a transferred function reads the receiving process's module-level
+`var`s. `loads` raises `agl.TransferError` for a payload from any other run, a
+truncated or corrupt payload, or one naming anything other than program values;
+`dumps` raises it for a Python value with no boundary representation. A payload
+that passes these checks is trusted to be the output of `dumps`; its content is
+otherwise the producing companion's responsibility. Like a callback, a function
+value exists only during an extern call, so `loads` may run only inside one;
+`dumps` has no such restriction.
+
 ## Generics and trust
 
 Type-variable positions receive their ordinary runtime representation; the

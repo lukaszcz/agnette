@@ -25,9 +25,14 @@ Companion globals are registry-scoped; `runtime.state` reaches a per-host-sessio
 - AgL raises cross companion frames in the `AglException` carrier, keeping their span; other Python `Exception`s become catchable `ExternError`; `BaseException`s propagate.
 - Return values are trusted: the declared signature, valid Unicode text, and finite JSON-shaped payloads are companion obligations. A Python value with no boundary representation, or an out-of-range or non-finite decimal, is rejected as `ExternError`.
 
+## Value Transfer
+
+`agl.transfer` (`runtime/transfer.py`) moves any value between processes of one program image as bytes: an envelope of magic, the registry's **image token**, and a pickled `(carrier flag, root, span, node table)`. Raw values name program entities only by linker ids, so a copy references the image rather than duplicating it. The value graph is flattened iteratively into a flat table (one entry per heap node, identity-memoized, so sharing and cycles survive) and rebuilt iteratively (mutable shells, closures in capture order, then fills and dict entries); no step recurses over value depth. The table is plain builtins plus `Decimal`, and the unpickler resolves nothing else. `TransferError` covers a foreign or missing header, a payload that fails to unpickle or has trailing data, a disallowed class, an unrepresentable value, and `loads` outside an extern call; once the header is valid the table is trusted like any companion return value, so the rebuild does no structural validation. The token is random per `ExternRegistry` (one per host session; a REPL `:reset` mints a new one), is shared by forked children, and is checked before unpickling. Boundary conversion on either end follows the evaluator's recursion budget like every other value walk; `loads` re-encodes through the boundary, so it follows the function-crossing call window.
+
 ## Code Entry Points
 
 - `src/agnette/agl/runtime/externs.py` — registry, loading, dispatch, state activation, callable proxies.
 - `src/agnette/agl/runtime/boundary.py` — conversion, class synthesis, views, the exception carrier.
+- `src/agnette/agl/runtime/transfer.py` — `agl.transfer`, `agl.TransferError`.
 - `src/agnette/agl/runtime/type_contracts.py` — `agl.TypeContract`.
 - `packages/stdlib/src/*.py` — the standard library's companions.
