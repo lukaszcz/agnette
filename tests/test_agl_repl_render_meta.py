@@ -615,7 +615,8 @@ class TestInfo:
         outcome = meta_mod.dispatch_meta(f":info {name}", _session_ctx(_open_session()))
 
         assert outcome.text is not None
-        assert outcome.text.startswith(f"{name} is a function.\nSignature:\n  def {name}")
+        assert outcome.text.startswith(f"{name} is a function.\nSignature:\n")
+        assert f"\n  def {name}" in outcome.text
 
     def test_info_reports_a_qualified_standard_library_function(self) -> None:
         session = _open_session()
@@ -624,9 +625,8 @@ class TestInfo:
         outcome = meta_mod.dispatch_meta(":info fs::read", _session_ctx(session))
 
         assert outcome.text is not None
-        assert outcome.text.startswith(
-            "fs::read is a function.\nSignature:\n  def read(path: text) -> text"
-        )
+        assert outcome.text.startswith("fs::read is a function.\nSignature:\n")
+        assert "\n  def read(path: text) -> text" in outcome.text
 
     def test_info_resolves_an_unqualified_function_like_a_repl_expression(self) -> None:
         session = _open_session()
@@ -635,15 +635,15 @@ class TestInfo:
         outcome = meta_mod.dispatch_meta(":info print", _session_ctx(session))
 
         assert outcome.text is not None
-        assert outcome.text.startswith("print is a function.\nSignature:\n  def print[T](value: T)")
+        assert outcome.text.startswith("print is a function.\nSignature:\n")
+        assert "\n  def print[T](value: T)" in outcome.text
         assert "std/log::Level" not in outcome.text
 
         log = meta_mod.dispatch_meta(":info log::print", _session_ctx(session))
 
         assert log.text is not None
-        assert log.text.startswith(
-            "log::print is a function.\nSignature:\n  def print[T](lvl: std/log::Level, val: T)"
-        )
+        assert log.text.startswith("log::print is a function.\nSignature:\n")
+        assert "\n  def print[T](lvl: std/log::Level, val: T)" in log.text
 
     @pytest.mark.parametrize(
         ("modules", "setup", "name", "error", "span_text"),
@@ -1079,6 +1079,164 @@ class TestInfo:
         rendered = _format_repl_signature(signature)
 
         assert rendered == "[T](first: int, second: text, third: bool) -> int"
+
+
+class TestInfoDocs:
+    """``:info`` shows ``@doc`` prose of declarations and ``@!doc`` prose of modules and regions."""
+
+    @staticmethod
+    def _info(session: ReplSession, name: str) -> str:
+        outcome = meta_mod.dispatch_meta(f":info {name}", _session_ctx(session))
+        assert outcome.text is not None
+        return outcome.text
+
+    def test_documented_declarations_show_their_doc_above_the_code(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("Adds.")\ndef add(x: int) -> int = x').ok
+        assert session.eval_entry('@doc("Counter.")\nvar count = 1').ok
+        assert session.eval_entry('@doc("A point.")\nrecord Point\n  x: int').ok
+        assert session.eval_entry('@doc("Whole.")\ntype Whole = int').ok
+        assert session.eval_entry('@doc("Ready state.")\nenum State = | Ready').ok
+
+        assert '  @doc("Adds.")\n  def add(x: int) -> int' in self._info(session, "add")
+        assert '  @doc("Counter.")\n  var count' in self._info(session, "count")
+        assert '  @doc("A point.")\n  record Point' in self._info(session, "Point")
+        assert '  @doc("Whole.")\n  type Whole = int' in self._info(session, "Whole")
+        assert '  @doc("Ready state.")\n  enum State' in self._info(session, "State")
+
+    def test_multiline_doc_is_triple_quoted(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("""\n  First "line".\n\n  Second.\n""")\nlet x = 1').ok
+
+        text = self._info(session, "x")
+
+        assert '  @doc("""\n    First \\"line\\".\n\n    Second.\n  """)\n  let x' in text
+
+    def test_documented_library_declaration_shows_its_doc(self) -> None:
+        assert '@doc("Build an agent request' in self._info(_open_session(), "ask-request")
+
+    def test_undocumented_declaration_shows_no_doc(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("def plain() -> int = 1").ok
+
+        assert "@doc" not in self._info(session, "plain")
+
+    def test_module_shows_its_doc_by_alias_and_route(self, tmp_path: Path) -> None:
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "lib.agl").write_text(
+            '@!doc("Library helpers.")\n\ndef f() -> int = 1\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import pkg/lib").ok
+        assert session.eval_entry("import pkg/lib as renamed").ok
+
+        for spelling in ("lib", "pkg/lib", "renamed"):
+            text = self._info(session, spelling)
+            assert text.startswith(f"{spelling} is a module.")
+            assert '  @!doc("Library helpers.")\n  module pkg/lib' in text
+
+    def test_standard_library_module_resolves(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("import std/fs").ok
+
+        assert "module std/fs" in self._info(session, "fs")
+
+    def test_undocumented_module_shows_only_its_header(self, tmp_path: Path) -> None:
+        (tmp_path / "bare.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import bare").ok
+
+        text = self._info(session, "bare")
+
+        assert "module bare" in text
+        assert "@!doc" not in text
+
+    def test_ambiguous_module_spelling_lists_candidates(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            (tmp_path / name).mkdir()
+            (tmp_path / name / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import a/lib").ok
+        assert session.eval_entry("import b/lib").ok
+
+        text = self._info(session, "lib")
+
+        assert "a/lib" in text
+        assert "b/lib" in text
+
+    def test_module_not_imported_is_not_found(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+
+        assert "is a module" not in self._info(session, "lib")
+
+    def test_region_shows_its_doc(self) -> None:
+        session = _open_session()
+        entry = 'scope a::b\n  @!doc("Inner.")\n  def g() -> int = 1\nend a::b'
+        assert session.eval_entry(entry).ok
+
+        text = self._info(session, "a::b")
+        assert text.startswith("a::b is a scope.")
+        assert '  @!doc("Inner.")\n  scope a::b' in text
+        outer = self._info(session, "a")
+        assert "scope a" in outer
+        assert "@!doc" not in outer
+
+    def test_region_in_imported_module_resolves_bare_and_module_qualified(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Debug helpers.")\n  def f() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+
+        for spelling in ("Debug", "lib::Debug"):
+            assert '  @!doc("Debug helpers.")\n  scope Debug' in self._info(session, spelling)
+
+    def test_inner_attributes_of_a_retained_region_do_not_reach_later_entries(self) -> None:
+        """Regression: a retained scoped import kept its region's ``@!doc`` and ``@!allow``."""
+        session = _open_session()
+        entry = 'scope s\n  @!doc("v %{n}")\n  import std/text\n  let n = "1"\nend s'
+        assert session.eval_entry(entry).ok
+
+        assert session.eval_entry("1 + 1").ok
+        assert session.eval_entry("2 + 2").ok
+        assert '@!doc("v 1")' in self._info(session, "s")
+
+    def test_entry_of_only_inner_attributes_is_a_no_op(self) -> None:
+        """Regression: an entry with no items crashed echo classification."""
+        session = _open_session()
+
+        result = session.eval_entry('@!doc("x")\n')
+
+        assert result.ok
+        assert render_mod.render_entry_result(result, echo=True) is None
+
+    def test_exception_doc_and_non_nominal_type_doc(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("Boom.")\nexception Boom extends Exception').ok
+
+        assert '@doc("Boom.")' in self._info(session, "Boom")
+        assert session._type_doc(IntType()) is None
+
+    def test_unknown_scope_path_is_not_found(self) -> None:
+        assert "is a scope" not in self._info(_open_session(), "nope::deeper")
+
+    def test_reset_forgets_session_regions_and_docs(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('scope r\n  @!doc("R.")\n  def g() -> int = 1\nend r').ok
+        assert session.eval_entry('@doc("Adds.")\ndef add(x: int) -> int = x').ok
+        session.reset()
+        assert session.eval_entry("def add(x: int) -> int = x").ok
+
+        assert "is a scope" not in self._info(session, "r")
+        assert "@doc" not in self._info(session, "add")
 
 
 class TestBindings:

@@ -1099,7 +1099,8 @@ class EntryPipeline:
         nested exactly where it was written -- unlike a root ``import``,
         already retained by the flat, module-wide accumulation channel -- so
         only a scoped one (``item.scope_path`` non-empty, which holds
-        precisely when it is a region's own item) is captured here.
+        precisely when it is a region's own item) is captured here. A retained
+        region drops its inner attributes: they apply to the entry that wrote them.
         """
         from dataclasses import replace
 
@@ -1112,7 +1113,7 @@ class EntryPipeline:
             elif isinstance(item, ScopeRegion):
                 nested = EntryPipeline._retained_scoped_import_items(item.items)
                 if nested:
-                    retained.append(replace(item, items=nested))
+                    retained.append(replace(item, items=nested, attributes=()))
         return tuple(retained)
 
     @staticmethod
@@ -1149,7 +1150,7 @@ class EntryPipeline:
                     rewrite_import=rewrite_import,
                 )
                 if nested:
-                    rewritten.append(replace(item, items=nested))
+                    rewritten.append(replace(item, items=nested, attributes=()))
         return tuple(rewritten)
 
     @staticmethod

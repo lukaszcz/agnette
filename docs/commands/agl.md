@@ -837,7 +837,7 @@ Meta-commands start with `:`, which never collides with AgL syntax:
 | `:quit` / `:exit` (or Ctrl-D) | Exit the REPL |
 | `:reset` | Clear the whole session (bindings, types, declarations, imports, and uses) |
 | `:type EXPR` | Type-check `EXPR` against the session and print its type (no eval) |
-| `:info NAME` | Show the current binding, function, constructor, or type as concise AgL; the rich console highlights it |
+| `:info NAME` | Show the current binding, function, constructor, type, imported module, or scope region as concise AgL, with its documentation; the rich console highlights it |
 | `:bindings` / `:env` | List current bindings as `name : Type = value` |
 | `:set echo on\|off` | Toggle result echoing |
 | `:set echo-unit on\|off` | Toggle echoing `unit`-typed entries too (off by default) |
@@ -883,6 +883,12 @@ Meta-commands start with `:`, which never collides with AgL syntax:
   expression or type, and a hidden, unknown, or ambiguous name reports that error. A declaration
   is shown by its written path — scope path and name in its declaring module — whichever
   spelling reached it: with `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`.
+  A declaration's `@doc` is shown as an attribute line above its AgL (triple-quoted when
+  multi-line). An imported module, spelled as its import makes it a qualifier (`fs`, `std/fs`, or
+  an `as` alias), shows its `@!doc` above `module std/fs`; a scope region declared in the session or
+  an imported module (`Debug`, `a::b`, `lib::Debug`) shows each `@!doc` above `scope a::b`. A
+  module or region without documentation shows just its header; a spelling reaching several
+  modules lists them. A declaration of the same spelling takes precedence over a module or region.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the

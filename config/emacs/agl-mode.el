@@ -579,8 +579,11 @@ abut it; every other operator character is faced by position alone.
 rejects it and `@' is never faced as an operator at all.  It is faced
 only as an attribute prefix (`agl--attribute-re').")
 
-(defconst agl--attribute-re (concat "@" agl--name-re)
-  "Regexp matching one declaration attribute's `@name' prefix.
+(defconst agl--attribute-re (concat "@!?" agl--name-re)
+  "Regexp matching one attribute's `@name' or inner `@!name' prefix.
+
+An inner attribute `@!name' stands in a module or `scope' header and
+attaches to that module or region.
 
 An attribute is written `@name' or `@name(args)' in front of a defining
 declaration, a parameter, or a field.  Only the prefix is faced: the

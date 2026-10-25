@@ -214,7 +214,7 @@ def recognize_attributes(
     recognizer = _Recognizer(
         declares_receiver, static_binding_ids, ModuleConstants(program), source_text
     )
-    recognizer.region_paths = dict(_region_paths(program.body.items, ()))
+    recognizer.region_paths = dict(region_paths(program.body.items, ()))
     walk(program, recognizer.visit)
     return AttributeFacts(
         module_doc=recognizer.module_doc,
@@ -815,7 +815,7 @@ def _zone_attribute(recognized: _Recognized) -> ParamZone | None:
     return None
 
 
-def _region_paths(
+def region_paths(
     items: tuple[object, ...], prefix: tuple[str, ...]
 ) -> Iterator[tuple[int, tuple[str, ...]]]:
     """Yield ``(node_id, full path)`` for every scope region nested in *items*."""
@@ -823,7 +823,7 @@ def _region_paths(
         if isinstance(item, ScopeRegion):
             path = (*prefix, item.segment.name)
             yield item.node_id, path
-            yield from _region_paths(item.items, path)
+            yield from region_paths(item.items, path)
 
 
 def _whole_source(span: SourceSpan, text: str) -> SourceSpan:

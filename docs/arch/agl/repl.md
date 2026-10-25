@@ -21,7 +21,7 @@ The UI-free `repl/loop.py` owns the loop, parameterized by a reader and writer. 
 
 ## Introspection and Rendering
 
-Entry results carry the compiled program's `ValueDescriptors`, so `repl/render.py` renders without a global registry. Echo is decided from the checked static type (unit echoes nothing unless `echo-unit`). `:info` resolves a spelling through scope's ordinary lookup and the checker's constructor selection, so it reports exactly what an entry would see.
+Entry results carry the compiled program's `ValueDescriptors`, so `repl/render.py` renders without a global registry. Echo is decided from the checked static type (unit echoes nothing unless `echo-unit`). `:info` resolves a spelling through scope's ordinary lookup and the checker's constructor selection, so it reports exactly what an entry would see. Declaration `@doc` text comes from retained module attributes (session-promoted entries keep theirs in the session); when no declaration is selected, a spelling falls back to an imported module (spelled by the session's imports) or a scope region, shown with its `@!doc` (`repl/info_docs.py`).
 
 ## Setting Persistence
 
@@ -30,6 +30,6 @@ Entry results carry the compiled program's `ValueDescriptors`, so `repl/render.p
 ## Code Entry Points
 
 - `src/agnette/agl/repl/session.py` — the incremental session; `entry_pipeline.py` — the incremental entry pipeline, reusing `PipelineDriver`'s host environment and helpers.
-- `src/agnette/agl/repl/loop.py`, `console.py`, `plain_console.py` — the shared loop and front ends; `meta.py`, `render.py`, `themes.py` — meta-commands, rendering, themes.
+- `src/agnette/agl/repl/loop.py`, `console.py`, `plain_console.py` — the shared loop and front ends; `meta.py`, `render.py`, `info_docs.py`, `themes.py` — meta-commands, rendering, `:info` doc rendering, themes.
 - `src/agnette/agl/lower/repl.py` — incremental linking.
 - `src/agnette/agm/commands/repl.py` — the CLI host.

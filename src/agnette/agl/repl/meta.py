@@ -139,7 +139,7 @@ def _handle_type(arg: str, ctx: MetaContext) -> MetaOutcome:
 
 
 def _handle_info(arg: str, ctx: MetaContext) -> MetaOutcome:
-    """``:info NAME`` — display the current binding, function, or type as AgL.
+    """``:info NAME`` — display a binding, function, type, imported module, or scope as AgL.
 
     A name scope rejects shows scope's diagnostic, exactly as an entry spelling it would.
     """
@@ -155,8 +155,10 @@ def _info_outcome(name: str, info: str | None) -> MetaOutcome:
     return MetaOutcome(text=info, highlight_as_agl=True, agl_ranges=_info_agl_ranges(info, name))
 
 
-_INFO_SECTION_RE = re.compile(r"^(?:Binding|Signature|Type|Value):\n", re.MULTILINE)
-_INFO_SECTION_BOUNDARY_RE = re.compile(r"^(?:Binding|Signature|Type|Value|Location):", re.MULTILINE)
+_INFO_SECTION_RE = re.compile(r"^(?:Binding|Signature|Type|Value|Module|Scope):\n", re.MULTILINE)
+_INFO_SECTION_BOUNDARY_RE = re.compile(
+    r"^(?:Binding|Signature|Type|Value|Module|Scope|Location):", re.MULTILINE
+)
 
 
 def _info_agl_ranges(text: str, name: str) -> tuple[tuple[int, int], ...]:
@@ -316,7 +318,7 @@ _COMMANDS: list[MetaCommand] = [
     MetaCommand(
         names=("info",),
         usage=":info NAME",
-        summary="Show a binding, function, or type as AgL.",
+        summary="Show a binding, function, type, module, or scope as AgL.",
         handler=_handle_info,
     ),
     MetaCommand(

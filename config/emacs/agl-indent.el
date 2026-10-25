@@ -510,14 +510,24 @@ attribute that prefixes something else entirely."
                       header (agl--field-owner-line-p))))
             header)))))
 
+(defun agl--inner-attribute-line-p ()
+  "Return non-nil if the current line\='s first token is an inner attribute `@!\='."
+  (save-excursion
+    (beginning-of-line)
+    (skip-chars-forward " \t")
+    (looking-at-p "@!")))
+
 (defun agl--attribute-indent ()
   "Return the column this line\='s attribute should sit at.
+
+An inner attribute is a header item of the module or region enclosing it
+and stands where a declaration there does, never as a field\='s prefix.
 
 An attribute stands immediately above what it prefixes and takes that
 line\='s column, so it is placed as the declaration below it will be —
 except inside a record, enum, or exception body, where what follows is a
 field and the body\='s level carries over."
-  (if (agl--field-attribute-p)
+  (if (and (not (agl--inner-attribute-line-p)) (agl--field-attribute-p))
       (agl--carried-over-indent)
     (agl--declaration-indent)))
 

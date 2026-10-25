@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, cast
@@ -28,6 +28,12 @@ from typing import TYPE_CHECKING, cast
 from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.repl.entry import EntryKind, EntryResult
 from agnette.agl.repl.entry_pipeline import EntryPipeline
+from agnette.agl.repl.info_docs import (
+    format_doc_attribute,
+    module_order,
+    module_regions,
+    module_spellings,
+)
 from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
@@ -235,9 +241,13 @@ def _indefinite(kind: str) -> str:
     return f"{'an' if kind[0] in 'aeiou' else 'a'} {kind}"
 
 
-def _format_info_section(label: str, code: str, location: str | None = None) -> str:
-    """Format one labelled ``:info`` code section and an optional location."""
-    indented_code = "\n".join(f"  {line}" for line in code.splitlines())
+def _format_info_section(
+    label: str, code: str, location: str | None = None, doc: str | None = None
+) -> str:
+    """Format one labelled ``:info`` code section, headed by its ``@doc``, and a location."""
+    if doc is not None:
+        code = f"{format_doc_attribute(doc)}\n{code}"
+    indented_code = "\n".join(f"  {line}" if line else "" for line in code.splitlines())
     location_line = "" if location is None else f"\nLocation: {location}"
     return f"{label}:\n{indented_code}{location_line}"
 
@@ -466,6 +476,12 @@ class ReplSession:
         self._retained_resolved_modules: dict[ModuleId, ResolvedModule] = {}
         self._retained_checked_modules: dict[ModuleId, CheckedModule] = {}
         self._last_match_compilation: MatchCompiledProgram | None = None
+        # ``@doc`` prose of promoted entry declarations by node id, and the
+        # promoted entry scope regions with their ``@!doc`` prose: what
+        # ``:info`` shows for them (library modules keep theirs in their
+        # retained attributes).
+        self._session_docs: dict[int, str] = {}
+        self._session_regions: dict[tuple[str, ...], str | None] = {}
         # Imports generally persist across successfully promoted program entries,
         # one retained generation per entry, kept as written so a wildcard keeps
         # tracking the module set. Declarations for a module named in a later
@@ -917,6 +933,20 @@ class ReplSession:
                 return self._fail_static_governed(exc, list(tab_sink))
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
+        if not program.body.items:
+            # Nothing to run (e.g. only inner attributes): a no-op entry.
+            return EntryResult(
+                kind="statement",
+                name=None,
+                value=None,
+                value_type=None,
+                diagnostics=[],
+                warnings=[],
+                error=None,
+                ok=True,
+                quote_strings=True,
+                type_table=self._type_env.type_table,
+            )
 
         # [1d] REPL entries use the program pipeline by default because that
         # is where the synthetic ``import std/prelude`` prelude is injected.  This
@@ -1401,6 +1431,14 @@ class ReplSession:
             (type_path, checked.resolved.type_owners[type_path])
             for type_path in promoted_type_paths
         )
+        attributes = checked.resolved.attributes
+        self._session_docs.update(
+            (node_id, doc) for node_id, doc in attributes.docs.items() if _is_promoted(node_id)
+        )
+        for region in promoted_scope_region_paths:
+            self._session_regions[region] = attributes.region_docs.get(
+                region, self._session_regions.get(region)
+            )
 
         if not partial:
             # The checked environment already includes the prior sealed session
@@ -1528,8 +1566,8 @@ class ReplSession:
             scoped_public_name,
         )
 
-        # An entry echoed here always has at least one item: blank and
-        # comment-only entries are filtered by ``has_runnable_statements``.
+        # An entry echoed here always has at least one item: an entry without
+        # items is answered as a no-op before the pipeline runs.
         last = program.body.items[-1]
         # Bare expression (not a binder or declaration) → "expression"
         if not isinstance(last, (Binder, Declaration, ScopeRegion)):
@@ -1597,8 +1635,8 @@ class ReplSession:
             VarDecl,
         )
 
-        # An entry echoed here always has at least one item: blank and
-        # comment-only entries are filtered by ``has_runnable_statements``.
+        # An entry echoed here always has at least one item: an entry without
+        # items is answered as a no-op before the pipeline runs.
         # The resolved program holds the entry with its operator chains grouped.
         last = checked.resolved.program.body.items[-1]
         # A statement item (a scope region, an import, ...) has no type.
@@ -1704,12 +1742,27 @@ class ReplSession:
         visible declaration, and a name scope rejects raises scope's rejection.
         ``None`` when *name* is no identifier.
         """
-        from agnette.agl.repl.render import _render_value_or_cyclic_message
-        from agnette.agl.semantics.values import Cell
-
         parts = tuple(name.split("::"))
         if not name or any(not part for part in parts):
             return None
+        if "/" in name:
+            # Only a module route is spelled with a slash.
+            found = self._describe_module_or_region(name, parts)
+            return found if found is not None else self._describe_declaration(name)
+        try:
+            described = self._describe_declaration(name)
+        except AglError:
+            found = self._describe_module_or_region(name, parts)
+            if found is None:
+                raise
+            return found
+        return described if described is not None else self._describe_module_or_region(name, parts)
+
+    def _describe_declaration(self, name: str) -> str | None:
+        """Describe the binding, function, constructor, or type *name* selects."""
+        from agnette.agl.repl.render import _render_value_or_cyclic_message
+        from agnette.agl.semantics.values import Cell
+
         resolved_reference = self._resolve_info_reference(name)
         ref = None if resolved_reference is None else resolved_reference.binding
         location = (
@@ -1729,6 +1782,7 @@ class ReplSession:
                             "Signature",
                             f"def {declared}{_format_repl_signature(signature)}",
                             location,
+                            self._declaration_doc(ref.module_id, ref.decl_node_id),
                         ),
                     )
                 )
@@ -1745,7 +1799,11 @@ class ReplSession:
             return "\n".join(
                 (
                     f"{name} is a {'mutable ' if ref.mutable else ''}binding.",
-                    _format_info_section("Binding", f"{keyword} {declared}"),
+                    _format_info_section(
+                        "Binding",
+                        f"{keyword} {declared}",
+                        doc=self._declaration_doc(ref.module_id, ref.decl_node_id),
+                    ),
                     _format_info_section("Type", repr(binding_type)),
                     _format_info_section("Value", rendered, location),
                 )
@@ -1764,7 +1822,9 @@ class ReplSession:
             (
                 f"{name} is a constructor.",
                 _format_info_section(
-                    "Signature", _format_constructor_signature(constructor_signature)
+                    "Signature",
+                    _format_constructor_signature(constructor_signature),
+                    doc=self._type_doc(constructor_signature.result_template),
                 ),
             )
         )
@@ -1865,7 +1925,10 @@ class ReplSession:
         if alias is not None:
             params = f"[{', '.join(alias.type_params)}]" if alias.type_params else ""
             definition = f"type {declared}{params} = {render_type_expr(alias.type_expr)}"
-            return f"{name} is a type alias.\n{_format_info_section('Type', definition)}"
+            display = _format_info_section(
+                "Type", definition, doc=self._declaration_doc(module_id, alias.node_id)
+            )
+            return f"{name} is a type alias.\n{display}"
         # A type this session declares is located at its declaration.
         location = (
             _format_repl_location(
@@ -1879,7 +1942,7 @@ class ReplSession:
         typ = type_env.get_type(declared) if described else None
         if typ is not None:
             definition = format_type_def_for_repl(declared, typ, self._type_env.type_table)
-            display = _format_info_section("Type", definition, location)
+            display = _format_info_section("Type", definition, location, self._type_doc(typ))
             return f"{name} is {_indefinite(typ.kind)} type.\n{display}"
         generic = type_env.get_generic_type(declared)
         if generic is None:
@@ -1888,9 +1951,83 @@ class ReplSession:
         return "\n".join(
             (
                 f"{name} is a generic {generic.kind} type.",
-                _format_info_section("Type", definition, location),
+                _format_info_section(
+                    "Type", definition, location, self._type_doc(generic.template)
+                ),
             )
         )
+
+    def _declaration_doc(self, module_id: "ModuleId", node_id: int) -> str | None:
+        """Return the ``@doc`` prose of declaration *node_id* of *module_id*, if any."""
+        if module_id.is_entry:
+            return self._session_docs.get(node_id)
+        checked = self._retained_checked_modules.get(module_id)
+        return None if checked is None else checked.resolved.attributes.docs.get(node_id)
+
+    def _type_doc(self, typ: "Type") -> str | None:
+        """Return the ``@doc`` prose of the nominal declaration *typ* names, if any."""
+        from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType
+
+        table = self._type_env.type_table
+        if isinstance(typ, ExceptionType):
+            return table.exception_def(typ).doc
+        if isinstance(typ, (RecordType, EnumType)):
+            return table.declaration_doc(typ)
+        return None
+
+    def _describe_module_or_region(self, name: str, parts: tuple[str, ...]) -> str | None:
+        """Describe *name* as an imported module or a scope region, or ``None`` if it is neither.
+
+        A module is spelled as an import makes it a qualifier (alias, route, or
+        trailing route segments). A region is a full scope path declared by this
+        session or an imported module, bare or qualified by a module.
+        """
+        spelled = module_spellings(
+            (decl for generation in self._accumulated_imports for decl in generation),
+            self._retained_checked_modules,
+        )
+        modules = spelled.get(tuple(parts[0].split("/")), ())
+        if len(parts) == 1 and modules:
+            if len(modules) > 1:
+                routes = ", ".join("/".join(module.segments) for module in modules)
+                return f"{name} is ambiguous: {routes}."
+            module = modules[0]
+            doc = self._retained_checked_modules[module].resolved.attributes.module_doc
+            header = f"module {'/'.join(module.segments)}"
+            code = header if doc is None else f"{format_doc_attribute(doc, inner=True)}\n{header}"
+            return f"{name} is a module.\n{_format_info_section('Module', code)}"
+        visible = {module for found in spelled.values() for module in found}
+        found_region = self._region_docs(parts, tuple(visible), include_session=True)
+        if found_region is None and len(parts) > 1:
+            parts = parts[1:]
+            found_region = self._region_docs(parts, modules, include_session=False)
+        if found_region is None:
+            return None
+        docs = (format_doc_attribute(doc, inner=True) for doc in found_region)
+        code = "\n".join((*docs, f"scope {'::'.join(parts)}"))
+        return f"{name} is a scope.\n{_format_info_section('Scope', code)}"
+
+    def _region_docs(
+        self,
+        path: tuple[str, ...],
+        modules: Iterable["ModuleId"],
+        *,
+        include_session: bool,
+    ) -> list[str] | None:
+        """Return the ``@!doc`` texts of scope region *path*, or ``None`` if no source has it.
+
+        Sources are the session's own regions (when *include_session*) and
+        *modules*, in module order.
+        """
+        regions = [self._session_regions] if include_session else []
+        regions.extend(
+            module_regions(self._retained_checked_modules[module].resolved)
+            for module in sorted(modules, key=module_order)
+        )
+        declared = [declaring for declaring in regions if path in declaring]
+        if not declared:
+            return None
+        return [doc for declaring in declared if (doc := declaring[path]) is not None]
 
     def _alias_declaration(self, key: "DeclarationKey") -> "TypeAlias | None":
         """Return the alias declaration *key* identifies, if it is an alias."""
@@ -1989,6 +2126,8 @@ class ReplSession:
         self._session_scope_nodes = {(): self._session_scope}
         self._session_type_paths = {}
         self._session_builtin_declarations = {}
+        self._session_docs = {}
+        self._session_regions = {}
         self._type_env = TypeEnvironment()
         self._type_env.seal()
         self._link_image = LinkImage()
