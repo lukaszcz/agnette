@@ -1309,6 +1309,29 @@ class TestInfoDocs:
     def test_invalid_inner_attributes_only_entry_fails(self, source: str) -> None:
         assert not _open_session().eval_entry(source).ok
 
+    @pytest.mark.parametrize("check_only", [False, True])
+    @pytest.mark.parametrize("default_stdlib", [False, True])
+    @pytest.mark.parametrize("source", ["", "# c\n", '@!doc("x")\n'])
+    def test_item_less_entry_is_a_no_op(
+        self, source: str, default_stdlib: bool, check_only: bool
+    ) -> None:
+        """Regression: without the prelude an item-less entry crashed classification."""
+        session = _open_session(default_stdlib=default_stdlib)
+
+        result = session.eval_entry(source, check_only=check_only)
+
+        assert result.ok
+        assert result.kind == "statement"
+
+    @pytest.mark.parametrize("check_only", [False, True])
+    @pytest.mark.parametrize("default_stdlib", [False, True])
+    def test_invalid_item_less_entry_fails_in_every_mode(
+        self, default_stdlib: bool, check_only: bool
+    ) -> None:
+        session = _open_session(default_stdlib=default_stdlib)
+
+        assert not session.eval_entry('@!bogus("x")\n', check_only=check_only).ok
+
     def test_exception_doc(self) -> None:
         session = _open_session()
         assert session.eval_entry('@doc("Boom.")\nexception Boom extends Exception').ok

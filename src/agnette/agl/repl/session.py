@@ -1550,7 +1550,8 @@ class ReplSession:
             scoped_public_name,
         )
 
-        # Item-less entries (only inner attributes) are never classified.
+        if not program.body.items:
+            return "statement", None
         last = program.body.items[-1]
         # Bare expression (not a binder or declaration) → "expression"
         if not isinstance(last, (Binder, Declaration, ScopeRegion)):
@@ -1619,7 +1620,10 @@ class ReplSession:
         )
 
         # The resolved program holds the entry with its operator chains grouped.
-        last = checked.resolved.program.body.items[-1]
+        items = checked.resolved.program.body.items
+        if not items:
+            return None
+        last = items[-1]
         # A statement item (a scope region, an import, ...) has no type.
         if not isinstance(last, (Binder, Declaration)):
             return checked.node_types.get(last.node_id)

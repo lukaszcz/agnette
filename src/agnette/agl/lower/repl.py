@@ -449,10 +449,11 @@ def lower_repl_program(
     )
     checked = compiled.checked
     entry = checked.modules[checked.entry_id].resolved.program
-    last = entry.body.items[-1]
+    # An item-less entry (no prelude, nothing but attributes) has no trailing expression.
     marker = (
         len(program.modules[program.entry_module].initializers) - 1
-        if not isinstance(last, (Binder, Declaration, ScopeRegion))
+        if entry.body.items
+        and not isinstance(entry.body.items[-1], (Binder, Declaration, ScopeRegion))
         else None
     )
     return LoweredReplEntry(
