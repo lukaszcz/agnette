@@ -45,6 +45,8 @@ def _partition(source: str, spans: list[Span]) -> None:
         ("infixl |> at 5", "at", Category.KEYWORD),
         ("let at = 1", "at", Category.NAME),
         ('@doc("x") def f() = 1', "doc", Category.ATTRIBUTE),
+        ('@!doc("x")', "doc", Category.ATTRIBUTE),
+        ('@!doc("x")', "@!", Category.ATTRIBUTE),
         ("@", "@", Category.OPERATOR),
         ("@ 1", "@", Category.OPERATOR),
         ("import std/text", "std/text", Category.MODULE),

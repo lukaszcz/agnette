@@ -988,6 +988,14 @@ class AttributeFacts:
         validated, distinct, and all exemptable.
     ``shell_quoted``
         The ``FuncDef.node_id`` of every ``def`` carrying ``@shell-quoted``.
+    ``module_doc``
+        The module's ``@!doc`` text, or ``None``.
+    ``region_docs``
+        The ``@!doc`` text of every scope region carrying one, keyed by the
+        region's full scope path (a ``scope a::b`` header documents ``("a", "b")``).
+
+    ``warning_allows`` also holds the regions of ``@!allow``: the whole source
+    for the module's, the region's span for a scope region's.
     """
 
     param_zones: dict[int, ParamZone] = field(default_factory=dict)
@@ -1000,6 +1008,8 @@ class AttributeFacts:
     warning_allows: list[AllowRegion] = field(default_factory=list)
     warning_exemptions: dict[int, frozenset[str]] = field(default_factory=dict)
     shell_quoted: set[int] = field(default_factory=set)
+    module_doc: str | None = None
+    region_docs: dict[tuple[str, ...], str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

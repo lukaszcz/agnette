@@ -158,6 +158,11 @@ class TestDocAttribute:
         assert spec.arguments is AttributeArguments.ONE_TEXT
         assert spec.targets == frozenset(AttributeTarget)
 
+    @pytest.mark.parametrize("target", [AttributeTarget.MODULE, AttributeTarget.SCOPE_REGION])
+    def test_only_doc_and_allow_admit_the_inner_targets(self, target: AttributeTarget) -> None:
+        admitting = {name for name, spec in BUILTIN_ATTRIBUTES.items() if target in spec.targets}
+        assert admitting == {"doc", "allow"}
+
 
 class TestWarningAttributes:
     def test_allow_takes_a_text_list_on_every_target(self) -> None:

@@ -3458,6 +3458,12 @@ class TestAtToken:
     def test_at_alone_is_at_token(self) -> None:
         assert tok("@") == [("AT", "@")]
 
+    def test_at_bang_opens_an_inner_attribute(self) -> None:
+        assert tok("@!doc") == [("INNER_AT", "@!"), ("NAME", "doc")]
+
+    def test_at_then_spaced_bang_is_a_prefix_at_and_an_operator(self) -> None:
+        assert tok("@ !x") == [("AT", "@"), ("OP_NAME", "!"), ("NAME", "x")]
+
     @pytest.mark.parametrize("name", ("arg-pos", "arg-std", "arg-named", "doc", "extern-name"))
     def test_an_attribute_name_is_one_name_token(self, name: str) -> None:
         assert tok(f"@{name}") == [("AT", "@"), ("NAME", name)]

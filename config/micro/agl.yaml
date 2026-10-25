@@ -91,7 +91,7 @@ rules:
     # needed.  The rule comes after the delimiter repaints above so that the
     # `@' it owns is not repainted back to an operator; the argument list is
     # ordinary AgL and keeps the faces the rules above gave it.
-    - preproc: "@[\\p{L}_][^\\]\\[(){}:,.|;/@=\\s]*"
+    - preproc: "@!?[\\p{L}_][^\\]\\[(){}:,.|;/@=\\s]*"
 
     # `$' verbatim literal payloads. The tail of a `$'-opened line is verbatim
     # text, not AgL, so the whole tail is a region: a keyword or an apostrophe

@@ -7,7 +7,7 @@ admitted target, the arguments match the declared schema, the attribute is not
 repeated or contradicted — and turns the surviving attributes into typed
 side-table entries.
 
-Eleven facts are built: a parameter's zone, from the ``@arg-*`` attribute an
+Twelve facts are built: a parameter's zone, from the ``@arg-*`` attribute an
 entry or its owning declaration carries; an ``extern def``'s Python companion
 name, from ``@extern-name`` — the walk sees every extern of a module, so it is
 also where their companion names are held apart; host-facing parameters'
@@ -20,7 +20,9 @@ resolution and type checking to give meaning to; the static warnings each
 declaration allows within itself, from ``@allow``; and the warnings each
 function's call results are exempt from, from ``@exempts`` — both validated
 against the warning catalog — and the functions returning shell words, from
-``@shell-quoted``. The walk is the seam a
+``@shell-quoted``; and the module's and each scope region's documentation and
+allowed warnings, from their inner attributes (``@!doc``, ``@!allow``), validated
+like any prefix. The walk is the seam a
 further attribute meaning joins through — a new fact reads the attributes the
 walk already hands it and fills a table of its own, so it costs one more
 builder, never one more traversal.
@@ -29,7 +31,7 @@ builder, never one more traversal.
 from __future__ import annotations
 
 import keyword
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
 from agnette.agl.attributes import (
@@ -77,6 +79,7 @@ from agnette.agl.syntax.nodes import (
     Param,
     Program,
     RecordDef,
+    ScopeRegion,
     TypeAlias,
     VarDecl,
     VariantDef,
@@ -154,6 +157,8 @@ _TARGET_LABEL: Mapping[AttributeTarget, str] = {
     AttributeTarget.LAMBDA_PARAMETER: "lambda parameter",
     AttributeTarget.FIELD: "field",
     AttributeTarget.PROGRAM_PARAMETER: "program parameter",
+    AttributeTarget.MODULE: "module",
+    AttributeTarget.SCOPE_REGION: "scope region",
 }
 
 
@@ -209,8 +214,11 @@ def recognize_attributes(
     recognizer = _Recognizer(
         declares_receiver, static_binding_ids, ModuleConstants(program), source_text
     )
+    recognizer.region_paths = dict(_region_paths(program.body.items, ()))
     walk(program, recognizer.visit)
     return AttributeFacts(
+        module_doc=recognizer.module_doc,
+        region_docs=recognizer.region_docs,
         param_zones=recognizer.param_zones,
         extern_names=recognizer.extern_names,
         program_options=recognizer.program_options,
@@ -249,6 +257,9 @@ class _Recognizer:
         self.warning_allows: list[AllowRegion] = []
         self.warning_exemptions: dict[int, frozenset[str]] = {}
         self.shell_quoted: set[int] = set()
+        self.module_doc: str | None = None
+        self.region_docs: dict[tuple[str, ...], str] = {}
+        self.region_paths: dict[int, tuple[str, ...]] = {}
         self._companion_owners: dict[str, str] = {}
 
     def visit(self, node: object) -> None:
@@ -258,6 +269,8 @@ class _Recognizer:
         its parameters or fields — resolve a constant reference from; a
         declaration nested in a body keeps the enclosing item's path.
         """
+        if isinstance(node, (Program, ScopeRegion)):
+            self._inner(node)
         if isinstance(node, Item):
             declared_scope = self._constants.static_scope_path_of(node.node_id)
             if declared_scope is not None:
@@ -338,6 +351,30 @@ class _Recognizer:
         self._external_name(node_id, recognized)
         self._warning_names(node_id, span, recognized)
         return recognized
+
+    def _inner(self, node: Program | ScopeRegion) -> None:
+        """Recognize the inner attributes of the module root or a scope region.
+
+        Their arguments resolve from the module root or the region's scope; the
+        ``@!doc`` text is filed as the module's or the region's, and ``@!allow``
+        hides its warnings across the whole module or region.
+        """
+        path: tuple[str, ...] = ()
+        if isinstance(node, Program):
+            target = AttributeTarget.MODULE
+            span = _whole_source(node.span, self._source_text)
+        else:
+            target = AttributeTarget.SCOPE_REGION
+            path = self.region_paths[node.node_id]
+            span = _from_blank_line_start(node.span, self._source_text)
+        recognized = _validate_attribute_prefix(node.attributes, target, self._constants, path)
+        documentation = recognized.text_of(DOC_ATTRIBUTE)
+        if documentation is not None:
+            if isinstance(node, Program):
+                self.module_doc = documentation
+            else:
+                self.region_docs[path] = documentation
+        self._warning_names(node.node_id, span, recognized)
 
     # ------------------------------------------------------------------
     # Fact builder: static host parameters
@@ -776,6 +813,31 @@ def _zone_attribute(recognized: _Recognized) -> ParamZone | None:
         if zone is not None:
             return zone
     return None
+
+
+def _region_paths(
+    items: tuple[object, ...], prefix: tuple[str, ...]
+) -> Iterator[tuple[int, tuple[str, ...]]]:
+    """Yield ``(node_id, full path)`` for every scope region nested in *items*."""
+    for item in items:
+        if isinstance(item, ScopeRegion):
+            path = (*prefix, item.segment.name)
+            yield item.node_id, path
+            yield from _region_paths(item.items, path)
+
+
+def _whole_source(span: SourceSpan, text: str) -> SourceSpan:
+    """Return a span covering all of *text*, which *span* indexes."""
+    lines = text.split("\n")
+    return replace(
+        span,
+        start_line=1,
+        start_col=1,
+        start_offset=0,
+        end_line=len(lines),
+        end_col=len(lines[-1]) + 1,
+        end_offset=len(text),
+    )
 
 
 def _from_blank_line_start(span: SourceSpan, text: str) -> SourceSpan:

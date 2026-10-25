@@ -1,0 +1,6 @@
+scope S
+  @!command("x y")
+  def f() -> int = 1
+end S
+
+program def main() -> unit = ()

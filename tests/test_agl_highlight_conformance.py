@@ -95,7 +95,7 @@ def _project(source: str, spans: list[Span]) -> list[Category]:
                 category = Category.NAME
             elif word == "_" and original == Category.OPERATOR:
                 category = Category.NAME
-            elif original == Category.ATTRIBUTE and token.type == "AT":
+            elif original == Category.ATTRIBUTE and token.type in {"AT", "INNER_AT"}:
                 category = Category.OPERATOR
             elif original == Category.MODULE and token.type in {"SLASH", "DCOLON"}:
                 category = Category.OPERATOR
@@ -1158,6 +1158,7 @@ def test_cross_line_builtin_call_has_only_a_name_spelling_divergence(newline: st
     [
         "let x = 123.45 + ?1 and true",
         'import std/text\n@doc("abc") record Box\n  value: int',
+        '@!doc("abc")\n@!allow("tab-indentation")\n\nscope s\n  @!doc("x")\nend s',
         '"abc\\n%{ {1: print(2)} }%${HOME}"',
         '"abc ${HOME} %$ %${} %${HOME"',
         "$ abc ${HOME} %${HOME} %$ %${} %${HOME\nlet x=1",

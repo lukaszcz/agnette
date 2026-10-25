@@ -61,7 +61,7 @@ _DECLARATION = keyword_rule(TYPE_DECLARATION_KEYWORDS, Category.KEYWORD, token_s
 # attribute arguments, module headers, or softword/layout promotion windows.
 _CONTEXT = (
     Rule(
-        f"(@)([ \\t]*)({_PLAIN})",
+        f"(@!?)([ \\t]*)({_PLAIN})",
         captures=(Capture(1, Category.ATTRIBUTE), Capture(3, Category.ATTRIBUTE)),
     ),
     Rule(
@@ -111,7 +111,7 @@ _CODE = (
         Category.OPERATOR,
     ),
     Rule(_OPERATOR + "+", Category.NAME),
-    Rule(r"::|:=|@", Category.OPERATOR),
+    Rule(r"::|:=|@!|@", Category.OPERATOR),
     Rule(r"[(\[{]", Category.PUNCTUATION, action=Push("brackets")),
     Rule(r"[)\]{}:,.;]", Category.PUNCTUATION),
 )

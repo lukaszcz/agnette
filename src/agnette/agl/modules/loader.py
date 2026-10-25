@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 
@@ -358,7 +358,7 @@ def _with_default_stdlib_import(
         span=program.body.span,
         node_id=program.body.node_id,
     )
-    return syntax.Program(body=body, span=program.span, node_id=program.node_id)
+    return replace(program, body=body)
 
 
 # ---------------------------------------------------------------------------

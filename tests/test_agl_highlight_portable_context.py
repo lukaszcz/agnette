@@ -34,6 +34,8 @@ def _at(source: str, spelling: str) -> list[Category]:
         ("enum Choice =\n  | Yes", "Yes", Category.CONSTRUCTOR),
         ('"%{ record Box }"', "Box", Category.TYPE),
         ("@doc(record Box) record Real", "Real", Category.TYPE),
+        ("@!doc(record Box) record Real", "Real", Category.TYPE),
+        ('@!doc("x")', "@!", Category.ATTRIBUTE),
     ],
 )
 def test_local_context_features(source: str, spelling: str, category: Category) -> None:

@@ -51,6 +51,7 @@ _OPERATOR_TOKENS = frozenset(
         "ASSIGN",
         "DCOLON",
         "AT",
+        "INNER_AT",
         "EQ",
         "NEQ",
         "LE",
@@ -66,6 +67,7 @@ _OPERATOR_TOKENS = frozenset(
         "WILDCARD",
     }
 )
+_ATTRIBUTE_OPENERS = frozenset({"AT", "INNER_AT"})
 _PUNCTUATION_TOKENS = frozenset(
     {
         "LPAR",
@@ -140,7 +142,7 @@ def _next_significant_types(tokens: list[Token]) -> list[str | None]:
 
 
 def _attribute_styles(tokens: list[Token]) -> tuple[dict[int, Category], set[int]]:
-    """Classify @name prefixes; balanced arguments are transparent to declarations."""
+    """Classify @name and @!name attributes; balanced arguments are transparent to declarations."""
     forced: dict[int, Category] = {}
     covered: set[int] = set()
     significant = [i for i, token in enumerate(tokens) if token.type not in _LAYOUT_TOKENS]
@@ -154,7 +156,7 @@ def _attribute_styles(tokens: list[Token]) -> tuple[dict[int, Category], set[int
     position = 0
     while position < len(significant):
         at_index = significant[position]
-        if tokens[at_index].type != "AT" or position + 1 >= len(significant):
+        if tokens[at_index].type not in _ATTRIBUTE_OPENERS or position + 1 >= len(significant):
             position += 1
             continue
         name_index = significant[position + 1]

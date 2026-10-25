@@ -529,6 +529,20 @@ enum Shape
   | Empty
 ```
 
+`@!` introduces an **inner attribute**: `@!name`, or `@!name(args)`, with `!`
+directly after the `@`. Unlike a prefix attribute it is a complete item that
+ends at its line: it attaches to the enclosing module or scope region, not to
+what follows.
+
+```agl
+@!doc("Shared helpers.")
+@!allow("tab-indentation")
+
+scope internal
+  @!doc("Not for direct use.")
+end internal
+```
+
 Placement, catalog, and arguments: [Attributes](attributes.md).
 
 ## Operator precedence

@@ -61,6 +61,7 @@ from agnette.agl.lexer.tokens import (
     ERROR,
     GE,
     GT,
+    INNER_AT,
     INT,
     INTERP_END,
     INTERP_START,
@@ -1227,6 +1228,11 @@ class _Scanner:
         if ch == ":" and self._peek() == ":":
             self._advance()
             yield self._make_token(DCOLON, "::", start_pos, start_line, start_col)
+            return
+        # "@!" opens an inner attribute; a lone "@" opens a prefix attribute.
+        if ch == "@" and self._peek() == "!":
+            self._advance()
+            yield self._make_token(INNER_AT, "@!", start_pos, start_line, start_col)
             return
         # Single-char operators
         if ch in _SINGLE_OPS:

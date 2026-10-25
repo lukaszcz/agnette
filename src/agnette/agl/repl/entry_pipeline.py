@@ -10,7 +10,7 @@ time (no cycle) -- the session type is available under ``TYPE_CHECKING`` only.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, diagnostic_from_span
@@ -512,7 +512,7 @@ class EntryPipeline:
         roots: RootSet,
     ) -> tuple[Program, int, tuple[ImportDecl, ...]]:
         """Expand wildcard imports into distinct exact-module declarations."""
-        from agnette.agl.syntax.nodes import Block, ImportDecl, Program
+        from agnette.agl.syntax.nodes import ImportDecl
 
         items: list[Item] = []
         imports: list[ImportDecl] = []
@@ -529,15 +529,7 @@ class EntryPipeline:
         if not expanded_wildcard:
             return program, next_start_id, tuple(imports)
         return (
-            Program(
-                body=Block(
-                    items=tuple(items),
-                    span=program.body.span,
-                    node_id=program.body.node_id,
-                ),
-                span=program.span,
-                node_id=program.node_id,
-            ),
+            EntryPipeline._replace_body_items(program, items),
             next_start_id,
             tuple(imports),
         )
@@ -557,17 +549,7 @@ class EntryPipeline:
         callers that reorder or filter a program's root items -- rather than
         merely prepending, which is ``_prepend_items`` -- share this rebuild.
         """
-        from agnette.agl.syntax.nodes import Block, Program
-
-        return Program(
-            body=Block(
-                items=tuple(items),
-                span=program.body.span,
-                node_id=program.body.node_id,
-            ),
-            span=program.span,
-            node_id=program.node_id,
-        )
+        return replace(program, body=replace(program.body, items=tuple(items)))
 
     def _evaluate_ir_program(
         self,

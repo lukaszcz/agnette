@@ -126,6 +126,7 @@ MINUS = "MINUS"  # -
 STAR = "STAR"  # *
 SLASH = "SLASH"  # /
 AT = "AT"  # @
+INNER_AT = "INNER_AT"  # @! (opens an inner attribute)
 LPAR = "LPAR"  # (
 RPAR = "RPAR"  # )
 LSQB = "LSQB"  # [
