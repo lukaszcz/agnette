@@ -21,7 +21,7 @@ The UI-free `repl/loop.py` owns the loop, parameterized by a reader and writer. 
 
 ## Introspection and Rendering
 
-Entry results carry the compiled program's `ValueDescriptors`, so `repl/render.py` renders without a global registry. Echo is decided from the checked static type (unit echoes nothing unless `echo-unit`). `:info` resolves a spelling through scope's ordinary lookup and the checker's constructor selection, so it reports exactly what an entry would see. Declaration `@doc` text comes from retained module attributes (session-promoted entries keep theirs in the session); when no declaration is selected, a spelling falls back to an imported module (spelled by the session's imports) or a scope region, shown with its `@!doc` (`repl/info_docs.py`).
+Entry results carry the compiled program's `ValueDescriptors`, so `repl/render.py` renders without a global registry. Echo is decided from the checked static type (unit echoes nothing unless `echo-unit`). `:info` resolves a spelling through scope's ordinary lookup and the checker's constructor selection, so it reports exactly what an entry would see. Declaration `@doc` text comes from retained module attributes (session-promoted entries keep theirs in the session); a lone slash route reads as a module before a declaration, any other spelling as a declaration first, falling back to a module or scope region with its `@!doc` (`repl/info_docs.py`). Modules are named by scope's own import route table (`qualifier_candidates` over a probe resolve's `import_env`); a region is read from the session alone when bare, or from the one module its qualifier names.
 
 ## Setting Persistence
 

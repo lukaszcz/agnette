@@ -885,11 +885,13 @@ Meta-commands start with `:`, which never collides with AgL syntax:
   spelling reached it: with `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`.
   A declaration's `@doc` is shown as an attribute line above its AgL (triple-quoted when
   multi-line). An imported module, spelled as its import makes it a qualifier (`fs`, `std/fs`, or
-  an `as` alias), shows its `@!doc` above `module std/fs`; a scope region declared in the session or
-  an imported module (`Debug`, `a::b`, `lib::Debug`) shows each `@!doc` above `scope a::b`. A
+  an `as` alias), shows its `@!doc` above `module std/fs`; a scope region declared in the session (`Debug`, `a::b`) or
+  beneath an imported module's name (`lib::Debug`) shows its `@!doc` above `scope a::b`; a bare
+  name never reaches an imported module's regions. A
   module or region without documentation shows just its header; a spelling reaching several
   modules lists them. Re-opening a region in a later entry with a new `@!doc` replaces its
-  documentation. A declaration of the same spelling takes precedence over a module or region.
+  documentation. A declaration of the same spelling takes precedence over a module or region, except that a lone
+  slash route (`std/fs`, `/std/fs`) names the module.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the

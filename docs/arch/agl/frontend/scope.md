@@ -54,12 +54,12 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `external_names` | `@name`, `@json-name` | type building; collisions checked by typecheck |
 | `params`, `program_options`, `docs` | `@param`, `@opt-*`, `@doc` | program discovery and CLI projection ([hosting.md](../hosting.md)); `docs` also type building |
 | `program_configs` | `@config` | typecheck (keys resolved, values checked as constants) and lowering ([hosting.md](../hosting.md)) |
-| `module_doc`, `region_docs` | `@!doc` | hosts and tools reading a module's or region's documentation |
+| `module_doc`, `region_docs` | `@!doc` | REPL `:info` ([repl.md](../repl.md)) |
 | `warning_allows` | `@allow`, `@!allow` | the warning policy ([hosting.md](../hosting.md)) |
 | `warning_exemptions` | `@exempts` | function headers (`FunctionSignature.exempts`) → `exec` hole analysis ([types.md](types.md)) |
 | `shell_quoted` | `@shell-quoted` | function headers (`FunctionSignature.shell_quoted`) → `exec` hole analysis ([types.md](types.md)) |
 
-Inner attributes (`@!doc`, `@!allow`) on `Program` and `ScopeRegion` go through the same catalog check under the `MODULE` / `SCOPE_REGION` targets, which only `@doc` and `@allow` admit; constants resolve from the module root or the region's path. `module_doc` is the module's text, `region_docs` maps a region's full scope path to its text (reached as `CheckedModule.resolved.attributes`); neither enters `docs`, which stays keyed by declaration node id. An inner `@!allow` files an `AllowRegion` over the whole source or the region's span.
+Inner attributes (`@!doc`, `@!allow`; `Attribute.inner`) on `Program` and `ScopeRegion` go through the same catalog check under the `MODULE` / `SCOPE_REGION` targets; `region_docs` is keyed by full scope path, and neither doc enters `docs`.
 
 `warning_allows` is a list of `AllowRegion(span, names)` (the declaration, attribute prefix included, reaching back to its line's start when only blanks precede it); `warning_exemptions` maps `FuncDef.node_id` to names; `shell_quoted` is a set of `FuncDef.node_id`s.
 

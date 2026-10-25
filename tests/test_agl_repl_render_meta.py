@@ -1129,10 +1129,12 @@ class TestInfoDocs:
         session = repl_session_with_root(tmp_path)
         session.open()
         assert session.eval_entry("import pkg/lib").ok
-        assert session.eval_entry("import pkg/lib as renamed").ok
+        aliased = repl_session_with_root(tmp_path)
+        aliased.open()
+        assert aliased.eval_entry("import pkg/lib as renamed").ok
 
-        for spelling in ("lib", "pkg/lib", "renamed"):
-            text = self._info(session, spelling)
+        for spelling, opened in (("lib", session), ("pkg/lib", session), ("renamed", aliased)):
+            text = self._info(opened, spelling)
             assert text.startswith(f"{spelling} is a module.")
             assert '  @!doc("Library helpers.")\n  module pkg/lib' in text
 
@@ -1186,9 +1188,7 @@ class TestInfoDocs:
         assert "scope a" in outer
         assert "@!doc" not in outer
 
-    def test_region_in_imported_module_resolves_bare_and_module_qualified(
-        self, tmp_path: Path
-    ) -> None:
+    def test_region_in_imported_module_resolves_module_qualified_only(self, tmp_path: Path) -> None:
         (tmp_path / "lib.agl").write_text(
             'scope Debug\n  @!doc("Debug helpers.")\n  def f() -> int = 1\nend Debug\n'
         )
@@ -1196,8 +1196,86 @@ class TestInfoDocs:
         session.open()
         assert session.eval_entry("import lib").ok
 
-        for spelling in ("Debug", "lib::Debug"):
-            assert '  @!doc("Debug helpers.")\n  scope Debug' in self._info(session, spelling)
+        assert '  @!doc("Debug helpers.")\n  scope Debug' in self._info(session, "lib::Debug")
+        assert "is a scope" not in self._info(session, "Debug")
+
+    def test_session_region_answers_alone_when_a_module_declares_it_too(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Library.")\n  def f() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry('scope Debug\n  @!doc("Mine.")\n  let x = 1\nend Debug').ok
+
+        text = self._info(session, "Debug")
+
+        assert text.count("@!doc") == 1
+        assert "Mine." in text
+
+    def test_module_spelling_follows_the_latest_import_of_a_module(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry("import lib as L").ok
+
+        assert "is a module" in self._info(session, "L")
+        assert "is a module" not in self._info(session, "lib")
+
+    def test_wildcard_import_spells_every_module_beneath_its_prefix(self, tmp_path: Path) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub.agl").write_text("def top() -> int = 1\n")
+        (tmp_path / "sub" / "lib2.agl").write_text("def g() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/*").ok
+
+        assert "module sub/lib2" in self._info(session, "lib2")
+        assert "module sub\n" in self._info(session, "sub") + "\n"
+
+    def test_aliased_wildcard_import_is_spelled_by_its_alias(self, tmp_path: Path) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "lib2.agl").write_text("def g() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/* as S").ok
+
+        assert "module sub/lib2" in self._info(session, "S")
+        assert "is a module" not in self._info(session, "lib2")
+
+    def test_module_imported_inside_a_scope_is_spelled(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("scope w\n  import lib\nend w").ok
+
+        assert "module lib" in self._info(session, "lib")
+
+    def test_anchored_module_route_is_spelled(self, tmp_path: Path) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "lib2.agl").write_text("def g() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/lib2").ok
+
+        assert "module sub/lib2" in self._info(session, "/sub/lib2")
+
+    def test_declaration_takes_precedence_over_scope_in_a_slash_spelling(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "lib2.agl").write_text(
+            "record R\n  x: int\n\nscope R\n  def k() -> int = 1\nend R\n"
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/lib2").ok
+
+        for spelling in ("lib2::R", "sub/lib2::R"):
+            assert "is a constructor" in self._info(session, spelling)
 
     def test_inner_attributes_of_a_retained_region_do_not_reach_later_entries(self) -> None:
         """Regression: a retained scoped import kept its region's ``@!doc`` and ``@!allow``."""
@@ -1218,12 +1296,24 @@ class TestInfoDocs:
         assert result.ok
         assert render_mod.render_entry_result(result, echo=True) is None
 
-    def test_exception_doc_and_non_nominal_type_doc(self) -> None:
+    @pytest.mark.parametrize(
+        "source",
+        [
+            '@!bogus("x")\n',
+            "@!doc(1)\n",
+            '@!doc("a")\n@!doc("b")\n',
+            '@!allow("no-such")\n',
+            "@!doc(nope)\n",
+        ],
+    )
+    def test_invalid_inner_attributes_only_entry_fails(self, source: str) -> None:
+        assert not _open_session().eval_entry(source).ok
+
+    def test_exception_doc(self) -> None:
         session = _open_session()
         assert session.eval_entry('@doc("Boom.")\nexception Boom extends Exception').ok
 
         assert '@doc("Boom.")' in self._info(session, "Boom")
-        assert session._type_doc(IntType()) is None
 
     def test_unknown_scope_path_is_not_found(self) -> None:
         assert "is a scope" not in self._info(_open_session(), "nope::deeper")

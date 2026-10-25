@@ -28,12 +28,7 @@ from typing import TYPE_CHECKING, cast
 from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.repl.entry import EntryKind, EntryResult
 from agnette.agl.repl.entry_pipeline import EntryPipeline
-from agnette.agl.repl.info_docs import (
-    format_doc_attribute,
-    module_order,
-    module_regions,
-    module_spellings,
-)
+from agnette.agl.repl.info_docs import format_doc_attribute, module_regions
 from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
@@ -58,6 +53,7 @@ if TYPE_CHECKING:
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.agl.runtime.types import ParamBindingInfo
+    from agnette.agl.scope.imports import ImportEnv
     from agnette.agl.scope.program import ResolvedModule
     from agnette.agl.scope.symbols import (
         BindingRef,
@@ -66,6 +62,7 @@ if TYPE_CHECKING:
         ScopeNode,
         TypeOwner,
     )
+    from agnette.agl.semantics.type_table import NominalOwner
     from agnette.agl.semantics.types import Type
     from agnette.agl.semantics.values import BoolValue, Frame, RecordValue, Value
     from agnette.agl.syntax.advisories import SpacedQualifier
@@ -933,21 +930,6 @@ class ReplSession:
                 return self._fail_static_governed(exc, list(tab_sink))
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
-        if not program.body.items:
-            # Nothing to run (e.g. only inner attributes): a no-op entry.
-            return EntryResult(
-                kind="statement",
-                name=None,
-                value=None,
-                value_type=None,
-                diagnostics=[],
-                warnings=[],
-                error=None,
-                ok=True,
-                quote_strings=True,
-                type_table=self._type_env.type_table,
-            )
-
         # [1d] REPL entries use the program pipeline by default because that
         # is where the synthetic ``import std/prelude`` prelude is injected.  This
         # keeps the REPL aligned with ``agm exec``: stdlib names are bare unless
@@ -1535,6 +1517,8 @@ class ReplSession:
             VarDecl,
         )
 
+        if not program.body.items:
+            return captured, None
         last = program.body.items[-1]
         value_type = self._value_type_of_last(checked)
         if not isinstance(last, (Binder, Declaration)):
@@ -1566,8 +1550,7 @@ class ReplSession:
             scoped_public_name,
         )
 
-        # An entry echoed here always has at least one item: an entry without
-        # items is answered as a no-op before the pipeline runs.
+        # Item-less entries (only inner attributes) are never classified.
         last = program.body.items[-1]
         # Bare expression (not a binder or declaration) → "expression"
         if not isinstance(last, (Binder, Declaration, ScopeRegion)):
@@ -1615,7 +1598,7 @@ class ReplSession:
         """
         from agnette.agl.syntax.nodes import Call, VarRef
 
-        last = program.body.items[-1]
+        last = program.body.items[-1] if program.body.items else None
         if isinstance(last, Call) and isinstance(last.callee, VarRef):
             return last.callee.name != "ask"
         return True
@@ -1635,8 +1618,6 @@ class ReplSession:
             VarDecl,
         )
 
-        # An entry echoed here always has at least one item: an entry without
-        # items is answered as a no-op before the pipeline runs.
         # The resolved program holds the entry with its operator chains grouped.
         last = checked.resolved.program.body.items[-1]
         # A statement item (a scope region, an import, ...) has no type.
@@ -1745,8 +1726,8 @@ class ReplSession:
         parts = tuple(name.split("::"))
         if not name or any(not part for part in parts):
             return None
-        if "/" in name:
-            # Only a module route is spelled with a slash.
+        if "/" in name and len(parts) == 1:
+            # A lone slash route is a module before it is a declaration.
             found = self._describe_module_or_region(name, parts)
             return found if found is not None else self._describe_declaration(name)
         try:
@@ -1914,6 +1895,7 @@ class ReplSession:
             format_generic_type_def_for_repl,
             format_type_def_for_repl,
         )
+        from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType
         from agnette.agl.syntax.types import render_type_expr
 
         key = reference.type_key
@@ -1941,6 +1923,7 @@ class ReplSession:
         described = module_id.is_entry or reference.constructor is None
         typ = type_env.get_type(declared) if described else None
         if typ is not None:
+            assert isinstance(typ, (RecordType, EnumType, ExceptionType))  # declared types
             definition = format_type_def_for_repl(declared, typ, self._type_env.type_table)
             display = _format_info_section("Type", definition, location, self._type_doc(typ))
             return f"{name} is {_indefinite(typ.kind)} type.\n{display}"
@@ -1964,70 +1947,59 @@ class ReplSession:
         checked = self._retained_checked_modules.get(module_id)
         return None if checked is None else checked.resolved.attributes.docs.get(node_id)
 
-    def _type_doc(self, typ: "Type") -> str | None:
+    def _type_doc(self, typ: "NominalOwner") -> str | None:
         """Return the ``@doc`` prose of the nominal declaration *typ* names, if any."""
-        from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType
+        from agnette.agl.semantics.types import ExceptionType
 
         table = self._type_env.type_table
         if isinstance(typ, ExceptionType):
             return table.exception_def(typ).doc
-        if isinstance(typ, (RecordType, EnumType)):
-            return table.declaration_doc(typ)
-        return None
+        return table.declaration_doc(typ)
 
     def _describe_module_or_region(self, name: str, parts: tuple[str, ...]) -> str | None:
         """Describe *name* as an imported module or a scope region, or ``None`` if it is neither.
 
-        A module is spelled as an import makes it a qualifier (alias, route, or
-        trailing route segments). A region is a full scope path declared by this
-        session or an imported module, bare or qualified by a module.
+        A leading route of *name* names modules exactly as scope routes a
+        qualifier in an entry. A scope region is what an entry can reach: a
+        full path this session declares, or one beneath a module route; one
+        source answers.
         """
-        spelled = module_spellings(
-            (decl for generation in self._accumulated_imports for decl in generation),
-            self._retained_checked_modules,
-        )
-        modules = spelled.get(tuple(parts[0].split("/")), ())
+        from agnette.agl.modules.ids import ModuleId, spell_scope_path
+        from agnette.agl.scope.imports import qualifier_candidates
+
+        anchored = parts[0].startswith("/")
+        route = tuple(parts[0].removeprefix("/").split("/"))
+        modules = qualifier_candidates(self._import_env_probe(), route, anchored=anchored)
         if len(parts) == 1 and modules:
             if len(modules) > 1:
-                routes = ", ".join("/".join(module.segments) for module in modules)
+                routes = ", ".join(
+                    module.path_str() for module in sorted(modules, key=ModuleId.path_str)
+                )
                 return f"{name} is ambiguous: {routes}."
             module = modules[0]
             doc = self._retained_checked_modules[module].resolved.attributes.module_doc
-            header = f"module {'/'.join(module.segments)}"
+            header = f"module {module.path_str()}"
             code = header if doc is None else f"{format_doc_attribute(doc, inner=True)}\n{header}"
             return f"{name} is a module.\n{_format_info_section('Module', code)}"
-        visible = {module for found in spelled.values() for module in found}
-        found_region = self._region_docs(parts, tuple(visible), include_session=True)
-        if found_region is None and len(parts) > 1:
-            parts = parts[1:]
-            found_region = self._region_docs(parts, modules, include_session=False)
-        if found_region is None:
+        regions: Mapping[tuple[str, ...], str | None] = self._session_regions
+        path = parts
+        if path not in regions and len(modules) == 1:
+            resolved = self._retained_checked_modules[modules[0]].resolved
+            regions, path = module_regions(resolved), parts[1:]
+        if path not in regions:
             return None
-        docs = (format_doc_attribute(doc, inner=True) for doc in found_region)
-        code = "\n".join((*docs, f"scope {'::'.join(parts)}"))
+        doc = regions[path]
+        header = f"scope {spell_scope_path(path)}"
+        code = header if doc is None else f"{format_doc_attribute(doc, inner=True)}\n{header}"
         return f"{name} is a scope.\n{_format_info_section('Scope', code)}"
 
-    def _region_docs(
-        self,
-        path: tuple[str, ...],
-        modules: Iterable["ModuleId"],
-        *,
-        include_session: bool,
-    ) -> list[str] | None:
-        """Return the ``@!doc`` texts of scope region *path*, or ``None`` if no source has it.
+    def _import_env_probe(self) -> "ImportEnv":
+        """Return the import environment an entry written now would resolve qualifiers in."""
+        from agnette.agl.parser import parse_program_seeded
 
-        Sources are the session's own regions (when *include_session*) and
-        *modules*, in module order.
-        """
-        regions = [self._session_regions] if include_session else []
-        regions.extend(
-            module_regions(self._retained_checked_modules[module].resolved)
-            for module in sorted(modules, key=module_order)
-        )
-        declared = [declaring for declaring in regions if path in declaring]
-        if not declared:
-            return None
-        return [doc for declaring in declared if (doc := declaring[path]) is not None]
+        program, next_node_id = parse_program_seeded("", start_id=self._next_node_id)
+        resolved = self._entry_pipeline.resolve_program(program, next_node_id, source_text="")
+        return resolved.modules[resolved.entry_id].import_env
 
     def _alias_declaration(self, key: "DeclarationKey") -> "TypeAlias | None":
         """Return the alias declaration *key* identifies, if it is an alias."""

@@ -520,7 +520,14 @@ def _info_outcome(session: ReplSession, name: str) -> tuple[ReplVerdict, AglErro
         description = session.info_of(name)
     except AglError as exc:
         return ("rejected", type(exc), exc.span, None), exc
-    return ("accepted", type(None), None, description), None
+    return ("accepted", type(None), None, _without_doc_lines(description)), None
+
+
+def _without_doc_lines(description: str) -> str:
+    """*description* minus its single-line ``@doc`` lines: probes pin declarations, not prose."""
+    return "\n".join(
+        line for line in description.split("\n") if not line.lstrip().startswith("@doc(")
+    )
 
 
 _MODULES_ROOT: Path | None = None
