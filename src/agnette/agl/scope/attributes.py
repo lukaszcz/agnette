@@ -33,6 +33,7 @@ from __future__ import annotations
 import keyword
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
+from functools import partial
 
 from agnette.agl.attributes import (
     ALLOW_ATTRIBUTE,
@@ -162,6 +163,9 @@ _TARGET_LABEL: Mapping[AttributeTarget, str] = {
 }
 
 
+_INNER_TARGETS = frozenset({AttributeTarget.MODULE, AttributeTarget.SCOPE_REGION})
+
+
 def _function_target(node: FuncDef) -> AttributeTarget:
     if node.is_program:
         return AttributeTarget.PROGRAM
@@ -212,9 +216,12 @@ def recognize_attributes(
         if isinstance(item, (LetDecl, VarDecl))
     )
     recognizer = _Recognizer(
-        declares_receiver, static_binding_ids, ModuleConstants(program), source_text
+        declares_receiver,
+        static_binding_ids,
+        ModuleConstants(program),
+        source_text,
+        dict(region_paths(program.body.items, ())),
     )
-    recognizer.region_paths = dict(region_paths(program.body.items, ()))
     walk(program, recognizer.visit)
     return AttributeFacts(
         module_doc=recognizer.module_doc,
@@ -241,11 +248,13 @@ class _Recognizer:
         static_binding_ids: frozenset[int],
         constants: ModuleConstants,
         source_text: str,
+        region_paths: Mapping[int, tuple[str, ...]],
     ) -> None:
         self._declares_receiver = declares_receiver
         self._static_binding_ids = static_binding_ids
         self._constants = constants
         self._source_text = source_text
+        self._region_paths = region_paths
         self._scope_path: tuple[str, ...] = ()
         self.param_zones: dict[int, ParamZone] = {}
         self.extern_names: dict[int, str] = {}
@@ -259,7 +268,6 @@ class _Recognizer:
         self.shell_quoted: set[int] = set()
         self.module_doc: str | None = None
         self.region_docs: dict[tuple[str, ...], str] = {}
-        self.region_paths: dict[int, tuple[str, ...]] = {}
         self._companion_owners: dict[str, str] = {}
 
     def visit(self, node: object) -> None:
@@ -357,24 +365,40 @@ class _Recognizer:
 
         Their arguments resolve from the module root or the region's scope; the
         ``@!doc`` text is filed as the module's or the region's, and ``@!allow``
-        hides its warnings across the whole module or region.
+        hides its warnings across the whole module or region. Regions sharing a
+        full scope path share one ``@!doc``, which they may spell only once.
         """
         path: tuple[str, ...] = ()
         if isinstance(node, Program):
             target = AttributeTarget.MODULE
             span = _whole_source(node.span, self._source_text)
+            file_doc = self._file_module_doc
         else:
             target = AttributeTarget.SCOPE_REGION
-            path = self.region_paths[node.node_id]
+            path = self._region_paths[node.node_id]
             span = _from_blank_line_start(node.span, self._source_text)
+            file_doc = partial(self._file_region_doc, path)
         recognized = _validate_attribute_prefix(node.attributes, target, self._constants, path)
         documentation = recognized.text_of(DOC_ATTRIBUTE)
         if documentation is not None:
-            if isinstance(node, Program):
-                self.module_doc = documentation
-            else:
-                self.region_docs[path] = documentation
+            file_doc(documentation, recognized.nodes[DOC_ATTRIBUTE])
         self._warning_names(node.node_id, span, recognized)
+
+    def _file_module_doc(self, documentation: str, attribute: Attribute) -> None:
+        """File the module's ``@!doc`` text."""
+        self.module_doc = documentation
+
+    def _file_region_doc(
+        self, path: tuple[str, ...], documentation: str, attribute: Attribute
+    ) -> None:
+        """File a scope path's ``@!doc`` text, rejecting a second one for the path."""
+        if path in self.region_docs:
+            raise AglScopeError(
+                f"Attribute '@!{attribute.name}' cannot be repeated for scope "
+                f"'{'::'.join(path)}': regions spelling one path share one doc.",
+                span=attribute.span,
+            )
+        self.region_docs[path] = documentation
 
     # ------------------------------------------------------------------
     # Fact builder: static host parameters
@@ -636,10 +660,13 @@ def _validate_attribute_prefix(
     nodes: dict[str, Attribute] = {}
     texts: dict[str, str] = {}
     lists: dict[str, tuple[str, ...]] = {}
+    sigil = "@!" if target in _INNER_TARGETS else "@"
     for attribute in attributes:
         spec = BUILTIN_ATTRIBUTES.get(attribute.name)
         if spec is None:
-            raise AglScopeError(f"Unknown attribute '@{attribute.name}'.", span=attribute.span)
+            raise AglScopeError(
+                f"Unknown attribute '{sigil}{attribute.name}'.", span=attribute.span
+            )
         validation_target = (
             AttributeTarget.BINDING
             if target is AttributeTarget.PARAM_BINDING and attribute.name == PARAM_ATTRIBUTE
@@ -647,17 +674,18 @@ def _validate_attribute_prefix(
         )
         if validation_target not in spec.targets:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' cannot be attached to a {_TARGET_LABEL[target]}.",
+                f"Attribute '{sigil}{attribute.name}' cannot be attached to a "
+                f"{_TARGET_LABEL[target]}.",
                 span=attribute.span,
             )
         if attribute.name in nodes:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' cannot be repeated.", span=attribute.span
+                f"Attribute '{sigil}{attribute.name}' cannot be repeated.", span=attribute.span
             )
         for other in spec.conflicts:
             if other in nodes:
                 raise AglScopeError(
-                    f"Attribute '@{attribute.name}' conflicts with '@{other}'.",
+                    f"Attribute '{sigil}{attribute.name}' conflicts with '{sigil}{other}'.",
                     span=attribute.span,
                 )
         argument = _check_arguments(attribute, spec, constants, scope_path)

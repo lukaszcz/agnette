@@ -888,7 +888,8 @@ Meta-commands start with `:`, which never collides with AgL syntax:
   an `as` alias), shows its `@!doc` above `module std/fs`; a scope region declared in the session or
   an imported module (`Debug`, `a::b`, `lib::Debug`) shows each `@!doc` above `scope a::b`. A
   module or region without documentation shows just its header; a spelling reaching several
-  modules lists them. A declaration of the same spelling takes precedence over a module or region.
+  modules lists them. Re-opening a region in a later entry with a new `@!doc` replaces its
+  documentation. A declaration of the same spelling takes precedence over a module or region.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the

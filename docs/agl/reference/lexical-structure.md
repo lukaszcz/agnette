@@ -531,7 +531,7 @@ enum Shape
 
 `@!` introduces an **inner attribute**: `@!name`, or `@!name(args)`, with `!`
 directly after the `@`. Unlike a prefix attribute it is a complete item that
-ends at its line: it attaches to the enclosing module or scope region, not to
+ends at the item separator (a newline or `;`): it attaches to the enclosing module or scope region, not to
 what follows.
 
 ```agl

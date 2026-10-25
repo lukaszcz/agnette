@@ -588,6 +588,23 @@ class TestInnerAttributes:
 
         assert resolution.attributes.region_docs == {("s",): "n is 2"}
 
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'scope s\n  @!doc("a")\nend s\n\nscope s\n  @!doc("b")\nend s\n',
+            'scope a::b\n  @!doc("a")\nend a::b\n\nscope a\n\n  scope b\n    @!doc("b")\n'
+            "  end b\nend a\n",
+        ],
+    )
+    def test_a_region_path_takes_one_doc_across_all_regions(self, source: str) -> None:
+        with pytest.raises(AglScopeError, match="repeated"):
+            resolve_entry(source)
+
+    def test_a_reopened_region_keeps_the_doc_of_the_region_spelling_it(self) -> None:
+        source = 'scope s\n  @!doc("a")\nend s\n\nscope s\n  @!allow("tab-indentation")\nend s\n'
+
+        assert resolve_entry(source).attributes.region_docs == {("s",): "a"}
+
     def test_inner_docs_stay_out_of_declaration_docs(self) -> None:
         resolution = resolve_entry('@!doc("m")\n\nscope s\n  @!doc("r")\nend s\n')
 

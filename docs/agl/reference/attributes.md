@@ -30,15 +30,16 @@ admit are static errors.
 An inner attribute `@!name` or `@!name(args)` attaches to the module or named
 scope region that encloses it, not to a following declaration. It takes the same
 argument list as a prefix attribute. Only `@doc` and `@allow` may be written
-this way, and they may not be written as a prefix to a module or region; any
-other inner attribute is a static error.
+this way; any other inner attribute is a static error.
 
 Inner attributes stand in the header position: before every other item of the
 module, or immediately after a `scope` header before any item of the region.
 Comments and blank lines may precede or separate them. An inner attribute
 anywhere else, including inside a function body or block, is a static error.
-Each attribute's own rules apply, so `@!doc` appears at most once per module or
-region. Their arguments are [constant arguments](#constant-arguments) resolved
+Each attribute's own rules apply, so `@!doc` appears at most once per module,
+and at most once per scope path across all the regions spelling it: a re-opened
+`scope s`, or `scope a::b` together with a `scope b` nested in `scope a`, share
+one `@!doc`. Their arguments are [constant arguments](#constant-arguments) resolved
 from the module root, or from the region's scope. In `scope a::b` they attach to `b`.
 
 ```agl
