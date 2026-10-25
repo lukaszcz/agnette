@@ -24,7 +24,7 @@ Every AgL `ask` dispatches through a session: a one-shot call opens an ephemeral
 `SessionService` (`agent/session/service.py`) gives one backend-neutral lifecycle for continuing conversations: opaque handles, backend instances, and release of every owned process at the command or interpreter boundary. Permission mode, sandbox limits, and environment are fixed when a session opens, with no per-ask override. Two backend families implement it:
 
 - **CLI adapters** map the lifecycle to each agent CLI's create/continue/compact/fork flags, preparing a fresh sandboxed command per prompt.
-- **Pi RPC** owns one persistent streaming JSONL child process (`agent/session/rpc.py`).
+- **Pi RPC** owns one persistent streaming JSONL child process (`agent/session/rpc.py`); one `poll`-driven pump on the calling thread multiplexes stdin writes with stdout/stderr reads, so the backend starts no Python thread.
 
 A handle reports whether later prompts continue the conversation, which decides whether the evaluator sends a short corrective follow-up or a full prompt. Each spec names its default transport. `agl/runtime/sessions.py` defines the firewall-safe host protocol; `AglSessionHost` (`agent/session/service.py`) adapts the service to it.
 

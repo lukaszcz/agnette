@@ -105,6 +105,10 @@ for line in sys.stdin.buffer:
             sys.stderr.flush()
             time.sleep(.02)
             continue
+        if "gate" in event:
+            (root / ("waiting-" + event["gate"])).touch()
+            while not (root / ("release-" + event["gate"])).exists(): time.sleep(.01)
+            continue
         if event == {"exit": True}: sys.exit(0)
         emit(event)
         if (
@@ -356,20 +360,18 @@ def test_echo_streams_pi_tool_progress_and_stderr_without_replacing_final_respon
     backend.close()
 
 
-def test_prompt_waits_for_stderr_already_read_by_the_reader(
+def test_stderr_is_echoed_live_while_the_prompt_is_still_running(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    RpcStub(
+    """The stub holds the answer back until the stderr echo arrives."""
+    stub = RpcStub(
         tmp_path,
         monkeypatch,
         {
             "prompt": [
                 {"id": "$id", "type": "response", "command": "prompt", "success": True},
                 {"stderr": "pi diagnostic\n"},
-                {
-                    "type": "message_update",
-                    "assistantMessageEvent": {"type": "text_delta", "delta": "answer"},
-                },
+                {"gate": "echoed"},
                 {
                     "type": "message_end",
                     "message": {
@@ -382,76 +384,135 @@ def test_prompt_waits_for_stderr_already_read_by_the_reader(
             ]
         },
     )
-    backend = open_backend()
-    child = backend._child
-    assert child is not None
-
-    stderr_read = threading.Event()
-    release_stderr = threading.Event()
-    finish_attempted = threading.Event()
-    original_lock = child.stderr_lock
-
-    class ObservedLock:
-        def __init__(self, lock: rpc._Lock) -> None:
-            self.lock = lock
-
-        def acquire(self) -> bool:
-            if threading.current_thread().name == "rpc-ask":
-                finish_attempted.set()
-            return self.lock.acquire()
-
-        def release(self) -> None:
-            self.lock.release()
-
-    original_lock.acquire()
-    try:
-        child.stderr_lock = ObservedLock(original_lock)
-    finally:
-        original_lock.release()
-
-    capture_stderr = rpc._capture_stderr
-
-    def delay_stderr_delivery(captured_child: rpc._RpcChild, chunk: bytes) -> None:
-        stderr_read.set()
-        release_stderr.wait()
-        capture_stderr(captured_child, chunk)
-
-    monkeypatch.setattr(rpc, "_capture_stderr", delay_stderr_delivery)
-
+    backend = open_backend(timeout=10)
     output: list[tuple[str, str]] = []
-    answers: list[str] = []
-    failures: list[BaseException] = []
 
-    def ask() -> None:
-        try:
-            answers.append(
-                backend.ask(
-                    SessionAskRequest(
-                        "question",
-                        output_callback=lambda phase, text, **_metadata: output.append(
-                            (phase, text)
-                        ),
-                    )
-                ).content
-            )
-        except BaseException as exc:
-            failures.append(exc)
+    def echo(phase: str, text: str, **_metadata: object) -> None:
+        output.append((phase, text))
+        stub.release("echoed")
 
-    ask_thread = threading.Thread(target=ask, name="rpc-ask")
     try:
-        ask_thread.start()
-        assert stderr_read.wait(5)
-        assert finish_attempted.wait(5)
+        answer = backend.ask(SessionAskRequest("question", output_callback=echo)).content
     finally:
-        release_stderr.set()
-        if ask_thread.ident is not None:
-            ask_thread.join(timeout=5)
         backend.close()
 
-    assert not ask_thread.is_alive()
-    assert failures == []
-    assert answers == ["answer"]
+    assert answer == "answer"
     assert output == [("stderr", "pi diagnostic\n")]
+
+
+def test_events_buffered_while_idle_are_processed_by_the_next_operation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    late = {"type": "tool_execution_start", "toolName": "bash", "toolCallId": "late"}
+    RpcStub(
+        tmp_path,
+        monkeypatch,
+        {
+            "compact": [
+                {"id": "$id", "type": "response", "command": "compact", "success": True},
+                late,
+            ]
+        },
+    )
+    backend = open_backend()
+    output: list[tuple[str, str]] = []
+
+    try:
+        backend.compact("")
+        assert (
+            backend.ask(
+                SessionAskRequest(
+                    "question",
+                    output_callback=lambda phase, text, **_metadata: output.append((phase, text)),
+                )
+            ).content
+            == "answer"
+        )
+    finally:
+        backend.close()
+
+    assert output == [("progress", "[bash]\n")]
+
+
+def test_stderr_written_while_idle_is_kept_in_the_tail_not_echoed_to_the_next_ask(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = RpcStub(
+        tmp_path,
+        monkeypatch,
+        {
+            "compact": [
+                {"id": "$id", "type": "response", "command": "compact", "success": True},
+                {"stderr": "idle noise\n"},
+                {"gate": "written"},
+            ],
+            "prompt": [
+                {
+                    "id": "$id",
+                    "type": "response",
+                    "command": "prompt",
+                    "success": False,
+                    "error": "no",
+                }
+            ],
+        },
+    )
+    backend = open_backend()
+    output: list[tuple[str, str]] = []
+
+    try:
+        backend.compact("")
+        stub.wait_for_file("waiting-written")
+        stub.release("written")
+        with pytest.raises(SessionAskError) as raised:
+            backend.ask(
+                SessionAskRequest(
+                    "question",
+                    output_callback=lambda phase, text, **_metadata: output.append((phase, text)),
+                )
+            )
+    finally:
+        backend.close()
+
+    assert "idle noise" in raised.value.stderr_tail
+    assert output == []
+
+
+def test_rpc_session_operations_start_no_python_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``os.fork`` is only safe in a single-threaded process."""
+
+    def forbid_thread(self: threading.Thread) -> None:
+        raise AssertionError("an RPC session started a thread")
+
+    monkeypatch.setattr(threading.Thread, "start", forbid_thread)
+    RpcStub(tmp_path, monkeypatch)
+    backend = open_backend(timeout=10)
+    forked = None
+
+    try:
+        assert backend.ask(SessionAskRequest("hello")).content == "answer"
+        backend.compact("")
+        backend.stats()
+        forked = backend.fork()
+    finally:
+        backend.close()
+        if forked is not None:
+            forked.close()
+
+
+def test_process_death_reports_the_stderr_it_left_in_the_pipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    RpcStub(tmp_path, monkeypatch, {"prompt": [{"stderr": "dying words\n"}, {"exit": True}]})
+    backend = open_backend()
+
+    with pytest.raises(SessionAskError) as raised:
+        backend.ask(SessionAskRequest("hello"))
+
+    assert "dying words" in raised.value.stderr_tail
+    backend.close()
 
 
 def test_interrupting_prompt_kills_the_active_rpc_child(
@@ -849,6 +910,76 @@ def test_idle_timeout_covers_blocked_rpc_stdin_write(
     with pytest.raises(SessionHostError):
         backend.stats()
     backend.close()
+
+
+_FLOOD = 300_000
+
+
+def test_large_prompt_is_written_while_idle_stdout_events_are_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A child blocked writing events never reads stdin, so the write must drain stdout."""
+    late = {"type": "tool_execution_start", "toolName": "bash", "toolCallId": "late"}
+    pad = json.dumps({**late, "pad": "x" * _FLOOD})
+    RpcStub(
+        tmp_path,
+        monkeypatch,
+        {
+            "compact": [
+                {"id": "$id", "type": "response", "command": "compact", "success": True},
+                {"raw": pad},
+            ]
+        },
+    )
+    backend = open_backend(timeout=5)
+    output: list[tuple[str, str]] = []
+
+    try:
+        backend.compact("")
+        answer = backend.ask(
+            SessionAskRequest(
+                "p" * _FLOOD,
+                output_callback=lambda phase, text, **_metadata: output.append((phase, text)),
+            )
+        ).content
+    finally:
+        backend.close()
+
+    assert answer == "answer"
+    assert output == [("progress", "[bash]\n")]
+
+
+def test_large_prompt_is_written_while_the_child_floods_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = RpcStub(
+        tmp_path,
+        monkeypatch,
+        {
+            "compact": [
+                {"id": "$id", "type": "response", "command": "compact", "success": True},
+                {"gate": "flood"},
+                {"stderr": "e" * _FLOOD},
+            ]
+        },
+    )
+    backend = open_backend(timeout=5)
+    write_command = rpc._write_command
+
+    def release_then_write(
+        child: rpc._RpcChild, command: dict[str, object], idle_timeout: float | None
+    ) -> None:
+        if command["type"] == "prompt":
+            stub.release("flood")
+        write_command(child, command, idle_timeout)
+
+    monkeypatch.setattr(rpc, "_write_command", release_then_write)
+
+    try:
+        backend.compact("")
+        assert backend.ask(SessionAskRequest("p" * _FLOOD)).content == "answer"
+    finally:
+        backend.close()
 
 
 def test_process_death_retains_stderr_diagnostics(
