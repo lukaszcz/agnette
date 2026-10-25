@@ -1,4 +1,4 @@
-# Planning and design workflows
+@!doc("Planning and design workflows.")
 
 import std/config
 import devel/utils

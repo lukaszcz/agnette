@@ -1,4 +1,4 @@
-# Agent-enhanced git operations
+@!doc("Agent-enhanced git operations.")
 
 import std/config
 import std/git
