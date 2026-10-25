@@ -2,6 +2,7 @@
 
 import std/config
 import std/git
+import devel/utils
 
 @doc("""
   Merge `ref` into the current branch, asking the agent to resolve conflicts.
@@ -11,13 +12,14 @@ import std/git
 
   Raises `GitError` when git cannot merge `ref`.
 """)
-def Agent::merge(self, ref: git::ref) -> unit =
+def Agent::merge(self, ref: git::ref, interactive: bool = false) -> unit =
   case git::merge(ref) of
     | git::Conflicted(_) =>
-      self.ask """
+      let prompt = """
         Fix all conflicts and finish the merge.
         Make sure to preserve functionality from both branches.
       """
+      self.ask-or-chat(prompt, interactive)
     | _ => ()
 
 def Agent::commit(self) -> unit =
@@ -27,9 +29,11 @@ def Agent::commit(self) -> unit =
 @doc("Merge given ref and fix all conflicts.")
 program def merge-main(
   ref: text,
-  agent: Agent = config::default-agent
+  agent: Agent = config::default-agent,
+  @opt-short("i")
+  interactive: bool = false
 ) -> unit =
-  agent.merge(ref)
+  agent.merge(ref, interactive)
 
 @command("devel commit")
 @doc("Commit changes on the current branch.")
