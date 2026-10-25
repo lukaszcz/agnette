@@ -5,6 +5,8 @@ The suite mirrors the architecture: AgL is tested pass by pass plus whole-progra
 ## Strategy
 
 - **AgL passes** have their own suites plus end-to-end corpora under `tests/agl/` (programs with multi-scenario sidecars, static rejections, multi-file programs, packages). Scope and typecheck suites build a real `ModuleGraph` (`tests/agl/module_graph.py`); evaluation helpers (`tests/agl/ir_harness.py`) run programs through `PipelineDriver` with fake agents and shells. A scenario's `expect.warnings` is the exact list of `{name, line}` static warnings, each optionally pinned to its `column` and `source` module (absent means none). `warning_levels` (name → level) on a scenario or a rejection simulates `--warning`; a rejection's `diagnostic.warning` pins the denied warning.
+- **Corpus harness** (`tests/agl/scenario_harness.py`) runs a program under a scenario and asserts its expectations; `test_agl_e2e.py` and the isolated runner share it.
+- **Isolated runner** (`tests/agl/isolated_runner.py`) runs a corpus scenario (`"isolated": true`) or a Python callable in a fresh single-threaded subprocess, since xdist workers carry a second thread state and could not `os.fork`. It applies the suite's in-process guards (`tests/_isolation.py`), captures fd 1 so forked children's output is included, and kills the subprocess's process group when the run ends. Under active coverage the subprocess and its children are measured through `tests/isolated_coverage.toml`; pytest-cov combines their data, so lines run only in children count toward the gate.
 - **Name resolution** probes (`tests/agl/qualifier_support.py`) run inline, as files, and across REPL entry splits.
 - **Commands** are tested at the CLI boundary; multi-command user workflows live in `tests/test_e2e.py`.
 - **Domain and primitives** have unit tests using real archives, manifests, git, filesystem, and loopback HTTP; external boundaries (agents, unavailable tools, remote HTTP) are faked.
@@ -22,7 +24,7 @@ Tests assert behavior, never exact help, warning, or error text. The e2e harness
 - **AgL layout style** — `tools/agl_style.py` formats and checks every `.agl` source, doc fence, and embedded snippet.
 - **Self-validation** — compiler invariant self-checks and completion's error re-raising are gated by `agnette.agl.self_validation`, enabled for in-process tests by `tests/conftest.py`; e2e subprocesses and production run without it.
 - **Hermeticity** — autouse fixtures give each test an empty `HOME`, strip inherited `AGM_*` and related variables, pin `AGM_STDLIB` to the repository stdlib, and bound git discovery (`tests/test_environment_isolation.py`).
-- **No real agents or network** — spawning an external agent or sandbox CLI (`tests/_external_agent_clis.py`) and unscripted HTTP fail the test; HTTP is scripted through `tests/_http_helpers.py` and `tests/_jev_helpers.py`.
+- **No real agents or network** — spawning an external agent or sandbox CLI (`tests/_external_agent_clis.py`) and unscripted HTTP fail the test (guards in `tests/_isolation.py`, applied by `tests/conftest.py` fixtures); HTTP is scripted through `tests/_http_helpers.py` and `tests/_jev_helpers.py`.
 - **Dead code** — `tools/vulture_check.py` (`just vulture`); test-only use does not count.
 - **Vacuous-assertion guard** — `just test-neutral-tmp` reruns with neutrally named temp directories.
 - **Optional mutation gate** — `tools/mutation_check.py` replays the mutation sample in `tools/mutations.json`, outside `just check`.
@@ -51,9 +53,10 @@ The Emacs (`config/emacs/`) and micro (`config/micro/`) modes have their own sui
 
 ## Code Entry Points
 
+- `tests/agl/scenario_harness.py` — corpus scenario harness; `tests/agl/isolated_runner.py`, `tests/isolated_coverage.toml`, `tests/test_agl_isolated_runner.py` — isolated runner, its subprocess coverage config, and its tests.
 - `tests/test_agl_*.py` — AgL pass suites; `tests/test_agl_e2e.py`, `test_agl_multifile.py` — acceptance suites over `tests/agl/`.
 - `tests/test_e2e.py` — command e2e suite (`run_agm`).
-- `tests/conftest.py` and `tests/_*_helpers.py` — shared fixtures and fakes.
+- `tests/conftest.py`, `tests/_isolation.py`, and `tests/_*_helpers.py` — shared fixtures, in-process guards, and fakes.
 - `tests/_command_coverage.py`, `_durations.py`, `_agm_zygote.py` — command coverage, CPU cost, e2e launcher.
 - `tests/test_agl_highlight_*.py` — exact tiers, Markdown context rendering/isolation, portable conformance and target contracts.
 - `justfile` — standard gates; optional `test-kde`, `test-textmate`, `test-sublime`, `test-emacs`, `test-micro`.

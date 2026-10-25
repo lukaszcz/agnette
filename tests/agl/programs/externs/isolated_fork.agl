@@ -1,0 +1,8 @@
+# Runs in the isolated runner: the companion forks a child that works and exits with
+# `os._exit`, while the parent waits for it.
+@extern-name("forked_work")
+extern def forked-work(name: text) -> int
+
+program def main() -> unit =
+  let status = forked-work("a")
+  print "exit: %{status}"

@@ -1,6 +1,7 @@
 # AgL end-to-end test corpus
 
-Data files for `tests/test_agl_e2e.py`, the AgL specification suite.
+Data files for `tests/test_agl_e2e.py`, the AgL specification suite. `scenario_harness.py`
+runs a program under a scenario and asserts its expectations.
 
 - `programs/**/*.agl` — valid programs, each declaring a `program def` (or marked
   `inline_entry`) with a sidecar `<name>.scenarios.json`. Every program runs under
@@ -143,6 +144,10 @@ Inputs:
   `--warning NAME=LEVEL`; unlisted warnings keep their catalog level.
 - `runtime` — `PipelineDriver` overrides (`default_call_depth_limit`,
   `default_strict_json`) and the `parse_error_retries` engine seed.
+- `isolated` — `true` runs the scenario in a fresh single-threaded subprocess
+  (`isolated_runner.py`) instead of the pytest process, so companions may `os.fork`;
+  `stdout` is captured at fd level and includes children's output. Subprocess and
+  children are measured by `tests/isolated_coverage.toml` when coverage is active.
 - `filesystem` — a fixture in a temporary root: `directories`, UTF-8 `text_files`,
   `hex_files`, `directory_symlinks`; a `"$TEMP_ROOT"` parameter value becomes that root.
 

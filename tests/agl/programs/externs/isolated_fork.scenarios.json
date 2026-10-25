@@ -1,0 +1,11 @@
+{
+  "scenarios": [
+    {
+      "name": "forked_child_work",
+      "isolated": true,
+      "expect": {
+        "stdout": "child: ['  a  forked']\nexit: 3\n"
+      }
+    }
+  ]
+}

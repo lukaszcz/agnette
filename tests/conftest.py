@@ -3,36 +3,28 @@
 from __future__ import annotations
 
 import gc
-import inspect
 import os
 import shutil
 import signal
-import subprocess
 import tempfile
-from collections.abc import Callable, Generator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
-from typing import Any, NoReturn
 
-import httpx2
 import pytest
-import requests
 
 from agnette.agl.self_validation import self_validation_enabled, set_self_validation_enabled
-from agnette.agm.project import layout as project_layout
 from agnette.core import dry_run, process
-from agnette.core import http as core_http
 from agnette.core.process import CapturedOutput
-from tests import _command_coverage
+from tests import _command_coverage, _isolation
 from tests._durations import (
     pytest_runtest_protocol,
     pytest_sessionfinish,
     pytest_testnodedown,
 )
-from tests._external_agent_clis import EXTERNAL_AGENT_CLIS
-from tests._http_helpers import FakeHttp
 from tests._package_helpers import PythonInstaller
+from tests.agl import isolated_runner
 
 # Re-exported so pytest picks the per-test cost accounting up as conftest hooks.
 # Registering the module with ``-p`` instead would break every invocation that
@@ -157,6 +149,18 @@ def shared_qualifier_modules(
     qualifier_support._MODULE_ROOTS.clear()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_runner_session(
+    pytestconfig: pytest.Config, tmp_path_factory: pytest.TempPathFactory
+) -> Generator[None, None, None]:
+    """Tell the isolated runner where pytest was invoked and where its temp root is."""
+    isolated_runner.bind_session(
+        pytestconfig.invocation_params.dir, tmp_path_factory.getbasetemp().resolve()
+    )
+    yield
+    isolated_runner.bind_session(None, None)
+
+
 @pytest.fixture()
 def self_validation_disabled() -> Generator[None, None, None]:
     """Run the body with the optional self-checks off, as in normal execution.
@@ -197,50 +201,8 @@ def default_sigint() -> Generator[None, None, None]:
 def refuse_real_external_agent_clis(
     monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
-    """Refuse every in-process spawn of an external agent CLI that no test faked.
-
-    A test's fake CLI lives under the pytest temp base; resolving one of
-    ``EXTERNAL_AGENT_CLIS`` anywhere else would run a real agent, so ``Popen``
-    raises and a forked ``execvp`` child exits 127 instead.  Subprocess ``agm``
-    runs in the e2e suite are guarded by its PATH shims.
-    """
-    fakes_root = tmp_path_factory.getbasetemp().resolve()
-    popen_init = subprocess.Popen.__init__
-    popen_signature = inspect.signature(popen_init)
-    execvp = os.execvp
-
-    def real_agent_cli(program: str, search_path: str | None) -> str | None:
-        if Path(program).name not in EXTERNAL_AGENT_CLIS:
-            return None
-        resolved = shutil.which(program, path=search_path)
-        if resolved is None or Path(resolved).resolve().is_relative_to(fakes_root):
-            return None
-        return resolved
-
-    def guarded_popen_init(self: subprocess.Popen[Any], *args: Any, **kwargs: Any) -> None:
-        bound = popen_signature.bind(self, *args, **kwargs).arguments
-        command = bound["args"]
-        if bound.get("executable") is not None:
-            program = os.fsdecode(bound["executable"])
-        elif isinstance(command, (str, bytes, os.PathLike)):
-            words = os.fsdecode(command).split()
-            program = words[0] if words else ""
-        else:
-            program = os.fsdecode(command[0]) if command else ""
-        env = bound.get("env")
-        real = real_agent_cli(program, (os.environ if env is None else env).get("PATH"))
-        if real is not None:
-            raise AssertionError(f"test tried to run the real external agent CLI {real}")
-        popen_init(self, *args, **kwargs)
-
-    def guarded_execvp(file: str, args: Sequence[str]) -> NoReturn:
-        if real_agent_cli(file, os.environ.get("PATH")) is not None:
-            os.write(2, f"test tried to run the real external agent CLI {file}\n".encode())
-            os._exit(127)
-        execvp(file, args)
-
-    monkeypatch.setattr(subprocess.Popen, "__init__", guarded_popen_init)
-    monkeypatch.setattr(os, "execvp", guarded_execvp)
+    """Refuse every in-process spawn of an external agent CLI that no test faked."""
+    _isolation.refuse_real_external_agent_clis(monkeypatch, tmp_path_factory.getbasetemp())
 
 
 @pytest.fixture(autouse=True)
@@ -353,25 +315,8 @@ def isolate_host_environment(
 def fence_project_discovery_at_temp_root(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Stop ancestor-walking project discovery at the suite's temporary root.
-
-    Discovery walks every ancestor of its starting directory. ``isolate_host_environment``
-    already keeps ``HOME`` (and so the AgM home) out of the way, but ``TMPDIR`` itself is
-    host-controlled -- an agent sandbox routinely confines writable paths to somewhere
-    under the invoking user's real home -- so a real AgM project sitting above the
-    temporary root would otherwise decide what a test's temporary tree resolves to.
-    Every directory above the base temporary directory belongs to the host, never to a
-    test.
-    """
-    host_dirs = frozenset(tmp_path_factory.getbasetemp().resolve().parents)
-    discover = project_layout._project_dir_from_workspace
-
-    def fenced_discover(
-        workspace_dir: Path, *, env: Mapping[str, str] | None = None
-    ) -> Path | None:
-        return None if workspace_dir in host_dirs else discover(workspace_dir, env=env)
-
-    monkeypatch.setattr(project_layout, "_project_dir_from_workspace", fenced_discover)
+    """Stop ancestor-walking project discovery at the suite's temporary root."""
+    _isolation.fence_project_discovery_at_temp_root(monkeypatch, tmp_path_factory.getbasetemp())
 
 
 _REPO_STDLIB_ROOT = Path(__file__).resolve().parent.parent / "packages" / "stdlib"
@@ -399,7 +344,7 @@ def detach_installed_agm_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     Tests that exercise the installation-prefix fallback take the
     ``installed_agm_prefix`` fixture instead.
     """
-    monkeypatch.setattr("agnette.config.home.agm_installation_prefix", lambda: None)
+    _isolation.detach_installed_agm_prefix(monkeypatch)
 
 
 @pytest.fixture()
@@ -416,57 +361,16 @@ def installed_agm_prefix(monkeypatch: pytest.MonkeyPatch) -> Callable[[Path], No
 def refuse_real_http_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Default every test's HTTP transport to one that refuses any request.
 
-    A test that never scripts HTTP must not be able to reach the real network
-    by accident: patch ``agnette.core.http.open_session`` to build a session
-    through the real function -- preserving its proxy/cookie/``.netrc``
-    configuration -- with an empty-script ``FakeHttp`` mounted, so an
-    unscripted request fails immediately instead of dialing out.
-
-    A test that scripts HTTP (``tests._http_helpers.install``/``fake_session``,
-    or ``test_agl_e2e.py``'s per-scenario patch) overrides this by patching the
-    same name again afterward, which naturally supersedes this default --
-    exactly the escape hatch ``installed_agm_prefix`` uses for
-    ``detach_installed_agm_prefix``. ``test_core_http.py``'s own
-    ``open_session`` tests need no such opt-out: they build their session
-    through ``fake_session``, which itself calls ``agnette.core.http.open_session``
-    and so still exercises the real function's configuration, with this
-    fixture's empty adapter simply replaced by their own scripted one.
-
-    The real function is captured once, before patching, rather than looked
-    up through the (about to be patched) module attribute at call time --
-    otherwise ``fake_session``'s own call to ``open_session`` would recurse
-    into this fixture's replacement.
+    A test that scripts HTTP overrides this by patching ``agnette.core.http.open_session``
+    again afterward.
     """
-    real_open_session = core_http.open_session
-
-    def refused_session() -> requests.Session:
-        session = real_open_session()
-        adapter = FakeHttp([])
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
-
-    monkeypatch.setattr(core_http, "open_session", refused_session)
+    _isolation.refuse_real_http_requests(monkeypatch)
 
 
 @pytest.fixture(autouse=True)
 def refuse_real_httpx2_requests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail any real ``httpx2`` network send and strip the TypeSafe SDK's environment.
-
-    ``httpx2.HTTPTransport`` is the network transport an ``httpx2`` client (such
-    as the TypeSafe SDK's) uses unless given another; a scripted
-    ``httpx2.MockTransport`` (``tests/_jev_helpers.py``) is unaffected. Inherited
-    ``TYPESAFE_*`` variables would configure the SDK's key, URL, model, and
-    logging from the host.
-    """
-    for name in list(os.environ):
-        if name.startswith("TYPESAFE_"):
-            monkeypatch.delenv(name, raising=False)
-
-    def refused(self: httpx2.HTTPTransport, request: httpx2.Request) -> NoReturn:
-        pytest.fail(f"unscripted real network request: {request.method} {request.url}")
-
-    monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", refused)
+    """Fail any real ``httpx2`` network send and strip the TypeSafe SDK's environment."""
+    _isolation.refuse_real_httpx2_requests(monkeypatch)
 
 
 @pytest.fixture()
