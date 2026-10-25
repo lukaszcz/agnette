@@ -1215,6 +1215,65 @@ class TestInfoDocs:
         assert text.count("@!doc") == 1
         assert "Mine." in text
 
+    @pytest.mark.parametrize("entry", ["import lib::*", "import lib::{Debug}", "use lib::Debug"])
+    def test_region_an_import_exposes_bare_is_described_bare(
+        self, tmp_path: Path, entry: str
+    ) -> None:
+        """Regression: ``:info`` ignored the regions an import or use brings in unqualified."""
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Debug helpers.")\n  def helper() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib" if entry.startswith("use") else entry).ok
+        if entry.startswith("use"):
+            assert session.eval_entry(entry).ok
+        assert session.eval_entry("Debug::helper()").ok
+
+        assert '  @!doc("Debug helpers.")\n  scope Debug' in self._info(session, "Debug")
+
+    def test_nested_region_an_import_exposes_is_described(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope a::b\n  @!doc("Inner.")\n  def y() -> int = 1\nend a::b\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib::*").ok
+        assert session.eval_entry("a::b::y()").ok
+
+        assert '  @!doc("Inner.")\n  scope a::b' in self._info(session, "a::b")
+
+    def test_every_source_reaching_a_qualifier_is_described(self, tmp_path: Path) -> None:
+        """A module alias and a session region of one spelling are both reachable."""
+        (tmp_path / "lib.agl").write_text('@!doc("The library.")\n\ndef f() -> int = 1\n')
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib as L").ok
+        assert session.eval_entry('scope L\n  @!doc("Mine.")\n  def g() -> int = 1\nend L').ok
+
+        text = self._info(session, "L")
+
+        assert "The library." in text
+        assert "Mine." in text
+
+    def test_session_and_module_regions_of_one_path_are_both_described(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Library.")\n  def f() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry(
+            'scope lib::Debug\n  @!doc("Mine.")\n  def g() -> int = 1\nend lib::Debug'
+        ).ok
+
+        text = self._info(session, "lib::Debug")
+
+        assert "Library." in text
+        assert "Mine." in text
+
     def test_module_spelling_follows_the_latest_import_of_a_module(self, tmp_path: Path) -> None:
         (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
         session = repl_session_with_root(tmp_path)
@@ -1331,6 +1390,11 @@ class TestInfoDocs:
         session = _open_session(default_stdlib=default_stdlib)
 
         assert not session.eval_entry('@!bogus("x")\n', check_only=check_only).ok
+
+    @pytest.mark.parametrize("spelling", ["no/such", "/no/such"])
+    def test_unknown_slash_route_is_rejected(self, spelling: str) -> None:
+        with pytest.raises(AglSyntaxError):
+            _open_session().info_of(spelling)
 
     def test_exception_doc(self) -> None:
         session = _open_session()

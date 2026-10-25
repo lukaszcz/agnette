@@ -884,14 +884,14 @@ Meta-commands start with `:`, which never collides with AgL syntax:
   is shown by its written path — scope path and name in its declaring module — whichever
   spelling reached it: with `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`.
   A declaration's `@doc` is shown as an attribute line above its AgL (triple-quoted when
-  multi-line). An imported module, spelled as its import makes it a qualifier (`fs`, `std/fs`, or
-  an `as` alias), shows its `@!doc` above `module std/fs`; a scope region declared in the session (`Debug`, `a::b`) or
-  beneath an imported module's name (`lib::Debug`) shows its `@!doc` above `scope a::b`; a bare
-  name never reaches an imported module's regions. A
-  module or region without documentation shows just its header; a spelling reaching several
-  modules lists them. Re-opening a region in a later entry with a new `@!doc` replaces its
-  documentation. A declaration of the same spelling takes precedence over a module or region, except that a lone
-  slash route (`std/fs`, `/std/fs`) names the module.
+  multi-line). A module or scope region (`Debug`, `a::b`, `lib::Debug`) is whatever the spelling
+  names as a qualifier in an entry, through imports, `use`, aliases, and regions declared in the
+  session: an imported module shows its `@!doc` above `module std/fs`, a region above
+  `scope a::b`. A module or region without documentation shows just its header. A spelling
+  reaching several modules lists them; one reaching a module and regions, or several regions,
+  shows each under a label naming its source. Re-opening a region in a later entry with a new
+  `@!doc` replaces its documentation. A declaration of the same spelling takes precedence over a
+  module or region, except that a lone slash route (`std/fs`, `/std/fs`) names the module.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the

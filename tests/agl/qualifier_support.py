@@ -67,6 +67,7 @@ shared with ``tests/test_agl_repl_session.py``.
 from __future__ import annotations
 
 import hashlib
+import re
 import textwrap
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -520,14 +521,17 @@ def _info_outcome(session: ReplSession, name: str) -> tuple[ReplVerdict, AglErro
         description = session.info_of(name)
     except AglError as exc:
         return ("rejected", type(exc), exc.span, None), exc
-    return ("accepted", type(None), None, _without_doc_lines(description)), None
+    return ("accepted", type(None), None, _without_doc_attributes(description)), None
 
 
-def _without_doc_lines(description: str) -> str:
-    """*description* minus its single-line ``@doc`` lines: probes pin declarations, not prose."""
-    return "\n".join(
-        line for line in description.split("\n") if not line.lstrip().startswith("@doc(")
-    )
+_DOC_ATTRIBUTE = re.compile(
+    r'^[ \t]*@doc\((?:"""(?:.|\n)*?"""|"(?:[^"\\\n]|\\.)*")\)\n?', re.MULTILINE
+)
+
+
+def _without_doc_attributes(description: str) -> str:
+    """*description* minus its ``@doc`` attributes, single- or multi-line (probes pin code)."""
+    return _DOC_ATTRIBUTE.sub("", description)
 
 
 _MODULES_ROOT: Path | None = None
