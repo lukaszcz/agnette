@@ -12,12 +12,16 @@ Record, enum, and exception types are handles: identity is the declaration (`dec
 - An enum is a closed nominal union of member record declarations; widening (member → enum, enum → superset enum) is directed and does not propagate through containers.
 - Built-in and host-contract shapes (`ExecResult`, `AgentRequest`, `Option`, the exception hierarchy) live in the same table: loaded standard-library declarations are authoritative and validated against contracts in `typecheck/builtin_contracts.py`. Lowering derives its host nominal table from the same queries.
 
+## Opaque Records
+
+`@opaque` records are companion- or host-minted handles. `TypeDef.opaque` is set by type building (which rejects `var` fields), journaled and rehydrated like other nominal metadata; `TypeTable.opaque_declaration_ids()` derives the set. The constructor checker and `with` reject source creation; the data-property analyses below treat the declaration as a non-data leaf; the checker's wire-type check (`_wire_type_is_serializable`) rejects it in agent/`exec` outputs, schemas, and fallible casts. Fields stay readable. `Session` is opaque through its reserved `TypeDef` fallback and its stdlib declaration, which `typecheck/builtin_contracts.py` validates.
+
 ## Whole-Table Analyses
 
 Recursive types make some questions global; `semantics/analyses.py` answers them over the whole table as cached declaration-graph analyses:
 
 - **Inhabitation** — a declaration that can never produce a finite value is rejected.
-- **Data properties** — `Eq`, `Hashable`, JSON convertibility, and extern keyability share one parameterised fixpoint; key-sensitive properties propagate through declarations' key parameters.
+- **Data properties** — `Eq`, `Hashable`, JSON convertibility, and extern keyability share one parameterised fixpoint, seeded with the opaque declarations as non-data (extern keyability excepted); key-sensitive properties propagate through declarations' key parameters.
 - **Finite-schema closure** — whether a type admits a finite JSON schema, required wherever a schema is needed (agent and `exec` outputs, fallible casts, parameters, extern signatures). `as json` encode planning consults it ([execution/runtime.md](../execution/runtime.md)).
 
 ## The Typecheck Pass
@@ -35,7 +39,7 @@ The checker selects the concrete behavior the evaluator relies on and publishes 
 - **`exec` command holes** — `typecheck/shell_holes.py` walks the templates in a direct `exec` call's command result positions (parentheses, arms, a block's final item, `try`/`catch` results; never bindings, pipes or operators) and warns `unquoted-exec-hole` on each hole that is not `int`/`decimal`/`bool`, a constant expression over fixed bindings (`ModuleConstantBindings.is_fixed`: no `var`, no `@param`), or a direct function or method call whose signature is `shell_quoted` (a quoting call: every `%!{…}`) or `exempts` it. It also warns `shell-quoted-hole` on a quoting call inside shell quotes the author wrote. The quote state comes from the pure `util/posix_shell.py` scan over the template's decoded text: fixed-constant holes are folded (`fold_hole_text`) into the text, scalar and quoting-call holes are words, any other hole is opaque and ends judgement, as does any construct the scan does not model. It runs at region close, when hole types are final, and a module's warnings are reported in source order.
 - **`extern def`** — shares the body-less signature path; type parameters no value parameter mentions are target parameters resolved from context like `ask`'s ([execution/ffi.md](../execution/ffi.md)).
 - **`@config`** — keys resolve by ordinary scope lookup; values are checked as constants against the target's type ([hosting.md](../hosting.md)).
-- **Nominal metadata** — external names, docs, field zones, and field-default *presence* are stored on each `TypeDef`; default expressions themselves are lowered with their declaration ([execution/lowering.md](../execution/lowering.md)).
+- **Nominal metadata** — external names, docs, the `opaque` flag, field zones, and field-default *presence* are stored on each `TypeDef`; default expressions themselves are lowered with their declaration ([execution/lowering.md](../execution/lowering.md)).
 
 Checked artifacts hold concrete types and no solver state; that closure invariant is a self-check under the self-validation toggle ([testing.md](../../testing.md)). While a module is checked, its own declarations are journaled as replayable facts, which lets a checked module persist and rehydrate onto a later compilation's environment ([modules.md](../modules.md)). Checked facts are final once sealed.
 

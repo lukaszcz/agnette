@@ -204,6 +204,7 @@ def test_nested_session_constructor_and_regular_method_remain_user_defined() -> 
 def test_redeclared_session_builtin_method_is_not_a_host_method() -> None:
     error = _reject(
         "scope User\n"
+        "  @opaque\n"
         "  builtin record Session\n"
         "    id: text\n"
         "    agent: Agent\n"

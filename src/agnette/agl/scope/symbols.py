@@ -988,6 +988,8 @@ class AttributeFacts:
         validated, distinct, and all exemptable.
     ``shell_quoted``
         The ``FuncDef.node_id`` of every ``def`` carrying ``@shell-quoted``.
+    ``opaque``
+        The ``RecordDef.node_id`` of every record carrying ``@opaque``.
     """
 
     param_zones: dict[int, ParamZone] = field(default_factory=dict)
@@ -1000,6 +1002,7 @@ class AttributeFacts:
     warning_allows: list[AllowRegion] = field(default_factory=list)
     warning_exemptions: dict[int, frozenset[str]] = field(default_factory=dict)
     shell_quoted: set[int] = field(default_factory=set)
+    opaque: set[int] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)

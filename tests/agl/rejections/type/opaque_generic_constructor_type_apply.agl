@@ -1,0 +1,7 @@
+@opaque
+record Handle[T]
+  id: int
+
+program def main() -> unit =
+  let make = Handle::[text]
+  print(make(1).id)

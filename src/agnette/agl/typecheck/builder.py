@@ -610,17 +610,18 @@ class _TypeBuilder:
         """Resolve one declaration's own field types, rejecting duplicates.
 
         *kind* and *owner* name the declaration in diagnostics ("record",
-        ``R``; "variant", ``E.V``; "exception", ``X``). ``allow_mutable`` is
-        false for an exception, the one declaration whose fields cannot be
-        ``var``; its check stays interleaved with the duplicate check, so a
-        field that is both reports the same error it always did.
+        ``R``; "variant", ``E.V``; "exception", ``X``; "opaque record", ``O``).
+        ``allow_mutable`` is false for an exception and an ``@opaque`` record,
+        whose fields cannot be ``var``; the check stays interleaved with the
+        duplicate check, so a field that is both reports the same error it
+        always did.
         """
         resolved: dict[str, Type] = {}
         seen_fields: dict[str, SourceSpan] = {}
         for fd in fields:
             if not allow_mutable and fd.mutable:
                 raise AglTypeError(
-                    f"Exception field '{fd.name}' in '{owner}' cannot be mutable.",
+                    f"{kind.capitalize()} field '{fd.name}' in '{owner}' cannot be mutable.",
                     span=fd.span,
                 )
             if fd.name in seen_fields:
@@ -642,8 +643,13 @@ class _TypeBuilder:
         own declaration.
         """
         type_params = stmt.type_params
+        opaque = stmt.node_id in self._attributes.opaque
         fields = self._resolve_fields(
-            stmt.fields, kind="record", owner=stmt.name, type_vars=frozenset(type_params)
+            stmt.fields,
+            kind="opaque record" if opaque else "record",
+            owner=stmt.name,
+            type_vars=frozenset(type_params),
+            allow_mutable=not opaque,
         )
         self._check_field_external_names(stmt.fields, owner=stmt.name)
         template = self._env.generic_type_of(stmt.name).template if type_params else None
@@ -668,6 +674,7 @@ class _TypeBuilder:
             decl_node_id=(stmt.node_id if template is None else template.decl_id),
             external_name=self._attributes.external_names.get(stmt.node_id, NO_EXTERNAL_NAME),
             field_external_names=self._field_external_names(stmt.fields),
+            opaque=opaque,
             field_docs=self._field_docs(stmt.fields),
             doc=self._attributes.docs.get(stmt.node_id),
         )

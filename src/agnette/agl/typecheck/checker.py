@@ -1690,7 +1690,7 @@ class _Checker:
                 and self._wire_type_is_serializable(schema_type.value, seen=seen, memo=memo)
             )
         if isinstance(schema_type, RecordType):
-            if schema_type.decl_id in self._env.type_table.host_minted_declaration_ids():
+            if schema_type.decl_id in self._env.type_table.opaque_declaration_ids():
                 return False
             if schema_type in seen:
                 return True
@@ -5700,10 +5700,9 @@ class _Checker:
                 fields = self._env.type_table.exception_fields(obj_type)
                 kind_label = "Exception type"
             elif isinstance(obj_type, RecordType):
-                if obj_type.decl_id in self._env.type_table.host_minted_declaration_ids():
+                if obj_type.decl_id in self._env.type_table.opaque_declaration_ids():
                     raise AglTypeError(
-                        f"'{obj_type.name}' values are created by the host and cannot be "
-                        "updated in source.",
+                        f"'{obj_type.name}' is an opaque record and cannot be updated with `with`.",
                         span=node.span,
                     )
                 fields = self._env.type_table.record_fields(obj_type)

@@ -286,6 +286,29 @@ Exception classes are plain Python objects, not `Exception` subclasses. They
 cross as values. To raise one from a companion, wrap it in `AglException`, as
 described in [Raising AgL exceptions](#raising-agl-exceptions).
 
+## Opaque values
+
+An [`@opaque`](attributes.md#opaque) record is the way a companion hands AgL a
+handle that source cannot build. The companion mints a value through the
+record's synthesized class like any other nominal value; source can only read
+its fields (read-only; a `var` field is a static error), store it, and pass it
+back to externs, which receive the same class. A generic opaque record is one class for every instantiation.
+
+```python
+from agl import Handle
+
+def open_handle(id, label):
+    return Handle(id=id, label=label)
+
+def id_of(handle):
+    return handle.id
+```
+
+Minting is trusted like every extern return: the companion supplies the
+declared fields, and it is responsible for the type arguments it claims.
+Whatever else the companion needs to associate with the handle belongs in
+[companion state](#companion-state), keyed by a field of the handle.
+
 ## Container views
 
 Arrays and dicts are lazy, mutable views over the original AgL container.

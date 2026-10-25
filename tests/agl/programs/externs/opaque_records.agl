@@ -1,0 +1,61 @@
+# `@opaque` records are minted by a companion and read, passed, and stored by AgL.
+# Their fields stay readable; a type parameter may be phantom; a companion value with no
+# boundary representation raises `ExternError`.
+@opaque
+record Handle[T]
+  id: int
+  label: text
+
+@opaque
+record Token
+  serial: int
+
+record Holder
+  token: Token
+  note: text
+
+@extern-name("mint_int")
+extern def mint-int(id: int, label: text) -> Handle[int]
+@extern-name("mint_text")
+extern def mint-text(id: int, label: text) -> Handle[text]
+@extern-name("serial_of")
+extern def serial-of(h: Handle[int]) -> int
+extern def echo[T](h: Handle[T]) -> Handle[T]
+@extern-name("mint_token")
+extern def mint-token(serial: int) -> Token
+extern def bump(token: Token) -> Token
+@extern-name("mint_bogus")
+extern def mint-bogus() -> Token
+
+def label-of[T](h: Handle[T]) -> text = h.label
+
+def bogus-mint() -> unit =
+  let t = try
+    mint-bogus()
+  catch ExternError as e =>
+    print e.function
+    mint-token(0)
+  print(t.serial)
+
+def exercise() -> unit =
+  let a = mint-int(1, "alpha")
+  let b = mint-text(2, "beta")
+  print(a.id)
+  print(a.label)
+  print(b.label)
+  print(label-of(a) ++ label-of(b))
+  print(serial-of(a))
+  let same = echo(b)
+  print(same.id)
+  let handles = [a, mint-int(3, "gamma")]
+  print(handles.map(serial-of))
+  let holder = Holder(token = mint-token(10), note = "held")
+  print(holder.token.serial)
+  print(bump(holder.token).serial)
+  print(holder.note)
+
+program def main(bogus: bool = false) -> unit =
+  if bogus =>
+    bogus-mint()
+  else =>
+    exercise()

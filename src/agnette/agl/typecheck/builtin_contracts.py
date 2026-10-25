@@ -70,6 +70,7 @@ class BuiltinTypeContract:
     base: ExceptionType | None
     field_kinds: tuple[ParamZone, ...]
     field_has_default: tuple[bool, ...]
+    opaque: bool
 
 
 def contract_for_typedef(
@@ -142,6 +143,7 @@ def contract_for_typedef(
         base=normalized_base,
         field_kinds=typedef.field_kinds,
         field_has_default=typedef.field_has_default,
+        opaque=typedef.opaque,
     )
 
 

@@ -412,9 +412,9 @@ def compute_declaration_flags(table: TypeTable, policy: LeafPolicy) -> Declarati
     the declaration's own field/variant templates (per *policy*, at any
     depth, via :func:`field_templates`), a bad ``var`` field, a reference to
     an already-flagged declaration, or (seeded up front, when
-    ``policy.non_data_bad``) host-minted origin
-    (:meth:`~agnette.agl.semantics.type_table.TypeTable.host_minted_declaration_ids`)
-    — a host-minted declaration is an opaque non-data leaf, so it is bad
+    ``policy.non_data_bad``) an ``@opaque`` record
+    (:meth:`~agnette.agl.semantics.type_table.TypeTable.opaque_declaration_ids`)
+    — an opaque declaration is a non-data leaf, so it is bad
     exactly where a function/``unit`` leaf is bad, and fine otherwise
     (e.g. ``EXTERN_KEYABLE``, which recurses into a function's own
     parameter/result types instead of flagging it outright).
@@ -435,7 +435,7 @@ def compute_declaration_flags(table: TypeTable, policy: LeafPolicy) -> Declarati
     answer exactly, without ever expanding an instantiation.
     """
     defs = table.defs
-    field_flagged = set(table.host_minted_declaration_ids()) if policy.non_data_bad else set()
+    field_flagged = set(table.opaque_declaration_ids()) if policy.non_data_bad else set()
     flagged = set(field_flagged)
     relevant = table.relevant_params_by_decl()
     key_params: dict[DeclId, set[str]] = {decl_id: set() for decl_id in defs}

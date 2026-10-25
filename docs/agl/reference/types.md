@@ -310,10 +310,8 @@ previous error, metadata, and the sandbox
 
 ### `Session`
 
-An opaque, host-created handle for a continuing agent conversation
-([Sessions](agent-calls.md#sessions)). Source cannot invoke its constructor,
-and a `Session`, or any value whose type contains one, has no equality and no
-`json` conversion.
+An [opaque record](#opaque-records) standing for a continuing agent
+conversation ([Sessions](agent-calls.md#sessions)); the host creates its values.
 
 ### `Sandbox`
 
@@ -422,6 +420,28 @@ A parenthesized field list takes the same attributes:
 positional-only, then standard, then named-only; a field after one from a
 later zone is a static error. Rendering follows the same zones ([Uniform
 rendering rules](strings-and-interpolation.md#uniform-rendering-rules)).
+
+### Opaque records
+
+A record prefixed with [`@opaque`](attributes.md#opaque) declares a handle type
+whose values are created outside the program — by a Python companion
+([Python FFI](ffi.md#opaque-values)) or the host — and never by source. It may
+be generic, and a type parameter need not appear in a field.
+
+```agl
+@opaque
+record Handle[T]
+  id: int
+  label: text
+
+def label-of[T](h: Handle[T]) -> text = h.label
+```
+
+Its fields are read-only: a `var` field is a static error. The value may be
+stored, passed, and returned like any other. Source cannot construct it, in any form, or derive one with `with`.
+An opaque record is a **non-data** type: it has no equality, no `json`
+conversion, and cannot be an `ask` or `exec` output type or a fallible-cast
+target. A type containing an opaque record at any depth is non-data as well.
 
 ## Enum types
 
@@ -978,7 +998,7 @@ narrow.
 ### Convertibility to `json`
 
 A type converts to `json` iff no **non-data** type — `unit`, a function type,
-or `Session` — and no dict with a non-`Hashable` key is reachable from it:
+or an [opaque record](#opaque-records) — and no dict with a non-`Hashable` key is reachable from it:
 
 - `text`, `json`, `bool`, `int`, and `decimal` always convert;
 - `array[E]` converts iff `E` does; `dict[K, V]` iff `K` is `Hashable` and `V`
@@ -1114,7 +1134,7 @@ a derived exception against an ancestor-typed value all check, while two
 distinct member types (`Some(1) == None`) do not. Ordering comparisons accept
 only numbers or `text` ([Expressions](expressions.md)).
 
-Function types, `unit`, and `Session` have **no equality**, transitively: an
+Function types, `unit`, and [opaque records](#opaque-records) have **no equality**, transitively: an
 `array`, `dict`, record, enum, or exception that contains one at any depth
 cannot be compared either, so `==` on two `array[int -> int]` values is a
 static error. A type parameter is comparable only under an `Eq` or `Hashable`

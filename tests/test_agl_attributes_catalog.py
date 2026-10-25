@@ -43,7 +43,13 @@ class TestCatalogContents:
             "allow",
             "exempts",
             "shell-quoted",
+            "opaque",
         }
+
+    def test_opaque_sits_on_records_without_arguments(self) -> None:
+        spec = BUILTIN_ATTRIBUTES["opaque"]
+        assert spec.targets == {AttributeTarget.RECORD}
+        assert spec.arguments is AttributeArguments.NONE
 
     @pytest.mark.parametrize("name", ["name", "json-name"])
     def test_external_name_attributes_sit_on_fields_members_and_records(self, name: str) -> None:

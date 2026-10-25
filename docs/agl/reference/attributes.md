@@ -86,6 +86,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@allow("name", ...)` | one or more warning names | every defining declaration | Hides the named static warnings within the declaration. |
 | `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Exempts the function's call results from the named static warnings. |
 | `@shell-quoted` | none | any `def` form | Declares the function's call results complete, quoted shell words. |
+| `@opaque` | none | `record` | Declares a host-created handle type that source cannot construct or update and that is not data. |
 | `@config(key = value, ...)` | one or more keyed entries | `program def` | States the values module parameters and engine settings take when this program is selected. |
 
 ## Zone attributes
@@ -231,6 +232,21 @@ warnings](shell-execution.md#hole-warnings).
 ```agl
 @shell-quoted
 def shell-option(name: text, value: text) -> text = "--%{name}=" ++ shell-quote(value)
+```
+
+## `@opaque`
+
+`@opaque` prefixes a `record`; on any other declaration it is a static error.
+The record's values are created by a companion or the host, never by source:
+construction, in every form, and `with` updates are static errors, and the
+type is non-data (no equality, no `json` conversion, not an `ask` or `exec`
+output type). Its fields are read-only (a `var` field is a static error), and it may be generic. See [Opaque
+records](types.md#opaque-records) and [minting opaque values](ffi.md#opaque-values).
+
+```agl
+@opaque
+record Handle[T]
+  id: int
 ```
 
 ## Module parameters

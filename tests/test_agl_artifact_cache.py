@@ -107,6 +107,46 @@ def test_field_default_survives_the_module_cache_disk_round_trip(
     assert capsys.readouterr().out == "3\n"
 
 
+def test_opaque_record_stays_opaque_across_the_warm_and_disk_checked_caches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A library's ``@opaque`` record still rejects source construction once the
+    library is served from the warm checked cache and from the disk cache."""
+    from agnette.agl.typecheck import program as program_module
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    lookup = program_module.retained_checked_modules
+    served: list[CheckedModule | CheckedModuleImage | None] = []
+
+    def spied(
+        retainable: artifact_cache.RetainedSources,
+    ) -> dict[ModuleId, CheckedModule | CheckedModuleImage]:
+        cached = lookup(retainable)
+        served.append(cached.get(ModuleId.from_path("lib")))
+        return cached
+
+    monkeypatch.setattr(program_module, "retained_checked_modules", spied)
+    (tmp_path / "lib.agl").write_text("@opaque\nrecord Token\n  serial: int\n")
+    roots = agl_roots(tmp_path)
+    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+    constructing = "import lib::*\nprint(Token(serial = 1).serial)\n"
+
+    artifact_cache.clear_retained_artifacts()
+    assert run_inline_code(runtime, "import lib::*\nprint(1)\n", roots=roots).ok
+    assert served == [None]  # cold: nothing retained yet, so the library was checked fresh
+    served.clear()
+    warm = run_inline_code(runtime, constructing, roots=roots)
+    assert served and all(isinstance(module, CheckedModule) for module in served)
+    served.clear()
+    artifact_cache.clear_retained_artifacts()  # drop memory only; disk persists
+    from_disk = run_inline_code(runtime, constructing, roots=roots)
+    assert served and all(isinstance(module, CheckedModuleImage) for module in served)
+
+    for result in (warm, from_disk):
+        assert not result.ok
+        assert [diagnostic.line for diagnostic in result.diagnostics] == [2]
+
+
 def test_rehydrated_checked_modules_reuse_match_sites_with_correct_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

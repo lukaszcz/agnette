@@ -492,6 +492,31 @@ def test_builtin_record_shape_must_match_field_default_presence() -> None:
         )
 
 
+_SESSION_FIELDS = (
+    "  id: text\n  agent: Agent\n  transport: SessionTransport\n  sandbox: AgentSandbox\n"
+)
+
+
+def test_builtin_session_must_be_opaque() -> None:
+    """``Session`` is host-minted: a ``builtin`` declaration must carry ``@opaque``."""
+    declare = "builtin record Session\n" + _SESSION_FIELDS + "()\n"
+    with pytest.raises(AglTypeError, match="Builtin type 'Session' has an invalid definition"):
+        _check(declare, default_stdlib=False)
+    _check("@opaque\n" + declare, default_stdlib=False)
+
+
+def test_builtin_record_must_not_be_opaque_unless_the_host_contract_is() -> None:
+    with pytest.raises(AglTypeError, match="Builtin type 'SessionStats' has an invalid definition"):
+        _check(
+            "@opaque\nbuiltin record SessionStats\n"
+            "  input-tokens: int\n"
+            "  output-tokens: int\n"
+            "  cost: decimal\n"
+            "  context-percent: decimal\n()\n",
+            default_stdlib=False,
+        )
+
+
 @pytest.mark.parametrize(
     ("command", "claude"),
     [

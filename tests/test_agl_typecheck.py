@@ -14041,9 +14041,10 @@ class TestSessionPreludeTypes:
     @pytest.mark.parametrize(
         "source",
         [
-            'Session(id = "session", agent = AgentCommand(command = "agent"), transport = Cli)',
+            'Session(id = "session", agent = AgentCommand(command = "agent"), transport = Cli, '
+            "sandbox = Native)",
             "let make = Session\n"
-            'make("session", AgentCommand(command = "agent"), SessionTransport::Cli)',
+            'make("session", AgentCommand(command = "agent"), SessionTransport::Cli, Native)',
         ],
     )
     @pytest.mark.parametrize("default_stdlib", [True, False])

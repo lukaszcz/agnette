@@ -57,6 +57,7 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `warning_allows` | `@allow` | the warning policy ([hosting.md](../hosting.md)) |
 | `warning_exemptions` | `@exempts` | function headers (`FunctionSignature.exempts`) → `exec` hole analysis ([types.md](types.md)) |
 | `shell_quoted` | `@shell-quoted` | function headers (`FunctionSignature.shell_quoted`) → `exec` hole analysis ([types.md](types.md)) |
+| `opaque` | `@opaque` | type building (`TypeDef.opaque`, [types.md](types.md#opaque-records)) |
 
 `warning_allows` is a list of `AllowRegion(span, names)` (the declaration, attribute prefix included, reaching back to its line's start when only blanks precede it); `warning_exemptions` maps `FuncDef.node_id` to names; `shell_quoted` is a set of `FuncDef.node_id`s.
 

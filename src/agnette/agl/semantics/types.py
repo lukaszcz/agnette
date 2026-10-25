@@ -1103,12 +1103,6 @@ _AGENT_SANDBOX_TYPE = EnumType(
     name="AgentSandbox", module_id=RESERVED_ID, decl_id=_reserved_id("AgentSandbox")
 )
 
-# These records represent host resources rather than source-constructible data.
-HOST_MINTED_PRELUDE_TYPE_NAMES: frozenset[str] = frozenset({"Session"})
-HOST_MINTED_PRELUDE_TYPE_IDS: frozenset[int] = frozenset(
-    _reserved_id(name) for name in HOST_MINTED_PRELUDE_TYPE_NAMES
-)
-
 BUILTIN_PRELUDE_TYPES: dict[str, RecordType | EnumType | ExceptionType] = {
     "ExecResult": _EXEC_RESULT_TYPE,
     "Agent": _AGENT_TYPE,

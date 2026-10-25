@@ -1,0 +1,7 @@
+@opaque
+record Handle[T]
+  id: int
+
+program def main() -> unit =
+  let h = ask::[Handle[int]]("Q")
+  print(h.id)

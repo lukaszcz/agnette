@@ -16,7 +16,7 @@ Companion globals are registry-scoped; `runtime.state` reaches a per-host-sessio
 ## Value Boundary
 
 - **Value-directed conversion.** Arrays, dicts, and records with `var` fields cross as live views that write through; immutable records and exceptions cross as snapshots. `json` payloads cross uncopied and unchecked.
-- **Nominal classes.** One Python class is synthesized per nominal identity, carrying its descriptor, so decoding needs no call-scoped state. Classes and helpers are exposed through the temporary `agl` module during companion import; it exposes the linked program's named nominals, so a companion can rely only on those its module (transitively) imports.
+- **Nominal classes.** One Python class is synthesized per nominal identity, carrying its descriptor, so decoding needs no call-scoped state. Classes and helpers are exposed through the temporary `agl` module during companion import; it exposes the linked program's named nominals, so a companion can rely only on those its module (transitively) imports. An `@opaque` record needs no special path: companions mint its values through the same class, and the checker alone keeps source from constructing them.
 - **Target contracts.** A type-directed extern's leading contract operands arrive as immutable `agl.TypeContract` objects (`runtime/type_contracts.py`) built from the IR's `target_contracts`. Extern dict keys must be `Hashable` statically.
 
 ## Callables and Exceptions

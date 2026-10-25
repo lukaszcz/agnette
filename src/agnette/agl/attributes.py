@@ -45,6 +45,7 @@ __all__ = [
     "JSON_NAME_ATTRIBUTE",
     "NAME_ADDRESSED_OPTION_ATTRIBUTES",
     "NAME_ATTRIBUTE",
+    "OPAQUE_ATTRIBUTE",
     "OPTION_ENV_ATTRIBUTE",
     "OPTION_HIDDEN_ATTRIBUTE",
     "OPTION_METAVAR_ATTRIBUTE",
@@ -199,6 +200,10 @@ EXEMPTS_ATTRIBUTE = "exempts"
 #: The marker declaring a function's call results complete shell words: exempt
 #: from ``unquoted-exec-hole``, and subject to ``shell-quoted-hole``.
 SHELL_QUOTED_ATTRIBUTE = "shell-quoted"
+
+#: The marker declaring a record host-minted: its values are created by a
+#: companion or the host, never by source, and are never data.
+OPAQUE_ATTRIBUTE = "opaque"
 
 #: The attributes shaping how a host-facing parameter is presented.
 OPTION_NAME_ATTRIBUTE = "opt-name"
@@ -439,6 +444,11 @@ _SPECS: tuple[AttributeSpec, ...] = (
     AttributeSpec(
         name=SHELL_QUOTED_ATTRIBUTE,
         targets=_DEF_TARGETS,
+        arguments=AttributeArguments.NONE,
+    ),
+    AttributeSpec(
+        name=OPAQUE_ATTRIBUTE,
+        targets=frozenset({AttributeTarget.RECORD}),
         arguments=AttributeArguments.NONE,
     ),
     AttributeSpec(

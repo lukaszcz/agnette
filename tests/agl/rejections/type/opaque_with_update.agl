@@ -1,0 +1,7 @@
+@opaque
+record Token
+  serial: int
+
+def bump(t: Token) -> Token = t with serial = 2
+
+program def main() -> unit = ()
