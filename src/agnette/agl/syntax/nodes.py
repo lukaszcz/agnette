@@ -1198,8 +1198,8 @@ class AttributeKeyedArg:
 class Attribute:
     """``@name`` or ``@name(args)`` in front of a defining declaration.
 
-    An inner attribute ``@!name(args)`` has the same shape; it sits in the
-    ``attributes`` of the module root or scope region it heads.
+    An inner attribute ``@!name(args)`` has the same shape (``inner`` set); it
+    sits in the ``attributes`` of the module root or scope region it heads.
 
     The AST keeps an attribute exactly as written: its name, positional
     arguments, and reference-keyed arguments. Which attributes exist, where
@@ -1212,6 +1212,17 @@ class Attribute:
     keyed_args: tuple[AttributeKeyedArg, ...]
     span: SourceSpan = dc_field(compare=False)
     node_id: int = dc_field(compare=False)
+    inner: bool = False
+
+    @property
+    def sigil(self) -> str:
+        """The introducer as written: ``@!`` for an inner attribute, else ``@``."""
+        return "@!" if self.inner else "@"
+
+    @property
+    def spelling(self) -> str:
+        """The attribute's name as written, sigil included."""
+        return f"{self.sigil}{self.name}"
 
 
 @dataclass(frozen=True, slots=True)

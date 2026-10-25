@@ -33,7 +33,6 @@ from __future__ import annotations
 import keyword
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
-from functools import partial
 
 from agnette.agl.attributes import (
     ALLOW_ATTRIBUTE,
@@ -63,6 +62,7 @@ from agnette.agl.attributes import (
     invalid_json_name,
     invalid_program_command_path,
 )
+from agnette.agl.modules.ids import spell_scope_path
 from agnette.agl.scope.symbols import AglScopeError, AllowRegion, AttributeFacts
 from agnette.agl.semantics.external_names import ExternalName
 from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants
@@ -161,9 +161,6 @@ _TARGET_LABEL: Mapping[AttributeTarget, str] = {
     AttributeTarget.MODULE: "module",
     AttributeTarget.SCOPE_REGION: "scope region",
 }
-
-
-_INNER_TARGETS = frozenset({AttributeTarget.MODULE, AttributeTarget.SCOPE_REGION})
 
 
 def _function_target(node: FuncDef) -> AttributeTarget:
@@ -372,21 +369,18 @@ class _Recognizer:
         if isinstance(node, Program):
             target = AttributeTarget.MODULE
             span = _whole_source(node.span, self._source_text)
-            file_doc = self._file_module_doc
         else:
             target = AttributeTarget.SCOPE_REGION
             path = self._region_paths[node.node_id]
             span = _from_blank_line_start(node.span, self._source_text)
-            file_doc = partial(self._file_region_doc, path)
         recognized = _validate_attribute_prefix(node.attributes, target, self._constants, path)
         documentation = recognized.text_of(DOC_ATTRIBUTE)
         if documentation is not None:
-            file_doc(documentation, recognized.nodes[DOC_ATTRIBUTE])
+            if target is AttributeTarget.MODULE:
+                self.module_doc = documentation
+            else:
+                self._file_region_doc(path, documentation, recognized.nodes[DOC_ATTRIBUTE])
         self._warning_names(node.node_id, span, recognized)
-
-    def _file_module_doc(self, documentation: str, attribute: Attribute) -> None:
-        """File the module's ``@!doc`` text."""
-        self.module_doc = documentation
 
     def _file_region_doc(
         self, path: tuple[str, ...], documentation: str, attribute: Attribute
@@ -394,8 +388,8 @@ class _Recognizer:
         """File a scope path's ``@!doc`` text, rejecting a second one for the path."""
         if path in self.region_docs:
             raise AglScopeError(
-                f"Attribute '@!{attribute.name}' cannot be repeated for scope "
-                f"'{'::'.join(path)}': regions spelling one path share one doc.",
+                f"Attribute '{attribute.spelling}' cannot be repeated for scope "
+                f"'{spell_scope_path(path)}': regions spelling one path share one doc.",
                 span=attribute.span,
             )
         self.region_docs[path] = documentation
@@ -660,13 +654,10 @@ def _validate_attribute_prefix(
     nodes: dict[str, Attribute] = {}
     texts: dict[str, str] = {}
     lists: dict[str, tuple[str, ...]] = {}
-    sigil = "@!" if target in _INNER_TARGETS else "@"
     for attribute in attributes:
         spec = BUILTIN_ATTRIBUTES.get(attribute.name)
         if spec is None:
-            raise AglScopeError(
-                f"Unknown attribute '{sigil}{attribute.name}'.", span=attribute.span
-            )
+            raise AglScopeError(f"Unknown attribute '{attribute.spelling}'.", span=attribute.span)
         validation_target = (
             AttributeTarget.BINDING
             if target is AttributeTarget.PARAM_BINDING and attribute.name == PARAM_ATTRIBUTE
@@ -674,18 +665,18 @@ def _validate_attribute_prefix(
         )
         if validation_target not in spec.targets:
             raise AglScopeError(
-                f"Attribute '{sigil}{attribute.name}' cannot be attached to a "
+                f"Attribute '{attribute.spelling}' cannot be attached to a "
                 f"{_TARGET_LABEL[target]}.",
                 span=attribute.span,
             )
         if attribute.name in nodes:
             raise AglScopeError(
-                f"Attribute '{sigil}{attribute.name}' cannot be repeated.", span=attribute.span
+                f"Attribute '{attribute.spelling}' cannot be repeated.", span=attribute.span
             )
         for other in spec.conflicts:
             if other in nodes:
                 raise AglScopeError(
-                    f"Attribute '{sigil}{attribute.name}' conflicts with '{sigil}{other}'.",
+                    f"Attribute '{attribute.spelling}' conflicts with '{attribute.sigil}{other}'.",
                     span=attribute.span,
                 )
         argument = _check_arguments(attribute, spec, constants, scope_path)
@@ -739,19 +730,19 @@ def _check_list_elements(attribute: Attribute, spec: AttributeSpec, texts: tuple
     for text, argument in zip(texts, attribute.args, strict=True):
         if text in seen:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' lists {spec.element} {text!r} more than once; "
+                f"Attribute '{attribute.spelling}' lists {spec.element} {text!r} more than once; "
                 "an element cannot be repeated.",
                 span=argument.span,
             )
         seen.add(text)
         if spec.known is not None and text not in spec.known:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' names unknown {spec.element} {text!r}.",
+                f"Attribute '{attribute.spelling}' names unknown {spec.element} {text!r}.",
                 span=argument.span,
             )
         if spec.admitted is not None and text not in spec.admitted:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' does not admit {spec.element} {text!r}; "
+                f"Attribute '{attribute.spelling}' does not admit {spec.element} {text!r}; "
                 f"it admits only {', '.join(sorted(spec.admitted))}.",
                 span=argument.span,
             )
@@ -767,7 +758,8 @@ def _fold_text(
     folded = constants.fold_text(argument, scope_path=scope_path)
     if isinstance(folded, FoldFailure):
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' requires a constant text argument: {folded.message}.",
+            f"Attribute '{attribute.spelling}' requires a constant text argument: "
+            f"{folded.message}.",
             span=folded.span,
         )
     return folded
@@ -793,28 +785,28 @@ def _check_arguments(
     if spec.arguments is AttributeArguments.KEYED_ENTRIES:
         if attribute.args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' takes only keyed arguments.", span=attribute.span
+                f"Attribute '{attribute.spelling}' takes only keyed arguments.", span=attribute.span
             )
         if not attribute.keyed_args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' requires at least one keyed argument.",
+                f"Attribute '{attribute.spelling}' requires at least one keyed argument.",
                 span=attribute.span,
             )
         return None
     if attribute.keyed_args:
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' takes no named argument.", span=attribute.span
+            f"Attribute '{attribute.spelling}' takes no named argument.", span=attribute.span
         )
     if spec.arguments is AttributeArguments.NONE:
         if attribute.args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' takes no arguments.", span=attribute.span
+                f"Attribute '{attribute.spelling}' takes no arguments.", span=attribute.span
             )
         return None
     if spec.arguments is AttributeArguments.TEXT_LIST:
         if not attribute.args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' takes at least one text argument.",
+                f"Attribute '{attribute.spelling}' takes at least one text argument.",
                 span=attribute.span,
             )
         texts = tuple(_fold_text(attribute, arg, constants, scope_path) for arg in attribute.args)
@@ -822,13 +814,13 @@ def _check_arguments(
         return texts
     if len(attribute.args) != 1:
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' takes exactly one text argument.",
+            f"Attribute '{attribute.spelling}' takes exactly one text argument.",
             span=attribute.span,
         )
     folded = _fold_text(attribute, attribute.args[0], constants, scope_path)
     if spec.pattern is not None and spec.pattern.fullmatch(folded) is None:
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' {spec.expected} {folded!r}.",
+            f"Attribute '{attribute.spelling}' {spec.expected} {folded!r}.",
             span=attribute.span,
         )
     return folded

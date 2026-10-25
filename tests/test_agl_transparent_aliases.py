@@ -1728,10 +1728,7 @@ _SCENARIOS["an-alias-of-a-builtin-type-reads-paths-as-its-target"] = Scenario(
         ),
         "reached-beneath-at-the-alias-site": accepted("V2::sub::yy()", "int"),
         "info": info(
-            "T2::size",
-            "T2::size is a function.\nSignature:\n"
-            '  @doc("Return the number of Unicode scalar characters.")\n'
-            "  def text::size(self: text) -> int",
+            "T2::size", "T2::size is a function.\nSignature:\n  def text::size(self: text) -> int"
         ),
     },
 )

@@ -778,7 +778,14 @@ class AstBuilder(Transformer):
         return tuple(a for a in args if isinstance(a, syntax.Attribute))
 
     def attribute(self, meta: Meta, args: _Args) -> syntax.Attribute:
-        """attribute / inner_attribute: AT NAME (LPAR attr_arg_list? RPAR)? — kept as written."""
+        """attribute: AT NAME (LPAR attr_arg_list? RPAR)? — kept as written."""
+        return self._attribute(meta, args, inner=False)
+
+    def inner_attribute(self, meta: Meta, args: _Args) -> syntax.Attribute:
+        """inner_attribute: the same shape, introduced by ``@!``."""
+        return self._attribute(meta, args, inner=True)
+
+    def _attribute(self, meta: Meta, args: _Args, *, inner: bool) -> syntax.Attribute:
         name_tok = next(a for a in args if _is_name_token(a))
         span = self._span_from_meta(meta)
         raw_pos: list[_RawAttrPosArg] = []
@@ -792,9 +799,8 @@ class AstBuilder(Transformer):
             keyed_args=tuple(keyed_args),
             span=span,
             node_id=self._next_id(),
+            inner=inner,
         )
-
-    inner_attribute = attribute
 
     # ------------------------------------------------------------------
     # record_def / field_def (continued)

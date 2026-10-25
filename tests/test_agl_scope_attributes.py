@@ -644,6 +644,14 @@ class TestInnerAttributes:
         with pytest.raises(AglScopeError):
             resolve_entry(source)
 
+    @pytest.mark.parametrize("source", ["@!doc(1)\n", '@!allow("no-such-warning")\n'])
+    def test_argument_diagnostics_spell_the_inner_attribute(self, source: str) -> None:
+        name = source[2 : source.index("(")]
+        with pytest.raises(AglScopeError) as raised:
+            resolve_entry(source)
+        assert f"@!{name}" in str(raised.value)
+        assert f"'@{name}'" not in str(raised.value)
+
 
 class TestWarningAttributes:
     """``@allow`` and ``@exempts``: validated names, filed per declaration."""
