@@ -312,6 +312,18 @@ class TestCheckCommand:
 
         assert ("hidden" in capsys.readouterr().err) is reported
 
+    def test_an_entry_type_error_is_reported_before_an_imported_modules(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "lib.agl").write_text("record L\n  x: Option\n")
+        main = tmp_path / "main.agl"
+        main.write_text("import lib::*\nrecord M\n  y: Option\n")
+
+        with pytest.raises(SystemExit):
+            check_command.run(CheckArgs(files=[str(main)]))
+
+        assert capsys.readouterr().err.startswith(str(main))
+
     def test_mixed_results_across_several_files_all_reported_exit_1(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

@@ -81,6 +81,7 @@ per-module environments and tables in :class:`_PreparedProgram`;
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Mapping, assert_never, cast
@@ -95,7 +96,7 @@ from agnette.agl.artifact_cache import (
     retained_module_headers,
     retained_module_sources,
 )
-from agnette.agl.diagnostics import CycleAlias, Diagnostic, alias_cycle_error
+from agnette.agl.diagnostics import AglError, CycleAlias, Diagnostic, alias_cycle_error
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.scope.program import ResolvedProgram
 from agnette.agl.scope.symbols import DeclarationKey, ModuleResolution, ScopePath
@@ -157,6 +158,7 @@ from agnette.agl.typecheck.env import (
     ProgramAliasResolution,
     PublishedModuleSurface,
     TypeEnvironment,
+    UnappliedGenericTypeError,
     _assert_checked_module_annotations_closed,
     _assert_checked_types_closed,
     assert_checked_module_output_closed,
@@ -684,13 +686,25 @@ def _build_program_type_table(
     # resolved yet. That holds for an exception's ``extends`` base too,
     # including the canonical ``Exception`` an omitted ``extends`` takes,
     # whose identity Step A published (``TypeTable.exception_root``).
-    # The entry module resolves last: a rejection inside it (such as a bare generic
-    # type) then finds every other module's bodies already in the shared table.
-    def source_decl_sort_key(key: DeclKey) -> tuple[bool, tuple[str, ...], tuple[str, ...], str]:
-        return (key[0] == resolved.entry_id, key[0].segments, key[1], key[2])
+    def source_decl_sort_key(key: DeclKey) -> tuple[tuple[str, ...], tuple[str, ...], str]:
+        return (key[0].segments, key[1], key[2])
 
+    resolved_bodies: set[DeclKey] = set()
     for key in sorted(type_decls, key=source_decl_sort_key):
-        _resolve_body_for_one(key, type_decls[key], cross_builders, tables, cross_envs)
+        try:
+            _resolve_body_for_one(key, type_decls[key], cross_builders, tables, cross_envs)
+        except UnappliedGenericTypeError as exc:
+            # The rejection carries the generic's definition for display, so its
+            # own body is resolved first, wherever it sorts.
+            template = exc.generic_def.template
+            declaration = (template.module_id, template.scope_path, template.name)
+            if declaration in type_decls and declaration not in resolved_bodies:
+                with suppress(AglError):
+                    _resolve_body_for_one(
+                        declaration, type_decls[declaration], cross_builders, tables, cross_envs
+                    )
+            raise
+        resolved_bodies.add(key)
 
     # Builtin contracts may inspect referenced enum-member record fields, so
     # validate only after every type body has been resolved.  This preserves
