@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import codecs
 import json
-import math
 import os
 import select
 import subprocess
@@ -232,10 +231,6 @@ class PiRpcSessionBackend(SandboxFixture):
         response, _ = self._send("new_session", {})
         self._parse_operation_response(response, "new_session", _require_not_cancelled)
 
-    def fork(self) -> SessionBackend:
-        """Clone the active branch into a second live backend."""
-        return self._clone()[0]
-
     def portable(self) -> PortableSession:
         """Clone the active branch in a temporary process, keeping only the clone's session id.
 
@@ -252,10 +247,8 @@ class PiRpcSessionBackend(SandboxFixture):
             temporary.close()
         return _PortablePiRpc(agent, self._settings, clone_id)
 
-    def _clone(self) -> tuple[PiRpcSessionBackend, str]:
-        """Clone the active branch and atomically hand each process to one backend.
-
-        Returns the live clone and its session id.
+    def fork(self) -> SessionBackend:
+        """Clone the active branch into a second live backend, handing each process to one.
 
         Pi's ``fork`` command only accepts a previous user-message entry.  ``clone``
         is the RPC operation that snapshots the current active branch, regardless of
@@ -270,7 +263,7 @@ class PiRpcSessionBackend(SandboxFixture):
         try:
             self._send_clone()
             cloned = True
-            forked_id = self._cloned_session_id(parent_id)
+            self._cloned_session_id(parent_id)
         except BaseException:
             if cloned:
                 # The source now owns the clone, so retain the independently opened
@@ -282,7 +275,7 @@ class PiRpcSessionBackend(SandboxFixture):
             raise
 
         self._child = replacement
-        return PiRpcSessionBackend(source, self._settings), forked_id
+        return PiRpcSessionBackend(source, self._settings)
 
     def _active_session_id(self) -> str:
         state, _ = self._send("get_state", {})
@@ -536,11 +529,13 @@ class PiRpcSessionBackend(SandboxFixture):
             else time.monotonic() + self._settings.idle_timeout
         )
         buffer = child.stdout_buffer
-        with SignalWakeup() as wakeup:
-            while (newline := buffer.find(b"\n")) < 0:
-                if child.stdout_stream is None:
-                    raise _RpcProcessExited
-                _pump(child, deadline, _NOTHING, wakeup)
+        if (newline := buffer.find(b"\n")) < 0:
+            # Entered only to wait: most records are already buffered.
+            with SignalWakeup() as wakeup:
+                while (newline := buffer.find(b"\n")) < 0:
+                    if child.stdout_stream is None:
+                        raise _RpcProcessExited
+                    _pump(child, deadline, _NOTHING, wakeup)
         line = bytes(buffer[:newline])
         del buffer[: newline + 1]
         if line.endswith(b"\r"):
@@ -673,17 +668,9 @@ def _pump(
     output while writing keeps a child that blocks on a full output pipe from
     ever stalling its own stdin read.  Raises :class:`_RpcIdleTimeout` once
     *deadline* (monotonic, ``None`` for none) has passed.  A signal wakes the
-    poll through *wakeup* (entered by the caller for its whole wait), so a
-    raising Python handler interrupts the pump at once; a non-raising one leaves
-    the caller to pump again.  The poll object is per call, so nothing survives
-    an ``os.fork`` and descriptors beyond ``FD_SETSIZE`` work.
+    poll through *wakeup* (entered by the caller for its whole wait); a
+    non-raising handler leaves the caller to pump again.
     """
-    timeout = None
-    if deadline is not None:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise _RpcIdleTimeout
-        timeout = math.ceil(remaining * 1000)
     poller = select.poll()
     stdout, stderr = child.stdout_stream, child.stderr_stream
     stdin_fd = child.stdin.fileno() if pending else None
@@ -694,8 +681,10 @@ def _pump(
         descriptors.append((stdin_fd, select.POLLOUT))
     for descriptor, events in descriptors:
         poller.register(descriptor, events)
-    wakeup.register(poller)
-    ready = {fd for fd, _ in poller.poll(timeout) if not wakeup.consume(fd)}
+    polled = wakeup.poll(poller, deadline)
+    if polled is None:
+        raise _RpcIdleTimeout
+    ready = set(polled)
     # Any event, hangup and error included, is resolved by the read or write itself.
     if stderr is not None and stderr.fileno() in ready:
         _read_stderr(child, stderr)

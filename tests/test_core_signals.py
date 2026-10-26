@@ -7,6 +7,7 @@ import os
 import select
 import signal
 import threading
+import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from unittest import mock
@@ -14,14 +15,11 @@ from unittest import mock
 import pytest
 
 from agnette.core.signals import SignalWakeup, held_signals
+from tests._proc_helpers import open_fd_count
 from tests._signal_helpers import signal_handler, trip_signal_off_thread
 from tests._timeouts import fail_if_slow
 
 _USR1 = signal.SIGUSR1
-
-
-def _open_fds() -> int:
-    return len(os.listdir("/proc/self/fd"))
 
 
 @contextmanager
@@ -46,31 +44,28 @@ def test_a_signal_that_did_not_interrupt_the_poll_makes_the_pipe_readable() -> N
         signal_handler(_USR1, lambda number, frame: seen.append(number)),
         SignalWakeup() as wakeup,
     ):
-        wakeup.register(poller)
         trip_signal_off_thread(_USR1)
         with fail_if_slow("the poll slept through a signal", seconds=10):
-            ready = poller.poll()
+            ready = wakeup.poll(poller)
         assert wakeup.fd is not None
-        assert ready == [(wakeup.fd, select.POLLIN)]
-        assert wakeup.consume(wakeup.fd)
-        assert not wakeup.consume(wakeup.fd + 1000)
+        assert ready == []
         assert poller.poll(0) == []
+        assert wakeup.poll(poller, time.monotonic()) is None
 
     assert seen == [_USR1]
 
 
 def test_bytes_are_forwarded_to_the_previous_wakeup_fd_and_it_is_restored() -> None:
     with _previous_wakeup() as (previous_read, _), signal_handler(_USR1, lambda n, f: None):
-        fds = _open_fds()
+        fds = open_fd_count()
         with SignalWakeup() as wakeup:
             trip_signal_off_thread(_USR1)
-            assert wakeup.fd is not None
-            assert wakeup.consume(wakeup.fd)
+            assert wakeup.poll(select.poll()) == []
             assert os.read(previous_read, 16) == bytes([_USR1])
             # A signal that no wait consumed still reaches the previous owner at exit.
             trip_signal_off_thread(_USR1)
         assert os.read(previous_read, 16) == bytes([_USR1])
-        assert _open_fds() == fds
+        assert open_fd_count() == fds
 
 
 def test_a_full_previous_wakeup_fd_does_not_break_the_wait() -> None:
@@ -80,15 +75,14 @@ def test_a_full_previous_wakeup_fd_does_not_break_the_wait() -> None:
                 os.write(previous_write, bytes(4096))
         with SignalWakeup() as wakeup:
             trip_signal_off_thread(_USR1)
-            assert wakeup.fd is not None
-            assert wakeup.consume(wakeup.fd)
+            assert wakeup.poll(select.poll()) == []
 
 
 def test_nothing_remains_after_an_interrupted_wait_or_a_failed_setup() -> None:
     def interrupt(number: int, frame: object) -> None:
         raise KeyboardInterrupt
 
-    fds = _open_fds()
+    fds = open_fd_count()
     with signal_handler(_USR1, interrupt), pytest.raises(KeyboardInterrupt), SignalWakeup():
         trip_signal_off_thread(_USR1)
     with (
@@ -99,7 +93,7 @@ def test_nothing_remains_after_an_interrupted_wait_or_a_failed_setup() -> None:
         pass
 
     assert signal.set_wakeup_fd(-1) == -1
-    assert _open_fds() == fds
+    assert open_fd_count() == fds
 
 
 def test_an_interrupt_as_the_wakeup_is_installed_leaves_nothing_behind() -> None:
@@ -115,7 +109,7 @@ def test_an_interrupt_as_the_wakeup_is_installed_leaves_nothing_behind() -> None
     def interrupt(number: int, frame: object) -> None:
         raise KeyboardInterrupt
 
-    fds = _open_fds()
+    fds = open_fd_count()
     with (
         signal_handler(_USR1, interrupt),
         mock.patch.object(signal, "set_wakeup_fd", install_then_signal),
@@ -125,7 +119,7 @@ def test_an_interrupt_as_the_wakeup_is_installed_leaves_nothing_behind() -> None
         pass
 
     assert real(-1) == -1
-    assert _open_fds() == fds
+    assert open_fd_count() == fds
 
 
 def test_outside_the_main_thread_the_wait_proceeds_without_a_wakeup_fd() -> None:
@@ -134,14 +128,13 @@ def test_outside_the_main_thread_the_wait_proceeds_without_a_wakeup_fd() -> None
     def run() -> None:
         poller = select.poll()
         with SignalWakeup() as wakeup:
-            wakeup.register(poller)
-            report.extend([wakeup.fd, wakeup.consume(3), poller.poll(0)])
+            report.extend([wakeup.fd, wakeup.poll(poller, time.monotonic() + 0.01)])
 
     thread = threading.Thread(target=run)
     thread.start()
     thread.join()
 
-    assert report == [None, False, []]
+    assert report == [None, []]
     assert signal.set_wakeup_fd(-1) == -1
 
 
@@ -184,10 +177,10 @@ def test_held_signals_are_released_if_a_handler_raises_as_they_are_blocked() -> 
 
 
 def test_the_wakeup_pipe_is_released_if_a_handler_raises_as_signals_are_held_to_close_it() -> None:
-    fds = _open_fds()
+    fds = open_fd_count()
     with _handler_raises_after_blocking(1), pytest.raises(KeyboardInterrupt), SignalWakeup():
         pass
 
     assert signal.set_wakeup_fd(-1) == -1
-    assert _open_fds() == fds
+    assert open_fd_count() == fds
     assert signal.SIGINT not in signal.pthread_sigmask(signal.SIG_BLOCK, [])

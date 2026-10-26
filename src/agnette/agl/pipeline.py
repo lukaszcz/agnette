@@ -13,7 +13,7 @@ types).  This module is the top-of-stack host façade that depends on both
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, TypeVar, cast
 
@@ -69,7 +69,6 @@ if TYPE_CHECKING:
     from agnette.agl.runtime.arguments import ProgramArguments
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
-    from agnette.agl.runtime.processes import ForkRegistration
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.agl.scope.program import ResolvedModule, ResolvedProgram
     from agnette.agl.semantics.type_table import TypeTable
@@ -432,9 +431,6 @@ class PipelineDriver:
         The static-warning levels (``None``: the catalog defaults). Applied per
         invocation after type checking: a denied warning is a static error, so
         nothing is lowered or run.
-    fork_participants : sequence of ForkRegistration
-        Extra fork participants of the process host a run builds, registered ahead of the
-        built-in ones.
     """
 
     def __init__(
@@ -449,10 +445,8 @@ class PipelineDriver:
         get_sandbox_context: "Callable[[], SandboxContext] | None",
         resolve_agent_spec: "AgentSpecResolver | None",
         warning_policy: WarningPolicy | None = None,
-        fork_participants: "Sequence[ForkRegistration]" = (),
     ) -> None:
         self._default_strict_json = default_strict_json
-        self._fork_participants = tuple(fork_participants)
         self._agent_dispatcher = agent_dispatcher
         self._session_host = session_host
         self._shell_exec_timeout = shell_exec_timeout
@@ -526,7 +520,6 @@ class PipelineDriver:
             ),
             get_sandbox_context=self._get_sandbox_context,
             resolve_agent_spec=self._resolve_agent_spec,
-            fork_participants=self._fork_participants,
         )
         return self._host_env_cache
 
@@ -753,7 +746,6 @@ class PipelineDriver:
                 builtin_host_settings=interpreter_builtin_settings,
                 param_seeds=options.param_seeds,
                 process_environment=options.process_environment,
-                fork_participants=host_env.fork_participants,
             )
             entry_bindings = interp.run(program_symbol=program_symbol, arguments=arguments)
         except AglRaise as exc:

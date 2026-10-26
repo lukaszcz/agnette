@@ -203,13 +203,23 @@ def append_text(path: Path, content: str) -> None:
     if dry_run.enabled():
         dry_run.print_operation("append-file", display_path(path))
         return
-    pending = memoryview(content.encode("utf-8"))
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666)
     try:
-        while pending:
-            pending = pending[os.write(fd, pending) :]
+        write_all(fd, content.encode("utf-8"))
     finally:
         os.close(fd)
+
+
+def write_all(fd: int, data: bytes) -> None:
+    """Write all *data* to *fd*, resuming after short writes; stop if one makes no progress."""
+
+    # A memoryview keeps the unwritten tail a zero-copy slice of *data*.
+    remaining = memoryview(data)
+    while remaining:
+        written = os.write(fd, remaining)
+        if written == 0:
+            return
+        remaining = remaining[written:]
 
 
 def copy_file(source: Path, destination: Path) -> None:

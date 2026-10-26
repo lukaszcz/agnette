@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import enum
 import functools
-import math
 import os
 import select
 import signal
@@ -52,6 +51,7 @@ from agnette.agl.runtime.process_records import (
     failed_record,
 )
 from agnette.core.cleanup import cleanup_on_failure, run_cleanup_steps
+from agnette.core.fs import write_all
 from agnette.core.process import kill_group
 from agnette.core.signals import SignalMask, SignalWakeup, held_signals
 
@@ -62,7 +62,6 @@ __all__ = [
     "Ended",
     "Failed",
     "ForkParticipant",
-    "ForkRegistration",
     "ForkRequest",
     "Outcome",
     "ProcessHost",
@@ -144,20 +143,6 @@ class ForkParticipant[S](ABC):
         """Run in the child as it exits, with the disposition of its outcome."""
 
 
-class ForkRegistration:
-    """A fork participant of any state type, ready to be registered on a host.
-
-    Lets a host owner hand participants with different state types to the hosts it builds.
-    """
-
-    def __init__[S](self, participant: ForkParticipant[S]) -> None:
-        self._participant: Callable[[ProcessHost], None] = lambda host: host.register(participant)
-
-    def register_on(self, host: ProcessHost) -> None:
-        """Register the participant on *host*, after those already registered."""
-        self._participant(host)
-
-
 class _Prepared(NamedTuple):
     """A participant's hooks bound to the state its ``prepare`` returned."""
 
@@ -203,32 +188,6 @@ def _leave(exit_code: int, number: int | None) -> NoReturn:
     os._exit(exit_code)
 
 
-def _write_all(fd: int, data: bytes) -> None:
-    """Write *data* to *fd*; a closed reader (a detached process) is not an error."""
-    view = memoryview(data)
-    try:
-        while view:
-            view = view[os.write(fd, view) :]
-    except BrokenPipeError:
-        pass
-
-
-@dataclass(frozen=True, slots=True)
-class _Scope:
-    """A ``with host.scope()`` block, nested in *parent*."""
-
-    parent: _Scope | None
-
-
-def _within(scope: _Scope | None, ancestor: _Scope) -> bool:
-    """Whether *scope* is *ancestor* or nested in it."""
-    while scope is not None:
-        if scope is ancestor:
-            return True
-        scope = scope.parent
-    return False
-
-
 @dataclass(slots=True)
 class _Entry:
     """An attached child: running until its pipe reaches EOF, then holding its outcome.
@@ -242,7 +201,6 @@ class _Entry:
     id: str
     pid: int
     fd: int
-    scope: _Scope | None = None
     buffer: bytearray = field(default_factory=bytearray)
     result: Outcome | None = None
     consumed: bool = False
@@ -269,16 +227,12 @@ def _close_pipe(entry: _Entry) -> None:
 
 def _problem(outcome: Outcome) -> str | None:
     """A one-line account of *outcome* if it is not a clean delivery, else ``None``."""
-    if isinstance(outcome, Delivered):
-        if outcome.failure is None:
-            return None
-        text = f"failed: {outcome.failure}"
-    elif isinstance(outcome, Failed):
-        text = f"failed: {outcome.message}"
-    elif outcome.exit_code is None:
-        text = f"was terminated by signal {outcome.signal}"
+    if not isinstance(outcome, Delivered):
+        text = outcome.describe()
+    elif outcome.failure is None:
+        return None
     else:
-        text = f"exited with status {outcome.exit_code}"
+        text = f"failed: {outcome.failure}"
     return " ".join(text.split())
 
 
@@ -313,7 +267,6 @@ class ProcessHost:
         self._participants: list[Callable[[ForkRequest], _Prepared]] = []
         self._entries: dict[str, _Entry] = {}
         self._detached: list[int] = []
-        self._scope: _Scope | None = None
         self._reporter = reporter
         # In a child: the write end of the pipe it delivers its record on.
         self._outcome_fd: int | None = None
@@ -341,8 +294,7 @@ class ProcessHost:
     def fork(self, child: Callable[[], ChildResult], sessions: Sequence[str]) -> ProcessInfo:
         """Run *child* in a forked process; *sessions* are passed on to the participants.
 
-        *child* returns the payload, or a :class:`Delivered` marking it as a failure. The
-        process belongs to the innermost :meth:`scope` active in the caller.
+        *child* returns the payload, or a :class:`Delivered` marking it as a failure.
 
         Raises :class:`ProcessHostError` unless this is the only Python thread, if the OS
         refuses the fork, or if a ``parent`` hook fails (the child is then killed and
@@ -402,7 +354,7 @@ class ProcessHost:
         the child's process group (:func:`kill_group`) and reaps it, as no caller holds its id;
         an ``Exception`` is reported as a :class:`ProcessHostError`.
         """
-        entry = _Entry(uuid4().hex, pid, read_fd, self._scope)
+        entry = _Entry(uuid4().hex, pid, read_fd)
         self._entries[entry.id] = entry
         try:
             os.close(write_fd)
@@ -519,7 +471,9 @@ class ProcessHost:
             if disposition is Disposition.SETTLE:
                 record, end = failed_record(exc), _ChildEnd(1, None)
         if record is not None:
-            _write_all(write_fd, record)
+            # A closed reader (a detached process) is not an error.
+            with suppress(BrokenPipeError):
+                write_all(write_fd, record)
         sys.stdout.flush()
         sys.stderr.flush()
         return end
@@ -545,7 +499,6 @@ class ProcessHost:
         inherited = list(self._entries.values())
         self._entries.clear()
         self._detached.clear()
-        self._scope = None
         for entry in inherited:
             _close_pipe(entry)
         os.close(read_fd)
@@ -616,21 +569,17 @@ class ProcessHost:
 
     @contextmanager
     def scope(self) -> Iterator[None]:
-        """Tag the processes forked inside the block, to terminate them if it fails.
+        """Terminate the processes forked inside the block if it fails.
 
         Leaving by an exception (any ``BaseException``) terminates those of them still
         attached, those of nested scopes included, then re-raises. Leaving normally does
         nothing; the terminated outcomes stay unconsumed.
         """
-        scope = _Scope(self._scope)
-        self._scope = scope
-        try:
-            with self._terminating_on_error(
-                lambda: [e for e in self._entries.values() if _within(e.scope, scope)]
-            ):
-                yield
-        finally:
-            self._scope = scope.parent
+        before = set(self._entries)
+        with self._terminating_on_error(
+            lambda: [e for id, e in self._entries.items() if id not in before]
+        ):
+            yield
 
     def end(self, disposition: Disposition) -> None:
         """End the session of the attached processes; detached ones are only reaped.
@@ -731,20 +680,14 @@ class ProcessHost:
             return
         running = {entry.fd: entry for entry in entries if entry.result is None}
         poller = select.poll()
+        for fd in running:
+            poller.register(fd, select.POLLIN)
         with SignalWakeup() as wakeup:
-            wakeup.register(poller)
-            for fd in running:
-                poller.register(fd, select.POLLIN)
             while not done():
-                timeout = None
-                if deadline is not None:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        return
-                    timeout = math.ceil(remaining * 1000)
-                for fd, _ in poller.poll(timeout):
-                    if wakeup.consume(fd):
-                        continue
+                ready = wakeup.poll(poller, deadline)
+                if ready is None:
+                    return
+                for fd in ready:
                     entry = running[fd]
                     # Held, so that an interrupt cannot drop a chunk already read.
                     with held_signals(_TERMINATING):

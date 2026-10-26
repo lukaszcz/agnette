@@ -32,6 +32,7 @@ from tests._agl_helpers import (
     unavailable_sandbox_context,
     write_sandbox_home,
 )
+from tests._proc_helpers import open_fd_count
 from tests._signal_helpers import before_each_poll, signal_handler, trip_signal_off_thread
 from tests._timeouts import fail_if_slow
 from tests.test_agent_rpc import RpcStub, open_backend
@@ -843,7 +844,7 @@ def test_a_raising_signal_handler_interrupts_a_pump_and_leaves_no_wakeup_behind(
     def interrupt(number: int, frame: object) -> None:
         raise KeyboardInterrupt
 
-    fds = len(os.listdir("/proc/self/fd"))
+    fds = open_fd_count()
     with (
         signal_handler(signal.SIGUSR1, interrupt),
         before_each_poll(lambda call: trip_signal_off_thread(signal.SIGUSR1)),
@@ -853,7 +854,7 @@ def test_a_raising_signal_handler_interrupts_a_pump_and_leaves_no_wakeup_behind(
         backend._next_line(backend._child)
 
     assert signal.set_wakeup_fd(-1) == -1
-    assert len(os.listdir("/proc/self/fd")) == fds
+    assert open_fd_count() == fds
 
 
 def test_next_line_reports_stdout_eof_after_delivering_complete_records(

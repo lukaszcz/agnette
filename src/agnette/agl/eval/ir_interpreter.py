@@ -156,7 +156,7 @@ from agnette.agl.runtime.externs import (
 )
 from agnette.agl.runtime.fork_participants import build_process_host
 from agnette.agl.runtime.option import none_value, option_text, some_value
-from agnette.agl.runtime.processes import Disposition, ForkRegistration, ProcessHost, ProcessInfo
+from agnette.agl.runtime.processes import Disposition, ProcessHost, ProcessInfo
 from agnette.agl.runtime.render import render_key_value_syntax, render_value
 from agnette.agl.runtime.serialize import AglNonDataValue, encode_scalar
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
@@ -390,8 +390,7 @@ class IrInterpreter:
     owner runs: it must have been built with this interpreter's companion state and
     session host (``build_process_host``), and its owner ends it, so ``run()`` neither
     ends it nor closes the sessions (``close_sessions=False``). Otherwise the interpreter
-    builds one on first use and ends it with its run, registering *fork_participants* ahead of the
-    built-in ones; a supplied host already has its participants, so it excludes *fork_participants*.
+    builds one on first use and ends it with its run.
     """
 
     DEFAULT_MAX_CALL_DEPTH: int = 256
@@ -418,7 +417,6 @@ class IrInterpreter:
         process_environment: Mapping[str, str] | None = None,
         extern_runtime_state: ExternRuntimeState | None = None,
         process_host: ProcessHost | None = None,
-        fork_participants: Sequence[ForkRegistration] = (),
     ) -> None:
         self._program = program
         self._descriptors = ValueDescriptors.from_program(program)
@@ -582,9 +580,7 @@ class IrInterpreter:
         # Forked children belong to a supplied host, ended by its owner, or else to one built
         # on first use and ended by `run()`.
         assert process_host is None or not close_sessions, "the owner of a host closes sessions"
-        assert process_host is None or not fork_participants, "a supplied host has its participants"
         self._supplied_process_host = process_host
-        self._fork_participants = tuple(fork_participants)
         self._owned_process_host: ProcessHost | None = None
         self._effects = EffectHandlers(self)
 
@@ -614,7 +610,6 @@ class IrInterpreter:
                 sessions=self._session_host,
                 debug=lambda: self.debug,
                 reporter=self.report_unconsumed,
-                extra=self._fork_participants,
             )
         return self._owned_process_host
 

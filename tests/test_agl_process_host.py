@@ -52,7 +52,6 @@ from agnette.agl.runtime.processes import (
     Ended,
     Failed,
     ForkParticipant,
-    ForkRegistration,
     ForkRequest,
     Outcome,
     ProcessHost,
@@ -64,8 +63,8 @@ from agnette.agl.runtime.processes import (
 from agnette.agl.runtime.request import AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost, SessionHostError
 from agnette.core.process import kill_group
-from tests._agl_helpers import repl_session_with_root, unavailable_sandbox_context
-from tests._proc_helpers import read_until_signalled
+from tests._agl_helpers import unavailable_sandbox_context
+from tests._proc_helpers import open_fd_count, read_until_signalled
 from tests._signal_helpers import before_each_poll, trip_signal_off_thread
 from tests.agl.ir_harness import write_companion_file
 from tests.agl.isolated_runner import run_callable
@@ -224,10 +223,6 @@ def _raises_keyboard_interrupt(number: signal.Signals) -> bool:
     except KeyboardInterrupt:
         return True
     return False
-
-
-def _open_fds() -> int:
-    return len(os.listdir("/proc/self/fd"))
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +411,7 @@ def test_fork_is_refused_while_another_python_thread_exists(tmp_path: Path) -> N
 
 def _fork_failure(workdir: Path) -> dict[str, Any]:
     log = workdir / "log"
-    before = _open_fds()
+    before = open_fd_count()
     with _host(_Recorder("a", log), _Recorder("b", log)) as host:
         with mock.patch.object(os, "fork", side_effect=OSError("no processes")):
             try:
@@ -425,7 +420,7 @@ def _fork_failure(workdir: Path) -> dict[str, Any]:
                 refused = True
             else:
                 refused = False
-    return {"refused": refused, "log": _lines(log), "leaked_fds": _open_fds() - before}
+    return {"refused": refused, "log": _lines(log), "leaked_fds": open_fd_count() - before}
 
 
 def test_a_refused_os_fork_aborts_the_prepared_states_and_leaks_no_descriptor(
@@ -487,32 +482,6 @@ def test_participants_run_in_order_with_the_disposition_of_the_child_outcome(
         "exit TERMINATE:b",
         "exit TERMINATE:a",
     ]
-
-
-def _repl_extra_participant(workdir: Path) -> list[str]:
-    log = workdir / "log"
-    session = repl_session_with_root(
-        workdir, fork_participants=[ForkRegistration(_Recorder("extra", log))]
-    )
-    try:
-        for _ in range(2):
-            session.eval_entry("import std/ps")
-            session.eval_entry("ps::wait(ps::fork(fn() => 1))")
-            session.reset()
-    finally:
-        session.close()
-    return _lines(log)
-
-
-def test_a_repl_sessions_extra_participant_serves_its_hosts_before_and_after_a_reset(
-    tmp_path: Path,
-) -> None:
-    lines = run_callable(_repl_extra_participant, tmp_path, timeout=RUN_TIMEOUT).value
-
-    assert [line for line in lines if line.startswith("C ")] == [
-        "C child extra:extra",
-        "C exit SETTLE:extra",
-    ] * 2
 
 
 def _prepare_failure(workdir: Path) -> list[str]:
@@ -1349,14 +1318,14 @@ def _interrupted_wait(workdir: Path) -> dict[str, Any]:
 
     gate = _Gate()
     with _host() as host:
-        fds = _open_fds()
+        fds = open_fd_count()
         info = host.fork(gate.wait_then(b"done"), ())
         gate.open()
         # Patched after the fork, so only the parent's reads are interrupted.
         with mock.patch.object(os, "read", flaky), pytest.raises(KeyboardInterrupt):
             host.outcome(info.id)
         outcome = _show(host.outcome(info.id))
-        return {"outcome": outcome, "leaked": _open_fds() - fds}
+        return {"outcome": outcome, "leaked": open_fd_count() - fds}
 
 
 def test_an_interrupted_wait_propagates_and_leaves_the_host_consistent(tmp_path: Path) -> None:
@@ -1407,7 +1376,7 @@ def _signal_during_the_wait(workdir: Path) -> dict[str, Any]:
 
     outcomes = []
     with _host() as host:
-        fds = _open_fds()
+        fds = open_fd_count()
         for _ in range(_REPEATS):
             info = host.fork(child, ())
             with pytest.raises(KeyboardInterrupt):
@@ -1415,7 +1384,7 @@ def _signal_during_the_wait(workdir: Path) -> dict[str, Any]:
                 host.outcome(info.id)
             gate.open()
             outcomes.append(_show(host.outcome(info.id)))
-        return {"outcomes": outcomes, "leaked": _open_fds() - fds}
+        return {"outcomes": outcomes, "leaked": open_fd_count() - fds}
 
 
 def test_a_signal_during_a_wait_interrupts_it_without_losing_the_child(tmp_path: Path) -> None:
@@ -1460,7 +1429,7 @@ def _interrupt_once_in_waitpid() -> contextlib.AbstractContextManager[object]:
 
 def _interrupted_reap(workdir: Path) -> dict[str, Any]:
     with _host() as host:
-        fds = _open_fds()
+        fds = open_fd_count()
         dropped = host.fork(lambda: b"dropped", ())
         with _interrupt_once_in_waitpid(), pytest.raises(KeyboardInterrupt):
             host.outcome(dropped.id)
@@ -1469,7 +1438,7 @@ def _interrupted_reap(workdir: Path) -> dict[str, Any]:
         os.waitid(os.P_PID, dropped.pid, os.WEXITED | os.WNOWAIT)
         kept = host.fork(lambda: b"kept", ())
         report = {"kept": _show(host.outcome(kept.id)), "reaped": _is_reaped(dropped.pid)}
-        report["leaked"] = _open_fds() - fds
+        report["leaked"] = open_fd_count() - fds
     return report
 
 
@@ -1733,7 +1702,7 @@ def _interrupt_during_detach(workdir: Path) -> dict[str, Any]:
     with _host() as host:
         info = host.fork(gate.wait_then(b"x"), ())
         pipe_fd = host._entries[info.id].fd
-        fds = _open_fds()
+        fds = open_fd_count()
         interrupts = [signal.SIGINT]
 
         def close(fd: int) -> None:
@@ -1743,7 +1712,7 @@ def _interrupt_during_detach(workdir: Path) -> dict[str, Any]:
 
         with mock.patch.object(os, "close", close), pytest.raises(KeyboardInterrupt):
             host.detach(info.id)
-        released = fds - _open_fds()
+        released = fds - open_fd_count()
         refused = _refused(lambda: host.settle(info.id))
         gate.open()
         os.waitid(os.P_PID, info.pid, os.WEXITED | os.WNOWAIT)

@@ -36,6 +36,11 @@ def read_until_signalled(fd: int, size: int) -> bytes:
     return os.read(fd, size)
 
 
+def open_fd_count() -> int:
+    """The number of file descriptors this process has open."""
+    return len(os.listdir("/proc/self/fd"))
+
+
 def wait_for_path(path: Path, *, timeout: float = 30.0) -> None:
     """Block until *path* exists, or raise ``AssertionError`` after *timeout*."""
 
@@ -60,15 +65,11 @@ def wait_for_signal_ignored_script(pid: int | str, signum: int, *, timeout: int 
     disposition instead makes the handshake exact.
     """
     bit = 1 << (signum - 1)
-    return (
-        f"t={pid}\n"
-        f"d=$(( $(date +%s) + {timeout} ))\n"
-        "while :; do\n"
-        '  [ "$(date +%s)" -lt "$d" ] || exit 1\n'
+    return _poll_proc_script(
+        pid,
         '  m=$(sed -n "s/^SigIgn:[[:space:]]*//p" /proc/$t/status)\n'
-        f"  [ $(( 0x$m & {bit} )) -ne 0 ] && break\n"
-        "  sleep 0.02\n"
-        "done\n"
+        f"  [ $(( 0x$m & {bit} )) -ne 0 ] && break\n",
+        timeout,
     )
 
 
@@ -79,14 +80,28 @@ def signal_when_sleeping_script(pid: int | str, signum: int, *, timeout: int = 3
     expression. For delivering an interrupt from outside, while the target waits in a call.
     """
     return (
+        _poll_proc_script(
+            pid,
+            '  [ "$(sed -n "s/^.*) \\(.\\).*/\\1/p" /proc/$t/stat)" = S ] && break\n',
+            timeout,
+        )
+        + f'kill -{signum} "$t"\n'
+    )
+
+
+def _poll_proc_script(pid: int | str, check: str, timeout: int) -> str:
+    """Shell snippet: bind ``t`` to *pid*, then run *check* (which breaks when met) until met.
+
+    Exits 1 after *timeout* seconds.
+    """
+    return (
         f"t={pid}\n"
         f"d=$(( $(date +%s) + {timeout} ))\n"
         "while :; do\n"
         '  [ "$(date +%s)" -lt "$d" ] || exit 1\n'
-        '  [ "$(sed -n "s/^.*) \\(.\\).*/\\1/p" /proc/$t/stat)" = S ] && break\n'
+        f"{check}"
         "  sleep 0.02\n"
         "done\n"
-        f'kill -{signum} "$t"\n'
     )
 
 

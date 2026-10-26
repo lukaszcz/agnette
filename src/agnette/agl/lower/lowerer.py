@@ -663,6 +663,8 @@ class _Lowerer:
         self._current_function: FunctionId | None = None
         self._references: ModuleBindingReferences | None = None
         self._substituting_constants = False
+        # ``_free_bindings`` by function node id: each enclosing function rescans nested lambdas.
+        self._free_bindings_by_node: dict[int, dict[int, BindingRef]] = {}
 
     @contextmanager
     def _return_context(self, expected: Type) -> Iterator[None]:
@@ -1059,6 +1061,9 @@ class _Lowerer:
         outside the function. Its parameters and *self_node_id* (so that it does not
         capture itself) are local.
         """
+        cached = self._free_bindings_by_node.get(self_node_id)
+        if cached is not None:
+            return cached
         local_ids = {param.node_id for param in params}
         local_ids.add(self_node_id)
         captured: dict[int, BindingRef] = {}
@@ -1066,6 +1071,7 @@ class _Lowerer:
         for param in params:
             if param.default is not None:
                 self._scan_captures(param.default, local_ids, captured)
+        self._free_bindings_by_node[self_node_id] = captured
         return captured
 
     def _compute_captures_for(
@@ -1086,10 +1092,6 @@ class _Lowerer:
                 continue
             captures.append(IrCapture(symbol=sym, by_cell=ref.mutable))
         return tuple(captures)
-
-    def _compute_captures(self, funcdef: "FuncDef") -> "tuple[IrCapture, ...]":
-        """Compute the captures for a FuncDef body using the single boundary-aware pass."""
-        return self._compute_captures_for(cast(Expr, funcdef.body), funcdef.params, funcdef.node_id)
 
     def _lower_declared_params(
         self, funcdef: "FuncDef", fn_id: FunctionId
@@ -1143,8 +1145,8 @@ class _Lowerer:
         fn_sym = self._link.fn_node_to_sym[funcdef.node_id]
 
         ir_params, sig, param_labels, result_label = self._lower_declared_params(funcdef, fn_id)
-        captures = self._compute_captures(funcdef)
         body = cast(Expr, funcdef.body)
+        captures = self._compute_captures_for(body, funcdef.params, funcdef.node_id)
         with (
             self._return_context(sig.result),
             self._function_body(fn_id),

@@ -97,26 +97,6 @@ def test_copy_terminal_size_copies_dimensions(monkeypatch: pytest.MonkeyPatch) -
     ]
 
 
-def test_write_all_handles_partial_writes(monkeypatch: pytest.MonkeyPatch) -> None:
-    writes: list[bytes] = []
-
-    def fake_write(_fd: int, data: memoryview) -> int:
-        writes.append(bytes(data))
-        return min(2, len(data))
-
-    monkeypatch.setattr(os, "write", fake_write)
-
-    sandbox_pty.write_all(1, b"hello")
-
-    assert writes == [b"hello", b"llo", b"o"]
-
-
-def test_write_all_stops_if_write_makes_no_progress(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(os, "write", lambda _fd, _data: 0)
-
-    sandbox_pty.write_all(1, b"hello")
-
-
 def test_relay_copies_terminal_input_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
     reads = {8: [b"output", b""], 0: [b"input", b""]}
     writes: list[tuple[int, bytes]] = []

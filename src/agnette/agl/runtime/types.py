@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.runtime.agents import AgentFn
     from agnette.agl.runtime.externs import ExternRegistry
-    from agnette.agl.runtime.processes import ForkRegistration
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.agl.semantics.types import Type as AglType
     from agnette.agl.syntax.spans import SourceSpan
@@ -53,9 +52,6 @@ class HostEnvironment:
         The ``ExternRegistry`` used to import extern-def companion modules
         and resolve their callables.  Built empty; the pipeline populates it
         from a program's loaded modules before evaluation.
-    ``fork_participants``
-        The host owner's extra fork participants, registered ahead of the built-in ones
-        (see ``build_process_host``).
     """
 
     agent_dispatcher: "AgentFn | None"
@@ -63,7 +59,6 @@ class HostEnvironment:
     extern_registry: "ExternRegistry"
     get_sandbox_context: "Callable[[], SandboxContext] | None" = None
     resolve_agent_spec: "AgentSpecResolver | None" = None
-    fork_participants: "tuple[ForkRegistration, ...]" = ()
 
 
 @dataclass(frozen=True, slots=True)

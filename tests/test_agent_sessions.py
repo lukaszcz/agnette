@@ -9,7 +9,6 @@ from uuid import UUID
 
 import pytest
 
-from agnette.agent.session import create_agl_session_host
 from agnette.agent.session.protocol import (
     PortableBackend,
     PortableSession,
@@ -25,7 +24,7 @@ from agnette.agent.session.protocol import (
     SessionStats,
     unsupported_operation,
 )
-from agnette.agent.session.service import AglSessionHost, SessionService
+from agnette.agent.session.service import AglSessionHost, SessionService, create_agl_session_host
 from agnette.agent.spec import AgentCommand, AgentPi, PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo, AgentOutputPhase
 from agnette.agl.runtime.request import AgentRequest
@@ -1042,11 +1041,3 @@ def test_agl_host_portable_maps_failures_to_session_errors() -> None:
         with pytest.raises(AglSessionHostError) as raised:
             failing.portable(handles)
         assert raised.value.operation == "fork"
-
-
-def test_the_session_package_exports_only_its_host_factory() -> None:
-    import agnette.agent.session as session
-
-    assert session.create_agl_session_host is create_agl_session_host
-    with pytest.raises(AttributeError):
-        session.no_such_export

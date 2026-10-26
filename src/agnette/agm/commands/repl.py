@@ -32,7 +32,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from functools import partial
 
-from agnette.agent.session import create_agl_session_host
+from agnette.agent.session.service import create_agl_session_host
 from agnette.agl.diagnostics import AglError, format_diagnostic
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import ModuleId

@@ -595,11 +595,8 @@ class SessionService:
     def enter_forked_child(self, portables: PortableSet) -> None:
         """Make every session opened so far inert, as this process is a forked child.
 
-        Each inherited backend drops its descriptor copies (``release_inherited``); using
-        or closing its handle raises :class:`SessionHostError`, and the sweeps skip it.
-        Each handle of *portables* is then rebound to its snapshot, which opens a backend of
-        this process on first use. The default handle is the snapshot's if it was listed;
-        otherwise the next ``default`` opens a fresh session.
+        As ``SessionHost.enter_forked_child``; each inherited backend also drops its
+        descriptor copies (``release_inherited``).
         """
         self._default_handle = portables.default
         entries = [entry for entry in self._entries.values() if not entry.inherited]

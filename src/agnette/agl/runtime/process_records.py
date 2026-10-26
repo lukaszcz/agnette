@@ -50,6 +50,10 @@ class Failed:
 
     message: str
 
+    def describe(self) -> str:
+        """How the child ended, as ``failed: <message>``."""
+        return f"failed: {self.message}"
+
 
 @dataclass(frozen=True, slots=True)
 class Ended:
@@ -57,6 +61,12 @@ class Ended:
 
     exit_code: int | None
     signal: int | None
+
+    def describe(self) -> str:
+        """How the child ended, by signal or by exit status."""
+        if self.exit_code is None:
+            return f"was terminated by signal {self.signal}"
+        return f"exited with status {self.exit_code}"
 
 
 Outcome = Delivered | Failed | Ended

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
 import os
 import select
 import signal
 import threading
+import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from types import TracebackType
@@ -15,6 +17,7 @@ __all__ = ["SignalMask", "SignalWakeup", "held_signals"]
 
 SignalMask = set[int | signal.Signals]
 _DRAIN_CHUNK = 512
+_ALL_SIGNALS = signal.valid_signals()
 
 
 @contextmanager
@@ -38,9 +41,9 @@ class SignalWakeup:
 
     Python runs signal handlers only between bytecodes, so a signal landing after the last
     check but before ``poll`` enters the kernel would leave ``poll`` blocked, handler pending.
-    The signal's C handler also writes to a self-pipe (``signal.set_wakeup_fd``); registering
-    :attr:`fd` for ``POLLIN`` makes such a ``poll`` return, after which Python-level handlers
-    run (a raising one propagates). A handler that does not raise leaves the wait to resume.
+    The signal's C handler also writes to a self-pipe (``signal.set_wakeup_fd``); :meth:`poll`
+    also waits on :attr:`fd`, so such a poll returns, after which Python-level handlers run (a
+    raising one propagates). A handler that does not raise leaves the wait to resume.
 
     Bytes the pipe receives are forwarded to the wakeup fd that was installed before (e.g.
     an event loop's). Only the main thread can install a wakeup fd: elsewhere :attr:`fd` is
@@ -57,7 +60,7 @@ class SignalWakeup:
         if threading.current_thread() is not threading.main_thread():
             return self
         try:
-            with held_signals(signal.valid_signals()):
+            with held_signals(_ALL_SIGNALS):
                 self._install()
         except BaseException:
             # A handler that raised as the signals were unblocked, with the wakeup installed.
@@ -93,7 +96,7 @@ class SignalWakeup:
         if self.fd is None:
             return
         try:
-            with held_signals(signal.valid_signals()):
+            with held_signals(_ALL_SIGNALS):
                 self._release()
         finally:
             self._release()
@@ -108,12 +111,23 @@ class SignalWakeup:
         finally:
             self._close()
 
-    def register(self, poller: select.poll) -> None:
-        """Add the pipe to *poller* (nothing without a wakeup fd)."""
+    def poll(self, poller: select.poll, deadline: float | None = None) -> list[int] | None:
+        """Poll *poller* and the pipe until *deadline* (``time.monotonic``, ``None``: none).
+
+        Returns the ready fds other than the pipe (none after a signal), or ``None`` once
+        *deadline* has passed.
+        """
+        timeout = None
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            timeout = math.ceil(remaining * 1000)
         if self.fd is not None:
             poller.register(self.fd, select.POLLIN)
+        return [fd for fd, _ in poller.poll(timeout) if not self._consume(fd)]
 
-    def consume(self, fd: int) -> bool:
+    def _consume(self, fd: int) -> bool:
         """Drain the pipe if *fd* is it; whether it was."""
         if fd != self.fd:
             return False

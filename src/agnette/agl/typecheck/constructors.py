@@ -307,7 +307,6 @@ class ConstructorChecker:
         nominal type. For a constructor with a required field: instantiate to
         a FunctionType from expected FunctionType.
         """
-        self._reject_opaque_constructor(sig.result_template, span)
         result = self._ctx._instantiate_generic_constructor_value(
             type_params=ctor_ref.type_params,
             field_templates=sig.field_templates,
@@ -457,7 +456,7 @@ class ConstructorChecker:
         ctor_ref, sig = constructor_signature_of(
             self._ctx._env, ctor_ref, span, spelling=render_qualified_name(ref.qualifier, ref.name)
         )
-        self._reject_opaque_constructor(sig.result_template, span)
+        self.reject_opaque_constructor(sig.result_template, span)
         result = self._instantiate_constructor_value(
             type_params=type_params,
             type_args=type_args,
@@ -481,7 +480,6 @@ class ConstructorChecker:
     ) -> Type:
         """Check a generic constructor call through the expression-region solver."""
         span = node.span
-        self._reject_opaque_constructor(sig.result_template, span)
         owner_name = ctor_ref.owner_name
         type_params = ctor_ref.type_params
         field_kinds = self._ctx._env.type_table.field_kinds(sig.result_template)
@@ -697,7 +695,6 @@ class ConstructorChecker:
                 "construct the exception directly (e.g. `Abort(message: ...)`).",
                 span=span,
             )
-        self._reject_opaque_constructor(owner, span)
         fields = self._ctx._env.type_table.record_fields(owner)
         if fields and not self._all_fields_have_default(owner):
             params = tuple(fields.values())
@@ -770,7 +767,6 @@ class ConstructorChecker:
                 sig=sig,
             )
         owner = sig.result_template
-        self._reject_opaque_constructor(owner, node.span)
         self._reject_abstract_exception_constructor(owner, node.span)
         return self._check_constructor_call(
             owner=owner,
@@ -783,9 +779,10 @@ class ConstructorChecker:
 
     # --- Constructor call validation (private helper) ---
 
-    def _reject_opaque_constructor(
+    def reject_opaque_constructor(
         self, owner: RecordType | ExceptionType, span: SourceSpan
     ) -> None:
+        """Reject a source reference to an ``@opaque`` record's constructor."""
         if (
             isinstance(owner, RecordType)
             and owner.decl_id in self._ctx._env.type_table.opaque_declaration_ids()

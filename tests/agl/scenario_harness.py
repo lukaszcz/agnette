@@ -32,19 +32,22 @@ from agnette.agent.session.protocol import (
 from agnette.agent.session.service import SessionService
 from agnette.agent.spec import PermissionMode
 from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.eval import ir_interpreter
 from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import JsonContractRequest
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery
+from agnette.agl.runtime.fork_participants import register_built_ins
 from agnette.agl.runtime.processes import (
     Disposition,
     ForkParticipant,
-    ForkRegistration,
     ForkRequest,
+    ProcessHost,
 )
 from agnette.agl.semantics.values import IntValue, Value
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agl.warnings import WARNING_CATALOG, WarningLevel
+from agnette.core.fs import write_text_atomic
 from agnette.sandbox.prepare import SandboxContext
 from agnette.sandbox.request import Default, SandboxLimits
 from tests._agl_helpers import (
@@ -1317,7 +1320,7 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
 
     def child(self, state: tuple[int, ...]) -> None:
         self._path, self._forks = state, 0
-        _write_atomically(self._reports / f"{self._name}{_PID_SUFFIX}", str(os.getpid()))
+        write_text_atomic(self._reports / f"{self._name}{_PID_SUFFIX}", str(os.getpid()))
         self._active.current = self._boundaries.get(self._name, self._unscripted)
         if self._session_host is not None:
             self._session_host.script_child(self._active.current.agents)
@@ -1333,7 +1336,7 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
             error = None
         except Exception:
             error = traceback.format_exc()
-        _write_atomically(self._reports / f"{self._name}.json", json.dumps({"error": error}))
+        write_text_atomic(self._reports / f"{self._name}.json", json.dumps({"error": error}))
 
     @property
     def _name(self) -> str:
@@ -1342,13 +1345,6 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
 
 def _dotted(path: tuple[int, ...]) -> str:
     return ".".join(map(str, path))
-
-
-def _write_atomically(path: Path, text: str) -> None:
-    """Write *text* to *path* so that a reader sees all of it or none."""
-    pending = path.with_name(path.name + ".tmp")
-    pending.write_text(text)
-    os.replace(pending, path)
 
 
 _REPORT_TIMEOUT = 30.0
@@ -1536,16 +1532,21 @@ def _run_program(
         session_host = ScenarioSessionHost(agents)
         runtime_options["session_host"] = session_host
     runtime_options["get_sandbox_context"] = get_sandbox_context
+    scripted = ScriptedForks(active, sections, child_boundaries, unscripted, reports, session_host)
+
+    def build_scripted_host(**built_ins: Any) -> ProcessHost:
+        host = ProcessHost(reporter=built_ins.pop("reporter"))
+        # First: its `child` hook runs before the built-ins', its `child_exit` after theirs.
+        host.register(scripted)
+        register_built_ins(host, **built_ins)
+        return host
+
+    monkeypatch.setattr(ir_interpreter, "build_process_host", build_scripted_host)
     registry = ExternRegistry()
     runtime = PipelineDriver(
         extern_registry=registry,
         resolve_agent_spec=None,
         warning_policy=spec_warning_policy(scenario),
-        fork_participants=[
-            ForkRegistration(
-                ScriptedForks(active, sections, child_boundaries, unscripted, reports, session_host)
-            )
-        ],
         **runtime_options,
     )
     scripts: list[_Script] = []

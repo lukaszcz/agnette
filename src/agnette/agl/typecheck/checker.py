@@ -2404,11 +2404,13 @@ class _Checker:
 
         An applied owner ``Owner[A]::Member`` selects the member at those
         arguments. A constructor spelled through an alias records the
-        declaration it constructs for lowering.
+        declaration it constructs for lowering. An ``@opaque`` record's
+        constructor is rejected here, for value and call uses alike.
         """
         selected, sig = selected_constructor_signature(
             self._env, ref, ctor_ref, span, type_vars=self._current_type_vars
         )
+        self._constructors.reject_opaque_constructor(sig.result_template, span)
         if sig.result_template.decl_id != ctor_ref.owner_decl_node_id:
             self._record_selected_constructor_ref(
                 ref.node_id, ConstructorRef.for_nominal(sig.result_template)

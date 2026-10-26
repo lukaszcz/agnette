@@ -102,11 +102,8 @@ def _decode(process: _Process, outcome: object) -> object:
     if isinstance(outcome, host.Delivered):
         return transfer.loads(outcome.payload)
     if isinstance(outcome, host.Failed):
-        return _exit_error(process, f"failed: {outcome.message}", None, None)
-    if outcome.signal is not None:
-        text = f"was terminated by signal {outcome.signal}"
-        return _exit_error(process, text, None, outcome.signal)
-    return _exit_error(process, f"exited with status {outcome.exit_code}", outcome.exit_code, None)
+        return _exit_error(process, outcome.describe(), None, None)
+    return _exit_error(process, outcome.describe(), outcome.exit_code, outcome.signal)
 
 
 def wait(p: _Process) -> object:
