@@ -124,6 +124,7 @@ from agnette.agl.syntax.nodes import (
     VarDecl,
     VariantDef,
     exported_binding_name,
+    scope_names,
     static_binding_node_id,
     static_function_items,
     static_items,
@@ -268,7 +269,7 @@ def assert_checked_program_closed(
 
 def _decl_key(module_id: ModuleId, item: RecordDef | EnumDef | ExceptionDef | TypeAlias) -> DeclKey:
     """Return a declaration's structured nominal identity."""
-    return (module_id, tuple(segment.name for segment in item.scope_path), item.name)
+    return (module_id, scope_names(item.scope_path), item.name)
 
 
 def _empty_program_tables() -> ModuleTypeInterface:
@@ -803,7 +804,7 @@ def _build_program_func_sig_table(
                 return_source=FunctionReturnSource.DECLARED,
                 module_id=mid,
                 declaration_span=item.span,
-                scope_path=tuple(segment.name for segment in item.scope_path),
+                scope_path=scope_names(item.scope_path),
             )
 
     return result

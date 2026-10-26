@@ -1,0 +1,7 @@
+# A record field default folds the declared initializer of a `@param` it
+# reads; a `let` initializer reads the value the host settled on.
+import knob
+
+program def main() -> unit =
+  print knob::R().x
+  print knob::q

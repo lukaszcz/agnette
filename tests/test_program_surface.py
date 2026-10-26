@@ -16,6 +16,7 @@ from agnette.agm.cli_support.param_surface import (
     build_param_surface,
 )
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS, REGISTERED_RESERVED_FLAGS
+from tests._agl_helpers import EMPTY_REACHABLE
 
 _SPAN = SourceSpan(1, 1, 1, 2, 0, 1)
 
@@ -76,6 +77,7 @@ def _program(*parameters: ProgramParamInfo) -> ProgramDeclInfo:
         parameters=parameters,
         is_entry=True,
         doc=None,
+        reachable=EMPTY_REACHABLE,
         closure=(ModuleId.from_path("app/main"),),
     )
 

@@ -11,7 +11,7 @@ from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.program_options import ProjectedOption, param_spellings, project_option
 from agnette.config.qualified_keys import param_spellings_for
 
-__all__ = ["ParamSurface", "ParamSurfaceEntry", "build_param_surface"]
+__all__ = ["ParamSurface", "ParamSurfaceEntry", "build_param_surface", "declared_spellings"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,11 +62,16 @@ def _freeze_claims(claims: dict[str, list[_Claimant]]) -> _Claims:
     return {spelling: tuple(claimants) for spelling, claimants in claims.items()}
 
 
-def _param_routes(param: ParamBindingInfo) -> _ParamRoutes:
-    """Project *param*'s logical long-option names, shortest route first."""
-    names = param_spellings_for(
+def declared_spellings(param: ParamBindingInfo) -> tuple[str, ...]:
+    """Return every spelling that can address *param*, before any claim is resolved."""
+    return param_spellings_for(
         param.module.segments, param.scope_path, param.cli.name, is_entry=param.module.is_entry
     )
+
+
+def _param_routes(param: ParamBindingInfo) -> _ParamRoutes:
+    """Project *param*'s logical long-option names, shortest route first."""
+    names = declared_spellings(param)
     return _ParamRoutes(
         param=param,
         spellings=names,

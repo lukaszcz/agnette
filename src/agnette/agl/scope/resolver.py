@@ -242,6 +242,7 @@ from agnette.agl.syntax.nodes import (
     declares_source_entry,
     declares_synthetic_entry,
     pattern_binder_candidates,
+    scope_names,
     static_binding_name,
     static_binding_node_id,
 )
@@ -379,7 +380,7 @@ _Declaration = (
 
 def _written_scope(item: _Declaration) -> ScopePath:
     """The scope path *item* is written at, its enclosing regions' included."""
-    return tuple(segment.name for segment in item.scope_path)
+    return scope_names(item.scope_path)
 
 
 def _declaring_items(
@@ -1589,7 +1590,7 @@ class _Resolver(ModuleSources):
             self._reject_bare_reserved(
                 decl.name,
                 "a function",
-                tuple(segment.name for segment in decl.scope_path),
+                scope_names(decl.scope_path),
                 decl.span,
             )
 

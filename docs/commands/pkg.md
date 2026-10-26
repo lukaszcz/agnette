@@ -148,12 +148,12 @@ program = "review-tools/main::batch"
   `warnings`) gets no command-path config table, exact or inherited.
 - `program` names the `program def` to run as `<module>::<program>`: `review-tools/main::review` is
   program `review` in module `review-tools/main`, file `review-tools/src/main.agl`. Must belong to
-  this package, take no type parameters, return unit; its signature arguments and closure module
-  parameters become the command's host surface.
+  this package, take no type parameters, return unit; its signature arguments and the module
+  parameters it reaches become the command's host surface.
 - `doc` is the command's prose. A command naming a program never states it: that program's source
   `@doc` supplies it, and an installed manifest records the result. Command help shows it, then
-  signature options followed by one section for each closure module with visible module
-  parameters. Parameter `@doc` attributes describe their options.
+  signature options followed by one section for each module declaring a visible reached module
+  parameter. Parameter `@doc` attributes describe their options.
 - Omit `program` for a command group (must have descendant commands), whose only prose is its own
   `doc` (TOML multiline strings work; a paragraph holding an indented line keeps its layout in
   help). Undeclared parent groups work automatically, with generated help listing their
@@ -174,7 +174,7 @@ rev = "devel review"
 
 `agm devel`, `agm devel --help`, and `agm help devel` show the group's guidance and a generated
 subcommand listing. Leaf commands generate usage and option help from their program signatures and
-closure module parameters, so authored help is optional. Invalid or missing program arguments show
+reached module parameters, so authored help is optional. Invalid or missing program arguments show
 that command's usage.
 
 A program may register its own command instead, via
@@ -257,8 +257,8 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
 
 - **Host parameters.** Signature value parameters project onto the command's CLI as for `agm exec`:
   positional-capable parameters fill trailing words in order, name-addressable ones take
-  `--name VALUE` (`--name`/`--no-name` for `bool`). Every `@param` binding in the selected
-  program's transitive import closure is a module parameter too: its external name supplies a
+  `--name VALUE` (`--name`/`--no-name` for `bool`). Every `@param` binding the selected
+  program reaches is a module parameter too: its external name supplies a
   resolving bare flag and dotted qualified flags, including `--no-...` where its type permits.
   Help groups visible module parameters by declaring module, and completion offers their resolving
   spellings. See [Program arguments](agl.md#program-arguments) and

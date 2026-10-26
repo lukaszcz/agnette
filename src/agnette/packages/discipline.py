@@ -19,6 +19,7 @@ from agnette.agl.syntax.nodes import (
     Call,
     ImportDecl,
     Program,
+    scope_names,
     static_function_items,
 )
 from agnette.agl.syntax.resources import ResourceError, resolve_resource, resource_path
@@ -484,7 +485,7 @@ def _validate_program_reference(
         raise DisciplineError(f"program reference {reference!r} names no package module")
 
     candidates = {
-        tuple(segment.name for segment in function.scope_path) + (function.name,): function
+        scope_names(function.scope_path) + (function.name,): function
         for function in static_function_items(resolution.program.body.items)
         if function.is_program
     }

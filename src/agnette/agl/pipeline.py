@@ -113,7 +113,7 @@ class _ExecutableProvenance:
 
     executable: "ExecutableProgram"
     prepared: "PreparedProgram"
-    selected_module: "ModuleId"
+    selected_program: ProgramDeclInfo
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +123,8 @@ class ProgramDiscovery:
     Reports every ``program def`` declaration with its own typed
     value-parameter signature (``ProgramDeclInfo.parameters``), plus each
     checked module's static parameter inventory. :meth:`params_for` projects
-    that inventory through one program's closure without another static pass.
+    that inventory through one program's static reachability without another
+    static pass.
     """
 
     programs: tuple[ProgramDeclInfo, ...]
@@ -134,11 +135,31 @@ class ProgramDiscovery:
     module_params: Mapping["ModuleId", tuple[ParamBindingInfo, ...]] = field(default_factory=dict)
 
     def params_for(self, program: ProgramDeclInfo) -> tuple[ParamBindingInfo, ...]:
-        """Return *program*'s reachable module parameters in closure order."""
+        """Return the module parameters *program* statically reaches, closure modules first."""
+        return self._params(program, include_closure=False)
+
+    def declared_params_for(self, program: ProgramDeclInfo) -> tuple[ParamBindingInfo, ...]:
+        """Return the module parameters declared by *program*'s closure or reached by it.
+
+        A superset of :meth:`params_for` for declaration-route diagnostics, which
+        accept a key whether or not the program references the parameter.
+        """
+        return self._params(program, include_closure=True)
+
+    def _params(
+        self, program: ProgramDeclInfo, *, include_closure: bool
+    ) -> tuple[ParamBindingInfo, ...]:
+        """Select inventory entries the program reaches, or also every closure module declares.
+
+        Closure modules come first, in order, then the others.
+        """
+        closure = frozenset(program.closure)
+        modules = (*program.closure, *(m for m in self.module_params if m not in closure))
         return tuple(
             param
-            for module_id in program.closure
+            for module_id in modules
             for param in self.module_params.get(module_id, ())
+            if param.key in program.reachable.params or (include_closure and module_id in closure)
         )
 
 
@@ -523,12 +544,12 @@ class PipelineDriver:
         )
         return self._host_env_cache
 
-    def _cached_executable_module(
+    def _cached_executable_program(
         self,
         executable: "ExecutableProgram",
         resolved: "ResolvedProgram",
-    ) -> "ModuleId":
-        """Return the module a preflight *executable* was lowered for."""
+    ) -> ProgramDeclInfo:
+        """Return the program a preflight *executable* was lowered for."""
         if self_validation_enabled() and (
             id(executable) not in self._executable_provenance
             or self._executable_provenance[id(executable)].prepared.resolved is not resolved
@@ -536,7 +557,7 @@ class PipelineDriver:
             raise ArtifactProvenanceError(
                 "Cached executable was not issued by this pipeline for the prepared source."
             )
-        return self._executable_provenance[id(executable)].selected_module
+        return self._executable_provenance[id(executable)].selected_program
 
     def _execute_ir(
         self,
@@ -1270,7 +1291,7 @@ class PipelineDriver:
             self._executable_provenance[id(executable)] = _ExecutableProvenance(
                 executable=executable,
                 prepared=prepared,
-                selected_module=program.module,
+                selected_program=program,
             )
         return result, executable
 
@@ -1404,9 +1425,8 @@ class PipelineDriver:
         resolved = prepared.resolved
 
         host_env = self.host_environment()
-        selected_module = None if selected_program is None else selected_program.module
         if executable is not None:
-            selected_module = self._cached_executable_module(executable, resolved)
+            selected_program = self._cached_executable_program(executable, resolved)
         if compiled is not None:
             if self_validation_enabled():
                 _check_program_artifact_provenance(resolved, compiled.checked)
@@ -1471,8 +1491,8 @@ class PipelineDriver:
                     None,
                 )
 
-        if selected_module is not None:
-            executable = _select_program_inventory(executable, resolved.graph, selected_module)
+        if selected_program is not None:
+            executable = _select_program_inventory(executable, resolved.graph, selected_program)
 
         if not options.check_only:
             # Extern (Python FFI) companions: import and resolve every declared
@@ -1578,9 +1598,9 @@ def _reachable_modules(
 def _select_program_inventory(
     executable: "ExecutableProgram",
     graph: "ModuleGraph",
-    module_id: "ModuleId",
+    program: ProgramDeclInfo,
 ) -> "ExecutableProgram":
-    """Restrict a selected program to its runtime-reachable modules and source-reachable params.
+    """Restrict an executable to *program*'s runtime-reachable modules and reachable params.
 
     ``program_configs`` is left whole: it is already keyed by each program
     def's own linked symbol, so ``_evaluate_program_config`` selects the
@@ -1589,27 +1609,21 @@ def _select_program_inventory(
     a sibling program def's entry look newly narrowed away rather than
     simply absent.
     """
-    source_reachable = frozenset(graph.source_reachable_modules(module_id))
-    runtime_reachable = frozenset(_reachable_modules(module_id, graph.adjacency))
+    runtime_reachable = frozenset(_reachable_modules(program.module, graph.adjacency))
+    params = program.reachable.params
     return replace(
         executable,
-        entry_module=module_id,
+        entry_module=program.module,
         modules={
             mid: module for mid, module in executable.modules.items() if mid in runtime_reachable
         },
         param_bindings={
-            key: symbol
-            for key, symbol in executable.param_bindings.items()
-            if key[0] in source_reachable
+            key: symbol for key, symbol in executable.param_bindings.items() if key in params
         },
         param_decoders={
-            key: decoder
-            for key, decoder in executable.param_decoders.items()
-            if key[0] in source_reachable
+            key: decoder for key, decoder in executable.param_decoders.items() if key in params
         },
-        param_spans={
-            key: span for key, span in executable.param_spans.items() if key[0] in source_reachable
-        },
+        param_spans={key: span for key, span in executable.param_spans.items() if key in params},
     )
 
 
@@ -1623,24 +1637,29 @@ def _program_decl_infos(
     own typed value-parameter signature. Used by
     :meth:`PipelineDriver.discover_programs`.
     """
+    from agnette.agl.syntax.nodes import scope_names
     from agnette.agl.typecheck.program import program_funcdefs
+    from agnette.agl.typecheck.reachability import reachable_from
 
-    program_infos = [
-        ProgramDeclInfo(
-            module=module_id,
-            scope_path=tuple(segment.name for segment in item.scope_path),
-            name=item.name,
-            node_id=item.node_id,
-            span=item.span,
-            parameters=_program_param_infos(checked, module_id, item, aliases),
-            is_entry=module_id == checked.entry_id,
-            doc=checked_module.resolved.attributes.docs.get(item.node_id),
-            # Memoized on the graph, so sibling program defs of one module
-            # share the one walk that closed over it.
-            closure=graph.source_reachable_modules(module_id),
+    program_infos: list[ProgramDeclInfo] = []
+    for module_id, checked_module, item in program_funcdefs(checked.modules):
+        scope_path = scope_names(item.scope_path)
+        program_infos.append(
+            ProgramDeclInfo(
+                module=module_id,
+                scope_path=scope_path,
+                name=item.name,
+                node_id=item.node_id,
+                span=item.span,
+                parameters=_program_param_infos(checked, module_id, item, aliases),
+                is_entry=module_id == checked.entry_id,
+                doc=checked_module.resolved.attributes.docs.get(item.node_id),
+                reachable=reachable_from(checked, (module_id, scope_path, item.name)),
+                # Memoized on the graph, so sibling program defs of one module
+                # share the one walk that closed over it.
+                closure=graph.source_reachable_modules(module_id),
+            )
         )
-        for module_id, checked_module, item in program_funcdefs(checked.modules)
-    ]
     program_infos.sort(
         key=lambda info: (
             not info.is_entry,
@@ -1783,10 +1802,10 @@ class _TypeAliasIndex:
         """Return *module_id*'s alias declared as *name* under *scope_path*."""
         module_aliases = self._modules.get(module_id)
         if module_aliases is None:
-            from agnette.agl.syntax.nodes import TypeAlias, static_type_items
+            from agnette.agl.syntax.nodes import TypeAlias, scope_names, static_type_items
 
             module_aliases = {
-                (tuple(segment.name for segment in item.scope_path), item.name): item
+                (scope_names(item.scope_path), item.name): item
                 for item in static_type_items(
                     self._checked.modules[module_id].resolved.program.body.items
                 )

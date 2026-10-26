@@ -86,6 +86,7 @@ from agnette.agl.syntax.nodes import (
     VarDecl,
     VarRef,
     is_complete_call,
+    scope_names,
     static_items,
 )
 from agnette.agl.syntax.qualifiers import enclosing_scope_bases
@@ -369,7 +370,7 @@ class ModuleConstants:
         for item in static_items(program.body.items):
             if not isinstance(item, _SCOPED_ITEMS):
                 continue
-            path = tuple(segment.name for segment in item.scope_path)
+            path = scope_names(item.scope_path)
             self._item_scopes[item.node_id] = path
             if isinstance(item, (LetDecl, VarDecl)):
                 self._bindings[(path, item.name)] = item

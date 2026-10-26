@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.runtime.types import ProgramDeclInfo
+from tests._agl_helpers import EMPTY_REACHABLE
 
 # ---------------------------------------------------------------------------
 # Program declaration discovery
@@ -164,6 +165,7 @@ def _make_program(name: str, *, is_entry: bool = True) -> ProgramDeclInfo:
         parameters=(),
         is_entry=is_entry,
         doc=None,
+        reachable=EMPTY_REACHABLE,
     )
 
 

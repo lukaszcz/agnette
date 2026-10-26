@@ -1,0 +1,6 @@
+@param var p: int = 1
+
+record R
+  x: int = p
+
+let q: int = p

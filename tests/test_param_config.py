@@ -18,6 +18,7 @@ from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
 from agnette.config.general import GeneralConfig
 from agnette.config.qualified_keys import QualifiedConfigLookupError
 from agnette.core.toml import toml_dict
+from tests._agl_helpers import EMPTY_REACHABLE
 
 _SPAN = SourceSpan(1, 1, 1, 2, 0, 1)
 
@@ -64,6 +65,7 @@ def _program(
         parameters=parameters,
         is_entry=module_id.is_entry,
         doc=None,
+        reachable=EMPTY_REACHABLE,
         closure=closure or (module_id,),
     )
 
@@ -651,6 +653,116 @@ def test_reports_surface_modules_missing_from_the_recorded_closure(
     reported = capsys.readouterr().err
     assert "misspelled" in reported
     assert "'verbose'" not in reported
+
+
+class TestDeclaredButUnreachableParams:
+    """A closure-declared parameter the program does not reach has no value and no warning."""
+
+    @staticmethod
+    def _resolve(
+        config: GeneralConfig, *, package_config: Mapping[str, object] | None = None
+    ) -> ParamValueTiers:
+        unreachable = _binding("A/logging", "verbose")
+        program = _program(closure=(ModuleId.from_path("app/main"), unreachable.module))
+        return resolve_param_values(
+            config,
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            declared_params=(unreachable,),
+            package_config=None if package_config is None else dict(package_config),
+        )
+
+    @pytest.mark.parametrize(
+        "layer",
+        [
+            {"A": {"logging": {"verbose": True}}},
+            {"workflow": {"run": {"verbose": True}}},
+            {"workflow": {"run": {"logging.verbose": True}}},
+            {"devel": {"review": {"A.logging.verbose": True}}},
+        ],
+    )
+    def test_a_configured_key_draws_no_warning_and_supplies_no_value(
+        self, layer: Mapping[str, object], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        tiers = self._resolve(_config(layer))
+
+        assert capsys.readouterr().err == ""
+        assert not tiers.upper
+        assert not tiers.lower
+
+    def test_a_manifest_key_draws_no_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
+        self._resolve(_config(), package_config={"devel": {"review": {"logging.verbose": True}}})
+
+        assert capsys.readouterr().err == ""
+
+    def test_an_undeclared_key_still_draws_a_warning(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._resolve(_config({"A": {"logging": {"misspelled": True}}}))
+
+        assert "misspelled" in capsys.readouterr().err
+
+
+class TestSpellingsLostByReachedParams:
+    """A reached parameter's lost spelling is not declared just because it was a candidate."""
+
+    @staticmethod
+    def _resolve(
+        config: GeneralConfig,
+        *,
+        reserved: frozenset[str] = frozenset(),
+        signature: bool = False,
+        package_config: Mapping[str, object] | None = None,
+    ) -> None:
+        binding = _binding("A/logging", "verbose")
+        parameters = (
+            (
+                ProgramParamInfo(
+                    name="verbose",
+                    kind=ParamZone.NAMED_ONLY,
+                    type=BoolType(),
+                    has_default=False,
+                    span=_SPAN,
+                    cli=_option("verbose"),
+                ),
+            )
+            if signature
+            else ()
+        )
+        program = _program(
+            closure=(ModuleId.from_path("app/main"), binding.module), parameters=parameters
+        )
+        resolve_param_values(
+            config,
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, (binding,), reserved),
+            declared_params=(binding,),
+            package_config=None if package_config is None else dict(package_config),
+        )
+
+    def test_a_manifest_leaf_lost_to_a_program_argument_warns(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._resolve(
+            _config(), signature=True, package_config={"devel": {"review": {"verbose": True}}}
+        )
+
+        assert "verbose" in capsys.readouterr().err
+
+    def test_a_program_table_leaf_lost_to_a_reserved_flag_warns(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._resolve(
+            _config({"workflow": {"run": {"verbose": True}}}), reserved=frozenset({"--verbose"})
+        )
+
+        assert "verbose" in capsys.readouterr().err
 
 
 def _resolve_tiers(

@@ -52,6 +52,7 @@ from agnette.agl.diagnostics import (
     static_root_message,
 )
 from agnette.agl.ir.ids import NominalId
+from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import (
     ENTRY_ID,
     STD_ENV_ID,
@@ -197,6 +198,7 @@ from agnette.agl.syntax.nodes import (
     WildcardPattern,
     declares_source_entry,
     is_complete_call,
+    scope_names,
     static_items,
 )
 from agnette.agl.syntax.spans import SourceSpan
@@ -256,6 +258,7 @@ from agnette.agl.typecheck.inference import (
     InferenceEngine,
     InferenceError,
 )
+from agnette.agl.typecheck.references import compute_references
 from agnette.agl.zones import ParamZone
 from agnette.config.engine_keys import ENGINE_KEY_NAMES
 
@@ -571,7 +574,7 @@ def _builtin_static_kind(
     resolved: ModuleResolution, type_table: TypeTable, module_id: ModuleId, node: FuncDef
 ) -> BuiltinStaticKind | None:
     """Return a static kind only when its source owner has the registered nominal identity."""
-    owner_path = tuple(segment.name for segment in node.scope_path)
+    owner_path = scope_names(node.scope_path)
     kind = builtin_type_static_kind(module_id, owner_path, node.name)
     if kind is None:
         return None
@@ -1025,7 +1028,7 @@ class _Checker:
         self._explicit_builtin_targets: dict[int, Type] = {}
         # Resolved '@config' targets, keyed by each entry's key expression
         # node id. Populated by ``_check_program_config``.
-        self._program_config_targets: dict[int, tuple[ModuleId, tuple[str, ...], str]] = {}
+        self._program_config_targets: dict[int, StaticBindingKey] = {}
         # Argument bindings computed during the check, reused by the lowerer so it
         # never re-binds.  Keyed by Call/Pattern node_id (see ``ArgumentBindings``).
         self._function_call_bindings: dict[int, tuple[Expr | None, ...]] = {}
@@ -1251,7 +1254,7 @@ class _Checker:
         if node.is_builtin and isinstance(receiver, BuiltinResolvedReceiver):
             self._validate_builtin_receiver_signature(node, sig, receiver)
         elif node.is_builtin:
-            own_path = tuple(segment.name for segment in node.scope_path)
+            own_path = scope_names(node.scope_path)
             # A method's final scope segment names its receiver. Its receiver
             # and sibling types live in the enclosing scope, so remove that
             # shared prefix before comparing with the root canonical contract.
@@ -1330,9 +1333,7 @@ class _Checker:
 
     def _declaration_scope_path(self, item: FuncDef) -> tuple[str, ...]:
         """Return the collected namespace path for a static declaration."""
-        return self._declaration_scope_paths.get(
-            item.node_id, tuple(segment.name for segment in item.scope_path)
-        )
+        return self._declaration_scope_paths.get(item.node_id, scope_names(item.scope_path))
 
     def check_body(self, program: Program) -> None:
         """Type-check one module's declarations and top-level items.
@@ -1559,7 +1560,7 @@ class _Checker:
         is checked against that type and must be a constant expression.
         """
         entries = self._resolved.attributes.program_configs.get(node.node_id, ())
-        seen_targets: set[tuple[ModuleId, tuple[str, ...], str]] = set()
+        seen_targets: set[StaticBindingKey] = set()
         for entry in entries:
             ref = self._binding_for(entry.key.node_id)
             target_key = (ref.module_id, ref.scope_path, ref.name)
@@ -1727,7 +1728,7 @@ class _Checker:
         from agnette.agl.semantics.engine_keys import get_engine_key_type
 
         declared = self._env.resolve_type_expr(node.type_ann, span=node.span, type_vars=frozenset())
-        node_scope_path = tuple(segment.name for segment in node.scope_path)
+        node_scope_path = scope_names(node.scope_path)
         if is_std_config_root(self._module_id, node_scope_path):
             key_type = get_engine_key_type(node.name)
             if key_type is None:
@@ -6888,6 +6889,9 @@ class _Checker:
     def result(self) -> CheckedModule:
         # Region finalization emits warnings out of source order; report them in it.
         warnings = sorted(self._warnings, key=_source_position)
+        summaries = compute_references(
+            self._resolved, self._method_selections, self._slot_resolution, self._module_id
+        )
         return CheckedModule(
             resolved=self._resolved,
             node_types=self._node_types,
@@ -6914,6 +6918,8 @@ class _Checker:
             method_selections=self._method_selections,
             explicit_builtin_targets=self._explicit_builtin_targets,
             program_config_targets=self._program_config_targets,
+            declaration_references=summaries.declarations,
+            binding_references=summaries.bindings,
         )
 
 

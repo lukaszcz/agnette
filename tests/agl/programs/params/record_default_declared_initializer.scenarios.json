@@ -1,0 +1,27 @@
+{
+  "scenarios": [
+    {
+      "name": "no_module_seed",
+      "module_roots": [
+        "program_modules/params/record_default_param"
+      ],
+      "expect": {
+        "stdout": "1\n1\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "seeded_module_param",
+      "module_roots": [
+        "program_modules/params/record_default_param"
+      ],
+      "module_params": {
+        "knob::p": 7
+      },
+      "expect": {
+        "stdout": "1\n7\n",
+        "calls": {}
+      }
+    }
+  ]
+}

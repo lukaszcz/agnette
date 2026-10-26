@@ -228,7 +228,7 @@ class ExecProgramDiscovery:
     def params_for(
         self, file: str | None, program: "ProgramDeclInfo | None"
     ) -> "tuple[ParamBindingInfo, ...]":
-        """Return *program*'s module parameters from *file*'s already-discovered artifacts."""
+        """Return the module parameters *program* reaches, from *file*'s discovered artifacts."""
         artifacts = self.cached_artifacts(file)
         if artifacts is None or program is None:
             return ()

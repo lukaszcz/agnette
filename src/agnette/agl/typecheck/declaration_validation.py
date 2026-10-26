@@ -22,6 +22,7 @@ from agnette.agl.syntax.nodes import (
     Item,
     RecordDef,
     TypeAlias,
+    scope_names,
     static_function_items,
     static_items,
     static_type_items,
@@ -105,7 +106,7 @@ def _member_declarations(
         for item in static_type_items(resolved.program.body.items):
             if isinstance(item, TypeAlias):
                 continue
-            declared_path = tuple(segment.name for segment in item.scope_path)
+            declared_path = scope_names(item.scope_path)
             decl_owner_id = type_table.named(module_id, item.name, declared_path).decl_node_id
             owner_ids[module_id, (*declared_path, item.name)] = decl_owner_id
             index.declared.add(decl_owner_id)
@@ -292,7 +293,7 @@ def bare_declaration_scoped_name(item: Item) -> tuple[str, ...] | None:
     (:func:`is_bare_declaration`).
     """
     if is_bare_declaration(item):
-        return (*(segment.name for segment in item.scope_path), item.name)
+        return (*scope_names(item.scope_path), item.name)
     return None
 
 
@@ -311,7 +312,7 @@ def _builtin_bare_declarations(
         resolved = modules[module_id]
         for item in static_items(resolved.program.body.items):
             if is_builtin_bare_declaration(item):
-                path = tuple(segment.name for segment in item.scope_path)
+                path = scope_names(item.scope_path)
                 found.append((module_id, path, item.name, item.span))
     return found
 

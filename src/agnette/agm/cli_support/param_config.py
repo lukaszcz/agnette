@@ -11,7 +11,11 @@ from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
 from agnette.agl.zones import ParamZone
-from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
+from agnette.agm.cli_support.param_surface import (
+    ParamSurface,
+    ParamSurfaceEntry,
+    declared_spellings,
+)
 from agnette.agm.cli_support.program_options import native_raw_value, project_option
 from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from agnette.config.general import GeneralConfig
@@ -137,8 +141,9 @@ def _report_unused_manifest_leaves(
 ) -> None:
     """Warn for manifest leaves in the selected command's own tables that nothing consumes.
 
-    Engine settings are read by the host and *consumed* holds the program-route
-    spellings of the reachable module parameters. Inherited group and root
+    Engine settings are read by the host and *consumed* holds every spelling that
+    addresses a declared parameter: the spellings reached parameters won on the
+    surface, and all spellings of the unreached ones. Inherited group and root
     tables are skipped, since a sibling command may be the one that consumes
     them, as are tables a registered descendant command inherits from.
     """
@@ -169,6 +174,7 @@ def resolve_param_values(
     surface: ParamSurface,
     package_command_paths: frozenset[tuple[str, ...]] = frozenset(),
     package_config: TomlDict | None = None,
+    declared_params: Sequence[ParamBindingInfo] | None = None,
 ) -> ParamValueTiers:
     """Resolve module-parameter config values beneath parsed CLI/environment values.
 
@@ -192,10 +198,20 @@ def resolve_param_values(
     every command path the owning package registers (aliases expanded), used
     to exempt a command's own table from that warning when one of its leaves
     is really an inherited default for a registered descendant command.
+
+    Only the *surface* parameters (those the program reaches) take values.
+    *declared_params* are the parameters the program's closure declares, reached
+    or not; a configured key addressing one of them is not undeclared, so it
+    draws no warning. ``None`` declares just the surface's.
     """
     supplied = frozenset(params)
     entries = surface.entries
+    declared = (
+        tuple(entry.param for entry in entries) if declared_params is None else declared_params
+    )
     module_params = tuple(entry.param for entry in entries)
+    reached = frozenset(param.key for param in module_params)
+    unreached_leaves = _declared_leaves(param for param in declared if param.key not in reached)
     module_routes = _module_routes(module_params)
     program_routes = _program_routes(program, entry_segments, command_paths, entries)
     _reject_configured_cross_route_ambiguities(config, module_routes, program_routes)
@@ -218,13 +234,16 @@ def resolve_param_values(
             command_paths,
             frozenset(
                 spelling for _entry, key in program_routes for spelling in key.leaf_spellings()
-            ),
+            )
+            | unreached_leaves,
             package_command_paths,
         )
 
     _report_undeclared_config_keys(
         config,
-        _route_reports(program, entry_segments, command_paths, entries, program_routes),
+        _route_reports(
+            program, entry_segments, command_paths, declared, unreached_leaves, program_routes
+        ),
         package_command_paths,
     )
     return ParamValueTiers(upper=upper, lower=lower)
@@ -437,19 +456,22 @@ def _route_reports(
     program: ProgramDeclInfo,
     entry_segments: tuple[str, ...],
     command_paths: tuple[tuple[str, ...], ...],
-    entries: Sequence[ParamSurfaceEntry],
+    declared_params: Sequence[ParamBindingInfo],
+    unreached_leaves: frozenset[str],
     program_routes: Sequence[tuple[ParamSurfaceEntry, QualifiedConfigKey]],
 ) -> list[_RouteReport]:
-    """Describe module and selected-program config routes for warning reporting."""
+    """Describe module and selected-program config routes for warning reporting.
+
+    The program route declares the spellings reached parameters won plus
+    *unreached_leaves*, never a spelling a reached parameter lost.
+    """
     by_module_scope: dict[tuple[ModuleId, tuple[str, ...]], list[ParamBindingInfo]] = {}
-    for entry in entries:
-        if not entry.param.module.is_entry:
-            by_module_scope.setdefault((entry.param.module, entry.param.scope_path), []).append(
-                entry.param
-            )
+    for param in declared_params:
+        if not param.module.is_entry:
+            by_module_scope.setdefault((param.module, param.scope_path), []).append(param)
 
     reports: list[_RouteReport] = []
-    ordered_modules = _report_modules(program, entries)
+    ordered_modules = _report_modules(program, declared_params)
     for module in ordered_modules:
         if module.is_entry:
             continue
@@ -477,6 +499,7 @@ def _route_reports(
             {
                 *(parameter.cli.name for parameter in program.parameters),
                 *(spelling for _entry, key in program_routes for spelling in key.leaf_spellings()),
+                *unreached_leaves,
                 *ENGINE_KEY_NAMES,
             }
         )
@@ -497,12 +520,17 @@ def _route_reports(
     return reports
 
 
+def _declared_leaves(declared: Iterable[ParamBindingInfo]) -> frozenset[str]:
+    """Return every spelling that can address one of *declared*, claimed or not."""
+    return frozenset(spelling for param in declared for spelling in declared_spellings(param))
+
+
 def _report_modules(
-    program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]
+    program: ProgramDeclInfo, declared: Sequence[ParamBindingInfo]
 ) -> tuple[ModuleId, ...]:
-    """Return closure modules first, retaining any surface-only module afterward."""
+    """Return closure modules first, retaining any other declaring module afterward."""
     modules: list[ModuleId] = list(program.closure)
-    for entry in entries:
-        if entry.param.module not in modules:
-            modules.append(entry.param.module)
+    for param in declared:
+        if param.module not in modules:
+            modules.append(param.module)
     return tuple(modules)

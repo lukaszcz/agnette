@@ -56,6 +56,7 @@ from agnette.agl.syntax.nodes import (
     TypeAlias,
     UseDecl,
     VarDecl,
+    scope_names,
     static_binding_node_id,
     static_items,
 )
@@ -142,7 +143,7 @@ def to_bare_atom(path: ScopePath) -> BareAtom:
 
 def import_item_path(item: ImportItem | ExportItem) -> ScopePath:
     """The selection prefix an import or export item names: scope path plus name."""
-    return (*(segment.name for segment in item.scope_path), item.name)
+    return (*scope_names(item.scope_path), item.name)
 
 
 def import_item_spellings(
@@ -1214,9 +1215,7 @@ class ModuleResolution:
         declaration node, so the structured key is assembled here rather than at
         each call site.
         """
-        return self.method_declarations.get(
-            (module_id, tuple(segment.name for segment in node.scope_path), node.name)
-        )
+        return self.method_declarations.get((module_id, scope_names(node.scope_path), node.name))
 
     def param_bindings(self) -> Iterator[ParamBinding]:
         """Yield every ``@param``-marked static binding here, in source order."""
@@ -1230,7 +1229,7 @@ class ModuleResolution:
             yield ParamBinding(
                 item=item,
                 node_id=node_id,
-                scope_path=tuple(segment.name for segment in item.scope_path),
+                scope_path=scope_names(item.scope_path),
                 cli=cli,
             )
 

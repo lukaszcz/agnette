@@ -70,7 +70,8 @@ def test_complete_registered_commands_reads_active_index(
         '  @arg-named @opt-name("program-level") mode: Level,\n'
         '  @arg-named @opt-name("optional-level") maybe: Option[Level],\n'
         '  @arg-named @opt-name("default-level") fallback: Optional[Level]\n'
-        ") -> unit = ()\n",
+        ") -> unit =\n"
+        "  let _ = level\n",
         encoding="utf-8",
     )
     (package_root / "package.toml").write_text(
@@ -206,7 +207,10 @@ class TestExecPathParameterCompletion:
         modules.mkdir()
         (modules / "library.agl").write_text('@param let out: path = "out.txt"\n', encoding="utf-8")
         source = tmp_path / "prog.agl"
-        source.write_text("import library\nprogram def main() -> unit = ()\n", encoding="utf-8")
+        source.write_text(
+            "import library\nprogram def main() -> unit =\n  let _ = library::out\n",
+            encoding="utf-8",
+        )
         (tmp_path / "data.txt").write_text("", encoding="utf-8")
 
         values = _completion_values(
@@ -220,7 +224,10 @@ class TestExecPathParameterCompletion:
         modules.mkdir()
         (modules / "library.agl").write_text('@param let out: path = "out.txt"\n', encoding="utf-8")
         source = tmp_path / "prog.agl"
-        source.write_text("import library\nprogram def main() -> unit = ()\n", encoding="utf-8")
+        source.write_text(
+            "import library\nprogram def main() -> unit =\n  let _ = library::out\n",
+            encoding="utf-8",
+        )
         (tmp_path / "data.txt").write_text("", encoding="utf-8")
 
         values = _completion_values(
@@ -481,7 +488,8 @@ def test_registered_command_param_completion_offers_program_value_argument_flags
     (package_root / MODULE_TREE_DIRNAME).mkdir()
     (package_root / MODULE_TREE_DIRNAME / "lint.agl").write_text(
         "@param let module-verbose: bool = false\n"
-        "program def main(@arg-named tag: text, verbose: bool = false) -> unit = ()\n",
+        "program def main(@arg-named tag: text, verbose: bool = false) -> unit =\n"
+        "  let _ = module-verbose\n",
         encoding="utf-8",
     )
     (package_root / "package.toml").write_text(
@@ -1916,11 +1924,19 @@ class TestExecCommandShellComplete:
         logging = modules / "A" / "logging.agl"
         logging.parent.mkdir(parents=True)
         logging.write_text(
-            "@param let verbose: bool = false\n@param @opt-hidden let secret: bool = false\n",
+            "@param let verbose: bool = false\n"
+            "@param @opt-hidden let secret: bool = false\n"
+            "@param let unreferenced: bool = false\n",
             encoding="utf-8",
         )
         source = tmp_path / "prog.agl"
-        source.write_text("import A/logging\nprogram def main() -> unit = ()\n", encoding="utf-8")
+        source.write_text(
+            "import A/logging\n"
+            "program def main() -> unit =\n"
+            "  let _ = A/logging::verbose\n"
+            "  let _ = A/logging::secret\n",
+            encoding="utf-8",
+        )
 
         result = self._complete(["exec", "-I", str(modules), str(source)], "--")
 
@@ -1928,6 +1944,8 @@ class TestExecCommandShellComplete:
         assert "--A.logging.verbose" in result
         assert "--no-A.logging.verbose" in result
         assert "--secret" not in result
+        assert "--unreferenced" not in result
+        assert "--A.logging.unreferenced" not in result
 
     def test_nonexistent_file_degrades_to_base_completion(self) -> None:
         """Unreadable file degrades to standard exec option completion (no crash)."""

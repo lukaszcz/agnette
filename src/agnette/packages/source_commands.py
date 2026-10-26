@@ -28,7 +28,7 @@ from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.loader import load_parsed_module
 from agnette.agl.scope import recognize_program_registration
 from agnette.agl.syntax.module_constants import ModuleConstants
-from agnette.agl.syntax.nodes import FuncDef, Program, static_function_items
+from agnette.agl.syntax.nodes import FuncDef, Program, scope_names, static_function_items
 from agnette.packages.discipline import DisciplineError, package_module_files
 from agnette.packages.manifest import CommandSpec, ManifestError, validate_command_set
 from agnette.packages.model import PackageInfo
@@ -184,6 +184,6 @@ def _parse_module(module_id: ModuleId, path: Path) -> Program:
 
 def _declaration_reference(module_id: ModuleId, function: FuncDef) -> str:
     """Return the ``MODULE::DECL`` reference a manifest command names for *function*."""
-    segments = (*(segment.name for segment in function.scope_path), function.name)
+    segments = (*scope_names(function.scope_path), function.name)
     declaration_path = "::".join(segments)
     return f"{module_id.path_str()}::{declaration_path}"

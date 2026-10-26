@@ -118,6 +118,7 @@ from agnette.agl.syntax.nodes import (
     VariantDef,
     VariantRef,
     exported_binding_name,
+    scope_names,
     static_binding_node_id,
     static_items,
 )
@@ -268,7 +269,7 @@ class ResolvedProgram:
 def _item_atom(
     item: FuncDef | RecordDef | EnumDef | ExceptionDef | TypeAlias | BuiltinVarDecl,
 ) -> NameAtom:
-    return _atom((*tuple(segment.name for segment in item.scope_path), item.name))
+    return _atom((*scope_names(item.scope_path), item.name))
 
 
 def _inline_members(enum: EnumDef, path: ScopePath) -> Iterator[tuple[VariantDef, NameAtom]]:
@@ -286,7 +287,7 @@ def _static_binding_atom(item: LetDecl | VarDecl) -> NameAtom | None:
     name = exported_binding_name(item)
     if name is None:
         return None
-    return _atom((*tuple(segment.name for segment in item.scope_path), name))
+    return _atom((*scope_names(item.scope_path), name))
 
 
 def _regions(
@@ -327,7 +328,7 @@ def _compute_local_scope_exports(
             item,
             (FuncDef, RecordDef, EnumDef, ExceptionDef, TypeAlias, LetDecl, VarDecl),
         ):
-            scope_path = tuple(segment.name for segment in item.scope_path)
+            scope_path = scope_names(item.scope_path)
             _open_own_scopes(result, self_id, scope_path)
             if isinstance(item, (RecordDef, EnumDef, ExceptionDef, TypeAlias)):
                 _open_own_scopes(result, self_id, (*scope_path, item.name))
@@ -418,7 +419,7 @@ def _builtin_static_decl_node_ids(
     """Return static declarations owned by a builtin record that registers statics."""
     result: set[int] = set()
     for (module_id, _atom_name), function in functions.items():
-        owner_path = tuple(segment.name for segment in function.scope_path)
+        owner_path = scope_names(function.scope_path)
         if builtin_type_static_kind(module_id, owner_path, function.name) is None:
             continue
         owner_atom = _atom(owner_path)
@@ -683,7 +684,7 @@ def _compute_reexport_additions(
     result: dict[NameAtom, QName] = {}
     withheld_result: dict[NameAtom, frozenset[QName]] = {}
     scope_result: dict[NameAtom, ScopeOrigins] = {}
-    region_prefix = tuple(segment.name for segment in decl.scope_path)
+    region_prefix = scope_names(decl.scope_path)
 
     def beneath_any(origin: QName, removed: Collection[QName]) -> bool:
         """Whether *origin*'s declaration is or lies beneath one of *removed*."""

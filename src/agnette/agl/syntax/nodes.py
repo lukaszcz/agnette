@@ -1303,6 +1303,11 @@ class TypeAlias(GenericDeclaration):
     attributes: tuple[Attribute, ...] = ()
 
 
+def scope_names(scope_path: tuple[ScopeSegment, ...]) -> tuple[str, ...]:
+    """Return a syntactic scope path as plain segment names."""
+    return tuple(segment.name for segment in scope_path)
+
+
 def scoped_public_name(scope_path: tuple[ScopeSegment, ...], name: str) -> str:
     """Return the full path spelling of a scoped binding's public name.
 
@@ -1316,7 +1321,7 @@ def scoped_public_name(scope_path: tuple[ScopeSegment, ...], name: str) -> str:
     ``resolved_public_name`` for the same spelling from an already-resolved
     string path.
     """
-    return resolved_public_name(tuple(segment.name for segment in scope_path), name)
+    return resolved_public_name(scope_names(scope_path), name)
 
 
 def resolved_public_name(scope_path: tuple[str, ...], name: str) -> str:

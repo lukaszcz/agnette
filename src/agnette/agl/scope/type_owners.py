@@ -47,6 +47,7 @@ from agnette.agl.syntax.nodes import (
     TypeAlias,
     VariantDef,
     VariantRef,
+    scope_names,
     static_type_items,
 )
 from agnette.agl.syntax.types import (
@@ -805,7 +806,7 @@ def _applied_builtin(target: TypeOwner, spelling: NameT | AppliedT) -> TypeExpr 
 def declared_member_scopes(items: tuple[Item, ...]) -> dict[ScopePath, frozenset[str]]:
     """Map each type path *items* declare to the inline member names it owns scopes for."""
     return {
-        (*(segment.name for segment in item.scope_path), item.name): frozenset(
+        (*scope_names(item.scope_path), item.name): frozenset(
             member.name for member in item.members if isinstance(member, VariantDef)
         )
         if isinstance(item, EnumDef)

@@ -43,6 +43,7 @@ from agnette.agl.semantics.type_table import TypeDef, TypeTable
 from agnette.agl.syntax.nodes import (
     BuiltinVarDecl,
     FuncDef,
+    scope_names,
     static_binding_name,
     static_items,
 )
@@ -382,9 +383,9 @@ def lower_program(
         executable_modules[mid] = executable_module
         with lowerer.substituted_constants():
             defaults: dict[BuiltinVarKey | str, IrExpr] = {
-                builtin_var_key(
-                    mid, (segment.name for segment in item.scope_path), item.name
-                ): lowerer.lower_expr(item.default)
+                builtin_var_key(mid, scope_names(item.scope_path), item.name): lowerer.lower_expr(
+                    item.default
+                )
                 for item in static_items(body.items)
                 if isinstance(item, BuiltinVarDecl) and item.default is not None
             }
@@ -480,7 +481,7 @@ def lower_program(
     # retained from earlier REPL entries, so structural validation can verify
     # the module, scope path, and name of each structured host-backed key.
     builtin_var_declarations = frozenset(
-        builtin_var_key(mid, (segment.name for segment in item.scope_path), item.name)
+        builtin_var_key(mid, scope_names(item.scope_path), item.name)
         for mid, checked_module in checked.modules.items()
         for item in static_items(checked_module.resolved.program.body.items)
         if isinstance(item, BuiltinVarDecl)

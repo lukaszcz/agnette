@@ -484,6 +484,38 @@ def test_config_attribute_program_config_targets_round_trip_through_the_checked_
     assert round_tripped.program_config_targets == original
 
 
+def test_reference_summaries_round_trip_through_the_checked_cache(tmp_path: Path) -> None:
+    """A module's static reference summary survives the disk-backed checked-module cache."""
+    graph = make_file_graph_from_files(
+        tmp_path,
+        {
+            "entry": "import helper::*\n\nprogram def main() -> unit =\n  let _ = build()\n",
+            "helper": (
+                "@param let limit: int = 1\n\n"
+                "let twin: int = limit\n\n"
+                "def leaf() -> int = limit\n\n"
+                "def build() -> int = leaf()\n"
+            ),
+        },
+        default_stdlib=False,
+    )
+    retainable = artifact_cache.retained_module_sources(graph)
+    checked = check_program(resolve_program(graph))
+    artifact_cache.retain_checked_modules(retainable, checked.modules)
+    artifact_cache.clear_retained_artifacts()
+
+    restored = artifact_cache.retained_checked_modules(retainable)
+
+    helper_id = next(mid for mid in graph.modules if mid != graph.entry_id)
+    original = checked.modules[helper_id].declaration_references
+    round_tripped = restored[helper_id]
+    assert any(original.values())
+    assert isinstance(round_tripped, CheckedModuleImage)
+    assert round_tripped.declaration_references == original
+    assert any(checked.modules[helper_id].binding_references.values())
+    assert round_tripped.binding_references == checked.modules[helper_id].binding_references
+
+
 def test_constraint_block_bounds_round_trip_through_the_checked_cache(tmp_path: Path) -> None:
     """A generic declaration's constraint block survives the disk-backed checked-module cache."""
     graph = make_file_graph_from_files(

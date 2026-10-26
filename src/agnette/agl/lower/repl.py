@@ -28,6 +28,7 @@ from agnette.agl.syntax.nodes import (
     UseDecl,
     VarDecl,
     VariantDef,
+    scope_names,
     static_items,
 )
 
@@ -242,7 +243,7 @@ def _nominal_typedef(
         checked.type_env.type_table.get(
             checked.module_id,
             item.name,
-            tuple(segment.name for segment in item.scope_path),
+            scope_names(item.scope_path),
         ),
     )
 
@@ -336,7 +337,7 @@ def _declaration_dependencies(
         alias_template = checked.type_env.declared_type_template(
             checked.module_id,
             item.name,
-            scope_path=tuple(segment.name for segment in item.scope_path),
+            scope_path=scope_names(item.scope_path),
         )
         dependencies.update(
             _nominal_dependencies(
@@ -380,9 +381,7 @@ def _promotion_plan(
     # Aliases are transparent in semantic types, so retain their syntactic
     # declaration dependency separately from nominal identity.
     alias_declaration_ids: dict[DeclKey, int] = {
-        (checked.module_id, tuple(segment.name for segment in item.scope_path), item.name): (
-            item.node_id
-        )
+        (checked.module_id, scope_names(item.scope_path), item.name): (item.node_id)
         for item in leaf_items
         if isinstance(item, TypeAlias)
     }

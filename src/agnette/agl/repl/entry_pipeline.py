@@ -186,7 +186,12 @@ class EntryPipeline:
         checked_program: "CheckedProgram",
         new_modules: Mapping[ModuleId, "LoadedModule"],
     ) -> dict["StaticBindingKey", object]:
-        """Ask the host once for all parameters declared by newly loaded modules."""
+        """Ask the host once for all parameters declared by newly loaded modules.
+
+        A session has no selected program to reach them from: any later entry may
+        reference any loaded module's parameters, so declaration, not
+        reachability, decides.
+        """
         resolver = self._ctx._param_seed_resolver
         if resolver is None:
             return {}
@@ -456,6 +461,8 @@ class EntryPipeline:
             pattern_constructor_refs=entry.pattern_constructor_refs,
             pattern_constructor_owners=entry.pattern_constructor_owners,
             method_selections=entry.method_selections,
+            declaration_references=entry.declaration_references,
+            binding_references=entry.binding_references,
         )
 
     def _prepare_entry_program(
@@ -1088,7 +1095,9 @@ class EntryPipeline:
         import at one region path replace an unrelated declaration at
         another region path, or at the root.
         """
-        return (tuple(segment.name for segment in decl.scope_path), tuple(decl.module_path))
+        from agnette.agl.syntax.nodes import scope_names
+
+        return (scope_names(decl.scope_path), tuple(decl.module_path))
 
     @staticmethod
     def _expand_decls(

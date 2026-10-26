@@ -87,7 +87,7 @@ from agnette.agl.ir.program import (
     VariantDescriptor,
 )
 from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import Reachable, StaticBindingKey
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import ModuleGraph
 from agnette.agl.modules.roots import RootSet, assemble_roots
@@ -838,6 +838,9 @@ def write_transparent_sandbox_shims(directory: Path, *, log_dir: Path) -> None:
     )
     srt.chmod(0o755)
 
+
+#: The reachable set of a hand-built program declaration that references nothing.
+EMPTY_REACHABLE = Reachable(frozenset(), frozenset())
 
 REPO_STDLIB_ROOT = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
 

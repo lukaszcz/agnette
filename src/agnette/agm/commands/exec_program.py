@@ -75,7 +75,7 @@ from agnette.agl.runtime.engine_config import restamp_engine_setting
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import ProgramDeclInfo
 from agnette.agl.semantics.engine_keys import ENGINE_KEY_NAMES
-from agnette.agl.syntax.nodes import FuncDef, static_items
+from agnette.agl.syntax.nodes import FuncDef, scope_names, static_items
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
 from agnette.agm.cli_support.args import ExecArgs
@@ -176,6 +176,7 @@ def _bind_host_inputs(
     tokens: "Sequence[str]",
     program: ProgramDeclInfo | None,
     params: "Sequence[ParamBindingInfo]",
+    declared_params: "Sequence[ParamBindingInfo]",
     reserved_flags: frozenset[str],
     config: "GeneralConfig",
     entry_segments: tuple[str, ...],
@@ -184,6 +185,10 @@ def _bind_host_inputs(
     package_config: TomlDict | None = None,
 ) -> tuple[ProgramArguments, ParamValueTiers]:
     """Bind one selected program's CLI, environment, and config host inputs.
+
+    *params* are the module parameters the program reaches; *declared_params*
+    additionally holds those its closure merely declares, which only exempt
+    their config keys from the undeclared-key warnings.
 
     This is the only execution-host path that combines the signature and
     module-parameter surfaces.  Registered commands reach it through
@@ -235,6 +240,7 @@ def _bind_host_inputs(
             surface=program_command.surface,
             package_command_paths=package_command_paths,
             package_config=package_config,
+            declared_params=declared_params,
         )
     except QualifiedConfigLookupError as exc:
         print(f"Error: invalid qualified configuration: {exc}", file=sys.stderr)
@@ -522,9 +528,7 @@ def run(
     selected_parsed_program = select_declared_program(
         parsed_programs,
         requested=args.program,
-        declaration_path=lambda item: "::".join(
-            (*(segment.name for segment in item.scope_path), item.name)
-        ),
+        declaration_path=lambda item: "::".join((*scope_names(item.scope_path), item.name)),
     )
     engine_program_table: dict[str, object] = {}
     manifest_engine_table: dict[str, object] = {}
@@ -532,7 +536,7 @@ def run(
     package_command_paths: frozenset[tuple[str, ...]] = frozenset()
     owning_package_info: PackageInfo | None = None
     if entry_path is not None and selected_parsed_program is not None:
-        program_path = tuple(segment.name for segment in selected_parsed_program.scope_path) + (
+        program_path = scope_names(selected_parsed_program.scope_path) + (
             selected_parsed_program.name,
         )
         package_route = _package_program_route(
@@ -659,6 +663,9 @@ def run(
         tokens=args.argument_tokens,
         program=selected_program,
         params=() if selected_program is None else discovery.params_for(selected_program),
+        declared_params=(
+            () if selected_program is None else discovery.declared_params_for(selected_program)
+        ),
         reserved_flags=reserved_flags,
         config=config_view,
         entry_segments=config_entry_segments,

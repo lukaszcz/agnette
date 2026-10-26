@@ -47,6 +47,7 @@ from agnette.agl.syntax.nodes import (
     Param,
     VarDecl,
     VarRef,
+    scope_names,
     static_items,
 )
 from agnette.agl.syntax.visitor import walk
@@ -420,7 +421,7 @@ def _register_signature(
         declaring_env=module.env,
         declaration_node_id=node.node_id,
         name=node.name,
-        scope_path=tuple(segment.name for segment in node.scope_path),
+        scope_path=scope_names(node.scope_path),
         signature=signature,
         function_type=function_type,
     )
@@ -649,7 +650,7 @@ def _infer_function_component(
                 return_source=FunctionReturnSource.CANDIDATE,
                 module_id=module.module_id,
                 declaration_span=node.span,
-                scope_path=tuple(segment.name for segment in node.scope_path),
+                scope_path=scope_names(node.scope_path),
                 candidate_evidence=(body.span,),
             )
         )
@@ -830,7 +831,7 @@ def _receiver_type(
 ) -> tuple[Type, ResolvedReceiver]:
     """Build the receiver type and its resolved owner from a classified method declaration."""
     builtin = _builtin_receiver_type(node, owner)
-    declaration_scope_path = tuple(segment.name for segment in node.scope_path)
+    declaration_scope_path = scope_names(node.scope_path)
     if builtin is not None:
         receiver, arity, constructor = builtin
         return receiver, BuiltinResolvedReceiver(

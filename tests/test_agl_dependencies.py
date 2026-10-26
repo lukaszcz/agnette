@@ -139,6 +139,7 @@ def _is_allowed(module: str, prefixes: tuple[str, ...]) -> bool:
                 "agnette.agl.diagnostics",
                 "agnette.agl.ir.ids",
                 "agnette.agl.ir.reserved_nominals",
+                "agnette.agl.ir.static_keys",
                 "agnette.agl.artifact_cache",
                 "agnette.agl.modules.ids",
                 "agnette.agl.scope",

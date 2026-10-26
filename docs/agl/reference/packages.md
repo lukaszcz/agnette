@@ -100,8 +100,8 @@ program def main(strict: bool = false) -> unit =
 ```
 
 A registered command runs its program exactly as a directly executed selected
-program runs: its own value parameters and every `@param` binding in its
-transitive import closure form its host surface, with the same
+program runs: its own value parameters and every `@param` binding it
+reaches form its host surface, with the same
 [presentation attributes](attributes.md#host-parameter-attributes),
 [flags](host-environment.md#program-arguments), and
 [help](host-environment.md#help). Command

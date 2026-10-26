@@ -947,7 +947,10 @@ class TestRunBoundaryRecords:
             '@param let environment: text = "default-env"\n'
             "@param let retries: int = 1\n"
             "@param let threshold: decimal = 1.5\n"
-            "program def main(@arg-pos count: int, @arg-named label: text) -> unit = ()\n"
+            "program def main(@arg-pos count: int, @arg-named label: text) -> unit =\n"
+            "  let _ = environment\n"
+            "  let _ = retries\n"
+            "  let _ = threshold\n"
         )
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = runtime.prepare_program(source)

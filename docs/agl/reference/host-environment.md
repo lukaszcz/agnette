@@ -21,7 +21,7 @@ A conforming host processes a program in this order:
    separately.
 4. **Host-input validation** — externally provided values are checked against
    the selected `program def`'s own value parameters and every module
-   parameter in its import closure.
+   parameter it reaches.
 5. **Contract materialization** — every agent-call and `exec` site's output
    contract (codec, schema, format instructions) is built.
 6. **Execution.**
@@ -248,8 +248,8 @@ is drawn entirely from declarations: the `program def`'s `@doc` describes the
 program, each positional slot is named after its parameter, and each
 name-addressable parameter is listed with its long flag, its `@opt-short`
 spelling if any, its value placeholder, and its own `@doc`. Module parameters
-follow, one section per closure module with a visible parameter, titled by its
-module path, each parameter under its shortest resolving spelling.
+follow, one section per module declaring a visible reached parameter, titled by
+its module path, each parameter under its shortest resolving spelling.
 
 Help rewraps each prose paragraph to the terminal width, after removing the
 prose's common indentation. A paragraph holding an indented line — an example,
@@ -261,9 +261,18 @@ a list, a table — keeps its line breaks and indentation.
 
 A static `let` or `var` marked [`@param`](attributes.md#module-parameters) is
 a **module parameter**. Its host surface belongs to every selected program
-whose transitive import closure contains its declaring module, the selected
-program's own module first. A supplied value is bound during static
-initialization instead of evaluating the initializer.
+that **reaches** it, not to every program that merely imports its module. A
+program reaches a parameter when the parameter is read or assigned:
+
+- by the program's body or the default of one of its parameters;
+- by the body or a parameter default of any function the program reaches, by
+  name, as a function value, or as a method;
+- by the initializer of any static binding the program reaches.
+
+Module parameters are listed with the selected program's own module first. A
+supplied value is bound during static initialization instead of evaluating the
+initializer. A parameter the program does not reach has no host surface: it has
+no flag, appears in no help, and takes no configured value.
 
 The parameter's **external name** is its `@opt-name`, or its declared name;
 it is used in flags, config leaves, help, and completion. A root parameter
@@ -277,7 +286,7 @@ arguments](#program-arguments).
 
 A bare spelling (long or short) is claimed, in order, by host flags and
 engine-setting names, the selected program's own value parameters, parameters
-of its own module, then parameters of imported modules; a later level keeps
+of its own module, then parameters of other modules; a later level keeps
 its qualified spellings. Several parameters at one level make a spelling
 ambiguous only when it is used; the diagnostic names their declaration paths.
 
@@ -294,6 +303,10 @@ Two config routes reach a module parameter:
 An entry module no package owns (a loose file or `-c` source) has no module
 route; a loose file's own parameters are configured through its program
 route.
+
+A configured key naming a parameter that a module in the program's import
+closure declares, but the program does not reach, is not an undeclared key: it
+draws no warning and has no effect.
 
 Setting two spellings of one parameter in one layer is an error, as is a
 spelling several parameters claim. For a program `main` in `tool.agl` that
@@ -312,8 +325,8 @@ verbose = false                   # wins over [A.logging]
 ```
 
 `agm check` validates module parameter declarations but supplies no values.
-The REPL has no program route or parameter flags: a module's parameters read
-only its module route when the REPL first loads it.
+The REPL has no selected program, program route, or parameter flags: every
+parameter of a module reads only its module route when the REPL first loads it.
 
 ### Engine settings
 

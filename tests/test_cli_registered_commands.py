@@ -494,7 +494,9 @@ def test_registered_command_conflict_help_includes_module_parameters(
     write_installed_package(
         home,
         "tools",
-        source="@param let verbose: bool = false\nprogram def main() -> unit = ()\n",
+        source=(
+            "@param let verbose: bool = false\nprogram def main() -> unit =\n  let _ = verbose\n"
+        ),
         commands={"tools run": "tools/main::main"},
     )
     monkeypatch.setenv("HOME", str(home))
@@ -1752,7 +1754,8 @@ def test_registered_command_argument_error_renders_shared_usage_help(
         encoding="utf-8",
     )
     module.write_text(
-        "@param let verbose: bool = false\nprogram def main(@arg-named level: text) -> unit = ()\n",
+        "@param let verbose: bool = false\n"
+        "program def main(@arg-named level: text) -> unit =\n  let _ = verbose\n",
         encoding="utf-8",
     )
     write_record(package_root)
@@ -2333,7 +2336,12 @@ def test_registered_command_binds_module_parameters_from_its_command_table(
     import agnette.agm.commands.exec_program as exec_program
 
     home = tmp_path / "home"
-    source = "import tools/logging\nprogram def main() -> unit = print tools/logging::verbose\n"
+    source = (
+        "import tools/logging\n"
+        "program def main() -> unit =\n"
+        "  print tools/logging::verbose\n"
+        "  let _ = tools/logging::retries\n"
+    )
     module = write_installed_package(
         home,
         "tools",
@@ -2411,7 +2419,9 @@ def test_registered_command_reports_an_ambiguous_module_parameter(
     source = (
         "import tools/logging\n"
         "import tools/other\n"
-        "program def main() -> unit = print tools/logging::verbose\n"
+        "program def main() -> unit =\n"
+        "  print tools/logging::verbose\n"
+        "  let _ = tools/other::verbose\n"
     )
     module = write_installed_package(
         home,

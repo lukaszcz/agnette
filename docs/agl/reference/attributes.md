@@ -323,6 +323,8 @@ that only a signature parameter binds, since a `program def`'s own parameter
 scope is not where a `@config` key resolves. Two entries addressing the same
 target, by any two spellings, are a static error.
 
+A module parameter target the program does not reach has no effect.
+
 Each `value` is a [constant expression](bindings-and-scope.md#constant-expressions),
 checked against the target's declared type — the module parameter's own
 type, or the engine setting's type.

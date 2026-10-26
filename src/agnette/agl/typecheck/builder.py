@@ -81,6 +81,7 @@ from agnette.agl.syntax.nodes import (
     TypeAlias,
     VariantDef,
     VariantRef,
+    scope_names,
     scoped_public_name,
     static_type_items,
 )
@@ -332,7 +333,7 @@ class _TypeBuilder:
                 self._env.unregister_name(item.name)
                 module_id = self._module_id
                 bare_name = _bare_name(item.name)
-                scope_path = tuple(segment.name for segment in item.scope_path)
+                scope_path = scope_names(item.scope_path)
                 handle = ExceptionType(
                     name=bare_name,
                     module_id=module_id,
@@ -385,7 +386,7 @@ class _TypeBuilder:
 
     def _clear_inline_member_names(self, enum: EnumDef) -> None:
         """Release member record names from a superseded enum declaration."""
-        scope_path = (*tuple(segment.name for segment in enum.scope_path), _bare_name(enum.name))
+        scope_path = (*scope_names(enum.scope_path), _bare_name(enum.name))
         for typedef in self._env.type_table.entries():
             if (
                 typedef.kind == "record"
@@ -413,7 +414,7 @@ class _TypeBuilder:
     ) -> None:
         """Make a member's type shell agree with its current captured parameters."""
         enum_name = _bare_name(enum.name)
-        enum_scope_path = tuple(segment.name for segment in enum.scope_path)
+        enum_scope_path = scope_names(enum.scope_path)
         member_name = f"{enum.name}::{member.name}"
         self._env.unregister_name(member_name)
         decl_id = member.node_id
@@ -438,7 +439,7 @@ class _TypeBuilder:
     def _register_record_or_enum_handle(self, item: RecordDef | EnumDef, *, is_enum: bool) -> None:
         module_id = self._module_id
         declared_name = _bare_name(item.name)
-        scope_path = tuple(segment.name for segment in item.scope_path)
+        scope_path = scope_names(item.scope_path)
         decl_id = item.node_id
         type_params = item.type_params
         if type_params:
@@ -652,7 +653,7 @@ class _TypeBuilder:
         self._check_field_external_names(stmt.fields, owner=stmt.name)
         template = self._env.generic_type_of(stmt.name).template if type_params else None
         module_id = self._module_id
-        scope_path = tuple(segment.name for segment in stmt.scope_path)
+        scope_path = scope_names(stmt.scope_path)
         bare_name = _bare_name(stmt.name)
         typedef = TypeDef(
             kind="record",
@@ -693,7 +694,7 @@ class _TypeBuilder:
     ) -> tuple[TypeDef, tuple[TypeDef, ...]]:
         """Build an enum's record members and its member-set declaration."""
         module_id = self._module_id
-        scope_path = tuple(segment.name for segment in stmt.scope_path)
+        scope_path = scope_names(stmt.scope_path)
         bare_name = _bare_name(stmt.name)
         member_scope_path = (*scope_path, bare_name)
         member_defs: list[TypeDef] = []
@@ -837,7 +838,7 @@ class _TypeBuilder:
         # is registered, together with the inherited base chain (see
         # `_finalize_exceptions`), not here.
         module_id = self._module_id
-        scope_path = tuple(segment.name for segment in stmt.scope_path)
+        scope_path = scope_names(stmt.scope_path)
         bare_name = _bare_name(stmt.name)
         typedef = TypeDef(
             kind="exception",
@@ -880,7 +881,7 @@ class _TypeBuilder:
             seed: tuple[tuple[str, ExternalName], ...] = ()
             if item.base is not None:
                 module_id = self._module_id
-                scope_path = tuple(segment.name for segment in item.scope_path)
+                scope_path = scope_names(item.scope_path)
                 table = self._env.type_table
                 typedef = table.named(module_id, _bare_name(item.name), scope_path)
                 base_handle = table.ancestor_defs(typedef.decl_node_id)[0].exception_handle()

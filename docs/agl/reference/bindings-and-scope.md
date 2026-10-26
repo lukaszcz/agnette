@@ -277,9 +277,10 @@ another binding, is a static error.
 A binding a host can override — a [module
 parameter](attributes.md#module-parameters) or an [engine
 setting](host-environment.md#engine-settings) — is a constant too. Reading one
-at run time yields the value the host settled on, while a position the host
-evaluates before any binding initializes, such as a `builtin var` default or a
-`@config` value, uses the declared initializer.
+at run time yields the value the host settled on, including in a root `let` or
+`var` initializer. A position folded before any binding initializes — a
+`builtin var` default, a `@config` value, or a [record field
+default](types.md#record-types) — uses the declared initializer instead.
 
 ## `builtin var` — host-backed bindings
 

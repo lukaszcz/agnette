@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from agnette.agent.spec_defaults import AgentSpecResolver
     from agnette.agl.attributes import ProgramOptionSpec
-    from agnette.agl.ir.static_keys import StaticBindingKey
+    from agnette.agl.ir.static_keys import Reachable, StaticBindingKey
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.runtime.agents import AgentFn
     from agnette.agl.runtime.externs import ExternRegistry
@@ -138,8 +138,10 @@ class ProgramDeclInfo:
     names no single parameter (an unknown argument name, or an excess
     positional argument). ``parameters`` is the program's own value-parameter
     signature, in declaration order. ``doc`` is the declaration's own ``@doc``
-    text, or ``None`` when it carries none. ``closure`` holds this program's
-    module followed by its source-reachable modules in loader order.
+    text, or ``None`` when it carries none. ``reachable`` is what the program
+    statically references and decides its module parameters. ``closure`` holds
+    this program's module followed by its source-reachable modules in loader
+    order, and serves declaration-route diagnostics only.
     """
 
     module: "ModuleId"
@@ -150,6 +152,7 @@ class ProgramDeclInfo:
     parameters: tuple[ProgramParamInfo, ...]
     is_entry: bool
     doc: str | None
+    reachable: "Reachable"
     closure: tuple["ModuleId", ...] = ()
 
     @property

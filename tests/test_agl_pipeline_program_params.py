@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from agnette.agl.pipeline import (
     ProgramDiscovery,
 )
 from agnette.agl.runtime.arguments import ProgramArguments
-from tests._agl_helpers import agl_roots
+from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots
 
 
 def _discover(source: str, tmp_path: Path) -> ProgramDiscovery:
@@ -96,7 +97,8 @@ program def main() -> unit = ()
 def test_discovery_closure_and_params_follow_source_reachability_order(tmp_path: Path) -> None:
     (tmp_path / "first.agl").write_text("@param let first: int = 1\n", encoding="utf-8")
     (tmp_path / "second.agl").write_text(
-        "import third\n@param let second: int = 2\n", encoding="utf-8"
+        "import third\n@param let second: int = 2\ndef total() -> int = second + third::third\n",
+        encoding="utf-8",
     )
     (tmp_path / "third.agl").write_text("@param let third: int = 3\n", encoding="utf-8")
 
@@ -105,7 +107,10 @@ def test_discovery_closure_and_params_follow_source_reachability_order(tmp_path:
 import first
 import second
 @param let root: int = 0
-program def main() -> unit = ()
+program def main() -> unit =
+  let _ = root
+  let _ = first::first
+  let _ = second::total()
 """,
         tmp_path,
     )
@@ -156,7 +161,8 @@ def test_discovery_marks_params_annotated_through_an_imported_path_alias(tmp_pat
 
 def test_imported_program_uses_its_own_source_reachable_closure(tmp_path: Path) -> None:
     (tmp_path / "library.agl").write_text(
-        "import dependency\n@param let library: int = 1\nprogram def run() -> unit = ()\n",
+        "import dependency\n@param let library: int = 1\n"
+        "program def run() -> unit =\n  let _ = library\n  let _ = dependency::dependency\n",
         encoding="utf-8",
     )
     (tmp_path / "dependency.agl").write_text("@param let dependency: int = 2\n", encoding="utf-8")
@@ -187,6 +193,166 @@ def test_discovery_has_empty_module_param_inventory_without_param_bindings(tmp_p
     assert tuple(discovery.params_for(discovery.programs[0])) == ()
 
 
+def _reachable_names(discovery: ProgramDiscovery) -> list[str]:
+    return [param.name for param in discovery.params_for(discovery.programs[0])]
+
+
+def test_a_param_of_an_imported_but_unreferenced_module_is_not_reachable(tmp_path: Path) -> None:
+    (tmp_path / "used.agl").write_text("@param let used: int = 1\n", encoding="utf-8")
+    (tmp_path / "unused.agl").write_text("@param let unused: int = 2\n", encoding="utf-8")
+    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+    prepared = _prepared(
+        "import used\nimport unused\nprogram def main() -> unit =\n  let _ = used::used\n", tmp_path
+    )
+    discovery = runtime.discover_programs(prepared)
+    program = discovery.programs[0]
+
+    assert _reachable_names(discovery) == ["used"]
+    assert [param.name for param in discovery.declared_params_for(program)] == ["used", "unused"]
+    preflight = _preflight(runtime, prepared, discovery)
+    assert set(preflight.executable.param_bindings) == {
+        param.key for param in discovery.params_for(program)
+    }
+
+
+def test_a_seed_for_a_declared_but_unreachable_param_is_rejected(tmp_path: Path) -> None:
+    (tmp_path / "unused.agl").write_text("@param let unused: int = 2\n", encoding="utf-8")
+    runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+    prepared = _prepared("import unused\nprogram def main() -> unit = ()\n", tmp_path)
+    discovery = runtime.discover_programs(prepared)
+    (unused,) = discovery.declared_params_for(discovery.programs[0])
+
+    preflight = _preflight(runtime, prepared, discovery, param_values={unused.key: 5})
+
+    assert isinstance(preflight, ArgumentPreflightFailure)
+
+
+@pytest.mark.parametrize(
+    ("entry", "library"),
+    [
+        pytest.param(
+            "import library::*\nprogram def main() -> unit =\n  let _ = Point(x = 1).bumped()\n",
+            "record Point\n  x: int\n\ndef Point::bumped(self) -> int = self.x + knob\n",
+            id="method-only",
+        ),
+        pytest.param(
+            "import library::*\nprogram def main() -> unit =\n  let f = read\n  let _ = f()\n",
+            "def read() -> int = knob\n",
+            id="function-value",
+        ),
+        pytest.param(
+            "import library::*\nprogram def main() -> unit =\n  let _ = read()\n",
+            "def read(n: int = knob) -> int = n\n",
+            id="function-default",
+        ),
+        pytest.param(
+            "import library\nprogram def main(n: int = library::knob) -> unit = ()\n",
+            "",
+            id="program-default",
+        ),
+        pytest.param(
+            "import library\nprogram def main() -> unit =\n  let _ = library::derived\n",
+            "let derived: int = knob\n",
+            id="static-binding-initializer",
+        ),
+        pytest.param(
+            "import library::*\nprogram def main() -> unit =\n  let _ = apply(read)\n",
+            "def read() -> int = knob\ndef apply(f: () -> int) -> int = f()\n",
+            id="function-value-argument",
+        ),
+    ],
+)
+def test_param_reached_through_a_reference_form_is_reachable(
+    tmp_path: Path, entry: str, library: str
+) -> None:
+    (tmp_path / "library.agl").write_text(
+        f"@param let knob: int = 1\n@param let other: int = 2\n{library}", encoding="utf-8"
+    )
+
+    discovery = _discover(entry, tmp_path)
+
+    assert _reachable_names(discovery) == ["knob"]
+
+
+def test_a_param_reached_through_the_prelude_is_reachable(tmp_path: Path) -> None:
+    stdlib = tmp_path / "stdlib"
+    (stdlib / "src").mkdir(parents=True)
+    (stdlib / "src" / "prelude.agl").write_text("export std/knob\n", encoding="utf-8")
+    (stdlib / "src" / "knob.agl").write_text(
+        "@param let level: int = 1\ndef tuned() -> int = level\n", encoding="utf-8"
+    )
+    prepared = PipelineDriver.prepare_program(
+        "program def main() -> unit =\n  let _ = tuned()\n",
+        roots=RootSet(roots=frozenset(), stdlib_roots=frozenset({stdlib})),
+    )
+
+    discovery = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None).discover_programs(
+        prepared
+    )
+
+    assert discovery.diagnostics == ()
+    assert _reachable_names(discovery) == ["level"]
+
+
+def test_a_param_assigned_but_never_read_is_reachable(tmp_path: Path) -> None:
+    (tmp_path / "library.agl").write_text(
+        "@param var v: int = 1\n@param var unused: int = 2\n", encoding="utf-8"
+    )
+
+    discovery = _discover(
+        "import library\nprogram def main() -> unit =\n  library::v := 3\n", tmp_path
+    )
+
+    assert _reachable_names(discovery) == ["v"]
+
+
+def test_a_param_read_by_a_builtin_parameter_default_is_reachable(tmp_path: Path) -> None:
+    """A host-backed declaration's parameter defaults are AgL expressions too."""
+    stdlib = tmp_path / "stdlib"
+    shutil.copytree(REPO_STDLIB_ROOT, stdlib)
+    agent = stdlib / "src" / "agent.agl"
+    original = agent.read_text(encoding="utf-8")
+    patched = original.replace(
+        "builtin def ask[T](\n  prompt: text,\n  agent: Agent = std/config::default-agent,\n"
+        '  format: text = "",\n  strict-json: bool = false,\n'
+        "  parse-error-retries: int = std/config::parse-error-retries,",
+        "builtin def ask[T](\n  prompt: text,\n  agent: Agent = std/config::default-agent,\n"
+        '  format: text = "",\n  strict-json: bool = false,\n'
+        "  parse-error-retries: int = probe-retries,",
+    )
+    assert patched != original
+    agent.write_text(f"{patched}\n@param let probe-retries: int = 1\n", encoding="utf-8")
+    prepared = PipelineDriver.prepare_program(
+        'program def main() -> unit =\n  let _: text = ask("hi")\n',
+        roots=RootSet(roots=frozenset(), stdlib_roots=frozenset({stdlib})),
+    )
+
+    discovery = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None).discover_programs(
+        prepared
+    )
+
+    assert discovery.diagnostics == ()
+    assert "probe-retries" in _reachable_names(discovery)
+
+
+def test_each_program_has_its_own_reachable_params(tmp_path: Path) -> None:
+    (tmp_path / "library.agl").write_text(
+        "@param let one: int = 1\n@param let two: int = 2\n", encoding="utf-8"
+    )
+
+    discovery = _discover(
+        "import library\n"
+        "program def a() -> unit =\n  let _ = library::one\n"
+        "program def b() -> unit =\n  let _ = library::two\n",
+        tmp_path,
+    )
+    first, second = discovery.programs
+
+    assert [p.name for p in discovery.params_for(first)] == ["one"]
+    assert [p.name for p in discovery.params_for(second)] == ["two"]
+    assert [p.name for p in discovery.declared_params_for(first)] == ["one", "two"]
+
+
 class TestParamSeeds:
     def test_executable_exposes_a_binding_and_decoder_for_every_inventory_key(
         self, tmp_path: Path
@@ -199,7 +365,9 @@ scope Tuning
   @param var retries: int = 2
 end Tuning
 
-program def main() -> unit = ()
+program def main() -> unit =
+  let _ = root
+  let _ = Tuning::retries
 """,
             tmp_path,
         )
@@ -224,7 +392,9 @@ program def main() -> unit = ()
             """
 @param let number: int = 1
 @param let enabled: bool = false
-program def main() -> unit = ()
+program def main() -> unit =
+  let _ = number
+  let _ = enabled
 """,
             tmp_path,
         )
@@ -247,7 +417,7 @@ program def main() -> unit = ()
         library.write_text("@param let retries: int = 1\n", encoding="utf-8")
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
-            "import library\nprogram def main() -> unit = ()\n",
+            "import library\nprogram def main() -> unit =\n  let _ = library::retries\n",
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
@@ -388,7 +558,7 @@ class TestParamValueTierMerge:
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
-            "@param let count: int = 1\nprogram def main() -> unit = ()\n", tmp_path
+            "@param let count: int = 1\nprogram def main() -> unit =\n  let _ = count\n", tmp_path
         )
         discovery = runtime.discover_programs(prepared)
         (count,) = discovery.params_for(discovery.programs[0])
@@ -403,7 +573,7 @@ class TestParamValueTierMerge:
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
-            "@param let count: int = 1\nprogram def main() -> unit = ()\n", tmp_path
+            "@param let count: int = 1\nprogram def main() -> unit =\n  let _ = count\n", tmp_path
         )
         discovery = runtime.discover_programs(prepared)
         (count,) = discovery.params_for(discovery.programs[0])
@@ -424,7 +594,8 @@ class TestParamValueTierMerge:
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
-            "@param let count: int = 1\n\n@config(count = 2)\nprogram def main() -> unit = ()\n",
+            "@param let count: int = 1\n\n@config(count = 2)\n"
+            "program def main() -> unit =\n  let _ = count\n",
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
@@ -440,7 +611,8 @@ class TestParamValueTierMerge:
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
-            "@param let count: int = 1\n\n@config(count = 2)\nprogram def main() -> unit = ()\n",
+            "@param let count: int = 1\n\n@config(count = 2)\n"
+            "program def main() -> unit =\n  let _ = count\n",
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
@@ -458,7 +630,8 @@ class TestParamValueTierMerge:
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
-            "@param let count: int = 1\n\n@config(count = 2)\nprogram def main() -> unit = ()\n",
+            "@param let count: int = 1\n\n@config(count = 2)\n"
+            "program def main() -> unit =\n  let _ = count\n",
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
@@ -476,7 +649,7 @@ class TestParamValueTierMerge:
 
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = _prepared(
-            "@param let count: int = 1\nprogram def main() -> unit = ()\n", tmp_path
+            "@param let count: int = 1\nprogram def main() -> unit =\n  let _ = count\n", tmp_path
         )
         discovery = runtime.discover_programs(prepared)
         (count,) = discovery.params_for(discovery.programs[0])

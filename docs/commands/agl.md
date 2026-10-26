@@ -248,8 +248,10 @@ config table, then the default), so it cannot deliver an empty `text`; use a `""
 
 ### Module parameters
 
-An `@param let` or `@param var` in the selected program's transitive import closure becomes a
-host option. The declaring module's external parameter name is used for a bare flag when it
+An `@param let` or `@param var` that the selected program reaches (reads or assigns, directly or
+through the functions and static bindings it uses) becomes a host option; one that is merely
+imported has no option, help entry, or configured value, and a config key naming it draws no
+warning. The declaring module's external parameter name is used for a bare flag when it
 resolves, and for dotted qualified flags in all cases: an `A/logging` parameter `verbose` can
 be `--verbose`, `--logging.verbose`, or `--A.logging.verbose`; a `scope debug` parameter is
 `--logging.debug.trace` or `--A.logging.debug.trace`. `bool`, `Option[T]`, and `Optional[T]` also have the
@@ -264,7 +266,8 @@ external name in flags and config; `@opt-env` is the fallback after CLI flags; `
 removes the entry from help and completion without disabling it.
 
 Selected-program help shows its usual options first, then one `Parameters of MODULE` section for
-each closure module. Each visible module parameter appears under its shortest resolving spelling.
+each module declaring a reached parameter. Each visible module parameter appears under its
+shortest resolving spelling.
 For module parameter precedence and configuration routes, see
 [Module parameters](../agl/reference/host-environment.md#module-parameters).
 

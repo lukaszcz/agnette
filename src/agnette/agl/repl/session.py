@@ -1397,6 +1397,7 @@ class ReplSession:
             TypeAlias,
             VarDecl,
             VariantDef,
+            scope_names,
             static_items,
         )
         from agnette.agl.typecheck.declaration_validation import (
@@ -1442,7 +1443,7 @@ class ReplSession:
         def type_name_path(
             item: RecordDef | EnumDef | ExceptionDef | TypeAlias,
         ) -> tuple[tuple[str, ...], str]:
-            return tuple(segment.name for segment in item.scope_path), item.name
+            return scope_names(item.scope_path), item.name
 
         entry_type_items = tuple(
             item
@@ -1474,7 +1475,7 @@ class ReplSession:
             "::".join((*path, name)) for path, name in unpromoted_type_name_paths
         }
         unpromoted_type_names.update(
-            "::".join((*tuple(segment.name for segment in item.scope_path), item.name, member.name))
+            "::".join((*scope_names(item.scope_path), item.name, member.name))
             for item in entry_type_items
             if isinstance(item, EnumDef) and item.node_id not in promoted_declaration_ids
             for member in item.members
@@ -1544,7 +1545,7 @@ class ReplSession:
                 item, (EnumDef, ExceptionDef, FuncDef, LetDecl, RecordDef, TypeAlias, VarDecl)
             ):
                 continue
-            item_path = tuple(segment.name for segment in item.scope_path)
+            item_path = scope_names(item.scope_path)
             if isinstance(item, (EnumDef, ExceptionDef, RecordDef, TypeAlias)):
                 item_path = (*item_path, item.name)
             required_scope_paths.update(
@@ -2306,7 +2307,7 @@ class ReplSession:
 
     def _alias_declaration(self, key: "DeclarationKey") -> "TypeAlias | None":
         """Return the alias declaration *key* identifies, if it is an alias."""
-        from agnette.agl.syntax.nodes import TypeAlias, static_type_items
+        from agnette.agl.syntax.nodes import TypeAlias, scope_names, static_type_items
 
         module_id, scope_path, name = key
         if module_id.is_entry:
@@ -2319,7 +2320,7 @@ class ReplSession:
                 for item in static_type_items(items)
                 if isinstance(item, TypeAlias)
                 and item.name == name
-                and tuple(segment.name for segment in item.scope_path) == scope_path
+                and scope_names(item.scope_path) == scope_path
             ),
             None,
         )

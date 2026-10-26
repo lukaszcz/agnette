@@ -241,7 +241,8 @@ class TestPreflightProgramConfig:
             "  @param let level: int = 1\n"
             "end Logging\n\n"
             "@config(Logging::level = 2)\n"
-            "program def main() -> unit = ()\n"
+            "program def main() -> unit =\n"
+            "  let _ = Logging::level\n"
         )
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
@@ -261,12 +262,39 @@ class TestPreflightProgramConfig:
         assert preflight.executable is not None
         assert target in preflight.executable.param_bindings
 
+    def test_a_target_the_program_does_not_reach_is_accepted_and_has_no_effect(
+        self, tmp_path: Path
+    ) -> None:
+        source = (
+            "@param let count: int = 1\n\n@config(count = 2)\nprogram def main() -> unit = ()\n"
+        )
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
+        discovery = runtime.discover_programs(prepared)
+        assert discovery.diagnostics == ()
+        (program,) = discovery.programs
+
+        preflight = runtime.preflight_arguments(
+            prepared,
+            program,
+            ProgramArguments(positional=(), named={}),
+            compiled=discovery.compiled,
+        )
+
+        assert preflight.result.ok
+        assert preflight.param_seeds == {}
+        assert preflight.executable is not None
+        assert preflight.executable.param_bindings == {}
+
     def test_a_cross_module_param_target_key_is_present_in_param_bindings(
         self, tmp_path: Path
     ) -> None:
         """Same as the scoped case, for a target declared in an imported module."""
         (tmp_path / "helper.agl").write_text("@param let value: int = 1\n")
-        source = "import helper\n\n@config(helper::value = 2)\nprogram def main() -> unit = ()\n"
+        source = (
+            "import helper\n\n@config(helper::value = 2)\n"
+            "program def main() -> unit =\n  let _ = helper::value\n"
+        )
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
         discovery = runtime.discover_programs(prepared)

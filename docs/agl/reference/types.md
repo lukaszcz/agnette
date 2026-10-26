@@ -358,7 +358,9 @@ program def main() -> unit =
 ```
 
 - **Defaults.** A field without `= <constant expr>` is required; a field with
-  one is optional, and a construction that omits it uses the default.
+  one is optional, and a construction that omits it uses the default. A
+  default that reads a [host-overridable binding](bindings-and-scope.md#constant-expressions)
+  uses its declared initializer, whatever value the host supplies.
 - **`var` fields.** A field marked `var` is a mutable reference slot:
   `receiver.field := value` updates the shared record in place, so every alias
   observes it. `var` is valid on records and enum-member records, not

@@ -28,16 +28,19 @@ from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, Protocol, cast
 if TYPE_CHECKING:
     from agnette.agl.scope.program import ResolvedModule
     from agnette.agl.typecheck.function_inference import FunctionSignatureRecord
+    from agnette.agl.typecheck.references import References
 
 from agnette.agl.constraints import ConstraintBounds
 from agnette.agl.diagnostics import AglTypeError as AglTypeError
 from agnette.agl.diagnostics import CycleAlias, Diagnostic, alias_cycle_error
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
+from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.scope.symbols import (
     BindingRef,
     ConstructorRef,
+    DeclarationKey,
     DeclarationSelection,
     ModuleResolution,
     OwnerMemberSelection,
@@ -567,11 +570,13 @@ class CheckedModule(_Record):
         declaration node id (see ``syntax.nodes.static_binding_node_id``). Lets
         a cache hit answer the program-level static-binding pre-pass
         (``typecheck/program.py``) without re-checking the module.
+    ``declaration_references`` / ``binding_references``
+        The module's static reference summaries: each non-builtin ``def`` and
+        each static ``let``/``var`` → the references it makes directly
+        (``typecheck/references.py``).
     ``program_config_targets``
         Resolved ``@config`` targets, keyed by each entry's key expression node
-        id: ``(module id, scope path, name)``, the same shape as
-        ``ir.static_keys.StaticBindingKey`` (this module may not import
-        ``ir``). Lowering reads this instead of re-resolving
+        id. Lowering reads this instead of re-resolving
         ``resolved.attributes.program_configs``' raw keys.
     """
 
@@ -597,10 +602,10 @@ class CheckedModule(_Record):
     pattern_constructor_owners: dict[int, NominalId] = field(default_factory=dict)
     method_selections: dict[int, MethodDef] = field(default_factory=dict)
     explicit_builtin_targets: dict[int, Type] = field(default_factory=dict)
-    program_config_targets: dict[int, tuple[ModuleId, tuple[str, ...], str]] = field(
-        default_factory=dict
-    )
+    program_config_targets: dict[int, StaticBindingKey] = field(default_factory=dict)
     target_contract_specs: dict[int, tuple[OutputContractSpec, ...]] = field(default_factory=dict)
+    declaration_references: dict[DeclarationKey, References] = field(default_factory=dict)
+    binding_references: dict[StaticBindingKey, References] = field(default_factory=dict)
 
     def binding_for(self, node_id: int) -> BindingRef | None:
         """Return *node_id*'s checked binding, dereferencing a pattern slot."""
@@ -1010,8 +1015,10 @@ class CheckedModuleImage(_Record):
     pattern_constructor_owners: dict[int, NominalId]
     method_selections: dict[int, MethodDef]
     explicit_builtin_targets: dict[int, Type]
-    program_config_targets: dict[int, tuple[ModuleId, tuple[str, ...], str]]
+    program_config_targets: dict[int, StaticBindingKey]
     target_contract_specs: dict[int, tuple[OutputContractSpec, ...]]
+    declaration_references: dict[DeclarationKey, References]
+    binding_references: dict[StaticBindingKey, References]
 
     def rehydrate(self, resolved_module: ResolvedModule, env: TypeEnvironment) -> CheckedModule:
         """Reconstruct an equivalent ``CheckedModule`` over a freshly prepared *env*.

@@ -301,7 +301,7 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
               verbatim; Agent: host Agent syntax; others: JSON or AgL value syntax.
               An omitted argument falls back to its @opt-env variable (empty is
               unset), the program's config table (named only), then its default.
-              `@param` bindings in the program's import closure add bare and
+              `@param` bindings reached by the program add bare and
               dotted flags (--A.logging.verbose), falling back to @opt-env, the
               program's table, the declaring module's table, then the initializer.
               A bare flag matching several bindings errors when used.

@@ -97,7 +97,9 @@ def file_args(path: Path) -> ExecArgs:
 class TestModuleParameterHostInputs:
     """Module parameters flow through the same exec host as program arguments."""
 
-    def _program(self, tmp_path: Path, *, additional_module: bool = False) -> tuple[Path, Path]:
+    def _program(
+        self, tmp_path: Path, *, additional_module: bool = False, reach_retries: bool = True
+    ) -> tuple[Path, Path]:
         modules = tmp_path / "modules"
         logging = modules / "A" / "logging.agl"
         logging.parent.mkdir(parents=True)
@@ -107,16 +109,17 @@ class TestModuleParameterHostInputs:
             encoding="utf-8",
         )
         imports = "import A/logging\n"
+        body = "  print A/logging::verbose\n"
+        if reach_retries:
+            body += "  let _ = A/logging::retries\n"
         if additional_module:
             alternate = modules / "B" / "logging.agl"
             alternate.parent.mkdir()
             alternate.write_text("@param let verbose: bool = false\n", encoding="utf-8")
             imports += "import B/logging\n"
+            body += "  let _ = B/logging::verbose\n"
         source = tmp_path / "main.agl"
-        source.write_text(
-            f"{imports}program def main() -> unit =\n  print A/logging::verbose\n",
-            encoding="utf-8",
-        )
+        source.write_text(f"{imports}program def main() -> unit =\n{body}", encoding="utf-8")
         return source, modules
 
     def _context(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -195,6 +198,94 @@ class TestModuleParameterHostInputs:
         assert cli_value.exit_code == 0
         assert cli_value.output == "false\n"
 
+    def test_an_unreferenced_module_parameter_is_absent_from_flags_and_help(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        source, modules = self._program(tmp_path, reach_retries=False)
+        self._context(tmp_path, monkeypatch)
+
+        assert print_exec_help(
+            tokens=["--help"], file=str(source), code=None, module_paths=[str(modules)]
+        )
+        output = capsys.readouterr().out
+        assert "--verbose" in output
+        assert "logging.retries" not in output
+
+        with pytest.raises(exec_engine.RegisteredProgramUsageError):
+            exec_engine.run(
+                replace(
+                    file_args(source),
+                    module_paths=[str(modules)],
+                    argument_tokens=["--A.logging.retries", "2"],
+                )
+            )
+
+    def test_a_parameter_reached_only_through_a_method_is_a_flag_with_effect(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        modules = tmp_path / "modules"
+        modules.mkdir()
+        (modules / "tuning.agl").write_text(
+            "@param let step: int = 1\n"
+            "record Counter\n  n: int\n\n"
+            "def Counter::bumped(self) -> int = self.n + step\n",
+            encoding="utf-8",
+        )
+        source = tmp_path / "main.agl"
+        source.write_text(
+            "import tuning::*\nprogram def main() -> unit =\n  print Counter(n = 10).bumped()\n",
+            encoding="utf-8",
+        )
+        self._context(tmp_path, monkeypatch)
+
+        exec_engine.run(
+            replace(
+                file_args(source),
+                module_paths=[str(modules)],
+                argument_tokens=["--tuning.step", "5"],
+            )
+        )
+
+        assert capsys.readouterr().out == "15\n"
+
+    def test_a_standard_library_parameter_reached_through_a_function_is_a_flag_with_effect(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        source = tmp_path / "main.agl"
+        source.write_text(
+            "import std/log\n"
+            'program def main() -> unit =\n  std/log::print(std/log::Debug, "hi")\n',
+            encoding="utf-8",
+        )
+        self._context(tmp_path, monkeypatch)
+
+        exec_engine.run(replace(file_args(source), argument_tokens=[]))
+        assert capsys.readouterr().out == ""
+
+        exec_engine.run(replace(file_args(source), argument_tokens=["--log-level", "debug"]))
+        assert capsys.readouterr().out == "hi\n"
+
+    def test_a_config_key_for_an_unreferenced_declared_parameter_draws_no_warning(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        source, modules = self._program(tmp_path, reach_retries=False)
+        home = self._context(tmp_path, monkeypatch)
+        (home / ".agm" / "config.toml").write_text(
+            "[A.logging]\nretries = 5\n\n[main.main]\nretries = 6\n", encoding="utf-8"
+        )
+
+        exec_engine.run(replace(file_args(source), module_paths=[str(modules)], argument_tokens=[]))
+
+        captured = capsys.readouterr()
+        assert captured.out == "false\n"
+        assert captured.err == ""
+
     def test_module_parameter_ambiguous_bare_flag_is_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -264,7 +355,8 @@ class TestModuleParameterHostInputs:
     ) -> None:
         source = tmp_path / "p.agl"
         source.write_text(
-            "@param let level: int = 1\nprogram def main(name: text) -> unit = print name\n",
+            "@param let level: int = 1\n"
+            "program def main(name: text) -> unit =\n  let _ = level\n  print name\n",
             encoding="utf-8",
         )
         home = tmp_path / "home"

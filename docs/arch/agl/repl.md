@@ -9,7 +9,7 @@
 - **File-mode equivalence.** An entry resolves in source order exactly as a file does; verdicts never depend on how source is split into entries.
 - **Supersession.** A redeclaration at the same path is a fresh declaration identity; retained values, aliases, and methods keep the shape they were checked against. Imports and `use`s replace retained ones as scope decides.
 - **Failure.** A runtime-failed entry promotes only what its initializer reached and leaves the prior generation intact. `check_only` entries check without evaluating or promoting.
-- **State.** Each entry runs in a fresh interpreter; engine-setting writes and seeded module parameters persist as ordinary state. Companion `runtime.state` is one session-owned bag ([execution/ffi.md](execution/ffi.md)). `:reset` clears everything, closing agent sessions and that bag.
+- **State.** Each entry runs in a fresh interpreter; engine-setting writes and seeded module parameters persist as ordinary state. With no selected program to reach them from, every loaded module's parameters are seeded. Companion `runtime.state` is one session-owned bag ([execution/ffi.md](execution/ffi.md)). `:reset` clears everything, closing agent sessions and that bag.
 
 ## Retained Library Image
 

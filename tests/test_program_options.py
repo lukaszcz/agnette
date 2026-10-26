@@ -52,7 +52,7 @@ from agnette.agm.cli_support.program_options import (
     protect_host_option_values,
     split_exec_tail,
 )
-from tests._agl_helpers import next_decl_id
+from tests._agl_helpers import EMPTY_REACHABLE, next_decl_id
 from tests._help_helpers import assert_lists_execution_options, execution_options_is_last
 
 _SPAN = SourceSpan(1, 1, 1, 2, 0, 1)
@@ -121,6 +121,7 @@ def _program(*params: ProgramParamInfo, doc: str | None = None) -> ProgramDeclIn
         parameters=params,
         is_entry=True,
         doc=doc,
+        reachable=EMPTY_REACHABLE,
     )
 
 
@@ -1581,6 +1582,7 @@ class TestModuleParameterOptions:
             parameters=(),
             is_entry=True,
             doc=None,
+            reachable=EMPTY_REACHABLE,
             closure=(module, ModuleId(("A", "logging"))),
         )
 
@@ -1782,6 +1784,7 @@ class TestModuleParameterOptions:
             parameters=(signature,),
             is_entry=program.is_entry,
             doc=program.doc,
+            reachable=program.reachable,
             closure=program.closure,
         )
         command = _command_with_module_params(program, own)
@@ -1994,6 +1997,7 @@ class TestModuleParameterOptions:
             parameters=(signature,),
             is_entry=program.is_entry,
             doc=program.doc,
+            reachable=program.reachable,
             closure=program.closure,
         )
         command = _command_with_module_params(program, module_param)
