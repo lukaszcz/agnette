@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.diagnostics import AglError
+from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.repl.session import ReplSession, SessionOpenError
 from agnette.agl.warning_policy import WarningPolicy
 
@@ -111,15 +111,20 @@ def test_a_checked_entry_clears_a_remembered_open_failure(
 def test_type_of_reports_a_module_doc_like_an_entry() -> None:
     session = _session()
 
-    shown, warnings = session.type_report('@!doc("x")\n1')
+    warnings: list[Diagnostic] = []
+    shown = session.type_of('@!doc("x")\n1', warnings=warnings)
 
     assert shown == session.type_of("1")
     assert [w.warning_name for w in warnings] == [UNUSED_MODULE_DOC]
-    assert session.type_report("1")[1] == ()
+    plain: list[Diagnostic] = []
+    session.type_of("1", warnings=plain)
+    assert plain == []
 
 
 def test_type_of_honours_an_allow_and_a_deny_policy() -> None:
-    assert _session().type_report(f'@!allow("{UNUSED_MODULE_DOC}")\n@!doc("x")\n1')[1] == ()
+    warnings: list[Diagnostic] = []
+    _session().type_of(f'@!allow("{UNUSED_MODULE_DOC}")\n@!doc("x")\n1', warnings=warnings)
+    assert warnings == []
 
     with pytest.raises(AglError) as denied:
         _session(deny=True).type_of('@!doc("x")\n1')

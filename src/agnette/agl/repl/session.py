@@ -1941,15 +1941,11 @@ class ReplSession:
     # type_of — type without evaluation
     # ------------------------------------------------------------------
 
-    def type_of(self, text: str) -> str:
-        """Return the display type of *text*; see :meth:`type_report`."""
-        return self.type_report(text)[0]
-
-    def type_report(self, text: str) -> tuple[str, tuple[Diagnostic, ...]]:
-        """Return the canonical display type of *text* as an expression entry, and its warnings.
+    def type_of(self, text: str, *, warnings: list[Diagnostic] | None = None) -> str:
+        """Return the canonical display type of *text* as an expression entry.
 
         A module-level attribute is governed like an entry's: ``unused-module-doc`` is
-        reported, or raised as a :class:`DiagnosedError` when the policy denies it.
+        appended to *warnings*, or raised as a :class:`DiagnosedError` when the policy denies it.
 
         Resolves against the session scope, typechecks against the session
         environment, and match-compiles before reporting the type. It never
@@ -2003,7 +1999,9 @@ class ReplSession:
             raise DiagnosedError(outcome.denied)
         self._open_failure = ()
         shown = format_type_for_repl(typ, checked.type_env.type_table, self._base_spelling)
-        return shown, outcome.reported
+        if warnings is not None:
+            warnings.extend(outcome.reported)
+        return shown
 
     # ------------------------------------------------------------------
     # Introspection

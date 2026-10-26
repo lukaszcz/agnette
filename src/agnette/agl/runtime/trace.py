@@ -28,9 +28,6 @@ from agnette.util.unicode import surrogate_index
 if TYPE_CHECKING:
     from agnette.agl.ir.program import SourceFile
 
-#: Maps a record's ``(file, line, col)`` to the location written to the trace.
-type TracePlacer = Callable[[str | None, int, int | None], tuple[str, int, int | None]]
-
 #: Envelope keys :meth:`TraceStore.companion_record` writes itself; a
 #: companion's own payload may never contribute one, so its shape can never
 #: collide with the envelope it is embedded in.
@@ -96,14 +93,17 @@ def _sanitize_mapping(payload: "Mapping[str, object]", active: frozenset[int]) -
 
 
 class TraceStore:
-    """Write structured records for one AgL run without affecting its semantics."""
+    """Write structured records for one AgL run without affecting its semantics.
+
+    *place* maps a record's ``(file, line, col)`` to the location written to the trace.
+    """
 
     def __init__(
         self,
         path: Path | None,
         *,
         sources: "Mapping[SourceId, SourceFile] | None" = None,
-        place: "TracePlacer | None" = None,
+        place: "Callable[[str | None, int, int | None], tuple[str, int, int | None]] | None" = None,
     ) -> None:
         self._path = path
         self._place = place
