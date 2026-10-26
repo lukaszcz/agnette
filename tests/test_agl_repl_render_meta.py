@@ -1215,6 +1215,17 @@ class TestInfo:
         assert bam is not None and "exception Bam extends Boom\n    n: int" in bam
         assert "msg" not in bam
 
+    def test_an_exception_extending_an_imported_base_shows_a_writable_base(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("import std/fs::{FsError}").ok
+        assert session.eval_entry("exception Mine extends FsError\n  code: int").ok
+
+        shown = session.info_of("Mine")
+
+        assert shown is not None
+        declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
+        assert session.eval_entry(declaration.replace("Mine", "Again")).ok
+
     def test_the_root_exception_type_entry_has_no_base(self) -> None:
         shown = render_mod.render_entry_result(_open_session().eval_entry("Exception"), echo=True)
 

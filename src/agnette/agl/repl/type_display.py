@@ -76,9 +76,8 @@ def _format_exception_type_with_name(typ: ExceptionType, name: str, table: TypeT
     typedef = table.exception_def(typ)
     header = f"exception {name}"
     if typedef.base is not None:
-        base = table.defs[typedef.base]
-        base_type = ExceptionType(base.name, base.module_id, base.scope_path, typedef.base)
-        header += f" extends {base_type!r}"
+        # ``extends`` takes a bare name, as the declaration spells it.
+        header += f" extends {table.defs[typedef.base].name}"
     lines = [header]
     lines.extend(f"  {field_name}: {field_type!r}" for field_name, field_type in typedef.fields)
     return "\n".join(lines)
