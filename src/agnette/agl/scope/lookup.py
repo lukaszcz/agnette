@@ -431,20 +431,26 @@ def lookup_bare_hidden(
     *,
     span: SourceSpan,
     contributions: bool = True,
+    constructors: bool = False,
 ) -> HiddenMemberError | None:
     """Return bare *name* of *kind*, as hidden when only ``hiding`` lost it.
 
     Reached, at some step, are declarations, scopes or types every way reaching
     them removes and, at no step, one that is kept: the verdict a qualified
     spelling gets in that case (:meth:`_Walk.bare_removed`). Meant for a
-    spelling :func:`lookup_bare` found nothing for.
+    spelling :func:`lookup_bare` found nothing for. With *constructors*, only the
+    constructors count, as in a pattern.
     """
     steps = tuple(
         _step(sources, step, injects=kind is LookupKind.VALUE, contributions=contributions)
         for step in lookup_steps(scope_path)
     )
     walk = _Walk(sources, scope_path, steps, (), None, (name,), span)
-    return HiddenMemberError("", name, span=span) if walk.bare_removed(kind) else None
+    return (
+        HiddenMemberError("", name, span=span)
+        if walk.bare_removed(kind, constructors=constructors)
+        else None
+    )
 
 
 def lookup_constructors(
@@ -958,18 +964,25 @@ class _Walk:
             removed = removed or dropped
         return removed if keep_removed else ()
 
-    def bare_removed(self, kind: LookupKind) -> bool:
+    def bare_removed(self, kind: LookupKind, *, constructors: bool = False) -> bool:
         """Whether the bare name reaches declarations of *kind*, scopes or types, all removed.
 
-        Reached at some step and kept at none.
+        Reached at some step and kept at none. With *constructors*, only
+        constructors are declarations, and scopes and types are none.
         """
         sources = self._sources
         any_removed = False
         for step in self._steps:
             reading = self._reading(step, kind, injects=True, owners_within=len(self._names))[0]
             kept, dropped = self._unremoved(reading)
-            origins = step.origins((*step.path, *self._names))
-            if kept.candidates or not all(removed(o.hiding, o.key, sources) for o in origins):
+            kept_candidates = kept.candidates
+            origins: frozenset[Origin] = frozenset()
+            if constructors:
+                kept_candidates = tuple(c for c in kept_candidates if c.target.constructor)
+                dropped = tuple(c for c in dropped if c.target.constructor)
+            else:
+                origins = step.origins((*step.path, *self._names))
+            if kept_candidates or not all(removed(o.hiding, o.key, sources) for o in origins):
                 return False
             any_removed = any_removed or bool(dropped or origins)
         return any_removed

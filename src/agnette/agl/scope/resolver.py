@@ -3052,10 +3052,15 @@ class _Resolver(ModuleSources):
         return found
 
     def _bare_hidden(
-        self, name: str, kind: LookupKind, span: SourceSpan
+        self, name: str, kind: LookupKind, span: SourceSpan, *, constructors: bool = False
     ) -> HiddenMemberError | None:
-        """Return bare *name* of *kind*, selecting nothing, as hidden if ``hiding`` removed it."""
-        return lookup_bare_hidden(self, name, self._named_scope_path(), kind, span=span)
+        """Return bare *name* of *kind*, selecting nothing, as hidden if ``hiding`` removed it.
+
+        With *constructors*, only a removed constructor counts.
+        """
+        return lookup_bare_hidden(
+            self, name, self._named_scope_path(), kind, span=span, constructors=constructors
+        )
 
     def _bare_type_misfit(self, name: str, span: SourceSpan) -> AglError | None:
         """Return why bare *name*, naming no value, spells a visible type -- or several."""
@@ -3444,10 +3449,13 @@ class _Resolver(ModuleSources):
         return candidates
 
     def _no_visible_constructor(self, name: str, message: str, span: SourceSpan) -> AglError:
-        """Why bare pattern name *name*, at *span*, names no constructor: hidden, else *message*."""
-        return self._bare_hidden(name, LookupKind.VALUE, span) or NoVisibleConstructorError(
-            message, span=span
-        )
+        """Why bare pattern name *name*, at *span*, names no constructor: hidden, else *message*.
+
+        Hidden only when ``hiding`` removed a constructor of that name.
+        """
+        return self._bare_hidden(
+            name, LookupKind.VALUE, span, constructors=True
+        ) or NoVisibleConstructorError(message, span=span)
 
     def _bind_pattern_vars(
         self, pattern: Pattern, scope: ScopeNode, match_site_node_id: int

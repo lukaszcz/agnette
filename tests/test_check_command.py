@@ -290,6 +290,28 @@ class TestCheckCommand:
         captured = capsys.readouterr()
         assert "broken.agl" in captured.err
 
+    @pytest.mark.parametrize(("hidden", "reported"), [("g", False), ("Rec", True)])
+    def test_hiding_a_name_is_reported_in_a_pattern_only_for_a_constructor(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        hidden: str,
+        reported: bool,
+    ) -> None:
+        (tmp_path / "hid.agl").write_text("record Rec\n  a: int\n\ndef g() -> int = 2\n")
+        entry = tmp_path / "entry.agl"
+        entry.write_text(
+            f"import hid::* hiding {hidden}\n"
+            "def h(c: int) -> int =\n"
+            f"  case c of\n    | {hidden} => 1\n    | _ => 2\n"
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            check_command.run(CheckArgs(files=[str(entry)]))
+        assert exc_info.value.code == 1
+
+        assert ("hidden" in capsys.readouterr().err) is reported
+
     def test_mixed_results_across_several_files_all_reported_exit_1(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
