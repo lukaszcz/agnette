@@ -1,4 +1,4 @@
-"""A REPL entry's source is lexed once, whichever readings (program, bare type) it is given."""
+"""A REPL entry's source is lexed and parsed once from prompt to result."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from lark import Tree
 from lark.lexer import Token
 
-from agnette.agl.lexer import lex_source
+from agnette.agl.lexer import LexedSource, lex_source
 from agnette.agl.lexer.scanner import _Scanner
+from agnette.agl.parser import parser as parser_module
 from agnette.agl.repl.loop import has_runnable_statements, is_incomplete
 from agnette.agl.repl.plain_console import run_plain_console
 from agnette.agl.repl.session import ReplSession
@@ -37,6 +39,25 @@ class _Scans:
             return real(scanner)
 
         monkeypatch.setattr(_Scanner, "scan", counting)
+
+
+class _Parses:
+    """Counts the program parser's parses while patched in."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.count = 0
+        real = parser_module._PARSER.parse
+
+        def counting(text: str) -> Tree:
+            self.count += 1
+            return real(text)
+
+        monkeypatch.setattr(parser_module._PARSER, "parse", counting)
+
+
+@pytest.fixture
+def parses(monkeypatch: pytest.MonkeyPatch) -> _Parses:
+    return _Parses(monkeypatch)
 
 
 @pytest.fixture
@@ -162,3 +183,85 @@ def test_lexing_the_same_text_again_is_a_new_pass(scans: _Scans) -> None:
     lex_source("1 + 2")
 
     assert scans.count == 2
+
+
+@pytest.mark.parametrize("text", ["1 + 2", "let a = 1", "let = 5", "int", "1 / 0"])
+def test_the_plain_console_parses_an_entry_once_from_prompt_to_result(
+    text: str, parses: _Parses
+) -> None:
+    session = _session()
+    parses.count = 0
+
+    run_plain_console(session, stdin=io.StringIO(text + "\n"), stdout=io.StringIO())
+
+    assert parses.count == 1
+
+
+@pytest.mark.parametrize("text", ["1 + 2", "let a = 1", "let = 5", "int"])
+def test_the_rich_console_parses_an_entry_once_from_prompt_to_result(
+    text: str, parses: _Parses
+) -> None:
+    def parsed(keystrokes: str) -> int:
+        parses.count = 0
+        drive(keystrokes, session=ReplSession(default_stdlib=False))
+        return parses.count
+
+    # Opening the session parses its own bootstrap source.
+    assert parsed(text + "\r\x04") - parsed("\x04") == 1
+
+
+@pytest.mark.parametrize("text", ["def f() -> int =\n\t1\n", "let = 5", "let a = 1\n\tbad"])
+def test_an_entry_classified_first_reports_what_an_unclassified_one_does(text: str) -> None:
+    def report(lexed: LexedSource | None) -> tuple[object, ...]:
+        result = _session().eval_entry(text, lexed=lexed)
+        return (
+            result.ok,
+            [d.message for d in result.diagnostics],
+            [w.message for w in result.warnings],
+        )
+
+    classified = lex_source(text)
+    is_incomplete(classified)
+
+    assert report(classified) == report(None)
+
+
+def test_a_loaded_file_is_lexed_and_parsed_once(
+    tmp_path: Path, scans: _Scans, parses: _Parses
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text("let a = 1\nlet b = 2\ndef f() -> int = a + b\nf()\n")
+    scans.count = parses.count = 0
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True] * 4
+    assert (scans.count, parses.count) == (1, 1)
+
+
+def test_a_loaded_entry_reports_file_positions_after_other_entries_on_its_line(
+    tmp_path: Path,
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text("let a = 1; let b: text = 1\nlet c = 2\n")
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True, False]
+    (diagnostic,) = results[1].diagnostics
+    assert (diagnostic.line, diagnostic.column) == (1, 12)
+    assert diagnostic.source_label == str(path)
+
+
+def test_a_loaded_entry_with_a_tab_warns_at_its_file_position(tmp_path: Path) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text("let a = 1\ndef f() -> int =\n\ta\nf()\n")
+
+    results = session.load_file(path)
+
+    assert all(r.ok for r in results)
+    (warning,) = results[1].warnings
+    assert (warning.line, warning.column) == (3, 1)

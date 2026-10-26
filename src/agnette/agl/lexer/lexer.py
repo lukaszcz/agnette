@@ -32,11 +32,12 @@ import contextvars
 import importlib.resources
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import cache
 from typing import Iterator, TypeVar
 
-from lark import Lark
+from lark import Lark, Tree
+from lark.exceptions import UnexpectedToken
 from lark.lexer import Lexer, LexerState, Token
 
 from agnette.agl.diagnostics import Diagnostic
@@ -61,7 +62,7 @@ from agnette.agl.lexer.operators import (
     promotes_as_operator,
     scanner_token_type,
 )
-from agnette.agl.lexer.positions import token_span
+from agnette.agl.lexer.positions import Rebase, token_span
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
     ARROW,
@@ -215,6 +216,10 @@ class LexedSource:
     ``tokens`` is empty when the pass ended in ``failure``; the advisories are
     then those found before it. TAB advisories are unlabeled (see :func:`tab_warning_labels`).
     ``failure`` is never raised itself; each use raises ``failure.renewed()``.
+
+    ``parses`` records what each grammar start rule made of the tokens, as the first
+    parse within a replay found it (a tree or the parser's rejection): a later parse of
+    the same text from that start reuses it (:func:`replayed_parse`).
     """
 
     text: str
@@ -222,6 +227,9 @@ class LexedSource:
     spaced_qualifiers: tuple[SpacedQualifier, ...]
     tab_warnings: tuple[Diagnostic, ...]
     failure: LexError | None = None
+    parses: dict[str, Tree | UnexpectedToken] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
 
 _LEX_REPLAY: contextvars.ContextVar[LexedSource | None] = contextvars.ContextVar(
@@ -265,6 +273,64 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
     """
     with ScopedVar(_LEX_REPLAY, lexed):
         yield
+
+
+def lexed_slice(lexed: LexedSource, start: int, end: int) -> LexedSource | None:
+    """Return the pass over ``lexed.text[start:end]``, read off *lexed* instead of scanning it.
+
+    ``None`` when *lexed* failed or recorded advisories on the slice's lines, whose messages
+    and positions are relative to the text they were scanned in: the slice is then scanned.
+    """
+    if lexed.failure is not None:
+        return None
+    text = lexed.text
+    first_line, last_line = text.count("\n", 0, start) + 1, text.count("\n", 0, end) + 1
+    if any(first_line <= w.line <= last_line for w in lexed.tab_warnings) or any(
+        start <= q.run_start_offset < end for q in lexed.spaced_qualifiers
+    ):
+        return None
+    rebase = Rebase(text, start)
+    tokens = tuple(
+        rebase.token(token)
+        for token in lexed.tokens
+        if token.start_pos is not None
+        and token.end_pos is not None
+        and start <= token.start_pos
+        and token.end_pos <= end
+    )
+    return LexedSource(text[start:end], tokens, (), ())
+
+
+def replayed_parse(start: str, text: str, parse: Callable[[str], Tree]) -> Tree:
+    """Return *parse*'s tree of *text* from grammar start *start*, reusing a replayed reading.
+
+    Within :func:`lex_replay` of *text*, only the first parse from *start* runs; a later one
+    feeds the active sinks as that parse's lexing did and returns, or raises, what it found.
+    *parse* runs the parser over *text*.
+    """
+    replay = _LEX_REPLAY.get()
+    if replay is None or replay.text != text:
+        return parse(text)
+    found = replay.parses.get(start)
+    if found is None:
+        try:
+            found = parse(text)
+        except UnexpectedToken as exc:
+            found = replay.parses[start] = exc
+            raise
+        replay.parses[start] = found
+        return found
+    _feed_advisories(replay)
+    _deposit(_TOKEN_SINK, replay.tokens)
+    if isinstance(found, UnexpectedToken):
+        raise found
+    return found
+
+
+def _feed_advisories(lexed: LexedSource) -> None:
+    """Deposit the advisories of *lexed* to the active sinks, whether or not the pass failed."""
+    _deposit(_SPACED_QUALIFIER_SINK, lexed.spaced_qualifiers)
+    _deposit(_TAB_WARNING_SINK, lexed.tab_warnings)
 
 
 def _remap(tokens: Iterator[Token]) -> Iterator[Token]:
@@ -1082,8 +1148,7 @@ class AglLexer(Lexer):
         replay = _LEX_REPLAY.get()
         lexed = replay if replay is not None and replay.text == text else lex_source(text)
         # Advisories reach the sinks even when the pass failed or the parse later does.
-        _deposit(_SPACED_QUALIFIER_SINK, lexed.spaced_qualifiers)
-        _deposit(_TAB_WARNING_SINK, lexed.tab_warnings)
+        _feed_advisories(lexed)
         if lexed.failure is not None:
             raise lexed.failure.renewed()
         _deposit(_TOKEN_SINK, lexed.tokens)

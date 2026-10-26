@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from agnette.agl.parser.errors import AglSyntaxError
 from agnette.agl.parser.parser import (
+    entry_slices,
     has_open_verbatim_block,
     has_unterminated_triple_quoted_string,
     is_incomplete_source,
@@ -25,6 +26,7 @@ from agnette.agl.parser.parser import (
 
 __all__ = [
     "AglSyntaxError",
+    "entry_slices",
     "has_open_verbatim_block",
     "has_unterminated_triple_quoted_string",
     "is_incomplete_source",

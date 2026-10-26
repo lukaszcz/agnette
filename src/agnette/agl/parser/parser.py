@@ -16,17 +16,21 @@ and ``LexError``s are wrapped into ``AglSyntaxError``.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import replace as dc_replace
 from typing import NoReturn, cast
 
 from lark import Lark, Tree
 from lark.exceptions import UnexpectedToken, VisitError
+from lark.lexer import Token
 
 import agnette.agl.syntax as syntax
 from agnette.agl.lexer import (
     LexedSource,
     lex_replay,
+    lexed_slice,
     lexed_source,
+    replayed_parse,
     tab_warning_labels,
     token_collector,
 )
@@ -36,7 +40,7 @@ from agnette.agl.lexer.errors import (
     UnterminatedTripleQuotedStringError,
 )
 from agnette.agl.lexer.lexer import build_parser
-from agnette.agl.lexer.positions import token_span
+from agnette.agl.lexer.positions import Rebase, token_span
 from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import AstBuilder
@@ -52,7 +56,9 @@ def _reraise_stamped(err: AglSyntaxError, source: SourceId | None) -> NoReturn:
 
 
 # Module-level parser instance — built once, reused for every parse call.
-_PARSER: Lark = build_parser()
+_PROGRAM_START = "start"
+_TYPE_START = "type_entry"
+_PARSER: Lark = build_parser(_PROGRAM_START)
 
 _TYPED_CALL_WITHOUT_CALL_RE = re.compile(r"::\s*\[.*\]\s*$", re.DOTALL)
 
@@ -66,7 +72,7 @@ def _type_parser() -> Lark:
     """Return the lazily-built ``type_entry``-rooted Lark instance."""
     global _TYPE_PARSER
     if _TYPE_PARSER is None:
-        _TYPE_PARSER = build_parser("type_entry")
+        _TYPE_PARSER = build_parser(_TYPE_START)
     return _TYPE_PARSER
 
 
@@ -105,7 +111,16 @@ def has_open_verbatim_block(source: str | LexedSource) -> bool:
     return False
 
 
-def _parse_tree(parser: Lark, text: str, *, source: SourceId | None) -> Tree:
+def _lalr_parse(parser: Lark, start: str, text: str) -> Tree:
+    """Parse *text* from grammar start *start* with *parser*, raising Lark's own failures.
+
+    Within a replay of *text* the first parse is the only one that runs
+    (:func:`~agnette.agl.lexer.replayed_parse`).
+    """
+    return replayed_parse(start, text, parser.parse)
+
+
+def _parse_tree(parser: Lark, start: str, text: str, *, source: SourceId | None) -> Tree:
     """Parse *text* with *parser*, mapping any lex/parse error to ``AglSyntaxError``.
 
     Shared by the program parser and the ``type_expr`` parser so the error
@@ -122,7 +137,7 @@ def _parse_tree(parser: Lark, text: str, *, source: SourceId | None) -> Tree:
         tab_warning_labels(None if source is None else source.label),
     ):
         try:
-            return parser.parse(text)
+            return _lalr_parse(parser, start, text)
         except LexError as exc:
             _reraise_stamped(AglSyntaxError(str(exc), span=exc.span), source)
         except UnexpectedToken as exc:
@@ -175,7 +190,7 @@ def _parse_to_program(
     ``AglSyntaxError`` raised during parsing.
     """
     with frontend_recursion_boundary():
-        tree = _parse_tree(_PARSER, text, source=source)
+        tree = _parse_tree(_PARSER, _PROGRAM_START, text, source=source)
         result, next_id = _transform_tree(
             tree, start_id=start_id, source=source, allow_late_uses=allow_late_uses
         )
@@ -211,13 +226,12 @@ def is_incomplete_source(source: str | LexedSource) -> bool:
       genuine error instead of being trapped in a continuation prompt.
     - Any other failure (a wrong token mid-line such as ``let = 5``) → complete.
     """
-    from lark.lexer import Token
 
     lexed = lexed_source(source)
     text = lexed.text
     try:
         with lex_replay(lexed):
-            result = _ends_unfinished(_PARSER.parse(text))
+            result = _ends_unfinished(_lalr_parse(_PARSER, _PROGRAM_START, text))
     except UnexpectedToken as exc:
         # The LALR parser reports a premature end of input as an unexpected
         # ``$END`` token (it never raises ``UnexpectedEOF``), so this single
@@ -350,6 +364,78 @@ def parse_program_seeded(
     return _parse_to_program(text, start_id=start_id, source=source)
 
 
+def _rebased_tree(tree: Tree, rebase: Rebase) -> Tree:
+    """Return a copy of *tree* with every position rebased."""
+    children = [
+        _rebased_tree(child, rebase)
+        if isinstance(child, Tree)
+        else rebase.token(child)
+        if isinstance(child, Token)
+        else child
+        for child in tree.children
+    ]
+    copy = Tree(tree.data, children)
+    meta = tree.meta
+    if not meta.empty:
+        _set_span(
+            copy,
+            (meta.start_pos, meta.line, meta.column),
+            (meta.end_pos, meta.end_line, meta.end_column),
+            rebase,
+        )
+    return copy
+
+
+def _set_span(
+    tree: Tree, start: tuple[int, int, int], end: tuple[int, int, int], rebase: Rebase
+) -> None:
+    """Give *tree* the span from *start* to *end*, each ``(offset, line, column)``, rebased."""
+    meta = tree.meta
+    meta.empty = False
+    meta.start_pos = rebase.offset(start[0])
+    meta.line, meta.column = rebase.line(start[1]), rebase.column(start[1], start[2])
+    meta.end_pos = rebase.offset(end[0])
+    meta.end_line, meta.end_column = rebase.line(end[1]), rebase.column(end[1], end[2])
+
+
+def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[LexedSource | None]:
+    """Read each of *ranges* of ``lexed.text``, a module's top-level entries, off its program parse.
+
+    The module items are *ranges* in order, the first also holding the module's leading
+    inner attributes. Each slice is the pass over its entry's text with the parse of that
+    text already made, so reading the entry scans and parses nothing. ``None`` for an entry
+    that cannot be read off (:func:`~agnette.agl.lexer.lexed_slice`), or for all of them when
+    *lexed* holds no program parse of as many items.
+    """
+    whole = lexed.parses.get(_PROGRAM_START)
+    if not isinstance(whole, Tree):
+        return [None] * len(ranges)
+    children = [c for c in cast(Tree, whole.children[0]).children if not isinstance(c, Token)]
+    attributes = [c for c in children if c.data == "inner_attribute"]
+    items = [c for c in children if c.data != "inner_attribute"]
+    if len(items) != len(ranges):
+        return [None] * len(ranges)
+    slices: list[LexedSource | None] = []
+    for index, ((start, end), item) in enumerate(zip(ranges, items)):
+        sliced = lexed_slice(lexed, start, end)
+        if sliced is not None:
+            rebase = Rebase(lexed.text, start)
+            entry = [*attributes, item] if index == 0 else [item]
+            block = Tree("module_block", [_rebased_tree(c, rebase) for c in entry])
+            root = Tree("start", [block])
+            first, last = entry[0].meta, entry[-1].meta
+            for node in (block, root):
+                _set_span(
+                    node,
+                    (first.start_pos, first.line, first.column),
+                    (last.end_pos, last.end_line, last.end_column),
+                    rebase,
+                )
+            sliced.parses[_PROGRAM_START] = root
+        slices.append(sliced)
+    return slices
+
+
 def parse_type_entry_seeded(
     text: str,
     *,
@@ -366,7 +452,7 @@ def parse_type_entry_seeded(
     can keep assigning ids past the result.
     """
     with frontend_recursion_boundary():
-        tree = _parse_tree(_type_parser(), text, source=source)
+        tree = _parse_tree(_type_parser(), _TYPE_START, text, source=source)
         result, next_id = _transform_tree(tree, start_id=start_id, source=source)
     attributes, type_expr = cast(tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr], result)
     return attributes, type_expr, next_id

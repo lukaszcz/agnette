@@ -2613,7 +2613,7 @@ class ReplSession:
         items to run and yields an empty list (a benign no-op).
         """
         from agnette.agl.lexer import lex_replay, lex_source, tab_warning_collector
-        from agnette.agl.parser import parse_repl_transcript
+        from agnette.agl.parser import entry_slices, parse_repl_transcript
         from agnette.agl.scope.attributes import module_allowed_names
         from agnette.core.fs import read_text
         from agnette.util.text import normalize_newlines
@@ -2673,14 +2673,17 @@ class ReplSession:
         spans = [(item.span.start_offset, item.span.end_offset) for item in program.body.items]
         if not spans:
             spans = [(min(leading), max(a.span.end_offset for a in program.attributes))]
+        spans[0] = (min([spans[0][0], *leading]), spans[0][1])
+        # Each entry is read off the file's one lex and parse, not scanned and parsed again.
+        readings = entry_slices(lexed, spans)
         results: list[EntryResult] = []
         self._inherited_allows = module_allowed_names(program)
         try:
-            for index, (start, end) in enumerate(spans):
-                if index == 0:
-                    start = min([start, *leading])
+            for (start, end), reading in zip(spans, readings):
                 result = self.eval_entry(
-                    normalized[start:end], origin=_origin_at(label, normalized, start)
+                    normalized[start:end],
+                    origin=_origin_at(label, normalized, start),
+                    lexed=reading,
                 )
                 results.append(result)
                 if not result.ok:
