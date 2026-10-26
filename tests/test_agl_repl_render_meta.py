@@ -1192,6 +1192,13 @@ class TestInfo:
         assert bam is not None and "exception Bam extends Boom\n    n: int" in bam
         assert "msg" not in bam
 
+    def test_the_root_exception_type_entry_has_no_base(self) -> None:
+        shown = render_mod.render_entry_result(_open_session().eval_entry("Exception"), echo=True)
+
+        assert shown is not None
+        assert "extends" not in shown
+        assert "message" in shown
+
     def test_an_exception_type_entry_expands_like_a_record(self) -> None:
         session = _open_session()
         assert session.eval_entry("exception Boom\n  msg: text").ok
@@ -1589,7 +1596,7 @@ class TestInfoDocs:
         """Regression: an entry with no items crashed echo classification."""
         session = _open_session()
 
-        result = session.eval_entry('@!doc("x")\n')
+        result = session.eval_entry('@!allow("tab-indentation")\n')
 
         assert result.ok
         assert render_mod.render_entry_result(result, echo=True) is None
