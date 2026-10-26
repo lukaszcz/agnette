@@ -690,14 +690,17 @@ def _reaches_a_spaced_dcolon(tokens: list[Token], slash_index: int) -> bool:
     return False
 
 
-def _clinging_slash_message(prev_tok: Token | None, next_tok: Token | None) -> str:
-    """Explain a clinging slash; a name on both sides may spell a module route."""
+def _clinging_slash_message(prev_tok: Token | None, next_tok: Token | None, *, tight: bool) -> str:
+    """Explain a clinging slash; a name on both sides may spell a module route.
+
+    *tight* is whether the slash touches both neighbors.
+    """
     if (
-        prev_tok is not None
+        tight
+        and prev_tok is not None
         and next_tok is not None
         and prev_tok.type == NAME
         and next_tok.type == NAME
-        and prev_tok.end_pos == next_tok.start_pos - 1
     ):
         return (
             f"'{prev_tok}/{next_tok}' is a module route, not a value: import the module and"
@@ -734,7 +737,10 @@ def _reject_clinging_slash(
             and tok.end_pos == next_tok.start_pos
         )
         if tight_left or tight_right:
-            error = LexError(_clinging_slash_message(prev_tok, next_tok), span=token_span(tok))
+            error = LexError(
+                _clinging_slash_message(prev_tok, next_tok, tight=tight_left and tight_right),
+                span=token_span(tok),
+            )
             if errors is None:
                 raise error
             # Preserve the slash and its neighbors; flag only its own span.
