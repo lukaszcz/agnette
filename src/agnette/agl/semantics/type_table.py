@@ -656,7 +656,7 @@ class TypeTable:
         self._relevant_params: Mapping[DeclId, frozenset[str]] | None = None
         # Exception declaration id -> its direct children's ids, built in one
         # pass over ``_defs``. Whole-table, rebuilt on any registration
-        # change; feeds :meth:`exception_descendants`.
+        # change; feeds :meth:`exception_nesting`.
         self._exception_children: dict[DeclId, tuple[DeclId, ...]] | None = None
         # The same hierarchy numbered depth-first; invalidated alongside it.
         self._exception_nesting: ExceptionNesting | None = None
@@ -1077,24 +1077,6 @@ class TypeTable:
 
     def exception_children(self, decl_id: DeclId) -> tuple[DeclId, ...]:
         return self._exception_children_index().get(decl_id, ())
-
-    def exception_descendants(self, decl_id: DeclId) -> tuple[TypeDef, ...]:
-        """Return every exception descending from *decl_id*, breadth-first.
-
-        Reads the memoized parent-to-children index, so a caller checking one
-        owner never rescans the whole table.
-        """
-        index = self._exception_children_index()
-        result: list[TypeDef] = []
-        frontier = [decl_id]
-        while frontier:
-            next_frontier: list[DeclId] = []
-            for parent in frontier:
-                for child_id in index.get(parent, ()):
-                    result.append(self._defs[child_id])
-                    next_frontier.append(child_id)
-            frontier = next_frontier
-        return tuple(result)
 
     def exception_nesting(self) -> ExceptionNesting:
         """Return the memoized depth-first numbering of the live exception hierarchy."""

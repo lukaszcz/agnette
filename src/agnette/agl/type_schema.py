@@ -983,13 +983,6 @@ class ExceptionFieldEncodes:
         return entries
 
 
-def build_exception_field_encodes(
-    handle: ExceptionType, type_table: TypeTable
-) -> tuple[ExceptionFieldEncode, ...]:
-    """Compile one exception's flattened field encodes (see :class:`ExceptionFieldEncodes`)."""
-    return ExceptionFieldEncodes(type_table).of(handle)
-
-
 def _build_finite_encode_plan(typ: Type, type_table: TypeTable) -> EncodePlan:
     """Compile a plan over the concrete instantiations a finite source reaches.
 
