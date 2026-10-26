@@ -28,7 +28,6 @@ from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
     AmbiguousQualificationError,
-    NoVisibleConstructorError,
     TypeArgumentsError,
     UnknownMemberError,
     UnknownQualifierError,
@@ -193,7 +192,7 @@ _SCENARIOS = {
         header=("import al::* hiding Base", "import base"),
         probes={
             "alias-value": rejected("Geo(x = 1)", HiddenMemberError, "Geo"),
-            "alias-pattern": rejected(_BASE_PATTERN, NoVisibleConstructorError, "Geo(x)"),
+            "alias-pattern": rejected(_BASE_PATTERN, HiddenMemberError, "Geo(x)"),
             "alias-annot": rejected("fn(p: Geo) => p", HiddenMemberError, "Geo"),
             "alias-alias": rejected("type AA = Geo\nfn(p: AA) => p", HiddenMemberError, "Geo"),
             "alias-tyarg": rejected("fn(p: array[Geo]) => p", HiddenMemberError, "Geo"),
@@ -290,7 +289,7 @@ _SCENARIOS = {
                 _in_region("use al::* hiding Base", "Geo(x = 1)"), HiddenMemberError, "Geo"
             ),
             "target-removes-its-alias-pattern": rejected(
-                _in_region("use al::* hiding Base", _BASE_CASE), NoVisibleConstructorError, "Geo(x)"
+                _in_region("use al::* hiding Base", _BASE_CASE), HiddenMemberError, "Geo(x)"
             ),
             "target-hides-beneath-its-alias": rejected(
                 _in_region("use al::* hiding Base", "Geo::Inner(y = 1)"),
@@ -312,7 +311,7 @@ _SCENARIOS = {
             ),
             "alias-pattern": rejected(
                 _in_region("import al::* hiding Base", _BASE_CASE),
-                NoVisibleConstructorError,
+                HiddenMemberError,
                 "Geo(x)",
             ),
             "beneath-the-alias": rejected(
@@ -336,7 +335,7 @@ _SCENARIOS = {
             "value": rejected("Red", HiddenMemberError, "Red"),
             "pattern": rejected(
                 "fn(p: Color) => case p of\n  | Red => 1\n  | _ => 2",
-                NoVisibleConstructorError,
+                HiddenMemberError,
                 "Red",
             ),
             "through-the-alias": rejected("Hue::Red", HiddenMemberError, "Hue::Red"),
@@ -414,7 +413,7 @@ _SCENARIOS = {
             probes={
                 "target-value": rejected("Base(x = 1)", HiddenMemberError, "Base"),
                 "alias-value": rejected("Geo(x = 1)", HiddenMemberError, "Geo"),
-                "alias-pattern": rejected(_BASE_PATTERN, NoVisibleConstructorError, "Geo(x)"),
+                "alias-pattern": rejected(_BASE_PATTERN, HiddenMemberError, "Geo(x)"),
                 "alias-annot": rejected("fn(p: Geo) => p", HiddenMemberError, "Geo"),
                 "beneath-the-target": rejected(
                     "Base::Inner(y = 1)", HiddenMemberError, "Base::Inner"

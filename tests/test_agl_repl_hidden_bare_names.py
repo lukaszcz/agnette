@@ -59,3 +59,37 @@ def test_a_bare_unknown_name_stays_unknown(session: ReplSession) -> None:
 
     assert not result.ok
     assert "hidden" not in result.diagnostics[0].message
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "def h(c: Col) -> int =\n  case c of\n    | Red => 1\n    | _ => 2",
+        "def h(r: Rec) -> int =\n  case r of\n    | Rec(a = 1) => 1\n    | _ => 2",
+    ],
+)
+def test_a_bare_hidden_name_in_a_pattern_is_hidden(session: ReplSession, entry: str) -> None:
+    result = session.eval_entry(entry)
+
+    assert not result.ok
+    assert isinstance(result.failure, HiddenMemberError)
+
+
+def test_a_hidden_name_another_import_supplies_is_a_pattern(
+    session: ReplSession, tmp_path: Path
+) -> None:
+    (tmp_path / "other.agl").write_text("enum Hue =\n  | Red\n  | Green\n", encoding="utf-8")
+    assert session.eval_entry("import other::*").ok
+
+    result = session.eval_entry("def h(c: Hue) -> int =\n  case c of\n    | Red => 1\n    | _ => 2")
+
+    assert result.ok
+
+
+def test_an_unknown_bare_pattern_name_stays_unknown(session: ReplSession) -> None:
+    result = session.eval_entry(
+        "def h(c: Col) -> int =\n  case c of\n    | Nowhere => 1\n    | _ => 2"
+    )
+
+    assert not result.ok
+    assert not isinstance(result.failure, HiddenMemberError)

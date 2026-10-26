@@ -31,7 +31,6 @@ from agnette.agl.scope.symbols import (
     AmbiguousQualificationError,
     DeclarationSelection,
     DuplicateDeclarationError,
-    NoVisibleConstructorError,
     OwnerMemberSelection,
     TypeArgumentsError,
     UnknownMemberError,
@@ -635,7 +634,7 @@ _SCENARIOS = {
             ),
             "hidden": rejected(
                 _in_region("import lib::* hiding Point\n", "case p of\n    | Point(x) => x"),
-                NoVisibleConstructorError,
+                HiddenMemberError,
                 "Point(x)",
             ),
         },

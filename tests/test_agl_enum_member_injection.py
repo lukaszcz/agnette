@@ -21,7 +21,6 @@ import pytest
 from agnette.agl.diagnostics import HiddenMemberError
 from agnette.agl.scope.symbols import (
     AmbiguousConstructorError,
-    NoVisibleConstructorError,
 )
 from tests.agl.qualifier_support import (
     Probe,
@@ -261,7 +260,7 @@ _REMOVED = {
             "kept": accepted("Blue", _BLUE),
             "pattern": rejected(
                 "let v: Color = Blue\ncase v of\n  | Red => 1\n  | _ => 2",
-                NoVisibleConstructorError,
+                HiddenMemberError,
                 "Red",
             ),
         },
@@ -674,7 +673,7 @@ _REEXPORTED_MEMBERS = {
         header=("import mid", "use mid::*"),
         probes={
             "bare": rejected("Red", HiddenMemberError, "Red"),
-            "is": rejected("mid::Blue is Red", NoVisibleConstructorError, "mid::Blue is Red"),
+            "is": rejected("mid::Blue is Red", HiddenMemberError, "mid::Blue is Red"),
         },
     ),
 }

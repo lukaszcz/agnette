@@ -3438,8 +3438,16 @@ class _Resolver(ModuleSources):
         """Return a bare pattern or ``is`` spelling's candidates, rejecting a spelling with none."""
         candidates = self.pattern_constructors(name, self._named_scope_path())
         if not candidates:
-            raise NoVisibleConstructorError(f"'{name}' is not a visible constructor.", span=span)
+            raise self._no_visible_constructor(
+                name, f"'{name}' is not a visible constructor.", span
+            )
         return candidates
+
+    def _no_visible_constructor(self, name: str, message: str, span: SourceSpan) -> AglError:
+        """Why bare pattern name *name*, at *span*, names no constructor: hidden, else *message*."""
+        return self._bare_hidden(name, LookupKind.VALUE, span) or NoVisibleConstructorError(
+            message, span=span
+        )
 
     def _bind_pattern_vars(
         self, pattern: Pattern, scope: ScopeNode, match_site_node_id: int
@@ -3482,10 +3490,11 @@ class _Resolver(ModuleSources):
             binds = candidate.is_as_pattern or candidate.nested
             if not binds:
                 if not constructor_candidates:
-                    raise NoVisibleConstructorError(
+                    raise self._no_visible_constructor(
+                        candidate.name,
                         f"Bare case pattern '{candidate.name}' is not a visible constructor. "
                         "Use '_' or '_ as name' for a catch-all binder.",
-                        span=candidate.span,
+                        candidate.span,
                     )
                 continue
             self._add_pattern_slot_candidate(
