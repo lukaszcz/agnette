@@ -65,3 +65,8 @@ def test_type_arguments_for_an_alias_erased_member_are_still_rejected() -> None:
         resolve_and_check_inline_entry(
             _ERASING_ALIAS + _GENERIC_ENUM + "enum F\n  | A(v: E::M[int])\n  | B\n()"
         )
+
+
+def test_a_member_applied_to_too_many_arguments_is_rejected() -> None:
+    with pytest.raises(AglTypeError):
+        resolve_and_check_inline_entry("enum E[t]\n  | M(x: E::Q[int, int])\n  | Q(y: t)\n()")

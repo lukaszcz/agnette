@@ -226,10 +226,11 @@ def reconcile_inline_member_arities(
                 publish(module_id)
             if not any(outcome.narrowed for outcome in passes):
                 break
-        if any(outcome.unresolved for outcome in passes):
-            for module_id, builder in builders.items():
-                builder.reconcile_inline_member_arities(strict=True)
-                publish(module_id)
+        stuck = next(
+            (b for b, outcome in zip(builders.values(), passes) if outcome.unresolved), None
+        )
+        if stuck is not None:
+            stuck.reconcile_inline_member_arities(strict=True)
 
 
 class _TypeBuilder:
