@@ -7,9 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from agnette.agl.diagnostics import AglError
 from agnette.agl.repl.entry_pipeline import EntryPipeline
 from agnette.agl.repl.session import ReplSession
+from agnette.agl.scope.program import ResolvedProgram
 from agnette.agl.semantics.types import ExceptionType
+from agnette.agl.syntax.advisories import SpacedQualifier
+from agnette.agl.syntax.nodes import Program
 
 
 def _session() -> ReplSession:
@@ -163,3 +167,36 @@ def test_a_base_is_spelled_by_an_alias_of_an_imported_alias(tmp_path: Path) -> N
         assert session.eval_entry(entry).ok
 
     _redefines_same_base(session, "G")
+
+
+def test_a_rejected_info_name_probes_the_session_scope_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    probes = 0
+    resolve = EntryPipeline.resolve_program
+
+    def counting(
+        self: EntryPipeline,
+        program: Program,
+        next_node_id: int,
+        *,
+        source_text: str,
+        spaced_qualifiers: tuple[SpacedQualifier, ...] = (),
+    ) -> ResolvedProgram:
+        nonlocal probes
+        probes += source_text == ""
+        return resolve(
+            self,
+            program,
+            next_node_id,
+            source_text=source_text,
+            spaced_qualifiers=spaced_qualifiers,
+        )
+
+    monkeypatch.setattr(EntryPipeline, "resolve_program", counting)
+
+    with pytest.raises(AglError):
+        session.info_of("std/option::Nope")
+
+    assert probes == 1

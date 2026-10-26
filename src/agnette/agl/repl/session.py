@@ -522,6 +522,8 @@ class ReplSession:
         # Every owner a promoted entry retained, by declaration identity: an alias's
         # target names a declaration that its path no longer holds once redeclared.
         self._type_owners_by_decl: dict[int, TypeOwner] = {}
+        # The empty-entry resolution of the one `info_of` query running, if made.
+        self._info_probe: "ResolvedProgram | None" = None
         # Builtin type and def identities of the current declarations, keyed by
         # scoped name to the declaring module and its enclosing scope path. A
         # REPL entry's own source cannot see an earlier entry's builtin
@@ -2077,6 +2079,13 @@ class ReplSession:
         parts = tuple(name.removeprefix("::").split("::"))
         if not name or any(not part for part in parts):
             return None
+        try:
+            return self._info_of_parsed(name, parts)
+        finally:
+            self._info_probe = None
+
+    def _info_of_parsed(self, name: str, parts: tuple[str, ...]) -> str | None:
+        """Describe identifier *name* of ``::`` *parts* (see :meth:`info_of`)."""
         if "/" in name and len(parts) == 1:
             # A lone slash route is a module before it is a declaration.
             route = tuple(name.removeprefix("/").split("/"))
@@ -2432,11 +2441,19 @@ class ReplSession:
         return lookup_hidden(resolved.sources(resolved.entry_id), reference.qualifier, (), None)
 
     def _probe_resolve(self) -> "ResolvedProgram":
-        """Resolve an empty entry: the scope state an entry written now would see."""
+        """Resolve an empty entry: the scope state an entry written now would see.
+
+        One :meth:`info_of` query resolves it at most once; the session does not
+        change while a query runs.
+        """
         from agnette.agl.parser import parse_program_seeded
 
-        program, next_node_id = parse_program_seeded("", start_id=self._next_node_id)
-        return self._entry_pipeline.resolve_program(program, next_node_id, source_text="")
+        if self._info_probe is None:
+            program, next_node_id = parse_program_seeded("", start_id=self._next_node_id)
+            self._info_probe = self._entry_pipeline.resolve_program(
+                program, next_node_id, source_text=""
+            )
+        return self._info_probe
 
     def _alias_declaration(self, key: "DeclarationKey") -> "TypeAlias | None":
         """Return the alias declaration *key* identifies, if it is an alias."""
