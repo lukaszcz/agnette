@@ -26,7 +26,14 @@ from threading import Lock
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
-from agnette.agl.repl.entry import EntryKind, EntryResult, FileOrigin, Placement, relocate
+from agnette.agl.repl.entry import (
+    REPL_LABEL,
+    EntryKind,
+    EntryResult,
+    FileOrigin,
+    Placement,
+    relocate,
+)
 from agnette.agl.repl.entry_pipeline import EntryPipeline, unused_module_doc_warnings
 from agnette.agl.repl.info_docs import format_doc_attribute, module_regions
 from agnette.agl.repl.info_sections import SectionLabel, sourced_label
@@ -875,7 +882,7 @@ class ReplSession:
         self._entry_origins[label] = origin
         self._entry_label = label
         result = self._eval_entry(text, check_only=check_only, source=SourceId(label))
-        return relocate(result, self._place)
+        return relocate(result, self._place, unplaced=REPL_LABEL)
 
     def _place(self, location: Placement) -> Placement:
         """Move a location in an entry's source to where that entry's text lies; others stay."""
@@ -885,10 +892,19 @@ class ReplSession:
         origin = self._entry_origins[label]
         return (None, line, column) if origin is None else origin.place((None, line, column))
 
+    def user_place(
+        self, label: str | None, line: int, column: int | None
+    ) -> tuple[str, int, int | None]:
+        """Place a location as users see it: in its file if loaded, else under ``<repl>``."""
+        placed, line, column = self._place((label, line, column))
+        if placed is None or placed == UNKNOWN_SOURCE.label:
+            placed = REPL_LABEL
+        return placed, line, column
+
     def _repl_location(self, span: "SourceSpan") -> str:
         """Render a declaration source location for REPL introspection."""
-        label, line, column = self._place((span.source.label, span.start_line, span.start_col))
-        return f"{'<repl>' if label in (None, UNKNOWN_SOURCE.label) else label}:{line}:{column}"
+        label, line, column = self.user_place(span.source.label, span.start_line, span.start_col)
+        return f"{label}:{line}:{column}"
 
     def _eval_entry(self, text: str, *, check_only: bool, source: "SourceId") -> EntryResult:
         """Evaluate one entry parsed with the source identity *source* (see :meth:`eval_entry`)."""

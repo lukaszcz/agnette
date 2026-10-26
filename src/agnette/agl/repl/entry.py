@@ -110,11 +110,20 @@ class EntryResult:
 type Placement = tuple[str | None, int, int | None]
 
 
-def relocate(result: EntryResult, place: Callable[[Placement], Placement]) -> EntryResult:
+REPL_LABEL = "<repl>"
+"""The source label users see for text typed at the prompt."""
+
+
+def relocate(
+    result: EntryResult,
+    place: Callable[[Placement], Placement],
+    *,
+    unplaced: str = UNKNOWN_SOURCE.label,
+) -> EntryResult:
     """Return *result* with every diagnostic, note and runtime error location moved by *place*.
 
     *place* maps a location to its final one; a location it returns unchanged stays put.
-    A runtime error without a source is placed under the unknown source's label.
+    A runtime error *place* leaves without a file is labelled *unplaced*.
     """
 
     def moved[D: (Diagnostic, RelatedDiagnostic)](diagnostic: D) -> D:
@@ -137,9 +146,7 @@ def relocate(result: EntryResult, place: Callable[[Placement], Placement]) -> En
     error = result.error
     if error is not None and error.line is not None:
         label, line, column = place((error.source, error.line, error.col))
-        error = replace(
-            error, source=UNKNOWN_SOURCE.label if label is None else label, line=line, col=column
-        )
+        error = replace(error, source=unplaced if label is None else label, line=line, col=column)
     return replace(
         result,
         diagnostics=[moved_diagnostic(d) for d in result.diagnostics],
