@@ -891,7 +891,8 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`. A record, enum, or
   exception shows its declaration (an exception with its `extends` base and own fields).
   A declaration's `@doc` is shown as an attribute line above its AgL (triple-quoted when
-  multi-line). A module or scope region (`Debug`, `a::b`, `lib::Debug`) is whatever the spelling
+  multi-line), and a field's or enum member's `@doc` likewise above (or, for
+  enum members, before) the field or member it documents. A module or scope region (`Debug`, `a::b`, `lib::Debug`) is whatever the spelling
   names as a qualifier in an entry, through imports, `use`, aliases, and regions declared in the
   session: an imported module shows its `@!doc` above `module std/fs`, a region above
   `scope a::b`. A module or region without documentation shows just its header. A spelling

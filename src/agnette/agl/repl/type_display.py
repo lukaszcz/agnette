@@ -12,6 +12,9 @@ are resolved on demand through the shared :class:`TypeTable`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+
+from agnette.agl.repl.info_docs import format_doc_attribute
 from agnette.agl.semantics.type_table import TypeTable
 from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType, Type
 from agnette.agl.typecheck.env import GenericTypeDef
@@ -79,8 +82,21 @@ def _format_exception_type_with_name(typ: ExceptionType, name: str, table: TypeT
         # ``extends`` takes a bare name, as the declaration spells it.
         header += f" extends {table.defs[typedef.base].name}"
     lines = [header]
-    lines.extend(f"  {field_name}: {field_type!r}" for field_name, field_type in typedef.fields)
+    lines.extend(_field_lines(typedef.fields, dict(typedef.field_docs)))
     return "\n".join(lines)
+
+
+def _field_lines(fields: Iterable[tuple[str, Type]], docs: Mapping[str, str]) -> list[str]:
+    """Render *fields* one per line, each below its ``@doc`` attribute when it has one."""
+    lines: list[str] = []
+    for field_name, field_type in fields:
+        if field_name in docs:
+            lines.extend(
+                f"  {line}" if line else ""
+                for line in format_doc_attribute(docs[field_name]).split("\n")
+            )
+        lines.append(f"  {field_name}: {field_type!r}")
+    return lines
 
 
 def _format_record_type(typ: RecordType, table: TypeTable) -> str:
@@ -92,7 +108,7 @@ def _format_record_type_with_name(typ: RecordType, name: str, table: TypeTable) 
     if not fields:
         return f"record {name}"
     lines = [f"record {name}"]
-    lines.extend(f"  {field_name}: {field_type!r}" for field_name, field_type in fields.items())
+    lines.extend(_field_lines(fields.items(), table.field_docs(typ)))
     return "\n".join(lines)
 
 
@@ -104,11 +120,16 @@ def _format_enum_type_with_name(typ: EnumType, name: str, table: TypeTable) -> s
     lines = [f"enum {name}"]
     for variant_name, member in table.enum_member_names(typ).items():
         fields = table.record_fields(member)
+        docs = table.field_docs(member)
+        member_doc = table.declaration_doc(member)
+        head = "" if member_doc is None else f"{format_doc_attribute(member_doc)} "
         if fields:
             field_list = ", ".join(
-                f"{field_name}: {field_type!r}" for field_name, field_type in fields.items()
+                (f"{format_doc_attribute(docs[field_name])} " if field_name in docs else "")
+                + f"{field_name}: {field_type!r}"
+                for field_name, field_type in fields.items()
             )
-            lines.append(f"  | {variant_name}({field_list})")
+            lines.append(f"  | {head}{variant_name}({field_list})")
         else:
-            lines.append(f"  | {variant_name}")
+            lines.append(f"  | {head}{variant_name}")
     return "\n".join(lines)

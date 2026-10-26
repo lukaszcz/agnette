@@ -1226,6 +1226,25 @@ class TestInfo:
         declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
         assert session.eval_entry(declaration.replace("Mine", "Again")).ok
 
+    def test_info_shows_field_docs_above_their_fields(self) -> None:
+        session = _open_session()
+        source = (
+            'record R\n  @doc("the a")\n  a: int\n  @doc("""\n    multi\n    line\n  """)\n  b: text\n'
+            '\nexception E\n  @doc("the code")\n  code: int\n'
+            '\nenum En\n  | @doc("first") A(@doc("x doc") x: int, y: int)\n  | B\n'
+        )
+        assert session.eval_entry(source).ok
+
+        record = session.info_of("R")
+        exception = session.info_of("E")
+        enum = session.info_of("En")
+
+        assert record is not None and exception is not None and enum is not None
+        assert '    @doc("the a")\n    a: int' in record
+        assert "multi\n" in record and "    b: text" in record
+        assert '    @doc("the code")\n    code: int' in exception
+        assert '| @doc("first") A(@doc("x doc") x: int, y: int)' in enum
+
     def test_the_root_exception_type_entry_has_no_base(self) -> None:
         shown = render_mod.render_entry_result(_open_session().eval_entry("Exception"), echo=True)
 
