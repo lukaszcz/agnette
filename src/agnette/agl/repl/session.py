@@ -224,11 +224,11 @@ def _module_match_sort_key(match: tuple["ModuleId", "Path"]) -> tuple[str, ...]:
     return match[0].segments
 
 
-def has_runnable_statements(text: str) -> bool:
-    """Return ``True`` when *text* contains at least one statement to evaluate.
+def has_runnable_statements(source: "str | LexedSource") -> bool:
+    """Return ``True`` when *source* contains at least one statement to evaluate.
 
     Blank, whitespace-only, and comment-only entries (AgL comments run from a
-    ``#`` to end of line) have nothing to run.  The check tokenizes *text* with
+    ``#`` to end of line) have nothing to run.  The check tokenizes *source* with
     the real AgL lexer and looks for any non-trivial token — the lexer skips
     whitespace and comments entirely and emits no tokens for blank/comment-only
     input, while synthetic layout tokens (``_NEWLINE`` / ``_INDENT`` /
@@ -240,9 +240,9 @@ def has_runnable_statements(text: str) -> bool:
     (an empty / comment-only file loads as a benign no-op).  Such source parses
     to an empty module, so this only spares the caller a pointless pipeline run.
     """
-    from agnette.agl.lexer import lex_source
+    from agnette.agl.lexer import lexed_source
 
-    lexed = lex_source(text)
+    lexed = lexed_source(source)
     return lexed.failure is not None or any(
         token.type not in _TRIVIAL_TOKENS for token in lexed.tokens
     )
@@ -881,13 +881,20 @@ class ReplSession:
     # ------------------------------------------------------------------
 
     def eval_entry(
-        self, text: str, *, check_only: bool = False, origin: FileOrigin | None = None
+        self,
+        text: str,
+        *,
+        check_only: bool = False,
+        origin: FileOrigin | None = None,
+        lexed: "LexedSource | None" = None,
     ) -> EntryResult:
         """Parse → resolve → typecheck → matchcompile → lower/eval one entry.
 
         The entry has a source identity of its own. Locations in the result, whichever
         entry's source they lie in, are entry-relative, or file-relative for an entry
-        evaluated with an *origin* (where its text starts in a file).
+        evaluated with an *origin* (where its text starts in a file). A caller that already
+        lexed *text* passes its *lexed* source, which every reading of the entry then
+        shares; a source recorded for any other text is ignored.
 
         Completed runtime initializers are promoted even when a later initializer
         fails.
@@ -902,7 +909,7 @@ class ReplSession:
         bindings keep their normal echo.
         """
         source = self._begin_entry(origin)
-        result = self._eval_entry(text, check_only=check_only, source=source)
+        result = self._eval_entry(text, check_only=check_only, source=source, lexed=lexed)
         return relocate(result, self._place, unplaced=REPL_LABEL)
 
     def _next_entry_source(self) -> "SourceId":
@@ -940,10 +947,12 @@ class ReplSession:
         label, line, column = self.user_place(span.source.label, span.start_line, span.start_col)
         return f"{label}:{line}:{column}"
 
-    def _eval_entry(self, text: str, *, check_only: bool, source: "SourceId") -> EntryResult:
+    def _eval_entry(
+        self, text: str, *, check_only: bool, source: "SourceId", lexed: "LexedSource | None"
+    ) -> EntryResult:
         """Evaluate one entry parsed with the source identity *source* (see :meth:`eval_entry`)."""
         result, next_id, lexed = self._eval_entry_pipeline(
-            text, check_only=check_only, source=source
+            text, check_only=check_only, source=source, lexed=lexed
         )
         return self._settle_entry(text, result, next_id=next_id, lexed=lexed, source=source)
 
@@ -1200,13 +1209,14 @@ class ReplSession:
         return program, fresh_name, start_id + 3
 
     def _eval_entry_pipeline(
-        self, text: str, *, check_only: bool, source: "SourceId"
+        self, text: str, *, check_only: bool, source: "SourceId", lexed: "LexedSource | None"
     ) -> tuple[EntryResult, int, "LexedSource | None"]:
         """Run the resolve → typecheck → matchcompile → lower/eval entry core.
 
         Completed runtime initializers are promoted even when a later initializer
         fails. Also returns the first node id past the entry's parse and its lexed source
-        (``None`` if it did not lex). The entry is parsed in *source*.
+        (``None`` if it did not lex), which is *lexed* when that records *text*. The entry
+        is parsed in *source*.
         """
         from agnette.agl.lexer import (
             lex_replay,
@@ -1217,7 +1227,8 @@ class ReplSession:
         from agnette.agl.parser import parse_program_seeded
 
         host_env = self._runtime.host_environment()
-        lexed = lex_source(text)
+        if lexed is None or lexed.text != text:
+            lexed = lex_source(text)
         lexed_ok = lexed if lexed.failure is None else None
 
         # TAB advisories come from the parse's single lex pass (no separate TAB
@@ -2646,7 +2657,8 @@ class ReplSession:
 
         # A blank / comment-only file parses to an empty module with nothing
         # to run; skip the pipeline entirely and load it as a no-op.
-        if not has_runnable_statements(normalized):
+        lexed = lex_source(normalized)
+        if not has_runnable_statements(lexed):
             return []
 
         # Parse the whole file ONCE only to find top-level item boundaries;
@@ -2654,20 +2666,22 @@ class ReplSession:
         # the session's continuing node-id counter).  start_id=0 is fine here.
         # A file that is no program is one entry as a whole: a bare type, else its
         # syntax error.
-        lexed = lex_source(normalized)
+        failure: AglError | None = None
         with tab_warning_collector() as tab_sink, lex_replay(lexed):
             try:
                 program = parse_repl_transcript(normalized, source=self._next_entry_source())
             except AglError as exc:
-                return [
-                    self._eval_unparsed(
-                        normalized,
-                        FileOrigin(label, 1, 1),
-                        exc,
-                        list(tab_sink),
-                        lexed if lexed.failure is None else None,
-                    )
-                ]
+                failure = exc
+        if failure is not None:
+            return [
+                self._eval_unparsed(
+                    normalized,
+                    FileOrigin(label, 1, 1),
+                    failure,
+                    list(tab_sink),
+                    lexed if lexed.failure is None else None,
+                )
+            ]
 
         # The file's leading inner attributes head its first item, as if typed with it;
         # their ``@!allow`` names govern every item. A file of attributes alone is one entry.

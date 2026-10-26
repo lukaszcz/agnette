@@ -9,7 +9,9 @@ from pathlib import Path
 import pytest
 from lark.lexer import Token
 
+from agnette.agl.lexer import lex_source
 from agnette.agl.lexer.scanner import _Scanner
+from agnette.agl.repl.loop import has_runnable_statements, is_incomplete
 from agnette.agl.repl.plain_console import run_plain_console
 from agnette.agl.repl.session import ReplSession
 from tests.test_agl_repl_console import drive
@@ -74,6 +76,17 @@ def test_a_file_that_is_no_program_is_lexed_once(tmp_path: Path, scans: _Scans) 
     assert scans.count == 1
 
 
+def test_a_file_that_is_no_program_loads_into_a_session_that_was_never_opened(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text("int -> int\n")
+
+    results = ReplSession().load_file(path)
+
+    assert [(r.ok, r.kind) for r in results] == [(True, "type")]
+
+
 def test_a_syntax_error_file_reports_the_error_at_file_positions(
     tmp_path: Path, scans: _Scans
 ) -> None:
@@ -130,3 +143,22 @@ def test_an_unknown_name_followed_by_a_semicolon_is_rejected_not_crashed() -> No
     result = session.eval_entry("nope;")
 
     assert not result.ok
+
+
+@pytest.mark.parametrize("text", ["let x = 42", "record R", "ask $"])
+def test_classifying_an_entry_from_its_lex_scans_nothing_more(text: str, scans: _Scans) -> None:
+    lexed = lex_source(text)
+    scans.count = 0
+
+    assert is_incomplete(lexed) == is_incomplete(text)
+    assert has_runnable_statements(lexed)
+    assert scans.count == 1  # only the str spelling above lexes
+
+
+def test_lexing_the_same_text_again_is_a_new_pass(scans: _Scans) -> None:
+    scans.count = 0
+
+    lex_source("1 + 2")
+    lex_source("1 + 2")
+
+    assert scans.count == 2

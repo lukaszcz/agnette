@@ -7,6 +7,7 @@ public ``tokenize`` helper.  No scanner/layout internals are tested.
 from __future__ import annotations
 
 import contextlib
+import traceback
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -3786,11 +3787,34 @@ class TestLexReplay:
         assert attributes == ()
         assert type_expr.span.end_offset == 3
 
-    def test_the_latest_text_is_lexed_once_however_often_it_is_asked_for(self) -> None:
-        from agnette.agl.lexer import lex_source
+    def test_a_recording_of_another_text_is_never_replayed(self) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import parse_program_seeded, parse_type_entry_seeded
 
-        assert lex_source("let a = 1") is lex_source("let a = 1")
-        assert lex_source("let b = 1") is not lex_source("let a = 1")
+        with lex_replay(lex_source("int -> int")):
+            program, _ = parse_program_seeded("let a = 1", start_id=0)
+            _, type_expr, _ = parse_type_entry_seeded("text", start_id=0)
+
+        assert len(program.body.items) == 1
+        assert type_expr.span.end_offset == 4
+
+    def test_a_failed_pass_raises_a_fresh_error_at_every_use(self) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+
+        text = 'let a = "open'
+        lexed = lex_source(text)
+        raised: list[AglSyntaxError] = []
+        for _ in range(4):
+            with lex_replay(lexed), pytest.raises(AglSyntaxError) as caught:
+                parse_program_seeded(text, start_id=0)
+            raised.append(caught.value)
+
+        assert len({id(error) for error in raised}) == len(raised)
+        depths = {len(traceback.extract_tb(error.__traceback__)) for error in raised}
+        assert len(depths) == 1
+        assert lexed.failure is not None
+        assert lexed.failure.__traceback__ is None
 
     def test_replaying_a_pass_recorded_with_no_sink_feeds_the_sinks_like_a_direct_lex(
         self,

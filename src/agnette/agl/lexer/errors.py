@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Self
+
 from agnette.agl.diagnostics import AglError, SourceSpan
 
 
@@ -18,6 +20,16 @@ class LexError(AglError):
 
     def __init__(self, message: str, *, span: SourceSpan) -> None:
         super().__init__(message, span=span)
+
+    def renewed(self) -> Self:
+        """Return an equal error that has not been raised.
+
+        A recorded failure is raised through a renewed copy at each use, so its
+        traceback and context never accumulate on the shared object.
+        """
+        clone = Exception.__new__(type(self), *self.args)
+        clone.__dict__.update(self.__dict__)
+        return clone
 
 
 class IncompleteInputError(LexError):

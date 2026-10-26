@@ -23,7 +23,13 @@ from lark import Lark, Tree
 from lark.exceptions import UnexpectedToken, VisitError
 
 import agnette.agl.syntax as syntax
-from agnette.agl.lexer import lex_replay, lex_source, tab_warning_labels, token_collector
+from agnette.agl.lexer import (
+    LexedSource,
+    lex_replay,
+    lexed_source,
+    tab_warning_labels,
+    token_collector,
+)
 from agnette.agl.lexer.errors import (
     IncompleteInputError,
     LexError,
@@ -64,12 +70,12 @@ def _type_parser() -> Lark:
     return _TYPE_PARSER
 
 
-def has_unterminated_triple_quoted_string(text: str) -> bool:
-    """Return ``True`` when lexing *text* ends inside a triple-quoted string."""
-    return isinstance(lex_source(text).failure, UnterminatedTripleQuotedStringError)
+def has_unterminated_triple_quoted_string(source: str | LexedSource) -> bool:
+    """Return ``True`` when lexing *source* ends inside a triple-quoted string."""
+    return isinstance(lexed_source(source).failure, UnterminatedTripleQuotedStringError)
 
 
-def has_open_verbatim_block(text: str) -> bool:
+def has_open_verbatim_block(source: str | LexedSource) -> bool:
     """Return ``True`` when a `$`-literal block payload is still open.
 
     An unclosed block payload is not a parse failure — the lexer happily ends
@@ -84,7 +90,8 @@ def has_open_verbatim_block(text: str) -> bool:
     :func:`is_incomplete_source` already reports that as incomplete, so any
     lex error here is simply not an open block.
     """
-    lexed = lex_source(text)
+    lexed = lexed_source(source)
+    text = lexed.text
     if lexed.failure is not None:
         return False
     payload_starts: list[int] = []
@@ -175,17 +182,8 @@ def _parse_to_program(
     return cast(syntax.Program, result), next_id
 
 
-# Single-entry memo for is_incomplete_source: (last_text, last_result).
-# The Enter key binding calls is_incomplete_source on each keypress; the
-# submit path then parses the identical text a second time.  Caching the most
-# recent (text → bool) classification eliminates that redundant parse without
-# any risk of stale state — the memo holds at most one entry and is keyed on
-# the exact text string.
-_incomplete_cache: tuple[str, bool] | None = None
-
-
-def is_incomplete_source(text: str) -> bool:
-    """Return ``True`` when *text* parses as a *prefix* of a valid program.
+def is_incomplete_source(source: str | LexedSource) -> bool:
+    """Return ``True`` when *source* parses as a *prefix* of a valid program.
 
     This is the structured signal a REPL needs to decide whether pressing Enter
     should submit the entry or insert a continuation newline.  It distinguishes
@@ -212,20 +210,13 @@ def is_incomplete_source(text: str) -> bool:
       lexical failures remain complete so the REPL submits and the user sees the
       genuine error instead of being trapped in a continuation prompt.
     - Any other failure (a wrong token mid-line such as ``let = 5``) → complete.
-
-    Results are memoized for the most recently seen text so that the Enter-key
-    check and the immediately following eval-path parse do not trigger two full
-    LALR runs for the same source string.
     """
-    global _incomplete_cache
-
     from lark.lexer import Token
 
-    if _incomplete_cache is not None and _incomplete_cache[0] == text:
-        return _incomplete_cache[1]
-
+    lexed = lexed_source(source)
+    text = lexed.text
     try:
-        with lex_replay(lex_source(text)):
+        with lex_replay(lexed):
             result = _ends_unfinished(_PARSER.parse(text))
     except UnexpectedToken as exc:
         # The LALR parser reports a premature end of input as an unexpected
@@ -242,7 +233,6 @@ def is_incomplete_source(text: str) -> bool:
     except LexError as exc:
         result = isinstance(exc, IncompleteInputError)
 
-    _incomplete_cache = (text, result)
     return result
 
 

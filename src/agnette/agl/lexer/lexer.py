@@ -214,8 +214,10 @@ class LexedSource:
     a replay (:func:`lex_replay`) feeds the active sinks exactly as scanning would.
     ``tokens`` is empty when the pass ended in ``failure``; the advisories are
     then those found before it. TAB advisories are unlabeled (see :func:`tab_warning_labels`).
+    ``failure`` is never raised itself; each use raises ``failure.renewed()``.
     """
 
+    text: str
     tokens: tuple[Token, ...]
     spaced_qualifiers: tuple[SpacedQualifier, ...]
     tab_warnings: tuple[Diagnostic, ...]
@@ -227,8 +229,14 @@ _LEX_REPLAY: contextvars.ContextVar[LexedSource | None] = contextvars.ContextVar
 )
 
 
-def _lex(source: str) -> LexedSource:
-    """Scan *source* through the whole lexer pipeline, once."""
+def lex_source(source: str) -> LexedSource:
+    """Scan *source* through the whole lexer pipeline, once, recording the pass.
+
+    Lexing depends on the text alone, not on the grammar start rule, so a caller that
+    reads one text several times (a REPL entry classified, then evaluated) lexes it here
+    and hands the pass on: :func:`lex_replay` for parses, or the :class:`LexedSource`
+    itself.
+    """
     scanner = _Scanner(source)
     with spaced_qualifier_collector() as spaced:
         try:
@@ -240,32 +248,20 @@ def _lex(source: str) -> LexedSource:
             )
             failure = None
         except LexError as exc:
-            tokens, failure = (), exc
-    return LexedSource(tokens, tuple(spaced), tuple(scanner.tab_warnings), failure)
+            tokens, failure = (), exc.renewed()
+    return LexedSource(source, tokens, tuple(spaced), tuple(scanner.tab_warnings), failure)
 
 
-# Single-entry memo for :func:`lex_source`: (text, its lex).
-_last_lexed: tuple[str, LexedSource] | None = None
-
-
-def lex_source(source: str) -> LexedSource:
-    """Lex *source*, reusing the lex of the most recent text if it was this one.
-
-    Lexing depends on the text alone, not on the grammar start rule, so a REPL
-    entry classified (incomplete, blank, open verbatim block) and then evaluated
-    is scanned once, however many readings follow.
-    """
-    global _last_lexed
-    if _last_lexed is None or _last_lexed[0] != source:
-        _last_lexed = (source, _lex(source))
-    return _last_lexed[1]
+def lexed_source(source: str | LexedSource) -> LexedSource:
+    """Return *source* if it is already a recorded pass, else lex it."""
+    return source if isinstance(source, LexedSource) else lex_source(source)
 
 
 @contextmanager
 def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
-    """Make parses within the block reuse *lexed*, the lex of the very text they parse.
+    """Make parses within the block reuse *lexed* for the text it recorded.
 
-    Without *lexed* the parses scan their text as usual.
+    A parse of any other text, and every parse without *lexed*, scans its text as usual.
     """
     with ScopedVar(_LEX_REPLAY, lexed):
         yield
@@ -1082,12 +1078,14 @@ class AglLexer(Lexer):
         Keyword token types are remapped from lowercase (scanner convention)
         to the uppercase names expected by the Lark grammar.
         """
-        lexed = _LEX_REPLAY.get() or _lex(lexer_state.text.text)
+        text = lexer_state.text.text
+        replay = _LEX_REPLAY.get()
+        lexed = replay if replay is not None and replay.text == text else lex_source(text)
         # Advisories reach the sinks even when the pass failed or the parse later does.
         _deposit(_SPACED_QUALIFIER_SINK, lexed.spaced_qualifiers)
         _deposit(_TAB_WARNING_SINK, lexed.tab_warnings)
         if lexed.failure is not None:
-            raise lexed.failure
+            raise lexed.failure.renewed()
         _deposit(_TOKEN_SINK, lexed.tokens)
         return iter(lexed.tokens)
 
