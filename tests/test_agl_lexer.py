@@ -3721,3 +3721,53 @@ class TestRawSurrogateInSource:
     def test_raw_surrogate_character_inside_a_string_literal_is_lex_error(self) -> None:
         with pytest.raises(LexError):
             tok('"a' + chr(0xD800) + 'b"')
+
+
+class TestLexReplay:
+    """A captured lex pass is reused by a parse of the same text under another start rule."""
+
+    def test_a_replayed_parse_reads_the_captured_tokens_instead_of_scanning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.lexer import lex_capture, lex_replay
+        from agnette.agl.parser import parse_program_seeded, parse_type_entry_seeded
+
+        with lex_capture() as capture:
+            parse_program_seeded("int", start_id=0)
+        assert capture.lexed is not None
+
+        def forbidden(source: str) -> object:
+            raise AssertionError("the text was scanned again")
+
+        monkeypatch.setattr("agnette.agl.lexer.lexer._Scanner", forbidden)
+        with lex_replay(capture.lexed):
+            attributes, type_expr, _ = parse_type_entry_seeded("int", start_id=0)
+
+        assert attributes == ()
+        assert type_expr.span.end_offset == 3
+
+    def test_replayed_spaced_qualifiers_reach_the_active_collector(self) -> None:
+        from agnette.agl.lexer import lex_capture, lex_replay
+        from agnette.agl.parser import AglSyntaxError, parse_program_seeded, parse_type_entry_seeded
+
+        text = "std/fs ::read"
+        with lex_capture() as capture, spaced_qualifier_collector() as first:
+            parse_program_seeded(text, start_id=0)
+        with (
+            lex_replay(capture.lexed),
+            spaced_qualifier_collector() as replayed,
+            pytest.raises(AglSyntaxError),
+        ):
+            parse_type_entry_seeded(text, start_id=0)
+
+        assert first
+        assert replayed == first
+
+    def test_a_failed_scan_captures_nothing(self) -> None:
+        from agnette.agl.lexer import lex_capture
+        from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+
+        with lex_capture() as capture, pytest.raises(AglSyntaxError):
+            parse_program_seeded('"open', start_id=0)
+
+        assert capture.lexed is None

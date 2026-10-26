@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import contextvars
 import importlib.resources
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import cache
@@ -197,6 +197,13 @@ def token_collector() -> Iterator[list[Token]]:
     """
     with _ambient_list_sink(_TOKEN_SINK) as sink:
         yield sink
+
+
+def _deposit(var: contextvars.ContextVar[list[_T] | None], items: Iterable[_T]) -> None:
+    """Append *items* to the ambient sink *var*, if one is active."""
+    sink = var.get()
+    if sink is not None:
+        sink.extend(items)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1042,12 +1049,8 @@ class AglLexer(Lexer):
         """
         replayed = _LEX_REPLAY.get()
         if replayed is not None:
-            spaced_sink = _SPACED_QUALIFIER_SINK.get()
-            if spaced_sink is not None:
-                spaced_sink.extend(replayed.spaced_qualifiers)
-            token_sink = _TOKEN_SINK.get()
-            if token_sink is not None:
-                token_sink.extend(replayed.tokens)
+            _deposit(_SPACED_QUALIFIER_SINK, replayed.spaced_qualifiers)
+            _deposit(_TOKEN_SINK, replayed.tokens)
             return iter(replayed.tokens)
         # Lark wraps the parsed string in a whole-text ``TextSlice``.
         source = lexer_state.text.text

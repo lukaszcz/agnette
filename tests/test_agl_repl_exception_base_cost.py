@@ -97,3 +97,23 @@ def test_a_base_is_spelled_by_an_alias_when_its_own_name_is_out_of_reach() -> No
     assert shown is not None
     declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
     assert session.eval_entry(declaration.replace("F", "G")).ok
+
+
+def test_a_base_is_spelled_by_an_alias_of_an_alias() -> None:
+    session = _session()
+    for entry in [
+        "scope sc\n  exception E\nend sc",
+        "exception Other",
+        "type OtherAlias = Other",
+        "type OtherAgain = OtherAlias",
+        "type First = sc::E",
+        "type Second = First",
+        "exception F extends Second",
+    ]:
+        assert session.eval_entry(entry).ok
+
+    shown = session.info_of("F")
+
+    assert shown is not None
+    declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
+    assert session.eval_entry(declaration.replace("F", "G")).ok
