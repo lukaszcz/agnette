@@ -44,6 +44,7 @@ from agnette.agl.scope.imports import (
     QName,
     ScopeOrigins,
     contribution_routes,
+    import_env_depth,
     qualifier_candidates,
     qualifier_exposures,
     qualifier_member_ways,
@@ -93,6 +94,7 @@ from agnette.agl.scope.symbols import (
     anchored_layers,
     contribution_origin,
     contribution_origins,
+    import_item_path,
     layered,
     relative_under,
 )
@@ -307,6 +309,33 @@ class ModuleSources(SourcesHost):
         self._keeping_readings = False
         self._kept_contributions: dict[tuple[ScopePath, ScopePath, LookupKind], Reading] = {}
         self._kept_own_types: dict[ScopePath, Reading] = {}
+        self._reach_depth: tuple[int, int] | None = None
+
+    @property
+    def reach_depth(self) -> int:
+        """Twice the longest stored path, plus slack for a route and a path beneath an alias.
+
+        Stored paths are the module's scopes, declarations and retained types,
+        its uses' targets and items, and what its imports name or expose.
+        Recomputed when a use is written.
+        """
+        written = self._uses.write_count
+        if self._reach_depth is None or self._reach_depth[0] != written:
+            longest = [
+                import_env_depth(self._import_env),
+                *(len(path) for path in self._scope_nodes),
+                *(len(path) for path in self._repl_session_type_paths),
+                *(len(path) + 1 for _declaration, path in self._type_declarations),
+                *(len(path) + 1 for _module_id, path, _name in self._declarations),
+            ]
+            for layer in (self._root_scope, *self._scope_nodes.values()):
+                for decl in layer.uses:
+                    items = (*(decl.tail or ()), *decl.hidden)
+                    longest.append(
+                        len(decl.target) + max((len(import_item_path(i)) for i in items), default=0)
+                    )
+            self._reach_depth = written, 2 * max(longest) + 2
+        return self._reach_depth[1]
 
     def _declared_type_owners(self) -> dict[ScopePath, TypeOwner]:
         """Return the owner each type this module declares resolves to."""

@@ -215,6 +215,17 @@ type PathReader = Callable[[ScopePath, LookupKind], Reading]
 class PathSources(DeclarationNames, Protocol):
     """The declarations and contributions a lookup reads, by full path."""
 
+    @property
+    def reach_depth(self) -> int:
+        """The segment count beyond which no path names a scope or type, or lies in a surface.
+
+        A path reaches only what some declaration, import or use stores a path
+        for; none longer than this (with the slack a route and a path beneath
+        an alias add) reaches anything, so a longer written chain is not read
+        prefix by prefix.
+        """
+        ...
+
     def own_at(self, path: ScopePath, kind: LookupKind) -> Reading:
         """The module's own declarations of *kind* at full *path*."""
         ...
@@ -635,7 +646,7 @@ def lookup_qualified(
     hidden = walk.reached_hidden()
     if hidden is not None:
         return hidden
-    return _unknown(chain, names, walk.written)
+    return _unknown(chain, names, walk.reaching(len(names)), walk.written)
 
 
 def unknown_member(
@@ -878,7 +889,7 @@ class _Walk:
         owning the rest of the path.
         """
         sources, names = self._sources, self._names
-        for count in range(self._steps[0].start + 1, len(names) + 1):
+        for count in range(self._steps[0].start + 1, self.reaching(len(names)) + 1):
             reached = False
             for step in self._steps:
                 owners = self._owners(step, count) if count < len(names) else ()
@@ -893,6 +904,13 @@ class _Walk:
                 if reached:
                     return True
         return False
+
+    def reaching(self, count: int) -> int:
+        """*count* names, or as many as can reach anything: no longer prefix names a scope or type.
+
+        A chain far longer than any stored path is not read prefix by prefix.
+        """
+        return min(count, self._sources.reach_depth + max(step.start for step in self._steps) + 1)
 
     def written(self, prefix: QualifierChain) -> _Walk:
         """The walk of *prefix*, a prefix of this walk's spelling, over the same steps."""
@@ -1055,6 +1073,7 @@ class _Walk:
         reaching few types costs each walk only those.
         """
         scanned, counts = self._owning.get(step.path, (step.start, []))
+        upto = self.reaching(upto)
         for count in range(scanned + 1, upto):
             if self._owners(step, count):
                 counts.append(count)
@@ -1276,7 +1295,10 @@ class _Walk:
 
 
 def _unknown(
-    chain: QualifierChain, names: ScopePath, written: Callable[[QualifierChain], _Walk]
+    chain: QualifierChain,
+    names: ScopePath,
+    reaching: int,
+    written: Callable[[QualifierChain], _Walk],
 ) -> AglScopeError:
     """An unknown member of the longest prefix naming something, else an unknown qualifier.
 
@@ -1284,9 +1306,10 @@ def _unknown(
     or reaches a type -- through an alias, the path it stands
     for -- whatever its reading's verdict, as a visible path is. A prefix
     naming a value but no qualifier, a removed one included, ends the search:
-    a function, binding or injected enum member is never a qualifier.
+    a function, binding or injected enum member is never a qualifier. No prefix
+    beyond *reaching* names reaches anything, so none is read.
     """
-    for length in range(len(chain.segments), 0, -1):
+    for length in range(min(len(chain.segments), reaching), 0, -1):
         prefix = replace(chain, segments=chain.segments[: length - 1])
         walk = written(prefix)
         if walk.named() or walk.find(LookupKind.TYPE) is not None:

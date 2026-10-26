@@ -189,6 +189,11 @@ class UseReader:
         layer.uses.append(decl)
         self._entry_ids.add(decl.node_id)
 
+    @property
+    def write_count(self) -> int:
+        """How many uses this entry has written."""
+        return len(self._entry_ids)
+
     def writes(self, decl: UseDecl) -> bool:
         """Whether this entry writes *decl*, rather than a REPL session retaining it."""
         return decl.node_id in self._entry_ids

@@ -44,6 +44,7 @@ __all__ = [
     "build_import_env",
     "validate_import_items",
     "contribution_routes",
+    "import_env_depth",
     "matching_atoms",
     "qualifier_candidates",
     "qualifier_exposures",
@@ -789,6 +790,24 @@ def unqualified_exposures(env: ImportEnv) -> Iterator[Exposure]:
     for atom, reached in env.unqualified_ways.items():
         for qname, ways in reached.items():
             yield atom, qname, ways
+
+
+def import_env_depth(env: ImportEnv) -> int:
+    """The segment count of the longest path *env* names or exposes, a module route excluded."""
+    atoms: list[NameAtom] = [*env.unqualified, *env.unqualified_ways, *env.unqualified_routes]
+    for table in (env.decl_bare_ways, env.decl_bare_routes, env.decl_scope_routes):
+        atoms.extend(atom for members in table.values() for atom in members)
+    for exposures in env.decl_tail_beneath.values():
+        for atom, items in exposures.items():
+            atoms.append(atom)
+            atoms.extend(item.item for item in items)
+    atoms.extend(route[1] for route in env.scope_origins_by_route)
+    atoms.extend(atom for origins in env.scope_origins_by_route.values() for _, atom in origins)
+    for contribution in env.contributions.values():
+        atoms.extend((*contribution.members, *contribution.exports))
+        for surface in contribution.routes.values():
+            atoms.extend((*surface.members, *surface.scope_paths))
+    return max((len(_path(atom)) for atom in atoms), default=0)
 
 
 def qualifier_scope_paths(
