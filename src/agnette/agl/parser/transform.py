@@ -505,7 +505,9 @@ class AstBuilder(Transformer):
     ) -> tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr]:
         """Build a REPL bare type entry: its inner attributes and its type expression."""
         attributes = tuple(a for a in args if isinstance(a, syntax.Attribute))
-        return attributes, cast(syntax.TypeExpr, args[-1])
+        # A ``;`` separator reaches the children as a token; the type is the last non-token.
+        type_expr = next(a for a in reversed(args) if not isinstance(a, Token))
+        return attributes, cast(syntax.TypeExpr, type_expr)
 
     def _build_block(self, meta: Meta, args: _Args) -> syntax.Block:
         """Build a root or suite block from its non-layout children."""

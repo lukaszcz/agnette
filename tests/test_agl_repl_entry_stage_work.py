@@ -112,3 +112,21 @@ def test_the_rich_console_lexes_an_entry_once_from_prompt_to_result(
 
     # Opening the session lexes its own bootstrap source.
     assert scanned(text + "\r\x04") - scanned("\x04") == 1
+
+
+@pytest.mark.parametrize("text", ["int;", "Option[int];", "int -> int;"])
+def test_a_bare_type_entry_may_end_with_a_semicolon(text: str) -> None:
+    session = _session()
+
+    result = session.eval_entry(text)
+
+    assert result.kind == "type"
+    assert result.ok
+
+
+def test_an_unknown_name_followed_by_a_semicolon_is_rejected_not_crashed() -> None:
+    session = _session()
+
+    result = session.eval_entry("nope;")
+
+    assert not result.ok
