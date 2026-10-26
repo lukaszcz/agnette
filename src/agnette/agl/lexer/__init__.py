@@ -39,8 +39,8 @@ from agnette.agl.lexer.layout import layout
 from agnette.agl.lexer.lexer import (
     LexedSource,
     apply_module_passes,
-    lex_source,
     lex_replay,
+    lex_source,
     spaced_qualifier_collector,
     tab_warning_collector,
     tab_warning_labels,
