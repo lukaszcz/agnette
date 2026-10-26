@@ -846,6 +846,8 @@ class ReplSession:
         bindings keep their normal echo.
         """
         result, program, next_id = self._eval_entry_pipeline(text, check_only=check_only)
+        if check_only and result.ok:
+            self._open_failure = ()
         if self._pending_bootstrap_warnings:
             result.warnings[:0] = self._pending_bootstrap_warnings
             self._pending_bootstrap_warnings.clear()
@@ -1791,6 +1793,7 @@ class ReplSession:
         typ = checked.node_types[checked.resolved.program.body.items[-1].node_id]
         from agnette.agl.repl.type_display import format_type_for_repl
 
+        self._open_failure = ()
         return format_type_for_repl(typ, checked.type_env.type_table)
 
     # ------------------------------------------------------------------
@@ -1831,8 +1834,8 @@ class ReplSession:
 
         Library declarations are described from a checked library image, so a session
         that has promoted nothing is :meth:`open`-ed first, as a host does; a rejected
-        image raises :class:`SessionOpenError` until :meth:`reset`, another ``open``, or an entry
-        promotes an image.
+        image raises :class:`SessionOpenError` until :meth:`reset`, another ``open``, a successful
+        ``:type`` or check-only entry, or an entry promotes an image.
         """
         if self._next_node_id:
             self._open_failure = ()

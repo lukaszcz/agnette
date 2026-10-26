@@ -31,6 +31,7 @@ from agnette.agl.modules.ids import ModuleId
 from agnette.agl.parser import AglSyntaxError
 from agnette.agl.recursion import NestingTooDeepError
 from agnette.agl.repl import ReplSession
+from agnette.agl.repl.session import SessionOpenError
 from agnette.agl.repl.entry import EntryResult
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
@@ -11483,6 +11484,27 @@ class TestInfoOpensTheLibraryImage:
         assert session.eval_entry("let x = 1", check_only=True).ok
 
         assert session.info_of(name) is not None
+
+    @pytest.mark.parametrize("recovery", ["type", "check-only"])
+    def test_info_answers_once_a_fixed_image_serves_another_command(
+        self, tmp_path: Path, recovery: str
+    ) -> None:
+        stdlib = self._stdlib_with(tmp_path, "prelude.agl", '\nlet broken: int = "x"\n')
+        session = ReplSession(stdlib_root=stdlib)
+        with pytest.raises(SessionOpenError):
+            session.info_of("print")
+        module = stdlib / MODULE_TREE_DIRNAME / "prelude.agl"
+        module.write_text(
+            (REPO_STDLIB_ROOT / MODULE_TREE_DIRNAME / "prelude.agl").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        if recovery == "type":
+            session.type_of("1")
+        else:
+            assert session.eval_entry("1", check_only=True).ok
+
+        assert session.info_of("print") is not None
 
     def test_info_does_not_answer_from_an_image_the_warning_policy_denies(
         self, tmp_path: Path
