@@ -23,7 +23,7 @@ from lark import Lark, Tree
 from lark.exceptions import UnexpectedToken, VisitError
 
 import agnette.agl.syntax as syntax
-from agnette.agl.lexer import tab_warning_labels, token_collector, tokenize
+from agnette.agl.lexer import lex_replay, lex_source, tab_warning_labels, token_collector
 from agnette.agl.lexer.errors import (
     IncompleteInputError,
     LexError,
@@ -66,13 +66,7 @@ def _type_parser() -> Lark:
 
 def has_unterminated_triple_quoted_string(text: str) -> bool:
     """Return ``True`` when lexing *text* ends inside a triple-quoted string."""
-    try:
-        _PARSER.parse(text)
-    except LexError as exc:
-        return isinstance(exc, UnterminatedTripleQuotedStringError)
-    except UnexpectedToken:
-        return False
-    return False
+    return isinstance(lex_source(text).failure, UnterminatedTripleQuotedStringError)
 
 
 def has_open_verbatim_block(text: str) -> bool:
@@ -90,12 +84,11 @@ def has_open_verbatim_block(text: str) -> bool:
     :func:`is_incomplete_source` already reports that as incomplete, so any
     lex error here is simply not an open block.
     """
-    try:
-        tokens = list(tokenize(text))
-    except LexError:
+    lexed = lex_source(text)
+    if lexed.failure is not None:
         return False
     payload_starts: list[int] = []
-    for token in tokens:
+    for token in lexed.tokens:
         if token.type == VERBATIM_START:
             payload_starts.append(token_span(token).end_offset)
         elif token.type == VERBATIM_END and token.end_pos == len(text) and payload_starts:
@@ -232,7 +225,8 @@ def is_incomplete_source(text: str) -> bool:
         return _incomplete_cache[1]
 
     try:
-        result = _ends_unfinished(_PARSER.parse(text))
+        with lex_replay(lex_source(text)):
+            result = _ends_unfinished(_PARSER.parse(text))
     except UnexpectedToken as exc:
         # The LALR parser reports a premature end of input as an unexpected
         # ``$END`` token (it never raises ``UnexpectedEOF``), so this single

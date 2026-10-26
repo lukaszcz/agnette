@@ -240,12 +240,12 @@ def has_runnable_statements(text: str) -> bool:
     (an empty / comment-only file loads as a benign no-op).  Such source parses
     to an empty module, so this only spares the caller a pointless pipeline run.
     """
-    from agnette.agl.lexer import LexError, tokenize
+    from agnette.agl.lexer import lex_source
 
-    try:
-        return any(token.type not in _TRIVIAL_TOKENS for token in tokenize(text))
-    except LexError:
-        return True
+    lexed = lex_source(text)
+    return lexed.failure is not None or any(
+        token.type not in _TRIVIAL_TOKENS for token in lexed.tokens
+    )
 
 
 def _region_path(region: "ScopeRegion") -> tuple[str, ...]:
@@ -1206,10 +1206,17 @@ class ReplSession:
         fails. Also returns the first node id past the entry's parse and its lexed source
         (``None`` if it did not lex). The entry is parsed in *source*.
         """
-        from agnette.agl.lexer import lex_capture, spaced_qualifier_collector, tab_warning_collector
+        from agnette.agl.lexer import (
+            lex_replay,
+            lex_source,
+            spaced_qualifier_collector,
+            tab_warning_collector,
+        )
         from agnette.agl.parser import parse_program_seeded
 
         host_env = self._runtime.host_environment()
+        lexed = lex_source(text)
+        lexed_ok = lexed if lexed.failure is None else None
 
         # TAB advisories come from the parse's single lex pass (no separate TAB
         # scan).  The collector is populated even on a failed parse; the warning
@@ -1218,7 +1225,7 @@ class ReplSession:
         with (
             tab_warning_collector() as tab_sink,
             spaced_qualifier_collector() as spaced_sink,
-            lex_capture() as capture,
+            lex_replay(lexed),
         ):
             try:
                 program, next_start_id = parse_program_seeded(
@@ -1228,7 +1235,7 @@ class ReplSession:
                 return (
                     self._fail_static_governed(exc, list(tab_sink)),
                     self._next_node_id,
-                    capture.lexed,
+                    lexed_ok,
                 )
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
@@ -1246,7 +1253,7 @@ class ReplSession:
             check_only=check_only,
             spaced_qualifiers=spaced_qualifiers,
         )
-        return result, next_start_id, capture.lexed
+        return result, next_start_id, lexed_ok
 
     def _build_check_only_result(
         self,
@@ -2593,7 +2600,7 @@ class ReplSession:
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
         items to run and yields an empty list (a benign no-op).
         """
-        from agnette.agl.lexer import lex_capture, tab_warning_collector
+        from agnette.agl.lexer import lex_replay, lex_source, tab_warning_collector
         from agnette.agl.parser import parse_repl_transcript
         from agnette.agl.scope.attributes import module_allowed_names
         from agnette.core.fs import read_text
@@ -2630,13 +2637,18 @@ class ReplSession:
         # the session's continuing node-id counter).  start_id=0 is fine here.
         # A file that is no program is one entry as a whole: a bare type, else its
         # syntax error.
-        with tab_warning_collector() as tab_sink, lex_capture() as capture:
+        lexed = lex_source(normalized)
+        with tab_warning_collector() as tab_sink, lex_replay(lexed):
             try:
                 program = parse_repl_transcript(normalized, source=self._next_entry_source())
             except AglError as exc:
                 return [
                     self._eval_unparsed(
-                        normalized, FileOrigin(label, 1, 1), exc, list(tab_sink), capture.lexed
+                        normalized,
+                        FileOrigin(label, 1, 1),
+                        exc,
+                        list(tab_sink),
+                        lexed if lexed.failure is None else None,
                     )
                 ]
 

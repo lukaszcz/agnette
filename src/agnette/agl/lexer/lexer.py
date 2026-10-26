@@ -208,36 +208,57 @@ def _deposit(var: contextvars.ContextVar[list[_T] | None], items: Iterable[_T]) 
 
 @dataclass(frozen=True, slots=True)
 class LexedSource:
-    """The result of lexing one source text: its tokens and spaced-qualifier advisories."""
+    """One lex pass over a source text, with everything any consumer of the pass reads.
+
+    A pass records its advisories whether or not a sink is active when it runs, so
+    a replay (:func:`lex_replay`) feeds the active sinks exactly as scanning would.
+    ``tokens`` is empty when the pass ended in ``failure``; the advisories are
+    then those found before it. TAB advisories are unlabeled (see :func:`tab_warning_labels`).
+    """
 
     tokens: tuple[Token, ...]
     spaced_qualifiers: tuple[SpacedQualifier, ...]
+    tab_warnings: tuple[Diagnostic, ...]
+    failure: LexError | None = None
 
 
-class LexCapture:
-    """The :class:`LexedSource` of the last complete lex pass in a :func:`lex_capture` block."""
-
-    lexed: LexedSource | None = None
-
-
-_LEX_CAPTURE: contextvars.ContextVar[LexCapture | None] = contextvars.ContextVar(
-    "agl_lex_capture", default=None
-)
 _LEX_REPLAY: contextvars.ContextVar[LexedSource | None] = contextvars.ContextVar(
     "agl_lex_replay", default=None
 )
 
 
-@contextmanager
-def lex_capture() -> Iterator[LexCapture]:
-    """Capture the lexed source of parses within the block, so another parse can replay it.
+def _lex(source: str) -> LexedSource:
+    """Scan *source* through the whole lexer pipeline, once."""
+    scanner = _Scanner(source)
+    with spaced_qualifier_collector() as spaced:
+        try:
+            after_remap = list(_remap(layout(scanner.scan())))
+            tokens = tuple(
+                _mark_typearg_lsqb(
+                    _remap_adjacent_brackets(apply_module_passes(after_remap, source))
+                )
+            )
+            failure = None
+        except LexError as exc:
+            tokens, failure = (), exc
+    return LexedSource(tokens, tuple(spaced), tuple(scanner.tab_warnings), failure)
 
-    ``lexed`` stays ``None`` when scanning failed. Lexing depends on the text alone,
-    not on the grammar start rule.
+
+# Single-entry memo for :func:`lex_source`: (text, its lex).
+_last_lexed: tuple[str, LexedSource] | None = None
+
+
+def lex_source(source: str) -> LexedSource:
+    """Lex *source*, reusing the lex of the most recent text if it was this one.
+
+    Lexing depends on the text alone, not on the grammar start rule, so a REPL
+    entry classified (incomplete, blank, open verbatim block) and then evaluated
+    is scanned once, however many readings follow.
     """
-    capture = LexCapture()
-    with ScopedVar(_LEX_CAPTURE, capture):
-        yield capture
+    global _last_lexed
+    if _last_lexed is None or _last_lexed[0] != source:
+        _last_lexed = (source, _lex(source))
+    return _last_lexed[1]
 
 
 @contextmanager
@@ -1061,37 +1082,14 @@ class AglLexer(Lexer):
         Keyword token types are remapped from lowercase (scanner convention)
         to the uppercase names expected by the Lark grammar.
         """
-        replayed = _LEX_REPLAY.get()
-        if replayed is not None:
-            _deposit(_SPACED_QUALIFIER_SINK, replayed.spaced_qualifiers)
-            _deposit(_TOKEN_SINK, replayed.tokens)
-            return iter(replayed.tokens)
-        # Lark wraps the parsed string in a whole-text ``TextSlice``.
-        source = lexer_state.text.text
-        # Drive the scan to completion up front (materialized) so the single
-        # lex pass records EVERY TAB advisory before the grammar is consulted —
-        # the advisories are then complete even if the parse later fails.  The
-        # ``finally`` deposits whatever was collected, including on a LexError.
-        scanner = _Scanner(source)
-        spaced_sink = _SPACED_QUALIFIER_SINK.get()
-        spaced_start = 0 if spaced_sink is None else len(spaced_sink)
-        try:
-            after_remap = list(_remap(layout(scanner.scan())))
-            tokens = _mark_typearg_lsqb(
-                _remap_adjacent_brackets(apply_module_passes(after_remap, source))
-            )
-        finally:
-            sink = _TAB_WARNING_SINK.get()
-            if sink is not None:
-                sink.extend(scanner.tab_warnings)
-        token_sink = _TOKEN_SINK.get()
-        if token_sink is not None:
-            token_sink.extend(tokens)
-        capture = _LEX_CAPTURE.get()
-        if capture is not None:
-            spaced = () if spaced_sink is None else tuple(spaced_sink[spaced_start:])
-            capture.lexed = LexedSource(tuple(tokens), spaced)
-        return iter(tokens)
+        lexed = _LEX_REPLAY.get() or _lex(lexer_state.text.text)
+        # Advisories reach the sinks even when the pass failed or the parse later does.
+        _deposit(_SPACED_QUALIFIER_SINK, lexed.spaced_qualifiers)
+        _deposit(_TAB_WARNING_SINK, lexed.tab_warnings)
+        if lexed.failure is not None:
+            raise lexed.failure
+        _deposit(_TOKEN_SINK, lexed.tokens)
+        return iter(lexed.tokens)
 
 
 def load_grammar() -> str:

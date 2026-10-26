@@ -6,6 +6,7 @@ public ``tokenize`` helper.  No scanner/layout internals are tested.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -3765,50 +3766,76 @@ class TestRawSurrogateInSource:
 
 
 class TestLexReplay:
-    """A captured lex pass is reused by a parse of the same text under another start rule."""
+    """A recorded lex pass is reused by a parse of the same text under another start rule."""
 
-    def test_a_replayed_parse_reads_the_captured_tokens_instead_of_scanning(
+    def test_a_replayed_parse_reads_the_recorded_tokens_instead_of_scanning(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agnette.agl.lexer import lex_capture, lex_replay
-        from agnette.agl.parser import parse_program_seeded, parse_type_entry_seeded
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import parse_type_entry_seeded
 
-        with lex_capture() as capture:
-            parse_program_seeded("int", start_id=0)
-        assert capture.lexed is not None
+        lexed = lex_source("int")
 
         def forbidden(source: str) -> object:
             raise AssertionError("the text was scanned again")
 
         monkeypatch.setattr("agnette.agl.lexer.lexer._Scanner", forbidden)
-        with lex_replay(capture.lexed):
+        with lex_replay(lexed):
             attributes, type_expr, _ = parse_type_entry_seeded("int", start_id=0)
 
         assert attributes == ()
         assert type_expr.span.end_offset == 3
 
-    def test_replayed_spaced_qualifiers_reach_the_active_collector(self) -> None:
-        from agnette.agl.lexer import lex_capture, lex_replay
-        from agnette.agl.parser import AglSyntaxError, parse_program_seeded, parse_type_entry_seeded
+    def test_the_latest_text_is_lexed_once_however_often_it_is_asked_for(self) -> None:
+        from agnette.agl.lexer import lex_source
 
-        text = "std/fs ::read"
-        with lex_capture() as capture, spaced_qualifier_collector() as first:
-            parse_program_seeded(text, start_id=0)
-        with (
-            lex_replay(capture.lexed),
-            spaced_qualifier_collector() as replayed,
-            pytest.raises(AglSyntaxError),
-        ):
-            parse_type_entry_seeded(text, start_id=0)
+        assert lex_source("let a = 1") is lex_source("let a = 1")
+        assert lex_source("let b = 1") is not lex_source("let a = 1")
 
-        assert first
-        assert replayed == first
-
-    def test_a_failed_scan_captures_nothing(self) -> None:
-        from agnette.agl.lexer import lex_capture
+    def test_replaying_a_pass_recorded_with_no_sink_feeds_the_sinks_like_a_direct_lex(
+        self,
+    ) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
         from agnette.agl.parser import AglSyntaxError, parse_program_seeded
 
-        with lex_capture() as capture, pytest.raises(AglSyntaxError):
-            parse_program_seeded('"open', start_id=0)
+        text = "let\ta = std/fs ::read"
+        with (
+            spaced_qualifier_collector() as direct_spaced,
+            tab_warning_collector() as direct_tabs,
+            contextlib.suppress(AglSyntaxError),
+        ):
+            parse_program_seeded(text, start_id=0)
 
-        assert capture.lexed is None
+        lexed = lex_source(text)  # recorded while no sink was active
+        with (
+            lex_replay(lexed),
+            spaced_qualifier_collector() as replayed_spaced,
+            tab_warning_collector() as replayed_tabs,
+            contextlib.suppress(AglSyntaxError),
+        ):
+            parse_program_seeded(text, start_id=0)
+
+        assert direct_spaced and direct_tabs
+        assert replayed_spaced == direct_spaced
+        assert replayed_tabs == direct_tabs
+
+    def test_replaying_a_failed_pass_raises_its_failure_and_feeds_the_sinks(self) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+
+        text = 'let\ta = "open'
+        with tab_warning_collector() as direct_tabs, pytest.raises(AglSyntaxError):
+            parse_program_seeded(text, start_id=0)
+
+        lexed = lex_source(text)
+        with (
+            lex_replay(lexed),
+            tab_warning_collector() as replayed_tabs,
+            pytest.raises(AglSyntaxError),
+        ):
+            parse_program_seeded(text, start_id=0)
+
+        assert isinstance(lexed.failure, LexError)
+        assert not lexed.tokens
+        assert direct_tabs
+        assert replayed_tabs == direct_tabs
