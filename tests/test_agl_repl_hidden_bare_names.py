@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.diagnostics import AglError, HiddenMemberError
-from agnette.agl.scope.symbols import NoVisibleConstructorError
 from agnette.agl.repl.session import ReplSession
+from agnette.agl.scope.symbols import NoVisibleConstructorError
 
 from ._agl_helpers import repl_session_with_root
 
