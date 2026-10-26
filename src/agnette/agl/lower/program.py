@@ -47,7 +47,7 @@ from agnette.agl.syntax.nodes import (
     static_items,
 )
 from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.type_schema import build_exception_field_encodes, build_param_decoder
+from agnette.agl.type_schema import ExceptionFieldEncodes, build_param_decoder
 from agnette.agl.typecheck.env import CheckedModule, FunctionSignature
 from agnette.agl.typecheck.program import program_funcdefs
 from agnette.util.text import normalize_newlines
@@ -71,6 +71,7 @@ def _descriptor_for_skipped_identity(
     nominal: NominalId,
     type_table: TypeTable,
     field_defaults: Mapping[NominalId, tuple[IrExpr | None, ...]],
+    built: Mapping[NominalId, NominalDescriptor],
 ) -> NominalDescriptor:
     """Build a descriptor for an identity a kept declaration references but that was itself skipped.
 
@@ -86,6 +87,7 @@ def _descriptor_for_skipped_identity(
         type_table,
         bears_name_path=False,
         field_defaults=field_defaults,
+        built=built,
     )
 
 
@@ -109,7 +111,9 @@ def _add_missing_enum_member_descriptors(
         if variant.member not in nominals
     }
     for nominal in missing:
-        nominals[nominal] = _descriptor_for_skipped_identity(nominal, type_table, field_defaults)
+        nominals[nominal] = _descriptor_for_skipped_identity(
+            nominal, type_table, field_defaults, nominals
+        )
 
 
 def _add_missing_exception_base_descriptors(
@@ -132,7 +136,7 @@ def _add_missing_exception_base_descriptors(
         nominal = pending.pop()
         if nominal is None or nominal in nominals:
             continue
-        descriptor = _descriptor_for_skipped_identity(nominal, type_table, field_defaults)
+        descriptor = _descriptor_for_skipped_identity(nominal, type_table, field_defaults, nominals)
         nominals[nominal] = descriptor
         pending.append(descriptor.base)
 
@@ -145,13 +149,15 @@ def _add_exception_field_encodes(
     """Compile every registered exception's field encodes not yet in *encodes*.
 
     An exception's fields are fixed by its declaration identity, so a REPL
-    link state keeps earlier entries' encodes.
+    link state keeps earlier entries' encodes. Inherited fields share their
+    base's compiled entries.
     """
+    compiler = ExceptionFieldEncodes(type_table)
     for nominal, descriptor in nominals.items():
         if descriptor.kind is not NominalKind.EXCEPTION or nominal in encodes:
             continue
         typedef = type_table.typedef_of(nominal.value)
-        encodes[nominal] = build_exception_field_encodes(typedef.exception_handle(), type_table)
+        encodes[nominal] = compiler.of(typedef.exception_handle())
 
 
 def _program_signature(sig: FunctionSignature, type_table: TypeTable) -> tuple[IrProgramParam, ...]:
@@ -444,6 +450,7 @@ def lower_program(
             type_table,
             bears_name_path=bears_name_path,
             field_defaults=link.field_defaults,
+            built=link.nominals,
         )
 
     _add_builtin_nominals(link.nominals, type_table, link.field_defaults)
@@ -471,6 +478,7 @@ def lower_program(
                 type_table,
                 bears_name_path=bears_name_path,
                 field_defaults=link.field_defaults,
+                built=link.nominals,
             )
 
     _add_missing_enum_member_descriptors(link.nominals, type_table, link.field_defaults)

@@ -122,7 +122,7 @@ from agnette.agl.ir.contracts import (
 )
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.semantics.external_names import NO_EXTERNAL_NAME
-from agnette.agl.semantics.type_table import TypeTable, is_json_convertible
+from agnette.agl.semantics.type_table import DeclId, TypeDef, TypeTable, is_json_convertible
 from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
@@ -929,27 +929,65 @@ def build_encode_plan(typ: Type, type_table: TypeTable) -> EncodePlan:
     return _build_template_encode_plan(typ, type_table)
 
 
+class ExceptionFieldEncodes:
+    """Compiles exception field encodes, each exception extending its base's.
+
+    An exception's entries are its base chain's, base first, then its own
+    (the entries ``ExceptionEncode`` selects). Each field's JSON name is its
+    effective external name (``@json-name`` ?? ``@name`` ?? declared),
+    covering every field so no two can collide. A field with no JSON form
+    carries no plan: a cast of it fails, and an uncaught-exception report
+    falls back to the value-directed walk (see ``runtime.serialize``).
+
+    Every distinct ``(field, JSON name, type)`` entry is compiled once and
+    every exception is built from its base's entries, so compiling a whole
+    hierarchy costs work proportional to its declared fields plus one flat
+    tuple copy per exception.
+    """
+
+    def __init__(self, type_table: TypeTable) -> None:
+        self._type_table = type_table
+        self._entries: dict[tuple[str, str, Type], ExceptionFieldEncode] = {}
+        self._by_decl: dict[DeclId, tuple[ExceptionFieldEncode, ...]] = {}
+
+    def _encode(self, field: tuple[str, str, Type]) -> ExceptionFieldEncode:
+        entry = self._entries.get(field)
+        if entry is None:
+            field_name, json_name, field_type = field
+            entry = self._entries[field] = ExceptionFieldEncode(
+                field_name,
+                json_name,
+                build_encode_plan(field_type, self._type_table)
+                if is_json_convertible(field_type, self._type_table)
+                else None,
+            )
+        return entry
+
+    def of(self, handle: ExceptionType) -> tuple[ExceptionFieldEncode, ...]:
+        """Return *handle*'s flattened field encodes."""
+        table = self._type_table
+        pending: list[TypeDef] = []
+        cursor: TypeDef | None = table.exception_def(handle)
+        while cursor is not None and cursor.decl_node_id not in self._by_decl:
+            pending.append(cursor)
+            cursor = None if cursor.base is None else table.typedef_of(cursor.base)
+        entries = () if cursor is None else self._by_decl[cursor.decl_node_id]
+        for typedef in reversed(pending):
+            handle = typedef.exception_handle()
+            own = table.own_json_fields(handle)
+            if len(entries) + len(own) == len(table.exception_fields(handle)):
+                entries = (*entries, *map(self._encode, own))
+            else:  # an own field redeclares an inherited one
+                entries = tuple(map(self._encode, table.json_fields(handle)))
+            self._by_decl[typedef.decl_node_id] = entries
+        return entries
+
+
 def build_exception_field_encodes(
     handle: ExceptionType, type_table: TypeTable
 ) -> tuple[ExceptionFieldEncode, ...]:
-    """Compile one exception's own field encodes, the entries ``ExceptionEncode`` selects.
-
-    Each field's JSON name is its effective external name (``@json-name`` ??
-    ``@name`` ?? declared), covering every field so no two can collide. A
-    field with no JSON form carries no plan: a cast of it fails, and an
-    uncaught-exception report falls back to the value-directed walk (see
-    ``runtime.serialize``).
-    """
-    return tuple(
-        ExceptionFieldEncode(
-            field_name,
-            json_name,
-            build_encode_plan(field_type, type_table)
-            if is_json_convertible(field_type, type_table)
-            else None,
-        )
-        for field_name, json_name, field_type in type_table.json_fields(handle)
-    )
+    """Compile one exception's flattened field encodes (see :class:`ExceptionFieldEncodes`)."""
+    return ExceptionFieldEncodes(type_table).of(handle)
 
 
 def _build_finite_encode_plan(typ: Type, type_table: TypeTable) -> EncodePlan:

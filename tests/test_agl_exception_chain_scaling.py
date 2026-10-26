@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from agnette.agl import type_schema
+from agnette.agl.ir.contracts import EncodePlan
+from agnette.agl.semantics.external_names import ExternalName
 from agnette.agl.semantics.type_table import TypeDef, TypeTable
+from agnette.agl.semantics.types import Type
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.commands import check as check_command
 
@@ -132,3 +136,78 @@ def test_the_declaration_reads_to_check_a_chain_of_methods_grow_linearly_with_it
     work(2)  # loads the standard library once, whichever test runs first
     floor = work(2)  # what checking any program reads, whatever its chain
     assert work(240) - floor < 2.5 * (work(120) - floor)
+
+
+def _counted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, install: Callable[..., None]
+) -> Callable[[int], int]:
+    """Return a function counting what *install* counts over checking a fielded chain."""
+    count = 0
+
+    def tick(amount: int = 1) -> None:
+        nonlocal count
+        count += amount
+
+    def work(length: int) -> int:
+        nonlocal count
+        entry = tmp_path / f"counted{length}.agl"
+        entry.write_text(_chain_program(length, fields=True), encoding="utf-8")
+        count = 0
+        with monkeypatch.context() as patch:
+            install(patch, tick)
+            check_command.run(CheckArgs(files=[str(entry)]))
+        return count
+
+    return work
+
+
+def _assert_linear(work: Callable[[int], int]) -> None:
+    work(2)  # loads the standard library once, whichever test runs first
+    floor = work(2)  # what checking any program counts, whatever its chain
+    assert work(240) - floor <= 2.5 * (work(120) - floor)
+
+
+def test_encode_plans_compiled_for_a_chain_of_fielded_exceptions_grow_linearly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def install(patch: pytest.MonkeyPatch, tick: Callable[..., None]) -> None:
+        real = type_schema.build_encode_plan
+
+        def counting(field_type: Type, type_table: TypeTable) -> EncodePlan:
+            tick()
+            return real(field_type, type_table)
+
+        patch.setattr(type_schema, "build_encode_plan", counting)
+
+    _assert_linear(_counted(monkeypatch, tmp_path, install))
+
+
+def test_chain_links_walked_to_describe_a_chain_of_fielded_exceptions_grow_linearly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def install(patch: pytest.MonkeyPatch, tick: Callable[..., None]) -> None:
+        real = TypeTable.exception_field_defs
+
+        def counting(self: TypeTable, decl_id: int) -> tuple[TypeDef, ...]:
+            links = real(self, decl_id)
+            tick(len(links))
+            return links
+
+        patch.setattr(TypeTable, "exception_field_defs", counting)
+
+    _assert_linear(_counted(monkeypatch, tmp_path, install))
+
+
+def test_inherited_external_names_read_to_check_a_chain_of_fielded_exceptions_grow_linearly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def install(patch: pytest.MonkeyPatch, tick: Callable[..., None]) -> None:
+        real = ExternalName.json
+
+        def counting(self: ExternalName, declared: str) -> str:
+            tick()
+            return real(self, declared)
+
+        patch.setattr(ExternalName, "json", counting)
+
+    _assert_linear(_counted(monkeypatch, tmp_path, install))

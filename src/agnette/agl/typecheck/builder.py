@@ -887,8 +887,21 @@ class _TypeBuilder:
                             span=fd.span,
                         )
                 base_external_names = self._env.type_table.field_external_names(base_handle)
-                seed = tuple(
-                    (name, base_external_names.get(name, NO_EXTERNAL_NAME)) for name in base_fields
+                # An unrenamed own field can only clash with a renamed inherited
+                # one (it cannot redeclare an inherited name), so only a renamed
+                # own field needs the whole inherited chain as its seed.
+                renames_own = any(
+                    self._attributes.external_names.get(fd.node_id, NO_EXTERNAL_NAME)
+                    != NO_EXTERNAL_NAME
+                    for fd in item.fields
+                )
+                seed = (
+                    tuple(
+                        (name, base_external_names.get(name, NO_EXTERNAL_NAME))
+                        for name in base_fields
+                    )
+                    if renames_own
+                    else tuple(base_external_names.items())
                 )
             self._check_field_external_names(item.fields, owner=item.name, seed=seed)
 

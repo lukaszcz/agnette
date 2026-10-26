@@ -1595,6 +1595,20 @@ class TypeTable:
             for name, field_type in fields.items()
         )
 
+    def own_json_fields(self, handle: ExceptionType) -> tuple[tuple[str, str, Type], ...]:
+        """Return the fields *handle* itself declares as :meth:`json_fields` entries.
+
+        The base chain is not flattened in: a caller extending its base's
+        flattened data by these entries does work proportional to the
+        exception's own fields rather than its whole chain.
+        """
+        typedef = self._defs[handle.decl_id]
+        renamed = dict(typedef.field_external_names)
+        return tuple(
+            (name, renamed.get(name, NO_EXTERNAL_NAME).json(name), field_type)
+            for name, field_type in typedef.fields
+        )
+
     def exception_def(self, handle: ExceptionType) -> TypeDef:
         """Return the registered ``TypeDef`` for *handle*.
 

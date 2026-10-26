@@ -5121,6 +5121,38 @@ def test_method_may_reuse_a_field_name_declared_only_in_a_sibling_branch() -> No
     )
 
 
+@pytest.mark.parametrize(
+    ("base_field", "own_field"),
+    (
+        ("  code: int = 0\n", '  @name("code")\n  other: int = 0\n'),
+        ('  @name("x")\n  code: int = 0\n', "  x: int = 0\n"),
+    ),
+    ids=("renamed-own-clashes-with-inherited", "own-clashes-with-renamed-inherited"),
+)
+def test_an_exception_field_cannot_share_an_external_name_with_an_inherited_field(
+    base_field: str, own_field: str
+) -> None:
+    with pytest.raises(AglTypeError):
+        resolve_and_check_inline_entry(
+            "exception Base extends Exception\n"
+            f"{base_field}"
+            "exception Derived extends Base\n"
+            f"{own_field}"
+            "()"
+        )
+
+
+def test_an_exception_field_may_use_a_fresh_name_beside_a_renamed_inherited_field() -> None:
+    resolve_and_check_inline_entry(
+        "exception Base extends Exception\n"
+        '  @name("x")\n'
+        "  code: int = 0\n"
+        "exception Derived extends Base\n"
+        "  other: int = 0\n"
+        "()"
+    )
+
+
 @pytest.mark.parametrize("ancestor_first", [True, False])
 def test_same_module_methods_of_distant_exception_relatives_collide(ancestor_first: bool) -> None:
     defs = ["def Alpha::run(self) -> int = 1\n", "def Zeta::run(self) -> int = 2\n"]
