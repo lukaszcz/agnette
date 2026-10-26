@@ -895,7 +895,10 @@ class _Walk:
     def written(self, prefix: QualifierChain) -> _Walk:
         """The walk of *prefix*, a prefix of this walk's spelling, over the same steps."""
         names = self._names[: len(prefix.segments) + 1]
-        return _Walk(self._sources, self._site, self._steps, self._route, prefix, names, self._span)
+        walk = _Walk(self._sources, self._site, self._steps, self._route, prefix, names, self._span)
+        # A prefix's walk reads the same names, so it shares the types they reach.
+        walk._reached = self._reached
+        return walk
 
     def reached(
         self,
