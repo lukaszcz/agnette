@@ -3356,7 +3356,7 @@ class TestDivisionRequiresSurroundingSpace:
     """`/` is division only with whitespace on both sides.
 
     Unspaced, `/` is a path separator or anchor, so a slash that clings to an
-    operand on exactly one side has no reading and is rejected outright rather
+    operand on either side has no reading and is rejected outright rather
     than silently becoming arithmetic or a stray qualifier.
     """
 
@@ -3381,6 +3381,30 @@ class TestDivisionRequiresSurroundingSpace:
 
         assert "std/fs" in str(route.value)
         assert str(number.value) != str(route.value)
+
+    @pytest.mark.parametrize(
+        ("source", "route"),
+        [
+            ("let u = a/b/c", "a/b/c"),
+            ("let u = /a/b", "/a/b"),
+            ("let u = /a/b/c", "/a/b/c"),
+            ("let t: a/b/c = 1", "a/b/c"),
+        ],
+    )
+    def test_a_multi_segment_route_is_named_whole(self, source: str, route: str) -> None:
+        with pytest.raises(LexError) as raised:
+            lark_tok(source)
+
+        assert f"'{route}'" in str(raised.value)
+
+    def test_a_route_in_type_position_is_not_called_a_value(self) -> None:
+        with pytest.raises(LexError) as value:
+            lark_tok("let u = a/b")
+        with pytest.raises(LexError) as annotation:
+            lark_tok("let t: a/b = 1")
+
+        assert "divide" in str(value.value)
+        assert "divide" not in str(annotation.value)
 
     @pytest.mark.parametrize("lexer", (tok, lark_tok), ids=("public", "lark"))
     @pytest.mark.parametrize(

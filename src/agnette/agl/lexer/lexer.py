@@ -690,23 +690,46 @@ def _reaches_a_spaced_dcolon(tokens: list[Token], slash_index: int) -> bool:
     return False
 
 
-def _clinging_slash_message(prev_tok: Token | None, next_tok: Token | None, *, tight: bool) -> str:
-    """Explain a clinging slash; a name on both sides may spell a module route.
+# Tokens after which a name path reads as a type, where division is no reading.
+_TYPE_POSITION_PRECEDERS = frozenset({"COLON", "THIN_ARROW", "TYPEARG_LSQB"})
 
-    *tight* is whether the slash touches both neighbors.
+
+def _tight_route(tokens: list[Token], index: int) -> tuple[int, int] | None:
+    """The bounds of the module route through the slash at *index*, if it lies in one.
+
+    A route is two or more names joined by byte-adjacent slashes, a leading
+    slash anchoring it.
     """
-    if (
-        tight
-        and prev_tok is not None
-        and next_tok is not None
-        and prev_tok.type == NAME
-        and next_tok.type == NAME
-    ):
-        return (
-            f"'{prev_tok}/{next_tok}' is a module route, not a value: import the module and"
-            " reach its names with '::', or write ' / ' with spaces to divide"
-        )
-    return "'/' is a module path separator here; write ' / ' with spaces to divide"
+
+    def joined(position: int) -> bool:
+        return tokens[position].end_pos == tokens[position + 1].start_pos
+
+    first = index
+    while first > 0 and tokens[first - 1].type == NAME and joined(first - 1):
+        first -= 1
+        if first > 0 and tokens[first - 1].type == SLASH and joined(first - 1):
+            first -= 1
+    last = index
+    while last + 1 < len(tokens) and tokens[last + 1].type == NAME and joined(last):
+        last += 1
+        if last + 1 < len(tokens) and tokens[last + 1].type == SLASH and joined(last):
+            last += 1
+    names = sum(tok.type == NAME for tok in tokens[first : last + 1])
+    return (first, last) if names >= 2 else None
+
+
+def _clinging_slash_message(tokens: list[Token], index: int) -> str:
+    """Explain a clinging slash; a run of names joined by slashes is a module route."""
+    bounds = _tight_route(tokens, index)
+    if bounds is None:
+        return "'/' is a module path separator here; write ' / ' with spaces to divide"
+    first, last = bounds
+    route = "".join(str(tok) for tok in tokens[first : last + 1])
+    advice = f"'{route}' is a module route: import the module and reach its names with '::'"
+    before = tokens[first - 1] if first > 0 else None
+    if before is not None and before.type in _TYPE_POSITION_PRECEDERS:
+        return advice
+    return f"{advice}, or write ' / ' with spaces to divide"
 
 
 def _reject_clinging_slash(
@@ -738,7 +761,7 @@ def _reject_clinging_slash(
         )
         if tight_left or tight_right:
             error = LexError(
-                _clinging_slash_message(prev_tok, next_tok, tight=tight_left and tight_right),
+                _clinging_slash_message(tokens, index),
                 span=token_span(tok),
             )
             if errors is None:
