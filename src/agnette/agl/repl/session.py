@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, cast
 
-from agnette.agl.diagnostics import AglError, Diagnostic
+from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
 from agnette.agl.repl.entry import EntryKind, EntryResult
 from agnette.agl.repl.entry_pipeline import EntryPipeline
 from agnette.agl.repl.info_docs import format_doc_attribute, module_regions
@@ -1758,7 +1758,12 @@ class ReplSession:
         visible declaration, and a name scope rejects raises scope's rejection.
         ``None`` when *name* is no identifier.
         """
-        parts = tuple(name.split("::"))
+        if not self._next_node_id and not self._retained_checked_modules:
+            # Library declarations are described from the artifacts of a
+            # checked library image; a session no entry has run yet has none.
+            # A load failure resurfaces from the resolution below.
+            self.open()
+        parts = tuple(name.removeprefix("::").split("::"))
         if not name or any(not part for part in parts):
             return None
         if "/" in name and len(parts) == 1:
@@ -1775,9 +1780,12 @@ class ReplSession:
             described = self._describe_declaration(name, parsed)
         except AglError:
             found = None if chain is None else self._describe_scopes(name, chain)
-            if found is None:
-                raise
-            return found
+            if found is not None:
+                return found
+            hidden = None if chain is None else self._hidden_region(chain)
+            if hidden is not None:
+                raise hidden from None
+            raise
         return described
 
     @staticmethod
@@ -2057,6 +2065,13 @@ class ReplSession:
             _format_info_section(label, code, source=source) for label, source, code in found
         )
         return f"{name} names several modules or scopes.\n" + "\n".join(sections)
+
+    def _hidden_region(self, chain: "QualifierChain") -> HiddenMemberError | None:
+        """Return the rejection an entry gets for *chain* naming only scopes or modules hidden here."""
+        from agnette.agl.scope.lookup import lookup_hidden
+
+        resolved = self._probe_resolve()
+        return lookup_hidden(resolved.sources(resolved.entry_id), chain, (), None)
 
     def _probe_resolve(self) -> "ResolvedProgram":
         """Resolve an empty entry: the scope state an entry written now would see."""

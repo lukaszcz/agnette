@@ -1448,6 +1448,71 @@ class TestInfoDocs:
         assert "@doc" not in self._info(session, "add")
 
 
+class TestInfoAsEntry:
+    """``:info`` reports exactly what an entry spelling the same name would see."""
+
+    @pytest.mark.parametrize("name", ["print", "Some", "Option"])
+    def test_info_answers_before_the_first_entry(self, name: str) -> None:
+        text = ReplSession().info_of(name)
+
+        assert text is not None
+        assert text.startswith(f"{name} is ")
+
+    @pytest.mark.parametrize(
+        ("setup", "name", "kind"),
+        [
+            ("def f() -> int = 1", "::f", "function"),
+            ('scope D\n  @!doc("S")\n  def z() -> int = 1\nend D', "::D", "scope"),
+            ("scope D\n  def z() -> int = 1\nend D", "::D::z", "function"),
+        ],
+    )
+    def test_info_resolves_anchored_spellings_as_an_entry_does(
+        self, setup: str, name: str, kind: str
+    ) -> None:
+        session = _open_session()
+        assert session.eval_entry(setup).ok
+
+        text = session.info_of(name)
+
+        assert text is not None
+        assert f"is a {kind}." in text
+
+    @pytest.mark.parametrize(
+        ("import_", "name", "entry"),
+        [
+            ("import l::* hiding D", "D::c", "D::c()"),
+            ("import l hiding D", "l::D::c", "l::D::c()"),
+            ("import l hiding D", "l::D", "l::D::c()"),
+        ],
+    )
+    def test_info_reports_the_verdict_an_entry_gets_for_a_hidden_name(
+        self, tmp_path: Path, import_: str, name: str, entry: str
+    ) -> None:
+        (tmp_path / "l.agl").write_text(
+            "scope D\n  def c() -> int = 1\nend D\ndef c() -> int = 2\n", encoding="utf-8"
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry(import_).ok
+        result = session.eval_entry(entry)
+        assert not result.ok
+
+        with pytest.raises(AglError) as raised:
+            session.info_of(name)
+
+        assert type(raised.value) is HiddenMemberError
+        assert "hidden" in result.diagnostics[0].message
+
+    def test_info_of_a_hidden_scope_name_reports_it_hidden(self, tmp_path: Path) -> None:
+        (tmp_path / "l.agl").write_text("scope D\n  def c() -> int = 1\nend D\n", encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import l::* hiding D").ok
+
+        with pytest.raises(HiddenMemberError):
+            session.info_of("D")
+
+
 class TestBindings:
     def test_bindings_empty(self) -> None:
         for name in (":bindings", ":env"):
