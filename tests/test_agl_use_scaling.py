@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -69,16 +70,21 @@ def test_the_exposures_read_per_use_item_do_not_grow_with_their_number(
 def test_reading_many_glob_uses_does_not_multiply_the_work_per_extra_glob(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
 ) -> None:
-    path_reads = UseReader._use_path_reached
-    reads = 0
+    reads = {"path": 0, "exposure": 0}
 
-    def counting(self: UseReader, *args: object, **kwargs: object) -> object:
-        nonlocal reads
-        reads += 1
-        return path_reads(self, *args, **kwargs)
+    def counting(name: str, key: str) -> None:
+        original = getattr(UseReader, name)
 
-    def work(globs: int) -> int:
-        nonlocal reads
+        def wrapper(self: UseReader, *args: Any, **kwargs: Any) -> Any:
+            reads[key] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(UseReader, name, wrapper)
+
+    counting("_use_path_reached", "path")
+    counting("exposure", "exposure")
+
+    def work(globs: int) -> dict[str, int]:
         root = tmp_path / f"{shape}{globs}"
         root.mkdir()
         modules = globs if shape == "distinct" else 1
@@ -91,12 +97,13 @@ def test_reading_many_glob_uses_does_not_multiply_the_work_per_extra_glob(
             text = "import m0\n" + "use m0::*\n" * globs
         entry = root / "main.agl"
         entry.write_text(text + "def r() -> int = f0()\n", encoding="utf-8")
-        reads = 0
+        for key in reads:
+            reads[key] = 0
         check_command.run(CheckArgs(files=[str(entry)]))
-        return reads
+        return dict(reads)
 
-    monkeypatch.setattr(UseReader, "_use_path_reached", counting)
     work(1)
-    small, large = work(6), work(12)
-    # Doubling the globs at most multiplies the reads by 2^3 (distinct) or 2^2 (repeated).
-    assert large < (12 if shape == "distinct" else 6) * small
+    small, large = work(10), work(20)
+    # Quadratic work at most: doubling the globs multiplies it by under 2^2.5.
+    for key in reads:
+        assert large[key] < 5.6 * small[key], key

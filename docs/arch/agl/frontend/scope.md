@@ -9,7 +9,7 @@ A scope path is part of a declaration's name; a `scope` region is not an entity,
 - **Steps** — a spelling `p` in `scope S1::S2` is tried at `S1::S2::p`, `S1::p`, then `p`. Each step reads own declarations at that path plus contributions anchored at or above it (imports, uses, prelude, injected enum members); the first step selecting anything decides.
 - **Identity** — distinctness is by declaration identity, so an alias and its target, or two routes to one declaration, count once. Constructor references resolve to a canonical `ConstructorRef`; spellings are never identity.
 - **Hiding** — `hiding` removes by declaration identity (`scope/hiding.py`); each candidate carries what every way reaching it removes, and the walk alone issues the hidden verdict.
-- **Sources** — `ModuleSources` (`scope/sources.py`) is what one module's lookups read: own declarations, import contributions, injected enum members, reads beneath aliases. `UseReader` (`scope/uses.py`) re-reads `use` targets live, so nothing is snapshotted.
+- **Sources** — `ModuleSources` (`scope/sources.py`) is what one module's lookups read: own declarations, import contributions, injected enum members, reads beneath aliases. `UseReader` (`scope/uses.py`) reads `use` targets as written where each use is, seeing only the uses before it; once the module's tables are complete, what it learns per use is kept, and globs are consulted only for first names their targets reach.
 
 Every verdict is recorded once: bindings in `resolution`, qualified and named-type selections in `owner_declarations` by node id.
 

@@ -307,8 +307,10 @@ class ModuleSources(SourcesHost):
         # Once the tables the resolver collects are complete (:meth:`_keep_readings`),
         # the contributions at each full path and the own types, by what they are read with.
         self._keeping_readings = False
-        self._kept_contributions: dict[tuple[ScopePath, ScopePath, LookupKind], Reading] = {}
-        self._kept_own_types: dict[ScopePath, Reading] = {}
+        self._kept_contributions: dict[
+            tuple[int | None, tuple[ScopePath, ScopePath, LookupKind]], Reading
+        ] = {}
+        self._kept_own_types: dict[tuple[int | None, ScopePath], Reading] = {}
         self._reach_depth: tuple[int, int] | None = None
 
     @property
@@ -574,17 +576,19 @@ class ModuleSources(SourcesHost):
         A type's resolution reads only its declaring module, so no read from
         now on presumes a type being resolved. A read made while a use's own
         read is in progress, which sees only the uses written before it, is
-        not kept.
+        kept for that use.
         """
         self._keeping_readings = True
+        self._uses.share_reads()
 
-    def _kept[K, V](self, kept: dict[K, V], key: K, read: Callable[[], V]) -> V:
-        """Return what *read* reads, kept in *kept* under *key* when it is final."""
-        if not (self._keeping_readings and self._uses.reads_every_use):
+    def _kept[K, V](self, kept: dict[tuple[int | None, K], V], key: K, read: Callable[[], V]) -> V:
+        """Return what *read* reads, kept in *kept* under *key* and the uses it sees when final."""
+        if not (self._keeping_readings and self._uses.settled_view):
             return read()
-        found = kept.get(key)
+        scoped = self._uses.horizon, key
+        found = kept.get(scoped)
         if found is None:
-            found = kept[key] = read()
+            found = kept[scoped] = read()
         return found
 
     def own_at(self, path: ScopePath, kind: LookupKind) -> Reading:
