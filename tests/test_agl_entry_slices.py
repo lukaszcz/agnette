@@ -14,7 +14,7 @@ _SOURCES = {
     "attributes": '@!doc("m")\n@!allow("x")\nlet a = 1\ndef g() -> int =\n  a\n',
     "scope": "scope S\n  def q() -> int = 9\n\n  scope T\n    let k = 3\n  end T\nend S\n\nS::q()\n",
     "comments": "let a = 1 # one\n# alone\n\n\nlet b = 2 # two\n",
-    "records": ("record P\n  x: int\n  y: int\nenum E =\n  | A\n  | B(v: int)\nlet p = P(x = 1)\n"),
+    "records": "record P\n  x: int\nenum E =\n  | A\n  | B(v: int)\nlet p = P(1)\n",
     "text": 'let s = "a {1 + 1} b"\nlet t = $"x {s}"\nlet u = $\n  raw\n  more\n',
 }
 
