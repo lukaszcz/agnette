@@ -1169,6 +1169,26 @@ class TestInfo:
             "Ready is a constructor.\nSignature:\n  State::Ready() -> State::Ready"
         )
 
+    def test_info_reports_an_exception_as_its_declaration(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("exception Boom\n  msg: text").ok
+        assert session.eval_entry("exception Bam extends Boom\n  n: int").ok
+
+        boom = session.info_of("Boom")
+        bam = session.info_of("Bam")
+
+        assert boom is not None and "exception Boom extends Exception\n    msg: text" in boom
+        assert bam is not None and "exception Bam extends Boom\n    n: int" in bam
+        assert "msg" not in bam
+
+    def test_an_exception_type_entry_expands_like_a_record(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("exception Boom\n  msg: text").ok
+
+        assert session.type_of('Boom(message = "m", msg = "x")') == (
+            "exception Boom extends Exception\n  msg: text"
+        )
+
     def test_info_reports_a_type_definition(self) -> None:
         session = _open_session()
         assert session.eval_entry("record Point\n  x: int\n  y: int").ok

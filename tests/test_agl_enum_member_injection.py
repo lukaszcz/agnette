@@ -206,7 +206,7 @@ _NOTHING = "record opt::Opt::Nothing"
 _JUST_INT = "record opt::Opt::Just[int]\n  value: int"
 _JUST_TEXT = "record opt::Opt::Just[text]\n  value: text"
 _RECORD = "record b::Red\n  x: int"
-_EXCEPTION = "x::Red"
+_EXCEPTION = "exception x::Red extends Exception"
 
 _MEMBER_KINDS = {
     "inline-member": _scenario(("import ref::E",), _members("Other", "Other", "E", _OTHER)),
@@ -604,7 +604,7 @@ _OWN_MEMBER_YIELDS = {
     ),
     "own-exception-by-use": _one_entry(
         ("use S::Red", "use T::Color", _OWN_EXCEPTION, _OWN_COLOR),
-        {"value": accepted('Red(message = "m")', "S::Red")},
+        {"value": accepted('Red(message = "m")', "exception S::Red extends Exception")},
     ),
     "own-record-by-use-in-region": _one_entry(
         (_OWN_RECORD, _OWN_COLOR),

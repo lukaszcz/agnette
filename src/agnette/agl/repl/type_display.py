@@ -3,7 +3,7 @@
 The semantic ``Type.__repr__`` implementations are intentionally compact and
 canonical because they are used throughout diagnostics, schemas, and ordinary
 binding echoes.  Type-focused REPL surfaces (``:type`` and bare type entries)
-can afford a richer view: for nominal records and enums they print the relevant
+can afford a richer view: for nominal records, enums and exceptions they print the relevant
 field / constructor declarations rather than only the nominal name.
 
 Record and enum handles carry no shape data; their field / variant declarations
@@ -13,15 +13,15 @@ are resolved on demand through the shared :class:`TypeTable`.
 from __future__ import annotations
 
 from agnette.agl.semantics.type_table import TypeTable
-from agnette.agl.semantics.types import EnumType, RecordType, Type
+from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType, Type
 from agnette.agl.typecheck.env import GenericTypeDef
 
 
 def format_type_for_repl(typ: Type, table: TypeTable | None) -> str:
     """Return the type-focused REPL display for ``typ``.
 
-    Primitive, container, function, unit, and exception types keep their
-    canonical compact representation.  Records and enums expand to AgL-like
+    Primitive, container, function, and unit types keep their canonical compact
+    representation.  Records, enums, and exceptions expand to AgL-like
     declarations so a user can see the available fields or constructors at the
     prompt without finding the original declaration.  ``table`` resolves the
     field / variant shapes for the nominal handles; when it is ``None`` (no
@@ -33,6 +33,8 @@ def format_type_for_repl(typ: Type, table: TypeTable | None) -> str:
             return _format_record_type(typ, table)
         if isinstance(typ, EnumType):
             return _format_enum_type(typ, table)
+        if isinstance(typ, ExceptionType):
+            return _format_exception_type_with_name(typ, repr(typ), table)
     return repr(typ)
 
 
@@ -59,15 +61,27 @@ def format_generic_type_def_for_repl(name: str, gdef: GenericTypeDef, table: Typ
 
 
 def format_type_def_for_repl(name: str, typ: Type, table: TypeTable) -> str:
-    """Return a declaration-like display of nominal type *typ* declared as *name*.
-
-    An exception keeps its compact form: its name.
-    """
+    """Return a declaration-like display of nominal type *typ* declared as *name*."""
     if isinstance(typ, RecordType):
         return _format_record_type_with_name(typ, name, table)
     if isinstance(typ, EnumType):
         return _format_enum_type_with_name(typ, name, table)
+    if isinstance(typ, ExceptionType):
+        return _format_exception_type_with_name(typ, name, table)
     return name
+
+
+def _format_exception_type_with_name(typ: ExceptionType, name: str, table: TypeTable) -> str:
+    """Render an exception as its declaration: base, then its own fields."""
+    typedef = table.exception_def(typ)
+    header = f"exception {name}"
+    if typedef.base is not None:
+        base = table.defs[typedef.base]
+        base_type = ExceptionType(base.name, base.module_id, base.scope_path, typedef.base)
+        header += f" extends {base_type!r}"
+    lines = [header]
+    lines.extend(f"  {field_name}: {field_type!r}" for field_name, field_type in typedef.fields)
+    return "\n".join(lines)
 
 
 def _format_record_type(typ: RecordType, table: TypeTable) -> str:
