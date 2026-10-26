@@ -11453,3 +11453,60 @@ class TestChdirAcrossEntries:
         session.close()
 
         assert Path(os.getcwd()) == start
+
+
+class TestInfoOpensTheLibraryImage:
+    """``info_of`` answers from the library image however the session got there."""
+
+    @staticmethod
+    def _stdlib_with(tmp_path: Path, filename: str, extra: str) -> Path:
+        stdlib = tmp_path / "stdlib"
+        copytree(REPO_STDLIB_ROOT, stdlib)
+        module = stdlib / MODULE_TREE_DIRNAME / filename
+        module.write_text(module.read_text(encoding="utf-8") + extra, encoding="utf-8")
+        return stdlib
+
+    @pytest.mark.parametrize("name", ["Some", "Option", "print"])
+    def test_info_after_reset_answers_as_before(self, name: str) -> None:
+        session = ReplSession()
+        session.open()
+        before = session.info_of(name)
+        assert before is not None
+
+        session.reset()
+
+        assert session.info_of(name) == before
+
+    @pytest.mark.parametrize("name", ["Some", "print"])
+    def test_info_after_a_check_only_entry_answers(self, name: str) -> None:
+        session = ReplSession()
+        assert session.eval_entry("let x = 1", check_only=True).ok
+
+        assert session.info_of(name) is not None
+
+    def test_info_does_not_answer_from_an_image_the_warning_policy_denies(
+        self, tmp_path: Path
+    ) -> None:
+        from agnette.agl.warning_policy import WarningPolicy
+
+        stdlib = self._stdlib_with(tmp_path, "prelude.agl", "\ndef tabbed() -> int =\n\t1\n")
+        policy = WarningPolicy({"tab-indentation": "deny"})
+        assert ReplSession(stdlib_root=stdlib, warning_policy=policy).open()
+
+        with pytest.raises(AglError):
+            ReplSession(stdlib_root=stdlib, warning_policy=policy).info_of("print")
+
+    def test_info_remembers_a_failed_load_until_reset(self, tmp_path: Path) -> None:
+        stdlib = self._stdlib_with(tmp_path, "config.agl", '\nlet broken: int = "text"\n')
+        session = ReplSession(stdlib_root=stdlib)
+        with pytest.raises(AglError) as first:
+            session.info_of("print")
+        # Repairing the source does not reload the graph: the failure is remembered.
+        copytree(REPO_STDLIB_ROOT, stdlib, dirs_exist_ok=True)
+
+        with pytest.raises(AglError) as second:
+            session.info_of("print")
+
+        assert type(second.value) is type(first.value)
+        session.reset()
+        assert session.info_of("print") is not None

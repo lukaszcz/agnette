@@ -133,6 +133,17 @@ class _BootstrapSnapshot:
     checked_modules: dict["ModuleId", "CheckedModule"]
 
 
+class SessionOpenError(AglError):
+    """The library image was rejected; carries every :meth:`ReplSession.open` diagnostic."""
+
+    def __init__(self, diagnostics: tuple[Diagnostic, ...]) -> None:
+        super().__init__(diagnostics[0].message)
+        self.diagnostics = diagnostics
+
+    def to_diagnostic(self) -> Diagnostic:
+        return self.diagnostics[0]
+
+
 @dataclass(frozen=True, slots=True)
 class _InfoName:
     """An ``:info`` name parsed once as an ad-hoc entry."""
@@ -474,6 +485,7 @@ class ReplSession:
         self._link_image = LinkImage()
         self._ir_base_frame: Frame = {}
         self._next_node_id: int = 0
+        self._open_failure: tuple[Diagnostic, ...] = ()
         # Source log of successfully-promoted entries (for dump_source / :save).
         self._source_log: list[str] = []
 
@@ -577,6 +589,9 @@ class ReplSession:
     def open(self) -> tuple[Diagnostic, ...]:
         """Load the session's initial library image before any entry runs.
 
+        The rejection, if any, is remembered until :meth:`reset` or the next call (see
+        :meth:`info_of`).
+
         Builds the module graph a first entry would build (honoring
         ``default_stdlib``), then resolves and type-checks the result.
 
@@ -597,6 +612,12 @@ class ReplSession:
         diagnostic, exactly as :meth:`EntryPipeline.eval_entry` reports it for
         an ordinary entry.
         """
+        diagnostics = self._open_image()
+        self._open_failure = diagnostics
+        return diagnostics
+
+    def _open_image(self) -> tuple[Diagnostic, ...]:
+        """Load and promote the library image; return its rejection diagnostics."""
         from agnette.agl.lexer import tab_warning_collector
         from agnette.agl.parser import parse_program_seeded
 
@@ -1753,17 +1774,19 @@ class ReplSession:
     def info_of(self, name: str) -> str | None:
         """Return a compact AgL-shaped description of one known identifier.
 
-        This is introspection over promoted state only: it never evaluates or
-        changes the session.  It resolves names through the same entry pipeline
-        as the REPL, so bare and imported qualified names select their actual
-        visible declaration, and a name scope rejects raises scope's rejection.
-        ``None`` when *name* is no identifier.
+        This never evaluates anything or promotes an entry. It resolves names through
+        the same entry pipeline as the REPL, so bare and imported qualified names
+        select their actual visible declaration, and a name scope rejects raises
+        scope's rejection. ``None`` when *name* is no identifier.
+
+        Library declarations are described from a checked library image, so a session
+        that has promoted nothing is :meth:`open`-ed first, as a host does; a rejected
+        image raises :class:`SessionOpenError` until :meth:`reset` or another ``open``.
         """
-        if not self._next_node_id and not self._retained_checked_modules:
-            # Library declarations are described from the artifacts of a
-            # checked library image; a session no entry has run yet has none.
-            # A load failure resurfaces from the resolution below.
+        if not self._next_node_id and not self._open_failure:
             self.open()
+        if self._open_failure:
+            raise SessionOpenError(self._open_failure)
         parts = tuple(name.removeprefix("::").split("::"))
         if not name or any(not part for part in parts):
             return None
@@ -1783,10 +1806,7 @@ class ReplSession:
             found = None if chain is None else self._describe_scopes(name, chain)
             if found is not None:
                 return found
-            # A bare hidden name is simply not defined to an entry; only a qualified
-            # spelling is refused as hidden.
-            qualifier = None if reference is None else reference.qualifier
-            hidden = None if qualifier is None else self._hidden_region(qualifier)
+            hidden = None if reference is None else self._hidden_region(reference)
             if hidden is not None:
                 raise hidden from None
             raise
@@ -2086,10 +2106,25 @@ class ReplSession:
             node_id: doc for node_id, doc in self._session_docs.items() if node_id in live
         }
 
-    def _hidden_region(self, chain: "QualifierChain") -> HiddenMemberError | None:
-        """Return the rejection an entry gets for qualified *chain* naming only hidden things."""
-        from agnette.agl.scope.lookup import lookup_hidden
+    def _hidden_region(self, reference: "VarRef") -> HiddenMemberError | None:
+        """Return the rejection an entry gets for *reference* naming only hidden things.
 
+        A qualified spelling is read as written. A bare name reads as the qualifier of a
+        fresh member, so only a removed scope or type counts: a removed declaration is
+        simply not defined to an entry.
+        """
+        from agnette.agl.scope.lookup import lookup_hidden
+        from agnette.agl.syntax.nodes import QualifierChain, QualifierSegment
+
+        chain = reference.qualifier
+        if chain is None:
+            chain = QualifierChain(
+                None,
+                (QualifierSegment(reference.name, None, reference.span, reference.node_id),),
+                f"ReplInfoMember{uuid.uuid4().hex}",
+                reference.span,
+                reference.node_id,
+            )
         resolved = self._probe_resolve()
         return lookup_hidden(resolved.sources(resolved.entry_id), chain, (), None)
 
@@ -2204,6 +2239,7 @@ class ReplSession:
         self._link_image = LinkImage()
         self._ir_base_frame = {}
         self._next_node_id = 0
+        self._open_failure = ()
         self._source_log = []
         # Restore the current-value map to the seed, so a prior
         # ``std/config::KEY := VALUE`` write does not bleed past :reset.

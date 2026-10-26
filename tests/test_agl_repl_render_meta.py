@@ -598,14 +598,46 @@ class TestInfo:
         assert outcome.highlight_as_agl is True
         assert outcome.agl_ranges[0] == (0, len("count"))
 
+    def test_info_works_after_reset(self) -> None:
+        ctx = _session_ctx()
+        before = meta_mod.dispatch_meta(":info Some", ctx)
+        meta_mod.dispatch_meta(":reset", ctx)
+
+        assert meta_mod.dispatch_meta(":info Some", ctx) == before
+
+    def test_info_shows_a_rejected_library_image_as_diagnostics(self, tmp_path: Path) -> None:
+        from shutil import copytree
+
+        from agnette.agl.warning_policy import WarningPolicy
+        from agnette.packages.layout import MODULE_TREE_DIRNAME
+        from tests._agl_helpers import REPO_STDLIB_ROOT
+
+        stdlib = tmp_path / "stdlib"
+        copytree(REPO_STDLIB_ROOT, stdlib)
+        prelude = stdlib / MODULE_TREE_DIRNAME / "prelude.agl"
+        prelude.write_text(
+            prelude.read_text(encoding="utf-8") + "\ndef tabbed() -> int =\n\t1\n",
+            encoding="utf-8",
+        )
+        session = ReplSession(
+            stdlib_root=stdlib, warning_policy=WarningPolicy({"tab-indentation": "deny"})
+        )
+
+        outcome = meta_mod.dispatch_meta(":info print", _session_ctx(session))
+
+        assert outcome.text and not outcome.highlight_as_agl
+
     @pytest.mark.parametrize(
-        ("source", "setup", "name"),
+        ("source", "setup", "name", "entry"),
         [
-            pytest.param("def c() -> int = 2\n", "import lib::* hiding c", "c", id="hidden-def"),
-            pytest.param("let v = 1\n", "import lib::* hiding v", "v", id="hidden-let"),
+            pytest.param(
+                "def c() -> int = 2\n", "import lib::* hiding c", "c", "c", id="hidden-def"
+            ),
+            pytest.param("let v = 1\n", "import lib::* hiding v", "v", "v", id="hidden-let"),
             pytest.param(
                 "scope D\n  def c() -> int = 1\nend D\n",
                 "import lib::* hiding D",
+                "D::c",
                 "D::c",
                 id="hidden-scope",
             ),
@@ -613,34 +645,43 @@ class TestInfo:
                 "scope D\n  def c() -> int = 1\nend D\n",
                 "import lib::* hiding D",
                 "D::c::x",
+                "D::c::x",
                 id="hidden-scope-deep",
             ),
             pytest.param(
-                "record T\n  a: int\n", "import lib::* hiding T", "T::x", id="hidden-type"
+                "record T\n  a: int\n", "import lib::* hiding T", "T::x", "T::x", id="hidden-type"
             ),
             pytest.param(
-                "record T\n  a: int\n", "import lib::* hiding T", "T", id="bare-hidden-type"
+                "record T\n  a: int\n", "import lib::* hiding T", "T", "T::x", id="bare-hidden-type"
             ),
             pytest.param(
                 "scope D\n  def c() -> int = 1\nend D\n",
                 "import lib::* hiding D",
                 "D",
+                "D::c",
                 id="bare-hidden-scope",
             ),
             pytest.param(
-                "def c() -> int = 2\n", "import lib hiding c", "lib::c", id="qualified-hidden-def"
+                "def c() -> int = 2\n",
+                "import lib hiding c",
+                "lib::c",
+                "lib::c",
+                id="qualified-hidden-def",
             ),
-            pytest.param("let v = 1\n", "import lib hiding v", "::v", id="anchored-hidden-let"),
+            pytest.param(
+                "let v = 1\n", "import lib hiding v", "::v", "::v", id="anchored-hidden-let"
+            ),
         ],
     )
     def test_info_reports_a_hidden_name_as_an_entry_does(
-        self, tmp_path: Path, source: str, setup: str, name: str
+        self, tmp_path: Path, source: str, setup: str, name: str, entry: str
     ) -> None:
+        """A bare hidden scope or type reads as a qualifier, a hidden declaration as undefined."""
         (tmp_path / "lib.agl").write_text(source, encoding="utf-8")
         session = repl_session_with_root(tmp_path)
         session.open()
         assert session.eval_entry(setup).ok
-        entry = session.eval_entry(name)
+        entry = session.eval_entry(entry)
         assert entry.failure is not None
 
         with pytest.raises(AglError) as raised:
@@ -1550,8 +1591,8 @@ class TestInfoAsEntry:
         with pytest.raises(AglError) as raised:
             session.info_of(name)
 
-        assert type(raised.value) is HiddenMemberError
-        assert "hidden" in result.diagnostics[0].message
+        assert result.failure is not None
+        assert type(raised.value) is type(result.failure)
 
     def test_info_of_a_hidden_scope_name_reports_it_hidden(self, tmp_path: Path) -> None:
         (tmp_path / "l.agl").write_text("scope D\n  def c() -> int = 1\nend D\n", encoding="utf-8")
