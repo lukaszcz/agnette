@@ -2084,7 +2084,7 @@ class ReplSession:
         }
 
     def _hidden_region(self, chain: "QualifierChain") -> HiddenMemberError | None:
-        """Return the rejection an entry gets for *chain* naming only scopes or modules hidden here."""
+        """Return the rejection an entry gets for *chain* naming only hidden scopes or modules."""
         from agnette.agl.scope.lookup import lookup_hidden
 
         resolved = self._probe_resolve()

@@ -1489,7 +1489,7 @@ class TestInfoAsEntry:
         self, tmp_path: Path, import_: str, name: str, entry: str
     ) -> None:
         (tmp_path / "l.agl").write_text(
-            "scope D\n  def c() -> int = 1\nend D\ndef c() -> int = 2\n", encoding="utf-8"
+            "scope D\n  def c() -> int = 1\nend D\n\ndef c() -> int = 2\n", encoding="utf-8"
         )
         session = repl_session_with_root(tmp_path)
         session.open()

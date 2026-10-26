@@ -880,7 +880,9 @@ Meta-commands start with `:`, which never collides with AgL syntax:
   constructor, a binding) evaluate normally.
 - **`:info NAME`** reads `NAME` exactly as an entry would: bare, qualified, applied-owner
   (`Slot[int]::Filled`), and alias-qualified spellings select what they select in an
-  expression or type, and a hidden, unknown, or ambiguous name reports that error. A declaration
+  expression or type (including anchored `::name` spellings), and a hidden, unknown, or ambiguous
+  name reports that error, a hidden module or scope region included. `:info` answers before the
+  first entry. A declaration
   is shown by its written path — scope path and name in its declaring module — whichever
   spelling reached it: with `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`.
   A declaration's `@doc` is shown as an attribute line above its AgL (triple-quoted when
