@@ -1179,6 +1179,74 @@ def test_fork_replacement_readiness_failure_leaves_source_unchanged(
     backend.close()
 
 
+class _FakeProcess:
+    stdin = cast(io.BufferedWriter, io.BytesIO())
+
+    def poll(self) -> None:
+        return None
+
+    def wait(self, timeout: float | None = None) -> None:
+        del timeout
+
+
+def test_portable_rejects_a_temporary_process_that_did_not_resume_the_parent(
+    monkeypatch: pytest.MonkeyPatch, killed_groups: list[int]
+) -> None:
+    source = _child(_FakeProcess())
+    temporary = _child(_FakeProcess())
+    backend = rpc.PiRpcSessionBackend(
+        source,
+        BackendSettings(idle_timeout=None, get_sandbox_context=unavailable_sandbox_context, env={}),
+    )
+    commands: list[str] = []
+
+    def send(
+        self: rpc.PiRpcSessionBackend, operation: str, payload: dict[str, object], **kwargs: object
+    ) -> tuple[dict[str, object], list[str]]:
+        del payload, kwargs
+        commands.append(operation)
+        return {"data": {"sessionId": "parent" if self is backend else "wrong"}}, []
+
+    def spawn(agent: AgentPi, command: list[str], operation: str, *_args: object) -> rpc._RpcChild:
+        del agent, command, operation
+        return temporary
+
+    monkeypatch.setattr(rpc.PiRpcSessionBackend, "_send", send)
+    monkeypatch.setattr(rpc, "_spawn", spawn)
+    with pytest.raises(SessionHostError):
+        backend.portable()
+    assert commands == ["get_state", "get_state"]
+    assert backend._child is source
+    assert set(killed_groups) == {temporary.process.pid}
+    backend.close()
+
+
+def test_materialize_rejects_a_process_that_did_not_resume_the_snapshot(
+    monkeypatch: pytest.MonkeyPatch, killed_groups: list[int]
+) -> None:
+    resumed = _child(_FakeProcess())
+
+    def send(
+        self: rpc.PiRpcSessionBackend, operation: str, payload: dict[str, object], **kwargs: object
+    ) -> tuple[dict[str, object], list[str]]:
+        del self, operation, payload, kwargs
+        return {"data": {"sessionId": "wrong"}}, []
+
+    def spawn(agent: AgentPi, command: list[str], operation: str, *_args: object) -> rpc._RpcChild:
+        del agent, command, operation
+        return resumed
+
+    monkeypatch.setattr(rpc.PiRpcSessionBackend, "_send", send)
+    monkeypatch.setattr(rpc, "_spawn", spawn)
+    settings = BackendSettings(
+        idle_timeout=None, get_sandbox_context=unavailable_sandbox_context, env={}
+    )
+
+    with pytest.raises(SessionHostError):
+        rpc._PortablePiRpc(_PI, settings, "snapshot").materialize()
+    assert set(killed_groups) == {resumed.process.pid}
+
+
 def test_fork_rejects_a_child_with_the_parent_session_id(
     monkeypatch: pytest.MonkeyPatch, killed_groups: list[int]
 ) -> None:

@@ -1464,3 +1464,82 @@ def test_release_inherited_after_close_is_harmless(
     backend.close()
 
     backend.release_inherited()
+
+
+def test_portable_clones_in_a_temporary_process_and_leaves_the_parent_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = RpcStub(tmp_path, monkeypatch)
+    backend = open_backend()
+    backend.ask(SessionAskRequest("before"))
+    parent_pid = int(str(stub.wait_for("starts.jsonl")[0]["pid"]))
+
+    backend.portable()
+
+    starts = stub.records("starts.jsonl")
+    assert len(starts) == 2
+    assert option_value(starts[1]["argv"], "--session-id") == "root"
+    assert_exited(int(str(starts[1]["pid"])))
+    os.kill(parent_pid, 0)
+    # The parent only reports its session id; the temporary process clones.
+    assert command_types(stub)[-4:] == ["get_state", "get_state", "clone", "get_state"]
+    assert backend.ask(SessionAskRequest("parent")).content == "answer"
+    assert len(stub.records("starts.jsonl")) == 2
+    backend.close()
+    assert_exited(parent_pid)
+
+
+def test_a_failed_portable_closes_the_temporary_process_and_leaves_the_parent_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cancelled = {"id": "$id", "type": "response", "command": "clone", "success": True}
+    stub = RpcStub(tmp_path, monkeypatch, {"clone": [{**cancelled, "data": {"cancelled": True}}]})
+    backend = open_backend()
+    parent_pid = int(str(stub.wait_for("starts.jsonl")[0]["pid"]))
+
+    with pytest.raises(SessionHostError):
+        backend.portable()
+
+    starts = stub.records("starts.jsonl")
+    assert len(starts) == 2
+    assert_exited(int(str(starts[1]["pid"])))
+    os.kill(parent_pid, 0)
+    assert backend.ask(SessionAskRequest("parent")).content == "answer"
+    backend.close()
+
+
+def test_materialize_spawns_a_process_resuming_the_cloned_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = RpcStub(tmp_path, monkeypatch)
+    fixed_env = {**os.environ, "ONLY_FOR_THIS_SESSION": "fixed-at-open"}
+    backend = PiRpcSessionBackend.open(
+        AgentPi("provider", "model", "high"),
+        BackendSettings(get_sandbox_context=unavailable_sandbox_context, env=fixed_env),
+    )
+    snapshot = backend.portable()
+
+    child = snapshot.materialize()
+
+    started = stub.wait_for("starts.jsonl", 3)
+    assert started[2]["session"] == "child"
+    assert option_value(started[2]["argv"], "--session-id") == "child"
+    assert started[2]["env"] == fixed_env
+    assert child.ask(SessionAskRequest("child")).content == "answer"
+    assert backend.ask(SessionAskRequest("parent")).content == "answer"
+    # Every materialization is an independent process.
+    other = snapshot.materialize()
+    assert stub.wait_for("starts.jsonl", 4)[3]["pid"] != started[2]["pid"]
+    for live in (backend, child, other):
+        live.close()
+
+
+def test_portable_of_a_closed_session_is_a_session_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    RpcStub(tmp_path, monkeypatch)
+    backend = open_backend()
+    backend.close()
+
+    with pytest.raises(SessionHostError):
+        backend.portable()

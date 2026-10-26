@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from agnette.agent.session.protocol import (
     BackendSettings,
+    PortableSession,
     SandboxFixture,
     SessionAskError,
     SessionAskRequest,
@@ -154,6 +155,32 @@ class PiRpcSessionBackend(SandboxFixture):
         )
         return cls(child, settings)
 
+    @classmethod
+    def _resume(
+        cls, agent: AgentPi, settings: BackendSettings, session_id: str, operation: str
+    ) -> Self:
+        """Start Pi resuming *session_id* and verify that it did; a mismatch closes it."""
+        backend = cls(
+            _spawn(
+                agent,
+                agent.rpc_argv(session_id=session_id, permission_mode=settings.permission_mode),
+                operation,
+                settings,
+            ),
+            settings,
+        )
+        try:
+            state, _ = backend._send("get_state", {})
+            backend._parse_operation_response(
+                state,
+                "get_state",
+                lambda state, operation: _resumed_session_id(state, operation, session_id),
+            )
+        except BaseException:
+            backend.close()
+            raise
+        return backend
+
     continues_conversation = True
 
     @property
@@ -206,47 +233,44 @@ class PiRpcSessionBackend(SandboxFixture):
         self._parse_operation_response(response, "new_session", _require_not_cancelled)
 
     def fork(self) -> SessionBackend:
+        """Clone the active branch into a second live backend."""
+        return self._clone()[0]
+
+    def portable(self) -> PortableSession:
+        """Clone the active branch in a temporary process, keeping only the clone's session id.
+
+        The parent's process is untouched and the snapshot holds no process: the process
+        that uses it spawns its own Pi.
+        """
+        parent_id = self._active_session_id()
+        agent = self._live_child("clone").agent
+        temporary = self._resume(agent, self._settings, parent_id, SessionOperation.FORK.value)
+        try:
+            temporary._send_clone()
+            clone_id = temporary._cloned_session_id(parent_id)
+        finally:
+            temporary.close()
+        return _PortablePiRpc(agent, self._settings, clone_id)
+
+    def _clone(self) -> tuple[PiRpcSessionBackend, str]:
         """Clone the active branch and atomically hand each process to one backend.
+
+        Returns the live clone and its session id.
 
         Pi's ``fork`` command only accepts a previous user-message entry.  ``clone``
         is the RPC operation that snapshots the current active branch, regardless of
         whether its leaf is a user message or an assistant message.
         """
-        parent_state, _ = self._send("get_state", {})
-        parent_id = self._parse_operation_response(parent_state, "get_state", _required_session_id)
+        parent_id = self._active_session_id()
         source = self._live_child("clone")
-        parent_command = source.agent.rpc_argv(
-            session_id=parent_id, permission_mode=self._settings.permission_mode
-        )
-        replacement = _spawn(
-            source.agent,
-            parent_command,
-            SessionOperation.FORK.value,
-            self._settings,
-        )
-        replacement_backend = PiRpcSessionBackend(replacement, self._settings)
-        try:
-            replacement_state, _ = replacement_backend._send("get_state", {})
-            replacement_backend._parse_operation_response(
-                replacement_state,
-                "get_state",
-                lambda state, operation: _replacement_session_id(state, operation, parent_id),
-            )
-        except BaseException:
-            replacement_backend.close()
-            raise
-
+        replacement = self._resume(
+            source.agent, self._settings, parent_id, SessionOperation.FORK.value
+        )._live_child("clone")
         cloned = False
         try:
-            response, _ = self._send("clone", {})
-            self._parse_operation_response(response, "clone", _require_not_cancelled)
+            self._send_clone()
             cloned = True
-            child_state, _ = self._send("get_state", {})
-            self._parse_operation_response(
-                child_state,
-                "get_state",
-                lambda state, operation: _forked_session_id(state, operation, parent_id),
-            )
+            forked_id = self._cloned_session_id(parent_id)
         except BaseException:
             if cloned:
                 # The source now owns the clone, so retain the independently opened
@@ -254,11 +278,28 @@ class PiRpcSessionBackend(SandboxFixture):
                 self._child = replacement
                 _terminate(source)
             else:
-                replacement_backend.close()
+                _terminate(replacement)
             raise
 
         self._child = replacement
-        return PiRpcSessionBackend(source, self._settings)
+        return PiRpcSessionBackend(source, self._settings), forked_id
+
+    def _active_session_id(self) -> str:
+        state, _ = self._send("get_state", {})
+        return self._parse_operation_response(state, "get_state", _required_session_id)
+
+    def _send_clone(self) -> None:
+        response, _ = self._send("clone", {})
+        self._parse_operation_response(response, "clone", _require_not_cancelled)
+
+    def _cloned_session_id(self, parent_id: str) -> str:
+        """The id of the clone this process now runs, which must differ from the parent's."""
+        state, _ = self._send("get_state", {})
+        return self._parse_operation_response(
+            state,
+            "get_state",
+            lambda state, operation: _forked_session_id(state, operation, parent_id),
+        )
 
     def set_name(self, name: str) -> None:
         self._send("set_session_name", {"name": name})
@@ -553,6 +594,19 @@ class PiRpcSessionBackend(SandboxFixture):
                 permission_mode=self._settings.permission_mode.value,
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _PortablePiRpc:
+    """A cloned Pi session, identified by its id; no process is held until it is materialized."""
+
+    agent: AgentPi
+    settings: BackendSettings
+    session_id: str
+
+    def materialize(self) -> SessionBackend:
+        """Spawn a Pi RPC process, owned by the calling process, resuming the cloned session."""
+        return PiRpcSessionBackend._resume(self.agent, self.settings, self.session_id, "open")
 
 
 class _RpcIdleTimeout(Exception):
@@ -974,10 +1028,10 @@ def _required_session_id(response: dict[str, object], operation: str) -> str:
     return session_id
 
 
-def _replacement_session_id(response: dict[str, object], operation: str, parent_id: str) -> str:
+def _resumed_session_id(response: dict[str, object], operation: str, expected_id: str) -> str:
     session_id = _required_session_id(response, operation)
-    if session_id != parent_id:
-        raise _RpcProtocolError("Pi RPC replacement session id did not match its parent")
+    if session_id != expected_id:
+        raise _RpcProtocolError("Pi RPC did not resume the requested session")
     return session_id
 
 

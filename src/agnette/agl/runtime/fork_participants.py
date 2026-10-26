@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable, Sequence
 
+from agnette.agent.session.protocol import PortableSet
 from agnette.agl.runtime.externs import ExternRuntimeState, ForkedEntries
 from agnette.agl.runtime.processes import (
     Disposition,
@@ -14,7 +15,7 @@ from agnette.agl.runtime.processes import (
     ProcessHost,
     ProcessInfo,
 )
-from agnette.agl.runtime.sessions import SessionHost, SessionHostError
+from agnette.agl.runtime.sessions import SessionHost
 
 __all__ = [
     "build_process_host",
@@ -56,21 +57,22 @@ class CompanionStateParticipant(ForkParticipant[ForkedEntries]):
         self._state.close_all(debug=self._debug())
 
 
-class SessionParticipant(ForkParticipant[None]):
-    """Makes the sessions the child inherited inert, since sessions belong to their opener.
+class SessionParticipant(ForkParticipant[PortableSet]):
+    """Carries the requested sessions into the child as snapshots; all others become inert.
 
-    Carrying sessions into a child is not supported: a request for any is refused.
+    Sessions belong to their opener. ``prepare`` snapshots the sessions the request lists;
+    the child resolves each listed handle to its snapshot. Snapshots hold no live resource,
+    so no hook releases them: ``abort`` has nothing to undo, and the parent drops its copy.
     """
 
     def __init__(self, sessions: SessionHost) -> None:
         self._sessions = sessions
 
-    def prepare(self, request: ForkRequest) -> None:
-        if request.sessions:
-            raise SessionHostError("forking with sessions is not supported", "fork")
+    def prepare(self, request: ForkRequest) -> PortableSet:
+        return self._sessions.portable(request.sessions)
 
-    def child(self, state: None) -> None:
-        self._sessions.enter_forked_child()
+    def child(self, state: PortableSet) -> None:
+        self._sessions.enter_forked_child(state)
 
     def child_exit(self, disposition: Disposition) -> None:
         self._sessions.close_all()

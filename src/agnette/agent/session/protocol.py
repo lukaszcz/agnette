@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
@@ -117,6 +117,46 @@ class SessionOperations:
     stats: Callable[[], SessionStats] | None = None
 
 
+def unsupported_operation(operation: SessionOperation) -> SessionHostError:
+    """The error for a session operation its backend does not implement natively."""
+    return SessionHostError(f"session backend does not support {operation}", operation)
+
+
+class PortableSession(Protocol):
+    """A process-independent snapshot of one conversation, fixed when it was taken.
+
+    A snapshot holds no live resource (no process, descriptor or sandbox), so dropping it
+    releases it and it crosses an ``os.fork`` by memory inheritance.
+    """
+
+    def materialize(self) -> SessionBackend:
+        """Open a backend that continues the snapshotted conversation, independently of its source.
+
+        Called at most once, in the process that uses the conversation.
+        """
+
+
+@dataclass(frozen=True, slots=True)
+class PortableBackend:
+    """A snapshot that already is a data-only backend, which materializes as itself."""
+
+    backend: SessionBackend
+
+    def materialize(self) -> SessionBackend:
+        return self.backend
+
+
+@dataclass(frozen=True, slots=True)
+class PortableSet:
+    """The snapshots a fork carries into its child, by session handle.
+
+    ``default`` is the handle of the default session when it is among them.
+    """
+
+    sessions: Mapping[str, PortableSession] = field(default_factory=dict)
+    default: str | None = None
+
+
 class SessionBackend(Protocol):
     """One open native session implementation selected for an agent transport."""
 
@@ -132,6 +172,12 @@ class SessionBackend(Protocol):
 
     def reset(self) -> None:
         """Discard conversation history while retaining this backend object."""
+
+    def portable(self) -> PortableSession:
+        """Snapshot the conversation as it is now, leaving this backend usable.
+
+        Raises :class:`SessionHostError` when the backend cannot fork.
+        """
 
     def close(self) -> None:
         """Release the backend's resources."""

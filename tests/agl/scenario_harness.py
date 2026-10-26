@@ -13,7 +13,7 @@ import tempfile
 import time
 import traceback
 import unittest.mock
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
@@ -22,10 +22,12 @@ from typing import Any, NamedTuple, Protocol, Self, get_args
 import pytest
 
 from agnette.agent.session.protocol import (
+    PortableSet,
     SessionAgentError,
     SessionHostError,
     SessionOperation,
     SessionOperations,
+    unsupported_operation,
 )
 from agnette.agent.session.service import SessionService
 from agnette.agent.spec import PermissionMode
@@ -509,8 +511,17 @@ class _ScriptedSessionService:
     def continues_conversation(self, handle: str) -> bool:
         return self._service.continues_conversation(handle)
 
-    def enter_forked_child(self) -> None:
-        self._service.enter_forked_child()
+    def snapshot_one(self, handle: str) -> Any:
+        """Snapshot *handle*, with the capability bookkeeping of a native ``fork``."""
+        return self._attempt(
+            handle, "fork", None, lambda: self._service.portable([handle]).sessions[handle]
+        )
+
+    def enter_forked_child(self, snapshots: dict[str, _ScriptedPortable]) -> None:
+        """Rebind the handles of *snapshots* to lazily materialized sessions of this service."""
+        self._service.enter_forked_child(
+            PortableSet({handle: snap.adopt(self, handle) for handle, snap in snapshots.items()})
+        )
 
     def close(self, handle: str) -> None:
         self._service.close(handle)
@@ -537,21 +548,21 @@ class _ScriptedSessionService:
         arg: str | None,
         action: Callable[[], Any],
     ) -> Any:
-        session = self._sessions.get(handle)
-        backend = self._backends.get(handle)
-        rejected = (
-            session is not None
-            and backend is not None
-            and operation != "reset"
-            and not backend.supports(operation)
-        )
-        if rejected:
-            session.operations.append((operation, arg, "unsupported"))
         try:
             return action()
         except SessionHostError as error:
-            if rejected and error.operation == operation:
-                self._agent._consume_capability_rejection(operation)
+            # Looked up only now: an adopted snapshot registers when ``action`` materializes it.
+            session = self._sessions.get(handle)
+            backend = self._backends.get(handle)
+            if (
+                session is not None
+                and backend is not None
+                and operation != "reset"
+                and not backend.supports(operation)
+            ):
+                session.operations.append((operation, arg, "unsupported"))
+                if error.operation == operation:
+                    self._agent._consume_capability_rejection(operation)
             raise
 
 
@@ -804,12 +815,31 @@ class ScenarioSessionHost:
             del self._handles[handle]
             del self._snapshots[handle]
 
-    def enter_forked_child(self) -> None:
-        for service in self._services.values():
-            service.enter_forked_child()
-        self._default_handle = None
+    def portable(self, handles: Sequence[str]) -> PortableSet:
+        sessions: dict[str, Any] = {}
+        for handle in dict.fromkeys(handles):
+            try:
+                sessions[handle] = self._service_for_handle(handle, "fork").snapshot_one(handle)
+            except SessionHostError as error:
+                self._raise_host_error(error)
+        default = self._default_handle if self._default_handle in sessions else None
+        return PortableSet(sessions, default)
+
+    def enter_forked_child(self, portables: PortableSet) -> None:
         if self._child_services is not None:
+            for service in self._services.values():
+                service.enter_forked_child({})
             self._services, self._child_services = self._child_services, None
+        listed: dict[str, dict[str, Any]] = {name: {} for name in self._services}
+        for handle, portable in portables.sessions.items():
+            name = _scripted_agent_name(self._snapshots[handle][0])
+            if name not in self._services:
+                raise ValueError(f"the forked child scripts no agent {name!r} for a listed session")
+            listed[name][handle] = portable
+            self._handles[handle] = self._services[name]
+        for name, service in self._services.items():
+            service.enter_forked_child(listed[name])
+        self._default_handle = portables.default
 
     def close_all(self) -> None:
         failures: list[Exception] = []
@@ -943,6 +973,12 @@ class _ScriptedSessionBackend:
         self._apply_operation("fork", None)
         return self._agent._fork_session(self._session)
 
+    def portable(self) -> Any:
+        if not self.supports(SessionOperation.FORK.value):
+            raise unsupported_operation(SessionOperation.FORK)
+        self._apply_operation("fork", None)
+        return _ScriptedPortable(self._session)
+
     def set_name(self, name: str) -> None:
         self._apply_operation("set-name", name)
 
@@ -974,6 +1010,32 @@ class _ScriptedSessionBackend:
 
             raise SessionHostError(f"scripted session does not support {operation}", operation)
         return outcome
+
+
+@dataclass
+class _ScriptedPortable:
+    """A snapshot of a scripted session, adopted by the service of the process that uses it."""
+
+    parent: _ScriptedSession
+
+    def adopt(self, service: _ScriptedSessionService, handle: str) -> _AdoptedPortable:
+        return _AdoptedPortable(service, handle, self.parent)
+
+
+@dataclass
+class _AdoptedPortable:
+    """Opens a fork of the parent session on the adopting service's own agent, on first use."""
+
+    service: _ScriptedSessionService
+    handle: str
+    parent: _ScriptedSession
+
+    def materialize(self) -> Any:
+        agent = self.service._agent
+        backend = agent._fork_session(self.parent)
+        self.service._sessions[self.handle] = agent.sessions[-1]
+        self.service._backends[self.handle] = backend
+        return backend
 
 
 class _ScriptedPiRpcSessionBackend(_ScriptedSessionBackend):

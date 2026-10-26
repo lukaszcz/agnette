@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, NoReturn, Protocol, TypeVar, runtime_checkable
 from uuid import uuid4
 
+from agnette.agent.session.protocol import PortableSet
 from agnette.agent.spec import PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo
 from agnette.agl.runtime.request import AgentCallHostError, AgentRequest, AgentResponse
@@ -193,12 +194,21 @@ class SessionHost(Protocol):
 
     def close_all(self) -> None: ...
 
-    def enter_forked_child(self) -> None:
+    def portable(self, handles: Sequence[str]) -> PortableSet:
+        """Snapshot the conversations of *handles* for a forked child.
+
+        Raises :class:`SessionHostError` for an unknown handle and for a session that
+        cannot be snapshotted.
+        """
+        ...
+
+    def enter_forked_child(self, portables: PortableSet) -> None:
         """Make every session opened so far inert, as this process is a forked child.
 
         Sessions belong to the process that opened them: using or closing an inherited
         handle raises :class:`SessionHostError` (``snapshot`` still answers; the sweeps
-        skip it) and the default handle resets.
+        skip it). Each handle of *portables* instead resolves to its snapshot, opened on
+        first use. The default handle is the snapshot's if it was listed, else it resets.
         """
         ...
 
@@ -389,7 +399,13 @@ class AgentDispatcherSessionHost(SessionHost):
     def close_all(self) -> None:
         self.reset_all()
 
-    def enter_forked_child(self) -> None:
+    def portable(self, handles: Sequence[str]) -> PortableSet:
+        if handles:
+            self._unavailable("fork")
+        return PortableSet()
+
+    def enter_forked_child(self, portables: PortableSet) -> None:
+        del portables  # always empty: ``portable`` refuses every session
         self._inherited.update(self._sessions)
         self._default_handle = None
 

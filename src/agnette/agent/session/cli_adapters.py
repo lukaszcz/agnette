@@ -20,6 +20,8 @@ from agnette.agent.runner import (
 )
 from agnette.agent.session.protocol import (
     BackendSettings,
+    PortableBackend,
+    PortableSession,
     SandboxFixture,
     SessionAgentError,
     SessionAskError,
@@ -30,6 +32,7 @@ from agnette.agent.session.protocol import (
     SessionOpenRequest,
     SessionOperation,
     SessionOperations,
+    unsupported_operation,
 )
 from agnette.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi
 from agnette.agent.stream import ClaudeOutputStream, CodexOutputStream, decode_claude_stream_json
@@ -131,6 +134,10 @@ class _CliPromptBackend(SandboxFixture):
     def operations(self) -> SessionOperations:
         """No optional operations; backends that implement some override this."""
         return SessionOperations()
+
+    def portable(self) -> PortableSession:
+        """Unsupported unless the backend forks natively."""
+        raise unsupported_operation(SessionOperation.FORK)
 
     def close(self) -> None:
         """Nothing to release: a CLI session holds only local state between prompts."""
@@ -366,6 +373,14 @@ class _SessionIdCliBackend(_CliPromptBackend, Generic[_SessionAgentT], ABC):
         """Discard the transcript while retaining this backend instance."""
         self._session.session_id = str(uuid4())
         self._session.started = False
+
+    @abstractmethod
+    def fork(self) -> SessionBackend:
+        """Fork the transcript into a data-only backend, which needs no live process."""
+
+    def portable(self) -> PortableSession:
+        """The native fork is the snapshot: it holds only an id, so it crosses processes as is."""
+        return PortableBackend(self.fork())
 
     @abstractmethod
     def _prompt_command(

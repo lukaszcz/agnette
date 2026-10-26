@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from agnette.agent.session.protocol import PortableSet
 from agnette.agent.spec import (
     AgentClaude,
     AgentCodex,
@@ -159,7 +161,12 @@ class _Host:
     def close_all(self) -> None:
         self.closed.update(handle for handle in self.handles if handle not in self.inherited)
 
-    def enter_forked_child(self) -> None:
+    def portable(self, handles: Sequence[str]) -> PortableSet:
+        for handle in handles:
+            self._live(handle, "fork")
+        return PortableSet()
+
+    def enter_forked_child(self, portables: PortableSet) -> None:
         self.inherited.update(self.handles)
         self.default_handle = None
 
@@ -1216,7 +1223,7 @@ def test_dispatcher_session_host_forked_child_rejects_inherited_handles() -> Non
     default = host.default(agent, "Cli", env={})
     ephemeral = host.open_ephemeral(agent, "Cli", env={})
 
-    host.enter_forked_child()
+    host.enter_forked_child(PortableSet())
 
     for handle in (default, ephemeral):
         with pytest.raises(SessionHostError):
@@ -1257,7 +1264,7 @@ class _InheritedHost(_Host):
         handle = super().open(
             agent, transport, name=name, permission_mode=permission_mode, sandbox=sandbox, env=env
         )
-        self.enter_forked_child()
+        self.enter_forked_child(PortableSet())
         return handle
 
 
@@ -1311,3 +1318,12 @@ def test_using_an_inherited_or_unknown_session_is_a_catchable_session_error(
     assert result.ok
     assert not any(host.prompts.values())
     assert not host.closed
+
+
+def test_dispatcher_session_host_snapshots_no_sessions() -> None:
+    host = AgentDispatcherSessionHost(lambda _request: AgentResponse("answer", {}))
+    default = host.default(AgentCommand(command="worker"), "Cli", env={})
+
+    assert host.portable([]) == PortableSet()
+    with pytest.raises(SessionHostError):
+        host.portable([default])

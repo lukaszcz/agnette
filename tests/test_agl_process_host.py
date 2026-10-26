@@ -26,12 +26,16 @@ from unittest import mock
 import pytest
 
 from agnette.agent.session.protocol import (
+    BackendSettings,
+    PortableBackend,
+    PortableSession,
     SessionAskRequest,
     SessionAskResponse,
     SessionOperations,
 )
+from agnette.agent.session.rpc import PiRpcSessionBackend
 from agnette.agent.session.service import AglSessionHost, SessionService
-from agnette.agent.spec import AgentCommand
+from agnette.agent.spec import AgentCommand, AgentPi
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.runtime.externs import ExternRegistry, ExternRuntimeState
 from agnette.agl.runtime.fork_participants import (
@@ -60,11 +64,12 @@ from agnette.agl.runtime.processes import (
 from agnette.agl.runtime.request import AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost, SessionHostError
 from agnette.core.process import kill_group
-from tests._agl_helpers import repl_session_with_root
+from tests._agl_helpers import repl_session_with_root, unavailable_sandbox_context
 from tests._proc_helpers import read_until_signalled
 from tests._signal_helpers import before_each_poll, trip_signal_off_thread
 from tests.agl.ir_harness import write_companion_file
 from tests.agl.isolated_runner import run_callable
+from tests.test_agent_rpc import RpcStub, option_value
 
 RUN_TIMEOUT = 30.0
 _REPEATS = 20
@@ -768,6 +773,9 @@ class _LoggedBackend:
     def close(self) -> None:
         self._write("close")
 
+    def portable(self) -> PortableSession:
+        return PortableBackend(self)
+
     def release_inherited(self) -> None:
         self._write("release")
 
@@ -809,20 +817,156 @@ def test_a_child_closes_the_sessions_it_opened_and_leaves_its_inherited_ones(
     assert result["after"] == "answer"
 
 
-def _refused_session_fork(workdir: Path) -> bool:
-    sessions = AgentDispatcherSessionHost(None)
-    refused = False
-    with _host(SessionParticipant(sessions)) as host:
+class _Conversation:
+    """A session backend whose answer is its whole conversation, so a snapshot is visible."""
+
+    continues_conversation = True
+    operations = SessionOperations()
+
+    def __init__(self, history: Sequence[str] = ()) -> None:
+        self._history = list(history)
+
+    def ask(self, request: SessionAskRequest) -> SessionAskResponse:
+        self._history.append(request.prompt)
+        return SessionAskResponse(content=" ".join(self._history))
+
+    def reset(self) -> None:
+        self._history.clear()
+
+    def portable(self) -> PortableSession:
+        return PortableBackend(_Conversation(self._history))
+
+    def close(self) -> None:
+        pass
+
+    def release_inherited(self) -> None:
+        pass
+
+
+def _snapshotted_sessions(workdir: Path) -> dict[str, Any]:
+    sessions = AglSessionHost(SessionService(lambda _request: _Conversation()))
+    agent = AgentCommand(command="worker")
+    listed = sessions.open(agent, "Cli", env={})
+    unlisted = sessions.open(agent, "Cli", env={})
+    default = sessions.default(agent, "Cli", env={})
+    for handle in (listed, unlisted, default):
+        sessions.ask(handle, handle[:2])
+
+    def child() -> bytes:
         try:
-            host.fork(lambda: b"", ("handle",))
+            sessions.ask(unlisted, "child")
+            rejected = False
         except SessionHostError:
-            refused = True
-        assert not host.attached
-    return refused
+            rejected = True
+        answers = [
+            sessions.ask(listed, "child"),
+            sessions.ask(sessions.default(agent, "Cli", env={}), "child"),
+        ]
+        return json.dumps([rejected, answers]).encode()
+
+    results = {}
+    with _host(SessionParticipant(sessions)) as host:
+        for name, listing in (("with-default", (listed, default)), ("fresh-default", (listed,))):
+            results[name] = json.loads(_delivered(host.outcome(host.fork(child, listing).id)))
+    results["parent"] = [sessions.ask(handle, "parent") for handle in (listed, default)]
+    results["prefixes"] = [handle[:2] for handle in (listed, unlisted, default)]
+    return results
 
 
-def test_forking_with_sessions_is_refused_without_leaving_a_child(tmp_path: Path) -> None:
-    assert run_callable(_refused_session_fork, tmp_path, timeout=RUN_TIMEOUT).value is True
+def test_a_forked_child_continues_the_listed_sessions_from_their_snapshots(
+    tmp_path: Path,
+) -> None:
+    result = run_callable(_snapshotted_sessions, tmp_path, timeout=RUN_TIMEOUT).value
+
+    listed, _unlisted, default = result["prefixes"]
+    # The default session is the snapshot when listed, else a fresh one; an unlisted
+    # inherited session stays inert.
+    assert result["with-default"] == [True, [f"{listed} child", f"{default} child"]]
+    assert result["fresh-default"] == [True, [f"{listed} child", "child"]]
+    # Neither child's conversation reached the parent's.
+    assert result["parent"] == [f"{listed} parent", f"{default} parent"]
+
+
+def _is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _pi_snapshotted_into_a_child(workdir: Path, stub_root: str) -> dict[str, Any]:
+    os.environ["PI_RPC_STUB_ROOT"] = stub_root
+    os.environ["PATH"] = f"{stub_root}{os.pathsep}{os.environ['PATH']}"
+    sessions = AglSessionHost(
+        SessionService(
+            lambda request: PiRpcSessionBackend.open(
+                request.agent,
+                BackendSettings(get_sandbox_context=unavailable_sandbox_context, env=request.env),
+            )
+        )
+    )
+    listed = sessions.open(AgentPi("provider", "model", "high"), "Rpc", env=dict(os.environ))
+    sessions.ask(listed, "before")
+    with _host(SessionParticipant(sessions)) as host:
+        outcome = host.outcome(
+            host.fork(lambda: sessions.ask(listed, "child").encode(), (listed,)).id
+        )
+        starts = [
+            json.loads(line) for line in (Path(stub_root) / "starts.jsonl").read_text().splitlines()
+        ]
+        result = {
+            "child": _delivered(outcome).decode(),
+            "argv": [start["argv"] for start in starts],
+            "alive": [_is_alive(start["pid"]) for start in starts],
+            "parent": sessions.ask(listed, "parent"),
+        }
+        sessions.close_all()
+    return result
+
+
+def test_a_forked_child_spawns_and_reaps_its_own_pi_from_the_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = RpcStub(tmp_path, monkeypatch)
+
+    result = run_callable(
+        _pi_snapshotted_into_a_child, tmp_path, {"stub_root": str(stub.root)}, timeout=RUN_TIMEOUT
+    ).value
+
+    assert result["child"] == "answer"
+    assert result["parent"] == "answer"
+    # The parent's Pi, a temporary clone process, and the child's own Pi resuming the clone.
+    assert len(result["argv"]) == 3
+    assert option_value(result["argv"][2], "--session-id") == "child"
+    # The child closed its own Pi and left the parent's, which it inherited, running.
+    assert result["alive"] == [True, False, False]
+
+
+def _refused_session_forks(workdir: Path) -> list[bool]:
+    refusals = []
+    for sessions in (
+        AgentDispatcherSessionHost(None),
+        AglSessionHost(SessionService(lambda _request: _Conversation())),
+    ):
+        refused = False
+        with _host(SessionParticipant(sessions)) as host:
+            try:
+                host.fork(lambda: b"", ("handle",))
+            except SessionHostError:
+                refused = True
+            assert not host.attached
+        refusals.append(refused)
+    return refusals
+
+
+def test_forking_with_unavailable_sessions_is_refused_without_leaving_a_child(
+    tmp_path: Path,
+) -> None:
+    assert run_callable(_refused_session_forks, tmp_path, timeout=RUN_TIMEOUT).value == [
+        True,
+        True,
+    ]
 
 
 # ---------------------------------------------------------------------------
