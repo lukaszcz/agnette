@@ -12,9 +12,11 @@ from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.commands import check as check_command
 
 
-def _chain_program(length: int, fields: bool) -> str:
+def _chain_program(length: int, fields: bool, methods: bool = False) -> str:
     body = "".join(
-        f"exception E{i} extends E{i - 1}\n" + (f"  f{i}: int\n" if fields else "")
+        f"exception E{i} extends E{i - 1}\n"
+        + (f"  f{i}: int\n" if fields else "")
+        + (f"def E{i}::m{i}(self) -> int = {i}\n" if methods else "")
         for i in range(1, length)
     )
     return "exception E0\n" + body + "def r() -> int = 1\n"
@@ -104,3 +106,29 @@ def test_no_ancestor_list_is_built_to_check_a_chain_that_declares_no_method(
         return listed
 
     assert work(120) <= work(60)
+
+
+def test_the_declaration_reads_to_check_a_chain_of_methods_grow_linearly_with_its_length(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads = 0
+    real = TypeDef.__getattribute__
+
+    def counting(self: TypeDef, name: str) -> object:
+        nonlocal reads
+        reads += 1
+        return real(self, name)
+
+    def work(length: int) -> int:
+        nonlocal reads
+        entry = tmp_path / f"methods{length}.agl"
+        entry.write_text(_chain_program(length, fields=False, methods=True), encoding="utf-8")
+        reads = 0
+        with monkeypatch.context() as patch:
+            patch.setattr(TypeDef, "__getattribute__", counting)
+            check_command.run(CheckArgs(files=[str(entry)]))
+        return reads
+
+    work(2)  # loads the standard library once, whichever test runs first
+    floor = work(2)  # what checking any program reads, whatever its chain
+    assert work(240) - floor < 2.5 * (work(120) - floor)

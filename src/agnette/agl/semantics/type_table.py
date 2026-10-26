@@ -556,6 +556,21 @@ JsonRepresentationCulprit = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class ExceptionNesting:
+    """Pre-order numbering of the live exception hierarchy, for O(1) ancestry tests.
+
+    ``pre`` numbers each exception depth-first in registration order. The
+    exceptions descending from one are exactly those numbered strictly between
+    its ``pre`` and its ``end``; ``depth`` is the length of its base chain.
+    Orphaned exceptions are absent (see :meth:`TypeTable.orphan`).
+    """
+
+    pre: Mapping[DeclId, int]
+    end: Mapping[DeclId, int]
+    depth: Mapping[DeclId, int]
+
+
 class TypeTable:
     """Mutable registry of ``TypeDef``s keyed by declaration identity (``DeclId``).
 
@@ -643,6 +658,8 @@ class TypeTable:
         # pass over ``_defs``. Whole-table, rebuilt on any registration
         # change; feeds :meth:`exception_descendants`.
         self._exception_children: dict[DeclId, tuple[DeclId, ...]] | None = None
+        # The same hierarchy numbered depth-first; invalidated alongside it.
+        self._exception_nesting: ExceptionNesting | None = None
         # Enum identity -> its inline members by terminal name, each as the
         # enum's type parameters and the member's handle template over
         # them. Declaration shells declare
@@ -721,6 +738,7 @@ class TypeTable:
             self._finite_closure = None
             self._relevant_params = None
             self._exception_children = None
+            self._exception_nesting = None
             return
         if self_validation_enabled() and existing != typedef:
             raise AssertionError(
@@ -1078,6 +1096,35 @@ class TypeTable:
             frontier = next_frontier
         return tuple(result)
 
+    def exception_nesting(self) -> ExceptionNesting:
+        """Return the memoized depth-first numbering of the live exception hierarchy."""
+        nesting = self._exception_nesting
+        if nesting is None:
+            children = self._exception_children_index()
+            pre: dict[DeclId, int] = {}
+            end: dict[DeclId, int] = {}
+            depth: dict[DeclId, int] = {}
+            for root_id, typedef in self._defs.items():
+                if typedef.kind != "exception" or root_id in self._orphaned:
+                    continue
+                if typedef.base is not None and typedef.base not in self._orphaned:
+                    continue
+                pending = [(root_id, 0, False)]
+                while pending:
+                    node, level, leaving = pending.pop()
+                    if leaving:
+                        end[node] = len(pre)
+                        continue
+                    pre[node] = len(pre)
+                    depth[node] = level
+                    pending.append((node, level, True))
+                    pending.extend(
+                        (child, level + 1, False) for child in reversed(children.get(node, ()))
+                    )
+            nesting = ExceptionNesting(pre, end, depth)
+            self._exception_nesting = nesting
+        return nesting
+
     def is_builtin_exception_root(self, decl_id: DeclId) -> bool:
         """Whether *decl_id* is the built-in ``Exception``, reserved or loaded.
 
@@ -1112,6 +1159,7 @@ class TypeTable:
         self._finite_closure = None
         self._relevant_params = None
         self._exception_children = None
+        self._exception_nesting = None
 
     def record_fields(self, handle: RecordType) -> Mapping[str, Type]:
         """Return *handle*'s field types with its ``type_args`` substituted in.

@@ -5097,6 +5097,74 @@ def test_sibling_exception_branches_may_reuse_a_method_name() -> None:
     )
 
 
+def test_method_collides_with_an_inherited_field_a_sibling_branch_redeclares() -> None:
+    with pytest.raises(AglTypeError):
+        resolve_and_check_inline_entry(
+            "exception Base extends Exception\n"
+            "  code: int\n"
+            "exception Early extends Base\n"
+            "  code: int\n"
+            "exception Late extends Base\n"
+            "def Late::code(self) -> int = 1\n"
+            "()"
+        )
+
+
+def test_method_may_reuse_a_field_name_declared_only_in_a_sibling_branch() -> None:
+    resolve_and_check_inline_entry(
+        "exception Base extends Exception\n"
+        "exception Early extends Base\n"
+        "  code: int\n"
+        "exception Late extends Base\n"
+        "def Late::code(self) -> int = 1\n"
+        "()"
+    )
+
+
+@pytest.mark.parametrize("ancestor_first", [True, False])
+def test_same_module_methods_of_distant_exception_relatives_collide(ancestor_first: bool) -> None:
+    defs = ["def Alpha::run(self) -> int = 1\n", "def Zeta::run(self) -> int = 2\n"]
+    with pytest.raises(AglTypeError):
+        resolve_and_check_inline_entry(
+            "exception Alpha extends Exception\n"
+            "exception Mid extends Alpha\n"
+            "exception Zeta extends Mid\n"
+            "exception Side extends Alpha\n"
+            + "".join(defs if ancestor_first else reversed(defs))
+            + "()"
+        )
+
+
+def test_an_exception_method_collides_with_the_shallowest_descendant_method_first() -> None:
+    with pytest.raises(AglTypeError) as raised:
+        resolve_and_check_inline_entry(
+            "exception Alpha extends Exception\n"
+            "exception Mid extends Alpha\n"
+            "exception Zeta extends Mid\n"
+            "exception Beta extends Alpha\n"
+            "def Alpha::run(self) -> int = 1\n"
+            "def Zeta::run(self) -> int = 2\n"
+            "def Beta::run(self) -> int = 3\n"
+            "()"
+        )
+
+    assert raised.value.span is not None and raised.value.span.start_line == 7
+
+
+def test_exception_methods_of_unrelated_and_sibling_branches_do_not_collide() -> None:
+    resolve_and_check_inline_entry(
+        "exception Root extends Exception\n"
+        "exception Left extends Root\n"
+        "exception LeftLeaf extends Left\n"
+        "exception Right extends Root\n"
+        "exception Alone extends Exception\n"
+        "def LeftLeaf::run(self) -> int = 1\n"
+        "def Right::run(self) -> int = 2\n"
+        "def Alone::run(self) -> int = 3\n"
+        "()"
+    )
+
+
 @pytest.mark.parametrize(
     ("source", "line"),
     (('record Point\n  label: text\ndef Point::label(self) -> text = "point"\n()', 3),),

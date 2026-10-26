@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Literal, TypeGuard, assert_never
+from typing import Literal, TypeGuard
 
 from agnette.agl.modules.ids import ModuleId, spell_declaration
 from agnette.agl.scope.symbols import ModuleResolution
 from agnette.agl.semantics.type_table import (
     DeclId,
+    ExceptionNesting,
     TypeTable,
     decl_id_sort_key,
     qualified_decl_name,
@@ -148,60 +150,173 @@ def _member_declarations(
     return index
 
 
-def _ancestor_field(
-    index: _MemberIndex, ancestors: tuple[DeclId, ...], name: str
-) -> tuple[DeclId, _MemberDeclaration] | None:
-    """Find the nearest ancestor field named *name*."""
-    for ancestor in ancestors:
-        fields = index.members_of(ancestor).get(name, ())
-        field = next((member for member in fields if member.kind == "field"), None)
-        if field is not None:
-            return ancestor, field
-    return None
+class _ExceptionOwners:
+    """Exception owners declaring one kind of member under one key, nested by ancestry.
 
-
-def _level_mates(type_table: TypeTable, owner_id: DeclId) -> tuple[DeclId, ...]:
-    """Return *owner_id*'s method-selection-level mates for the same-module pair rule.
-
-    An exception's mates are its ancestors and descendants; a record's are its
-    counted owning enums; an enum's are the member records it counts for
-    (:meth:`TypeTable.owning_enum_defs_for_selection`, read in reverse).
+    Sorted by pre-order number, with each entry's nearest enclosing entry
+    (the nearest listed ancestor), so the nearest listed ancestor of any
+    exception is found without walking its base chain.
     """
-    typedef = type_table.typedef_of(owner_id)
-    match typedef.kind:
-        case "exception":
-            ancestors = tuple(base.decl_node_id for base in type_table.ancestor_defs(owner_id))
-            descendants = tuple(
-                descendant.decl_node_id for descendant in type_table.exception_descendants(owner_id)
-            )
-            return ancestors + descendants
-        case "record":
-            return tuple(
-                enum_def.decl_node_id
-                for enum_def in type_table.owning_enum_defs_for_selection(owner_id)
-            )
-        case "enum":
-            return tuple(
-                member.decl_id
-                for member in typedef.members
-                if any(
-                    enum_def.decl_node_id == owner_id
-                    for enum_def in type_table.owning_enum_defs_for_selection(member.decl_id)
+
+    def __init__(self, nesting: ExceptionNesting, owners: list[DeclId]) -> None:
+        def by_pre(owner: DeclId) -> int:
+            return nesting.pre[owner]
+
+        owners.sort(key=by_pre)
+        self._nesting = nesting
+        self._owners = owners
+        self._pres = [nesting.pre[owner] for owner in owners]
+        self._enclosing: list[int | None] = []
+        open_entries: list[int] = []
+        for position, owner in enumerate(owners):
+            while open_entries and nesting.end[owners[open_entries[-1]]] <= self._pres[position]:
+                open_entries.pop()
+            self._enclosing.append(open_entries[-1] if open_entries else None)
+            open_entries.append(position)
+
+    def nearest_ancestor(self, owner_id: DeclId) -> DeclId | None:
+        """The nearest strict ancestor of *owner_id* among the listed owners."""
+        point = self._nesting.pre[owner_id]
+        last_before = bisect_left(self._pres, point) - 1
+        entry = last_before if last_before >= 0 else None
+        while entry is not None and self._nesting.end[self._owners[entry]] <= point:
+            entry = self._enclosing[entry]
+        return None if entry is None else self._owners[entry]
+
+    def first_descendant(self, owner_id: DeclId) -> DeclId | None:
+        """The listed descendant of *owner_id* a breadth-first descent reaches first."""
+        nesting = self._nesting
+        start = bisect_left(self._pres, nesting.pre[owner_id] + 1)
+        stop = bisect_left(self._pres, nesting.end[owner_id])
+
+        def breadth_first(descendant: DeclId) -> tuple[int, int]:
+            return nesting.depth[descendant], nesting.pre[descendant]
+
+        return min(self._owners[start:stop], key=breadth_first, default=None)
+
+
+class _ExceptionRelatives:
+    """The ancestor-field and related-method rules of exceptions, indexed by member name.
+
+    An exception's mates are its ancestors, nearest first, then its
+    descendants, breadth-first. Every exception of the table is indexed once,
+    so each rule is answered from the numbering of the exception hierarchy
+    rather than by walking an owner's chain.
+    """
+
+    def __init__(self, index: _MemberIndex, type_table: TypeTable) -> None:
+        self._index = index
+        nesting = type_table.exception_nesting()
+        fields: dict[str, list[DeclId]] = {}
+        methods: dict[tuple[str, ModuleId], list[DeclId]] = {}
+        for exception_id in nesting.pre:
+            _index_registered_owner(index, type_table, exception_id)
+            for name, members in index.members_of(exception_id).items():
+                if any(member.kind == "field" for member in members):
+                    fields.setdefault(name, []).append(exception_id)
+                for module_id in {m.module_id for m in members if m.kind == "method"}:
+                    methods.setdefault((name, module_id), []).append(exception_id)
+        self._fields = {name: _ExceptionOwners(nesting, owners) for name, owners in fields.items()}
+        self._methods = {key: _ExceptionOwners(nesting, owners) for key, owners in methods.items()}
+
+    def ancestor_field(
+        self, owner_id: DeclId, name: str
+    ) -> tuple[DeclId, _MemberDeclaration] | None:
+        """Find the nearest ancestor field named *name*."""
+        owners = self._fields.get(name)
+        ancestor = None if owners is None else owners.nearest_ancestor(owner_id)
+        if ancestor is None:
+            return None
+        return ancestor, next(
+            m for m in self._index.members_of(ancestor)[name] if m.kind == "field"
+        )
+
+    def related_method(
+        self, owner_id: DeclId, name: str, module_id: ModuleId
+    ) -> tuple[DeclId, _MemberDeclaration] | None:
+        """Find a same-named method on an ancestor, else a descendant, declared by *module_id*."""
+        owners = self._methods[name, module_id]  # the queried method itself is listed
+        mate = owners.nearest_ancestor(owner_id)
+        if mate is None:
+            mate = owners.first_descendant(owner_id)
+        if mate is None:
+            return None
+        member = next(
+            m
+            for m in self._index.members_of(mate)[name]
+            if m.kind == "method" and m.module_id == module_id
+        )
+        return mate, member
+
+
+class _Relatives:
+    """The owners whose members an owner's methods may collide with, by selection level.
+
+    An exception's relatives are its ancestors and descendants
+    (:class:`_ExceptionRelatives`, built once on first need); a record's are
+    its counted owning enums; an enum's, the member records it counts for
+    (:meth:`TypeTable.owning_enum_defs_for_selection`, read in reverse).
+    Only an exception has ancestors, hence inherited fields.
+    """
+
+    def __init__(self, index: _MemberIndex, type_table: TypeTable) -> None:
+        self._index = index
+        self._type_table = type_table
+        self._exceptions: _ExceptionRelatives | None = None
+        self._mates: dict[DeclId, tuple[DeclId, ...]] = {}
+
+    def _exception_relatives(self) -> _ExceptionRelatives:
+        if self._exceptions is None:
+            self._exceptions = _ExceptionRelatives(self._index, self._type_table)
+        return self._exceptions
+
+    def _mates_of(self, owner_id: DeclId) -> tuple[DeclId, ...]:
+        """The record or enum *owner_id*'s mates, indexed on first use."""
+        mates = self._mates.get(owner_id)
+        if mates is None:
+            type_table = self._type_table
+            typedef = type_table.typedef_of(owner_id)
+            if typedef.kind == "record":
+                mates = tuple(
+                    enum_def.decl_node_id
+                    for enum_def in type_table.owning_enum_defs_for_selection(owner_id)
                 )
-            )
-        case _ as unreachable:  # pragma: no cover
-            assert_never(unreachable)
+            else:
+                mates = tuple(
+                    member.decl_id
+                    for member in typedef.members
+                    if any(
+                        enum_def.decl_node_id == owner_id
+                        for enum_def in type_table.owning_enum_defs_for_selection(member.decl_id)
+                    )
+                )
+            for mate in mates:
+                _index_registered_owner(self._index, type_table, mate)
+            self._mates[owner_id] = mates
+        return mates
 
+    def _is_exception(self, owner_id: DeclId) -> bool:
+        return self._type_table.typedef_of(owner_id).kind == "exception"
 
-def _related_method(
-    index: _MemberIndex, mates: tuple[DeclId, ...], name: str, module_id: ModuleId
-) -> tuple[DeclId, _MemberDeclaration] | None:
-    """Find a same-named method on one of *mates* declared by the same module."""
-    for mate in mates:
-        for member in index.members_of(mate).get(name, ()):
-            if member.kind == "method" and member.module_id == module_id:
-                return mate, member
-    return None
+    def ancestor_field(
+        self, owner_id: DeclId, name: str
+    ) -> tuple[DeclId, _MemberDeclaration] | None:
+        """Find the nearest ancestor field named *name*."""
+        if not self._is_exception(owner_id):
+            return None
+        return self._exception_relatives().ancestor_field(owner_id, name)
+
+    def related_method(
+        self, owner_id: DeclId, name: str, module_id: ModuleId
+    ) -> tuple[DeclId, _MemberDeclaration] | None:
+        """Find a same-named method declared by *module_id* on a relative of *owner_id*."""
+        if self._is_exception(owner_id):
+            return self._exception_relatives().related_method(owner_id, name, module_id)
+        for mate in self._mates_of(owner_id):
+            for member in self._index.members_of(mate).get(name, ()):
+                if member.kind == "method" and member.module_id == module_id:
+                    return mate, member
+        return None
 
 
 def _raise_collision(
@@ -395,29 +510,12 @@ def validate_method_declaration_collisions(
     instead.
     """
     index = _member_declarations(modules, type_table)
+    relatives = _Relatives(index, type_table)
 
     # Order owners deterministically so a program reports one stable collision.
     sort_key = partial(decl_id_sort_key, type_table.defs)
     for owner_id in sorted(index.declared, key=sort_key):
         same_named_by_name = index.members[owner_id]
-        # The ancestor walk and the level-mate scan (an exception's descendants
-        # especially) cost a base-chain or table-wide pass, so they only run for an
-        # owner that actually declares a method here.
-        has_method = any(
-            member.kind == "method"
-            for same_named_members in same_named_by_name.values()
-            for member in same_named_members
-        )
-        ancestors = (
-            tuple(base.decl_node_id for base in type_table.ancestor_defs(owner_id))
-            if has_method
-            else ()
-        )
-        for ancestor in ancestors:
-            _index_registered_owner(index, type_table, ancestor)
-        mates = _level_mates(type_table, owner_id) if has_method else ()
-        for mate in mates:
-            _index_registered_owner(index, type_table, mate)
         for name, same_named_members in same_named_by_name.items():
             for method in (member for member in same_named_members if member.kind == "method"):
                 field = next(
@@ -425,7 +523,7 @@ def validate_method_declaration_collisions(
                 )
                 if field is not None:
                     _raise_collision(type_table, owner_id, name, method, owner_id, field)
-                conflict = _ancestor_field(index, ancestors, name)
+                conflict = relatives.ancestor_field(owner_id, name)
                 if conflict is not None:
                     _raise_collision(type_table, owner_id, name, method, *conflict)
                 if method.origin == "registered":
@@ -434,6 +532,6 @@ def validate_method_declaration_collisions(
                     # own owner, which the symmetric level-mate relation
                     # always reaches in turn.
                     continue
-                pair = _related_method(index, mates, name, method.module_id)
+                pair = relatives.related_method(owner_id, name, method.module_id)
                 if pair is not None:
                     _raise_collision(type_table, owner_id, name, method, *pair, prefer_later=True)
