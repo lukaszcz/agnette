@@ -2319,7 +2319,9 @@ class ReplSession:
 
         The load halts at the FIRST non-``ok`` result (like running a script);
         the returned list holds the results collected so far, including the
-        failing one.  Items that already succeeded remain promoted.
+        failing one.  Items that already succeeded remain promoted.  The file's leading
+        inner attributes belong to its first entry, so a module-level ``@!doc`` warns
+        like one typed at the prompt.
 
         A syntax error (or over-deep nesting) in the file yields a single failed
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
@@ -2356,9 +2358,14 @@ class ReplSession:
         except AglError as exc:
             return [self._fail_static(exc, [])]
 
+        # The file's leading inner attributes head its first item, as if typed with it.
+        leading = [attribute.span.start_offset for attribute in program.attributes]
         results: list[EntryResult] = []
-        for item in program.body.items:
-            slice_text = normalized[item.span.start_offset : item.span.end_offset]
+        for index, item in enumerate(program.body.items):
+            start = (
+                min([item.span.start_offset, *leading]) if index == 0 else item.span.start_offset
+            )
+            slice_text = normalized[start : item.span.end_offset]
             result = self.eval_entry(slice_text)
             results.append(result)
             if not result.ok:

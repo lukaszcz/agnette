@@ -40,13 +40,19 @@ def _scripted_reader(entries: list[str]) -> Callable[[], str]:
 
 @pytest.mark.parametrize("anchored", ["::x", "  ::x"])
 def test_a_line_leading_with_double_colon_is_an_entry_not_a_meta_command(anchored: str) -> None:
+    baseline: list[str] = []
+    run_repl_loop(
+        ReplSession(),
+        reader=_scripted_reader(["let x = 7", ":quit"]),
+        writer=baseline.append,
+    )
     session = ReplSession()
     written: list[str] = []
     reader = _scripted_reader(["let x = 7", anchored, ":quit"])
 
     run_repl_loop(session, reader=reader, writer=written.append)
 
-    assert any(line.rstrip().endswith("7") for line in written[2:])
+    assert any(line.rstrip().endswith("7") for line in written[len(baseline) :])
     assert session.bindings()
 
 

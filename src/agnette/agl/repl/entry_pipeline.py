@@ -56,6 +56,27 @@ class LoadedCheckedProgram:
     retired_member_scopes: "frozenset[ScopePath]"
 
 
+def unused_module_doc_warnings(program: Program) -> list[Diagnostic]:
+    """Warn of the module-level ``@!doc`` of a REPL entry or loaded source *program*.
+
+    A session has no module to document; a region's own ``@!doc`` is unaffected.
+    """
+    from agnette.agl.attributes import DOC_ATTRIBUTE
+    from agnette.agl.diagnostics import warning_diagnostic
+    from agnette.agl.warnings import UNUSED_MODULE_DOC
+
+    return [
+        warning_diagnostic(
+            UNUSED_MODULE_DOC,
+            f"The module-level '{attribute.spelling}' documents nothing: a REPL session is "
+            "no module. Document a 'scope' region with its own '@!doc' instead.",
+            attribute.span,
+        )
+        for attribute in program.attributes
+        if attribute.name == DOC_ATTRIBUTE
+    ]
+
+
 def _hashability_downgrade(previous: TypeTable, current: TypeTable) -> TypeDef | None:
     """Find a retained concrete Hashable proof invalidated by a new subtype.
 
@@ -234,7 +255,12 @@ class EntryPipeline:
             for warning in module.warnings
         ]
         outcome = self._ctx._govern_warnings(
-            [*tab_warnings, *load_tab_sink, *checker_warnings],
+            [
+                *tab_warnings,
+                *load_tab_sink,
+                *unused_module_doc_warnings(orig_program),
+                *checker_warnings,
+            ],
             resolved_program.modules.values(),
             scope_complete=True,
         )

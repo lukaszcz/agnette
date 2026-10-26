@@ -881,20 +881,28 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
 - **`:info NAME`** reads `NAME` exactly as an entry would: bare, qualified, applied-owner
   (`Slot[int]::Filled`), and alias-qualified spellings select what they select in an
   expression or type (including anchored `::name` spellings), and a hidden, unknown, or ambiguous
-  name reports that error, a hidden module or scope region included (a bare name hidden by
-  `hiding` is simply not defined, as in an entry). A builtin type (`int`, `text`, `bool`, ...)
-  reads as a type, as in an entry. `:info` answers before the first entry; if the standard
-  library fails to load, it reports that failure. A declaration is shown by its written path
-  — scope path and name in its declaring module — whichever spelling reached it: with `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`.
+  name reports that error, a hidden module or scope region included (a bare scope or type hidden
+  by `hiding` reports the hiding under the written name; only a bare hidden declaration is
+  undefined, as in an entry). A builtin type (`int`, `text`, `bool`, ...) reads as a type, as in
+  an entry, and is shown beside any same-named module or scope region (`json` after
+  `import std/json`). `:info` answers before the first entry; if the standard library fails to
+  load, it reports that failure until an entry loads it. A declaration is shown by its written
+  path — scope path and name in its declaring module — whichever spelling reached it: with
+  `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`. A record, enum, or
+  exception shows its declaration (an exception with its `extends` base and own fields).
   A declaration's `@doc` is shown as an attribute line above its AgL (triple-quoted when
   multi-line). A module or scope region (`Debug`, `a::b`, `lib::Debug`) is whatever the spelling
   names as a qualifier in an entry, through imports, `use`, aliases, and regions declared in the
   session: an imported module shows its `@!doc` above `module std/fs`, a region above
   `scope a::b`. A module or region without documentation shows just its header. A spelling
-  reaching several modules, several regions, or a mix shows each under a label naming its
-  source (`Module (lib):`, `Scope (this session):`). Re-opening a region in a later entry with a new
+  reaching several modules, regions, or a builtin type shows each under a label naming its
+  source (`Module (lib):`, `Scope (this session):`, `Type (builtin):`). Re-opening a region in a later entry with a new
   `@!doc` replaces its documentation. A declaration of the same spelling takes precedence over a
   module or region, except that a lone slash route (`std/fs`, `/std/fs`) names the module.
+  A module-level `@!doc` in an entry or a `:load`ed file documents nothing (a session is no
+  module) and draws the `unused-module-doc` warning; a region's `@!doc` is unaffected, and
+  `@!allow("unused-module-doc")` hides the warning. A loaded file's leading inner attributes
+  belong to its first entry.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the
