@@ -1448,6 +1448,7 @@ class ReplSession:
         self._session_docs.update(
             (node_id, doc) for node_id, doc in attributes.docs.items() if _is_promoted(node_id)
         )
+        self._prune_session_docs()
         for region in promoted_scope_region_paths:
             self._session_regions[region] = attributes.region_docs.get(
                 region, self._session_regions.get(region)
@@ -2065,6 +2066,22 @@ class ReplSession:
             _format_info_section(label, code, source=source) for label, source, code in found
         )
         return f"{name} names several modules or scopes.\n" + "\n".join(sections)
+
+    def _prune_session_docs(self) -> None:
+        """Drop the docs of declarations the session no longer reaches (superseded or retired)."""
+        live = {
+            ref.decl_node_id
+            for node in self._session_scope_nodes.values()
+            for ref in node.members.values()
+        }
+        live.update(
+            owner.alias.node_id
+            for owner in self._session_type_paths.values()
+            if owner.alias is not None
+        )
+        self._session_docs = {
+            node_id: doc for node_id, doc in self._session_docs.items() if node_id in live
+        }
 
     def _hidden_region(self, chain: "QualifierChain") -> HiddenMemberError | None:
         """Return the rejection an entry gets for *chain* naming only scopes or modules hidden here."""

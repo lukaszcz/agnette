@@ -1513,6 +1513,36 @@ class TestInfoAsEntry:
             session.info_of("D")
 
 
+class TestInfoDocsRetention:
+    """The session keeps docs only of declarations it still reaches."""
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            ('@doc("A")\ndef f() -> int = 1', "def f() -> int = 2"),
+            ('@doc("A")\nlet f = 1', "let f = 2"),
+            ('@doc("A")\ntype f = int', "type f = bool"),
+            ('@doc("A")\ndef f() -> int = 1', '@doc("B")\ndef f() -> int = 2'),
+        ],
+    )
+    def test_redeclaring_drops_the_superseded_docs(self, first: str, second: str) -> None:
+        session = _open_session()
+        assert session.eval_entry(first).ok
+        assert session.eval_entry(second).ok
+
+        retained = list(session._session_docs.values())
+
+        assert "A" not in retained
+        assert len(retained) == (1 if '@doc("B")' in second else 0)
+
+    def test_failed_entry_keeps_the_live_docs(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("A")\ndef f() -> int = 1').ok
+        assert not session.eval_entry('@doc("B")\ndef g() -> int = "x"').ok
+
+        assert list(session._session_docs.values()) == ["A"]
+
+
 class TestBindings:
     def test_bindings_empty(self) -> None:
         for name in (":bindings", ":env"):
