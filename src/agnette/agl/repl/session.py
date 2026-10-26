@@ -1783,7 +1783,10 @@ class ReplSession:
             found = None if chain is None else self._describe_scopes(name, chain)
             if found is not None:
                 return found
-            hidden = None if chain is None else self._hidden_region(chain)
+            # A bare hidden name is simply not defined to an entry; only a qualified
+            # spelling is refused as hidden.
+            qualifier = None if reference is None else reference.qualifier
+            hidden = None if qualifier is None else self._hidden_region(qualifier)
             if hidden is not None:
                 raise hidden from None
             raise
@@ -2084,7 +2087,7 @@ class ReplSession:
         }
 
     def _hidden_region(self, chain: "QualifierChain") -> HiddenMemberError | None:
-        """Return the rejection an entry gets for *chain* naming only hidden scopes or modules."""
+        """Return the rejection an entry gets for qualified *chain* naming only hidden things."""
         from agnette.agl.scope.lookup import lookup_hidden
 
         resolved = self._probe_resolve()

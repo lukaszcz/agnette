@@ -598,6 +598,56 @@ class TestInfo:
         assert outcome.highlight_as_agl is True
         assert outcome.agl_ranges[0] == (0, len("count"))
 
+    @pytest.mark.parametrize(
+        ("source", "setup", "name"),
+        [
+            pytest.param("def c() -> int = 2\n", "import lib::* hiding c", "c", id="hidden-def"),
+            pytest.param("let v = 1\n", "import lib::* hiding v", "v", id="hidden-let"),
+            pytest.param(
+                "scope D\n  def c() -> int = 1\nend D\n",
+                "import lib::* hiding D",
+                "D::c",
+                id="hidden-scope",
+            ),
+            pytest.param(
+                "scope D\n  def c() -> int = 1\nend D\n",
+                "import lib::* hiding D",
+                "D::c::x",
+                id="hidden-scope-deep",
+            ),
+            pytest.param(
+                "record T\n  a: int\n", "import lib::* hiding T", "T::x", id="hidden-type"
+            ),
+            pytest.param(
+                "record T\n  a: int\n", "import lib::* hiding T", "T", id="bare-hidden-type"
+            ),
+            pytest.param(
+                "scope D\n  def c() -> int = 1\nend D\n",
+                "import lib::* hiding D",
+                "D",
+                id="bare-hidden-scope",
+            ),
+            pytest.param(
+                "def c() -> int = 2\n", "import lib hiding c", "lib::c", id="qualified-hidden-def"
+            ),
+            pytest.param("let v = 1\n", "import lib hiding v", "::v", id="anchored-hidden-let"),
+        ],
+    )
+    def test_info_reports_a_hidden_name_as_an_entry_does(
+        self, tmp_path: Path, source: str, setup: str, name: str
+    ) -> None:
+        (tmp_path / "lib.agl").write_text(source, encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry(setup).ok
+        entry = session.eval_entry(name)
+        assert entry.failure is not None
+
+        with pytest.raises(AglError) as raised:
+            session.info_of(name)
+
+        assert type(raised.value) is type(entry.failure)
+
     def test_info_reports_a_function_signature_and_location(self) -> None:
         session = _open_session()
         assert session.eval_entry("def twice(value: int) -> int = value * 2").ok
