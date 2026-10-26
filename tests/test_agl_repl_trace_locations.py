@@ -11,7 +11,8 @@ FAILING = 'exception Boom\n\ndef boom() -> int =\n  raise Boom(message = "x")\n'
 
 
 def _records(path: Path) -> list[dict[str, object]]:
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    records: list[dict[str, object]] = [json.loads(line) for line in path.read_text().splitlines()]
+    return records
 
 
 def _session(tmp_path: Path) -> tuple[ReplSession, Path]:
