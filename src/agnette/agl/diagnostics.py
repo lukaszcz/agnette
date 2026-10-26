@@ -342,8 +342,6 @@ class HiddenMemberError(AglTypeError):
     def __init__(self, owner: str, member: str, *, span: SourceSpan | None) -> None:
         spelled = f"{owner}::{member}" if owner else member
         super().__init__(f"'{spelled}' is hidden by its import or 'use'.", span=span)
-        self.owner = owner
-        self.member = member
 
 
 class ReferencedMemberError(AglTypeError):

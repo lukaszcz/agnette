@@ -1725,7 +1725,7 @@ class TestInfoAsEntry:
 
         with pytest.raises(HiddenMemberError) as raised:
             session.info_of("D")
-        assert (raised.value.owner, raised.value.member) == ("", "D")
+        assert str(raised.value).startswith("'D'")
         span = raised.value.span
         assert span is not None
         assert "D"[span.start_offset : span.end_offset] == "D"
@@ -1749,7 +1749,7 @@ class TestInfoAsEntry:
         with pytest.raises(HiddenMemberError) as raised:
             session.info_of(name)
 
-        assert (raised.value.owner, raised.value.member) == ("", name)
+        assert str(raised.value).startswith(f"'{name}'")
 
     def test_info_of_a_hidden_prelude_type_reports_the_written_name(self) -> None:
         session = _open_session()
@@ -1758,7 +1758,7 @@ class TestInfoAsEntry:
         with pytest.raises(HiddenMemberError) as raised:
             session.info_of("Option")
 
-        assert (raised.value.owner, raised.value.member) == ("", "Option")
+        assert str(raised.value).startswith("'Option'")
 
 
 class TestInfoDocsRetention:
