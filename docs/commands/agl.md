@@ -877,7 +877,7 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   `(int) -> bool`, or a qualified spelling such as `lib::Agent::Mood`) echo the resolved type
   (`<type: int>`) instead of ``'X' is not defined.``; an unapplied generic such as `Option` shows
   its generic definition, and an alias shows the type it denotes. The name is looked up exactly
-  as in an annotation. A REPL convenience only; names that are also values (a record
+  as in an annotation. A bare type entry may start with inner attributes (`@!doc`, `@!allow`), governed as in any entry, and a `:load`ed file holding a single bare type runs as one type entry. A REPL convenience only; names that are also values (a record
   constructor, a binding) evaluate normally.
 - **`:info NAME`** reads `NAME` exactly as an entry would: bare, qualified, applied-owner
   (`Slot[int]::Filled`), and alias-qualified spellings select what they select in an

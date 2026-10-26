@@ -32,7 +32,7 @@ import contextvars
 import importlib.resources
 from collections.abc import Callable
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import cache
 from typing import Iterator, TypeVar
 
@@ -197,6 +197,50 @@ def token_collector() -> Iterator[list[Token]]:
     """
     with _ambient_list_sink(_TOKEN_SINK) as sink:
         yield sink
+
+
+@dataclass(frozen=True, slots=True)
+class LexedSource:
+    """The result of lexing one source text: its tokens and spaced-qualifier advisories."""
+
+    tokens: tuple[Token, ...]
+    spaced_qualifiers: tuple[SpacedQualifier, ...]
+
+
+class LexCapture:
+    """The :class:`LexedSource` of the last complete lex pass in a :func:`lex_capture` block."""
+
+    lexed: LexedSource | None = None
+
+
+_LEX_CAPTURE: contextvars.ContextVar[LexCapture | None] = contextvars.ContextVar(
+    "agl_lex_capture", default=None
+)
+_LEX_REPLAY: contextvars.ContextVar[LexedSource | None] = contextvars.ContextVar(
+    "agl_lex_replay", default=None
+)
+
+
+@contextmanager
+def lex_capture() -> Iterator[LexCapture]:
+    """Capture the lexed source of parses within the block, so another parse can replay it.
+
+    ``lexed`` stays ``None`` when scanning failed. Lexing depends on the text alone,
+    not on the grammar start rule.
+    """
+    capture = LexCapture()
+    with ScopedVar(_LEX_CAPTURE, capture):
+        yield capture
+
+
+@contextmanager
+def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
+    """Make parses within the block reuse *lexed*, the lex of the very text they parse.
+
+    Without *lexed* the parses scan their text as usual.
+    """
+    with ScopedVar(_LEX_REPLAY, lexed):
+        yield
 
 
 def _remap(tokens: Iterator[Token]) -> Iterator[Token]:
@@ -996,6 +1040,15 @@ class AglLexer(Lexer):
         Keyword token types are remapped from lowercase (scanner convention)
         to the uppercase names expected by the Lark grammar.
         """
+        replayed = _LEX_REPLAY.get()
+        if replayed is not None:
+            spaced_sink = _SPACED_QUALIFIER_SINK.get()
+            if spaced_sink is not None:
+                spaced_sink.extend(replayed.spaced_qualifiers)
+            token_sink = _TOKEN_SINK.get()
+            if token_sink is not None:
+                token_sink.extend(replayed.tokens)
+            return iter(replayed.tokens)
         # Lark wraps the parsed string in a whole-text ``TextSlice``.
         source = lexer_state.text.text
         # Drive the scan to completion up front (materialized) so the single
@@ -1003,6 +1056,8 @@ class AglLexer(Lexer):
         # the advisories are then complete even if the parse later fails.  The
         # ``finally`` deposits whatever was collected, including on a LexError.
         scanner = _Scanner(source)
+        spaced_sink = _SPACED_QUALIFIER_SINK.get()
+        spaced_start = 0 if spaced_sink is None else len(spaced_sink)
         try:
             after_remap = list(_remap(layout(scanner.scan())))
             tokens = _mark_typearg_lsqb(
@@ -1015,6 +1070,10 @@ class AglLexer(Lexer):
         token_sink = _TOKEN_SINK.get()
         if token_sink is not None:
             token_sink.extend(tokens)
+        capture = _LEX_CAPTURE.get()
+        if capture is not None:
+            spaced = () if spaced_sink is None else tuple(spaced_sink[spaced_start:])
+            capture.lexed = LexedSource(tuple(tokens), spaced)
         return iter(tokens)
 
 

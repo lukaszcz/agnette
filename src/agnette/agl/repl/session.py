@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from agnette.agl.ir.ids import SymbolId
     from agnette.agl.ir.program import ValueDescriptors
     from agnette.agl.ir.static_keys import StaticBindingKey
+    from agnette.agl.lexer import LexedSource
     from agnette.agl.matchcompile import MatchCompiledProgram
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import LoadedModule
@@ -895,13 +896,22 @@ class ReplSession:
         successfully as values are never intercepted, so record constructors and
         bindings keep their normal echo.
         """
+        source = self._begin_entry(origin)
+        result = self._eval_entry(text, check_only=check_only, source=source)
+        return relocate(result, self._place, unplaced=REPL_LABEL)
+
+    def _next_entry_source(self) -> "SourceId":
+        """The source identity :meth:`_begin_entry` gives the next entry."""
         from agnette.agl.syntax.spans import SourceId
 
-        label = f"<repl {len(self._entry_origins)}>"
-        self._entry_origins[label] = origin
-        self._entry_label = label
-        result = self._eval_entry(text, check_only=check_only, source=SourceId(label))
-        return relocate(result, self._place, unplaced=REPL_LABEL)
+        return SourceId(f"<repl {len(self._entry_origins)}>")
+
+    def _begin_entry(self, origin: FileOrigin | None) -> "SourceId":
+        """Give the next entry its source identity, placed by *origin* in its file if any."""
+        source = self._next_entry_source()
+        self._entry_origins[source.label] = origin
+        self._entry_label = source.label
+        return source
 
     def _place(self, location: Placement) -> Placement:
         """Move a location in an entry's source to where that entry's text lies; others stay."""
@@ -927,17 +937,33 @@ class ReplSession:
 
     def _eval_entry(self, text: str, *, check_only: bool, source: "SourceId") -> EntryResult:
         """Evaluate one entry parsed with the source identity *source* (see :meth:`eval_entry`)."""
-        result, program, next_id = self._eval_entry_pipeline(
+        result, next_id, lexed = self._eval_entry_pipeline(
             text, check_only=check_only, source=source
         )
+        return self._settle_entry(text, result, next_id=next_id, lexed=lexed, source=source)
+
+    def _settle_entry(
+        self,
+        text: str,
+        result: EntryResult,
+        *,
+        next_id: int,
+        lexed: "LexedSource | None",
+        source: "SourceId",
+    ) -> EntryResult:
+        """Finish the *result* of reading *text* as a program, or read it as a bare type.
+
+        The type reading is for a static rejection of a text that lexed, and reuses the
+        program reading's *lexed* source: no stage runs twice on the text.
+        """
         # Whatever the verdict, the next ``info_of`` reopens the library image afresh.
         self._open_failure = ()
         if self._pending_bootstrap_warnings:
             result.warnings[:0] = self._pending_bootstrap_warnings
             self._pending_bootstrap_warnings.clear()
-        if not result.ok:
+        if result.failure is not None and lexed is not None:
             type_result = self._try_type_entry(
-                text, next_id=next_id, value_failure=result.failure, source=source
+                text, next_id=next_id, value_failure=result.failure, source=source, lexed=lexed
             )
             if type_result is not None:
                 return type_result
@@ -950,10 +976,13 @@ class ReplSession:
         next_id: int,
         value_failure: AglError | None,
         source: "SourceId",
+        lexed: "LexedSource | None" = None,
         display: bool = True,
     ) -> EntryResult | None:
         """Attempt to interpret *text* as a bare type-expression entry.
 
+        *lexed* is the lex of *text* when a program reading already lexed it: the type
+        reading parses its tokens instead of scanning the text again.
         With *display* false the result carries no ``type_display`` (only ``value_type``),
         so formatting, which spells exception bases, is never entered.
 
@@ -989,7 +1018,7 @@ class ReplSession:
         node-id counter, or mutates session state: the synthetic declaration
         is discarded once its resolved type (or generic definition) is read.
         """
-        from agnette.agl.lexer import spaced_qualifier_collector
+        from agnette.agl.lexer import lex_replay, spaced_qualifier_collector
         from agnette.agl.parser import AglSyntaxError, parse_type_entry_seeded
         from agnette.agl.repl.type_display import (
             format_generic_type_def_for_repl,
@@ -1001,7 +1030,7 @@ class ReplSession:
         def parse() -> tuple[
             tuple["Attribute", ...], "TypeExpr", int, tuple["SpacedQualifier", ...]
         ]:
-            with spaced_qualifier_collector() as spaced_sink:
+            with lex_replay(lexed), spaced_qualifier_collector() as spaced_sink:
                 attributes, expr, ids = parse_type_entry_seeded(
                     text, start_id=next_id, source=source
                 )
@@ -1158,14 +1187,14 @@ class ReplSession:
 
     def _eval_entry_pipeline(
         self, text: str, *, check_only: bool, source: "SourceId"
-    ) -> tuple[EntryResult, "Program | None", int]:
+    ) -> tuple[EntryResult, int, "LexedSource | None"]:
         """Run the resolve → typecheck → matchcompile → lower/eval entry core.
 
         Completed runtime initializers are promoted even when a later initializer
-        fails. Also returns the entry's parse (``None`` if it did not parse) and
-        the first node id past it. The entry is parsed in *source*.
+        fails. Also returns the first node id past the entry's parse and its lexed source
+        (``None`` if it did not lex). The entry is parsed in *source*.
         """
-        from agnette.agl.lexer import spaced_qualifier_collector, tab_warning_collector
+        from agnette.agl.lexer import lex_capture, spaced_qualifier_collector, tab_warning_collector
         from agnette.agl.parser import parse_program_seeded
 
         host_env = self._runtime.host_environment()
@@ -1174,13 +1203,21 @@ class ReplSession:
         # scan).  The collector is populated even on a failed parse; the warning
         # policy then filters them (and withholds them if the parse failed).
         # [1] Parse (seeded so node ids stay globally unique across entries).
-        with tab_warning_collector() as tab_sink, spaced_qualifier_collector() as spaced_sink:
+        with (
+            tab_warning_collector() as tab_sink,
+            spaced_qualifier_collector() as spaced_sink,
+            lex_capture() as capture,
+        ):
             try:
                 program, next_start_id = parse_program_seeded(
                     text, start_id=self._next_node_id, source=source
                 )
             except AglError as exc:
-                return self._fail_static_governed(exc, list(tab_sink)), None, self._next_node_id
+                return (
+                    self._fail_static_governed(exc, list(tab_sink)),
+                    self._next_node_id,
+                    capture.lexed,
+                )
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
         # [1d] REPL entries use the program pipeline by default because that
@@ -1197,7 +1234,7 @@ class ReplSession:
             check_only=check_only,
             spaced_qualifiers=spaced_qualifiers,
         )
-        return result, program, next_start_id
+        return result, next_start_id, capture.lexed
 
     def _build_check_only_result(
         self,
@@ -2542,6 +2579,7 @@ class ReplSession:
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
         items to run and yields an empty list (a benign no-op).
         """
+        from agnette.agl.lexer import lex_capture, tab_warning_collector
         from agnette.agl.parser import parse_repl_transcript
         from agnette.agl.scope.attributes import module_allowed_names
         from agnette.core.fs import read_text
@@ -2578,10 +2616,15 @@ class ReplSession:
         # the session's continuing node-id counter).  start_id=0 is fine here.
         # A file that is no program is one entry as a whole: a bare type, else its
         # syntax error.
-        try:
-            program = parse_repl_transcript(normalized)
-        except AglError:
-            return [self.eval_entry(normalized, origin=FileOrigin(label, 1, 1))]
+        with tab_warning_collector() as tab_sink, lex_capture() as capture:
+            try:
+                program = parse_repl_transcript(normalized, source=self._next_entry_source())
+            except AglError as exc:
+                return [
+                    self._eval_unparsed(
+                        normalized, FileOrigin(label, 1, 1), exc, list(tab_sink), capture.lexed
+                    )
+                ]
 
         # The file's leading inner attributes head its first item, as if typed with it;
         # their ``@!allow`` names govern every item. A file of attributes alone is one entry.
@@ -2604,6 +2647,27 @@ class ReplSession:
         finally:
             self._inherited_allows = frozenset()
         return results
+
+    def _eval_unparsed(
+        self,
+        text: str,
+        origin: FileOrigin,
+        failure: AglError,
+        tab_warnings: list[Diagnostic],
+        lexed: "LexedSource | None",
+    ) -> EntryResult:
+        """Settle *text*, a whole file that is no program, as one entry rejected with *failure*.
+
+        *failure* is the file's parse error, stamped with the entry's next source identity
+        (see :meth:`_next_entry_source`): the program reading is not run again, so only a
+        bare type entry can still succeed.
+        """
+        source = self._begin_entry(origin)
+        result = self._fail_static_governed(failure, tab_warnings)
+        settled = self._settle_entry(
+            text, result, next_id=self._next_node_id, lexed=lexed, source=source
+        )
+        return relocate(settled, self._place, unplaced=REPL_LABEL)
 
     def dump_source(self) -> str:
         """Serialize successfully promoted sources with their entry boundaries."""

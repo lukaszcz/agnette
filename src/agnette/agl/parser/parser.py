@@ -317,14 +317,16 @@ def parse_program(
     return program
 
 
-def parse_repl_transcript(text: str) -> syntax.Program:
+def parse_repl_transcript(text: str, *, source: SourceId | None = None) -> syntax.Program:
     """Parse a saved REPL transcript for top-level entry boundary discovery.
+
+    A syntax error carries *source*, when given.
 
     Header ordering is deferred because each top-level item is subsequently
     parsed as an independent REPL entry before it can be evaluated.
     """
 
-    program, _next_id = _parse_to_program(text, start_id=0, allow_late_uses=True)
+    program, _next_id = _parse_to_program(text, start_id=0, source=source, allow_late_uses=True)
     return program
 
 
