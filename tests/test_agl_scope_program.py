@@ -399,7 +399,7 @@ class TestGlobImport:
             "entry": "import mylib::* hiding foo\nlet x = foo()",
             "mylib": "def foo() -> int = 1\ndef bar() -> int = 2",
         }
-        assert _rejection(tmp_path, modules, "entry") == (AglScopeError, "foo")
+        assert _rejection(tmp_path, modules, "entry") == (HiddenMemberError, "foo")
 
     def test_brace_tail_rename(self, tmp_path: Path) -> None:
         """A brace-tail rename adds a bare spelling for its selected member.
@@ -1827,7 +1827,7 @@ class TestScopedImportBareNarrowing:
                 "lib2": "enum Color\n  | Red\n  | Green",
             },
         )
-        with pytest.raises(AglScopeError):
+        with pytest.raises(HiddenMemberError):
             resolve_program(graph)
 
     def test_enum_variant_expansion_yields_to_a_same_named_top_level_exception(

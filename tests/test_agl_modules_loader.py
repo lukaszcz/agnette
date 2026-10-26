@@ -12,6 +12,7 @@ import pytest
 if TYPE_CHECKING:
     from agnette.agl.syntax.nodes import Program
 
+from agnette.agl.diagnostics import HiddenMemberError
 from agnette.agl.modules.errors import (
     AmbiguousModule,
     ImportEntryError,
@@ -1490,7 +1491,6 @@ class TestPreludeSupersession:
         self, tmp_path: Path
     ) -> None:
         from agnette.agl.scope import resolve_program
-        from agnette.agl.scope.symbols import AglScopeError
 
         graph = load_graph(
             "import std/prelude::* hiding ask",
@@ -1516,7 +1516,7 @@ class TestPreludeSupersession:
                 roots=_roots(tmp_path),
             )
         )
-        with pytest.raises(AglScopeError):
+        with pytest.raises(HiddenMemberError):
             resolve_program(
                 load_graph(
                     'import std/prelude::* hiding ask\ndef g() -> text = ask("hidden")',

@@ -88,6 +88,7 @@ from agnette.agl.scope.lookup import (
     Misfit,
     QualifiedTarget,
     lookup_bare,
+    lookup_bare_hidden,
     lookup_declared,
     lookup_qualified,
     shadowed_by_type_parameter,
@@ -2732,6 +2733,7 @@ class _Resolver(ModuleSources):
         return (
             self._bare_type_misfit(name, span)
             or self._spaced_qualifier_repair(self._spaced_qualifier_around(span), span)
+            or self._bare_hidden(name, LookupKind.VALUE, span)
             or AglScopeError(undefined_name_message(name), span=span)
         )
 
@@ -2948,7 +2950,7 @@ class _Resolver(ModuleSources):
         """
         found = self._type_target(None, name, span)
         if found is None and not is_builtin_type_name(name):
-            raise unknown_type(name, span)
+            raise self._bare_hidden(name, LookupKind.TYPE, span) or unknown_type(name, span)
         self._record_type_selection(node_id, found)
 
     def _record_type_selection(
@@ -3048,6 +3050,12 @@ class _Resolver(ModuleSources):
             chain.node_id, found.target if isinstance(found, Misfit) else found
         )
         return found
+
+    def _bare_hidden(
+        self, name: str, kind: LookupKind, span: SourceSpan
+    ) -> HiddenMemberError | None:
+        """Return bare *name* of *kind*, selecting nothing, as hidden if ``hiding`` removed it."""
+        return lookup_bare_hidden(self, name, self._named_scope_path(), kind, span=span)
 
     def _bare_type_misfit(self, name: str, span: SourceSpan) -> AglError | None:
         """Return why bare *name*, naming no value, spells a visible type -- or several."""

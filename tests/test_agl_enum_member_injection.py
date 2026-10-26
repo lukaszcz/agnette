@@ -20,7 +20,6 @@ import pytest
 
 from agnette.agl.diagnostics import HiddenMemberError
 from agnette.agl.scope.symbols import (
-    AglScopeError,
     AmbiguousConstructorError,
     NoVisibleConstructorError,
 )
@@ -251,13 +250,13 @@ _REMOVED = {
     "hidden-enum": _scenario(
         ("import a::* hiding Color",),
         {
-            "bare": rejected("Red", AglScopeError, "Red"),
+            "bare": rejected("Red", HiddenMemberError, "Red"),
         },
     ),
     "hidden-member": _scenario(
         ("import a::* hiding Color::Red",),
         {
-            "hidden": rejected("Red", AglScopeError, "Red"),
+            "hidden": rejected("Red", HiddenMemberError, "Red"),
             "hidden-qualified": rejected("Color::Red", HiddenMemberError, "Color::Red"),
             "kept": accepted("Blue", _BLUE),
             "pattern": rejected(
@@ -270,7 +269,7 @@ _REMOVED = {
     "hidden-member-use": _scenario(
         ("import a", "use a::* hiding Color::Red"),
         {
-            "hidden": rejected("Red", AglScopeError, "Red"),
+            "hidden": rejected("Red", HiddenMemberError, "Red"),
             "route-fallback": accepted("a::Color::Red", _RED),
             "kept": accepted("Blue", _BLUE),
         },
@@ -280,7 +279,7 @@ _REMOVED = {
         {
             "hidden": rejected(
                 _in_region("import a::* hiding Color::Red", "let q = Red", tail="s::q"),
-                AglScopeError,
+                HiddenMemberError,
                 "Red",
             ),
             "kept": accepted(
@@ -291,7 +290,7 @@ _REMOVED = {
     "hidden-enum-use": _scenario(
         ("import a", "use a::* hiding Color"),
         {
-            "hidden": rejected("Red", AglScopeError, "Red"),
+            "hidden": rejected("Red", HiddenMemberError, "Red"),
             "route-fallback": accepted("a::Color::Red", _RED),
         },
     ),
@@ -468,18 +467,18 @@ def _withheld_scenario(use: str) -> Scenario:
     return Scenario(
         modules={**_MODULES, "mid": "import a\nexport a hiding Color::Red\n"},
         header=("import mid", use),
-        probes={"bare": rejected("Red", AglScopeError, "Red")},
+        probes={"bare": rejected("Red", HiddenMemberError, "Red")},
     )
 
 
 _USE_IGNORES_WAYS = {
     "use-glob-of-an-import-hiding-a-member": _scenario(
         ("import a hiding Color::Red", "use a::*"),
-        {"bare": rejected("Red", AglScopeError, "Red")},
+        {"bare": rejected("Red", HiddenMemberError, "Red")},
     ),
     "use-item-of-an-import-hiding-a-member": _scenario(
         ("import a hiding Color::Red", "use a::{Color}"),
-        {"bare": rejected("Red", AglScopeError, "Red")},
+        {"bare": rejected("Red", HiddenMemberError, "Red")},
     ),
     "use-glob-of-an-export-withholding-a-member": _withheld_scenario("use mid::*"),
     "use-item-of-an-export-withholding-a-member": _withheld_scenario("use mid::{Color}"),
@@ -674,7 +673,7 @@ _REEXPORTED_MEMBERS = {
         modules=_HIDING_MODULES,
         header=("import mid", "use mid::*"),
         probes={
-            "bare": rejected("Red", AglScopeError, "Red"),
+            "bare": rejected("Red", HiddenMemberError, "Red"),
             "is": rejected("mid::Blue is Red", NoVisibleConstructorError, "mid::Blue is Red"),
         },
     ),

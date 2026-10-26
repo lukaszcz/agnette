@@ -246,7 +246,7 @@ def test_incomplete_input_has_recognizable_tail(source: str, start: int, kind: s
 def test_recursion_failure_abandons_construct_and_keeps_diagnostics(wrapper: str) -> None:
     nested = '"%{' * 200 + "1" + '}"' * 200
     construct = wrapper.format(nested)
-    with pytest.raises(RecursionError):
+    with pytest.raises(LexError):
         list(tokenize(construct))
     source = "# before\n\x01\n" + construct + "\n# uncertain tail"
     tokens, errors = tokenize_recover(source)

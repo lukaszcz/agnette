@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
+from agnette.agl.diagnostics import AglError, AglTypeError, HiddenMemberError
 from agnette.agl.scope.symbols import (
     AglScopeError,
     AmbiguousConstructorError,
@@ -192,15 +192,15 @@ _SCENARIOS = {
         modules=_MODULES,
         header=("import al::* hiding Base", "import base"),
         probes={
-            "alias-value": rejected("Geo(x = 1)", AglScopeError, "Geo"),
+            "alias-value": rejected("Geo(x = 1)", HiddenMemberError, "Geo"),
             "alias-pattern": rejected(_BASE_PATTERN, NoVisibleConstructorError, "Geo(x)"),
-            "alias-annot": rejected("fn(p: Geo) => p", AglTypeError, "Geo"),
-            "alias-alias": rejected("type AA = Geo\nfn(p: AA) => p", AglTypeError, "Geo"),
-            "alias-tyarg": rejected("fn(p: array[Geo]) => p", AglTypeError, "Geo"),
-            "alias-cast": rejected("fn(p: text) => p as? Geo", AglTypeError, "Geo"),
+            "alias-annot": rejected("fn(p: Geo) => p", HiddenMemberError, "Geo"),
+            "alias-alias": rejected("type AA = Geo\nfn(p: AA) => p", HiddenMemberError, "Geo"),
+            "alias-tyarg": rejected("fn(p: array[Geo]) => p", HiddenMemberError, "Geo"),
+            "alias-cast": rejected("fn(p: text) => p as? Geo", HiddenMemberError, "Geo"),
             "beneath-the-alias": rejected("Geo::Inner(y = 1)", HiddenMemberError, "Geo::Inner"),
             "routed-alias": rejected("al::Geo(x = 1)", HiddenMemberError, "al::Geo"),
-            "beneath-it-through-another-alias": rejected("fn(p: Sh) => p", AglTypeError, "Sh"),
+            "beneath-it-through-another-alias": rejected("fn(p: Sh) => p", HiddenMemberError, "Sh"),
             "unrelated-alias": accepted("fn(p: Uh) => p", "base::Oops -> base::Oops"),
         },
     ),
@@ -220,12 +220,12 @@ _SCENARIOS = {
         modules=_MODULES,
         header=("import al::* hiding Geo",),
         probes={
-            "target-value": rejected("Base(x = 1)", AglScopeError, "Base"),
+            "target-value": rejected("Base(x = 1)", HiddenMemberError, "Base"),
             "beneath-the-target": rejected("Base::Inner(y = 1)", HiddenMemberError, "Base::Inner"),
             "beneath-the-alias": rejected("Geo::f", HiddenMemberError, "Geo::f"),
             "routed-beneath-the-alias": rejected("al::Geo::f", HiddenMemberError, "al::Geo::f"),
             "anchored-beneath-the-alias": rejected("/al::Geo::f", HiddenMemberError, "/al::Geo::f"),
-            "beneath-it-through-another-alias": rejected("fn(p: Sh) => p", AglTypeError, "Sh"),
+            "beneath-it-through-another-alias": rejected("fn(p: Sh) => p", HiddenMemberError, "Sh"),
             "unrelated-alias": accepted("fn(p: Uh) => p", "base::Oops -> base::Oops"),
         },
     ),
@@ -287,7 +287,7 @@ _SCENARIOS = {
                 _in_region("use al::{Geo::Inner}", "Geo::Inner(y = 1)"), _INNER
             ),
             "target-removes-its-alias": rejected(
-                _in_region("use al::* hiding Base", "Geo(x = 1)"), AglScopeError, "Geo"
+                _in_region("use al::* hiding Base", "Geo(x = 1)"), HiddenMemberError, "Geo"
             ),
             "target-removes-its-alias-pattern": rejected(
                 _in_region("use al::* hiding Base", _BASE_CASE), NoVisibleConstructorError, "Geo(x)"
@@ -298,7 +298,7 @@ _SCENARIOS = {
                 "Geo::Inner",
             ),
             "member-through-an-alias": rejected(
-                _in_region("use al::* hiding Hue::Red", "Red"), AglScopeError, "Red"
+                _in_region("use al::* hiding Hue::Red", "Red"), HiddenMemberError, "Red"
             ),
             "member-kept": accepted(_in_region("use al::* hiding Hue::Red", "Green"), _GREEN),
         },
@@ -308,7 +308,7 @@ _SCENARIOS = {
         header=("import base",),
         probes={
             "alias-value": rejected(
-                _in_region("import al::* hiding Base", "Geo(x = 1)"), AglScopeError, "Geo"
+                _in_region("import al::* hiding Base", "Geo(x = 1)"), HiddenMemberError, "Geo"
             ),
             "alias-pattern": rejected(
                 _in_region("import al::* hiding Base", _BASE_CASE),
@@ -324,7 +324,7 @@ _SCENARIOS = {
                 _in_region("import al::* hiding Base::Inner", "Geo(x = 1)"), _RECORD
             ),
             "member-through-an-alias": rejected(
-                _in_region("import al::* hiding Hue::Red", "Red"), AglScopeError, "Red"
+                _in_region("import al::* hiding Hue::Red", "Red"), HiddenMemberError, "Red"
             ),
             "member-kept": accepted(_in_region("import al::* hiding Hue::Red", "Green"), _GREEN),
         },
@@ -333,7 +333,7 @@ _SCENARIOS = {
         modules=_MODULES,
         header=("import al::* hiding Hue::Red",),
         probes={
-            "value": rejected("Red", AglScopeError, "Red"),
+            "value": rejected("Red", HiddenMemberError, "Red"),
             "pattern": rejected(
                 "fn(p: Color) => case p of\n  | Red => 1\n  | _ => 2",
                 NoVisibleConstructorError,
@@ -412,10 +412,10 @@ _SCENARIOS = {
             modules=_export_hiding(item),
             header=(header.format(item=item), "import base"),
             probes={
-                "target-value": rejected("Base(x = 1)", AglScopeError, "Base"),
-                "alias-value": rejected("Geo(x = 1)", AglScopeError, "Geo"),
+                "target-value": rejected("Base(x = 1)", HiddenMemberError, "Base"),
+                "alias-value": rejected("Geo(x = 1)", HiddenMemberError, "Geo"),
                 "alias-pattern": rejected(_BASE_PATTERN, NoVisibleConstructorError, "Geo(x)"),
-                "alias-annot": rejected("fn(p: Geo) => p", AglTypeError, "Geo"),
+                "alias-annot": rejected("fn(p: Geo) => p", HiddenMemberError, "Geo"),
                 "beneath-the-target": rejected(
                     "Base::Inner(y = 1)", HiddenMemberError, "Base::Inner"
                 ),
@@ -426,7 +426,9 @@ _SCENARIOS = {
                 "routed-beneath-the-alias": rejected(
                     f"{route}::Geo::f", HiddenMemberError, f"{route}::Geo::f"
                 ),
-                "beneath-it-through-another-alias": rejected("fn(p: Sh) => p", AglTypeError, "Sh"),
+                "beneath-it-through-another-alias": rejected(
+                    "fn(p: Sh) => p", HiddenMemberError, "Sh"
+                ),
                 "unrelated-alias": accepted("fn(p: Uh) => p", "base::Oops -> base::Oops"),
                 "other-import": accepted("base::Base::Inner(y = 1)", _INNER),
             },
@@ -588,13 +590,16 @@ _DECLARING_BENEATH = (
 """Declares beneath ``base``'s ``Base`` and beneath ``text``, beside aliases of both."""
 
 
-def _beneath_hidden_alias_probes(route: str) -> dict[str, Probe]:
+def _beneath_hidden_alias_probes(
+    route: str, same_builtin_alias: type[AglError]
+) -> dict[str, Probe]:
     """What ``hiding Geo, T2`` removes of the paths they reach, under every spelling.
 
     *route* is the module route the paths are also spelled through. Every
     path beneath a removed alias is hidden. ``Geo`` spells ``base::Base`` by
     its route, so what its module declares at ``Base`` stays; ``T2`` reaches
-    what it declares at ``text``, which goes with it.
+    what it declares at ``text``, which goes with it. An alias of ``text`` the
+    import brings too is removed with ``T2``: *same_builtin_alias* is its verdict.
     """
     spellings = (("", ""), ("-routed", f"{route}::"))
     return {
@@ -614,7 +619,7 @@ def _beneath_hidden_alias_probes(route: str) -> dict[str, Probe]:
             )
         },
         "target": rejected("fn(x: Base) => x", AglTypeError, "Base"),
-        "builtin-alias": rejected("fn(x: U) => x", AglTypeError, "U"),
+        "builtin-alias": rejected("fn(x: U) => x", same_builtin_alias, "U"),
         "builtin-kept": accepted('text::size("ab")', "int"),
     }
 
@@ -624,7 +629,7 @@ _SCENARIOS |= {
         stdlib=True,
         modules={"base": _BASE, "ad": _DECLARING_BENEATH},
         header=("import ad::* hiding Geo, T2\nimport ad hiding Geo, T2",),
-        probes=_beneath_hidden_alias_probes("ad"),
+        probes=_beneath_hidden_alias_probes("ad", HiddenMemberError),
     ),
     "hiding-a-target-removes-what-its-module-declares-beneath-it": Scenario(
         modules={"base": _BASE, "ad": _DECLARING_BENEATH},
@@ -645,7 +650,7 @@ _SCENARIOS |= {
             "ex": "import ad\nexport ad hiding Geo, T2\n",
         },
         header=(_ROUTES,),
-        probes=_beneath_hidden_alias_probes("ex"),
+        probes=_beneath_hidden_alias_probes("ex", AglTypeError),
     ),
 }
 
@@ -1264,7 +1269,7 @@ _SCENARIOS["an-item-naming-an-applied-enum-alias-injects-its-members-applied"] =
             _TEXT_SOM,
         ),
         "hidden-member": rejected(
-            "import ia::* hiding IntOpt::Som\nSom(v = 1)", AglScopeError, "Som"
+            "import ia::* hiding IntOpt::Som\nSom(v = 1)", HiddenMemberError, "Som"
         ),
         "beside-a-hidden-member": accepted(
             "import ia::* hiding IntOpt::Som\nfn(p: IntOpt) => p is Non", "op::Opt[int] -> bool"
@@ -1640,10 +1645,10 @@ _SCENARIOS |= {
         modules={"gen": _GENERIC, "hd": _DENOTED_TWICE},
         header=("import hd::* hiding F, IntBox",),
         probes={
-            "hidden": rejected("fn(f: F) => f(1)", AglTypeError, "F"),
-            "same-type": rejected("fn(f: G) => f(1)", AglTypeError, "G"),
+            "hidden": rejected("fn(f: F) => f(1)", HiddenMemberError, "F"),
+            "same-type": rejected("fn(f: G) => f(1)", HiddenMemberError, "G"),
             "same-type-routed": rejected("fn(f: hd::G) => f(1)", HiddenMemberError, "hd::G"),
-            "same-applied-type": rejected("fn(p: IB2) => p.v", AglTypeError, "IB2"),
+            "same-applied-type": rejected("fn(p: IB2) => p.v", HiddenMemberError, "IB2"),
             "another-type": accepted("fn(f: H) => f(1)", "(int -> text) -> text"),
         },
     ),
@@ -1656,7 +1661,7 @@ _SCENARIOS |= {
         modules={"bx": "record Box[T]\n  v: T\ntype IntBox = Box[int]\n"},
         header=("import bx::* hiding Box",),
         probes={
-            "hidden": rejected("fn(p: Box[int]) => p.v", AglTypeError, "Box[int]"),
+            "hidden": rejected("fn(p: Box[int]) => p.v", HiddenMemberError, "Box[int]"),
             "kept": accepted("fn(p: IntBox) => p.v", "bx::Box[int] -> int"),
             "kept-constructor": accepted("IntBox(v = 1)", "record bx::Box[int]\n  v: int"),
         },

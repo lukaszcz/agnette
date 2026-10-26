@@ -76,6 +76,7 @@ __all__ = [
     "Route",
     "Via",
     "lookup_bare",
+    "lookup_bare_hidden",
     "lookup_constructors",
     "lookup_declared",
     "lookup_hidden",
@@ -409,6 +410,30 @@ def lookup_bare(
     )
     walk = _Walk(sources, scope_path, steps, (), None, (name,), span, constructors=constructors)
     return walk.find(kind)
+
+
+def lookup_bare_hidden(
+    sources: PathSources,
+    name: str,
+    scope_path: ScopePath,
+    kind: LookupKind,
+    *,
+    span: SourceSpan,
+    contributions: bool = True,
+) -> HiddenMemberError | None:
+    """Return bare *name* of *kind*, as hidden when only ``hiding`` lost it.
+
+    Reached, at some step, are declarations, scopes or types every way reaching
+    them removes and, at no step, one that is kept: the verdict a qualified
+    spelling gets in that case (:meth:`_Walk.bare_removed`). Meant for a
+    spelling :func:`lookup_bare` found nothing for.
+    """
+    steps = tuple(
+        _step(sources, step, injects=kind is LookupKind.VALUE, contributions=contributions)
+        for step in lookup_steps(scope_path)
+    )
+    walk = _Walk(sources, scope_path, steps, (), None, (name,), span)
+    return HiddenMemberError("", name, span=span) if walk.bare_removed(kind) else None
 
 
 def lookup_constructors(
@@ -908,6 +933,22 @@ class _Walk:
                 break
             removed = removed or dropped
         return removed if keep_removed else ()
+
+    def bare_removed(self, kind: LookupKind) -> bool:
+        """Whether the bare name reaches declarations of *kind*, scopes or types, all removed.
+
+        Reached at some step and kept at none.
+        """
+        sources = self._sources
+        any_removed = False
+        for step in self._steps:
+            reading = self._reading(step, kind, injects=True, owners_within=len(self._names))[0]
+            kept, dropped = self._unremoved(reading)
+            origins = step.origins((*step.path, *self._names))
+            if kept.candidates or not all(removed(o.hiding, o.key, sources) for o in origins):
+                return False
+            any_removed = any_removed or bool(dropped or origins)
+        return any_removed
 
     def _decide(self, step: _Step, kind: LookupKind) -> QualifiedTarget | AglError | None:
         """Decide the full path at *step*: own first, then one distinct contribution."""

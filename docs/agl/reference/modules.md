@@ -446,8 +446,9 @@ names something that qualifies (a scope path, type, type alias, or module
 route — own or provided); else an unknown qualifier, which includes a chain
 through a function, binding, or injected enum member. A `use` target, tail
 item, or hidden item is read the same way, whether written through an alias
-or not. A bare spelling that selects nothing is an unknown name, hidden or
-not. A spelling is ambiguous only when two or more distinct declarations
+or not. A bare spelling that selects nothing, in a value, type, or qualifier
+position, reports the name as hidden when a `hiding` removed everything it
+would otherwise reach, and as an unknown name otherwise. A spelling is ambiguous only when two or more distinct declarations
 compete at the step that decides it, never when the module itself declares
 the path. These diagnostics identify a direct repair: import the required
 module, use a longer suffix or an anchored path, add an alias, or adjust a

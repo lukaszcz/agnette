@@ -881,9 +881,8 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
 - **`:info NAME`** reads `NAME` exactly as an entry would: bare, qualified, applied-owner
   (`Slot[int]::Filled`), and alias-qualified spellings select what they select in an
   expression or type (including anchored `::name` spellings), and a hidden, unknown, or ambiguous
-  name reports that error, a hidden module or scope region included (a bare scope or type hidden
-  by `hiding` reports the hiding under the written name; only a bare hidden declaration is
-  undefined, as in an entry). A builtin type (`int`, `text`, `bool`, ...) reads as a type, as in
+  name reports that error, a hidden module or scope region included (a name removed by `hiding`
+  reports the hiding under the written name). A builtin type (`int`, `text`, `bool`, ...) reads as a type, as in
   an entry, and is shown beside any same-named module or scope region (`json` after
   `import std/json`). `:info` answers before the first entry; if the standard library fails to
   load, it reports that failure until an entry loads it. A declaration is shown by its written

@@ -2183,30 +2183,16 @@ class ReplSession:
         }
 
     def _hidden_region(self, reference: "VarRef") -> HiddenMemberError | None:
-        """Return the rejection an entry gets for *reference* naming only hidden things.
+        """Return the rejection an entry gets for a qualified *reference* naming only hidden things.
 
-        A qualified spelling is read as written. A bare name reads as the qualifier of a
-        fresh member, so only a removed scope or type counts: a removed declaration is
-        simply not defined to an entry.
+        A bare name needs no probe: describing it already reports a hidden name.
         """
         from agnette.agl.scope.lookup import lookup_hidden
-        from agnette.agl.syntax.nodes import QualifierChain, QualifierSegment
 
-        chain = reference.qualifier
-        if chain is None:
-            chain = QualifierChain(
-                None,
-                (QualifierSegment(reference.name, None, reference.span, reference.node_id),),
-                f"ReplInfoMember{uuid.uuid4().hex}",
-                reference.span,
-                reference.node_id,
-            )
+        if reference.qualifier is None:
+            return None
         resolved = self._probe_resolve()
-        hidden = lookup_hidden(resolved.sources(resolved.entry_id), chain, (), None)
-        if hidden is None or reference.qualifier is not None:
-            return hidden
-        # The probe's synthetic member must not leak: report the written name.
-        return HiddenMemberError("", reference.name, span=reference.span)
+        return lookup_hidden(resolved.sources(resolved.entry_id), reference.qualifier, (), None)
 
     def _probe_resolve(self) -> "ResolvedProgram":
         """Resolve an empty entry: the scope state an entry written now would see."""

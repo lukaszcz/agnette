@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
 from agnette.agl.parser import AglSyntaxError
 from agnette.agl.scope.symbols import AglScopeError, AmbiguousQualificationError
 from tests._timeouts import fail_if_slow
@@ -133,7 +133,9 @@ _SCENARIOS: dict[str, Scenario] = {
             "unbraced-use-name-rename": accepted(
                 "use ops::<+> as plus\nplus(1, 2)", _pair("ops::L", _INT, _INT)
             ),
-            "unbraced-use-hiding": rejected("use ops::* hiding <+>\n1 <+> 2", AglScopeError, "<+>"),
+            "unbraced-use-hiding": rejected(
+                "use ops::* hiding <+>\n1 <+> 2", HiddenMemberError, "<+>"
+            ),
         },
     ),
     "region-scoped-import": Scenario(
@@ -185,7 +187,7 @@ _SCENARIOS: dict[str, Scenario] = {
                 "import public as API\nuse API::Public::{<+> as <&>}\n1 <&> 2 <&> 3",
                 _pair("ops::L", _L_INT, _INT),
             ),
-            "hidden-reexport": rejected("import hidden::*\n1 <+> 2", AglScopeError, "<+>"),
+            "hidden-reexport": rejected("import hidden::*\n1 <+> 2", HiddenMemberError, "<+>"),
             "region-import-rename": accepted(
                 "scope Local\n  import ops\n  import public::{Public::<+> as <+>}\n"
                 "  def apply(x: int, y: int) -> ops::L[int, int] = x <+> y\nend Local\n"
@@ -237,7 +239,9 @@ _SCENARIOS: dict[str, Scenario] = {
         },
         probes={
             "rename-to-operator": accepted("use m::x as <&>\n(<&>)(1, 2)", _INT),
-            "hiding-list": rejected("use m::* hiding y, <+>\n(<+>)(1, 2)", AglScopeError, "<+>"),
+            "hiding-list": rejected(
+                "use m::* hiding y, <+>\n(<+>)(1, 2)", HiddenMemberError, "<+>"
+            ),
             "hiding-list-keeps-rest": accepted("use m::* hiding y, <+>\nx(1, 2)", _INT),
         },
     ),

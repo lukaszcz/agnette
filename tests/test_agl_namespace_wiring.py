@@ -1575,7 +1575,7 @@ def test_use_imported_nested_scope_selects_its_relative_public_subtree(tmp_path:
 
     assert resolve_program(graph).entry_id == graph.entry_id
 
-    for blocked in ("hidden", "leaked"):
+    for blocked, error in (("hidden", HiddenMemberError), ("leaked", AglScopeError)):
         blocked_graph = make_graph_from_files(
             tmp_path,
             {
@@ -1585,7 +1585,7 @@ def test_use_imported_nested_scope_selects_its_relative_public_subtree(tmp_path:
                 ),
             },
         )
-        with pytest.raises(AglScopeError):
+        with pytest.raises(error):
             resolve_program(blocked_graph)
 
 
@@ -2101,7 +2101,7 @@ def test_wildcard_facade_use_hiding_stays_hidden(tmp_path: Path) -> None:
         tmp_path,
         {"entry": "import facade/* as api\nuse api::* hiding first\nfirst()", **modules},
     )
-    with pytest.raises(AglScopeError):
+    with pytest.raises(HiddenMemberError):
         resolve_program(hidden)
 
 
