@@ -16,6 +16,7 @@ import agnette.packages.fetch as package_fetch
 from agnette.core import http as core_http
 from agnette.packages.fetch import FetchError, fetch_archive
 from tests._http_helpers import install
+from tests._proc_helpers import sleep_until_signalled
 
 _URL = "https://example.test/tools.agmpkg"
 
@@ -50,11 +51,32 @@ class _BlockedAdapter(requests.adapters.BaseAdapter):
         proxies: dict[str, str] | None = None,
     ) -> requests.Response:
         del request, stream, timeout, verify, cert, proxies
-        time.sleep(30.0)
+        sleep_until_signalled(30.0)
         raise AssertionError("the stall alarm did not interrupt the blocked transport")
 
     def close(self) -> None:
         pass
+
+
+class _MissedAlarmAdapter(_BlockedAdapter):
+    """A blocked transport whose first stall alarm is lost, as when it lands just before a
+    blocking call starts and so never interrupts it."""
+
+    def send(
+        self,
+        request: requests.PreparedRequest,
+        stream: bool = False,
+        timeout: object = None,
+        verify: object = True,
+        cert: object = None,
+        proxies: dict[str, str] | None = None,
+    ) -> requests.Response:
+        missed: list[int] = []
+        expire = signal.signal(signal.SIGALRM, lambda signum, _frame: missed.append(signum))
+        while not missed:
+            time.sleep(0.01)
+        signal.signal(signal.SIGALRM, expire)
+        return super().send(request, stream, timeout, verify, cert, proxies)
 
 
 class _PacedRaw:
@@ -418,6 +440,24 @@ def test_fetch_times_out_when_the_transport_blocks_past_the_budget(
         )
 
     assert not tuple(tmp_path.iterdir())
+
+
+def test_fetch_times_out_even_if_the_first_stall_alarm_is_missed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(package_fetch, "_FETCH_TIMEOUT_SECONDS", 0.05)
+    _mount(monkeypatch, _MissedAlarmAdapter())
+
+    with pytest.raises(FetchError):
+        fetch_archive(
+            requirement="tools >= 1.0.0",
+            url=_URL,
+            expected_hash="sha256=" + "0" * 64,
+            handoff=lambda _: pytest.fail("archive handoff must not run"),
+            scratch_dir=tmp_path,
+        )
+
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
 
 
 def test_a_body_trickling_slower_than_the_budget_still_completes(

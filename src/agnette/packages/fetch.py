@@ -18,6 +18,8 @@ from agnette.packages.manifest import parse_sha256
 # archive size limit, not elapsed time, is what bounds a download that never
 # stalls.
 _FETCH_TIMEOUT_SECONDS = 30.0
+# Seconds between repeats of an expired stall alarm until its handler has run.
+_ALARM_REPEAT_SECONDS = 0.1
 MAX_ARCHIVE_DOWNLOAD_SIZE = 128 * 1024 * 1024
 
 
@@ -112,9 +114,13 @@ def _connect_alarm(requirement: str, budget: float) -> Iterator[Callable[[], Non
     soon as the response headers arrive, leaving a slow but live download
     bounded only by read inactivity and the size cap.  Any alarm the process
     already had is restored, minus the time this fetch took.
+
+    An expired alarm repeats until its handler runs: a signal that lands just
+    before a blocking call starts never interrupts it, but the next one does.
     """
 
     def expire(_signum: int, _frame: object) -> None:
+        signal.setitimer(signal.ITIMER_REAL, 0)
         raise FetchError(f"fetch timed out for {requirement}")
 
     def connected() -> None:
@@ -122,7 +128,9 @@ def _connect_alarm(requirement: str, budget: float) -> Iterator[Callable[[], Non
 
     started = time.monotonic()
     previous_handler = signal.signal(signal.SIGALRM, expire)
-    previous_remaining, previous_interval = signal.setitimer(signal.ITIMER_REAL, budget)
+    previous_remaining, previous_interval = signal.setitimer(
+        signal.ITIMER_REAL, budget, _ALARM_REPEAT_SECONDS
+    )
     try:
         yield connected
     finally:
