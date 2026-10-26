@@ -218,6 +218,14 @@ def test_format_banner_starts_with_stable_prefix() -> None:
 
 
 class TestIsIncomplete:
+    @pytest.mark.parametrize("source", ['@!doc("x")', '@!doc("x")\n@!allow("y")'])
+    def test_a_header_of_inner_attributes_is_unfinished(self, source: str) -> None:
+        assert is_incomplete(source) is True
+
+    @pytest.mark.parametrize("source", ['1\n@!doc("x")', 'def f() -> int = 1\n@!doc("x")'])
+    def test_an_inner_attribute_after_an_item_is_an_error_not_unfinished(self, source: str) -> None:
+        assert is_incomplete(source) is False
+
     @pytest.mark.parametrize(
         "source",
         [

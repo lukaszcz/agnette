@@ -37,7 +37,7 @@ from agnette.agl.parser import (
     has_unterminated_triple_quoted_string,
     is_incomplete_source,
     parse_program_seeded,
-    parse_type_expr_seeded,
+    parse_type_entry_seeded,
 )
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.parser.transform import AstBuilder
@@ -1356,13 +1356,13 @@ class TestScopeRegions:
 
 
 # ---------------------------------------------------------------------------
-# parse_type_expr_seeded — direct unit tests
+# parse_type_entry_seeded — direct unit tests
 # ---------------------------------------------------------------------------
 
 
 def _type_expr(text: str, *, start_id: int = 0) -> TypeExpr:
     """Parse *text* as a single type expression."""
-    return parse_type_expr_seeded(text, start_id=start_id)[0]
+    return parse_type_entry_seeded(text, start_id=start_id)[1]
 
 
 class TestParseTypeExpr:

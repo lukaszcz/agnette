@@ -253,6 +253,10 @@ class TestPlainMultiline:
         assert "unused-module-doc" not in output
         assert "x : int = 1" in output
 
+    def test_trailing_inner_attribute_after_an_item_is_submitted_as_an_error(self) -> None:
+        output = drive_plain('record R\n  x: int\n@!doc("m")\n')
+        assert ": error:" in output.lower()
+
     def test_prefix_attributes_stay_open_for_their_declaration(self) -> None:
         output = drive_plain('@doc("m")\nlet x = 1\n')
         assert "x : int = 1" in output

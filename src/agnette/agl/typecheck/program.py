@@ -684,8 +684,10 @@ def _build_program_type_table(
     # resolved yet. That holds for an exception's ``extends`` base too,
     # including the canonical ``Exception`` an omitted ``extends`` takes,
     # whose identity Step A published (``TypeTable.exception_root``).
-    def source_decl_sort_key(key: DeclKey) -> tuple[tuple[str, ...], tuple[str, ...], str]:
-        return (key[0].segments, key[1], key[2])
+    # The entry module resolves last: a rejection inside it (such as a bare generic
+    # type) then finds every other module's bodies already in the shared table.
+    def source_decl_sort_key(key: DeclKey) -> tuple[bool, tuple[str, ...], tuple[str, ...], str]:
+        return (key[0] == resolved.entry_id, key[0].segments, key[1], key[2])
 
     for key in sorted(type_decls, key=source_decl_sort_key):
         _resolve_body_for_one(key, type_decls[key], cross_builders, tables, cross_envs)

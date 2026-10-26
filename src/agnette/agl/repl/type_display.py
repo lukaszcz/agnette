@@ -12,15 +12,20 @@ are resolved on demand through the shared :class:`TypeTable`.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
 from agnette.agl.repl.info_docs import format_doc_attribute
 from agnette.agl.semantics.type_table import TypeTable
 from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType, Type
 from agnette.agl.typecheck.env import GenericTypeDef
 
+#: Spells an exception's base as the bare name its declaration writes after ``extends``.
+BaseSpelling = Callable[[ExceptionType], str]
 
-def format_type_for_repl(typ: Type, table: TypeTable | None) -> str:
+
+def format_type_for_repl(
+    typ: Type, table: TypeTable | None, base_spelling: BaseSpelling | None = None
+) -> str:
     """Return the type-focused REPL display for ``typ``.
 
     Primitive, container, function, and unit types keep their canonical compact
@@ -29,7 +34,8 @@ def format_type_for_repl(typ: Type, table: TypeTable | None) -> str:
     prompt without finding the original declaration.  ``table`` resolves the
     field / variant shapes for the nominal handles; when it is ``None`` (no
     shared type table is available for the entry) nominal handles fall back to
-    their compact ``repr`` form.
+    their compact ``repr`` form. An exception's base is spelled by *base_spelling*,
+    else as its declared name.
     """
     if table is not None:
         if isinstance(typ, RecordType):
@@ -37,7 +43,7 @@ def format_type_for_repl(typ: Type, table: TypeTable | None) -> str:
         if isinstance(typ, EnumType):
             return _format_enum_type(typ, table)
         if isinstance(typ, ExceptionType):
-            return _format_exception_type_with_name(typ, repr(typ), table)
+            return _format_exception_type_with_name(typ, repr(typ), table, base_spelling)
     return repr(typ)
 
 
@@ -58,29 +64,46 @@ def format_type_text_echo_for_repl(rendered: str) -> str:
     return f"<type: {rendered}>"
 
 
-def format_generic_type_def_for_repl(name: str, gdef: GenericTypeDef, table: TypeTable) -> str:
+def format_generic_type_def_for_repl(
+    name: str,
+    gdef: GenericTypeDef,
+    table: TypeTable,
+    base_spelling: BaseSpelling | None = None,
+) -> str:
     """Return a declaration-like display for an unapplied generic type definition."""
-    return format_type_def_for_repl(f"{name}[{', '.join(gdef.type_params)}]", gdef.template, table)
+    return format_type_def_for_repl(
+        f"{name}[{', '.join(gdef.type_params)}]", gdef.template, table, base_spelling
+    )
 
 
 def format_type_def_for_repl(
-    name: str, typ: RecordType | EnumType | ExceptionType, table: TypeTable
+    name: str,
+    typ: RecordType | EnumType | ExceptionType,
+    table: TypeTable,
+    base_spelling: BaseSpelling | None = None,
 ) -> str:
     """Return a declaration-like display of nominal type *typ* declared as *name*."""
     if isinstance(typ, RecordType):
         return _format_record_type_with_name(typ, name, table)
     if isinstance(typ, EnumType):
         return _format_enum_type_with_name(typ, name, table)
-    return _format_exception_type_with_name(typ, name, table)
+    return _format_exception_type_with_name(typ, name, table, base_spelling)
 
 
-def _format_exception_type_with_name(typ: ExceptionType, name: str, table: TypeTable) -> str:
+def _format_exception_type_with_name(
+    typ: ExceptionType, name: str, table: TypeTable, base_spelling: BaseSpelling | None
+) -> str:
     """Render an exception as its declaration: base, then its own fields."""
     typedef = table.exception_def(typ)
     header = f"exception {name}"
     if typedef.base is not None:
-        # ``extends`` takes a bare name, as the declaration spells it.
-        header += f" extends {table.defs[typedef.base].name}"
+        # ``extends`` takes a bare name.
+        base = table.defs[typedef.base]
+        if base_spelling is None:
+            header += f" extends {base.name}"
+        else:
+            base_type = ExceptionType(base.name, base.module_id, base.scope_path, typedef.base)
+            header += f" extends {base_spelling(base_type)}"
     lines = [header]
     lines.extend(_field_lines(typedef.fields, dict(typedef.field_docs)))
     return "\n".join(lines)

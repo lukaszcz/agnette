@@ -284,11 +284,17 @@ class UnappliedGenericTypeError(AglTypeError):
     already holds the unambiguously selected :class:`GenericTypeDef`, so a
     caller wanting to display it (the REPL's bare-type-entry echo) reads
     ``generic_def``/``display_name`` off the exception instead of resolving
-    the name a second time.
+    the name a second time. ``type_table`` is the checking environment's, which
+    resolves the definition's members.
     """
 
     def __init__(
-        self, display_name: str, generic_def: GenericTypeDef, *, span: SourceSpan | None
+        self,
+        display_name: str,
+        generic_def: GenericTypeDef,
+        *,
+        span: SourceSpan | None,
+        type_table: TypeTable,
     ) -> None:
         super().__init__(
             f"Generic type '{display_name}' requires {len(generic_def.type_params)} "
@@ -297,6 +303,7 @@ class UnappliedGenericTypeError(AglTypeError):
         )
         self.display_name = display_name
         self.generic_def = generic_def
+        self.type_table = type_table
 
 
 @_pickles_by_name
@@ -1671,7 +1678,9 @@ class TypeEnvironment:
         """Resolve another module's declaration *key* used as an unapplied type expression."""
         generic = self._program_generic_table.get(key)
         if generic is not None:
-            raise UnappliedGenericTypeError(exposed_name, generic, span=span)
+            raise UnappliedGenericTypeError(
+                exposed_name, generic, span=span, type_table=self.type_table
+            )
         typ = self._program_type_table.get(key)
         if typ is not None:
             return typ
@@ -2160,7 +2169,7 @@ class TypeEnvironment:
         # Reject a bare reference to a generic type that requires type arguments.
         gdef = self._generic_types.get(name)
         if gdef is not None and len(gdef.type_params) > 0:
-            raise UnappliedGenericTypeError(spelling, gdef, span=span)
+            raise UnappliedGenericTypeError(spelling, gdef, span=span, type_table=self.type_table)
         # Reject a bare reference to a parameterized alias.
         alias_params = self._alias_type_params.get(name, ())
         if name in self._alias_targets and len(alias_params) > 0:

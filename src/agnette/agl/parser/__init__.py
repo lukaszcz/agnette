@@ -20,7 +20,7 @@ from agnette.agl.parser.parser import (
     is_incomplete_source,
     parse_program_seeded,
     parse_repl_transcript,
-    parse_type_expr_seeded,
+    parse_type_entry_seeded,
 )
 
 __all__ = [
@@ -30,5 +30,5 @@ __all__ = [
     "is_incomplete_source",
     "parse_program_seeded",
     "parse_repl_transcript",
-    "parse_type_expr_seeded",
+    "parse_type_entry_seeded",
 ]

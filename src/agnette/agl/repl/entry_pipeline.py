@@ -343,18 +343,21 @@ class EntryPipeline:
         ``AglSyntaxError``/module-loading errors/``AglScopeError``/``AglTypeError``
         on failure.
         """
-        from agnette.agl.typecheck.program import check_program
-
         resolved_program = self.resolve_program(
             program, next_start_id, source_text=source_text, spaced_qualifiers=spaced_qualifiers
         )
-        checked_program = check_program(
+        return resolved_program, self.check_resolved_program(resolved_program)
+
+    def check_resolved_program(self, resolved_program: ResolvedProgram) -> CheckedProgram:
+        """Typecheck a *resolved_program* against the session's retained state."""
+        from agnette.agl.typecheck.program import check_program
+
+        return check_program(
             resolved_program,
             entry_seed_env=self._ctx._type_env,
             cached_checked_modules=self._ctx._retained_checked_modules,
             session_builtin_declarations=self._ctx._session_builtin_declarations,
         )
-        return resolved_program, checked_program
 
     def resolve_program(
         self,

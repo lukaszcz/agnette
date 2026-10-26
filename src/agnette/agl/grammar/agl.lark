@@ -96,6 +96,9 @@
 
 start: module_block
 
+// REPL bare type entry: optional leading inner attributes, then one type expression.
+type_entry: (inner_attribute _sep)* type_expr _sep?
+
 // The module root is the only normal block that admits scope regions.  It is
 // also the only block that may be empty: a source file holding no items at all
 // is a legal, empty module.

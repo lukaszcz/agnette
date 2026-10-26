@@ -50,19 +50,17 @@ _PARSER: Lark = build_parser()
 
 _TYPED_CALL_WITHOUT_CALL_RE = re.compile(r"::\s*\[.*\]\s*$", re.DOTALL)
 
-# A second Lark instance rooted at the ``type_expr`` grammar rule, built lazily.
-# Used only by :func:`parse_type_expr_seeded` for the REPL's bare-type-entry fallback;
-# keeping a separate start symbol avoids perturbing the program parser's start
-# rule.  ``type_expr`` is an existing rule in ``agl.lark`` (every type-expression
-# alternative), so this reuses the same grammar/lexer with no grammar changes.
+# A second Lark instance rooted at the ``type_entry`` grammar rule, built lazily.
+# Used only by :func:`parse_type_entry_seeded` for the REPL's bare-type-entry fallback;
+# keeping a separate start symbol avoids perturbing the program parser's start rule.
 _TYPE_PARSER: Lark | None = None
 
 
 def _type_parser() -> Lark:
-    """Return the lazily-built ``type_expr``-rooted Lark instance."""
+    """Return the lazily-built ``type_entry``-rooted Lark instance."""
     global _TYPE_PARSER
     if _TYPE_PARSER is None:
-        _TYPE_PARSER = build_parser("type_expr")
+        _TYPE_PARSER = build_parser("type_entry")
     return _TYPE_PARSER
 
 
@@ -262,14 +260,19 @@ _BODYLESS_CAPABLE_DECLARATIONS = frozenset(
 def _ends_unfinished(tree: Tree) -> bool:
     """Return ``True`` when the module's final child may still gain a body or an item.
 
-    That is a body-less record/exception, or an inner attribute that nothing follows.
+    That is a body-less record/exception, or an inner attribute that nothing follows and
+    only inner attributes precede.
     """
     module_block = cast(Tree, tree.children[0])
     last = module_block.children[-1] if module_block.children else None
     if not isinstance(last, Tree):
         return False
     if last.data == "inner_attribute":
-        return True
+        # After any other item it can only be an error; only a header may be unfinished.
+        return all(
+            isinstance(child, Tree) and child.data == "inner_attribute"
+            for child in module_block.children
+        )
     return last.data in _BODYLESS_CAPABLE_DECLARATIONS and not any(
         isinstance(child, Tree) and str(child.data).endswith("_body") for child in last.children
     )
@@ -361,22 +364,23 @@ def parse_program_seeded(
     return _parse_to_program(text, start_id=start_id, source=source)
 
 
-def parse_type_expr_seeded(
+def parse_type_entry_seeded(
     text: str,
     *,
     start_id: int,
     source: SourceId | None = None,
-) -> tuple[syntax.TypeExpr, int]:
-    """Parse *text* as a single type expression, ids starting at *start_id*.
+) -> tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr, int]:
+    """Parse *text* as a bare type entry: leading inner attributes, then one type expression.
 
     The REPL uses it to recognize a bare type entry (``int``, ``array[T]``, a
     declared record/enum name, ...) so it can echo the resolved type. It roots
-    the parse at the ``type_expr`` rule, so any input that is not a single type
+    the parse at the ``type_entry`` rule, so any input that is not a type
     expression raises ``AglSyntaxError`` and the caller falls back to normal
-    evaluation. Returns ``(type_expr, next_start_id)`` so the caller can keep
-    assigning ids past the result.
+    evaluation. Returns ``(attributes, type_expr, next_start_id)`` so the caller
+    can keep assigning ids past the result.
     """
     with frontend_recursion_boundary():
         tree = _parse_tree(_type_parser(), text, source=source)
         result, next_id = _transform_tree(tree, start_id=start_id, source=source)
-    return cast(syntax.TypeExpr, result), next_id
+    attributes, type_expr = cast(tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr], result)
+    return attributes, type_expr, next_id

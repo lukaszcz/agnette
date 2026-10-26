@@ -1250,6 +1250,62 @@ class TestInfo:
             in enum
         )
 
+    def _redeclares(self, session: ReplSession, name: str, as_name: str) -> bool:
+        """Whether the declaration ``:info`` prints for *name* evaluates again as *as_name*."""
+        shown = session.info_of(name)
+        assert shown is not None
+        lines = shown.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith("exception "))
+        body = [
+            lines[start].strip(),
+            *(line for line in lines[start + 1 :] if line.startswith("      ")),
+        ]
+        return session.eval_entry("\n".join(body).replace(name, as_name, 1)).ok
+
+    def test_an_exception_extending_an_aliased_base_shows_a_name_that_resolves(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "ex.agl").write_text("exception Boom\n  n: int\n")
+        session = ReplSession(cwd=tmp_path)
+        session.open()
+        assert session.eval_entry("import ex").ok
+        assert session.eval_entry("type Bang = ex::Boom").ok
+        assert session.eval_entry("exception E extends Bang").ok
+
+        assert self._redeclares(session, "E", "Again")
+
+    def test_an_exception_extending_a_base_visible_bare_keeps_its_name(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "ex.agl").write_text("exception Boom\n  n: int\n")
+        session = ReplSession(cwd=tmp_path)
+        session.open()
+        assert session.eval_entry("import ex::{Boom}").ok
+        assert session.eval_entry("exception E extends Boom").ok
+
+        assert self._redeclares(session, "E", "Again")
+
+    def test_an_exception_extending_a_scoped_base_shows_its_alias(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("scope sc\n  exception Inner\nend sc").ok
+        assert session.eval_entry("type Top = sc::Inner").ok
+        assert session.eval_entry("exception E extends Top").ok
+
+        assert self._redeclares(session, "E", "Again")
+
+    def test_an_exception_whose_base_has_no_top_level_spelling_still_shows_its_declaration(
+        self,
+    ) -> None:
+        session = _open_session()
+        assert session.eval_entry(
+            "scope sc\n  exception Inner\n  exception E extends Inner\nend sc"
+        ).ok
+
+        shown = session.info_of("sc::E")
+
+        assert shown is not None
+        assert "extends" in shown
+
     def test_the_root_exception_type_entry_has_no_base(self) -> None:
         shown = render_mod.render_entry_result(_open_session().eval_entry("Exception"), echo=True)
 
@@ -1949,6 +2005,14 @@ class TestLoad:
         assert outcome.text is not None
         assert outcome.text.startswith("Error:")
         assert str(missing) in outcome.text
+        assert outcome.quit is False
+
+    def test_load_undecodable_file_clean_error(self, tmp_path: Path) -> None:
+        binary = tmp_path / "bin.agl"
+        binary.write_bytes(b"\xff\xfe")
+        outcome = meta_mod.dispatch_meta(f":load {binary}", _session_ctx())
+        assert outcome.text is not None
+        assert outcome.text.startswith("Error:")
         assert outcome.quit is False
 
     def test_load_empty_arg_usage(self) -> None:

@@ -500,6 +500,13 @@ class AstBuilder(Transformer):
             body=block, span=span, node_id=self._next_id(), attributes=body.attributes
         )
 
+    def type_entry(
+        self, meta: Meta, args: _Args
+    ) -> tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr]:
+        """Build a REPL bare type entry: its inner attributes and its type expression."""
+        attributes = tuple(a for a in args if isinstance(a, syntax.Attribute))
+        return attributes, cast(syntax.TypeExpr, args[-1])
+
     def _build_block(self, meta: Meta, args: _Args) -> syntax.Block:
         """Build a root or suite block from its non-layout children."""
         items = tuple(

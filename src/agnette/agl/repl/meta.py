@@ -224,7 +224,7 @@ def _handle_load(arg: str, ctx: MetaContext) -> MetaOutcome:
     typed at the prompt), so each statement's echo / errors / warnings surface via
     ``render_entry_result`` exactly as an interactive entry would; the rendered
     texts are joined with newlines.  The load halts at the first failing statement.
-    A file-not-found or read error is caught and returned as a clean error; an
+    A file-not-found, undecodable, or read error is caught and returned as a clean error; an
     empty / comment-only file (no statements) produces a terse note.
     """
     from agnette.agl.repl.render import render_entry_result
@@ -233,6 +233,8 @@ def _handle_load(arg: str, ctx: MetaContext) -> MetaOutcome:
         return MetaOutcome(text="usage: :load FILE")
     try:
         results = ctx.session.load_file(Path(arg))
+    except UnicodeDecodeError:
+        return MetaOutcome(text=f"Error: cannot read {arg}: not UTF-8 text")
     except OSError as exc:
         return MetaOutcome(text=f"Error: cannot read {arg}: {exc.strerror or exc}")
     if not results:

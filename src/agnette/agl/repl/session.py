@@ -26,7 +26,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
-from agnette.agl.repl.entry import EntryKind, EntryResult, FileOrigin
+from agnette.agl.repl.entry import EntryKind, EntryResult, FileOrigin, Placement, relocate
 from agnette.agl.repl.entry_pipeline import EntryPipeline, unused_module_doc_warnings
 from agnette.agl.repl.info_docs import format_doc_attribute, module_regions
 from agnette.agl.repl.info_sections import SectionLabel, sourced_label
@@ -34,6 +34,7 @@ from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.syntax import NULLARY_BUILTIN_TYPE_NAMES
+from agnette.agl.syntax.spans import UNKNOWN_SOURCE
 from agnette.agl.warning_policy import apply_program_policy
 
 if TYPE_CHECKING:
@@ -64,8 +65,8 @@ if TYPE_CHECKING:
         ScopeNode,
         TypeOwner,
     )
-    from agnette.agl.semantics.type_table import NominalOwner
-    from agnette.agl.semantics.types import Type
+    from agnette.agl.semantics.type_table import NominalOwner, TypeTable
+    from agnette.agl.semantics.types import ExceptionType, Type
     from agnette.agl.semantics.values import BoolValue, Frame, RecordValue, Value
     from agnette.agl.syntax.advisories import SpacedQualifier
     from agnette.agl.syntax.nodes import (
@@ -78,7 +79,7 @@ if TYPE_CHECKING:
         TypeAlias,
         VarRef,
     )
-    from agnette.agl.syntax.spans import SourceSpan
+    from agnette.agl.syntax.spans import SourceId, SourceSpan
     from agnette.agl.syntax.types import TypeExpr
     from agnette.agl.typecheck.env import (
         CheckedModule,
@@ -97,11 +98,14 @@ _TRANSCRIPT_HEADER = "# agm:repl-transcript:v1\n"
 _TRANSCRIPT_ENTRY_PREFIX = "# agm:entry:"
 
 
-def _decode_transcript(text: str) -> tuple[str, ...] | None:
-    """Decode a framed ``:save`` transcript, or return ``None`` for an ordinary file."""
+def _decode_transcript(text: str) -> tuple[tuple[str, int], ...] | None:
+    """Decode a framed ``:save`` transcript into its entries with their offsets in *text*.
+
+    Returns ``None`` for an ordinary file.
+    """
     if not text.startswith(_TRANSCRIPT_HEADER):
         return None
-    entries: list[str] = []
+    entries: list[tuple[str, int]] = []
     offset = len(_TRANSCRIPT_HEADER)
     while offset < len(text):
         if not text.startswith(_TRANSCRIPT_ENTRY_PREFIX, offset):
@@ -116,9 +120,14 @@ def _decode_transcript(text: str) -> tuple[str, ...] | None:
         entry_end = entry_start + int(rendered_length)
         if entry_end >= len(text) or text[entry_end] != "\n":
             return None
-        entries.append(text[entry_start:entry_end])
+        entries.append((text[entry_start:entry_end], entry_start))
         offset = entry_end + 1
     return tuple(entries)
+
+
+def _origin_at(label: str, text: str, offset: int) -> FileOrigin:
+    """The origin of the *text* slice starting at *offset*, in the file named *label*."""
+    return FileOrigin(label, text.count("\n", 0, offset) + 1, offset - text.rfind("\n", 0, offset))
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,12 +248,6 @@ def _static_verdict[T](probe: Callable[[], T]) -> T | AglError:
         return probe()
     except AglError as exc:
         return exc
-
-
-def _format_repl_location(span: "SourceSpan") -> str:
-    """Render a declaration source location for REPL introspection."""
-    label = "<repl>" if span.source.label == "<agl>" else span.source.label
-    return f"{label}:{span.start_line}:{span.start_col}"
 
 
 def _declared_spelling(scope_path: tuple[str, ...], decl_name: str) -> str:
@@ -529,6 +532,10 @@ class ReplSession:
         self._pending_bootstrap_warnings: list[Diagnostic] = []
         # Warning names a loaded file's leading ``@!allow`` silences in every entry of it.
         self._inherited_allows: frozenset[str] = frozenset()
+        # Each entry's own source label, with the file place its text starts at (``None``
+        # for a typed entry): locations in any entry's source map back to that entry.
+        self._entry_origins: dict[str, FileOrigin | None] = {}
+        self._entry_label: str | None = None
         # Compilation artifacts of the library modules this session has loaded,
         # retained across entries. Each pass reuses one only while the entry's
         # graph still holds the very AST object the artifact was derived from,
@@ -841,8 +848,14 @@ class ReplSession:
     # Core evaluation
     # ------------------------------------------------------------------
 
-    def eval_entry(self, text: str, *, check_only: bool = False) -> EntryResult:
+    def eval_entry(
+        self, text: str, *, check_only: bool = False, origin: FileOrigin | None = None
+    ) -> EntryResult:
         """Parse → resolve → typecheck → matchcompile → lower/eval one entry.
+
+        The entry has a source identity of its own. Locations in the result, whichever
+        entry's source they lie in, are entry-relative, or file-relative for an entry
+        evaluated with an *origin* (where its text starts in a file).
 
         Completed runtime initializers are promoted even when a later initializer
         fails.
@@ -856,15 +869,40 @@ class ReplSession:
         successfully as values are never intercepted, so record constructors and
         bindings keep their normal echo.
         """
-        result, program, next_id = self._eval_entry_pipeline(text, check_only=check_only)
-        if check_only and result.ok:
-            self._open_failure = ()
+        from agnette.agl.syntax.spans import SourceId
+
+        label = f"<repl {len(self._entry_origins)}>"
+        self._entry_origins[label] = origin
+        self._entry_label = label
+        result = self._eval_entry(text, check_only=check_only, source=SourceId(label))
+        return relocate(result, self._place)
+
+    def _place(self, location: Placement) -> Placement:
+        """Move a location in an entry's source to where that entry's text lies; others stay."""
+        label, line, column = location
+        if label not in self._entry_origins:
+            return location
+        origin = self._entry_origins[label]
+        return (None, line, column) if origin is None else origin.place((None, line, column))
+
+    def _repl_location(self, span: "SourceSpan") -> str:
+        """Render a declaration source location for REPL introspection."""
+        label, line, column = self._place((span.source.label, span.start_line, span.start_col))
+        return f"{'<repl>' if label in (None, UNKNOWN_SOURCE.label) else label}:{line}:{column}"
+
+    def _eval_entry(self, text: str, *, check_only: bool, source: "SourceId") -> EntryResult:
+        """Evaluate one entry parsed with the source identity *source* (see :meth:`eval_entry`)."""
+        result, program, next_id = self._eval_entry_pipeline(
+            text, check_only=check_only, source=source
+        )
+        # Whatever the verdict, the next ``info_of`` reopens the library image afresh.
+        self._open_failure = ()
         if self._pending_bootstrap_warnings:
             result.warnings[:0] = self._pending_bootstrap_warnings
             self._pending_bootstrap_warnings.clear()
         if not result.ok:
             type_result = self._try_type_entry(
-                text, program=program, next_id=next_id, value_failure=result.failure
+                text, next_id=next_id, value_failure=result.failure, source=source
             )
             if type_result is not None:
                 return type_result
@@ -874,130 +912,168 @@ class ReplSession:
         self,
         text: str,
         *,
-        program: "Program | None",
         next_id: int,
         value_failure: AglError | None,
+        source: "SourceId",
     ) -> EntryResult | None:
         """Attempt to interpret *text* as a bare type-expression entry.
 
         Returns a ``kind == "type"`` :class:`EntryResult` echoing the resolved
-        type when *text* parses as a single type expression AND resolves to a
-        known type; returns ``None`` otherwise so the caller keeps the
+        type when *text* parses as inner attributes and a single type expression AND
+        resolves to a known type; returns ``None`` otherwise so the caller keeps the
         original failure result.
 
         This is a REPL-only convenience (the language is unchanged): typing a
         type is not a value expression, so without it the entry would surface
-        ``'X' is not defined.``.  *text* is parsed standalone as a type
-        expression -- its own spans, throwaway ids -- and wrapped
-        programmatically in a synthetic ``type <fresh> = text`` declaration,
-        run through the same entry pipeline and session scope as any other
-        entry: scope is the one place that decides whether an owner is hidden
-        or referenced-only, for every position, so a bare type entry is
-        rejected exactly as it is in ``fn(x: text) => 1``.
+        ``'X' is not defined.``.  *text* is parsed standalone as a type entry --
+        node ids from *next_id*, spans in *source* -- and wrapped
+        programmatically in a synthetic ``type <fresh> = type`` declaration under the
+        entry's inner attributes, run through the same entry pipeline and session
+        scope as any other entry: scope is the one place that decides whether an
+        owner is hidden or referenced-only, for every position, so a bare type entry
+        is rejected exactly as it is in ``fn(x: text) => 1``.
 
         The synthetic program is the *only* resolution attempted -- never
         re-resolved against some other environment. A rejected type reading
         stands in for the value reading's failure (*value_failure*) only when
-        *text* is no value expression at all (it failed to parse as one):
-        otherwise the value reading's verdict is the entry's. A bare
-        unapplied generic (e.g. ``Option``) cannot be an alias body either,
-        but its selected declaration is already known -- the rejection of the
-        alias carries it directly -- so its definition is displayed from
-        there instead, but only when the unapplied reference *is* the whole
-        entry (its span equals *text*'s parsed span): a generic nested inside
-        the entry (e.g. a type argument, as in ``Box[Option]``) is not what
-        was asked for.
-
-        Inner attributes heading the entry (*program*'s, parsed as the value
-        reading, whose ids end before *next_id*) head the synthetic program: they
-        are validated and warned of as they are for any entry, and the type is
-        read from the rest of *text*.
+        *text* is no value expression at all (it failed to parse as one): otherwise
+        the value reading's verdict is the entry's, except for a rejection of the
+        inner attributes themselves, which the value reading may have reached only
+        after an earlier error. A bare unapplied generic (e.g. ``Option``) cannot be
+        an alias body either, but its selected declaration is already known -- the
+        rejection of the alias carries it directly -- so its definition is displayed
+        from there instead, but only when the unapplied reference *is* the whole
+        entry (its span equals the type's): a generic nested inside the entry (e.g. a
+        type argument, as in ``Box[Option]``) is not what was asked for.
 
         Like :meth:`type_of`, this never evaluates, promotes, advances the
         node-id counter, or mutates session state: the synthetic declaration
         is discarded once its resolved type (or generic definition) is read.
         """
-        from agnette.agl.parser import AglSyntaxError
-        from agnette.agl.repl.type_display import format_generic_type_def_for_repl
+        from agnette.agl.lexer import spaced_qualifier_collector
+        from agnette.agl.parser import AglSyntaxError, parse_type_entry_seeded
+        from agnette.agl.repl.type_display import (
+            format_generic_type_def_for_repl,
+            format_type_for_repl,
+        )
+        from agnette.agl.semantics.types import ExceptionType
         from agnette.agl.typecheck import UnappliedGenericTypeError
 
-        attributes = () if program is None else program.attributes
-        parsed = _static_verdict(lambda: self._parse_type_entry(text, attributes, next_id))
+        def parse() -> tuple[
+            tuple["Attribute", ...], "TypeExpr", int, tuple["SpacedQualifier", ...]
+        ]:
+            with spaced_qualifier_collector() as spaced_sink:
+                attributes, expr, ids = parse_type_entry_seeded(
+                    text, start_id=next_id, source=source
+                )
+            return attributes, expr, ids, tuple(spaced_sink)
+
+        parsed = _static_verdict(parse)
         if isinstance(parsed, AglError):
             return None
-        type_expr, next_node_id, spaced_qualifiers = parsed
+        attributes, type_expr, next_node_id, spaced_qualifiers = parsed
         probe, fresh_name, next_node_id = self._type_probe_program(
             type_expr, next_node_id, attributes
         )
-        verdict = _static_verdict(
-            lambda: self._entry_pipeline.resolve_and_check_program(
+        resolved = _static_verdict(
+            lambda: self._entry_pipeline.resolve_program(
                 probe, next_node_id, source_text=text, spaced_qualifiers=spaced_qualifiers
             )
         )
-        checked_program = verdict if isinstance(verdict, AglError) else verdict[1]
-        if isinstance(checked_program, UnappliedGenericTypeError) and (
-            checked_program.span == type_expr.span
-        ):
-            return EntryResult(
-                kind="type",
-                name=None,
-                value=None,
-                value_type=None,
-                type_display=format_generic_type_def_for_repl(
-                    checked_program.display_name,
-                    checked_program.generic_def,
-                    self._type_env.type_table,
-                ),
-                diagnostics=[],
-                warnings=[],
-                error=None,
-                ok=True,
-            )
-        if isinstance(checked_program, AglError):
+        checked = (
+            resolved
+            if isinstance(resolved, AglError)
+            else _static_verdict(lambda: self._entry_pipeline.check_resolved_program(resolved))
+        )
+        if isinstance(checked, AglError):
+            header_end = max((attribute.span.end_offset for attribute in attributes), default=0)
+            if isinstance(checked, UnappliedGenericTypeError) and checked.span == type_expr.span:
+                assert not isinstance(resolved, AglError)
+                return self._type_entry_result(
+                    probe,
+                    resolved,
+                    type_display=format_generic_type_def_for_repl(
+                        checked.display_name,
+                        checked.generic_def,
+                        checked.type_table,
+                        self._base_spelling,
+                    ),
+                )
+            if checked.span is not None and checked.span.end_offset <= header_end:
+                return self._fail_static(checked, [])
             return (
-                self._fail_static(checked_program, [])
+                self._fail_static(checked, [])
                 if isinstance(value_failure, AglSyntaxError)
                 else None
             )
 
-        assert not isinstance(verdict, AglError)
+        assert not isinstance(resolved, AglError)
+        module = checked.modules[checked.entry_id]
+        value_type = checked.program_type_table[(checked.entry_id, (), fresh_name)]
+        table = module.type_env.type_table
+        return self._type_entry_result(
+            probe,
+            resolved,
+            value_type=value_type,
+            type_display=(
+                format_type_for_repl(value_type, table, self._base_spelling)
+                if isinstance(value_type, ExceptionType)
+                else None
+            ),
+            type_table=table,
+        )
+
+    def _base_spelling(self, base: "ExceptionType") -> str:
+        """The bare name, read at the entry level, of exception *base*: ``extends`` takes no other.
+
+        Its declared name where that names it here, else a top-level alias of it.
+        When nothing does, the declared name.
+        """
+        from agnette.agl.syntax.spans import SourceId
+
+        aliases = (
+            path[0]
+            for path, owner in self._session_type_paths.items()
+            if len(path) == 1 and owner.alias is not None
+        )
+        for name in (base.name, *aliases):
+            named = self._try_type_entry(
+                name,
+                next_id=self._next_node_id,
+                value_failure=None,
+                source=SourceId("<repl probe>"),
+            )
+            if named is not None and named.value_type == base:
+                return name
+        return base.name
+
+    def _type_entry_result(
+        self,
+        probe: "Program",
+        resolved: "ResolvedProgram",
+        *,
+        value_type: "Type | None" = None,
+        type_display: str | None = None,
+        type_table: "TypeTable | None" = None,
+    ) -> EntryResult:
+        """The ``kind == "type"`` result of a *probe* program, or the rejection of its warnings."""
         outcome = self._govern_warnings(
-            unused_module_doc_warnings(probe), verdict[0].modules.values(), scope_complete=True
+            unused_module_doc_warnings(probe), resolved.modules.values(), scope_complete=True
         )
         if outcome.denied:
             return self._fail(list(outcome.denied), list(outcome.reported))
-        checked = checked_program.modules[checked_program.entry_id]
-        typ = checked_program.program_type_table[(checked_program.entry_id, (), fresh_name)]
         return EntryResult(
             kind="type",
             name=None,
             value=None,
-            value_type=typ,
+            value_type=value_type,
+            type_display=type_display,
             diagnostics=[],
             warnings=list(outcome.reported),
             error=None,
             ok=True,
-            type_table=checked.type_env.type_table,
+            type_table=type_table,
         )
-
-    def _parse_type_entry(
-        self, text: str, attributes: tuple["Attribute", ...], start_id: int
-    ) -> tuple["TypeExpr", int, tuple["SpacedQualifier", ...]]:
-        """Parse *text* standalone as one type expression, with the spaced qualifiers it writes.
-
-        The leading inner *attributes* are blanked first (positions are kept),
-        so the type is read from the rest of *text*.
-        """
-        from agnette.agl.lexer import spaced_qualifier_collector
-        from agnette.agl.parser import parse_type_expr_seeded
-        from agnette.util.text import normalize_newlines
-
-        source = normalize_newlines(text)
-        head = max((attribute.span.end_offset for attribute in attributes), default=0)
-        blanked = "".join(ch if ch == "\n" else " " for ch in source[:head]) + source[head:]
-        with spaced_qualifier_collector() as spaced_sink:
-            type_expr, next_node_id = parse_type_expr_seeded(blanked, start_id=start_id)
-        return type_expr, next_node_id, tuple(spaced_sink)
 
     @staticmethod
     def _type_probe_program(
@@ -1020,13 +1096,13 @@ class ReplSession:
         return program, fresh_name, start_id + 3
 
     def _eval_entry_pipeline(
-        self, text: str, *, check_only: bool
+        self, text: str, *, check_only: bool, source: "SourceId"
     ) -> tuple[EntryResult, "Program | None", int]:
         """Run the resolve → typecheck → matchcompile → lower/eval entry core.
 
         Completed runtime initializers are promoted even when a later initializer
         fails. Also returns the entry's parse (``None`` if it did not parse) and
-        the first node id past it.
+        the first node id past it. The entry is parsed in *source*.
         """
         from agnette.agl.lexer import spaced_qualifier_collector, tab_warning_collector
         from agnette.agl.parser import parse_program_seeded
@@ -1039,7 +1115,9 @@ class ReplSession:
         # [1] Parse (seeded so node ids stay globally unique across entries).
         with tab_warning_collector() as tab_sink, spaced_qualifier_collector() as spaced_sink:
             try:
-                program, next_start_id = parse_program_seeded(text, start_id=self._next_node_id)
+                program, next_start_id = parse_program_seeded(
+                    text, start_id=self._next_node_id, source=source
+                )
             except AglError as exc:
                 return self._fail_static_governed(exc, list(tab_sink)), None, self._next_node_id
         tab_warnings: list[Diagnostic] = list(tab_sink)
@@ -1125,11 +1203,18 @@ class ReplSession:
         session's roots (none yet if no entry has loaded a module).
         """
         return apply_program_policy(
-            (w for w in warnings if w.warning_name not in self._inherited_allows),
+            (w for w in warnings if not self._inherits_allow(w)),
             modules,
             self._warning_policy,
             scope_complete=scope_complete,
             roots=self._roots,
+        )
+
+    def _inherits_allow(self, warning: Diagnostic) -> bool:
+        """Whether a loaded file's leading ``@!allow`` silences *warning*: only its own source's."""
+        return warning.warning_name in self._inherited_allows and warning.source_label in (
+            None,
+            self._entry_label,
         )
 
     def _fail_static_governed(
@@ -1775,13 +1860,13 @@ class ReplSession:
         """
         from agnette.agl.lexer import spaced_qualifier_collector
         from agnette.agl.parser import parse_program_seeded
-        from agnette.agl.syntax.nodes import Binder, Declaration
+        from agnette.agl.syntax.nodes import Binder, Declaration, ScopeRegion
 
         with spaced_qualifier_collector() as spaced_sink:
             program, next_node_id = parse_program_seeded(text, start_id=self._next_node_id)
         spaced_qualifiers = tuple(spaced_sink)
         items = program.body.items
-        if len(items) != 1 or isinstance(items[0], (Binder, Declaration)):
+        if len(items) != 1 or isinstance(items[0], (Binder, Declaration, ScopeRegion)):
             raise AglError(
                 "':type' expects a single expression, not a binding, declaration, or statement."
             )
@@ -1805,7 +1890,7 @@ class ReplSession:
         from agnette.agl.repl.type_display import format_type_for_repl
 
         self._open_failure = ()
-        return format_type_for_repl(typ, checked.type_env.type_table)
+        return format_type_for_repl(typ, checked.type_env.type_table, self._base_spelling)
 
     # ------------------------------------------------------------------
     # Introspection
@@ -1897,7 +1982,7 @@ class ReplSession:
         resolved_reference = self._resolve_info_reference(name, parsed)
         ref = None if resolved_reference is None else resolved_reference.binding
         location = (
-            _format_repl_location(ref.decl_span)
+            self._repl_location(ref.decl_span)
             if ref is not None and ref.module_id.is_entry
             else None
         )
@@ -2083,9 +2168,7 @@ class ReplSession:
             return f"{name} is a type alias.\n{display}"
         # A type this session declares is located at its declaration.
         location = (
-            _format_repl_location(
-                self._session_scope_nodes[scope_path].members[decl_name].decl_span
-            )
+            self._repl_location(self._session_scope_nodes[scope_path].members[decl_name].decl_span)
             if module_id.is_entry
             else None
         )
@@ -2094,13 +2177,17 @@ class ReplSession:
         typ = type_env.get_type(declared) if described else None
         if typ is not None:
             assert isinstance(typ, (RecordType, EnumType, ExceptionType))  # declared types
-            definition = format_type_def_for_repl(declared, typ, self._type_env.type_table)
+            definition = format_type_def_for_repl(
+                declared, typ, self._type_env.type_table, self._base_spelling
+            )
             display = _format_info_section("Type", definition, location, self._type_doc(typ))
             return f"{name} is {_indefinite(typ.kind)} type.\n{display}"
         generic = type_env.get_generic_type(declared)
         if generic is None:
             return None
-        definition = format_generic_type_def_for_repl(declared, generic, self._type_env.type_table)
+        definition = format_generic_type_def_for_repl(
+            declared, generic, self._type_env.type_table, self._base_spelling
+        )
         return "\n".join(
             (
                 f"{name} is a generic {generic.kind} type.",
@@ -2322,6 +2409,7 @@ class ReplSession:
         self._ir_base_frame = {}
         self._next_node_id = 0
         self._open_failure = ()
+        self._entry_origins = {}
         self._source_log = []
         # Restore the current-value map to the seed, so a prior
         # ``std/config::KEY := VALUE`` write does not bleed past :reset.
@@ -2373,7 +2461,8 @@ class ReplSession:
         warnings of every entry. Diagnostics and runtime errors carry the file's
         path and file-relative positions.
 
-        A syntax error (or over-deep nesting) in the file yields a single failed
+        A file that is no program (a syntax error, over-deep nesting) is evaluated as a
+        single entry: a bare type entry succeeds, anything else yields a single failed
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
         items to run and yields an empty list (a benign no-op).
         """
@@ -2386,11 +2475,12 @@ class ReplSession:
         # item-span char offsets align with the text we slice below.
         normalized = normalize_newlines(read_text(path))
 
+        label = str(path)
         saved_entries = _decode_transcript(normalized)
         if saved_entries is not None:
             saved_results: list[EntryResult] = []
-            for entry in saved_entries:
-                result = self.eval_entry(entry)
+            for entry, offset in saved_entries:
+                result = self.eval_entry(entry, origin=_origin_at(label, normalized, offset))
                 saved_results.append(result)
                 if not result.ok:
                     break
@@ -2404,14 +2494,15 @@ class ReplSession:
         # Parse the whole file ONCE only to find top-level item boundaries;
         # this parse is never promoted (each slice is re-parsed by eval_entry with
         # the session's continuing node-id counter).  start_id=0 is fine here.
+        # A file that is no program is one entry as a whole: a bare type, else its
+        # syntax error.
         try:
             program = parse_repl_transcript(normalized)
-        except AglError as exc:
-            return [FileOrigin(str(path), 1, 1).locate(self._fail_static(exc, []))]
+        except AglError:
+            return [self.eval_entry(normalized, origin=FileOrigin(label, 1, 1))]
 
         # The file's leading inner attributes head its first item, as if typed with it;
         # their ``@!allow`` names govern every item. A file of attributes alone is one entry.
-        label = str(path)
         leading = [attribute.span.start_offset for attribute in program.attributes]
         spans = [(item.span.start_offset, item.span.end_offset) for item in program.body.items]
         if not spans:
@@ -2422,12 +2513,9 @@ class ReplSession:
             for index, (start, end) in enumerate(spans):
                 if index == 0:
                     start = min([start, *leading])
-                origin = FileOrigin(
-                    label,
-                    normalized.count("\n", 0, start) + 1,
-                    start - normalized.rfind("\n", 0, start),
+                result = self.eval_entry(
+                    normalized[start:end], origin=_origin_at(label, normalized, start)
                 )
-                result = origin.locate(self.eval_entry(normalized[start:end]))
                 results.append(result)
                 if not result.ok:
                     break  # halt on the first failing item, like a script
