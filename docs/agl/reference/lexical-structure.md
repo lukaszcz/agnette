@@ -265,7 +265,9 @@ qualifier. `/` is the division operator only when written with whitespace on
 **both** sides. This matches `+`, `-` and `*`, which are identifier characters
 and so already need surrounding space to read as operators (`a+b` is one
 name). Left unspaced, `/` separates route segments, so a `/` that touches an
-operand on exactly one side is rejected:
+operand on exactly one side is rejected, as is a bare route `a/b` between two
+names: a module route is not a value, so it must be followed by `::` to reach
+a member of an imported module:
 
 <!-- agl-check: error -->
 ```agl
@@ -273,6 +275,7 @@ let q = a / b        # division
 let r = a/b::thing   # qualifier
 let s = a/ b         # error: reads as a path, but the segments are split
 let t = a /b         # error: same
+let u = a/b          # error: a module route is not a value
 ```
 
 A chain segment may carry type arguments, as in `Option[int]::Some`, only when

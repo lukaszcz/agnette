@@ -3373,6 +3373,15 @@ class TestDivisionRequiresSurroundingSpace:
         with pytest.raises(LexError):
             lark_tok(source)
 
+    def test_a_name_route_is_reported_as_a_module_route(self) -> None:
+        with pytest.raises(LexError) as route:
+            lark_tok("std/fs")
+        with pytest.raises(LexError) as number:
+            lark_tok("10/2")
+
+        assert "std/fs" in str(route.value)
+        assert str(number.value) != str(route.value)
+
     @pytest.mark.parametrize("lexer", (tok, lark_tok), ids=("public", "lark"))
     @pytest.mark.parametrize(
         "source",

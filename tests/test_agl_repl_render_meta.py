@@ -1169,6 +1169,17 @@ class TestInfo:
             "Ready is a constructor.\nSignature:\n  State::Ready() -> State::Ready"
         )
 
+    def test_an_unimported_module_route_is_reported_as_a_route_by_entry_and_info(self) -> None:
+        session = _open_session()
+        entry = session.eval_entry("std/fs")
+        assert entry.failure is not None
+
+        with pytest.raises(AglSyntaxError) as raised:
+            session.info_of("std/fs")
+
+        assert type(raised.value) is type(entry.failure)
+        assert "std/fs" in str(raised.value)
+
     def test_info_reports_an_exception_as_its_declaration(self) -> None:
         session = _open_session()
         assert session.eval_entry("exception Boom\n  msg: text").ok
