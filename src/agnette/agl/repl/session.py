@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from agnette.agl.runtime.agents import AgentFn
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
-    from agnette.agl.runtime.types import ParamBindingInfo
+    from agnette.agl.runtime.types import HostParamInfo
     from agnette.agl.scope.program import ResolvedModule, ResolvedProgram
     from agnette.agl.scope.symbols import (
         BindingRef,
@@ -357,7 +357,7 @@ class ReplSession:
         engine_base: "Mapping[str, Value] | None" = None,
         builtin_var_seeds: "Mapping[BuiltinVarKey, Value] | None" = None,
         param_seed_resolver: (
-            "Callable[[ModuleId, tuple[ParamBindingInfo, ...]], Mapping[StaticBindingKey, object]]"
+            "Callable[[ModuleId, tuple[HostParamInfo, ...]], Mapping[StaticBindingKey, object]]"
             " | None"
         ) = None,
         process_environment: "Mapping[str, str] | None" = None,

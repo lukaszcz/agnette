@@ -81,7 +81,7 @@ program def main() -> unit = ()
 
     params = discovery.module_params[discovery.programs[0].module]
 
-    assert [(param.name, param.cli.name, param.scope_path) for param in params] == [
+    assert [(param.name, param.cli.name, param.route_path) for param in params] == [
         ("verbose", "loud", ()),
         ("retries", "retries", ()),
         ("trace", "trace", ("Logging",)),

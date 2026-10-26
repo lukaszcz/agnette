@@ -98,7 +98,7 @@ from click.core import ParameterSource
 
 from agnette.agl.runtime.arguments import OptionSome, ProgramArguments
 from agnette.agl.runtime.serialize import dumps_exact
-from agnette.agl.runtime.types import ParamBindingInfo, ProgramParamInfo
+from agnette.agl.runtime.types import HostParamInfo, ProgramParamInfo
 from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
 from agnette.agl.semantics.types import (
     BoolType,
@@ -910,14 +910,14 @@ def _supplied_value(
     return positive[0] if bool_form else _positive_raw(projected, cast(str, positive[0]))
 
 
-def _short_flag(param: "ProgramParamInfo | ParamBindingInfo") -> str | None:
+def _short_flag(param: "ProgramParamInfo | HostParamInfo") -> str | None:
     """Return *param*'s ``-x`` short spelling, or ``None`` when it declares none."""
     short = param.cli.short
     return None if short is None else f"-{short}"
 
 
 def param_spellings(
-    param: "ProgramParamInfo | ParamBindingInfo", *projections: ProjectedOption
+    param: "ProgramParamInfo | HostParamInfo", *projections: ProjectedOption
 ) -> list[str]:
     """Return every flag one parameter claims: its positives, its negatives, and its short.
 
@@ -983,9 +983,7 @@ def _value_form_metavar(form: ValueForm) -> str:
     return _VALUE_FORM_METAVARS.get(form, "VALUE")
 
 
-def _default_metavar(
-    param: "ProgramParamInfo | ParamBindingInfo", projected: ProjectedOption
-) -> str:
+def _default_metavar(param: "ProgramParamInfo | HostParamInfo", projected: ProjectedOption) -> str:
     """Return the placeholder standing for a value-taking option's own VALUE.
 
     A ``path`` parameter, directly or inside either optional enum, announces a path.
@@ -1003,7 +1001,7 @@ def _default_metavar(
 
 def _positive_option(
     index: int,
-    param: "ProgramParamInfo | ParamBindingInfo",
+    param: "ProgramParamInfo | HostParamInfo",
     projected: ProjectedOption,
     declarations: Sequence[str],
     *,
@@ -1050,7 +1048,7 @@ def _positive_option(
 
 
 def _negative_option(
-    index: int, param: "ProgramParamInfo | ParamBindingInfo", declarations: Sequence[str]
+    index: int, param: "ProgramParamInfo | HostParamInfo", declarations: Sequence[str]
 ) -> _ProgramOption:
     """Build a parameter's independent ``--no-`` flag under *declarations*.
 
@@ -1169,8 +1167,8 @@ class _ProgramClickCommand(click.Command):
         module_help_sections: tuple[
             tuple[str, tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]], ...
         ] = (),
-        ambiguous_options: Mapping[str, tuple["ParamBindingInfo", ...]] | None = None,
-        surface_entries: Mapping["ParamBindingInfo", "ParamSurfaceEntry"] | None = None,
+        ambiguous_options: Mapping[str, tuple["HostParamInfo", ...]] | None = None,
+        surface_entries: Mapping["HostParamInfo", "ParamSurfaceEntry"] | None = None,
         context_settings: dict[str, bool] | None = None,
     ) -> None:
         settings: dict[str, bool] = {} if context_settings is None else dict(context_settings)
@@ -1304,8 +1302,8 @@ def _build_click_command(
     module_help_sections: tuple[
         tuple[str, tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]], ...
     ] = (),
-    ambiguous_options: Mapping[str, tuple["ParamBindingInfo", ...]] | None = None,
-    surface_entries: Mapping["ParamBindingInfo", "ParamSurfaceEntry"] | None = None,
+    ambiguous_options: Mapping[str, tuple["HostParamInfo", ...]] | None = None,
+    surface_entries: Mapping["HostParamInfo", "ParamSurfaceEntry"] | None = None,
     context_settings: dict[str, bool] | None = None,
 ) -> _ProgramClickCommand:
     """Assemble one program command: its own parameters, then *extra_options*, then help.
@@ -1516,14 +1514,14 @@ class ProgramCommand:
 
     def value_options(
         self,
-    ) -> tuple[tuple["ProgramParamInfo | ParamBindingInfo", tuple[str, ...]], ...]:
+    ) -> tuple[tuple["ProgramParamInfo | HostParamInfo", tuple[str, ...]], ...]:
         """Return each value-taking parameter with the spellings its value follows.
 
         Program and module option spellings that take a value are included;
         a ``--no-x`` negative never takes a value. Implicitly positional
         parameters have no flag and are omitted.
         """
-        result: list[tuple["ProgramParamInfo | ParamBindingInfo", tuple[str, ...]]] = []
+        result: list[tuple["ProgramParamInfo | HostParamInfo", tuple[str, ...]]] = []
         for param, projected in self.options:
             if not projected.takes_value or param.cli.cli_positional:
                 continue
@@ -1725,8 +1723,8 @@ def _check_reservation(
 
 def _ambiguous_option_callback(
     spelling: str,
-    candidates: tuple["ParamBindingInfo", ...],
-    entries: Mapping["ParamBindingInfo", "ParamSurfaceEntry"],
+    candidates: tuple["HostParamInfo", ...],
+    entries: Mapping["HostParamInfo", "ParamSurfaceEntry"],
 ) -> Callable[[click.Context, click.Parameter, object], None]:
     """Return the usage callback for one ambiguous module-parameter flag."""
 
@@ -1740,8 +1738,8 @@ def _ambiguous_option_callback(
 
 def _ambiguous_option_message(
     spelling: str,
-    candidates: tuple["ParamBindingInfo", ...],
-    entries: Mapping["ParamBindingInfo", "ParamSurfaceEntry"],
+    candidates: tuple["HostParamInfo", ...],
+    entries: Mapping["HostParamInfo", "ParamSurfaceEntry"],
 ) -> str:
     """Render one ambiguous option's declaration-aware usage diagnostic."""
     descriptions = "; ".join(
@@ -1752,8 +1750,8 @@ def _ambiguous_option_message(
 
 
 def _ambiguous_click_options(
-    ambiguous: Mapping[str, tuple["ParamBindingInfo", ...]],
-    entries: Mapping["ParamBindingInfo", "ParamSurfaceEntry"],
+    ambiguous: Mapping[str, tuple["HostParamInfo", ...]],
+    entries: Mapping["HostParamInfo", "ParamSurfaceEntry"],
 ) -> list[click.Parameter]:
     """Build hidden rejecting options for every ambiguous module spelling."""
     return [
@@ -1772,7 +1770,7 @@ def _ambiguous_click_options(
 def build_program_command(
     program: "ProgramDeclInfo",
     reserved_flags: frozenset[str],
-    params: Sequence["ParamBindingInfo"] = (),
+    params: Sequence["HostParamInfo"] = (),
 ) -> "ProgramCommand | ProgramOptionError":
     """Build *program*'s Click command, checking flag reservation first.
 
@@ -1871,7 +1869,7 @@ def build_program_command(
 def program_command_for(
     program: "ProgramDeclInfo | None",
     reserved_flags: frozenset[str],
-    params: Sequence["ParamBindingInfo"] = (),
+    params: Sequence["HostParamInfo"] = (),
 ) -> "ProgramCommand | None":
     """Build *program*'s command, degrading a missing program or a collision to ``None``.
 

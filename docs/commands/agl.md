@@ -258,16 +258,20 @@ be `--verbose`, `--logging.verbose`, or `--A.logging.verbose`; a `scope debug` p
 corresponding `--no-...` form, and `@opt-short("v")` adds `-v`. Module and scope paths are dotted
 in flags; `::` is only for declaration paths in AgL source.
 
-Bare names are claimed by the host, the selected program's value parameters, its own module
-parameters, and imported module parameters in that order. A shadowed parameter keeps its
+Bare names are claimed by the host, the selected program's value parameters, parameters of its
+own module, parameters of modules with the program's owner (the package mounting a module, else
+the loose module root it was found through), then parameters of other owners, in that order; a same-package helper
+therefore shadows a dependency's parameter of the same name. A shadowed parameter keeps its
 qualified flags. Several parameters in one level can make a bare flag ambiguous; declaring them
-is valid, but using that flag is an error that names the declarations. `@opt-name` supplies the
+is valid, but using that flag (or the config key of that spelling) is an error that names the
+declarations. `@opt-name` supplies the
 external name in flags and config; `@opt-env` is the fallback after CLI flags; `@opt-hidden`
 removes the entry from help and completion without disabling it.
 
 Selected-program help shows its usual options first, then one `Parameters of MODULE` section for
-each module declaring a reached parameter. Each visible module parameter appears under its
-shortest resolving spelling.
+each module declaring a reached parameter, then the shared execution options. Each visible module
+parameter appears under its shortest resolving spelling, so a shadowed one shows only qualified
+spellings; one with no resolving spelling is omitted.
 For module parameter precedence and configuration routes, see
 [Module parameters](../agl/reference/host-environment.md#module-parameters).
 

@@ -8,7 +8,7 @@ import pytest
 
 from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
+from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
 from agnette.agl.semantics.types import BoolType, IntType, TextType, Type
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
@@ -38,13 +38,13 @@ def _binding(
     *,
     external: str | None = None,
     scope_path: tuple[str, ...] = (),
-) -> ParamBindingInfo:
-    return ParamBindingInfo(
-        module=ModuleId.from_path(module) if isinstance(module, str) else module,
-        scope_path=scope_path,
-        name=name,
-        type=type_,
-        cli=_option(name if external is None else external),
+) -> HostParamInfo:
+    return HostParamInfo.module_param(
+        ModuleId.from_path(module) if isinstance(module, str) else module,
+        scope_path,
+        name,
+        type_,
+        _option(name if external is None else external),
     )
 
 
@@ -72,7 +72,7 @@ def _program(
 
 def _surface(
     program: ProgramDeclInfo,
-    bindings: tuple[ParamBindingInfo, ...],
+    bindings: tuple[HostParamInfo, ...],
     reserved: frozenset[str] = frozenset(),
 ) -> ParamSurface:
     return build_param_surface(reserved, program, bindings)
@@ -81,7 +81,7 @@ def _surface(
 def _resolve(
     config: GeneralConfig,
     program: ProgramDeclInfo,
-    bindings: tuple[ParamBindingInfo, ...],
+    bindings: tuple[HostParamInfo, ...],
     params: Mapping[tuple[ModuleId, tuple[str, ...], str], object] = {},
     reserved: frozenset[str] = frozenset(),
 ) -> dict[tuple[ModuleId, tuple[str, ...], str], object]:
@@ -768,7 +768,7 @@ class TestSpellingsLostByReachedParams:
 def _resolve_tiers(
     config: GeneralConfig,
     program: ProgramDeclInfo,
-    bindings: tuple[ParamBindingInfo, ...],
+    bindings: tuple[HostParamInfo, ...],
     params: Mapping[tuple[ModuleId, tuple[str, ...], str], object] = {},
 ) -> ParamValueTiers:
     return resolve_param_values(

@@ -1,12 +1,13 @@
-"""Pure spelling and precedence table for module parameters."""
+"""Pure spelling and claim-level table for host parameters."""
 
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
+from enum import IntEnum
 from types import MappingProxyType
 
-from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
+from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.program_options import ProjectedOption, param_spellings, project_option
 from agnette.config.qualified_keys import param_spellings_for
@@ -16,9 +17,9 @@ __all__ = ["ParamSurface", "ParamSurfaceEntry", "build_param_surface", "declared
 
 @dataclass(frozen=True, slots=True)
 class ParamSurfaceEntry:
-    """One module parameter's spellings after precedence has been applied."""
+    """One host parameter's spellings after precedence has been applied."""
 
-    param: ParamBindingInfo
+    param: HostParamInfo
     spellings: tuple[str, ...]
     option_spellings: tuple[str, ...]
     positive_option_spellings: tuple[str, ...]
@@ -30,27 +31,27 @@ class ParamSurfaceEntry:
 
 @dataclass(frozen=True, slots=True)
 class ParamSurface:
-    """The resolving and ambiguous spellings of one program's module parameters."""
+    """The resolving and ambiguous spellings of one program's host parameters."""
 
     entries: tuple[ParamSurfaceEntry, ...]
-    ambiguous: Mapping[str, tuple[ParamBindingInfo, ...]]
-    ambiguous_options: Mapping[str, tuple[ParamBindingInfo, ...]]
+    ambiguous: Mapping[str, tuple[HostParamInfo, ...]]
+    ambiguous_options: Mapping[str, tuple[HostParamInfo, ...]]
 
 
 @dataclass(frozen=True, slots=True)
 class _ParamRoutes:
-    """One module parameter's long-option names and their CLI projections.
+    """One host parameter's long-option names and their CLI projections.
 
     Derived once per parameter and threaded through every level, since both
     the claim levels and the resolved entry read the same routes.
     """
 
-    param: ParamBindingInfo
+    param: HostParamInfo
     spellings: tuple[str, ...]
     projections: tuple[ProjectedOption, ...]
 
 
-_Claimant = ParamBindingInfo | None
+_Claimant = HostParamInfo | None
 _Claims = dict[str, tuple[_Claimant, ...]]
 
 
@@ -62,14 +63,14 @@ def _freeze_claims(claims: dict[str, list[_Claimant]]) -> _Claims:
     return {spelling: tuple(claimants) for spelling, claimants in claims.items()}
 
 
-def declared_spellings(param: ParamBindingInfo) -> tuple[str, ...]:
+def declared_spellings(param: HostParamInfo) -> tuple[str, ...]:
     """Return every spelling that can address *param*, before any claim is resolved."""
     return param_spellings_for(
-        param.module.segments, param.scope_path, param.cli.name, is_entry=param.module.is_entry
+        param.module.segments, param.route_path, param.cli.name, is_entry=param.module.is_entry
     )
 
 
-def _param_routes(param: ParamBindingInfo) -> _ParamRoutes:
+def _param_routes(param: HostParamInfo) -> _ParamRoutes:
     """Project *param*'s logical long-option names, shortest route first."""
     names = declared_spellings(param)
     return _ParamRoutes(
@@ -133,10 +134,10 @@ def _param_option_claims(routes: Iterable[_ParamRoutes]) -> _Claims:
 
 def _resolve_claims(
     levels: tuple[_Claims, ...],
-) -> tuple[dict[str, ParamBindingInfo | None], dict[str, tuple[ParamBindingInfo, ...]]]:
+) -> tuple[dict[str, HostParamInfo | None], dict[str, tuple[HostParamInfo, ...]]]:
     """Resolve claims lexically, retaining same-level parameter ambiguities."""
-    winners: dict[str, ParamBindingInfo | None] = {}
-    ambiguous: dict[str, tuple[ParamBindingInfo, ...]] = {}
+    winners: dict[str, HostParamInfo | None] = {}
+    ambiguous: dict[str, tuple[HostParamInfo, ...]] = {}
     claimed: set[str] = set()
     for level in levels:
         for spelling, claimants in level.items():
@@ -152,37 +153,60 @@ def _resolve_claims(
     return winners, ambiguous
 
 
+class ParamLevel(IntEnum):
+    """The claim levels of parameters, in precedence order, below host flags and signature.
+
+    Function parameters share these levels, chosen by their module; engine
+    settings form the last level, after them.
+    """
+
+    PROGRAM_MODULE = 0  # declared in the program's module
+    OWNER = 1  # declared in a module of the program's owner
+    OTHER = 2  # declared in a module of any other owner
+
+
+def _param_level(param: HostParamInfo, program: ProgramDeclInfo) -> ParamLevel:
+    """Return the claim level of *param* for *program*; an unknown owner is nobody's peer."""
+    if param.module == program.module:
+        return ParamLevel.PROGRAM_MODULE
+    if param.owner is not None and param.owner == program.owner:
+        return ParamLevel.OWNER
+    return ParamLevel.OTHER
+
+
 def build_param_surface(
     reserved_flags: Collection[str],
     program: ProgramDeclInfo,
-    params: Iterable[ParamBindingInfo],
+    params: Iterable[HostParamInfo],
 ) -> ParamSurface:
     """Build the resolving parameter spellings for *program*.
 
-    The host and program signature claim names before module parameters.  The
-    selected program's module is its own level; every other supplied module
-    shares the final import level, so only imported peers can make a spelling
-    ambiguous.
+    Claim levels, first claimant wins a spelling: the host's reserved flags,
+    the program signature, parameters declared in the program's module,
+    parameters of the program's owner, parameters of other owners.  Several
+    parameters claiming one spelling on a level make it ambiguous, but only
+    where it is used.
     """
     routes = tuple(_param_routes(param) for param in params)
-    own = tuple(route for route in routes if route.param.module == program.module)
-    imported = tuple(route for route in routes if route.param.module != program.module)
+    tiers: tuple[list[_ParamRoutes], ...] = tuple([] for _ in ParamLevel)
+    for route in routes:
+        tiers[_param_level(route.param, program)].append(route)
 
-    host_long = _host_long_claims(reserved_flags)
-    signature_long = _signature_long_claims(program)
-    own_long = _param_long_claims(own)
-    imported_long = _param_long_claims(imported)
-    long_winners, ambiguous = _resolve_claims((host_long, signature_long, own_long, imported_long))
-
-    host_options = _host_option_claims(reserved_flags)
-    signature_options = _signature_option_claims(program)
-    own_options = _param_option_claims(own)
-    imported_options = _param_option_claims(imported)
-    option_winners, ambiguous_options = _resolve_claims(
-        (host_options, signature_options, own_options, imported_options)
+    long_winners, ambiguous = _resolve_claims(
+        (
+            _host_long_claims(reserved_flags),
+            _signature_long_claims(program),
+            *(_param_long_claims(tier) for tier in tiers),
+        )
     )
-
-    entries = tuple(_entry(route, long_winners, option_winners) for route in (*own, *imported))
+    option_winners, ambiguous_options = _resolve_claims(
+        (
+            _host_option_claims(reserved_flags),
+            _signature_option_claims(program),
+            *(_param_option_claims(tier) for tier in tiers),
+        )
+    )
+    entries = tuple(_entry(route, long_winners, option_winners) for tier in tiers for route in tier)
     return ParamSurface(
         entries=entries,
         ambiguous=MappingProxyType(ambiguous),
@@ -192,8 +216,8 @@ def build_param_surface(
 
 def _entry(
     route: _ParamRoutes,
-    long_winners: Mapping[str, ParamBindingInfo | None],
-    option_winners: Mapping[str, ParamBindingInfo | None],
+    long_winners: Mapping[str, HostParamInfo | None],
+    option_winners: Mapping[str, HostParamInfo | None],
 ) -> ParamSurfaceEntry:
     """Keep the spellings *route*'s parameter won, split by the polarity each fills."""
     param = route.param

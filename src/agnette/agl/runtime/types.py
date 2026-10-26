@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agnette.agent.spec_defaults import AgentSpecResolver
     from agnette.agl.attributes import ProgramOptionSpec
     from agnette.agl.ir.static_keys import Reachable, StaticBindingKey
@@ -21,7 +24,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "HostEnvironment",
-    "ParamBindingInfo",
+    "HostParamInfo",
+    "HostParamKind",
     "ProgramDeclInfo",
     "ProgramParamInfo",
 ]
@@ -93,35 +97,78 @@ class ProgramParamInfo:
     enum_values: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class ParamBindingInfo:
-    """Static summary of one host-configurable ``@param`` binding.
+class HostParamKind(Enum):
+    """The kind of declaration a :class:`HostParamInfo` is a host parameter of."""
 
-    ``is_path`` retains whether its annotation spells the builtin ``path``
-    alias, including ``Option[path]``, for host filesystem completion.
-    ``enum_values`` retains the preferred value-syntax spelling of each enum
-    member, using ``@name`` when present.
+    MODULE = "module"
+
+
+@dataclass(frozen=True, slots=True)
+class HostParamInfo:
+    """Static summary of one host-configurable parameter (not a program argument).
+
+    ``key``          — the parameter's structured identity.
+    ``kind``         — what declares it.
+    ``module``       — the declaring module.
+    ``route_path``   — the declaration route below ``module``: the scope path of
+                        a module parameter.
+    ``cli``          — its CLI presentation (external name, ``@opt-*``).
+    ``is_path``      — whether its annotation spells the builtin ``path`` alias
+                        (including ``Option[path]``), for filesystem completion.
+    ``enum_values``  — the preferred value-syntax spelling of each enum member,
+                        using ``@name`` when present.
+    ``owner``        — the root or mount ``module`` resolved through
+                        (:meth:`~agnette.agl.modules.roots.RootSet.owner_of`);
+                        ``None`` when it has none.
+
+    Built only by the per-kind factories, which derive ``key`` from the
+    identity fields; a new kind adds its own factory.
     """
 
+    key: "StaticBindingKey"
+    kind: HostParamKind
     module: "ModuleId"
-    scope_path: tuple[str, ...]
+    route_path: tuple[str, ...]
     name: str
     type: "AglType"
     cli: "ProgramOptionSpec"
     is_path: bool = False
     enum_values: tuple[str, ...] = ()
+    owner: "Path | None" = None
 
-    @property
-    def key(self) -> "StaticBindingKey":
-        """Return this binding's structured static identity."""
+    @classmethod
+    def module_param(
+        cls,
+        module: "ModuleId",
+        scope_path: tuple[str, ...],
+        name: str,
+        type: "AglType",
+        cli: "ProgramOptionSpec",
+        *,
+        is_path: bool = False,
+        enum_values: tuple[str, ...] = (),
+        owner: "Path | None" = None,
+    ) -> "HostParamInfo":
+        """Build the info of a ``@param`` module binding."""
         from agnette.agl.ir.static_keys import static_binding_key
 
-        return static_binding_key(self.module, self.scope_path, self.name)
+        return cls(
+            key=static_binding_key(module, scope_path, name),
+            kind=HostParamKind.MODULE,
+            module=module,
+            route_path=scope_path,
+            name=name,
+            type=type,
+            cli=cli,
+            is_path=is_path,
+            enum_values=enum_values,
+            owner=owner,
+        )
 
     @property
     def declaration_path(self) -> str:
-        """Return the module-qualified spelling of this binding."""
-        path = "::".join((*self.scope_path, self.name))
+        """Return the module-qualified spelling of this parameter."""
+        path = "::".join((*self.route_path, self.name))
         return f"{self.module.display()}::{path}"
 
 
@@ -141,7 +188,8 @@ class ProgramDeclInfo:
     text, or ``None`` when it carries none. ``reachable`` is what the program
     statically references and decides its module parameters. ``closure`` holds
     this program's module followed by its source-reachable modules in loader
-    order, and serves declaration-route diagnostics only.
+    order, and serves declaration-route diagnostics only. ``owner`` is the
+    root or mount ``module`` resolved through (``None`` when it has none).
     """
 
     module: "ModuleId"
@@ -154,6 +202,7 @@ class ProgramDeclInfo:
     doc: str | None
     reachable: "Reachable"
     closure: tuple["ModuleId", ...] = ()
+    owner: "Path | None" = None
 
     @property
     def declaration_path(self) -> str:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import agnette.agm.cli as cli
 from agnette.agm.cli_support.execution_options import EXECUTION_OPTION_SPECS
 
 #: Every flag spelling of the shared execution options.
@@ -32,3 +33,24 @@ def assert_lists_execution_options(text: str) -> None:
     listed = {token for token in section.split() if token.startswith("--")}
     assert listed == EXECUTION_OPTION_FLAGS
     assert "--help" not in section
+
+
+def print_exec_help(
+    *,
+    tokens: list[str],
+    file: str | None,
+    code: str | None,
+    program: str | None = None,
+    module_paths: list[str] | None = None,
+    no_stdlib: bool = False,
+) -> bool:
+    """Print the help *tokens* request, through the discovery ``agm exec`` shares."""
+    from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
+
+    discovery = ExecProgramDiscovery(
+        code=code,
+        requested_program=program,
+        module_paths=module_paths,
+        no_stdlib=no_stdlib,
+    )
+    return cli._exec_print_help(discovery, tokens=tokens, file=file, code=code, program=program)

@@ -249,7 +249,8 @@ program, each positional slot is named after its parameter, and each
 name-addressable parameter is listed with its long flag, its `@opt-short`
 spelling if any, its value placeholder, and its own `@doc`. Module parameters
 follow, one section per module declaring a visible reached parameter, titled by
-its module path, each parameter under its shortest resolving spelling.
+its module path, each parameter under its shortest resolving spelling; a
+parameter with no resolving spelling is omitted.
 
 Help rewraps each prose paragraph to the terminal width, after removing the
 prose's common indentation. A paragraph holding an indented line — an example,
@@ -284,11 +285,23 @@ never `::`. `bool`, `Option[T]`, and `Optional[T]` parameters also take
 `--no-...`; other types take a value read as for [program
 arguments](#program-arguments).
 
-A bare spelling (long or short) is claimed, in order, by host flags and
-engine-setting names, the selected program's own value parameters, parameters
-of its own module, then parameters of other modules; a later level keeps
-its qualified spellings. Several parameters at one level make a spelling
-ambiguous only when it is used; the diagnostic names their declaration paths.
+A bare spelling (long or short) is claimed by the first of these **claim
+levels** that has a claimant:
+
+1. host flags and engine-setting names;
+2. the selected program's own value parameters;
+3. parameters of the program's own module;
+4. parameters of modules with the program's **owner**;
+5. parameters of modules with any other owner.
+
+A module's owner is the package mounting it, or else the loose module root it
+was found through; an inline `-c` program belongs to the working directory's
+root, as a file there does. A parameter in a helper module of the program's own
+package thus shadows a same-named parameter of a dependency, and parameters of
+modules in the loose root holding the program's file shadow those of other
+roots. A shadowed parameter keeps its qualified spellings and is listed in help
+under those alone. Several parameters at one level make a spelling ambiguous
+only when it is used; the diagnostic names their declaration paths.
 
 Two config routes reach a module parameter:
 

@@ -142,7 +142,7 @@ if TYPE_CHECKING:
     from agnette.agl.ir.nodes import UseDefault
     from agnette.agl.ir.program import ExecutableProgram
     from agnette.agl.ir.static_keys import StaticBindingKey
-    from agnette.agl.runtime.types import ParamBindingInfo
+    from agnette.agl.runtime.types import HostParamInfo
     from agnette.agl.semantics.values import Value
     from agnette.config.general import GeneralConfig
 
@@ -175,8 +175,8 @@ def _bind_host_inputs(
     *,
     tokens: "Sequence[str]",
     program: ProgramDeclInfo | None,
-    params: "Sequence[ParamBindingInfo]",
-    declared_params: "Sequence[ParamBindingInfo]",
+    params: "Sequence[HostParamInfo]",
+    declared_params: "Sequence[HostParamInfo]",
     reserved_flags: frozenset[str],
     config: "GeneralConfig",
     entry_segments: tuple[str, ...],

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
+from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
 from agnette.agl.semantics.types import BoolType, IntType, TextType, Type
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
@@ -41,13 +42,15 @@ def _param(
     external: str | None = None,
     short: str | None = None,
     hidden: bool = False,
-) -> ParamBindingInfo:
-    return ParamBindingInfo(
-        module=ModuleId.from_path(module),
-        scope_path=scope,
-        name=name,
-        type=type_,
-        cli=_option(name if external is None else external, short=short, hidden=hidden),
+    owner: str | None = None,
+) -> HostParamInfo:
+    return HostParamInfo.module_param(
+        ModuleId.from_path(module),
+        scope,
+        name,
+        type_,
+        _option(name if external is None else external, short=short, hidden=hidden),
+        owner=None if owner is None else Path(owner),
     )
 
 
@@ -67,7 +70,7 @@ def _signature(
     )
 
 
-def _program(*parameters: ProgramParamInfo) -> ProgramDeclInfo:
+def _program(*parameters: ProgramParamInfo, owner: str | None = None) -> ProgramDeclInfo:
     return ProgramDeclInfo(
         module=ModuleId.from_path("app/main"),
         scope_path=(),
@@ -79,10 +82,11 @@ def _program(*parameters: ProgramParamInfo) -> ProgramDeclInfo:
         doc=None,
         reachable=EMPTY_REACHABLE,
         closure=(ModuleId.from_path("app/main"),),
+        owner=None if owner is None else Path(owner),
     )
 
 
-def _entry(surface: ParamSurface, param: ParamBindingInfo) -> ParamSurfaceEntry:
+def _entry(surface: ParamSurface, param: HostParamInfo) -> ParamSurfaceEntry:
     return next(entry for entry in surface.entries if entry.param == param)
 
 
@@ -106,6 +110,67 @@ def test_levels_resolve_from_host_to_signature_to_own_then_imports() -> None:
         "lib.logging.verbose",
     )
     assert _entry(surface, imported_theme).spellings == ("theme.theme", "lib.theme.theme")
+
+
+def test_own_package_module_claims_a_bare_name_before_another_package() -> None:
+    sibling = _param("app/helper", "verbose", owner="/pkgs/app")
+    dependency = _param("lib/logging", "verbose", owner="/pkgs/lib")
+    surface = build_param_surface(frozenset(), _program(owner="/pkgs/app"), (dependency, sibling))
+
+    assert _entry(surface, sibling).spellings[0] == "verbose"
+    assert _entry(surface, dependency).spellings == ("logging.verbose", "lib.logging.verbose")
+    assert "verbose" not in surface.ambiguous
+    assert "--verbose" not in surface.ambiguous_options
+    assert _entry(surface, dependency).option_spellings[0] == "--logging.verbose"
+
+
+def test_program_module_claims_a_bare_name_before_its_own_package() -> None:
+    own = _param("app/main", "verbose", owner="/pkgs/app")
+    sibling = _param("app/helper", "verbose", owner="/pkgs/app")
+    surface = build_param_surface(frozenset(), _program(owner="/pkgs/app"), (sibling, own))
+
+    assert _entry(surface, own).spellings[0] == "verbose"
+    assert _entry(surface, sibling).spellings == ("helper.verbose", "app.helper.verbose")
+
+
+def test_peers_of_one_owner_are_ambiguous_on_the_bare_name_only() -> None:
+    first = _param("app/one", "verbose", owner="/pkgs/app")
+    second = _param("app/two", "verbose", owner="/pkgs/app")
+    surface = build_param_surface(frozenset(), _program(owner="/pkgs/app"), (first, second))
+
+    assert surface.ambiguous["verbose"] == (first, second)
+    assert _entry(surface, first).spellings == ("one.verbose", "app.one.verbose")
+    assert _entry(surface, second).spellings == ("two.verbose", "app.two.verbose")
+
+
+def test_peers_of_other_owners_are_ambiguous_even_with_an_owned_unrelated_name() -> None:
+    first = _param("lib/one", "verbose", owner="/pkgs/lib1")
+    second = _param("lib/two", "verbose", owner="/pkgs/lib2")
+    owned = _param("app/helper", "level", owner="/pkgs/app")
+    surface = build_param_surface(frozenset(), _program(owner="/pkgs/app"), (first, second, owned))
+
+    assert surface.ambiguous["verbose"] == (first, second)
+    assert "level" not in surface.ambiguous
+    assert _entry(surface, owned).spellings[0] == "level"
+
+
+def test_an_unknown_owner_is_nobodys_peer() -> None:
+    first = _param("app/one", "verbose")
+    second = _param("app/two", "verbose", owner="/pkgs/app")
+    surface = build_param_surface(frozenset(), _program(), (first, second))
+
+    assert surface.ambiguous["verbose"] == (first, second)
+
+
+def test_an_owned_spelling_shadows_other_owners_options_and_shorts() -> None:
+    own = _param("app/helper", "level", short="l", owner="/pkgs/app")
+    other = _param("lib/logging", "level", short="l", owner="/pkgs/lib")
+    surface = build_param_surface(frozenset(), _program(owner="/pkgs/app"), (other, own))
+
+    assert _entry(surface, own).short_option == "-l"
+    assert _entry(surface, other).short_option is None
+    assert "--level" not in _entry(surface, other).option_spellings
+    assert "-l" not in surface.ambiguous_options
 
 
 def test_import_bare_collision_is_ambiguous_but_qualified_forms_resolve() -> None:

@@ -9,7 +9,7 @@ from typing import NamedTuple
 
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import ModuleId
-from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
+from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.param_surface import (
     ParamSurface,
@@ -174,7 +174,7 @@ def resolve_param_values(
     surface: ParamSurface,
     package_command_paths: frozenset[tuple[str, ...]] = frozenset(),
     package_config: TomlDict | None = None,
-    declared_params: Sequence[ParamBindingInfo] | None = None,
+    declared_params: Sequence[HostParamInfo] | None = None,
 ) -> ParamValueTiers:
     """Resolve module-parameter config values beneath parsed CLI/environment values.
 
@@ -251,7 +251,7 @@ def resolve_param_values(
 
 def _reject_configured_cross_route_ambiguities(
     config: GeneralConfig,
-    module_routes: Sequence[tuple[ParamBindingInfo, QualifiedConfigKey]],
+    module_routes: Sequence[tuple[HostParamInfo, QualifiedConfigKey]],
     program_routes: Sequence[tuple[ParamSurfaceEntry, QualifiedConfigKey]],
 ) -> None:
     """Reject a configured table leaf that resolves to distinct route kinds.
@@ -299,7 +299,7 @@ def _reject_configured_cross_route_ambiguities(
 
 def _reject_configured_ambiguity(
     leaf_tables: Mapping[str, tuple[str, ...]],
-    candidates: Mapping[str, Sequence[ParamBindingInfo]],
+    candidates: Mapping[str, Sequence[HostParamInfo]],
 ) -> None:
     """Reject the first *candidates* leaf that one of *leaf_tables*' tables sets."""
     for leaf, claimants in candidates.items():
@@ -313,7 +313,7 @@ def _reject_configured_ambiguity(
 
 
 def resolve_module_param_values(
-    config: GeneralConfig, params: Sequence[ParamBindingInfo]
+    config: GeneralConfig, params: Sequence[HostParamInfo]
 ) -> dict[StaticBindingKey, object]:
     """Resolve parameter values from their declaration-module routes only.
 
@@ -333,15 +333,15 @@ def resolve_module_param_values(
 
 
 def _module_routes(
-    params: Sequence[ParamBindingInfo],
-) -> tuple[tuple[ParamBindingInfo, QualifiedConfigKey], ...]:
+    params: Sequence[HostParamInfo],
+) -> tuple[tuple[HostParamInfo, QualifiedConfigKey], ...]:
     """Return declaration-module routes for every non-anonymous binding."""
     return tuple(
         (
             param,
             QualifiedConfigKey(
                 param.module.segments,
-                param.scope_path,
+                param.route_path,
                 param.cli.name,
             ),
         )
@@ -351,16 +351,16 @@ def _module_routes(
 
 
 def _reject_configured_ambiguous_module_leaves(
-    config: GeneralConfig, params: Sequence[ParamBindingInfo]
+    config: GeneralConfig, params: Sequence[HostParamInfo]
 ) -> None:
     """Reject a configured leaf claimed by multiple bindings on one module route."""
     candidates_by_route: dict[
-        tuple[tuple[str, ...], tuple[str, ...], str], list[ParamBindingInfo]
+        tuple[tuple[str, ...], tuple[str, ...], str], list[HostParamInfo]
     ] = {}
     for param in params:
         if param.module.is_entry:
             continue
-        route = (param.module.segments, param.scope_path, param.cli.name)
+        route = (param.module.segments, param.route_path, param.cli.name)
         candidates_by_route.setdefault(route, []).append(param)
     for (module_segments, scope_path, leaf), candidates in candidates_by_route.items():
         if len(candidates) < 2:
@@ -456,7 +456,7 @@ def _route_reports(
     program: ProgramDeclInfo,
     entry_segments: tuple[str, ...],
     command_paths: tuple[tuple[str, ...], ...],
-    declared_params: Sequence[ParamBindingInfo],
+    declared_params: Sequence[HostParamInfo],
     unreached_leaves: frozenset[str],
     program_routes: Sequence[tuple[ParamSurfaceEntry, QualifiedConfigKey]],
 ) -> list[_RouteReport]:
@@ -465,10 +465,10 @@ def _route_reports(
     The program route declares the spellings reached parameters won plus
     *unreached_leaves*, never a spelling a reached parameter lost.
     """
-    by_module_scope: dict[tuple[ModuleId, tuple[str, ...]], list[ParamBindingInfo]] = {}
+    by_module_scope: dict[tuple[ModuleId, tuple[str, ...]], list[HostParamInfo]] = {}
     for param in declared_params:
         if not param.module.is_entry:
-            by_module_scope.setdefault((param.module, param.scope_path), []).append(param)
+            by_module_scope.setdefault((param.module, param.route_path), []).append(param)
 
     reports: list[_RouteReport] = []
     ordered_modules = _report_modules(program, declared_params)
@@ -520,13 +520,13 @@ def _route_reports(
     return reports
 
 
-def _declared_leaves(declared: Iterable[ParamBindingInfo]) -> frozenset[str]:
+def _declared_leaves(declared: Iterable[HostParamInfo]) -> frozenset[str]:
     """Return every spelling that can address one of *declared*, claimed or not."""
     return frozenset(spelling for param in declared for spelling in declared_spellings(param))
 
 
 def _report_modules(
-    program: ProgramDeclInfo, declared: Sequence[ParamBindingInfo]
+    program: ProgramDeclInfo, declared: Sequence[HostParamInfo]
 ) -> tuple[ModuleId, ...]:
     """Return closure modules first, retaining any other declaring module afterward."""
     modules: list[ModuleId] = list(program.closure)

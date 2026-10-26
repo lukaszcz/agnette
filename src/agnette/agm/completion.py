@@ -20,7 +20,7 @@ from agnette.config.context import current_config_context
 from agnette.config.general import load_run_config
 
 if TYPE_CHECKING:
-    from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
+    from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
     from agnette.agm.cli_dispatch import RegisteredCommandResolution
     from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
     from agnette.agm.cli_support.program_options import ExecTail, OptionValueMap, ProgramCommand
@@ -591,7 +591,7 @@ def complete_agl_file(ctx: click.Context, args: list[str], incomplete: str) -> l
 
 
 def _program_argument_completion_items(
-    program: "ProgramDeclInfo", incomplete: str, params: "Sequence[ParamBindingInfo]" = ()
+    program: "ProgramDeclInfo", incomplete: str, params: "Sequence[HostParamInfo]" = ()
 ) -> list[CompletionItem[str]]:
     """Return ``CompletionItem`` objects for *program*'s own value-parameter flags.
 
@@ -614,7 +614,7 @@ def _program_argument_completion_items(
 
 
 def _program_value_completer(
-    param: ProgramParamInfo | ParamBindingInfo,
+    param: ProgramParamInfo | HostParamInfo,
 ) -> Callable[[click.Context, list[str], str], list[str]]:
     """Return the value completer for one program parameter's flag."""
 
@@ -626,7 +626,7 @@ def _program_value_completer(
     return complete
 
 
-def _value_candidates(param: ProgramParamInfo | ParamBindingInfo, incomplete: str) -> list[str]:
+def _value_candidates(param: ProgramParamInfo | HostParamInfo, incomplete: str) -> list[str]:
     """Complete *incomplete* as a value of *param*: paths, or its enum spellings."""
     if param.is_path:
         return _path_candidates(incomplete)

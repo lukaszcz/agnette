@@ -7,6 +7,7 @@ AgL programs are file-based module graphs. A module is addressed by a slash path
 - **Loose roots** — a loose entry file's directory (or the working directory for inline source and the REPL), the global library in the AgM home, `[modules]` config, and CLI module paths — resolve any path beneath them; loose modules import freely.
 - **Packages** are not roots: each selected package, and the standard library as `std`, mounts its `src/` tree under its name. Package modules may import only their own tree, `std`, and declared dependencies ([packages.md](../packages.md)).
 - A path must resolve to exactly one `.agl` file across all roots.
+- A module's *owner* is the root or mount it resolved through (`ModuleGraph.owner_of`, `RootSet.owner_of`); the entry's is its package, else the invocation root.
 - An entry file owned by a package keeps that package's module id; an unowned entry (inline, REPL, loose file) is anonymous and cannot be imported.
 
 Import, `use`, `hiding`, re-exports, and scoped imports are resolved by scope ([frontend/scope.md](frontend/scope.md#imports-and-use)); operator fixity travels with the declaring module ([frontend/scope.md](frontend/scope.md#operators)).

@@ -33,7 +33,11 @@ from agnette.agm.commands import exec_program as exec_engine
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.stdlib import StdlibSelection
 from tests._agl_helpers import write_file_program
-from tests._help_helpers import assert_lists_execution_options, execution_options_is_last
+from tests._help_helpers import (
+    assert_lists_execution_options,
+    execution_options_is_last,
+    print_exec_help,
+)
 
 
 class RecordedArgs(Protocol):
@@ -59,27 +63,6 @@ def inline_args(code: str, *, argument_tokens: list[str] | None = None) -> ExecA
         no_trace=True,
         trace_file=None,
     )
-
-
-def print_exec_help(
-    *,
-    tokens: list[str],
-    file: str | None,
-    code: str | None,
-    program: str | None = None,
-    module_paths: list[str] | None = None,
-    no_stdlib: bool = False,
-) -> bool:
-    """Print the help *tokens* request, through the discovery ``agm exec`` shares."""
-    from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
-
-    discovery = ExecProgramDiscovery(
-        code=code,
-        requested_program=program,
-        module_paths=module_paths,
-        no_stdlib=no_stdlib,
-    )
-    return cli._exec_print_help(discovery, tokens=tokens, file=file, code=code, program=program)
 
 
 def file_args(path: Path) -> ExecArgs:

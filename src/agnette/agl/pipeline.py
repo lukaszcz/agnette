@@ -39,7 +39,7 @@ from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_bounda
 from agnette.agl.runtime.agents import AgentFn
 from agnette.agl.runtime.types import (
     HostEnvironment,
-    ParamBindingInfo,
+    HostParamInfo,
     ProgramDeclInfo,
     ProgramParamInfo,
 )
@@ -132,13 +132,13 @@ class ProgramDiscovery:
     compiled: "MatchCompiledProgram | None"
     diagnostics: tuple[Diagnostic, ...]
     warnings: tuple[Diagnostic, ...]
-    module_params: Mapping["ModuleId", tuple[ParamBindingInfo, ...]] = field(default_factory=dict)
+    module_params: Mapping["ModuleId", tuple[HostParamInfo, ...]] = field(default_factory=dict)
 
-    def params_for(self, program: ProgramDeclInfo) -> tuple[ParamBindingInfo, ...]:
+    def params_for(self, program: ProgramDeclInfo) -> tuple[HostParamInfo, ...]:
         """Return the module parameters *program* statically reaches, closure modules first."""
         return self._params(program, include_closure=False)
 
-    def declared_params_for(self, program: ProgramDeclInfo) -> tuple[ParamBindingInfo, ...]:
+    def declared_params_for(self, program: ProgramDeclInfo) -> tuple[HostParamInfo, ...]:
         """Return the module parameters declared by *program*'s closure or reached by it.
 
         A superset of :meth:`params_for` for declaration-route diagnostics, which
@@ -148,7 +148,7 @@ class ProgramDiscovery:
 
     def _params(
         self, program: ProgramDeclInfo, *, include_closure: bool
-    ) -> tuple[ParamBindingInfo, ...]:
+    ) -> tuple[HostParamInfo, ...]:
         """Select inventory entries the program reaches, or also every closure module declares.
 
         Closure modules come first, in order, then the others.
@@ -1132,7 +1132,7 @@ class PipelineDriver:
         return replace(
             static,
             programs=_program_decl_infos(checked, resolved.graph, aliases),
-            module_params=_module_param_infos(checked, aliases),
+            module_params=_module_param_infos(checked, resolved.graph, aliases),
         )
 
     def _wire_externs_or_fail(
@@ -1628,7 +1628,9 @@ def _select_program_inventory(
 
 
 def _program_decl_infos(
-    checked: "CheckedProgram", graph: "ModuleGraph", aliases: "_TypeAliasIndex"
+    checked: "CheckedProgram",
+    graph: "ModuleGraph",
+    aliases: "_TypeAliasIndex",
 ) -> tuple[ProgramDeclInfo, ...]:
     """Return every ``program def`` declaration's info, in stable sorted order.
 
@@ -1658,6 +1660,7 @@ def _program_decl_infos(
                 # Memoized on the graph, so sibling program defs of one module
                 # share the one walk that closed over it.
                 closure=graph.source_reachable_modules(module_id),
+                owner=graph.owner_of(module_id),
             )
         )
     program_infos.sort(
@@ -1672,34 +1675,38 @@ def _program_decl_infos(
 
 def _module_param_infos(
     checked: "CheckedProgram",
+    graph: "ModuleGraph",
     aliases: "_TypeAliasIndex | None" = None,
-) -> dict["ModuleId", tuple[ParamBindingInfo, ...]]:
+) -> dict["ModuleId", tuple[HostParamInfo, ...]]:
     """Return each checked module's marked static bindings in source order.
 
     *aliases* is the caller's shared alias index when it also discovers
     programs from the same checked program; ``None`` builds one for this call.
+    *graph* supplies each parameter's module owner.
     """
     from agnette.agl.syntax.nodes import static_binding_name
 
     alias_index = _TypeAliasIndex(checked) if aliases is None else aliases
-    module_params: dict[ModuleId, tuple[ParamBindingInfo, ...]] = {}
+    module_params: dict[ModuleId, tuple[HostParamInfo, ...]] = {}
     for module_id, checked_module in checked.modules.items():
         type_table = checked_module.type_env.type_table
-        params: list[ParamBindingInfo] = []
+        owner = graph.owner_of(module_id)
+        params: list[HostParamInfo] = []
         for binding in checked_module.resolved.param_bindings():
             name = static_binding_name(binding.item)
             binding_type = checked_module.type_env.binding_type_of(binding.node_id)
             params.append(
-                ParamBindingInfo(
-                    module=module_id,
-                    scope_path=binding.scope_path,
-                    name=name,
-                    type=binding_type,
-                    cli=binding.cli,
+                HostParamInfo.module_param(
+                    module_id,
+                    binding.scope_path,
+                    name,
+                    binding_type,
+                    binding.cli,
                     is_path=_annotates_path(
                         checked, module_id, binding.item.type_ann, binding_type, alias_index
                     ),
                     enum_values=_enum_completion_values(binding_type, type_table),
+                    owner=owner,
                 )
             )
         module_params[module_id] = tuple(params)

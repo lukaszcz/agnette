@@ -15,7 +15,7 @@ from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.runtime.arguments import OptionSome, decode_param_value
 from agnette.agl.runtime.option import none_value, some_value
-from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo, ProgramParamInfo
+from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
 from agnette.agl.semantics.type_table import create_seeded_type_table
 from agnette.agl.semantics.types import (
     BUILTIN_PRELUDE_TYPES,
@@ -176,13 +176,13 @@ def _module_param(
     hidden: bool = False,
     doc: str | None = None,
     is_path: bool = False,
-) -> ParamBindingInfo:
-    return ParamBindingInfo(
-        module=module,
-        scope_path=scope_path,
-        name=name,
-        type=typ,
-        cli=ProgramOptionSpec(
+) -> HostParamInfo:
+    return HostParamInfo.module_param(
+        module,
+        scope_path,
+        name,
+        typ,
+        ProgramOptionSpec(
             name=name if external is None else external,
             short=short,
             env=env,
@@ -194,9 +194,7 @@ def _module_param(
     )
 
 
-def _command_with_module_params(
-    program: ProgramDeclInfo, *params: ParamBindingInfo
-) -> ProgramCommand:
+def _command_with_module_params(program: ProgramDeclInfo, *params: HostParamInfo) -> ProgramCommand:
     result = build_program_command(program, EXEC_RESERVED_FLAGS, params)
     assert isinstance(result, ProgramCommand)
     return result

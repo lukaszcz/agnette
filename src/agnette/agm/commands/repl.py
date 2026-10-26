@@ -40,7 +40,7 @@ from agnette.agl.repl import ReplSession
 from agnette.agl.repl.plain_console import plain_mode_engaged
 from agnette.agl.runtime.agents import value_driven_agent_factory
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
-from agnette.agl.runtime.types import ParamBindingInfo
+from agnette.agl.runtime.types import HostParamInfo
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.agm.cli_support.engine_seeds import (
@@ -77,7 +77,7 @@ from agnette.sandbox.prepare import lazy_sandbox_context
 
 
 def _resolve_param_seeds(
-    config: GeneralConfig, _module: ModuleId, params: Sequence[ParamBindingInfo]
+    config: GeneralConfig, _module: ModuleId, params: Sequence[HostParamInfo]
 ) -> Mapping[StaticBindingKey, object]:
     """Resolve module-parameter seeds, reporting an ambiguous config key as an ``AglError``."""
     try:

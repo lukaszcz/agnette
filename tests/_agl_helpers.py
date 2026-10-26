@@ -96,7 +96,7 @@ from agnette.agl.repl import ReplSession
 from agnette.agl.repl.entry import EntryResult
 from agnette.agl.runtime.arguments import ProgramArguments
 from agnette.agl.runtime.engine_config import restamp_engine_setting
-from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
+from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.semantics.type_table import (
     BUILTIN_PRELUDE_MEMBER_TYPE_DEFS,
@@ -866,7 +866,7 @@ def repl_session_with_root(
     root: Path,
     *,
     param_seed_resolver: (
-        Callable[[ModuleId, tuple[ParamBindingInfo, ...]], Mapping[StaticBindingKey, object]] | None
+        Callable[[ModuleId, tuple[HostParamInfo, ...]], Mapping[StaticBindingKey, object]] | None
     ) = None,
     warning_policy: WarningPolicy | None = None,
 ) -> ReplSession:

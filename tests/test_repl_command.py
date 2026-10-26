@@ -38,7 +38,7 @@ from agnette.agent.spec import AgentPi, AgentSpec, PermissionMode
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.repl import ReplSession
 from agnette.agl.runtime.sessions import SessionSnapshot
-from agnette.agl.runtime.types import ParamBindingInfo
+from agnette.agl.runtime.types import HostParamInfo
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.config.general import GeneralConfig
 from agnette.packages.layout import MODULE_TREE_DIRNAME
@@ -1530,7 +1530,7 @@ class TestReplModuleParameterConfig:
         resolve = repl_command.resolve_module_param_values
 
         def record_resolver(
-            config: GeneralConfig, params: Sequence[ParamBindingInfo]
+            config: GeneralConfig, params: Sequence[HostParamInfo]
         ) -> dict[StaticBindingKey, object]:
             calls.append(tuple(param.key for param in params))
             return resolve(config, params)

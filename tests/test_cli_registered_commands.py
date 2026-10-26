@@ -2893,6 +2893,21 @@ def test_manifest_supplies_a_module_parameter_via_its_dotted_spelling(
     assert result.output == "true\nfalse\n"
 
 
+def test_manifest_bare_leaf_of_same_level_peers_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare manifest leaf two same-package modules declare names neither of them."""
+    home = tmp_path / "home"
+    root = tmp_path / "tools"
+    _write_ambiguous_param_manifest_package(root, "[config.devel.review]\nverbose = true\n")
+    install_directory(root, home=home)
+    monkeypatch.setenv("HOME", str(home))
+
+    result = invoke(CliRunner(), ["devel", "review"])
+
+    assert result.exit_code == 1
+
+
 def test_manifest_same_tier_conflicting_spellings_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -23,7 +23,9 @@ class RootSet:
     supplied as a loose root.  Each package in :attr:`packages` mounts its
     declared name, and each standard-library root in :attr:`stdlib_roots`
     mounts ``std``; a library root that is also mounted as a package
-    contributes the same tree once.
+    contributes the same tree once.  :attr:`invocation_root` is the loose root
+    the invocation started from (an entry file's directory, or the cwd for
+    inline code); ``None`` when it is absent or the entry is a package's file.
 
     All paths stored here are absolute and canonical (``Path.resolve()``
     applied).  The set is unordered by design — an AgL module id must resolve
@@ -46,6 +48,7 @@ class RootSet:
     packages: tuple[PackageInfo, ...] = ()
     stdlib_roots: frozenset[Path] = frozenset()
     stdlib_installed: bool = False
+    invocation_root: Path | None = None
     _sorted_roots: tuple[Path, ...] = field(init=False, repr=False, compare=False)
     _module_trees: dict[str, tuple[Path, ...]] = field(init=False, repr=False, compare=False)
 
@@ -92,6 +95,29 @@ class RootSet:
         if package is None:
             return None
         return ModuleId(segments=package.module_id_segments(path))
+
+    def owner_of(self, module_id: ModuleId, path: Path | None) -> Path | None:
+        """Return the owner of the module *module_id* loaded from the canonical *path*.
+
+        The owner is the root or mount the module resolved through: the module
+        tree of the package mounting its id (the standard library's tree for
+        ``std``), else the loose root holding it.  An entry has no resolvable
+        id: it belongs to the package owning its file, else to the invocation
+        root (the cwd for an inline entry); likewise ``None`` when nothing does.
+        """
+        if module_id.is_entry:
+            package = None if path is None else owning_package(path, self.packages)
+            return self.invocation_root if package is None else package.module_root
+        segments = module_id.segments
+        if len(segments) > 1:
+            mounted = os.sep.join(segments[1:]) + ".agl"
+            for tree in self.module_tree_roots(segments[0]):
+                if (tree / mounted).resolve() == path:
+                    return tree
+        relative = module_id.relpath().replace("/", os.sep)
+        return next(
+            (root for root in self._sorted_roots if (root / relative).resolve() == path), None
+        )
 
     def is_installed(self, path: Path) -> bool:
         """Return whether the module file *path* is part of an installed dependency.
@@ -181,8 +207,12 @@ def assemble_roots(
             canonical_roots.add(canonical_path)
 
     # 1. Invocation root
+    canonical_invocation_root: Path | None = None
     if invocation_root is not None:
         _add(invocation_root)
+        canonical_invocation_root = _canonicalize(invocation_root)
+        if not canonical_invocation_root.exists():
+            canonical_invocation_root = None
 
     # 2. Global library root
     if lib_root is not None:
@@ -222,4 +252,5 @@ def assemble_roots(
         packages=mounted_packages,
         stdlib_roots=frozenset(stdlib_roots),
         stdlib_installed=stdlib_installed,
+        invocation_root=canonical_invocation_root,
     )

@@ -168,7 +168,7 @@ class EntryPipeline:
                 session_builtin_declarations=self._ctx._session_builtin_declarations,
             )
         self._retain_module_artifacts(resolved_program, checked_program)
-        raw_param_values = self._resolve_new_module_params(checked_program, new_modules)
+        raw_param_values = self._resolve_new_module_params(checked_program, graph, new_modules)
         return LoadedCheckedProgram(
             resolved_program=resolved_program,
             checked_program=checked_program,
@@ -184,6 +184,7 @@ class EntryPipeline:
     def _resolve_new_module_params(
         self,
         checked_program: "CheckedProgram",
+        graph: "ModuleGraph",
         new_modules: Mapping[ModuleId, "LoadedModule"],
     ) -> dict["StaticBindingKey", object]:
         """Ask the host once for all parameters declared by newly loaded modules.
@@ -197,7 +198,7 @@ class EntryPipeline:
             return {}
         from agnette.agl.pipeline import _module_param_infos
 
-        module_params = _module_param_infos(checked_program)
+        module_params = _module_param_infos(checked_program, graph)
         params = tuple(param for module_id in new_modules for param in module_params[module_id])
         if not params:
             return {}

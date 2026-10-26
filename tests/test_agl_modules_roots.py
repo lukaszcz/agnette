@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.roots import RootSet, assemble_roots
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import load_manifest
@@ -714,6 +714,116 @@ class TestPackageModuleIdFor:
         )
 
         assert roots.package_module_id_for(module) == ModuleId(segments=("inner", "mod"))
+
+
+class TestOwnerOf:
+    """A module's owner is the root or mount it resolved through."""
+
+    def test_a_package_module_is_owned_by_its_package_even_when_its_root_is_loose(
+        self, tmp_path: Path
+    ) -> None:
+        package = _package_with_a_rogue_module(tmp_path)
+        roots = _roots_for(tmp_path, package, loose=True)
+        main = ModuleId(segments=("demo", "main"))
+
+        assert roots.owner_of(main, package.module_root / "main.agl") == package.module_root
+
+    def test_a_module_resolved_through_a_loose_root_is_owned_by_it(self, tmp_path: Path) -> None:
+        package = _package_with_a_rogue_module(tmp_path)
+        roots = _roots_for(tmp_path, package, loose=True)
+        rogue = ModuleId(segments=("demo", "rogue"))
+
+        assert roots.owner_of(rogue, package.root / "demo" / "rogue.agl") == package.root
+
+    def test_an_import_is_owned_by_the_root_it_resolved_through_not_the_innermost(
+        self, tmp_path: Path
+    ) -> None:
+        outer = tmp_path / "outer"
+        inner = outer / "lib"
+        inner.mkdir(parents=True)
+        (inner / "x.agl").write_text("")
+        (outer / "a.agl").write_text("")
+        (inner / "b.agl").write_text("")
+        roots = assemble_roots(
+            invocation_root=outer,
+            stdlib_root=tmp_path / "absent-stdlib",
+            lib_root=None,
+            configured=[],
+            cli=[str(inner)],
+            cwd=tmp_path,
+        )
+
+        assert roots.owner_of(ModuleId(segments=("a",)), outer / "a.agl") == outer.resolve()
+        assert roots.owner_of(ModuleId(segments=("b",)), inner / "b.agl") == inner.resolve()
+        assert (
+            roots.owner_of(ModuleId(segments=("lib", "x")), (inner / "x.agl").resolve())
+            == outer.resolve()
+        )
+
+    def test_a_symlinked_module_is_owned_by_the_root_holding_the_link(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        elsewhere = tmp_path / "elsewhere"
+        project.mkdir()
+        elsewhere.mkdir()
+        (elsewhere / "real.agl").write_text("")
+        (project / "linked.agl").symlink_to(elsewhere / "real.agl")
+        roots = assemble_roots(
+            invocation_root=project,
+            stdlib_root=tmp_path / "absent-stdlib",
+            lib_root=None,
+            configured=[],
+            cli=[str(elsewhere)],
+            cwd=tmp_path,
+        )
+
+        owner = roots.owner_of(ModuleId(segments=("linked",)), (elsewhere / "real.agl").resolve())
+
+        assert owner == project.resolve()
+
+    def test_the_standard_library_owns_its_module_tree(self, tmp_path: Path) -> None:
+        stdlib = _stdlib_tree(tmp_path)
+        roots = assemble_roots(
+            invocation_root=None,
+            stdlib_root=stdlib,
+            lib_root=None,
+            configured=[],
+            cli=[],
+            cwd=tmp_path,
+        )
+        tree = (stdlib / MODULE_TREE_DIRNAME).resolve()
+
+        assert roots.owner_of(ModuleId(segments=("std", "prelude")), tree / "prelude.agl") == tree
+
+    def test_a_file_no_root_resolves_to_has_no_owner(self, tmp_path: Path) -> None:
+        roots = RootSet(roots=frozenset([(tmp_path / "root").resolve()]))
+
+        assert roots.owner_of(ModuleId(segments=("a",)), tmp_path / "elsewhere" / "a.agl") is None
+
+    def test_a_loose_entry_and_an_inline_entry_belong_to_the_invocation_root(
+        self, tmp_path: Path
+    ) -> None:
+        invocation = tmp_path / "invocation"
+        invocation.mkdir()
+        roots = assemble_roots(
+            invocation_root=invocation,
+            stdlib_root=tmp_path / "absent-stdlib",
+            lib_root=None,
+            configured=[],
+            cli=[],
+            cwd=tmp_path,
+        )
+
+        assert roots.owner_of(ENTRY_ID, (invocation / "main.agl").resolve()) == invocation.resolve()
+        assert roots.owner_of(ENTRY_ID, None) == invocation.resolve()
+
+    def test_a_package_entry_belongs_to_its_package_and_an_unrooted_entry_to_nobody(
+        self, tmp_path: Path
+    ) -> None:
+        package = _package_with_a_rogue_module(tmp_path)
+        roots = _roots_for(tmp_path, package, loose=False)
+
+        assert roots.owner_of(ENTRY_ID, package.module_root / "main.agl") == package.module_root
+        assert roots.owner_of(ENTRY_ID, None) is None
 
 
 class TestIsInstalled:

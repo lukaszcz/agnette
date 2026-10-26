@@ -246,6 +246,10 @@ class ModuleGraph:
         self._source_closures[module_id] = closure
         return closure
 
+    def owner_of(self, module_id: ModuleId) -> Path | None:
+        """Return the owner of a loaded module (:meth:`RootSet.owner_of`)."""
+        return self.roots.owner_of(module_id, self.modules[module_id].path)
+
     def resource_root_for(self, module_id: ModuleId) -> Path | None:
         """Return the filesystem anchor used by a module's resource calls."""
         path = self.modules[module_id].path

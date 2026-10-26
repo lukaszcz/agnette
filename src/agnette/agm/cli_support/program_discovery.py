@@ -22,7 +22,7 @@ from agnette.agl.runtime.request import AgentResponse
 
 if TYPE_CHECKING:
     from agnette.agl.pipeline import ParsedEntry, PreparedProgram, ProgramDiscovery
-    from agnette.agl.runtime.types import ParamBindingInfo, ProgramDeclInfo
+    from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo
     from agnette.agl.warning_policy import WarningPolicy
     from agnette.agm.cli_support.exec_target import ExecTarget
     from agnette.agm.cli_support.program_options import ProgramCommand
@@ -227,7 +227,7 @@ class ExecProgramDiscovery:
 
     def params_for(
         self, file: str | None, program: "ProgramDeclInfo | None"
-    ) -> "tuple[ParamBindingInfo, ...]":
+    ) -> "tuple[HostParamInfo, ...]":
         """Return the module parameters *program* reaches, from *file*'s discovered artifacts."""
         artifacts = self.cached_artifacts(file)
         if artifacts is None or program is None:
