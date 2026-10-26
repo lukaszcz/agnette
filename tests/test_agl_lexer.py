@@ -3798,11 +3798,11 @@ class TestLexReplay:
         assert len(program.body.items) == 1
         assert type_expr.span.end_offset == 4
 
-    def test_a_failed_pass_raises_a_fresh_error_at_every_use(self) -> None:
+    @pytest.mark.parametrize("text", ['let a = "open', "let a = b/c/d"])
+    def test_a_failed_pass_raises_a_fresh_error_at_every_use(self, text: str) -> None:
         from agnette.agl.lexer import lex_replay, lex_source
         from agnette.agl.parser import AglSyntaxError, parse_program_seeded
 
-        text = 'let a = "open'
         lexed = lex_source(text)
         raised: list[AglSyntaxError] = []
         for _ in range(4):

@@ -383,9 +383,6 @@ def _resolve_body_for_one(
             tables.aliases[key] = GenericAliasDef(type_params=type_params, template=template)
         case _ as unreachable:  # pragma: no cover
             assert_never(unreachable)
-    # Built nominal bodies reach the program tables here; a generic one has
-    # no type-namespace entry and keeps its Step A handle.
-    _sync_program_env_extensions(mid, cross_env, tables)
 
 
 def _collect_type_declarations(resolved: ResolvedProgram) -> dict[DeclKey, _TypeDeclItem]:
@@ -705,6 +702,10 @@ def _build_program_type_table(
                     )
             raise
         resolved_bodies.add(key)
+    # A body registers no further type handle, so the program tables take each
+    # module's reconciled handles once, after every body.
+    for mid, env in cross_envs.items():
+        _sync_program_env_extensions(mid, env, tables)
 
     # Builtin contracts may inspect referenced enum-member record fields, so
     # validate only after every type body has been resolved.  This preserves

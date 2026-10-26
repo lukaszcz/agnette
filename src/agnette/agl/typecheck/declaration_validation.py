@@ -399,18 +399,22 @@ def validate_method_declaration_collisions(
     # Order owners deterministically so a program reports one stable collision.
     sort_key = partial(decl_id_sort_key, type_table.defs)
     for owner_id in sorted(index.declared, key=sort_key):
-        ancestors = tuple(base.decl_node_id for base in type_table.ancestor_defs(owner_id))
-        for ancestor in ancestors:
-            _index_registered_owner(index, type_table, ancestor)
         same_named_by_name = index.members[owner_id]
-        # The level-mate scan (an exception's descendants especially) costs a
-        # table-wide pass, so it only runs for an owner that actually
-        # declares a method here.
+        # The ancestor walk and the level-mate scan (an exception's descendants
+        # especially) cost a base-chain or table-wide pass, so they only run for an
+        # owner that actually declares a method here.
         has_method = any(
             member.kind == "method"
             for same_named_members in same_named_by_name.values()
             for member in same_named_members
         )
+        ancestors = (
+            tuple(base.decl_node_id for base in type_table.ancestor_defs(owner_id))
+            if has_method
+            else ()
+        )
+        for ancestor in ancestors:
+            _index_registered_owner(index, type_table, ancestor)
         mates = _level_mates(type_table, owner_id) if has_method else ()
         for mate in mates:
             _index_registered_owner(index, type_table, mate)

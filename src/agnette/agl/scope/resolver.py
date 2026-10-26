@@ -43,6 +43,7 @@ because its argument must be a source literal.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
@@ -1533,13 +1534,16 @@ class _Resolver(ModuleSources):
             nodes[path] = node
         # A replacement type declaration owns fresh constructors: stale enum
         # variants must not survive, while unrelated retained members remain.
+        nested_scope_names: defaultdict[ScopePath, set[str]] = defaultdict(set)
+        for nested_path in nodes:
+            if nested_path:
+                nested_scope_names[nested_path[:-1]].add(nested_path[-1])
         for item, path in self._type_declarations:
             type_path = path + (item.name,)
-            nested_scope_names = frozenset(
-                nested_path[-1] for nested_path in nodes if nested_path[:-1] == type_path
-            )
             if type_path in nodes:
-                nodes[type_path].clear_owned_constructor_members(nested_scope_names)
+                nodes[type_path].clear_owned_constructor_members(
+                    frozenset(nested_scope_names[type_path])
+                )
         for (_module_id, path, name), declaration in self._declarations.items():
             nodes[path].register_member(name, declaration)
         return nodes

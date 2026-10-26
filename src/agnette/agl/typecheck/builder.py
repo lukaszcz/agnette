@@ -883,7 +883,8 @@ class _TypeBuilder:
                 scope_path = tuple(segment.name for segment in item.scope_path)
                 table = self._env.type_table
                 typedef = table.named(module_id, _bare_name(item.name), scope_path)
-                base_handle = table.ancestor_defs(typedef.decl_node_id)[0].exception_handle()
+                assert typedef.base is not None
+                base_handle = table.typedef_of(typedef.base).exception_handle()
                 base_fields = self._env.type_table.exception_fields(base_handle)
                 for fd in item.fields:
                     if fd.name in base_fields:

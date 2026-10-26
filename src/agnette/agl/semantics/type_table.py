@@ -588,8 +588,10 @@ class TypeTable:
         # there is no type_args substitution — the memo is keyed directly by
         # declaration identity, one entry per exception.
         self._exception_fields_cache: dict[DeclId, Mapping[str, Type]] = {}
-        # Memo for _exception_chain: each exception's base-first chain.
-        self._exception_chain_cache: dict[DeclId, tuple[tuple[DeclId, TypeDef], ...]] = {}
+        # Memo for exception_field_defs: the field-declaring links of each chain.
+        self._exception_field_links_cache: dict[DeclId, tuple[TypeDef, ...]] = {}
+        # Memo for field_external_names's exception branch — same keying convention.
+        self._exception_external_names_cache: dict[DeclId, Mapping[str, ExternalName]] = {}
         # Memo for field_kinds's exception branch — same keying convention as
         # _exception_fields_cache above.
         self._exception_field_kinds_cache: dict[DeclId, tuple[tuple[str, ParamZone], ...]] = {}
@@ -954,38 +956,59 @@ class TypeTable:
             if methods
         }
 
-    def _exception_chain(self, decl_id: DeclId) -> tuple[tuple[DeclId, TypeDef], ...]:
-        """Return *decl_id*'s base chain, base first.
+    def _along_chain[V](
+        self,
+        decl_id: DeclId,
+        cache: dict[DeclId, V],
+        root: Callable[[], V],
+        extend: Callable[[V, TypeDef], V],
+    ) -> V:
+        """Return the value *extend* builds along *decl_id*'s base chain, base first.
 
-        Every flattened exception accessor inherits base-first declaration
-        order from this one walk. The whole-program inhabitation fixpoint
-        rejects a cyclic ``extends`` chain before any exception's fields are
-        ever flattened, so the walk here is unconditionally finite. Each chain
-        extends its base's memoized one, so a hierarchy is walked once in all.
+        Starts from ``root()`` before the hierarchy root and memoizes every link in
+        *cache*, so each link extends its base's cached value and a hierarchy is
+        walked once in all. The whole-program inhabitation fixpoint rejects a cyclic
+        ``extends`` chain before any exception's fields are ever flattened, so the
+        walk is finite; it is iterative because a chain may be deeper than the stack.
         """
-        cache = self._exception_chain_cache
         pending: list[DeclId] = []
         current: DeclId | None = decl_id
         while current is not None and current not in cache:
             pending.append(current)
             current = self._defs[current].base
-        chain = () if current is None else cache[current]
+        value = root() if current is None else cache[current]
         for pending_id in reversed(pending):
-            chain = (*chain, (pending_id, self._defs[pending_id]))
-            cache[pending_id] = chain
-        return chain
+            value = extend(value, self._defs[pending_id])
+            cache[pending_id] = value
+        return value
 
-    def exception_chain_defs(self, decl_id: DeclId) -> tuple[TypeDef, ...]:
-        """Return *decl_id*'s exception base chain, base first, own def last.
+    def exception_field_defs(self, decl_id: DeclId) -> tuple[TypeDef, ...]:
+        """Return the links of *decl_id*'s exception base chain that declare fields.
 
-        The shared walk every flattened exception accessor
-        (:meth:`exception_fields`, :meth:`field_kinds`, :meth:`field_has_default`,
-        :meth:`field_external_names`) builds on, exposed for a caller outside
-        this module that needs the same base-first order over its own
-        per-declaration data (e.g. a lowered field default keyed by
-        declaration identity) instead of reimplementing the chain walk.
+        Base first, own def last; a link declaring no field is left out. The shared
+        walk a caller outside this module uses to read its own per-declaration data
+        (e.g. a lowered field default keyed by declaration identity) in the base-first
+        order of the flattened accessors (:meth:`exception_fields`,
+        :meth:`field_kinds`, :meth:`field_has_default`, :meth:`field_external_names`)
+        without reimplementing the chain walk.
         """
-        return tuple(typedef for _decl_id, typedef in self._exception_chain(decl_id))
+        return self._along_chain(
+            decl_id,
+            self._exception_field_links_cache,
+            tuple,
+            lambda links, typedef: (*links, typedef) if typedef.fields else links,
+        )
+
+    def _ancestors(self, decl_id: DeclId) -> Iterator[TypeDef]:
+        """Yield *decl_id*'s exception ancestors, nearest first; none for a non-exception."""
+        typedef = self._defs[decl_id]
+        if typedef.kind != "exception":
+            return
+        current = typedef.base
+        while current is not None:
+            ancestor = self._defs[current]
+            yield ancestor
+            current = ancestor.base
 
     def ancestor_defs(self, decl_id: DeclId) -> tuple[TypeDef, ...]:
         """Return *decl_id*'s exception ancestors, nearest first.
@@ -993,15 +1016,11 @@ class TypeTable:
         Empty for a hierarchy root and for any non-exception declaration, so a
         caller checking inherited members needs no base-chain walk of its own.
         """
-        typedef = self._defs[decl_id]
-        if typedef.kind != "exception" or typedef.base is None:
-            return ()
-        chain = self._exception_chain(typedef.base)
-        return tuple(base_def for _base_id, base_def in reversed(chain))
+        return tuple(self._ancestors(decl_id))
 
     def is_exception_ancestor(self, ancestor_id: DeclId, decl_id: DeclId) -> bool:
         """Whether *ancestor_id* is in *decl_id*'s exception base chain."""
-        return any(ancestor.decl_node_id == ancestor_id for ancestor in self.ancestor_defs(decl_id))
+        return any(ancestor.decl_node_id == ancestor_id for ancestor in self._ancestors(decl_id))
 
     def _exception_children_index(self) -> Mapping[DeclId, tuple[DeclId, ...]]:
         """Return the memoized exception declaration id -> direct children ids index.
@@ -1061,7 +1080,8 @@ class TypeTable:
         # one exception can invalidate cached descendants as well as the changed
         # identity. Clear the exception caches wholesale rather than trying to
         # maintain a reverse-inheritance index.
-        self._exception_chain_cache.clear()
+        self._exception_field_links_cache.clear()
+        self._exception_external_names_cache.clear()
         self._exception_fields_cache.clear()
         self._exception_field_kinds_cache.clear()
         self._exception_field_has_default_cache.clear()
@@ -1344,19 +1364,17 @@ class TypeTable:
         exception's own fields, matching declaration order.
 
         """
-        decl_id = handle.decl_id
-        cached = self._exception_fields_cache.get(decl_id)
-        if cached is not None:
-            return cached
-        result = self._flatten_exception_fields(decl_id)
-        self._exception_fields_cache[decl_id] = result
-        return result
+        return self._flatten_exception_fields(handle.decl_id)
 
     def _flatten_exception_fields(self, decl_id: DeclId) -> Mapping[str, Type]:
-        fields: dict[str, Type] = {}
-        for _chain_id, typedef in self._exception_chain(decl_id):
-            fields.update(typedef.fields)
-        return fields
+        return self._along_chain(
+            decl_id,
+            self._exception_fields_cache,
+            dict,
+            lambda fields, typedef: (
+                {**fields, **dict(typedef.fields)} if typedef.fields else fields
+            ),
+        )
 
     def field_kinds(self, handle: RecordType | ExceptionType) -> tuple[tuple[str, ParamZone], ...]:
         """Return *handle*'s ``(field_name, ParamZone)`` pairs, in field order.
@@ -1375,23 +1393,30 @@ class TypeTable:
         fields do; only inheritance is exception-specific.
         """
         if isinstance(handle, ExceptionType):
-            decl_id = handle.decl_id
-            cached = self._exception_field_kinds_cache.get(decl_id)
-            if cached is not None:
-                return cached
-            result = self._flatten_exception_field_kinds(decl_id)
-            self._exception_field_kinds_cache[decl_id] = result
-            return result
+            return self._flatten_exception_field_kinds(handle.decl_id)
         typedef = self._defs[handle.decl_id]
         return tuple(
             zip((fname for fname, _ftype in typedef.fields), typedef.field_kinds, strict=True)
         )
 
     def _flatten_exception_field_kinds(self, decl_id: DeclId) -> tuple[tuple[str, ParamZone], ...]:
-        return tuple(
-            (fname, kind)
-            for _chain_id, typedef in self._exception_chain(decl_id)
-            for (fname, _ftype), kind in zip(typedef.fields, typedef.field_kinds, strict=True)
+        return self._along_chain(
+            decl_id,
+            self._exception_field_kinds_cache,
+            tuple,
+            lambda kinds, typedef: (
+                (
+                    *kinds,
+                    *(
+                        (fname, kind)
+                        for (fname, _ftype), kind in zip(
+                            typedef.fields, typedef.field_kinds, strict=True
+                        )
+                    ),
+                )
+                if typedef.fields
+                else kinds
+            ),
         )
 
     @staticmethod
@@ -1421,13 +1446,7 @@ class TypeTable:
         Consumes declarations already checked for acyclic inheritance.
         """
         if isinstance(handle, ExceptionType):
-            decl_id = handle.decl_id
-            cached = self._exception_field_has_default_cache.get(decl_id)
-            if cached is not None:
-                return cached
-            result = self._flatten_exception_field_has_default(decl_id)
-            self._exception_field_has_default_cache[decl_id] = result
-            return result
+            return self._flatten_exception_field_has_default(handle.decl_id)
         typedef = self._defs[handle.decl_id]
         return tuple(
             zip(
@@ -1438,12 +1457,23 @@ class TypeTable:
         )
 
     def _flatten_exception_field_has_default(self, decl_id: DeclId) -> tuple[tuple[str, bool], ...]:
-        return tuple(
-            (fname, has_default)
-            for _chain_id, typedef in self._exception_chain(decl_id)
-            for (fname, _ftype), has_default in zip(
-                typedef.fields, self._own_field_has_default(typedef), strict=True
-            )
+        return self._along_chain(
+            decl_id,
+            self._exception_field_has_default_cache,
+            tuple,
+            lambda defaults, typedef: (
+                (
+                    *defaults,
+                    *(
+                        (fname, has_default)
+                        for (fname, _ftype), has_default in zip(
+                            typedef.fields, self._own_field_has_default(typedef), strict=True
+                        )
+                    ),
+                )
+                if typedef.fields
+                else defaults
+            ),
         )
 
     def field_external_names(
@@ -1455,11 +1485,16 @@ class TypeTable:
         """
         if isinstance(handle, RecordType):
             return dict(self._defs[handle.decl_id].field_external_names)
-        return {
-            field_name: external
-            for _chain_id, typedef in self._exception_chain(handle.decl_id)
-            for field_name, external in typedef.field_external_names
-        }
+        return self._along_chain(
+            handle.decl_id,
+            self._exception_external_names_cache,
+            dict,
+            lambda names, typedef: (
+                {**names, **dict(typedef.field_external_names)}
+                if typedef.field_external_names
+                else names
+            ),
+        )
 
     def external_name(self, handle: RecordType) -> ExternalName:
         """Return the ``@name``/``@json-name`` spellings of record *handle*'s declaration."""

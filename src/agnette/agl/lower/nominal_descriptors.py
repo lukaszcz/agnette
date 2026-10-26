@@ -82,11 +82,8 @@ def exception_descriptor(
     """
     nominal = NominalId(typedef.decl_node_id)
     fields, field_json_names = json_field_names(type_table, handle)
-    chain = type_table.exception_chain_defs(typedef.decl_node_id)
     defaults_by_field: dict[str, IrExpr | None] = {}
-    for chain_typedef in chain:
-        if not chain_typedef.fields:
-            continue
+    for chain_typedef in type_table.exception_field_defs(typedef.decl_node_id):
         own_defaults = field_defaults.get(
             NominalId(chain_typedef.decl_node_id), (None,) * len(chain_typedef.fields)
         )

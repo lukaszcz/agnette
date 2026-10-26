@@ -27,8 +27,10 @@ class LexError(AglError):
         A recorded failure is raised through a renewed copy at each use, so its
         traceback and context never accumulate on the shared object.
         """
-        clone = Exception.__new__(type(self), *self.args)
-        clone.__dict__.update(self.__dict__)
+        clone = type(self).__new__(type(self))
+        clone.args = (str(self),)
+        clone.span = self.span
+        clone.related = self.related
         return clone
 
 
@@ -58,3 +60,9 @@ class ModuleRouteError(LexError):
         )
         self.route = route
         self.divides = divides
+
+    def renewed(self) -> Self:
+        clone = super().renewed()
+        clone.route = self.route
+        clone.divides = self.divides
+        return clone
