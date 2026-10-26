@@ -102,12 +102,11 @@ class _UseIndex:
 
     A path is exposed by a use only through its first name, so a read of a path
     visits the uses indexed under that name and the globs, not every use.
-    Follows the layer's list as the resolver appends to it; a replaced list is re-read.
+    Follows the layer's list as the resolver appends to it.
     """
 
     def __init__(self, layer: ScopeNode) -> None:
         self._layer = layer
-        self._uses = layer.uses
         self._count = 0
         self._named: dict[str, list[tuple[int, UseDecl]]] = {}
         self._any: list[tuple[int, UseDecl]] = []
@@ -115,9 +114,6 @@ class _UseIndex:
     def matching(self, first: str) -> list[UseDecl]:
         """The layer's uses that can expose a path starting with *first*, in writing order."""
         uses = self._layer.uses
-        if uses is not self._uses or len(uses) < self._count:
-            self._uses, self._count = uses, 0
-            self._named, self._any = {}, []
         for position in range(self._count, len(uses)):
             decl = uses[position]
             names = _first_names(decl)
