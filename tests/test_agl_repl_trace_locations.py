@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 from agnette.agl.repl.session import ReplSession
 
@@ -11,8 +12,7 @@ FAILING = 'exception Boom\n\ndef boom() -> int =\n  raise Boom(message = "x")\n'
 
 
 def _records(path: Path) -> list[dict[str, object]]:
-    records: list[dict[str, object]] = [json.loads(line) for line in path.read_text().splitlines()]
-    return records
+    return [cast(dict[str, object], json.loads(line)) for line in path.read_text().splitlines()]
 
 
 def _session(tmp_path: Path) -> tuple[ReplSession, Path]:
