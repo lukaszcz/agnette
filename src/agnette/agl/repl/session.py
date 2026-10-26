@@ -109,7 +109,7 @@ _TRANSCRIPT_ALLOW_MARK = " allow="
 
 
 class _SavedEntry(NamedTuple):
-    """One transcript entry: its *text*, its offset in the file, and the ``@!allow`` names it ran under."""
+    """One transcript entry: its *text*, file offset and the ``@!allow`` names it ran under."""
 
     text: str
     offset: int
@@ -166,8 +166,8 @@ class _BootstrapSnapshot:
     checked_modules: dict["ModuleId", "CheckedModule"]
 
 
-class SessionOpenError(AglError):
-    """The library image was rejected; carries every :meth:`ReplSession.open` diagnostic."""
+class DiagnosedError(AglError):
+    """An error that carries its diagnostics as already built."""
 
     def __init__(self, diagnostics: tuple[Diagnostic, ...]) -> None:
         super().__init__(diagnostics[0].message)
@@ -178,6 +178,10 @@ class SessionOpenError(AglError):
 
     def diagnostics(self) -> tuple[Diagnostic, ...]:
         return self._diagnostics
+
+
+class SessionOpenError(DiagnosedError):
+    """The library image was rejected; carries every :meth:`ReplSession.open` diagnostic."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1875,7 +1879,14 @@ class ReplSession:
     # ------------------------------------------------------------------
 
     def type_of(self, text: str) -> str:
-        """Return the canonical display type of *text* as an expression entry.
+        """Return the display type of *text*; see :meth:`type_report`."""
+        return self.type_report(text)[0]
+
+    def type_report(self, text: str) -> tuple[str, tuple[Diagnostic, ...]]:
+        """Return the canonical display type of *text* as an expression entry, and its warnings.
+
+        A module-level attribute is governed like an entry's: ``unused-module-doc`` is
+        reported, or raised as a :class:`DiagnosedError` when the policy denies it.
 
         Resolves against the session scope, typechecks against the session
         environment, and match-compiles before reporting the type. It never
@@ -1920,8 +1931,16 @@ class ReplSession:
         typ = checked.node_types[checked.resolved.program.body.items[-1].node_id]
         from agnette.agl.repl.type_display import format_type_for_repl
 
+        outcome = self._govern_warnings(
+            unused_module_doc_warnings(program),
+            resolved_program.modules.values(),
+            scope_complete=True,
+        )
+        if outcome.denied:
+            raise DiagnosedError(outcome.denied)
         self._open_failure = ()
-        return format_type_for_repl(typ, checked.type_env.type_table, self._base_spelling)
+        shown = format_type_for_repl(typ, checked.type_env.type_table, self._base_spelling)
+        return shown, outcome.reported
 
     # ------------------------------------------------------------------
     # Introspection

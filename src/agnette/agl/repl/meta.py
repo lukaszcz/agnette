@@ -135,7 +135,14 @@ def _handle_type(arg: str, ctx: MetaContext) -> MetaOutcome:
     """
     if not arg:
         return MetaOutcome(text="usage: :type EXPR")
-    return _static_query(lambda: MetaOutcome(text=ctx.session.type_of(arg)))
+    from agnette.agl.diagnostics import format_diagnostic
+
+    def query() -> MetaOutcome:
+        shown, warnings = ctx.session.type_report(arg)
+        lines = [format_diagnostic(w, source_name=None) for w in warnings]
+        return MetaOutcome(text="\n".join([*lines, shown]))
+
+    return _static_query(query)
 
 
 def _handle_info(arg: str, ctx: MetaContext) -> MetaOutcome:

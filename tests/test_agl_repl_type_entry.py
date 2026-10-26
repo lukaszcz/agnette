@@ -106,3 +106,22 @@ def test_a_checked_entry_clears_a_remembered_open_failure(
     session.eval_entry(recovery)
 
     assert session.info_of("print")
+
+
+def test_type_of_reports_a_module_doc_like_an_entry() -> None:
+    session = _session()
+
+    shown, warnings = session.type_report('@!doc("x")\n1')
+
+    assert shown == session.type_of("1")
+    assert [w.warning_name for w in warnings] == [UNUSED_MODULE_DOC]
+    assert session.type_report("1")[1] == ()
+
+
+def test_type_of_honours_an_allow_and_a_deny_policy() -> None:
+    assert _session().type_report(f'@!allow("{UNUSED_MODULE_DOC}")\n@!doc("x")\n1')[1] == ()
+
+    with pytest.raises(AglError) as denied:
+        _session(deny=True).type_of('@!doc("x")\n1')
+
+    assert [d.warning_name for d in denied.value.diagnostics()] == [UNUSED_MODULE_DOC]

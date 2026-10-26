@@ -837,7 +837,7 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
 | `:help` | List the available meta-commands |
 | `:quit` / `:exit` (or Ctrl-D) | Exit the REPL |
 | `:reset` | Clear the whole session (bindings, types, declarations, imports, and uses) |
-| `:type EXPR` | Type-check `EXPR` against the session and print its type (no eval) |
+| `:type EXPR` | Type-check `EXPR` against the session and print its type (no eval); a module-level `@!doc` draws the `unused-module-doc` warning as in an entry |
 | `:info NAME` | Show the current binding, function, constructor, type, imported module, or scope region as concise AgL, with its documentation; the rich console highlights it |
 | `:bindings` / `:env` | List current bindings as `name : Type = value` |
 | `:set echo on\|off` | Toggle result echoing |
