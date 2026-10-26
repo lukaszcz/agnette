@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.scope.resolver import _Resolver
+from agnette.agl.scope.resolver import _first_declared_beneath, _Resolver
 from agnette.agl.semantics.types import Type
 from agnette.agl.typecheck.builder import _TypeBuilder
 from agnette.agl.typecheck.env import TypeEnvironment
@@ -66,6 +66,24 @@ def test_releasing_the_inline_member_names_of_many_enums_is_linear_work(tmp_path
                 tmp_path,
                 f"e{enums}",
                 "".join(f"enum E{i}\n  | M{i}(x: int)\n  | Q{i}\n" for i in range(enums)),
+            ),
+        )
+
+    work(1)  # loads the standard library once, whichever test runs first
+    floor = work(1)
+    assert work(160) - floor < 2.5 * (work(80) - floor)
+
+
+def test_pairing_many_aliases_with_the_declarations_beneath_them_is_linear_work(
+    tmp_path: Path,
+) -> None:
+    def work(pairs: int) -> int:
+        return instructions_run_in(
+            _first_declared_beneath,
+            lambda: _check(
+                tmp_path,
+                f"a{pairs}",
+                "".join(f"type A{i} = int\nrecord R{i}\n  a: int\n" for i in range(pairs)),
             ),
         )
 

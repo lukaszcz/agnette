@@ -473,11 +473,16 @@ def _first_declared_beneath(
     segment completing its path.
     """
     completed: tuple[int, ScopePath, SourceSpan] | None = None
+    rank: dict[ScopePath, int] = {}
+    for alias_path in (*aliases, *retained):
+        rank.setdefault(alias_path, len(rank))
     for item, path in _declaring_items(_root_items_as_written(items)[0]):
-        for alias_path in (*aliases, *retained):
+        counts = [len(path)] if isinstance(item, ScopeRegion) else range(len(path) + 1)
+        beneath = sorted(
+            (path[:count] for count in counts if path[:count] in rank), key=rank.__getitem__
+        )
+        for alias_path in beneath:
             count = len(alias_path)
-            if path[:count] != alias_path or (isinstance(item, ScopeRegion) and len(path) != count):
-                continue
             alias = aliases.get(alias_path)
             if alias is not None and alias.start_offset > item.span.start_offset:
                 pair = (alias.start_offset, alias_path, alias)
