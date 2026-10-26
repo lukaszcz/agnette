@@ -1310,9 +1310,7 @@ class _Scanner:
                 # Match the strict outer consumer before the nested scanner resumes.
                 self._track_code_token(token)
         except RecursionError:
-            self._record_recovery_error(
-                LexError(_RECURSION_MESSAGE, span=self._span_here())
-            )
+            self._record_recovery_error(LexError(_RECURSION_MESSAGE, span=self._span_here()))
             self._bracket_depth = bracket_depth
             # The unwound mode stack cannot establish a safe CODE boundary.
             # Keep the prefix and flag the remaining construct through EOF.

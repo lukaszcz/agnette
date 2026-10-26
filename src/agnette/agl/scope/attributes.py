@@ -92,7 +92,7 @@ from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import ParamZone
 
-__all__ = ["recognize_attributes", "recognize_program_registration"]
+__all__ = ["module_allowed_names", "recognize_attributes", "recognize_program_registration"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +234,21 @@ def recognize_attributes(
         warning_exemptions=recognizer.warning_exemptions,
         shell_quoted=recognizer.shell_quoted,
     )
+
+
+def module_allowed_names(program: Program) -> frozenset[str]:
+    """The warning names *program*'s module-level ``@!allow`` lists, validated.
+
+    Empty when the module has none or its inner attributes are invalid (their
+    validation error is reported where the module is resolved).
+    """
+    try:
+        recognized = _validate_attribute_prefix(
+            program.attributes, AttributeTarget.MODULE, ModuleConstants(program), ()
+        )
+    except AglScopeError:
+        return frozenset()
+    return frozenset(recognized.lists.get(ALLOW_ATTRIBUTE, ()))
 
 
 class _Recognizer:

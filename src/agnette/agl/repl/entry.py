@@ -5,10 +5,11 @@ Shared by the session and its program collaborator.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
-from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.diagnostics import Diagnostic, RelatedDiagnostic
+from agnette.agl.syntax.spans import UNKNOWN_SOURCE
 
 if TYPE_CHECKING:
     from agnette.agl.diagnostics import AglError
@@ -102,3 +103,55 @@ class EntryResult:
     type_table: "TypeTable | None" = None
     descriptors: "ValueDescriptors | None" = None
     failure: "AglError | None" = None
+
+
+@dataclass(frozen=True, slots=True)
+class FileOrigin:
+    """Where an entry's text starts inside a file: its 1-based *line* and *column*."""
+
+    label: str
+    line: int
+    column: int
+
+    def position(self, line: int, column: int | None) -> tuple[int, int | None]:
+        """Map an entry-relative position to the file's; columns shift on the first line only."""
+        shifted = column if column is None or line != 1 else column + self.column - 1
+        return line + self.line - 1, shifted
+
+    def _place[D: (Diagnostic, RelatedDiagnostic)](self, diagnostic: D) -> D:
+        """Move one diagnostic's own location (not its notes') into the file."""
+        if diagnostic.source_label not in (None, UNKNOWN_SOURCE.label):
+            return diagnostic  # anchored in another source
+        line, column = self.position(diagnostic.line, diagnostic.column)
+        end_line, end_column = diagnostic.end_line, diagnostic.end_column
+        if end_line is not None:
+            end_line, end_column = self.position(end_line, end_column)
+        return replace(
+            diagnostic,
+            line=line,
+            column=column,
+            end_line=end_line,
+            end_column=end_column,
+            source_label=self.label,
+        )
+
+    def _diagnostic(self, diagnostic: Diagnostic) -> Diagnostic:
+        placed = self._place(diagnostic)
+        return replace(placed, related=tuple(self._place(note) for note in diagnostic.related))
+
+    def locate(self, result: EntryResult) -> EntryResult:
+        """Return *result* with its diagnostics and runtime error placed in the file."""
+        error = result.error
+        if (
+            error is not None
+            and error.line is not None
+            and error.source in (None, UNKNOWN_SOURCE.label)
+        ):
+            line, column = self.position(error.line, error.col)
+            error = replace(error, source=self.label, line=line, col=column)
+        return replace(
+            result,
+            diagnostics=[self._diagnostic(d) for d in result.diagnostics],
+            warnings=[self._diagnostic(w) for w in result.warnings],
+            error=error,
+        )

@@ -26,8 +26,8 @@ from threading import Lock
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
-from agnette.agl.repl.entry import EntryKind, EntryResult
-from agnette.agl.repl.entry_pipeline import EntryPipeline
+from agnette.agl.repl.entry import EntryKind, EntryResult, FileOrigin
+from agnette.agl.repl.entry_pipeline import EntryPipeline, unused_module_doc_warnings
 from agnette.agl.repl.info_docs import format_doc_attribute, module_regions
 from agnette.agl.repl.info_sections import SectionLabel, sourced_label
 from agnette.agl.runtime.externs import ExternRuntimeState
@@ -69,6 +69,7 @@ if TYPE_CHECKING:
     from agnette.agl.semantics.values import BoolValue, Frame, RecordValue, Value
     from agnette.agl.syntax.advisories import SpacedQualifier
     from agnette.agl.syntax.nodes import (
+        Attribute,
         ExportDecl,
         ImportDecl,
         Program,
@@ -515,6 +516,8 @@ class ReplSession:
         # Cached lib modules from prior REPL program entries.
         self._loaded_lib_modules: dict[ModuleId, LoadedModule] = {}
         self._pending_bootstrap_warnings: list[Diagnostic] = []
+        # Warning names a loaded file's leading ``@!allow`` silences in every entry of it.
+        self._inherited_allows: frozenset[str] = frozenset()
         # Compilation artifacts of the library modules this session has loaded,
         # retained across entries. Each pass reuses one only while the entry's
         # graph still holds the very AST object the artifact was derived from,
@@ -842,17 +845,26 @@ class ReplSession:
         successfully as values are never intercepted, so record constructors and
         bindings keep their normal echo.
         """
-        result = self._eval_entry_pipeline(text, check_only=check_only)
+        result, program, next_id = self._eval_entry_pipeline(text, check_only=check_only)
         if self._pending_bootstrap_warnings:
             result.warnings[:0] = self._pending_bootstrap_warnings
             self._pending_bootstrap_warnings.clear()
         if not result.ok:
-            type_result = self._try_type_entry(text, value_failure=result.failure)
+            type_result = self._try_type_entry(
+                text, program=program, next_id=next_id, value_failure=result.failure
+            )
             if type_result is not None:
                 return type_result
         return result
 
-    def _try_type_entry(self, text: str, *, value_failure: AglError | None) -> EntryResult | None:
+    def _try_type_entry(
+        self,
+        text: str,
+        *,
+        program: "Program | None",
+        next_id: int,
+        value_failure: AglError | None,
+    ) -> EntryResult | None:
         """Attempt to interpret *text* as a bare type-expression entry.
 
         Returns a ``kind == "type"`` :class:`EntryResult` echoing the resolved
@@ -883,6 +895,11 @@ class ReplSession:
         the entry (e.g. a type argument, as in ``Box[Option]``) is not what
         was asked for.
 
+        Inner attributes heading the entry (*program*'s, parsed as the value
+        reading, whose ids end before *next_id*) head the synthetic program: they
+        are validated and warned of as they are for any entry, and the type is
+        read from the rest of *text*.
+
         Like :meth:`type_of`, this never evaluates, promotes, advances the
         node-id counter, or mutates session state: the synthetic declaration
         is discarded once its resolved type (or generic definition) is read.
@@ -891,16 +908,20 @@ class ReplSession:
         from agnette.agl.repl.type_display import format_generic_type_def_for_repl
         from agnette.agl.typecheck import UnappliedGenericTypeError
 
-        parsed = _static_verdict(lambda: self._parse_type_entry(text))
+        attributes = () if program is None else program.attributes
+        parsed = _static_verdict(lambda: self._parse_type_entry(text, attributes, next_id))
         if isinstance(parsed, AglError):
             return None
         type_expr, next_node_id, spaced_qualifiers = parsed
-        program, fresh_name, next_node_id = self._type_probe_program(type_expr, next_node_id)
-        checked_program = _static_verdict(
-            lambda: self._entry_pipeline.resolve_and_check_program(
-                program, next_node_id, source_text=text, spaced_qualifiers=spaced_qualifiers
-            )[1]
+        probe, fresh_name, next_node_id = self._type_probe_program(
+            type_expr, next_node_id, attributes
         )
+        verdict = _static_verdict(
+            lambda: self._entry_pipeline.resolve_and_check_program(
+                probe, next_node_id, source_text=text, spaced_qualifiers=spaced_qualifiers
+            )
+        )
+        checked_program = verdict if isinstance(verdict, AglError) else verdict[1]
         if isinstance(checked_program, UnappliedGenericTypeError) and (
             checked_program.span == type_expr.span
         ):
@@ -926,6 +947,12 @@ class ReplSession:
                 else None
             )
 
+        assert not isinstance(verdict, AglError)
+        outcome = self._govern_warnings(
+            unused_module_doc_warnings(probe), verdict[0].modules.values(), scope_complete=True
+        )
+        if outcome.denied:
+            return self._fail(list(outcome.denied), list(outcome.reported))
         checked = checked_program.modules[checked_program.entry_id]
         typ = checked_program.program_type_table[(checked_program.entry_id, (), fresh_name)]
         return EntryResult(
@@ -934,29 +961,41 @@ class ReplSession:
             value=None,
             value_type=typ,
             diagnostics=[],
-            warnings=[],
+            warnings=list(outcome.reported),
             error=None,
             ok=True,
             type_table=checked.type_env.type_table,
         )
 
-    def _parse_type_entry(self, text: str) -> tuple["TypeExpr", int, tuple["SpacedQualifier", ...]]:
-        """Parse *text* standalone as one type expression, with the spaced qualifiers it writes."""
+    def _parse_type_entry(
+        self, text: str, attributes: tuple["Attribute", ...], start_id: int
+    ) -> tuple["TypeExpr", int, tuple["SpacedQualifier", ...]]:
+        """Parse *text* standalone as one type expression, with the spaced qualifiers it writes.
+
+        The leading inner *attributes* are blanked first (positions are kept),
+        so the type is read from the rest of *text*.
+        """
         from agnette.agl.lexer import spaced_qualifier_collector
         from agnette.agl.parser import parse_type_expr_seeded
+        from agnette.util.text import normalize_newlines
 
+        source = normalize_newlines(text)
+        head = max((attribute.span.end_offset for attribute in attributes), default=0)
+        blanked = "".join(ch if ch == "\n" else " " for ch in source[:head]) + source[head:]
         with spaced_qualifier_collector() as spaced_sink:
-            type_expr, next_node_id = parse_type_expr_seeded(text, start_id=self._next_node_id)
+            type_expr, next_node_id = parse_type_expr_seeded(blanked, start_id=start_id)
         return type_expr, next_node_id, tuple(spaced_sink)
 
     @staticmethod
-    def _type_probe_program(type_expr: "TypeExpr", start_id: int) -> tuple["Program", str, int]:
+    def _type_probe_program(
+        type_expr: "TypeExpr", start_id: int, attributes: tuple["Attribute", ...]
+    ) -> tuple["Program", str, int]:
         """Wrap *type_expr* as the target of a fresh ``type <name> = ...`` program.
 
         A bare type has no program-level syntax of its own, so it is probed as
         a fresh alias's target -- the same position ``type X = <type-expr>``
-        resolves through. Returns the program, the fresh alias name, and the
-        next free node id.
+        resolves through. The program carries the entry's inner *attributes*.
+        Returns the program, the fresh alias name, and the next free node id.
         """
         from agnette.agl.syntax.nodes import Block, Program, TypeAlias
 
@@ -964,13 +1003,17 @@ class ReplSession:
         span = type_expr.span
         alias = TypeAlias(name=fresh_name, type_expr=type_expr, span=span, node_id=start_id)
         block = Block(items=(alias,), span=span, node_id=start_id + 1)
-        return Program(body=block, span=span, node_id=start_id + 2), fresh_name, start_id + 3
+        program = Program(body=block, span=span, node_id=start_id + 2, attributes=attributes)
+        return program, fresh_name, start_id + 3
 
-    def _eval_entry_pipeline(self, text: str, *, check_only: bool) -> EntryResult:
+    def _eval_entry_pipeline(
+        self, text: str, *, check_only: bool
+    ) -> tuple[EntryResult, "Program | None", int]:
         """Run the resolve → typecheck → matchcompile → lower/eval entry core.
 
         Completed runtime initializers are promoted even when a later initializer
-        fails.
+        fails. Also returns the entry's parse (``None`` if it did not parse) and
+        the first node id past it.
         """
         from agnette.agl.lexer import spaced_qualifier_collector, tab_warning_collector
         from agnette.agl.parser import parse_program_seeded
@@ -985,14 +1028,14 @@ class ReplSession:
             try:
                 program, next_start_id = parse_program_seeded(text, start_id=self._next_node_id)
             except AglError as exc:
-                return self._fail_static_governed(exc, list(tab_sink))
+                return self._fail_static_governed(exc, list(tab_sink)), None, self._next_node_id
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
         # [1d] REPL entries use the program pipeline by default because that
         # is where the synthetic ``import std/prelude`` prelude is injected.  This
         # keeps the REPL aligned with ``agm exec``: stdlib names are bare unless
         # a host explicitly opts out.
-        return self._entry_pipeline.eval_entry(
+        result = self._entry_pipeline.eval_entry(
             text=text,
             orig_program=program,
             pipeline_program=program,
@@ -1002,6 +1045,7 @@ class ReplSession:
             check_only=check_only,
             spaced_qualifiers=spaced_qualifiers,
         )
+        return result, program, next_start_id
 
     def _build_check_only_result(
         self,
@@ -1068,7 +1112,7 @@ class ReplSession:
         session's roots (none yet if no entry has loaded a module).
         """
         return apply_program_policy(
-            warnings,
+            (w for w in warnings if w.warning_name not in self._inherited_allows),
             modules,
             self._warning_policy,
             scope_complete=scope_complete,
@@ -1940,7 +1984,9 @@ class ReplSession:
         type_name = NameT(
             reference.name, reference.span, reference.node_id, qualifier=reference.qualifier
         )
-        type_program, _fresh_name, type_next_id = self._type_probe_program(type_name, next_node_id)
+        type_program, _fresh_name, type_next_id = self._type_probe_program(
+            type_name, next_node_id, ()
+        )
         resolved = _static_verdict(
             lambda: self._entry_pipeline.resolve_program(
                 program, next_node_id, source_text=name, spaced_qualifiers=spaced_qualifiers
@@ -2320,14 +2366,17 @@ class ReplSession:
         The load halts at the FIRST non-``ok`` result (like running a script);
         the returned list holds the results collected so far, including the
         failing one.  Items that already succeeded remain promoted.  The file's leading
-        inner attributes belong to its first entry, so a module-level ``@!doc`` warns
-        like one typed at the prompt.
+        inner attributes head its first entry, so a module-level ``@!doc`` warns
+        once, like one typed at the prompt, while its ``@!allow`` names govern the
+        warnings of every entry. Diagnostics and runtime errors carry the file's
+        path and file-relative positions.
 
         A syntax error (or over-deep nesting) in the file yields a single failed
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
         items to run and yields an empty list (a benign no-op).
         """
         from agnette.agl.parser import parse_repl_transcript
+        from agnette.agl.scope.attributes import module_allowed_names
         from agnette.core.fs import read_text
         from agnette.util.text import normalize_newlines
 
@@ -2356,20 +2405,32 @@ class ReplSession:
         try:
             program = parse_repl_transcript(normalized)
         except AglError as exc:
-            return [self._fail_static(exc, [])]
+            return [FileOrigin(str(path), 1, 1).locate(self._fail_static(exc, []))]
 
-        # The file's leading inner attributes head its first item, as if typed with it.
+        # The file's leading inner attributes head its first item, as if typed with it;
+        # their ``@!allow`` names govern every item. A file of attributes alone is one entry.
+        label = str(path)
         leading = [attribute.span.start_offset for attribute in program.attributes]
+        spans = [(item.span.start_offset, item.span.end_offset) for item in program.body.items]
+        if not spans:
+            spans = [(min(leading), max(a.span.end_offset for a in program.attributes))]
         results: list[EntryResult] = []
-        for index, item in enumerate(program.body.items):
-            start = (
-                min([item.span.start_offset, *leading]) if index == 0 else item.span.start_offset
-            )
-            slice_text = normalized[start : item.span.end_offset]
-            result = self.eval_entry(slice_text)
-            results.append(result)
-            if not result.ok:
-                break  # halt on the first failing item, like a script
+        self._inherited_allows = module_allowed_names(program)
+        try:
+            for index, (start, end) in enumerate(spans):
+                if index == 0:
+                    start = min([start, *leading])
+                origin = FileOrigin(
+                    label,
+                    normalized.count("\n", 0, start) + 1,
+                    start - normalized.rfind("\n", 0, start),
+                )
+                result = origin.locate(self.eval_entry(normalized[start:end]))
+                results.append(result)
+                if not result.ok:
+                    break  # halt on the first failing item, like a script
+        finally:
+            self._inherited_allows = frozenset()
         return results
 
     def dump_source(self) -> str:

@@ -902,7 +902,9 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   A module-level `@!doc` in an entry or a `:load`ed file documents nothing (a session is no
   module) and draws the `unused-module-doc` warning; a region's `@!doc` is unaffected, and
   `@!allow("unused-module-doc")` hides the warning. A loaded file's leading inner attributes
-  belong to its first entry.
+  head its first entry (which draws the `unused-module-doc` warning, once), and its
+  `@!allow` names govern the warnings of every entry loaded from it. A loaded file's
+  diagnostics and runtime errors name the file and use file-relative lines and columns.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the
