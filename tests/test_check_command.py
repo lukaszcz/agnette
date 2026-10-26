@@ -290,27 +290,40 @@ class TestCheckCommand:
         captured = capsys.readouterr()
         assert "broken.agl" in captured.err
 
-    @pytest.mark.parametrize(("hidden", "reported"), [("g", False), ("Rec", True)])
-    def test_hiding_a_name_is_reported_in_a_pattern_only_for_a_constructor(
+    @pytest.mark.parametrize(
+        ("hidden", "pattern", "import_", "changes_verdict"),
+        [
+            ("g", "g", "import hid::*", False),
+            ("g", "hid::g", "import hid", False),
+            ("Rec", "Rec", "import hid::*", True),
+            ("Rec", "hid::Rec", "import hid", True),
+        ],
+    )
+    def test_hiding_a_name_changes_a_pattern_verdict_only_for_a_constructor(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
         hidden: str,
-        reported: bool,
+        pattern: str,
+        import_: str,
+        changes_verdict: bool,
     ) -> None:
+        """Hiding a constructor rejects its pattern differently; hiding any other name does not."""
         (tmp_path / "hid.agl").write_text("record Rec\n  a: int\n\ndef g() -> int = 2\n")
         entry = tmp_path / "entry.agl"
-        entry.write_text(
-            f"import hid::* hiding {hidden}\n"
-            "def h(c: int) -> int =\n"
-            f"  case c of\n    | {hidden} => 1\n    | _ => 2\n"
-        )
 
-        with pytest.raises(SystemExit) as exc_info:
-            check_command.run(CheckArgs(files=[str(entry)]))
-        assert exc_info.value.code == 1
+        def verdict(hiding: str) -> str:
+            entry.write_text(
+                f"{import_}{hiding}\n"
+                "def h(c: int) -> int =\n"
+                f"  case c of\n    | {pattern} => 1\n    | _ => 2\n"
+            )
+            with pytest.raises(SystemExit) as exc_info:
+                check_command.run(CheckArgs(files=[str(entry)]))
+            assert exc_info.value.code == 1
+            return capsys.readouterr().err
 
-        assert ("hidden" in capsys.readouterr().err) is reported
+        assert (verdict(f" hiding {hidden}") != verdict("")) is changes_verdict
 
     def test_an_entry_type_error_is_reported_before_an_imported_modules(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
