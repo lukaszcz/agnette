@@ -118,6 +118,24 @@ A value created with `keep_in_debug=True` is instead left unclosed when the
 session ends with `std/config::debug` set, so a debugging artifact (`std/fs`
 temporary paths) survives for inspection.
 
+State is per process. A forked child starts with an empty state: the entries
+of its parent are inert in the child and are neither returned nor closed there,
+and a key first requested in the child calls its `factory` afresh. A value
+created with a `fork` callable is carried over: `fork(value)` runs in the parent
+just before the fork and returns the child's value, which is closed by the same
+`close` and keeps the same `keep_in_debug` and `fork`. If the fork does not
+happen, the values `fork` made are closed in the parent; a `fork` that raises
+fails the fork the same way. After a successful fork the parent drops its copy
+of each such value without calling `close`, so a `fork` value must not own a
+finalizer that acts on shared resources.
+
+```python
+def rng() -> random.Random:
+    return runtime.state(
+        "mylib/rng", random.Random, fork=lambda r: random.Random(r.getrandbits(128))
+    )
+```
+
 A `close` that raises never replaces a run already failing: it is attached as
 a note on that in-flight error, while on an otherwise clean exit it is itself
 raised as the run's error.
@@ -164,6 +182,38 @@ top-level directory), so calls through a package's own wrapper functions are
 attributed to the call the program author wrote. When the whole active call
 chain stays inside that mount (an entry point that is itself part of it), the
 immediate call is reported, and `site` is that call's own module.
+
+### Processes
+
+`runtime.processes` is the running program's process host, usable only inside
+an extern call (elsewhere it raises `agl.ProcessHostError`). It forks the
+program into child processes and carries their results back as `bytes`, so it
+pairs with `agl.transfer`:
+
+- `fork(child, sessions)` runs `child()` (returning `bytes`) in a forked
+  process and returns an object with `id` and `pid`. It raises
+  `agl.ProcessHostError` unless the process has a single Python thread, or if
+  the OS refuses; an interrupt during the fork aborts it, and no child remains.
+- `settle(id)` blocks until the process has finished; `settle_any(ids)` until
+  one has, and returns the lowest index of a finished one.
+- `outcome(id)` blocks, then returns `Delivered(payload)` if `child`
+  returned, `Failed(message)` if it raised a Python `Exception` (also a
+  failing `close` of its companion state at exit), or `Ended(exit_code, signal)`
+  if it ended without a result, e.g. by `SystemExit` or a signal. These classes
+  are attributes of `runtime.processes` (`runtime.processes.Delivered`, ...). A
+  result delivered completely wins over the exit status. Outcomes are not
+  consumed: repeating the call returns the same one.
+- `detach(id)` releases the process: it is no longer awaited.
+
+An id is valid only in the process that forked it and only while attached:
+unknown, detached, and inherited ids raise `agl.ProcessHostError`. Waiting
+drains the results of every attached child, so none stalls on an unread result.
+
+The child is a copy of the program at the fork. It runs in a process group of
+its own with `/dev/null` as stdin, shares stdout and stderr (buffered output is
+flushed before the fork), and treats SIGINT, SIGTERM, and SIGHUP as
+`KeyboardInterrupt`. Its [companion state](#companion-state) is carried over as
+described there. The child never returns into the companion that forked it.
 
 ## Value mapping
 

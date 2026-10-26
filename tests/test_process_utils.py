@@ -25,6 +25,7 @@ from agnette.core.process import (
     _wait_for_process_group_exit,
     _write_stream,
     exit_with_output,
+    kill_group,
     kill_process_group,
     require_capture,
     require_success,
@@ -352,6 +353,13 @@ class TestWaitForProcessGroupExit:
 # ---------------------------------------------------------------------------
 # kill_process_group
 # ---------------------------------------------------------------------------
+
+
+def test_kill_group_signals_a_group_by_id_and_reports_whether_it_existed() -> None:
+    proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    assert kill_group(proc.pid)
+    proc.wait(timeout=5)
+    assert not kill_group(proc.pid)
 
 
 class TestKillProcessGroup:

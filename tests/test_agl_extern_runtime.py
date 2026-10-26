@@ -68,6 +68,28 @@ def test_native_scalars_round_trip_without_a_declared_schema(tmp_path: Path) -> 
     assert result["e"] == UNIT_VALUE
 
 
+def test_user_nominals_named_like_process_outcomes_stay_importable(tmp_path: Path) -> None:
+    source = (
+        "record Failed\n  reason: text\n"
+        "record Delivered\n  size: int\n"
+        "record Ended\n  code: int\n"
+        "extern def make() -> Failed\n"
+        "extern def sizes() -> Delivered\n"
+        "extern def code() -> Ended\n"
+        "let made = make()\nlet sized = sizes()\nlet coded = code()\n()\n"
+    )
+    companion = (
+        "from agl import Delivered, Ended, Failed\n"
+        "def make(): return Failed(reason='x')\n"
+        "def sizes(): return Delivered(size=1)\n"
+        "def code(): return Ended(code=2)\n"
+    )
+    result, _ = evaluate_ir_with_externs(source, companion, tmp_path)
+    assert result["made"].fields == {"reason": TextValue("x")}
+    assert result["sized"].fields == {"size": IntValue(1)}
+    assert result["coded"].fields == {"code": IntValue(2)}
+
+
 def test_enum_nested_variant_classes_support_matching(tmp_path: Path) -> None:
     source = (
         "enum Shape\n  | Circle(radius: int)\n  | Square(side: int)\n"
@@ -615,6 +637,149 @@ def test_extern_runtime_state_get_or_create_without_a_closer_drops_the_value_sil
     state.get_or_create("k", lambda: object())
 
     state.close_all()  # nothing registered to close; must not raise
+
+
+def _forkable_state(closed: list[str]) -> ExternRuntimeState:
+    """A state with a forkable entry, a plain closeable entry, and a debug-kept forkable one."""
+    state = ExternRuntimeState()
+    state.get_or_create(
+        "forkable",
+        lambda: "parent",
+        lambda value: closed.append(f"close:{value}"),
+        fork=lambda value: f"{value}>child",
+    )
+    state.get_or_create("plain", lambda: "plain", lambda value: closed.append(f"close:{value}"))
+    state.get_or_create(
+        "kept",
+        lambda: "kept",
+        lambda value: closed.append(f"close:{value}"),
+        keep_in_debug=True,
+        fork=lambda value: f"{value}>child",
+    )
+    return state
+
+
+def test_forked_child_state_holds_only_hook_made_entries_with_the_same_closers() -> None:
+    closed: list[str] = []
+    state = _forkable_state(closed)
+
+    state.enter_forked_child(state.prepare_fork())
+
+    # Hook-made entries are returned as-is; the factory is not called for them.
+    assert state.get_or_create("forkable", lambda: "fresh") == "parent>child"
+    state.close_all()
+    assert closed == ["close:kept>child", "close:parent>child"]
+
+
+def test_forked_child_state_creates_a_fresh_value_for_an_inherited_key_without_a_hook() -> None:
+    closed: list[str] = []
+    state = _forkable_state(closed)
+
+    state.enter_forked_child(state.prepare_fork())
+
+    assert state.get_or_create("plain", lambda: "child-plain", closed.append) == "child-plain"
+    state.close_all()
+    # Inherited values are never closed; the child's own closes after its older entries.
+    assert closed == ["child-plain", "close:kept>child", "close:parent>child"]
+
+
+def test_forked_child_state_keeps_the_debug_exemption_of_hook_made_entries() -> None:
+    closed: list[str] = []
+    state = _forkable_state(closed)
+
+    state.enter_forked_child(state.prepare_fork())
+    state.close_all(debug=True)
+
+    assert closed == ["close:parent>child"]
+
+
+def test_forked_child_hooks_apply_again_to_a_nested_fork() -> None:
+    state = _forkable_state([])
+
+    state.enter_forked_child(state.prepare_fork())
+    state.enter_forked_child(state.prepare_fork())
+
+    assert state.get_or_create("forkable", lambda: "fresh") == "parent>child>child"
+
+
+def test_prepare_fork_leaves_the_parent_state_untouched() -> None:
+    closed: list[str] = []
+    state = _forkable_state(closed)
+
+    state.prepare_fork()
+
+    assert state.get_or_create("forkable", lambda: "fresh") == "parent"
+    state.close_all()
+    assert closed == ["close:kept", "close:plain", "close:parent"]
+
+
+def test_aborted_fork_closes_the_produced_values_in_reverse_order_once() -> None:
+    closed: list[str] = []
+    state = _forkable_state(closed)
+    forked = state.prepare_fork()
+
+    forked.abort()
+    forked.abort()
+
+    assert closed == ["close:kept>child", "close:parent>child"]
+
+
+def test_abort_after_entering_the_child_closes_nothing() -> None:
+    closed: list[str] = []
+    state = _forkable_state(closed)
+    forked = state.prepare_fork()
+
+    state.enter_forked_child(forked)
+    forked.abort()
+
+    assert closed == []
+
+
+def test_failing_fork_hook_closes_earlier_produced_values_and_propagates() -> None:
+    closed: list[str] = []
+
+    def _fail(_value: str) -> str:
+        raise RuntimeError("hook failed")
+
+    state = ExternRuntimeState()
+    state.get_or_create("a", lambda: "a", closed.append, fork=lambda value: f"{value}1")
+    state.get_or_create("b", lambda: "b", closed.append, fork=lambda value: f"{value}1")
+    state.get_or_create("c", lambda: "c", closed.append, fork=_fail)
+
+    with pytest.raises(RuntimeError, match="hook failed"):
+        state.prepare_fork()
+
+    assert closed == ["b1", "a1"]
+    state.close_all()
+    assert closed == ["b1", "a1", "c", "b", "a"]
+
+
+def test_fork_hook_may_create_state_while_the_fork_is_prepared() -> None:
+    state = ExternRuntimeState()
+    state.get_or_create(
+        "a", lambda: "a", fork=lambda value: state.get_or_create("late", lambda: "late") + value
+    )
+
+    state.enter_forked_child(state.prepare_fork())
+
+    assert state.get_or_create("a", lambda: "fresh") == "latea"
+
+
+def test_failing_closer_during_prepare_rollback_is_attached_to_the_hook_failure() -> None:
+    def _fail_close(_value: str) -> None:
+        raise RuntimeError("close failed")
+
+    def _fail_fork(_value: str) -> str:
+        raise RuntimeError("hook failed")
+
+    state = ExternRuntimeState()
+    state.get_or_create("a", lambda: "a", _fail_close, fork=lambda value: value)
+    state.get_or_create("b", lambda: "b", fork=_fail_fork)
+
+    with pytest.raises(RuntimeError, match="hook failed") as excinfo:
+        state.prepare_fork()
+
+    assert any("close failed" in note for note in excinfo.value.__notes__)
 
 
 def test_close_detached_state_closes_state_created_by_a_direct_companion_call(

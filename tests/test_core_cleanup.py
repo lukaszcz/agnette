@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from agnette.core.cleanup import preserve_primary_error, run_cleanup_steps
+from agnette.core.cleanup import (
+    cleanup_on_failure,
+    notes_of,
+    preserve_primary_error,
+    run_cleanup_steps,
+)
 
 
 def test_preserve_primary_error_runs_cleanup_on_a_clean_exit() -> None:
@@ -31,6 +36,32 @@ def test_preserve_primary_error_attaches_a_failing_cleanup_as_a_note() -> None:
             raise ValueError("primary")
 
     assert any("my cleanup also failed: cleanup failed" in note for note in excinfo.value.__notes__)
+
+
+def test_cleanup_on_failure_does_nothing_on_a_clean_exit() -> None:
+    ran = []
+    with cleanup_on_failure(lambda: ran.append(True), label="cleanup"):
+        pass
+    assert ran == []
+
+
+def test_cleanup_on_failure_cleans_up_and_keeps_the_active_exception() -> None:
+    ran = []
+    with pytest.raises(ValueError, match="primary"):
+        with cleanup_on_failure(lambda: ran.append(True), label="cleanup"):
+            raise ValueError("primary")
+    assert ran == [True]
+
+
+def test_cleanup_on_failure_attaches_a_failing_cleanup_as_a_note() -> None:
+    def _fail() -> None:
+        raise RuntimeError("cleanup failed")
+
+    with pytest.raises(ValueError, match="primary") as excinfo:
+        with cleanup_on_failure(_fail, label="my cleanup"):
+            raise ValueError("primary")
+
+    assert notes_of(excinfo.value) == ("my cleanup also failed: cleanup failed",)
 
 
 def test_run_cleanup_steps_runs_every_step_in_order() -> None:

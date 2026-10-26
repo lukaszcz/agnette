@@ -4,13 +4,15 @@ Two shared foundation packages serve both `agnette.agm` and `agnette.agl`. `agne
 
 ## Process Execution
 
-Subprocess work goes through `core/process.py`: terminal-inheriting and captured runs, require-success variants, and process-group management so an interruption tears down descendants.
+Subprocess work goes through `core/process.py`: terminal-inheriting and captured runs, require-success variants, and process-group management (`kill_process_group` tears down a `Popen`'s group; `kill_group` signals any group by id, e.g. a forked AgL child's) so an interruption tears down descendants.
 
 - Callers may register a cleanup command for a resource they own but do not contain (`agm run`'s systemd scope); AgL hosts map terminating signals to `SystemExit` so session cleanup runs.
 - A foreground variant ignores interactive signals while the child runs (editor behavior).
 - Captured output is held as bytes and decoded once: strictly for AgL-facing captures (invalid UTF-8 is a typed error), leniently for display and internal plumbing.
 - Captured stdout can stream through a temporary file instead of a pipe for CLIs that cannot tolerate pipe backpressure.
 - Deliberate exceptions: the persistent Pi RPC child ([agents.md](agents.md)) and tmux's interactive terminal handoff.
+
+`core/signals.py` holds signal primitives: `SignalWakeup` makes a blocking `poll` return on any signal, so a raising handler interrupts the wait at once; `held_signals` blocks signals around a critical section.
 
 ## Environment Handling
 
@@ -39,6 +41,7 @@ Package companions run in AgM's own interpreter. `core/pyenv.py` classifies PEP 
 ## Code Entry Points
 
 - `src/agnette/core/process.py`, `env.py` — subprocess execution and cleanup registration; environment handling.
+- `src/agnette/core/signals.py` — signal-wakeup for blocking polls, held-signal sections.
 - `src/agnette/core/fs.py`, `toml.py`, `dotenv.py`, `path.py` — dry-run-aware filesystem, TOML, dotenv writing, path helpers.
 - `src/agnette/core/http.py` — the HTTP transport seam; `pyenv.py` — interpreter requirements.
 - `src/agnette/core/dry_run.py`, `cleanup.py`, `log.py` — dry-run state, error-preserving cleanup, logging.

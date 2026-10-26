@@ -46,6 +46,7 @@ from agnette.agl.runtime.agents import agent_value as encode_agent_value
 from agnette.agl.runtime.codec import ParseResult
 from agnette.agl.runtime.externs import ActiveCall, ExternRegistry, ExternRuntimeState
 from agnette.agl.runtime.option import none_value, option_text, some_value
+from agnette.agl.runtime.processes import ProcessHost
 from agnette.agl.runtime.render import render_value
 from agnette.agl.runtime.request import (
     AgentCallHostError,
@@ -125,6 +126,7 @@ class EffectCtx(Protocol):
     _strict_json: bool
     _extern_registry: ExternRegistry
     _extern_runtime_state: ExternRuntimeState
+    _process_host: ProcessHost
     _extern_span_resolver: Callable[
         [ModuleId, "Location | None"], "tuple[Location | None, ModuleId | None]"
     ]
@@ -253,6 +255,7 @@ class EffectHandlers:
                 function_encoder=self._ctx._make_extern_callable_proxy,
                 active_call=ActiveCall(
                     state=self._ctx._extern_runtime_state,
+                    processes=self._ctx._process_host,
                     trace_store=self._ctx._trace,
                     module_id=module_id,
                     location=location,

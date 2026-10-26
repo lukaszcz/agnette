@@ -6,12 +6,14 @@ import io
 import itertools
 import os
 import resource
+import signal
 import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
+from unittest import mock
 
 import pytest
 
@@ -30,6 +32,8 @@ from tests._agl_helpers import (
     unavailable_sandbox_context,
     write_sandbox_home,
 )
+from tests._signal_helpers import before_each_poll, signal_handler, trip_signal_off_thread
+from tests._timeouts import fail_if_slow
 from tests.test_agent_rpc import RpcStub, open_backend
 
 _PI = AgentPi(provider="provider", model="model", thinking="think")
@@ -776,6 +780,80 @@ def test_next_line_times_out_without_data(stdout_pipe: _Pipe, stderr_pipe: _Pipe
     backend._settings = replace(backend._settings, idle_timeout=0)
     with pytest.raises(rpc._RpcIdleTimeout):
         backend._next_line(child)
+
+
+def _waiting_backend(stdout_pipe: _Pipe, stderr_pipe: _Pipe) -> rpc.PiRpcSessionBackend:
+    child = _child(_Idle())
+    child.stdout_stream = stdout_pipe.stream
+    child.stderr_stream = stderr_pipe.stream
+    return rpc.PiRpcSessionBackend(child, _settings(idle_timeout=None))
+
+
+def test_a_signal_that_did_not_interrupt_the_poll_still_wakes_a_pump_without_deadline(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    backend = _waiting_backend(stdout_pipe, stderr_pipe)
+    seen: list[int] = []
+
+    def before(call: int) -> None:
+        # The first poll starts with a signal tripped but the system call not interrupted.
+        if call == 0:
+            trip_signal_off_thread(signal.SIGUSR1)
+        else:
+            stdout_pipe.write(b'{"a":1}\n')
+
+    with (
+        signal_handler(signal.SIGUSR1, lambda number, frame: seen.append(number)),
+        before_each_poll(before),
+        fail_if_slow("the pump slept through a signal", seconds=10),
+    ):
+        line = backend._next_line(backend._child)
+
+    assert (line, seen) == ('{"a":1}', [signal.SIGUSR1])
+
+
+def test_a_wait_installs_one_wakeup_however_many_times_it_polls(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    backend = _waiting_backend(stdout_pipe, stderr_pipe)
+    real = signal.set_wakeup_fd
+    installs: list[int] = []
+
+    def counting(fd: int, **kwargs: bool) -> int:
+        installs.append(fd)
+        return real(fd, **kwargs)
+
+    chunks = [b'{"a"', b":1", b"}\n"]
+    with (
+        mock.patch.object(signal, "set_wakeup_fd", counting),
+        before_each_poll(lambda call: stdout_pipe.write(chunks[call])),
+    ):
+        line = backend._next_line(backend._child)
+
+    assert line == '{"a":1}'
+    # One install, one restore.
+    assert len(installs) == 2
+
+
+def test_a_raising_signal_handler_interrupts_a_pump_and_leaves_no_wakeup_behind(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    backend = _waiting_backend(stdout_pipe, stderr_pipe)
+
+    def interrupt(number: int, frame: object) -> None:
+        raise KeyboardInterrupt
+
+    fds = len(os.listdir("/proc/self/fd"))
+    with (
+        signal_handler(signal.SIGUSR1, interrupt),
+        before_each_poll(lambda call: trip_signal_off_thread(signal.SIGUSR1)),
+        fail_if_slow("the pump slept through a signal", seconds=10),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        backend._next_line(backend._child)
+
+    assert signal.set_wakeup_fd(-1) == -1
+    assert len(os.listdir("/proc/self/fd")) == fds
 
 
 def test_next_line_reports_stdout_eof_after_delivering_complete_records(

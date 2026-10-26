@@ -152,7 +152,9 @@ from agnette.agl.runtime.externs import (
     ExternRuntimeState,
     active_call_span,
 )
+from agnette.agl.runtime.fork_participants import CompanionStateParticipant, StdioFlushParticipant
 from agnette.agl.runtime.option import none_value, option_text, some_value
+from agnette.agl.runtime.processes import ProcessHost
 from agnette.agl.runtime.render import render_key_value_syntax, render_value
 from agnette.agl.runtime.serialize import AglNonDataValue, encode_scalar
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
@@ -565,6 +567,12 @@ class IrInterpreter:
         self._owns_extern_runtime_state = extern_runtime_state is None
         self._extern_runtime_state = (
             extern_runtime_state if extern_runtime_state is not None else ExternRuntimeState()
+        )
+        # A forked child carries this interpreter's companion state.
+        self._process_host = ProcessHost()
+        self._process_host.register(StdioFlushParticipant())
+        self._process_host.register(
+            CompanionStateParticipant(self._extern_runtime_state, lambda: self.debug)
         )
         self._effects = EffectHandlers(self)
 

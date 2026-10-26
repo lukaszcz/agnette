@@ -1,0 +1,11 @@
+# Runs in the isolated runner: the companion forks through the interpreter's process host,
+# and the child sees the forked companion state while the parent's stays its own.
+@extern-name("forked_double")
+extern def forked-double(n: int) -> int
+
+@extern-name("forked_state")
+extern def forked-state() -> text
+
+program def main() -> unit =
+  print "double: %{forked-double(7)}"
+  print "state: %{forked-state()}"

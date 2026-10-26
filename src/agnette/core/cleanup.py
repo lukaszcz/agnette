@@ -8,11 +8,10 @@ from typing import cast
 
 
 @contextmanager
-def preserve_primary_error(cleanup: Callable[[], None], *, label: str) -> Generator[None]:
-    """Run *cleanup*, without allowing it to replace an active exception.
+def cleanup_on_failure(cleanup: Callable[[], None], *, label: str) -> Generator[None]:
+    """Run *cleanup* only if the body raises, without replacing that exception.
 
-    A cleanup failure remains observable on a clean exit.  If execution is
-    already failing, attach that failure to the active exception instead.
+    A cleanup failure is attached to the active exception as a note.
     """
     try:
         yield
@@ -22,8 +21,18 @@ def preserve_primary_error(cleanup: Callable[[], None], *, label: str) -> Genera
         except BaseException as cleanup_error:
             primary_error.add_note(f"{label} also failed: {cleanup_error}")
         raise
-    else:
-        cleanup()
+
+
+@contextmanager
+def preserve_primary_error(cleanup: Callable[[], None], *, label: str) -> Generator[None]:
+    """Run *cleanup*, without allowing it to replace an active exception.
+
+    A cleanup failure remains observable on a clean exit.  If execution is
+    already failing, attach that failure to the active exception instead.
+    """
+    with cleanup_on_failure(cleanup, label=label):
+        yield
+    cleanup()
 
 
 def run_cleanup_steps(steps: Sequence[Callable[[], None]]) -> None:

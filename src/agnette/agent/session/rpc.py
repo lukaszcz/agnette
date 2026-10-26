@@ -36,6 +36,7 @@ from agnette.agent.transport import (
     stderr_tail,
 )
 from agnette.core.process import CapturedOutput, stop_process
+from agnette.core.signals import SignalWakeup
 from agnette.sandbox.backend import SandboxSettingsError, SandboxUnavailableError
 from agnette.sandbox.prepare import sandbox_run_for
 from agnette.sandbox.profile import profile_name
@@ -481,10 +482,11 @@ class PiRpcSessionBackend(SandboxFixture):
             else time.monotonic() + self._settings.idle_timeout
         )
         buffer = child.stdout_buffer
-        while (newline := buffer.find(b"\n")) < 0:
-            if child.stdout_stream is None:
-                raise _RpcProcessExited
-            _pump(child, deadline, _NOTHING)
+        with SignalWakeup() as wakeup:
+            while (newline := buffer.find(b"\n")) < 0:
+                if child.stdout_stream is None:
+                    raise _RpcProcessExited
+                _pump(child, deadline, _NOTHING, wakeup)
         line = bytes(buffer[:newline])
         del buffer[: newline + 1]
         if line.endswith(b"\r"):
@@ -594,16 +596,20 @@ def _drain_stderr(child: _RpcChild) -> None:
         pass
 
 
-def _pump(child: _RpcChild, deadline: float | None, pending: memoryview) -> memoryview:
+def _pump(
+    child: _RpcChild, deadline: float | None, pending: memoryview, wakeup: SignalWakeup
+) -> memoryview:
     """Service the child's pipes once, on the calling thread; return unwritten *pending*.
 
     Waits until stdout or stderr is readable or, while *pending* stdin data
     remains, stdin is writable, and handles only the ready pipes.  Reading
     output while writing keeps a child that blocks on a full output pipe from
     ever stalling its own stdin read.  Raises :class:`_RpcIdleTimeout` once
-    *deadline* (monotonic, ``None`` for none) has passed.  The poll object is
-    per call, so nothing survives an ``os.fork`` and descriptors beyond
-    ``FD_SETSIZE`` work.
+    *deadline* (monotonic, ``None`` for none) has passed.  A signal wakes the
+    poll through *wakeup* (entered by the caller for its whole wait), so a
+    raising Python handler interrupts the pump at once; a non-raising one leaves
+    the caller to pump again.  The poll object is per call, so nothing survives
+    an ``os.fork`` and descriptors beyond ``FD_SETSIZE`` work.
     """
     timeout = None
     if deadline is not None:
@@ -621,7 +627,8 @@ def _pump(child: _RpcChild, deadline: float | None, pending: memoryview) -> memo
         descriptors.append((stdin_fd, select.POLLOUT))
     for descriptor, events in descriptors:
         poller.register(descriptor, events)
-    ready = {descriptor for descriptor, _ in poller.poll(timeout)}
+    wakeup.register(poller)
+    ready = {fd for fd, _ in poller.poll(timeout) if not wakeup.consume(fd)}
     # Any event, hangup and error included, is resolved by the read or write itself.
     if stderr is not None and stderr.fileno() in ready:
         _read_stderr(child, stderr)
@@ -647,8 +654,9 @@ def _write_command(
     )
     deadline = None if idle_timeout is None else time.monotonic() + idle_timeout
     pending = memoryview(data)
-    while pending:
-        pending = _pump(child, deadline, pending)
+    with SignalWakeup() as wakeup:
+        while pending:
+            pending = _pump(child, deadline, pending, wakeup)
 
 
 def _spawn(

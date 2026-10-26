@@ -25,10 +25,17 @@ The runtime package is the eval-free services layer: agent dispatch and session 
 
 `builtin var` bindings are identified by module, scope path, and name. Root `std/config` bindings are engine-setting registers with live effects ([../hosting.md](../hosting.md)); others are ambient values a host may seed (e.g. the environment snapshot). The trace store (`runtime/trace.py`) writes best-effort JSONL (each record tagged with the writer's `pid` and appended whole, so forked processes' records do not interleave) for run boundaries, `print`, agent requests and responses, shell executions, escaping exceptions, and companion `runtime.trace` records ([ffi.md](ffi.md)) — never ordinary evaluation. Writes to `trace`/`trace-file` repoint it live (`runtime/host_settings.py`).
 
+## Process Host
+
+`runtime/processes.py` is the eval-free `ProcessHost`: `os.fork`ed children (a single Python thread is required) that run a callable and report an opaque outcome over a private framed pipe — `Delivered` bytes, `Failed` (a Python exception), or `Ended` (exit status or signal); it knows no AgL values. A child leads its own process group, owns an empty process table, and never returns into the caller's stack. Terminating signals are held only across the short critical sections that keep host state consistent (fork, reaping, detach); blocking waits drain every attached child and wake on any signal (`core.signals`), so interrupts propagate promptly. Handles are valid only in the forking process while attached. The outcome types are `ProcessHost` class attributes, not names in `agl`.
+
+`ForkParticipant`s (registered in order by the host's owner) extend a fork with other services' state: `prepare` in the parent (prepared states `abort`ed if the fork fails), then `parent`/`child`, and `child_exit` in reverse in the child. `runtime/fork_participants.py` holds the built-ins: stdio flush and companion state ([ffi.md](ffi.md) fork hooks). `IrInterpreter` owns a host with both and hands it to companions through `ActiveCall` as `runtime.processes`.
+
 ## Code Entry Points
 
 - `src/agnette/agl/runtime/agents.py`, `sessions.py`, `request.py`, `sandbox_values.py` — agent dispatch, sessions, requests, sandbox operands; `arguments.py` — program-argument binding; `host_agents.py` — companion agent services.
 - `src/agnette/agl/runtime/codec.py`, `convert.py`, `value_decode.py`, `engine_config.py` — output parsing, conversion, host-value decoding, engine settings.
 - `src/agnette/agl/runtime/render.py`, `serialize.py` — rendering and JSON serialization.
 - `src/agnette/agl/runtime/trace.py`, `host_settings.py`, `types.py`, `option.py` — tracing, live settings, host types, `Option` construction.
+- `src/agnette/agl/runtime/processes.py`, `fork_participants.py` — process host and its built-in fork participants.
 - `src/agnette/agl/runtime/externs.py`, `boundary.py` — the FFI ([ffi.md](ffi.md)).

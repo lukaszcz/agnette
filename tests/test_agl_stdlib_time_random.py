@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from threading import Barrier
@@ -12,11 +13,16 @@ from typing import Protocol, cast
 import pytest
 
 from agnette.agl.eval.ir_interpreter import IrInterpreter
-from agnette.agl.ir.ids import NominalId
-from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
+from agnette.agl.ir.ids import NominalId, SymbolId
+from agnette.agl.ir.program import (
+    ExecutableProgram,
+    NominalDescriptor,
+    NominalKind,
+    ValueDescriptors,
+)
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.runtime.boundary import AglArrayView, AglException
-from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.runtime.externs import ExternRegistry, ExternRuntimeState
 from agnette.agl.semantics.values import ArrayValue, IntValue, TextValue
 from tests._agl_helpers import option_nominal_descriptors
 from tests.agl.ir_harness import lower_ir
@@ -163,9 +169,36 @@ def test_random_choice_returns_an_array_element() -> None:
     assert companion.choice(["one", "two", "three"]) in {"one", "two", "three"}
 
 
-def test_random_state_is_isolated_between_concurrent_real_interpreters(tmp_path: Path) -> None:
+@dataclass(frozen=True)
+class _LoadedProgram:
+    """An AgL entry lowered with ``std/random`` and its own Python companion loaded."""
+
+    executable: ExecutableProgram
+    registry: ExternRegistry
+    companion: ModuleType
+    program_symbol: SymbolId
+
+    def run(self, *arguments: IntValue, state: ExternRuntimeState | None = None) -> None:
+        IrInterpreter(
+            self.executable, extern_registry=self.registry, extern_runtime_state=state
+        ).run(program_symbol=self.program_symbol, arguments=arguments)
+
+
+def _load_program(tmp_path: Path, source: str, companion_source: str) -> _LoadedProgram:
     entry_path = tmp_path / "entry.agl"
-    entry_path.write_text(
+    entry_path.write_text(source)
+    entry_path.with_suffix(".py").write_text(companion_source)
+    executable = lower_ir(source, origin_path=entry_path)
+    registry = ExternRegistry()
+    registry.set_nominals(executable.nominals)
+    registry.load_companion(_RANDOM_MODULE, _STDLIB_ROOT / "src" / "random.py")
+    companion = registry.load_companion(ENTRY_ID, entry_path.with_suffix(".py"))
+    return _LoadedProgram(executable, registry, companion, next(iter(executable.program_functions)))
+
+
+def test_random_state_is_isolated_between_concurrent_real_interpreters(tmp_path: Path) -> None:
+    program = _load_program(
+        tmp_path,
         "import std/random\n"
         "extern def checkpoint() -> unit\n"
         "extern def report(seed: int, first: int, second: int) -> unit\n"
@@ -174,9 +207,7 @@ def test_random_state_is_isolated_between_concurrent_real_interpreters(tmp_path:
         "  checkpoint()\n"
         "  let first = random::below(1000000)\n"
         "  let second = random::below(1000000)\n"
-        "  report(run-seed, first, second)\n"
-    )
-    entry_path.with_suffix(".py").write_text(
+        "  report(run-seed, first, second)\n",
         "from threading import Barrier\n"
         "barrier = None\n"
         "results = {}\n"
@@ -184,21 +215,12 @@ def test_random_state_is_isolated_between_concurrent_real_interpreters(tmp_path:
         "    if barrier is not None:\n"
         "        barrier.wait(timeout=5)\n"
         "def report(seed, first, second):\n"
-        "    results[seed] = (first, second)\n"
+        "    results[seed] = (first, second)\n",
     )
-    executable = lower_ir(entry_path.read_text(), origin_path=entry_path)
-    registry = ExternRegistry()
-    registry.set_nominals(executable.nominals)
-    registry.load_companion(_RANDOM_MODULE, _STDLIB_ROOT / "src" / "random.py")
-    state_companion = cast(
-        _StateCompanion, registry.load_companion(ENTRY_ID, entry_path.with_suffix(".py"))
-    )
-    program_symbol = next(iter(executable.program_functions))
+    state_companion = cast(_StateCompanion, program.companion)
 
     def run(seed: int) -> tuple[int, int]:
-        IrInterpreter(executable, extern_registry=registry).run(
-            program_symbol=program_symbol, arguments=(IntValue(seed),)
-        )
+        program.run(IntValue(seed))
         return state_companion.results.pop(seed)
 
     expected = {seed: run(seed) for seed in (713, 91)}
@@ -208,3 +230,75 @@ def test_random_state_is_isolated_between_concurrent_real_interpreters(tmp_path:
 
     assert actual == expected
     assert all(0 <= value < 1_000_000 for sequence in actual.values() for value in sequence)
+
+
+class _DrawCompanion(Protocol):
+    draws: list[tuple[int, int]]
+
+
+class _ForkDrawRunner:
+    """Runs a draw program against one host-supplied state, as a (forked) process would."""
+
+    def __init__(self, program: _LoadedProgram) -> None:
+        self._program = program
+        self.state = ExternRuntimeState()
+
+    def seed(self, value: int) -> None:
+        self._program.run(IntValue(1), IntValue(value), state=self.state)
+
+    def draw(self) -> tuple[int, int]:
+        self._program.run(IntValue(2), IntValue(0), state=self.state)
+        return cast(_DrawCompanion, self._program.companion).draws.pop()
+
+
+def _load_draw_program(tmp_path: Path) -> _LoadedProgram:
+    return _load_program(
+        tmp_path,
+        "import std/random\n"
+        "extern def report(first: int, second: int) -> unit\n"
+        "program def main(mode: int, run-seed: int) -> unit =\n"
+        "  case mode of\n"
+        "    | 1 => random::seed(run-seed)\n"
+        "    | _ => report(random::below(1000000000), random::below(1000000000))\n",
+        "draws = []\n\ndef report(first, second):\n    draws.append((first, second))\n",
+    )
+
+
+def _draw_after_forks(program: _LoadedProgram, *, forks: int, in_child: bool) -> tuple[int, int]:
+    """Draw from a seeded process state after *forks* forks, in the parent or the last child.
+
+    Each call builds its own state: a child starts from the parent's state as of its fork.
+    """
+    runner = _ForkDrawRunner(program)
+    runner.seed(7)
+    forked = [runner.state.prepare_fork() for _ in range(forks)]
+    if in_child:
+        runner.state.enter_forked_child(forked[-1])
+    return runner.draw()
+
+
+def _forked_draws(program: _LoadedProgram) -> tuple[tuple[int, int], ...]:
+    """Draws of the parent after two forks, of the first child, and of the second child."""
+    return (
+        _draw_after_forks(program, forks=2, in_child=False),
+        _draw_after_forks(program, forks=1, in_child=True),
+        _draw_after_forks(program, forks=2, in_child=True),
+    )
+
+
+def test_random_stream_is_forked_into_distinct_seed_deterministic_child_streams(
+    tmp_path: Path,
+) -> None:
+    program = _load_draw_program(tmp_path)
+    parent, child_a, child_b = _forked_draws(program)
+
+    assert len({parent, child_a, child_b}) == 3
+    assert _forked_draws(program) == (parent, child_a, child_b)
+
+
+def test_random_parent_stream_advances_per_fork(tmp_path: Path) -> None:
+    program = _load_draw_program(tmp_path)
+
+    assert (
+        len({_draw_after_forks(program, forks=forks, in_child=False) for forks in (0, 1, 2)}) == 3
+    )

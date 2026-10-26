@@ -15,8 +15,13 @@ IndexError = nominals.std.errors.IndexError
 
 
 def _random() -> random.Random:
-    """Return the pseudo-random source for the active AgL interpreter."""
-    return runtime.state("std/random", random.Random)
+    """Return the pseudo-random source for the active AgL interpreter.
+
+    A forked child gets its own stream, seeded from the parent's.
+    """
+    return runtime.state(
+        "std/random", random.Random, fork=lambda parent: random.Random(parent.getrandbits(128))
+    )
 
 
 class _MutableSequence(Protocol):

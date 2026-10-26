@@ -409,10 +409,12 @@
   "tests/agl/programs/externs/dict_any_keys.agl": "d3045d834afeacf68e9dd3155a393376cfabdafafb9edc7027a64a5fea6446e1",
   "tests/agl/programs/externs/exception_transparency.agl": "e462a0102a3221e6f36efab11fbd3d3e84dca557162aef555e26014228a03377",
   "tests/agl/programs/externs/generic_pipeline.agl": "615690fc7ad2068f4f81fce8947acef793ca334cb6b4ff74022bf85c1b2d7501",
+  "tests/agl/programs/externs/isolated_fork.agl": "f9e7844035b0c05f3561bd10b71578382be5d5f1d871b8ee3fc03f0b718f14ff",
   "tests/agl/programs/externs/live_view_generics.agl": "fdae97d3d4cb4556578549f33cb44f3b88a741c86245152e0064b8d17461f015",
   "tests/agl/programs/externs/mutable_record_views.agl": "91cf2d52eba172e7cc7c0ac44910de80bca2b057c23b54364d5a5b00d6a37d28",
   "tests/agl/programs/externs/mutating_containers.agl": "3d3b91b48adfde4b9f53b271d9ea50daf38082bcfe4502479cf896ba141a53a8",
   "tests/agl/programs/externs/opaque_records.agl": "3b8eab4eab24e6d6e4dcf9113d3501dad0a45885f9fa2cf5fce4853b0ebd4f99",
+  "tests/agl/programs/externs/process_host.agl": "3a6becf83c9cc49e2cd96b2024e3cf4c5273c0bab75c0bc567e13fef7000a7e6",
   "tests/agl/programs/externs/recursive_tree_boundary.agl": "a820540f1ef77d8a0f2cc8e51465c4a0d7c813d7f52de353054954d87b4d8166",
   "tests/agl/programs/externs/safe_divide.agl": "842707aece2938c31eae13461734f17c86a9af367d4cd359022ddece718ec5ab",
   "tests/agl/programs/externs/scoped_services.agl": "4fd88510d3b164a4ef3035cf862cfdca564545f82cea1fcef8d39d76e3532ae0",
@@ -1577,9 +1579,9 @@
   "docs/agl/reference/expressions.md:569": "aa4d27a1afb87041a1310017e619832f5e03984b7aa3cbd543531ab86467093d",
   "docs/agl/reference/ffi.md:12": "04dc824c39778455a70bcf29b00dc3a35b71dc958b6ea9878118f942188546df",
   "docs/agl/reference/ffi.md:38": "3a360f6ff4df99702ee7f808c0807ade8cbad449997aa9ea516864d501fe84d7",
-  "docs/agl/reference/ffi.md:357": "261da86ccc82d2022bc36d1cd90c5b23c8e44b9dad170bd65f2db914a4eec925",
-  "docs/agl/reference/ffi.md:420": "ccbe0a02666d866f2dfd102a65854268c0153db5e84ff112b2cd9e75b9175e98",
-  "docs/agl/reference/ffi.md:516": "069c130eabc2a5c41160b1cf6d6bdcbf51eefe6c05ae6c6593f7e57f64d5f1a8",
+  "docs/agl/reference/ffi.md:407": "261da86ccc82d2022bc36d1cd90c5b23c8e44b9dad170bd65f2db914a4eec925",
+  "docs/agl/reference/ffi.md:470": "ccbe0a02666d866f2dfd102a65854268c0153db5e84ff112b2cd9e75b9175e98",
+  "docs/agl/reference/ffi.md:566": "069c130eabc2a5c41160b1cf6d6bdcbf51eefe6c05ae6c6593f7e57f64d5f1a8",
   "docs/agl/reference/functions.md:18": "5659a0b5a13afb6201e14e5013b9345ad23e8e960bad41a21fbffccb152ea763",
   "docs/agl/reference/functions.md:51": "4876073a516a6b8b69d545ac3ad9ed03f2a3fca7999af314ef0e2d3d1722facc",
   "docs/agl/reference/functions.md:71": "fe8a0d9c1abfdc71d9121c82ff1619c7249673cbb6198e26242bba275865edb2",
@@ -1722,6 +1724,5 @@
   "docs/commands/agl.md:555": "8a590036bbccf8d57aee3be0f3deee45c75f02dbc7a353394022ef8c9469785d",
   "docs/commands/dev.md:118": "cea8499eeb11fdf086f2bfcc63732b6b8c9dcad8a337dda36d523a6e684ce087",
   "docs/commands/pkg.md:32": "4c62a1915a2ea8a320fef2c19e23c573fcc1342376bd02758874f2de14d3a279",
-  "docs/commands/pkg.md:187": "3807a0b898312b0d481697c2ba54d2c0d4a68e9a2b51134b99446dde936741e0",
-  "tests/agl/programs/externs/isolated_fork.agl": "f9e7844035b0c05f3561bd10b71578382be5d5f1d871b8ee3fc03f0b718f14ff"
+  "docs/commands/pkg.md:187": "3807a0b898312b0d481697c2ba54d2c0d4a68e9a2b51134b99446dde936741e0"
 }

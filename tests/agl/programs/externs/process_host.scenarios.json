@@ -1,0 +1,11 @@
+{
+  "scenarios": [
+    {
+      "name": "companion_fork",
+      "isolated": true,
+      "expect": {
+        "stdout": "double: 14\nclosed parent>child\nstate: parent>child\nclosed parent\n"
+      }
+    }
+  ]
+}
