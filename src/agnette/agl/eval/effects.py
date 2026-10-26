@@ -75,6 +75,7 @@ from agnette.agl.runtime.sessions import (
     SessionHostError,
     SessionRequestHost,
     default_session_transport,
+    session_error_value,
     with_ephemeral_session,
 )
 from agnette.agl.runtime.trace import TraceStore
@@ -485,16 +486,7 @@ class EffectHandlers:
 
     def _session_error(self, error: SessionHostError) -> NoReturn:
         """Map a host lifecycle failure to the catchable SessionError shape."""
-        raise AglRaise(
-            _make_exc_value(
-                "SessionError",
-                error.message,
-                nominals=self._ctx._program.builtin_nominals,
-                fields={
-                    "operation": TextValue(error.operation),
-                },
-            )
-        ) from error
+        raise AglRaise(session_error_value(error, self._ctx._program.builtin_nominals)) from error
 
     def _invalid_agent_error(self, agent: RecordValue, error: SessionAgentError) -> NoReturn:
         """Preserve agent-value failures across the session-opening boundary."""

@@ -50,6 +50,7 @@ from agnette.agl.runtime.boundary import (
     synthesize_nominal_classes,
 )
 from agnette.agl.runtime.processes import ProcessHost, ProcessHostError
+from agnette.agl.runtime.sessions import SessionHostError, session_error_value
 from agnette.agl.runtime.transfer import ImageTransfer, TransferError
 from agnette.agl.runtime.type_contracts import TypeContract, build_type_contract
 from agnette.agl.self_validation import self_validation_enabled
@@ -875,11 +876,14 @@ class ExternRegistry:
         exception class. A companion repr'ing a cyclic view -- while *fn*
         runs, or while this builds an ``ExternError`` message from an
         exception *fn* raised -- raises ``AglCyclicValue``, which becomes
-        ``CyclicValueError`` instead. Retained views remain live after the
-        call, except for reads of a function-valued field or element, which
-        need the encoder this call publishes.
+        ``CyclicValueError`` instead. A :class:`SessionHostError` escaping
+        *fn* becomes the catchable ``SessionError`` that the evaluator raises
+        for the same host failure. Retained views remain live after the call,
+        except for reads of a function-valued field or element, which need the
+        encoder this call publishes.
 
-        *nominals* resolves the ``ExternError``/``CyclicValueError`` nominal.
+        *nominals* resolves the ``ExternError``/``CyclicValueError``/
+        ``SessionError`` nominal.
         *descriptors* resolves the nominal/function spellings this call's
         arguments render with -- an unknown-nominal message, or a view's own
         ``repr`` -- and is published for the call's extent so a companion's
@@ -931,6 +935,8 @@ class ExternRegistry:
                     result = fn(*encoded_args)
             except AglException as exc:
                 raise AglRaise(exc.value, span=exc.span) from exc
+            except SessionHostError as exc:
+                raise AglRaise(session_error_value(exc, nominals)) from exc
             except AglCyclicValue as exc:
                 raise cyclic_value_raise(nominals=nominals) from exc
             except Exception as exc:

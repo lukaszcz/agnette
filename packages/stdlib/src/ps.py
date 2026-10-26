@@ -39,6 +39,13 @@ class _Process(Protocol):
     def pid(self) -> int: ...
 
 
+class _Session(Protocol):
+    """A ``Session`` handle."""
+
+    @property
+    def id(self) -> str: ...
+
+
 @contextmanager
 def _process_errors() -> Iterator[None]:
     """Report host misuse and untransferable results as `ProcessError`."""
@@ -62,10 +69,14 @@ def _deliver(f: Callable[[], object]) -> object:
         return runtime.processes.Delivered(transfer.dumps(raised), failure=_summary(raised))
 
 
-def fork(f: Callable[[], object]) -> object:
-    """Run *f* in a forked child; see `ps::fork`."""
+def fork(f: Callable[[], object], sessions: Sequence[_Session]) -> object:
+    """Run *f* in a forked child carrying snapshots of *sessions*; see `ps::fork`.
+
+    A session host failure while snapshotting escapes as `SessionHostError`, which the extern
+    boundary reports as `SessionError`.
+    """
     with _process_errors():
-        info = runtime.processes.fork(lambda: _deliver(f), ())
+        info = runtime.processes.fork(lambda: _deliver(f), tuple(s.id for s in sessions))
     runtime.trace("fork", {"child_pid": info.pid})
     return Process(id=info.id, pid=info.pid)
 

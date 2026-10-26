@@ -60,8 +60,15 @@ enum OnFailure
   parent changes afterwards is visible to it. Its result, whatever its type (closures, cyclic and
   shared values included), is copied back to the parent by `wait`. Resources of the host
   session stay with the process that created them: a child opens its own agent sessions, files,
-  connections and random stream; the parent's agent sessions are unusable in it. Standard input
-  of the child is empty; its standard output and error are shared with the parent.
+  connections and random stream; the parent's agent sessions raise `SessionError` in it unless
+  listed in `sessions`. Standard input of the child is empty; its standard output and error are
+  shared with the parent.
+
+  Each session listed in `sessions` resolves in the child to a snapshot of its conversation at
+  the time of the call: the child continues it under the same handle, and neither side sees the
+  other's later prompts. The child's default session is such a snapshot if `Session::default()`
+  is listed, and a fresh session otherwise. Listing a handle more than once snapshots it once. A
+  child may list the sessions it received for its own children.
 
   An exception that escapes `f` is raised again by `wait`, unchanged. A child that delivers no
   outcome makes `wait` raise `ProcessExitError`. Each child leads a process group of its own, so
@@ -74,9 +81,10 @@ enum OnFailure
   terminates its own children.
 
   Raises `ProcessError` if the process cannot fork, for instance because the program has other
-  threads.
+  threads, and `SessionError`, before any child exists, if a listed session is closed or cannot be
+  snapshotted.
 """)
-extern def fork[T](f: () -> T) -> Process[T]
+extern def fork[T](f: () -> T, sessions: array[Session] = []) -> Process[T]
 
 @doc("""
   Wait for the process to finish and return its result.

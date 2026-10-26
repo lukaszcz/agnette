@@ -22,7 +22,7 @@ Companion globals are registry-scoped; `runtime.state` reaches a per-host-sessio
 ## Callables and Exceptions
 
 - AgL function values cross as callable proxies valid only on the owning interpreter thread during the extern call.
-- AgL raises cross companion frames in the `AglException` carrier, keeping their span; other Python `Exception`s become catchable `ExternError`; `BaseException`s propagate.
+- AgL raises cross companion frames in the `AglException` carrier, keeping their span; a `SessionHostError` (a `fork` that cannot snapshot a listed session) becomes `SessionError` (`runtime.sessions.session_error_value`, shared with the evaluator); other Python `Exception`s become catchable `ExternError`; `BaseException`s propagate.
 - Return values are trusted: the declared signature, valid Unicode text, and finite JSON-shaped payloads are companion obligations. A Python value with no boundary representation, or an out-of-range or non-finite decimal, is rejected as `ExternError`.
 
 ## Value Transfer

@@ -894,6 +894,14 @@ def test_portable_reports_unsupported_backends_and_failed_snapshots_as_fork_erro
     _assert_error("fork", lambda: supported.portable([handle]))
 
 
+def test_a_materialization_failure_while_snapshotting_is_a_fork_error() -> None:
+    service, (handle,), (snapshot,), _factory = _snapshotting_service()
+    service.enter_forked_child(service.portable([handle]))
+    snapshot.error = SessionHostError("pi did not start", "open")
+
+    _assert_error("fork", lambda: service.portable([handle]))
+
+
 def test_a_forked_child_resolves_listed_handles_to_lazily_materialized_snapshots() -> None:
     service, (listed, unlisted), (snapshot, _other), factory = _snapshotting_service(2)
     portables = service.portable([listed])

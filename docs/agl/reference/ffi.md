@@ -194,6 +194,12 @@ pairs with `agl.transfer`:
   process and returns an object with `id` and `pid`. It raises
   `agl.ProcessHostError` unless the process has a single Python thread, or if
   the OS refuses; an interrupt during the fork aborts it, and no child remains.
+  `sessions` lists the ids of agent sessions (`Session.id`) to carry into the
+  child as snapshots of their conversations. If one is unknown, closed,
+  inherited, or its backend cannot fork, the call raises an exception and no
+  child is created. A companion should let it propagate: a broad
+  `except Exception` would turn it into `ExternError`. The extern call then
+  raises AgL `SessionError` with operation `fork`.
 - `settle(id)` blocks until the process has finished; `settle_any(ids)` until
   one has, and returns the lowest index of a finished one.
 - `outcome(id)` blocks, then returns `Delivered(payload)` if `child`
@@ -574,7 +580,9 @@ is accepted at the boundary, and the program is then free to fail later, at
 an unrelated point, with an error the program cannot catch. An unsupported
 Python value (such as a bare `list`) raises `ExternError`. Ordinary Python
 exceptions also become `ExternError`, whose `python-type` holds the original
-exception class name. A `BaseException` still propagates. A `decimal.Decimal`
+exception class name, except the failure of `runtime.processes.fork` to
+snapshot sessions ([Processes](#processes)), which becomes `SessionError`.
+A `BaseException` still propagates. A `decimal.Decimal`
 return value outside the fixed decimal context's range, or non-finite, raises
 `ExternError`
 ([Numbers: int and decimal](types.md#numbers-int-and-decimal)).

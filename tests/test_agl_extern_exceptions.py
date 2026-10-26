@@ -13,6 +13,7 @@ from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescript
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.runtime.boundary import AglException
 from agnette.agl.runtime.externs import AglCallableProxy, ExternCallWindow, ExternRegistry
+from agnette.agl.runtime.sessions import SessionHostError
 from agnette.agl.semantics.exceptions import AglRaise
 from agnette.agl.semantics.values import ExceptionValue, IrClosureValue, TextValue, Value
 
@@ -202,6 +203,29 @@ def test_ordinary_python_exceptions_become_extern_error_and_base_exceptions_prop
             nominals=NO_BUILTIN_DECLARATIONS,
             descriptors=_NO_DESCRIPTORS,
         )
+
+
+def test_a_session_host_failure_escaping_a_companion_becomes_a_session_error() -> None:
+    registry = ExternRegistry()
+
+    def raise_failure() -> object:
+        raise SessionHostError("session is closed", "fork")
+
+    with pytest.raises(AglRaise) as raised:
+        registry.invoke(
+            "fork",
+            raise_failure,
+            (),
+            nominals=NO_BUILTIN_DECLARATIONS,
+            descriptors=_NO_DESCRIPTORS,
+        )
+
+    value = raised.value.exc
+    assert value.nominal == NO_BUILTIN_DECLARATIONS.resolve("SessionError")
+    assert value.fields["operation"] == TextValue("fork")
+    message = value.fields["message"]
+    assert isinstance(message, TextValue)
+    assert "session is closed" in message.value
 
 
 def test_str_of_agl_exception_is_the_message() -> None:

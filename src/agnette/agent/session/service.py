@@ -558,7 +558,7 @@ class SessionService:
         a Pi clone's session file stays on disk, as after ``fork`` plus ``close``. An
         unmaterialized handle is materialized first, so every snapshot is independent.
         Raises :class:`SessionHostError` for an unknown, closed or foreign handle and for a
-        backend that cannot fork.
+        backend that cannot fork or whose source fails to materialize.
         """
         sessions: dict[str, PortableSession] = {}
         for handle in handles:
@@ -570,9 +570,20 @@ class SessionService:
         )
 
     def _snapshot(self, handle: str) -> PortableSession:
-        """Snapshot from a live backend, so every snapshot is independent of its source."""
+        """Snapshot from a live backend, so every snapshot is independent of its source.
+
+        A failure to materialize the source first is reported as a failed ``fork``.
+        """
         entry = self._entry_for(handle, SessionOperation.FORK)
-        return self._run_lifecycle(SessionOperation.FORK, lambda: entry.live_backend().portable())
+
+        def snapshot() -> PortableSession:
+            try:
+                backend = entry.live_backend()
+            except SessionHostError as error:
+                raise SessionHostError(error.message, SessionOperation.FORK) from error
+            return backend.portable()
+
+        return self._run_lifecycle(SessionOperation.FORK, snapshot)
 
     def _close_entry(self, handle: str, entry: _SessionEntry) -> None:
         self._run_lifecycle("close", entry.close_backend)

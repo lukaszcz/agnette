@@ -12,10 +12,13 @@ from agnette.agent.session.protocol import PortableSet
 from agnette.agent.spec import PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo
 from agnette.agl.runtime.request import AgentCallHostError, AgentRequest, AgentResponse
+from agnette.agl.semantics.exceptions import make_builtin_exception
+from agnette.agl.semantics.values import ExceptionValue, TextValue
 from agnette.core.cleanup import preserve_primary_error
 
 if TYPE_CHECKING:
     from agnette.agent.spec import AgentSpec
+    from agnette.agl.ir.builtin_nominals import BuiltinNominals
     from agnette.agl.runtime.agents import AgentFn
     from agnette.sandbox.request import SandboxLimits
 
@@ -28,6 +31,7 @@ __all__ = [
     "SessionHostError",
     "SessionSnapshot",
     "default_session_transport",
+    "session_error_value",
     "with_ephemeral_session",
 ]
 
@@ -75,6 +79,16 @@ class SessionHostError(Exception):
         self.message = message
         self.operation = operation
         super().__init__(message)
+
+
+def session_error_value(error: SessionHostError, nominals: "BuiltinNominals") -> ExceptionValue:
+    """The AgL ``SessionError`` value that reports the host failure *error*."""
+    return make_builtin_exception(
+        "SessionError",
+        error.message,
+        nominals=nominals,
+        fields={"operation": TextValue(error.operation)},
+    )
 
 
 class SessionAgentError(SessionHostError):
