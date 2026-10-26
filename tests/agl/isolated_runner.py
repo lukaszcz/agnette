@@ -2,7 +2,8 @@
 
 The suite's own processes cannot fork safely: xdist workers carry a second Python thread
 state. The isolated process has none. It reports its outcome through a file; fd 1 is
-redirected to a file, so output written by forked children is captured too. It leads a
+redirected to a file, so output written by forked children is captured too, and a scenario
+reads what was written to fd 2 (the run's stderr file) through :class:`StderrTail`. It leads a
 session of its own; every process left in that session when the run ends is killed,
 including children that moved to groups of their own (``setpgid``), so none outlives the run.
 
@@ -41,7 +42,7 @@ import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, TextIO
 
 from tests import _zygote
 
@@ -328,7 +329,22 @@ def _launch_warm(
     return _Exit(os.waitstatus_to_exitcode(reply.status), reply.timed_out)
 
 
-class _FdCapture:
+class _FileTail:
+    """Read what a standard stream's file gained since the previous read."""
+
+    def __init__(self, path: Path, stream: TextIO, *, skip_existing: bool) -> None:
+        self._stream = stream
+        self._reader = path.open("rb")
+        if skip_existing:
+            self._reader.seek(0, os.SEEK_END)
+
+    def read(self) -> str:
+        """Everything written to the stream since the previous call."""
+        self._stream.flush()
+        return self._reader.read().decode(errors="replace")
+
+
+class _FdCapture(_FileTail):
     """Redirect fd 1 to a file, so forked children's output lands there too.
 
     Stdout is line-buffered: output is in order with children's, and a fork duplicates no
@@ -340,22 +356,29 @@ class _FdCapture:
         writer = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
         os.dup2(writer, 1)
         os.close(writer)
-        self._reader = path.open("rb")
-
-    def read(self) -> str:
-        """Everything written to stdout since the previous call."""
-        sys.stdout.flush()
-        return self._reader.read().decode(errors="replace")
+        super().__init__(path, sys.stdout, skip_existing=False)
 
 
-def _execute(request: dict[str, Any], capture: _FdCapture, patch: pytest.MonkeyPatch) -> Any:
+class StderrTail(_FileTail):
+    """Read what the process and its children write to fd 2, the run's stderr file.
+
+    Skips output written before construction.
+    """
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path, sys.stderr, skip_existing=True)
+
+
+def _execute(
+    request: dict[str, Any], capture: _FdCapture, stderr: StderrTail, patch: pytest.MonkeyPatch
+) -> Any:
     workdir = Path(request["workdir"])
     if request["kind"] == "scenario":
         from tests.agl.scenario_harness import assert_program_scenario, scenario_named
 
         program = Path(request["program"])
         scenario = scenario_named(program, request["name"])
-        assert_program_scenario(program, scenario, capture.read, workdir, patch, None)
+        assert_program_scenario(program, scenario, capture.read, workdir, patch, None, stderr.read)
         return None
     module_name, _, qualname = request["target"].partition(":")
     function = operator.attrgetter(qualname)(importlib.import_module(module_name))
@@ -371,6 +394,7 @@ def _run_request(scratch: Path) -> None:
 
     request = json.loads((scratch / "request.json").read_text())
     capture = _FdCapture(scratch / "stdout.txt")
+    stderr = StderrTail(scratch / "stderr.txt")
     # A launcher may have set SIGINT to ignored; make interrupts raise as in the suite.
     signal.signal(signal.SIGINT, signal.default_int_handler)
     set_self_validation_enabled(True)
@@ -379,7 +403,7 @@ def _run_request(scratch: Path) -> None:
     with pytest.MonkeyPatch.context() as patch:
         install_test_guards(patch, Path(request["temp_root"]))
         try:
-            value = _execute(request, capture, patch)
+            value = _execute(request, capture, stderr, patch)
         except pytest.skip.Exception as skipped:
             outcome, detail = "skipped", str(skipped)
         except BaseException:

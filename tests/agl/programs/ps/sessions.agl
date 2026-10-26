@@ -1,0 +1,33 @@
+# Agent sessions belong to the process that opened them. A child's free `ask` opens a default
+# session of its own, on first use; a session that the child inherited, the parent's default
+# session included, raises `SessionError` in it, while the parent keeps using it.
+import std/config
+import std/ps
+
+def writer() -> Agent = AgentPi("writer", "model", "high")
+
+def free-ask() -> text = ask("child prompt")
+
+def use(session: Session) -> text =
+  try
+    let answer: text = session.ask("child session prompt")
+    answer
+  catch SessionError as e =>
+    "session error in %{e.operation}"
+
+program def main(inherit: bool) -> unit =
+  std/config::default-agent := writer()
+  let first: text = ask("parent prompt")
+  if inherit =>
+    let explicit = Session::open(writer())
+    let default = Session::default()
+    print ps::wait(ps::fork(fn() => use(explicit)))
+    print ps::wait(ps::fork(fn() => use(default)))
+    let again: text = explicit.ask("explicit prompt")
+    let later: text = default.ask("parent again prompt")
+    print "%{again} %{later}"
+    explicit.close()
+  else =>
+    print ps::wait(ps::fork(free-ask))
+    let later: text = ask("parent again prompt")
+    print later

@@ -3,33 +3,22 @@
 # its flag exists, so the order in which processes finish does not depend on timing.
 import std/ps
 import std/ps::{OnFailure, Process, ProcessError, ProcessExitError}
-import std/fs
-import std/time
 import std/path::path
-
-exception Boom extends Exception
-  tag: text
-
-def await-file(flag: path) -> unit =
-  while not fs::exists(flag) do
-    time::sleep(0.005)
-  done
+import ps_sync
+import ps_failure::{Boom, failing}
 
 def after(flag: path, value: int) -> int =
-  await-file(flag)
+  ps_sync::await-file(flag)
   value
-
-def failing(tag: text) -> int =
-  raise Boom(tag, message = "failed %{tag}")
 
 # Fails with `tag` once `flag` exists.
 def failing-after(flag: path, tag: text) -> int =
-  await-file(flag)
+  ps_sync::await-file(flag)
   failing(tag)
 
 # Creates `flag`, then fails with `tag`.
 def failing-signaling(flag: path, tag: text) -> int =
-  fs::write(flag, "")
+  ps_sync::touch(flag)
   failing(tag)
 
 def outcome(ps: array[Process[int]], policy: OnFailure) -> text =
@@ -47,10 +36,10 @@ def settling(root: path) -> unit =
     ps::fork(fn() => after(go2, 30)),
   ]
   print "first: %{ps::settle-any(ps)}"
-  fs::write(go2, "")
+  ps_sync::touch(go2)
   ps::settle(ps[2])
   print "lowest: %{ps::settle-any(ps)}"
-  fs::write(go0, "")
+  ps_sync::touch(go0)
   ps::settle(ps[0])
   print "now: %{ps::settle-any(ps)}"
   # Settling consumes nothing, and a failure is raised only by `wait`.
@@ -76,7 +65,7 @@ def policies(root: path) -> unit =
   let go = root ++ "/go"
   let slow = ps::fork(fn() => after(go, 5))
   print outcome([slow, ps::fork(fn() => failing("first"))], RaiseFirst)
-  fs::write(go, "")
+  ps_sync::touch(go)
   print "slow: %{ps::wait(slow)}"
   # The others are terminated.
   let stuck = ps::fork(fn() => after(root ++ "/never", 6))

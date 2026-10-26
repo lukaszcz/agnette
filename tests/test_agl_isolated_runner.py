@@ -13,7 +13,7 @@ import time
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import coverage
 import pytest
@@ -24,6 +24,9 @@ from agnette.util.text import format_description_column
 from tests import _durations, _zygote
 from tests.agl import isolated_runner
 from tests.agl.isolated_runner import run_callable, run_scenario
+
+if TYPE_CHECKING:
+    from tests.agl.scenario_harness import CompilationCache
 
 FORK_PROGRAM = Path(__file__).parent / "agl" / "programs" / "externs" / "isolated_fork.agl"
 
@@ -413,29 +416,57 @@ _EMPTY_SECTION: dict[str, Any] = {"expect": {}}
 _SHELL_SECTION: dict[str, Any] = {"shell": [{"command": "echo hi", "stdout": "hi\n"}], "expect": {}}
 
 
-def _fork_harness_scenario(
-    directory: Path, name: str, mode: int, forks: dict[str, Any]
-) -> tuple[Path, dict[str, Any]]:
-    """A program with one scenario scripting *forks*, written to *directory*."""
+def _write_harness_program(directory: Path, source: str, scenarios: list[dict[str, Any]]) -> Path:
+    """Write the program *source* and its sidecar of *scenarios* to *directory*."""
     directory.mkdir()
     program = directory / "harness.agl"
-    program.write_text(_FORK_HARNESS_PROGRAM)
-    scenario = {
-        "name": name,
-        "isolated": True,
-        "params": {"mode": mode},
-        "forks": forks,
-        "expect": {},
-    }
-    program.with_name("harness.scenarios.json").write_text(json.dumps({"scenarios": [scenario]}))
-    return program, scenario
+    program.write_text(source)
+    program.with_name("harness.scenarios.json").write_text(json.dumps({"scenarios": scenarios}))
+    return program
+
+
+def _harness_accepts(
+    program: Path,
+    scenario: dict[str, Any],
+    workdir: Path,
+    compilations: CompilationCache,
+    *,
+    stdout: str = "",
+    observe_stderr: bool = False,
+) -> bool:
+    """Whether the corpus harness passes *scenario* of *program* (run inside the subprocess).
+
+    Observing stderr reads what this process writes to fd 2, as the isolated runner does.
+    """
+    from tests.agl.scenario_harness import assert_program_scenario
+
+    stderr = isolated_runner.StderrTail(Path("/proc/self/fd/2")) if observe_stderr else None
+    with pytest.MonkeyPatch.context() as patch:
+        try:
+            assert_program_scenario(
+                program,
+                scenario,
+                lambda: stdout,
+                workdir,
+                patch,
+                compilations,
+                None if stderr is None else stderr.read,
+            )
+        except (AssertionError, pytest.fail.Exception):
+            return False
+    return True
 
 
 def test_scripted_forks_are_checked_in_every_process(tmp_path: Path) -> None:
     # The first child makes no calls, the second one runs its scripted shell command.
-    program, _ = _fork_harness_scenario(
-        tmp_path / "ok", "s", 2, {"1": _EMPTY_SECTION, "2": _SHELL_SECTION}
-    )
+    scenario = {
+        "name": "s",
+        "isolated": True,
+        "params": {"mode": 2},
+        "forks": {"1": _EMPTY_SECTION, "2": _SHELL_SECTION},
+        "expect": {},
+    }
+    program = _write_harness_program(tmp_path / "ok", _FORK_HARNESS_PROGRAM, [scenario])
 
     run_scenario(program, "s", tmp_path)
 
@@ -447,27 +478,126 @@ _BROKEN_FORKS: dict[str, tuple[int, dict[str, Any]]] = {
 }
 
 
-def _scenarios_that_fail(workdir: Path) -> dict[str, bool]:
-    """Whether the harness rejects each broken fork script (run inside the subprocess)."""
-    from tests.agl.scenario_harness import assert_program_scenario
-
-    rejected = {}
-    for name, (mode, forks) in _BROKEN_FORKS.items():
-        program, scenario = _fork_harness_scenario(workdir / name, name, mode, forks)
-        with pytest.MonkeyPatch.context() as patch:
-            try:
-                assert_program_scenario(program, scenario, lambda: "", workdir / name, patch, None)
-            except (AssertionError, pytest.fail.Exception):
-                rejected[name] = True
-            else:
-                rejected[name] = False
-    return rejected
+def _fork_scripts_accepted(workdir: Path) -> dict[str, bool]:
+    """Whether the harness accepts each broken fork script (run inside the subprocess)."""
+    scenarios = [
+        {"name": name, "params": {"mode": mode}, "forks": forks, "expect": {}}
+        for name, (mode, forks) in _BROKEN_FORKS.items()
+    ]
+    program = _write_harness_program(workdir / "forks", _FORK_HARNESS_PROGRAM, scenarios)
+    compilations: CompilationCache = {}
+    return {
+        scenario["name"]: _harness_accepts(program, scenario, workdir, compilations)
+        for scenario in scenarios
+    }
 
 
 def test_a_fork_script_that_is_not_followed_fails_the_scenario(tmp_path: Path) -> None:
-    rejected = run_callable(_scenarios_that_fail, tmp_path).value
+    accepted = run_callable(_fork_scripts_accepted, tmp_path).value
 
-    assert rejected == dict.fromkeys(_BROKEN_FORKS, True)
+    assert accepted == dict.fromkeys(_BROKEN_FORKS, False)
+
+
+_PROCESS_HARNESS_PROGRAM = """\
+import std/ps
+
+exception Boom extends Exception
+
+def failing() -> int = raise Boom(message = "m")
+
+program def main() -> unit =
+  print "first"
+  let ok = ps::fork(fn() => 1)
+  let bad = ps::fork(failing)
+  print ps::wait(ok)
+"""
+
+_UNCONSUMED = {"kind": "process_unconsumed", "pid": "${root}", "child_pid": "${2}"}
+_PROCESS_EXPECT: dict[str, Any] = {
+    "stderr": "warning: process ${2} failed: Boom: m\n",
+    "stderr_contains": ["process ${2} failed"],
+    "stderr_not_contains": ["process ${1}"],
+    "trace": [
+        {"pid": "${root}", "kind": "print", "rendered": "first"},
+        {"pid": "${root}", "kind": "fork", "child_pid": "${1}"},
+        {"pid": "${root}", "kind": "exit", "child_pid": "${1}", "raised": False},
+        {**_UNCONSUMED, "problem": "failed: Boom: m"},
+    ],
+    "trace_absent": [{"kind": "process_unconsumed", "child_pid": "${1}"}],
+}
+_PROCESS_FORKS: dict[str, Any] = {
+    "1": {"expect": {"ends": "settle"}},
+    "2": {"expect": {"ends": "terminate"}},
+}
+
+# Each variant changes the expectations or the forks of the valid scenario above, and the
+# harness must reject it. Only the last one cannot observe stderr.
+_BROKEN_PROCESS_VARIANTS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+    "stderr-differs": ({"stderr": "warning: process ${1} failed: Boom: m\n"}, {}),
+    "stderr-misses-fragment": ({"stderr_contains": ["process ${1} failed"]}, {}),
+    "stderr-has-fragment": ({"stderr_not_contains": ["Boom"]}, {}),
+    "trace-entry-missing": ({"trace": [{**_UNCONSUMED, "problem": "other"}]}, {}),
+    "trace-entry-of-other-process": (
+        {"trace": [{"pid": "${1}", "kind": "fork", "child_pid": "${2}"}]},
+        {},
+    ),
+    "trace-entry-out-of-order": (
+        {
+            "trace": [
+                {"pid": "${root}", "kind": "exit", "child_pid": "${1}"},
+                {"pid": "${root}", "kind": "fork", "child_pid": "${1}"},
+            ]
+        },
+        {},
+    ),
+    "trace-record-present": ({"trace_absent": [{"kind": "fork", "child_pid": "${1}"}]}, {}),
+    "trace-entry-without-pid": ({"trace": [{"kind": "fork"}]}, {}),
+    "unknown-process": ({"stderr_contains": ["${3}"]}, {}),
+    "wrong-ending": ({}, {"2": {"expect": {"ends": "settle"}}}),
+    "stderr-unobserved": ({}, {}),
+}
+
+
+_PROCESS_VARIANTS = {"valid": ({}, {}), **_BROKEN_PROCESS_VARIANTS}
+# Two isolated runs, so that neither outgrows the CPU budget.
+_PROCESS_VARIANT_HALVES = [
+    list(_PROCESS_VARIANTS)[: len(_PROCESS_VARIANTS) // 2],
+    list(_PROCESS_VARIANTS)[len(_PROCESS_VARIANTS) // 2 :],
+]
+
+
+def _process_expectations_accepted(workdir: Path, names: list[str]) -> dict[str, bool]:
+    """Whether the harness accepts each of the variants *names* (run inside the subprocess)."""
+    scenarios = [
+        {
+            "name": name,
+            "forks": {**_PROCESS_FORKS, **_PROCESS_VARIANTS[name][1]},
+            "expect": {**_PROCESS_EXPECT, **_PROCESS_VARIANTS[name][0]},
+        }
+        for name in names
+    ]
+    program = _write_harness_program(workdir / "process", _PROCESS_HARNESS_PROGRAM, scenarios)
+    compilations: CompilationCache = {}
+    return {
+        scenario["name"]: _harness_accepts(
+            program,
+            scenario,
+            workdir,
+            compilations,
+            stdout="first\n1\n",
+            observe_stderr=scenario["name"] != "stderr-unobserved",
+        )
+        for scenario in scenarios
+    }
+
+
+@pytest.mark.parametrize("names", _PROCESS_VARIANT_HALVES, ids=["first", "second"])
+def test_stderr_trace_and_ending_expectations_are_enforced(
+    tmp_path: Path, names: list[str]
+) -> None:
+    accepted = run_callable(_process_expectations_accepted, tmp_path, {"names": names}).value
+
+    assert accepted == {name: name == "valid" for name in names}
 
 
 def _write_report(reports: Path, path: str, error: str | None) -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import time
 import traceback
@@ -1044,6 +1045,7 @@ def _run_prepared_entry(
     process_environment: dict[str, str] | None = None,
     engine_seeds: dict[Any, Value] | None = None,
     discovery: ProgramDiscovery | None = None,
+    trace_file: Path | None = None,
 ) -> Any:
     """Run the sole selected file-style entry through the public pipeline seams.
 
@@ -1057,7 +1059,10 @@ def _run_prepared_entry(
         discovery = runtime.discover_programs(prepared)
     if discovery.compiled is None:
         return runtime.run_prepared(
-            prepared, builtin_var_seeds=engine_seeds, process_environment=process_environment
+            prepared,
+            builtin_var_seeds=engine_seeds,
+            process_environment=process_environment,
+            trace_file=trace_file,
         )
     entry_programs = [item for item in discovery.programs if item.module.is_entry]
     assert len(entry_programs) == 1
@@ -1098,6 +1103,7 @@ def _run_prepared_entry(
         }
         or None,
         process_environment=process_environment,
+        trace_file=trace_file,
     )
 
 
@@ -1187,7 +1193,7 @@ class ScriptedBoundaries:
 
 _FORK_SECTION_KEYS = frozenset({"agents", "shell", "http", "expect"})
 _FORK_EXPECT_KEYS = frozenset(
-    {"calls", "prompts", "sessions", "session_prompts", "session_operations"}
+    {"calls", "prompts", "sessions", "session_prompts", "session_operations", "ends"}
 )
 
 
@@ -1215,7 +1221,8 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
     root). A process without a section gets empty scripts, which allow no calls. Each child that
     entered its fork hooks checks its own scripts as it exits, after its sessions closed, and
     writes the verdict atomically to ``reports/<path>.json``. The forking process first records
-    each fork as ``reports/<path>.forked``. :func:`assert_forks_reported` waits for the verdicts
+    each fork as ``reports/<path>.forked`` and each child records its pid as
+    ``reports/<path>.pid`` (:func:`fork_pids`). :func:`assert_forks_reported` waits for the verdicts
     of the scripted paths that were forked and reads all that exist. A scripted process must
     report: it ends (is waited for, settled or terminated) by the end of the run, or runs to its
     end on its own. An unscripted one may be terminated before it reports.
@@ -1248,6 +1255,7 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
 
     def child(self, state: tuple[int, ...]) -> None:
         self._path, self._forks = state, 0
+        _write_atomically(self._reports / f"{self._name}{_PID_SUFFIX}", str(os.getpid()))
         self._active.current = self._boundaries.get(self._name, self._unscripted)
         if self._session_host is not None:
             self._session_host.script_child(self._active.current.agents)
@@ -1255,13 +1263,15 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
     def child_exit(self, disposition: Disposition) -> None:
         expect = self._sections.get(self._name, {}).get("expect", {})
         try:
+            ends = expect.get("ends", disposition.value)
+            assert ends == disposition.value, (
+                f"expected the process to end by {ends!r}, it ended by {disposition.value!r}"
+            )
             assert_boundaries(self._active.current, expect, [])
             error = None
         except Exception:
             error = traceback.format_exc()
-        pending = self._reports / f"{self._name}.json.tmp"
-        pending.write_text(json.dumps({"error": error}))
-        os.replace(pending, self._reports / f"{self._name}.json")
+        _write_atomically(self._reports / f"{self._name}.json", json.dumps({"error": error}))
 
     @property
     def _name(self) -> str:
@@ -1272,8 +1282,16 @@ def _dotted(path: tuple[int, ...]) -> str:
     return ".".join(map(str, path))
 
 
+def _write_atomically(path: Path, text: str) -> None:
+    """Write *text* to *path* so that a reader sees all of it or none."""
+    pending = path.with_name(path.name + ".tmp")
+    pending.write_text(text)
+    os.replace(pending, path)
+
+
 _REPORT_TIMEOUT = 30.0
 _FORKED_SUFFIX = ".forked"
+_PID_SUFFIX = ".pid"
 
 
 def _never_forked(reports: Path, path: str) -> bool:
@@ -1323,6 +1341,90 @@ def assert_forks_reported(
         assert error is None, f"forked process {report.stem!r} failed its checks:\n{error}"
 
 
+def fork_pids(reports: Path) -> dict[str, int]:
+    """The pid of the running process (``"root"``) and of every forked one, by fork path."""
+    pids = {"root": os.getpid()}
+    for record in reports.glob(f"*{_PID_SUFFIX}"):
+        pids[record.name.removesuffix(_PID_SUFFIX)] = int(record.read_text())
+    return pids
+
+
+_PID_PLACEHOLDER = re.compile(r"\$\{(root|\d+(?:\.\d+)*)\}")
+
+
+def _resolve_pids(text: str, pids: dict[str, int]) -> str:
+    """Replace each ``${root}`` and ``${<fork path>}`` in *text* by that process's pid."""
+
+    def pid_of(match: re.Match[str]) -> str:
+        path = match.group(1)
+        assert path in pids, f"no process {path!r} forked (pids known: {sorted(pids)})"
+        return str(pids[path])
+
+    return _PID_PLACEHOLDER.sub(pid_of, text)
+
+
+def _resolve_record(spec: dict[str, Any], pids: dict[str, int]) -> dict[str, Any]:
+    """*spec* with a pid placeholder as a whole value replaced by the integer pid."""
+    resolved: dict[str, Any] = {}
+    for key, value in spec.items():
+        if isinstance(value, str):
+            text = _resolve_pids(value, pids)
+            whole = _PID_PLACEHOLDER.fullmatch(value) is not None
+            resolved[key] = int(text) if whole else text
+        else:
+            resolved[key] = value
+    return resolved
+
+
+def _assert_stderr(err: str | None, expect: dict[str, Any], pids: dict[str, int]) -> None:
+    """Check the stderr expectations; ``${...}`` placeholders stand for pids."""
+    keys = {"stderr", "stderr_contains", "stderr_not_contains"} & expect.keys()
+    if err is None:
+        assert not keys, f"{sorted(keys)} need an isolated scenario"
+        return
+    if "stderr" in expect:
+        want = _resolve_pids(expect["stderr"], pids)
+        assert err == want, f"expected stderr {want!r}, got {err!r}"
+    for needle in expect.get("stderr_contains", []):
+        assert _resolve_pids(needle, pids) in err, f"{needle!r} not in stderr {err!r}"
+    for needle in expect.get("stderr_not_contains", []):
+        assert _resolve_pids(needle, pids) not in err, f"{needle!r} unexpectedly in stderr {err!r}"
+
+
+def _assert_trace(trace: Path | None, expect: dict[str, Any], pids: dict[str, int]) -> None:
+    """Check ``expect.trace`` and ``expect.trace_absent`` against the trace file's records.
+
+    Records are matched as field subsets. Each ``trace`` entry names its writer's ``pid`` and
+    must be found after the entry matched before it for the same pid: a process's records are
+    in order, those of different processes are not.
+    """
+    wanted = expect.get("trace", [])
+    absent = expect.get("trace_absent", [])
+    if trace is None:
+        return
+    records = [json.loads(line) for line in trace.read_text().splitlines()]
+
+    def matches(record: dict[str, Any], spec: dict[str, Any]) -> bool:
+        return all(record.get(key) == value for key, value in spec.items())
+
+    cursors: dict[int, int] = {}
+    for entry in wanted:
+        spec = _resolve_record(entry, pids)
+        assert "pid" in spec, f"trace entry {entry!r} names no `pid`"
+        own = [record for record in records if record["pid"] == spec["pid"]]
+        start = cursors.get(spec["pid"], 0)
+        found = next((i for i in range(start, len(own)) if matches(own[i], spec)), None)
+        assert found is not None, (
+            f"trace entry {entry!r} (as {spec!r}) not found after record {start} of its "
+            f"process in {own!r}"
+        )
+        cursors[spec["pid"]] = found + 1
+    for entry in absent:
+        spec = _resolve_record(entry, pids)
+        unexpected = [record for record in records if matches(record, spec)]
+        assert not unexpected, f"trace has records matching {entry!r}: {unexpected!r}"
+
+
 def _run_program(
     source: str,
     scenario: dict[str, Any],
@@ -1331,6 +1433,7 @@ def _run_program(
     get_sandbox_context: Callable[[], SandboxContext] | None,
     reports: Path,
     compilations: CompilationCache | None = None,
+    trace_file: Path | None = None,
 ) -> tuple[Any, ScriptedBoundaries, list[_Script], tuple[Diagnostic, ...]]:
     from agnette.agl import PipelineDriver
     from agnette.agl.runtime.externs import ExternRegistry
@@ -1439,6 +1542,7 @@ def _run_program(
                 process_environment=scenario.get("process_environment"),
                 engine_seeds=engine_seeds,
                 discovery=discovery,
+                trace_file=trace_file,
             )
         except SystemExit as exc:
             result = exc
@@ -1854,6 +1958,7 @@ def assert_program_scenario(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     compilations: CompilationCache | None,
+    read_stderr: Callable[[], str] | None = None,
 ) -> None:
     # Pinned so a sandboxed exec's ``cwd or Path.cwd()`` fallback never picks
     # up the real process cwd -- a checkout with a real ``.sandbox/`` would
@@ -1867,6 +1972,11 @@ def assert_program_scenario(
     scenario = prepare_temp_filesystem(scenario, tmp_path)
     scenario, get_sandbox_context = _apply_sandbox_home(scenario, tmp_path)
     reports = Path(tempfile.mkdtemp(prefix="fork-reports-", dir=tmp_path))
+    trace = (
+        Path(tempfile.mkdtemp(prefix="trace-", dir=tmp_path)) / "trace.jsonl"
+        if {"trace", "trace_absent"} & scenario["expect"].keys()
+        else None
+    )
     result, boundaries, scripts, warnings = _run_program(
         program.read_text(encoding="utf-8"),
         scenario,
@@ -1875,9 +1985,11 @@ def assert_program_scenario(
         get_sandbox_context,
         reports,
         compilations,
+        trace,
     )
     agents = boundaries.agents
     out = read_stdout()
+    err = None if read_stderr is None else read_stderr()
     expect = scenario["expect"]
     if expect.get("shell_sandbox_units_distinct"):
         units = [argv[argv.index("--unit") + 1] for argv in boundaries.shell.argvs]
@@ -1896,3 +2008,6 @@ def assert_program_scenario(
     _assert_output(out, expect)
     assert_boundaries(boundaries, expect, scripts)
     assert_forks_reported(scenario.get("forks", {}), reports)
+    pids = fork_pids(reports)
+    _assert_stderr(err, expect, pids)
+    _assert_trace(trace, expect, pids)

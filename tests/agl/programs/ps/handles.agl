@@ -2,14 +2,11 @@
 # nested in forks. A handle is valid only in the process that forked it, while it is attached.
 import std/ps
 import std/ps::{Process, ProcessError, ProcessExitError}
-import std/fs
-import std/time
 import std/path::path
+import ps_sync
 
-def await-file(flag: path) -> int =
-  while not fs::exists(flag) do
-    time::sleep(0.005)
-  done
+def await-flag(flag: path) -> int =
+  ps_sync::await-file(flag)
   0
 
 # What `act` does with a handle: its result, or the kind of failure.
@@ -42,7 +39,7 @@ def misuse(p: Process[int]) -> unit =
 
 program def main(root: path) -> unit =
   # A terminated process delivers no outcome; terminating a finished one changes nothing.
-  let stuck = ps::fork(fn() => await-file(root ++ "/never"))
+  let stuck = ps::fork(fn() => await-flag(root ++ "/never"))
   ps::terminate(stuck)
   print attempt(fn() => ps::wait(stuck))
   let finished = ps::fork(fn() => 7)

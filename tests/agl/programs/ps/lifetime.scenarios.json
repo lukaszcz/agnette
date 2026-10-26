@@ -1,0 +1,69 @@
+{
+  "scenarios": [
+    {
+      "name": "a_normal_end_awaits_unwaited_children_silently",
+      "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
+      "params": {"mode": "settles", "root": "$TEMP_ROOT"},
+      "filesystem": {},
+      "forks": {"1": {"expect": {"ends": "settle"}}},
+      "expect": {
+        "stdout": "parent done\nchild done\n",
+        "stderr": "",
+        "trace_absent": [{"kind": "process_unconsumed"}]
+      }
+    },
+    {
+      "name": "a_normal_end_warns_about_failures_nobody_consumed",
+      "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
+      "params": {"mode": "unconsumed", "root": "$TEMP_ROOT"},
+      "filesystem": {},
+      "expect": {
+        "stdout": "caught consumed\n",
+        "stderr": "warning: process ${1} failed: Boom: failed raised\nwarning: process ${2} failed: RuntimeError: close failed\nwarning: process ${3} exited with status 3\n",
+        "trace": [
+          {"pid": "${root}", "kind": "process_unconsumed", "child_pid": "${1}", "problem": "failed: Boom: failed raised"},
+          {"pid": "${root}", "kind": "process_unconsumed", "child_pid": "${2}", "problem": "failed: RuntimeError: close failed"},
+          {"pid": "${root}", "kind": "process_unconsumed", "child_pid": "${3}", "problem": "exited with status 3"}
+        ],
+        "trace_absent": [
+          {"kind": "process_unconsumed", "child_pid": "${4}"},
+          {"kind": "process_unconsumed", "child_pid": "${5}"}
+        ]
+      }
+    },
+    {
+      "name": "an_uncaught_exception_terminates_the_children",
+      "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
+      "params": {"mode": "raise", "root": "$TEMP_ROOT"},
+      "filesystem": {},
+      "forks": {
+        "1": {"expect": {"ends": "terminate"}},
+        "1.1": {"expect": {"ends": "terminate"}},
+        "2": {"expect": {"ends": "terminate"}}
+      },
+      "expect": {
+        "raises": {"type": "Boom", "fields": {"tag": "parent"}, "message_contains": ["parent failed"]},
+        "stderr": ""
+      }
+    },
+    {
+      "name": "exiting_the_program_terminates_the_children",
+      "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
+      "params": {"mode": "exit", "root": "$TEMP_ROOT"},
+      "filesystem": {},
+      "forks": {
+        "1": {"expect": {"ends": "terminate"}},
+        "1.1": {"expect": {"ends": "terminate"}},
+        "2": {"expect": {"ends": "terminate"}}
+      },
+      "expect": {
+        "exit_code": 3,
+        "stderr": ""
+      }
+    }
+  ]
+}

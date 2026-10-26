@@ -3,6 +3,7 @@
     {
       "name": "terminate_detach_and_foreign_handles",
       "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
       "params": {"root": "$TEMP_ROOT"},
       "filesystem": {},
       "expect": {

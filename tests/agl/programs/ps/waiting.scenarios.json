@@ -3,46 +3,57 @@
     {
       "name": "settle_and_settle_any_consume_nothing",
       "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
       "params": {"mode": "settle", "root": "$TEMP_ROOT"},
       "filesystem": {},
       "expect": {
-        "stdout": "first: 1\nlowest: 1\nnow: 0\nsettled: [10, 20, 30]\nboom bad\nempty array\n"
+        "stdout": "first: 1\nlowest: 1\nnow: 0\nsettled: [10, 20, 30]\nboom bad\nempty array\n",
+        "stderr": ""
       }
     },
     {
       "name": "wait_all_policies",
       "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
       "params": {"mode": "policies", "root": "$TEMP_ROOT"},
       "filesystem": {},
       "expect": {
-        "stdout": "values [1, 2]\nboom slow\nboom first\nslow: 5\nboom only\nstuck: Option::Some(value = 15)\n"
+        "stdout": "values [1, 2]\nboom slow\nboom first\nslow: 5\nboom only\nstuck: Option::Some(value = 15)\n",
+        "stderr": "warning: process ${4} failed: Boom: failed fast\n",
+        "trace": [
+          {"pid": "${root}", "kind": "process_unconsumed", "child_pid": "${4}", "problem": "failed: Boom: failed fast"}
+        ]
       }
     },
     {
       "name": "wait_all_terminates_many_remaining_processes",
       "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
       "params": {"mode": "many", "root": "$TEMP_ROOT"},
       "filesystem": {},
       "expect": {
-        "stdout": "boom last\nstuck: Option::Some(value = 15)\nstuck: Option::Some(value = 15)\nstuck: Option::Some(value = 15)\n"
+        "stdout": "boom last\nstuck: Option::Some(value = 15)\nstuck: Option::Some(value = 15)\nstuck: Option::Some(value = 15)\n",
+        "stderr": ""
       }
     },
     {
       "name": "wait_all_raise_first_reports_the_childs_raise_site",
       "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
       "params": {"mode": "raise-first", "root": "$TEMP_ROOT"},
       "filesystem": {},
       "expect": {
-        "raises": {"type": "Boom", "fields": {"tag": "child"}, "message_contains": ["failed child"], "line": 23}
+        "raises": {"type": "Boom", "fields": {"tag": "child"}, "message_contains": ["failed child"], "line": 6}
       }
     },
     {
       "name": "wait_all_terminate_rest_reports_the_childs_raise_site",
       "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
       "params": {"mode": "terminate-rest", "root": "$TEMP_ROOT"},
       "filesystem": {},
       "expect": {
-        "raises": {"type": "Boom", "fields": {"tag": "child"}, "message_contains": ["failed child"], "line": 23}
+        "raises": {"type": "Boom", "fields": {"tag": "child"}, "message_contains": ["failed child"], "line": 6}
       }
     }
   ]
