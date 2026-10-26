@@ -34,6 +34,7 @@ from tests._agl_helpers import (
     write_sandbox_home,
     write_transparent_sandbox_shims,
 )
+from tests._proc_helpers import reap_child
 
 _STUB = r"""#!{python}
 import json, os, sys, time
@@ -1428,3 +1429,38 @@ def test_close_still_releases_the_prepared_command_when_stop_process_raises(
     with pytest.raises(FileNotFoundError):
         backend.close()
     assert closed == [False]
+
+
+def test_release_inherited_closes_only_descriptor_copies_of_the_live_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = RpcStub(tmp_path, monkeypatch)
+    backend = open_backend()
+    pid = int(str(stub.wait_for("starts.jsonl")[0]["pid"]))
+    # The test plays the process's real owner, so it reaches the backend's private child.
+    child = backend._child
+    assert child is not None
+    owner_stdin = os.dup(child.stdin.fileno())
+    try:
+        backend.release_inherited()
+        backend.close()
+        child.process.kill()
+        child.process.wait()
+
+        assert os.waitpid(pid, os.WNOHANG) == (0, 0)
+        with pytest.raises(SessionHostError):
+            backend.ask(SessionAskRequest("question"))
+    finally:
+        os.close(owner_stdin)
+        status = reap_child(pid)
+    assert status == 0
+
+
+def test_release_inherited_after_close_is_harmless(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    RpcStub(tmp_path, monkeypatch)
+    backend = open_backend()
+    backend.close()
+
+    backend.release_inherited()

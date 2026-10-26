@@ -7,8 +7,9 @@ from collections.abc import Callable
 
 from agnette.agl.runtime.externs import ExternRuntimeState, ForkedEntries
 from agnette.agl.runtime.processes import Disposition, ForkParticipant, ForkRequest
+from agnette.agl.runtime.sessions import SessionHost, SessionHostError
 
-__all__ = ["CompanionStateParticipant", "StdioFlushParticipant"]
+__all__ = ["CompanionStateParticipant", "SessionParticipant", "StdioFlushParticipant"]
 
 
 class StdioFlushParticipant(ForkParticipant[None]):
@@ -41,3 +42,23 @@ class CompanionStateParticipant(ForkParticipant[ForkedEntries]):
 
     def child_exit(self, disposition: Disposition) -> None:
         self._state.close_all(debug=self._debug())
+
+
+class SessionParticipant(ForkParticipant[None]):
+    """Makes the sessions the child inherited inert, since sessions belong to their opener.
+
+    Carrying sessions into a child is not supported: a request for any is refused.
+    """
+
+    def __init__(self, sessions: SessionHost) -> None:
+        self._sessions = sessions
+
+    def prepare(self, request: ForkRequest) -> None:
+        if request.sessions:
+            raise SessionHostError("forking with sessions is not supported", "fork")
+
+    def child(self, state: None) -> None:
+        self._sessions.enter_forked_child()
+
+    def child_exit(self, disposition: Disposition) -> None:
+        self._sessions.close_all()

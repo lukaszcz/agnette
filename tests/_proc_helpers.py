@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import time
 from pathlib import Path
 
@@ -40,3 +42,16 @@ def wait_for_signal_ignored_script(pid: int | str, signum: int, *, timeout: int 
         "  sleep 0.02\n"
         "done\n"
     )
+
+
+def reap_child(pid: int, *, timeout: float = 10.0) -> int:
+    """Reap child *pid* and return its wait status, killing it if it outlives *timeout*."""
+    deadline = time.monotonic() + timeout
+    while True:
+        reaped, status = os.waitpid(pid, os.WNOHANG)
+        if reaped:
+            return status
+        if time.monotonic() >= deadline:
+            os.kill(pid, signal.SIGKILL)
+            return os.waitpid(pid, 0)[1]
+        time.sleep(0.02)

@@ -324,6 +324,9 @@ class AglSessionHost:
         if session is not None and session.ephemeral:
             del self._sessions[handle]
 
+    def enter_forked_child(self) -> None:
+        self._service.enter_forked_child()
+
     def _session_for(self, handle: str, operation: str) -> _HostSession:
         from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 
@@ -407,6 +410,8 @@ class _SessionEntry:
     backend: SessionBackend
     ephemeral: bool
     closed: bool = False
+    inherited: bool = False
+    """Opened by another process; this one holds no live resources for it."""
 
 
 class SessionService:
@@ -510,16 +515,31 @@ class SessionService:
 
     def close(self, handle: str) -> None:
         """Close a live session; closing an already closed known handle is a no-op."""
-        entry = self._entries.get(handle)
-        if entry is None:
-            raise self._unknown_handle_error(handle, "close")
-        if entry.closed:
-            return
+        entry = self._owned_entry(handle, "close")
+        if not entry.closed:
+            self._close_entry(handle, entry)
+
+    def _close_entry(self, handle: str, entry: _SessionEntry) -> None:
         self._run_lifecycle("close", entry.backend.close)
         if entry.ephemeral:
             del self._entries[handle]
         else:
             entry.closed = True
+
+    def enter_forked_child(self) -> None:
+        """Make every session opened so far inert, as this process is a forked child.
+
+        Each inherited backend drops its descriptor copies (``release_inherited``); using
+        or closing its handle raises :class:`SessionHostError`, and the sweeps skip it.
+        The default handle resets, so the next ``default`` opens a fresh session.
+        """
+        self._default_handle = None
+        entries = [entry for entry in self._entries.values() if not entry.inherited]
+        for entry in entries:
+            entry.inherited = True
+        for entry in entries:
+            if not entry.closed:
+                entry.backend.release_inherited()
 
     def continues_conversation(self, handle: str) -> bool:
         """Whether a later prompt to *handle* continues the earlier ones."""
@@ -553,9 +573,9 @@ class SessionService:
         """Close every open entry, reporting all failures once the sweep finishes."""
         failures: list[Exception] = []
         for handle, entry in tuple(self._entries.items()):
-            if not entry.closed:
+            if not entry.closed and not entry.inherited:
                 try:
-                    self.close(handle)
+                    self._close_entry(handle, entry)
                 except Exception as error:
                     failures.append(error)
                     continue
@@ -606,10 +626,19 @@ class SessionService:
                 operation,
             ) from error
 
-    def _entry_for(self, handle: str, operation: str) -> _SessionEntry:
+    def _owned_entry(self, handle: str, operation: str) -> _SessionEntry:
+        """The entry *handle* names, unless it is unknown or another process's."""
         entry = self._entries.get(handle)
         if entry is None:
             raise self._unknown_handle_error(handle, operation)
+        if entry.inherited:
+            raise SessionHostError(
+                f"session handle {handle!r} belongs to another process", operation
+            )
+        return entry
+
+    def _entry_for(self, handle: str, operation: str) -> _SessionEntry:
+        entry = self._owned_entry(handle, operation)
         if entry.closed:
             raise SessionHostError(f"session handle {handle!r} is closed", operation)
         return entry

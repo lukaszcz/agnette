@@ -136,6 +136,13 @@ class SessionBackend(Protocol):
     def close(self) -> None:
         """Release the backend's resources."""
 
+    def release_inherited(self) -> None:
+        """Drop this process's descriptor copies of a resource that another process owns.
+
+        Called in a forked child. Never signals, waits for, or closes the underlying
+        resource. The owning service never uses the backend again.
+        """
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BackendSettings:

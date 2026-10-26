@@ -1572,3 +1572,13 @@ def test_sandboxed_codex_disables_the_daemon_on_creation_resume_and_reset(
         _sandbox_wrapped_argv_prefix(argv, home)
         assert argv[argv.index("codex") + 1] == "--no-daemon"
         assert argv.count("--no-daemon") == 1
+
+
+def test_releasing_an_inherited_cli_backend_runs_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = CaptureTransport([])
+    transport.install(monkeypatch)
+    backend = _open(AgentCodex("m", "t"), single_prompt=True)
+
+    backend.release_inherited()
+
+    assert transport.calls == []

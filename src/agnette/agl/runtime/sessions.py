@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, NoReturn, Protocol, TypeVar, runtime_checkable
+from uuid import uuid4
 
 from agnette.agent.spec import PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo
@@ -192,6 +193,15 @@ class SessionHost(Protocol):
 
     def close_all(self) -> None: ...
 
+    def enter_forked_child(self) -> None:
+        """Make every session opened so far inert, as this process is a forked child.
+
+        Sessions belong to the process that opened them: using or closing an inherited
+        handle raises :class:`SessionHostError` (``snapshot`` still answers; the sweeps
+        skip it) and the default handle resets.
+        """
+        ...
+
 
 def with_ephemeral_session(
     host: SessionHost,
@@ -247,8 +257,8 @@ class AgentDispatcherSessionHost(SessionHost):
         self._dispatcher = dispatcher
         self._sessions: dict[str, SessionSnapshot] = {}
         self._closed: set[str] = set()
+        self._inherited: set[str] = set()
         self._default_handle: str | None = None
-        self._next_handle = 0
 
     def open(
         self,
@@ -361,6 +371,7 @@ class AgentDispatcherSessionHost(SessionHost):
             raise SessionHostError("unknown session", "snapshot") from None
 
     def close(self, handle: str) -> None:
+        self._require_owned(handle, "close")
         if handle in self._closed:
             return
         self._agent_for(handle, "close")
@@ -372,20 +383,28 @@ class AgentDispatcherSessionHost(SessionHost):
     def reset_all(self) -> None:
         self._sessions.clear()
         self._closed.clear()
+        self._inherited.clear()
         self._default_handle = None
 
     def close_all(self) -> None:
         self.reset_all()
 
+    def enter_forked_child(self) -> None:
+        self._inherited.update(self._sessions)
+        self._default_handle = None
+
+    def _require_owned(self, handle: str, operation: str) -> None:
+        if handle in self._inherited:
+            raise SessionHostError("session belongs to another process", operation)
+
     def _new_handle(self) -> str:
-        handle = f"ephemeral-{self._next_handle}"
-        self._next_handle += 1
-        return handle
+        return f"ephemeral-{uuid4().hex}"
 
     def _agent_for(self, handle: str, operation: str) -> "AgentSpec":
         return self._snapshot_for(handle, operation).agent
 
     def _snapshot_for(self, handle: str, operation: str) -> SessionSnapshot:
+        self._require_owned(handle, operation)
         if handle in self._closed:
             raise SessionHostError("closed session", operation)
         try:

@@ -3,9 +3,9 @@
 The suite's own processes cannot fork safely: xdist workers carry a second Python thread
 state. The subprocess (``python -m tests.agl.isolated_runner``) has none. It reports its
 outcome through a file; fd 1 is redirected to a file, so output written by forked children
-is captured too. The subprocess runs in its own process group, killed when the run ends, so
-leftover children never outlive it; children that move to groups of their own (``setpgid``)
-must be reaped by the code under test.
+is captured too. The subprocess leads a session of its own; every process left in that
+session when the run ends is killed, including children that moved to groups of their own
+(``setpgid``), so none outlives the run.
 
 Under active coverage the subprocess measures itself and its forked children through
 ``tests/isolated_coverage.toml``. The data files are named after the suite's ``.coverage``,
@@ -110,6 +110,31 @@ def _coverage_environment(invocation_dir: Path, coverage_data: Path | None) -> d
     }
 
 
+def _live_session_members(sid: int) -> list[int]:
+    """The pids of the live (non-zombie) processes in session *sid*, from ``/proc``."""
+    members = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text()
+        except OSError:
+            continue
+        # Fields after the parenthesized command: state, ppid, pgrp, session, ...
+        state, _, _, session = stat.rpartition(")")[2].split()[:4]
+        if int(session) == sid and state != "Z":
+            members.append(int(entry.name))
+    return members
+
+
+def _kill_session(sid: int) -> None:
+    """SIGKILL every process left in session *sid* until none is alive."""
+    while members := _live_session_members(sid):
+        for pid in members:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+
+
 def _run(
     request: dict[str, Any], workdir: Path, coverage_data: Path | None, timeout: float
 ) -> IsolatedResult:
@@ -142,6 +167,7 @@ def _run(
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
+                _kill_session(process.pid)
             if timed_out:
                 pytest.fail(f"isolated run timed out after {timeout}s", pytrace=False)
         stderr_text = (scratch / "stderr.txt").read_text(errors="replace")

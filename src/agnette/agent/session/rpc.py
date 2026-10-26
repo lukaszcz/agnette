@@ -10,6 +10,7 @@ import select
 import subprocess
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -275,6 +276,18 @@ class PiRpcSessionBackend(SandboxFixture):
         self._child = None
         if child is not None:
             _terminate(child)
+
+    def release_inherited(self) -> None:
+        """Close this process's pipe copies of a process that another process owns.
+
+        ``returncode`` is set so that ``Popen`` never polls, signals, waits on or warns
+        about a pid this process does not own.
+        """
+        child = self._child
+        self._child = None
+        if child is not None:
+            child.process.returncode = 0
+            _close_pipes(child)
 
     def _write(
         self,
@@ -701,11 +714,16 @@ def _spawn(
     )
 
 
+def _close_pipes(child: _RpcChild) -> None:
+    """Close all of *child*'s pipes, ignoring those already broken."""
+    for close in (child.stdin.close, child.close_stderr, child.close_stdout):
+        with suppress(OSError):
+            close()
+
+
 def _terminate(child: _RpcChild) -> None:
-    try:
+    with suppress(OSError):
         child.stdin.close()
-    except OSError:
-        pass
     prepared = child.prepared
     try:
         stop_process(
@@ -725,8 +743,7 @@ def _terminate(child: _RpcChild) -> None:
             # The process is dead: keep its last diagnostics for the error report.
             _drain_stderr(child)
         finally:
-            child.close_stderr()
-            child.close_stdout()
+            _close_pipes(child)
 
 
 def _validate_response(event: dict[str, object]) -> None:

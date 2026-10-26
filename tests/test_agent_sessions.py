@@ -50,6 +50,7 @@ class FakeBackend:
     names: list[str] = field(default_factory=list)
     close_calls: int = 0
     close_error: Exception | None = None
+    release_calls: int = 0
 
     @property
     def operations(self) -> SessionOperations:
@@ -95,6 +96,9 @@ class FakeBackend:
         self.close_calls += 1
         if self.close_error is not None:
             raise self.close_error
+
+    def release_inherited(self) -> None:
+        self.release_calls += 1
 
 
 class FakeBackendFactory:
@@ -747,3 +751,61 @@ def test_supported_operations_dispatch_to_the_backend() -> None:
     assert factory.backends[0].compact_requests == [""]
     assert factory.backends[0].names == ["renamed"]
     assert stats.output_tokens == 5
+
+
+def test_forked_child_inherited_sessions_are_inert_and_never_closed() -> None:
+    service, factory = _service()
+    default = service.default(AgentCommand("worker"), SessionTransport.CLI, env={})
+    explicit = service.open(AgentCommand("other"), SessionTransport.CLI, env={})
+    closed = service.open(AgentCommand("done"), SessionTransport.CLI, env={})
+    service.close(closed)
+
+    service.enter_forked_child()
+
+    for handle in (default, explicit, closed):
+        with pytest.raises(SessionHostError):
+            service.ask(handle, SessionAskRequest("question"))
+        with pytest.raises(SessionHostError):
+            service.reset(handle)
+        with pytest.raises(SessionHostError):
+            service.close(handle)
+    service.close_all()
+    service.reset_all()
+    assert [backend.release_calls for backend in factory.backends] == [1, 1, 0]
+    assert [backend.close_calls for backend in factory.backends] == [0, 0, 1]
+
+
+def test_forked_child_reopens_the_default_session_fresh() -> None:
+    service, factory = _service()
+    inherited = service.default(AgentCommand("worker"), SessionTransport.CLI, env={})
+
+    service.enter_forked_child()
+    fresh = service.default(AgentCommand("worker"), SessionTransport.CLI, env={})
+
+    assert fresh != inherited
+    assert service.ask(fresh, SessionAskRequest("question")).content == "answer"
+    with pytest.raises(SessionHostError):
+        service.ask(inherited, SessionAskRequest("question"))
+    service.close_all()
+    assert [backend.close_calls for backend in factory.backends] == [0, 1]
+
+
+def test_agl_host_forked_child_rejects_inherited_handles_and_reopens_the_default() -> None:
+    service, _factory = _service()
+    host = AglSessionHost(service)
+    agent = AgentCommand("worker")
+    default = host.default(agent, "Cli", env={})
+    explicit = host.open(agent, "Cli", env={})
+
+    host.enter_forked_child()
+
+    for handle in (default, explicit):
+        with pytest.raises(AglSessionHostError):
+            host.ask(handle, "question")
+        with pytest.raises(AglSessionHostError):
+            host.close(handle)
+        assert host.snapshot(handle).agent == agent
+    fresh = host.default(agent, "Cli", env={})
+    assert fresh != default
+    assert host.ask(fresh, "question") == "answer"
+    host.close_all()

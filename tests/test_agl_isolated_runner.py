@@ -63,13 +63,14 @@ def _fork_and_return_in_child(workdir: Path) -> str:
     return "parent"
 
 
-def _leave_a_grandchild(workdir: Path) -> int:
-    """Return the pid of a long-lived child of the same process group."""
+def _leave_a_grandchild(workdir: Path, own_group: bool = False) -> int:
+    """Return the pid of a long-lived child, in the same process group or in one of its own."""
     sleeper = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        process_group=0 if own_group else None,
     )
     return sleeper.pid
 
@@ -230,8 +231,11 @@ def test_a_subprocess_that_overruns_its_timeout_fails_the_caller(tmp_path: Path)
         run_callable(_sleep_forever, tmp_path, timeout=0.5)
 
 
-def test_children_left_in_the_process_group_are_killed_when_the_run_ends(tmp_path: Path) -> None:
-    pid = run_callable(_leave_a_grandchild, tmp_path).value
+@pytest.mark.parametrize("own_group", [False, True])
+def test_children_left_in_the_session_are_killed_when_the_run_ends(
+    tmp_path: Path, own_group: bool
+) -> None:
+    pid = run_callable(_leave_a_grandchild, tmp_path, {"own_group": own_group}).value
     deadline = time.monotonic() + 10
     while not _is_gone(pid) and time.monotonic() < deadline:
         time.sleep(0.01)

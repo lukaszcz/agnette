@@ -25,9 +25,20 @@ from unittest import mock
 
 import pytest
 
+from agnette.agent.session.protocol import (
+    SessionAskRequest,
+    SessionAskResponse,
+    SessionOperations,
+)
+from agnette.agent.session.service import AglSessionHost, SessionService
+from agnette.agent.spec import AgentCommand
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.runtime.externs import ExternRegistry, ExternRuntimeState
-from agnette.agl.runtime.fork_participants import CompanionStateParticipant, StdioFlushParticipant
+from agnette.agl.runtime.fork_participants import (
+    CompanionStateParticipant,
+    SessionParticipant,
+    StdioFlushParticipant,
+)
 from agnette.agl.runtime.process_records import parse_record
 from agnette.agl.runtime.processes import (
     _READ_CHUNK,
@@ -45,6 +56,8 @@ from agnette.agl.runtime.processes import (
     _interrupt_end,
     _leave,
 )
+from agnette.agl.runtime.request import AgentResponse
+from agnette.agl.runtime.sessions import AgentDispatcherSessionHost, SessionHostError
 from agnette.core.process import kill_group
 from tests._signal_helpers import before_each_poll, trip_signal_off_thread
 from tests.agl.ir_harness import write_companion_file
@@ -681,6 +694,108 @@ def test_the_companion_state_participant_gives_a_child_only_its_hook_made_entrie
     assert not [line for line in result["closed_by_children"] if line.startswith("P ")]
     # A fork aborted by a later participant closes the produced values in the parent.
     assert result["closed_after_abort"] == ["P kept:k>c", "P forked:p>child"]
+
+
+def _forked_sessions(workdir: Path) -> dict[str, Any]:
+    sessions = AgentDispatcherSessionHost(lambda _request: AgentResponse("answer", {}))
+    agent = AgentCommand(command="worker")
+    inherited = sessions.default(agent, "Cli", env={})
+
+    def child() -> bytes:
+        try:
+            sessions.ask(inherited, "question")
+            rejected = False
+        except SessionHostError:
+            rejected = True
+        fresh = sessions.default(agent, "Cli", env={})
+        reopened = fresh != inherited and sessions.ask(fresh, "question") == "answer"
+        return json.dumps([rejected, reopened]).encode()
+
+    with _host(SessionParticipant(sessions)) as host:
+        seen = json.loads(_delivered(host.outcome(host.fork(child, ()).id)))
+    return {"child": seen, "parent": sessions.ask(inherited, "question")}
+
+
+def test_the_session_participant_makes_a_childs_inherited_sessions_inert(tmp_path: Path) -> None:
+    result = run_callable(_forked_sessions, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert result == {"child": [True, True], "parent": "answer"}
+
+
+class _LoggedBackend:
+    """A session backend that logs, with its process, when it is released or closed."""
+
+    continues_conversation = True
+    operations = SessionOperations()
+
+    def __init__(self, log: Path, label: str) -> None:
+        self._log = log
+        self._label = label
+
+    def ask(self, request: SessionAskRequest) -> SessionAskResponse:
+        return SessionAskResponse(content="answer")
+
+    def reset(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self._write("close")
+
+    def release_inherited(self) -> None:
+        self._write("release")
+
+    def _write(self, event: str) -> None:
+        with self._log.open("a") as handle:
+            handle.write(f"{os.getpid()} {self._label} {event}\n")
+
+
+def _session_exit(workdir: Path) -> dict[str, Any]:
+    log = workdir / "log"
+    labels = iter(("parent", "child"))
+    sessions = AglSessionHost(SessionService(lambda _request: _LoggedBackend(log, next(labels))))
+    agent = AgentCommand(command="worker")
+    inherited = sessions.open(agent, "Cli", env={})
+    parent = os.getpid()
+
+    def child() -> bytes:
+        sessions.ask(sessions.open(agent, "Cli", env={}), "question")
+        return b""
+
+    with _host(SessionParticipant(sessions)) as host:
+        host.outcome(host.fork(child, ()).id)
+    after = sessions.ask(inherited, "question")
+    events = [line.split() for line in _lines(log)]
+    return {
+        "after": after,
+        "parent_events": [event[1:] for event in events if int(event[0]) == parent],
+        "child_events": [event[1:] for event in events if int(event[0]) != parent],
+    }
+
+
+def test_a_child_closes_the_sessions_it_opened_and_leaves_its_inherited_ones(
+    tmp_path: Path,
+) -> None:
+    result = run_callable(_session_exit, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert result["child_events"] == [["parent", "release"], ["child", "close"]]
+    assert result["parent_events"] == []
+    assert result["after"] == "answer"
+
+
+def _refused_session_fork(workdir: Path) -> bool:
+    sessions = AgentDispatcherSessionHost(None)
+    refused = False
+    with _host(SessionParticipant(sessions)) as host:
+        try:
+            host.fork(lambda: b"", ("handle",))
+        except SessionHostError:
+            refused = True
+        assert not host.attached
+    return refused
+
+
+def test_forking_with_sessions_is_refused_without_leaving_a_child(tmp_path: Path) -> None:
+    assert run_callable(_refused_session_fork, tmp_path, timeout=RUN_TIMEOUT).value is True
 
 
 # ---------------------------------------------------------------------------

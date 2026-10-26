@@ -498,6 +498,9 @@ class _ScriptedSessionService:
     def continues_conversation(self, handle: str) -> bool:
         return self._service.continues_conversation(handle)
 
+    def enter_forked_child(self) -> None:
+        self._service.enter_forked_child()
+
     def close(self, handle: str) -> None:
         self._service.close(handle)
         self._retire_ephemeral(handle)
@@ -785,6 +788,11 @@ class ScenarioSessionHost:
             del self._handles[handle]
             del self._snapshots[handle]
 
+    def enter_forked_child(self) -> None:
+        for service in self._services.values():
+            service.enter_forked_child()
+        self._default_handle = None
+
     def close_all(self) -> None:
         failures: list[Exception] = []
         for service in self._services.values():
@@ -935,6 +943,9 @@ class _ScriptedSessionBackend:
 
     def close(self) -> None:
         self._session.closed = True
+
+    def release_inherited(self) -> None:
+        """Hold no descriptors to release; the session stays unclosed."""
 
     def _apply_operation(self, operation: str, arg: str | None) -> Any:
         outcome = self._agent._next_operation(operation)

@@ -26,6 +26,8 @@ Every AgL `ask` dispatches through a session: a one-shot call opens an ephemeral
 - **CLI adapters** map the lifecycle to each agent CLI's create/continue/compact/fork flags, preparing a fresh sandboxed command per prompt.
 - **Pi RPC** owns one persistent streaming JSONL child process (`agent/session/rpc.py`); one `poll`-driven pump on the calling thread multiplexes stdin writes with stdout/stderr reads, so the backend starts no Python thread; signals wake the pump (`core.signals`), so Ctrl-C is prompt without an idle deadline.
 
+Sessions are owned by the process that opened them: in a forked child every inherited session is inert (its backend drops only its descriptor copies, never the shared process) the default session reopens fresh, and sweeps close only the child's own sessions.
+
 A handle reports whether later prompts continue the conversation, which decides whether the evaluator sends a short corrective follow-up or a full prompt. Each spec names its default transport. `agl/runtime/sessions.py` defines the firewall-safe host protocol; `AglSessionHost` (`agent/session/service.py`) adapts the service to it.
 
 ## Code Entry Points

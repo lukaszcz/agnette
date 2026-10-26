@@ -135,6 +135,9 @@ class _CliPromptBackend(SandboxFixture):
     def close(self) -> None:
         """Nothing to release: a CLI session holds only local state between prompts."""
 
+    def release_inherited(self) -> None:
+        """Nothing to drop: a CLI session holds no descriptors between prompts."""
+
     def _run_prompt(
         self,
         prompt: str,

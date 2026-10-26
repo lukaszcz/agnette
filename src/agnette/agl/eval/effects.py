@@ -863,7 +863,10 @@ class EffectHandlers:
         transport, and environment: a session has no per-ask override.
         """
         contract = self._ctx._program.contracts[contract_id]
-        snapshot = self._ctx._session_host.snapshot(handle)
+        try:
+            snapshot = self._ctx._session_host.snapshot(handle)
+        except SessionHostError as error:
+            self._session_error(error)
         effective_strict = (
             contract.strict_json if contract.strict_json is not None else self._ctx._strict_json
         )
