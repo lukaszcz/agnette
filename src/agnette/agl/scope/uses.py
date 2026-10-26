@@ -9,6 +9,7 @@ which in turn read the uses: :class:`UseSources` is what it reads of them.
 
 from __future__ import annotations
 
+import heapq
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
@@ -63,6 +64,65 @@ type _UseReads = dict[tuple[int, ScopePath, LookupKind], tuple[Candidate, ...]]
 def _use_target(decl: UseDecl) -> ScopePath:
     """The path *decl* names as its target, beneath its anchor."""
     return tuple(segment.name for segment in decl.target)
+
+
+def _first_names(decl: UseDecl) -> frozenset[str] | None:
+    """The first names of the paths *decl* can expose; ``None`` when any (a glob).
+
+    A path it exposes starts with its alias, its target's last name (a
+    single-item rename), a tail item's first name, or a tail item's rename.
+    """
+    if decl.tail is None:
+        target = _use_target(decl)
+        names = {decl.alias} if decl.alias is not None else set()
+        if len(target) > 1:
+            names.add(target[-1])
+        return frozenset(names)
+    if not decl.tail:
+        return None
+    names = set()
+    for item in decl.tail:
+        path = _item_path(item)
+        if not path:
+            return None
+        names.add(path[0])
+        if item.rename is not None:
+            names.add(item.rename)
+    return frozenset(names)
+
+
+class _UseIndex:
+    """One layer's uses, indexed by the first names of the paths each can expose.
+
+    A path is exposed by a use only through its first name, so a read of a path
+    visits the uses indexed under that name and the globs, not every use.
+    Follows the layer's list as the resolver appends to it; a replaced list is re-read.
+    """
+
+    def __init__(self, layer: ScopeNode) -> None:
+        self._layer = layer
+        self._uses = layer.uses
+        self._count = 0
+        self._named: dict[str, list[tuple[int, UseDecl]]] = {}
+        self._any: list[tuple[int, UseDecl]] = []
+
+    def matching(self, first: str) -> list[UseDecl]:
+        """The layer's uses that can expose a path starting with *first*, in writing order."""
+        uses = self._layer.uses
+        if uses is not self._uses or len(uses) < self._count:
+            self._uses, self._count = uses, 0
+            self._named, self._any = {}, []
+        for position in range(self._count, len(uses)):
+            decl = uses[position]
+            names = _first_names(decl)
+            if names is None:
+                self._any.append((position, decl))
+            else:
+                for name in names:
+                    self._named.setdefault(name, []).append((position, decl))
+        self._count = len(uses)
+        named = self._named.get(first, [])
+        return [decl for _, decl in heapq.merge(named, self._any)]
 
 
 def spelled_through(decl: UseDecl, earlier: UseDecl) -> bool:
@@ -166,6 +226,7 @@ class UseReader:
         self._outermost_reads = 0
         # Whether each use is a single-item rename, the target it names, and
         # the declarations its ``hiding`` removes.
+        self._indexes: dict[int, _UseIndex] = {}
         self._renamed: dict[int, bool] = {}
         self._identities: dict[int, frozenset[QName]] = {}
         self._hidden_by: dict[int, frozenset[DeclarationKey]] = {}
@@ -237,8 +298,25 @@ class UseReader:
         REPL entry retained yields to one this entry writes in the same
         region replacing it (:meth:`_replacing`).
         """
+        yield from self._seen(layer, layer.uses)
+
+    def visible_exposing(self, layer: ScopeNode, relative: ScopePath) -> Iterator[UseDecl]:
+        """Yield :meth:`visible` uses of *layer* that can expose a path starting as *relative*.
+
+        Every visible use when *relative* is empty.
+        """
+        if not relative:
+            yield from self.visible(layer)
+            return
+        index = self._indexes.get(id(layer))
+        if index is None:
+            index = self._indexes[id(layer)] = _UseIndex(layer)
+        yield from self._seen(layer, index.matching(relative[0]))
+
+    def _seen(self, layer: ScopeNode, uses: Iterable[UseDecl]) -> Iterator[UseDecl]:
+        """Yield those of *uses*, written in *layer*, a read now sees."""
         horizon = self._horizon
-        for decl in layer.uses:
+        for decl in uses:
             if horizon is not None and decl.node_id >= horizon:
                 continue
             if decl.node_id in self._entry_ids or not self._use_replaced(layer.scope_path, decl):

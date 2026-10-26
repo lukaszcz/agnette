@@ -1547,7 +1547,7 @@ class ModuleSources(SourcesHost):
                         self._region_import_ways(layer, exposed, qname),
                         typed=ref.contributes_a_type,
                     )
-            for decl in self._uses.visible(layer):
+            for decl in self._uses.visible_exposing(layer, relative):
                 found |= self._uses.origins(layer.scope_path, decl, relative)
         env = self._import_env
         for exposed, qname, ways in self._exposed(None).get(path[0], ()):
@@ -1828,10 +1828,9 @@ class ModuleSources(SourcesHost):
     ) -> Iterator[tuple[Candidate, UseDecl]]:
         """Yield what each use visible at or above *step* exposes of *kind* at full *path*."""
         for layer, atom in anchored_layers(self._scope_nodes, step, path):
-            for decl in self._uses.visible(layer):
-                for candidate in self._uses.exposure(
-                    layer.scope_path, decl, _bare_path(atom), kind
-                ):
+            relative = _bare_path(atom)
+            for decl in self._uses.visible_exposing(layer, relative):
+                for candidate in self._uses.exposure(layer.scope_path, decl, relative, kind):
                     yield candidate, decl
 
     def _value_binding(self, target: QualifiedTarget, span: SourceSpan) -> BindingRef | None:
