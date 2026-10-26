@@ -9,7 +9,16 @@ record is detectable; a complete record wins over the exit status. A child close
 only by exiting, so EOF is followed by a reaping. Waiting drains the pipes of all attached
 children, so a child blocked on a full pipe never stalls behind another wait. Terminating
 signals are held only around short critical sections (the fork and attach, a chunk read, the
-reaping, detach), never across a blocking wait: an interrupt then propagates promptly.
+reaping, detach, the final kill), never across a blocking wait: an interrupt then propagates
+promptly.
+
+*Lifetime.* Terminating processes sends SIGTERM to each child and its group, keeps draining
+and reaping until one shared deadline, then SIGKILLs the stragglers; an interrupt meanwhile
+SIGKILLs at once. :meth:`ProcessHost.scope` terminates the processes forked inside it when
+left by an exception, and :meth:`ProcessHost.end` settles or terminates all of them. A child
+tears down the same way before it exits, with half its parent's grace period, so it ends its
+own processes within the deadline its parent gives it. Only a SIGKILL that arrives at once (a
+second interrupt, or after the whole grace period) can orphan a child's descendants.
 
 *Participants* extend the fork with other services' state (see :class:`ForkParticipant`).
 """
@@ -18,23 +27,36 @@ from __future__ import annotations
 
 import enum
 import functools
+import math
 import os
 import select
 import signal
 import sys
+import time
 import traceback
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from types import FrameType
 from typing import ClassVar, NamedTuple, NoReturn
 from uuid import uuid4
 
+from agnette.agl.runtime.process_records import (
+    Delivered,
+    Ended,
+    Failed,
+    Outcome,
+    classify,
+    delivered_record,
+    failed_record,
+)
 from agnette.core.cleanup import cleanup_on_failure, run_cleanup_steps
 from agnette.core.process import kill_group
 from agnette.core.signals import SignalMask, SignalWakeup, held_signals
 
 __all__ = [
+    "ChildResult",
     "Delivered",
     "Disposition",
     "Ended",
@@ -45,18 +67,16 @@ __all__ = [
     "ProcessHost",
     "ProcessHostError",
     "ProcessInfo",
+    "TERMINATION_GRACE",
 ]
 
-_DELIVERED = b"D"
-_FAILED = b"F"
-# A record is a one-byte tag, an 8-byte big-endian body length, and the body.
-_LENGTH_SIZE = 8
-_HEADER_SIZE = 1 + _LENGTH_SIZE
 _READ_CHUNK = 1 << 16
 # A child that fails outside its callable (a hook, the record write) exits with this status.
 _UNEXPECTED_EXIT = 70
 # Held across a fork and a reaping, so no interrupt runs a handler while the state is torn.
 _TERMINATING = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+# Seconds between SIGTERM and SIGKILL when terminating processes.
+TERMINATION_GRACE = 10.0
 
 
 class ProcessHostError(Exception):
@@ -71,33 +91,15 @@ class ProcessInfo:
     pid: int
 
 
-@dataclass(frozen=True, slots=True)
-class Delivered:
-    """The child returned *payload*."""
-
-    payload: bytes
-
-
-@dataclass(frozen=True, slots=True)
-class Failed:
-    """The child's callable raised a Python ``Exception``."""
-
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class Ended:
-    """The child ended without a complete record: by exit status or by signal."""
-
-    exit_code: int | None
-    signal: int | None
-
-
-Outcome = Delivered | Failed | Ended
+# What a child callable returns: the payload, or a payload marked as a failure.
+type ChildResult = bytes | Delivered
 
 
 class Disposition(enum.Enum):
-    """How a child's outcome ends its teardown: normally, or abnormally."""
+    """How a session of processes ends: ``SETTLE`` awaits them, ``TERMINATE`` terminates them.
+
+    A child's teardown uses ``SETTLE`` after a normal outcome, else ``TERMINATE``.
+    """
 
     SETTLE = "settle"
     TERMINATE = "terminate"
@@ -157,48 +159,6 @@ class _ChildEnd(NamedTuple):
     signal: int | None
 
 
-def _frame(tag: bytes, body: bytes) -> bytes:
-    return tag + len(body).to_bytes(_LENGTH_SIZE, "big") + body
-
-
-def _parse_record(data: bytes | bytearray) -> Delivered | Failed | None:
-    """The record *data* holds, or ``None`` if it is not exactly one complete record."""
-    with memoryview(data) as view:
-        if len(view) < _HEADER_SIZE:
-            return None
-        tag = bytes(view[:1])
-        body = view[_HEADER_SIZE:]
-        if len(body) != int.from_bytes(view[1:_HEADER_SIZE], "big"):
-            return None
-        if tag == _DELIVERED:
-            return Delivered(bytes(body))
-        if tag == _FAILED:
-            return Failed(str(body, "utf-8", errors="replace"))
-        return None
-
-
-def _classify(data: bytes | bytearray, status: int) -> Outcome:
-    """The outcome of a finished child: a complete record wins over its exit status."""
-    record = _parse_record(data)
-    if record is not None:
-        return record
-    code = os.waitstatus_to_exitcode(status)
-    return Ended(code, None) if code >= 0 else Ended(None, -code)
-
-
-def _describe(exc: Exception) -> str:
-    """*exc* as Python reports it (``Type: message``); its type's name if that fails."""
-    try:
-        return "".join(traceback.format_exception_only(exc)).rstrip()
-    except Exception:
-        return type(exc).__qualname__
-
-
-def _failed_record(exc: Exception) -> bytes:
-    """The record reporting *exc*; text that is not valid Unicode is escaped, not lost."""
-    return _frame(_FAILED, _describe(exc).encode("utf-8", errors="backslashreplace"))
-
-
 def _exit_code(status: object) -> int:
     """The exit status a ``SystemExit`` carrying *status* means, as Python's own exit has it."""
     if status is None:
@@ -238,19 +198,51 @@ def _write_all(fd: int, data: bytes) -> None:
         pass
 
 
+@dataclass(frozen=True, slots=True)
+class _Scope:
+    """A ``with host.scope()`` block, nested in *parent*."""
+
+    parent: _Scope | None
+
+
+def _within(scope: _Scope | None, ancestor: _Scope) -> bool:
+    """Whether *scope* is *ancestor* or nested in it."""
+    while scope is not None:
+        if scope is ancestor:
+            return True
+        scope = scope.parent
+    return False
+
+
 @dataclass(slots=True)
 class _Entry:
     """An attached child: running until its pipe reaches EOF, then holding its outcome.
 
     ``fd`` is ``-1`` once closed. A child at EOF that is not yet reaped keeps ``result``
     ``None`` until a wait completes it, so an interrupt can strike between the two steps.
+    ``consumed``: the outcome was returned or reported, or the process was terminated by
+    :meth:`ProcessHost.terminate`.
     """
 
     id: str
     pid: int
     fd: int
+    scope: _Scope | None = None
     buffer: bytearray = field(default_factory=bytearray)
     result: Outcome | None = None
+    consumed: bool = False
+
+
+def _signal(entry: _Entry, number: int = signal.SIGKILL) -> None:
+    """Send *number* once to *entry*'s unreaped child and to its process group.
+
+    The group reaches the child while it leads it, and its descendants; the pid alone reaches a
+    child that left its group (or has not joined it yet).
+    """
+    with suppress(ProcessLookupError):
+        if os.getpgid(entry.pid) != entry.pid:
+            os.kill(entry.pid, number)
+    kill_group(entry.pid, number)
 
 
 def _close_pipe(entry: _Entry) -> None:
@@ -258,6 +250,21 @@ def _close_pipe(entry: _Entry) -> None:
     fd, entry.fd = entry.fd, -1
     if fd >= 0:
         os.close(fd)
+
+
+def _problem(outcome: Outcome) -> str | None:
+    """A one-line account of *outcome* if it is not a clean delivery, else ``None``."""
+    if isinstance(outcome, Delivered):
+        if outcome.failure is None:
+            return None
+        text = f"failed: {outcome.failure}"
+    elif isinstance(outcome, Failed):
+        text = f"failed: {outcome.message}"
+    elif outcome.exit_code is None:
+        text = f"was terminated by signal {outcome.signal}"
+    else:
+        text = f"exited with status {outcome.exit_code}"
+    return " ".join(text.split())
 
 
 def _exit_hooks(entered: Sequence[_Prepared], disposition: Disposition) -> None:
@@ -272,17 +279,27 @@ class ProcessHost:
 
     Not thread-safe. A forked child gets an empty process table: handles of its parent
     are foreign to it. The outcome types are class attributes, so a companion reaches
-    them through the host it holds.
+    them through the host it holds. *grace* is the seconds between SIGTERM and SIGKILL when
+    terminating processes (halved in each forked child). *reporter*, if given, is called for
+    each outcome :meth:`end` reports, after its stderr warning.
     """
 
     Delivered: ClassVar[type[Delivered]] = Delivered
     Failed: ClassVar[type[Failed]] = Failed
     Ended: ClassVar[type[Ended]] = Ended
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        grace: float = TERMINATION_GRACE,
+        reporter: Callable[[ProcessInfo, Outcome], None] | None = None,
+    ) -> None:
+        self._grace = grace
         self._participants: list[Callable[[ForkRequest], _Prepared]] = []
         self._entries: dict[str, _Entry] = {}
         self._detached: list[int] = []
+        self._scope: _Scope | None = None
+        self._reporter = reporter
         # In a child: the write end of the pipe it delivers its record on.
         self._outcome_fd: int | None = None
         # In a child: the last terminating signal received, while its interrupt is in flight.
@@ -306,8 +323,11 @@ class ProcessHost:
 
     # -- fork ---------------------------------------------------------------
 
-    def fork(self, child: Callable[[], bytes], sessions: Sequence[str]) -> ProcessInfo:
+    def fork(self, child: Callable[[], ChildResult], sessions: Sequence[str]) -> ProcessInfo:
         """Run *child* in a forked process; *sessions* are passed on to the participants.
+
+        *child* returns the payload, or a :class:`Delivered` marking it as a failure. The
+        process belongs to the innermost :meth:`scope` active in the caller.
 
         Raises :class:`ProcessHostError` unless this is the only Python thread, if the OS
         refuses the fork, or if a ``parent`` hook fails (the child is then killed and
@@ -367,7 +387,7 @@ class ProcessHost:
         the child's process group (:func:`kill_group`) and reaps it, as no caller holds its id;
         an ``Exception`` is reported as a :class:`ProcessHostError`.
         """
-        entry = _Entry(uuid4().hex, pid, read_fd)
+        entry = _Entry(uuid4().hex, pid, read_fd, self._scope)
         self._entries[entry.id] = entry
         try:
             os.close(write_fd)
@@ -389,8 +409,7 @@ class ProcessHost:
     def _destroy(self, entry: _Entry) -> None:
         """Kill *entry*'s child and its process group, reap it, and forget it."""
         del self._entries[entry.id]
-        os.kill(entry.pid, signal.SIGKILL)
-        kill_group(entry.pid)
+        _signal(entry)
         _close_pipe(entry)
         os.waitpid(entry.pid, 0)
 
@@ -398,7 +417,7 @@ class ProcessHost:
 
     def _run_child(
         self,
-        child: Callable[[], bytes],
+        child: Callable[[], ChildResult],
         prepared: list[_Prepared],
         read_fd: int,
         write_fd: int,
@@ -407,8 +426,9 @@ class ProcessHost:
         """Run the child to its end; never returns.
 
         An interrupt or ``SystemExit`` anywhere ends the child as such; any other error
-        prints its traceback and ends it with status 70. A terminating signal that arrives
-        once the child is leaving ends it by that signal, without unwinding.
+        prints its traceback and ends it with status 70. Processes still attached then are
+        terminated, so none outlives an abnormally ended child. A terminating signal that
+        arrives once the child is leaving ends it by that signal, without unwinding.
         """
         end = _ChildEnd(_UNEXPECTED_EXIT, None)
         try:
@@ -418,21 +438,33 @@ class ProcessHost:
         except BaseException:
             traceback.print_exc()
         finally:
-            # First, so that no handler can unwind the child from here on.
-            self._leaving = True
-            _leave(*end)
+            try:
+                # A no-op after a teardown that completed: every outcome is then known.
+                self.end(Disposition.TERMINATE)
+            except (KeyboardInterrupt, SystemExit) as exc:
+                end = _interrupt_end(exc, self._received_signal)
+            finally:
+                # First, so that no handler can unwind the child from here on.
+                self._leaving = True
+                _leave(*end)
 
     def _child_main(
         self,
-        child: Callable[[], bytes],
+        child: Callable[[], ChildResult],
         prepared: list[_Prepared],
         read_fd: int,
         write_fd: int,
         unblocked: SignalMask,
     ) -> _ChildEnd:
-        """Hooks, callable, teardown, record: the child's life. A failing ``child_exit`` after
-        a delivered result turns the result into a failure.
+        """Hooks, callable, teardown, record: the child's life.
+
+        The teardown ends the child's own processes (:meth:`end`: awaited after a normal
+        outcome, else terminated), then runs the ``child_exit`` hooks. A failure of either
+        after a delivered result turns the result into a failure.
         """
+        # First, while terminating signals are held: an interrupt of the child must never
+        # find its parent's processes in the table.
+        self._enter_child_table(read_fd, write_fd)
         self._received_signal = None
         # The parent's wakeup pipe is not the child's to write to.
         signal.set_wakeup_fd(-1)
@@ -444,7 +476,6 @@ class ProcessHost:
         stdin = os.open(os.devnull, os.O_RDONLY)
         os.dup2(stdin, 0)
         os.close(stdin)
-        self._enter_child_table(read_fd, write_fd)
         entered: list[_Prepared] = []
         with cleanup_on_failure(
             functools.partial(_exit_hooks, entered, Disposition.TERMINATE), label="child_exit"
@@ -454,10 +485,13 @@ class ProcessHost:
                 entered.append(hooks)
         record: bytes | None
         try:
-            record = _frame(_DELIVERED, child())
-            end, disposition = _ChildEnd(0, None), Disposition.SETTLE
+            returned = child()
+            delivered = returned if isinstance(returned, Delivered) else Delivered(returned)
+            record = delivered_record(delivered)
+            end = _ChildEnd(0, None)
+            disposition = Disposition.SETTLE if delivered.failure is None else Disposition.TERMINATE
         except Exception as exc:
-            record = _failed_record(exc)
+            record = failed_record(exc)
             end, disposition = _ChildEnd(1, None), Disposition.TERMINATE
         except (KeyboardInterrupt, SystemExit) as exc:
             record = None
@@ -465,26 +499,44 @@ class ProcessHost:
         # An interrupt the callable survived is over.
         self._received_signal = None
         try:
-            _exit_hooks(entered, disposition)
+            self._teardown(entered, disposition)
         except Exception as exc:
             if disposition is Disposition.SETTLE:
-                record, end = _failed_record(exc), _ChildEnd(1, None)
+                record, end = failed_record(exc), _ChildEnd(1, None)
         if record is not None:
             _write_all(write_fd, record)
         sys.stdout.flush()
         sys.stderr.flush()
         return end
 
+    def _teardown(self, entered: Sequence[_Prepared], disposition: Disposition) -> None:
+        """End the child's processes as *disposition*, then run the ``child_exit`` hooks.
+
+        If the ending fails, the hooks run with ``TERMINATE``, as the child ends abnormally.
+        """
+        with cleanup_on_failure(
+            functools.partial(_exit_hooks, entered, Disposition.TERMINATE), label="child_exit"
+        ):
+            self.end(disposition)
+        _exit_hooks(entered, disposition)
+
     def _enter_child_table(self, read_fd: int, write_fd: int) -> None:
-        """Drop everything inherited from the parent's process table; own the new pipe."""
+        """Drop everything inherited from the parent's process table; own the new pipe.
+
+        The grace period halves, so the child terminates its own processes within the
+        deadline its parent gives it.
+        """
+        self._grace /= 2
+        inherited = list(self._entries.values())
+        self._entries.clear()
+        self._detached.clear()
+        self._scope = None
+        for entry in inherited:
+            _close_pipe(entry)
         os.close(read_fd)
         if self._outcome_fd is not None:
             os.close(self._outcome_fd)
         self._outcome_fd = write_fd
-        for entry in self._entries.values():
-            _close_pipe(entry)
-        self._entries.clear()
-        self._detached.clear()
 
     def _on_terminate(self, number: int, frame: FrameType | None) -> None:
         if self._leaving:
@@ -511,11 +563,15 @@ class ProcessHost:
         return next(index for index, entry in enumerate(entries) if entry.result is not None)
 
     def outcome(self, id: str) -> Outcome:
-        """Block until process *id* has finished, then return its outcome (idempotent)."""
+        """Block until process *id* has finished, then return its outcome (idempotent).
+
+        Consumes the outcome: :meth:`end` does not report it.
+        """
         self.settle(id)
-        result = self._entries[id].result
-        assert result is not None
-        return result
+        entry = self._entries[id]
+        assert entry.result is not None
+        entry.consumed = True
+        return entry.result
 
     def detach(self, id: str) -> None:
         """Release process *id*: it is no longer awaited, and a later use of it is an error."""
@@ -528,14 +584,123 @@ class ProcessHost:
             _close_pipe(entry)
             del self._entries[id]
 
+    # -- termination, scopes, session end -----------------------------------
+
+    def terminate(self, id: str) -> None:
+        """Terminate process *id* and wait until it has ended; a finished one is left alone.
+
+        A process ended before it delivered reports ``Ended(signal=SIGTERM)``, or ``SIGKILL``
+        if it outlived the grace period. The outcome counts as consumed, so :meth:`end` does
+        not report it.
+        """
+        self._reap_detached()
+        entry = self._entry(id)
+        self._terminate([entry])
+        entry.consumed = True
+
+    @contextmanager
+    def scope(self) -> Iterator[None]:
+        """Tag the processes forked inside the block, to terminate them if it fails.
+
+        Leaving by an exception (any ``BaseException``) terminates those of them still
+        attached, those of nested scopes included, then re-raises. Leaving normally does
+        nothing; the terminated outcomes stay unconsumed.
+        """
+        scope = _Scope(self._scope)
+        self._scope = scope
+        try:
+            with self._terminating_on_error(
+                lambda: [e for e in self._entries.values() if _within(e.scope, scope)]
+            ):
+                yield
+        finally:
+            self._scope = scope.parent
+
+    def end(self, disposition: Disposition) -> None:
+        """End the session of the attached processes; detached ones are only reaped.
+
+        ``SETTLE`` waits for all of them, then reports each unconsumed outcome that is not a
+        clean delivery (a failure, a raised exception, an early end): a one-line warning on
+        stderr, then the reporter. An interrupt meanwhile terminates the rest and re-raises.
+        ``TERMINATE`` terminates all of them, reporting nothing.
+        """
+        try:
+            if disposition is Disposition.TERMINATE:
+                self._terminate(list(self._entries.values()))
+            else:
+                everything = list(self._entries.values())
+                with self._terminating_on_error(lambda: everything):
+                    self._pump(self._all_done(everything))
+                run_cleanup_steps([functools.partial(self._report, e) for e in everything])
+        finally:
+            self._reap_detached()
+
+    def _report(self, entry: _Entry) -> None:
+        """Warn about *entry*'s outcome once, unless it was consumed or is a clean delivery."""
+        if entry.consumed:
+            return
+        entry.consumed = True
+        assert entry.result is not None
+        problem = _problem(entry.result)
+        if problem is not None:
+            sys.stderr.write(f"warning: process {entry.pid} {problem}\n")
+            if self._reporter is not None:
+                self._reporter(ProcessInfo(entry.id, entry.pid), entry.result)
+
+    @contextmanager
+    def _terminating_on_error(self, targets: Callable[[], Sequence[_Entry]]) -> Iterator[None]:
+        """Terminate *targets* (taken when needed) if the block raises, then re-raise."""
+        try:
+            yield
+        except BaseException:
+            self._terminate(targets())
+            raise
+
+    @staticmethod
+    def _all_done(entries: Sequence[_Entry]) -> Callable[[], bool]:
+        return lambda: all(entry.result is not None for entry in entries)
+
+    def _terminate(self, entries: Sequence[_Entry]) -> None:
+        """Terminate those of *entries* that have not finished, under one shared deadline.
+
+        SIGTERM goes to them and their groups; the pipes of all attached processes are drained and
+        finished ones reaped until the grace period is over, then SIGKILL goes to the
+        groups of the stragglers. Any exception meanwhile (an interrupt) skips the wait:
+        the remaining ones are killed and reaped, and it propagates.
+        """
+        targets = [entry for entry in entries if entry.result is None]
+        done = self._all_done(targets)
+        try:
+            for entry in targets:
+                _signal(entry, signal.SIGTERM)
+            self._pump(done, time.monotonic() + self._grace)
+        except BaseException:
+            self._kill(targets, done)
+            raise
+        if not done():
+            self._kill(targets, done)
+
+    def _kill(self, targets: Sequence[_Entry], done: Callable[[], bool]) -> None:
+        """SIGKILL the groups of the unfinished *targets* and reap them.
+
+        Signals are held: SIGKILL ends the wait, and a pending interrupt then propagates.
+        """
+        with held_signals(_TERMINATING):
+            for entry in targets:
+                if entry.result is None:
+                    _signal(entry)
+            self._pump(done)
+
     def _entry(self, id: str) -> _Entry:
         try:
             return self._entries[id]
         except KeyError:
             raise ProcessHostError(f"unknown, detached, or foreign process {id!r}") from None
 
-    def _pump(self, done: Callable[[], bool]) -> None:
+    def _pump(self, done: Callable[[], bool], deadline: float | None = None) -> None:
         """Read the pipes of all running children until *done*; an interrupt propagates.
+
+        With a *deadline* (``time.monotonic`` seconds), it also returns when that has passed.
 
         A signal wakes the blocking poll (see :class:`SignalWakeup`), so a Python handler
         that raises interrupts the wait at once. The wakeup lasts only for this call, never
@@ -555,7 +720,13 @@ class ProcessHost:
             for fd in running:
                 poller.register(fd, select.POLLIN)
             while not done():
-                for fd, _ in poller.poll():
+                timeout = None
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return
+                    timeout = math.ceil(remaining * 1000)
+                for fd, _ in poller.poll(timeout):
                     if wakeup.consume(fd):
                         continue
                     entry = running[fd]
@@ -581,7 +752,7 @@ class ProcessHost:
         os.waitid(os.P_PID, entry.pid, os.WEXITED | os.WNOWAIT)
         with held_signals(_TERMINATING):
             _, status = os.waitpid(entry.pid, 0)
-            entry.result = _classify(entry.buffer, status)
+            entry.result = classify(entry.buffer, status)
             entry.buffer.clear()
 
     def _reap_detached(self) -> None:

@@ -201,9 +201,29 @@ pairs with `agl.transfer`:
   failing `close` of its companion state at exit), or `Ended(exit_code, signal)`
   if it ended without a result, e.g. by `SystemExit` or a signal. These classes
   are attributes of `runtime.processes` (`runtime.processes.Delivered`, ...). A
-  result delivered completely wins over the exit status. Outcomes are not
-  consumed: repeating the call returns the same one.
-- `detach(id)` releases the process: it is no longer awaited.
+  result delivered completely wins over the exit status. Repeating the call
+  returns the same outcome. A child may return `Delivered(payload,
+  failure=summary)` instead of bytes: the payload is then a delivered failure
+  (say, a carried exception) described by the one-line `summary`, which the
+  host never interprets, and the child tears down as one that raised.
+- `terminate(id)` sends SIGTERM to the process and its group, then drains and
+  reaps until the process ends. If it outlives a 10 second grace period, or the
+  call is interrupted, the process is killed at once (SIGKILL). A finished
+  process is left alone. A process ended before it delivered reports `Ended`
+  with the signal. The outcome then counts as returned; a termination by
+  `scope` or `end` does not count.
+- `scope()` is a context manager: processes forked inside it belong to it
+  (scopes nest). Leaving it by an exception, interrupts included, terminates
+  the processes of the scope (nested scopes included) that are still attached;
+  leaving normally does nothing.
+- `end(disposition)` ends the attached processes. `Disposition.SETTLE` (an
+  attribute of `runtime.processes`) waits for all of them and warns on stderr,
+  one line each, about every outcome `outcome` has not returned that is not a
+  clean delivery (a `Failed`, an `Ended`, a `Delivered` with a `failure`);
+  `TERMINATE` terminates them without warning. A companion marks a delivered
+  payload as a failure with `failure`; that summary is what the warning shows.
+- `detach(id)` releases the process: it is no longer awaited, terminated, or
+  warned about.
 
 An id is valid only in the process that forked it and only while attached:
 unknown, detached, and inherited ids raise `agl.ProcessHostError`. Waiting
@@ -212,8 +232,11 @@ drains the results of every attached child, so none stalls on an unread result.
 The child is a copy of the program at the fork. It runs in a process group of
 its own with `/dev/null` as stdin, shares stdout and stderr (buffered output is
 flushed before the fork), and treats SIGINT, SIGTERM, and SIGHUP as
-`KeyboardInterrupt`. Its [companion state](#companion-state) is carried over as
-described there. The child never returns into the companion that forked it.
+`KeyboardInterrupt`. Before it exits it ends its own processes the same way
+(`SETTLE` after a normal result, else `TERMINATE`), with half the grace period
+of its parent, so none outlives it. Its
+[companion state](#companion-state) is carried over as described there. The
+child never returns into the companion that forked it.
 
 ## Value mapping
 

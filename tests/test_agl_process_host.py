@@ -1,4 +1,4 @@
-"""The process host: forking, outcome transport, waiting, ownership, and participants.
+"""The process host: forking, outcome transport, waiting, ownership, participants, lifetime.
 
 Forking scenarios run in the isolated runner, since the suite's own processes are
 multi-threaded. Children `setpgid` into groups of their own, which the runner's group kill does
@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import fcntl
+import io
 import json
 import os
 import resource
@@ -27,8 +28,10 @@ import pytest
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.runtime.externs import ExternRegistry, ExternRuntimeState
 from agnette.agl.runtime.fork_participants import CompanionStateParticipant, StdioFlushParticipant
+from agnette.agl.runtime.process_records import parse_record
 from agnette.agl.runtime.processes import (
     _READ_CHUNK,
+    ChildResult,
     Delivered,
     Disposition,
     Ended,
@@ -41,8 +44,8 @@ from agnette.agl.runtime.processes import (
     ProcessInfo,
     _interrupt_end,
     _leave,
-    _parse_record,
 )
+from agnette.core.process import kill_group
 from tests._signal_helpers import before_each_poll, trip_signal_off_thread
 from tests.agl.ir_harness import write_companion_file
 from tests.agl.isolated_runner import run_callable
@@ -59,11 +62,13 @@ _REPEATS = 20
 class _TrackedHost(ProcessHost):
     """A host that remembers its attached children, for the fixture's cleanup."""
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+        self, grace: float, reporter: Callable[[ProcessInfo, Outcome], None] | None
+    ) -> None:
+        super().__init__(grace=grace, reporter=reporter)
         self.attached: list[ProcessInfo] = []
 
-    def fork(self, child: Callable[[], bytes], sessions: Sequence[str]) -> ProcessInfo:
+    def fork(self, child: Callable[[], ChildResult], sessions: Sequence[str]) -> ProcessInfo:
         info = super().fork(child, sessions)
         self.attached.append(info)
         return info
@@ -83,9 +88,16 @@ def _is_reaped(pid: int) -> bool:
 
 
 @contextlib.contextmanager
-def _host(*participants: ForkParticipant[Any]) -> Iterator[ProcessHost]:
-    """A host that reaps its children on exit and fails if any child is left behind."""
-    host = _TrackedHost()
+def _host(
+    *participants: ForkParticipant[Any],
+    grace: float = 30.0,
+    reporter: Callable[[ProcessInfo, Outcome], None] | None = None,
+) -> Iterator[ProcessHost]:
+    """A host that reaps its children on exit and fails if any child is left behind.
+
+    *grace* is its termination grace period; tests that wait it out pass a short one.
+    """
+    host = _TrackedHost(grace, reporter)
     for participant in participants:
         host.register(participant)
     try:
@@ -139,11 +151,17 @@ class _Gate:
     def open(self) -> None:
         os.write(self.write_fd, b"x")
 
+    def wait(self) -> None:
+        """Block in the parent until a child (or the parent) has opened the gate."""
+        os.read(self.read_fd, 1)
+
 
 def _show(outcome: Outcome) -> list[Any]:
     match outcome:
-        case Delivered(payload):
+        case Delivered(payload, None):
             return ["D", payload.decode()]
+        case Delivered(payload, failure):
+            return ["DF", payload.decode(), failure]
         case Failed(message):
             return ["F", message]
         case Ended(exit_code, signal_number):
@@ -790,6 +808,7 @@ def _detach(workdir: Path) -> dict[str, Any]:
             "detach": _refused(lambda: host.detach(finished.id)),
             "settle_any": _refused(lambda: host.settle_any([finished.id])),
             "unknown": _refused(lambda: host.settle("no-such-process")),
+            "terminate": _refused(lambda: host.terminate(finished.id)),
         }
         # A running child detached before it writes: its closed pipe is not a failure.
         running = host.fork(gate.wait_then(b"late"), ())
@@ -1283,21 +1302,21 @@ def test_an_interrupt_during_a_prepare_hook_propagates_at_once_and_aborts_earlie
 
 
 def _interrupt_again_while_destroying(workdir: Path) -> dict[str, Any]:
-    real = os.kill
+    real_killpg = os.killpg
 
-    def kill(pid: int, number: int) -> None:
+    def killpg(pgid: int, number: int) -> None:
         if number == signal.SIGKILL and not second:
             second.append(number)
-            real(os.getpid(), signal.SIGINT)
-        real(pid, number)
+            os.kill(os.getpid(), signal.SIGINT)
+        real_killpg(pgid, number)
 
     def interrupt() -> None:
-        real(os.getpid(), signal.SIGINT)
+        os.kill(os.getpid(), signal.SIGINT)
 
     second: list[int] = []
     gate = _Gate()
     with _host(_ParentHook(workdir / "log", "hook", interrupt)) as host:
-        with _recorded_forks() as pids, mock.patch.object(os, "kill", kill):
+        with _recorded_forks() as pids, mock.patch.object(os, "killpg", killpg):
             try:
                 host.fork(gate.wait_then(b"x"), ())
             except KeyboardInterrupt:
@@ -1527,6 +1546,764 @@ def test_a_failure_message_that_is_not_valid_unicode_is_still_delivered(tmp_path
 
 
 # ---------------------------------------------------------------------------
+# Termination, scopes, and session end
+# ---------------------------------------------------------------------------
+
+
+def _stubborn(ready: _Gate, gate: _Gate, termed: _Gate | None = None) -> Callable[[], bytes]:
+    """A child that survives SIGTERM, then announces it on *ready* and blocks on *gate*.
+
+    If *termed* is given, each SIGTERM opens it; otherwise SIGTERM is ignored.
+    """
+
+    def child() -> bytes:
+        if termed is None:
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        else:
+            signal.signal(signal.SIGTERM, lambda number, frame: termed.open())
+        ready.open()
+        gate.pass_through()
+        return b"stubborn"
+
+    return child
+
+
+def _pid_is_gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def _terminate_one(workdir: Path) -> dict[str, Any]:
+    gate, ready = _Gate(), _Gate()
+    report = {}
+    # Cooperative processes get a grace period no test comes near.
+    with _host() as host:
+        cooperative = host.fork(gate.wait_then(b"unreachable"), ())
+        finished = host.fork(lambda: b"done", ())
+        host.settle(finished.id)
+        host.terminate(cooperative.id)
+        host.terminate(finished.id)
+        report["cooperative"] = _show(host.outcome(cooperative.id))
+        report["finished"] = _show(host.outcome(finished.id))
+    # Every target of a short grace period is stubborn: it is killed whatever the timing.
+    with _host(grace=0.3) as host:
+        stubborn = host.fork(_stubborn(ready, gate), ())
+        ready.wait()
+        host.terminate(stubborn.id)
+        report["stubborn"] = _show(host.outcome(stubborn.id))
+    return report
+
+
+def _kill_the_stubborn_among_the_finished(workdir: Path) -> list[Any]:
+    gate, ready = _Gate(), _Gate()
+
+    with _host(grace=0.3) as host:
+        cooperative = host.fork(gate.wait_then(b"unreachable"), ())
+        stubborn = host.fork(_stubborn(ready, gate), ())
+        ready.wait()
+
+        def cooperative_has_ended(call: int) -> None:
+            # Only the stubborn one is left for the deadline, whatever the timing.
+            if call == 0:
+                os.waitid(os.P_PID, cooperative.pid, os.WEXITED | os.WNOWAIT)
+
+        with before_each_poll(cooperative_has_ended):
+            host.end(Disposition.TERMINATE)
+        return [_show(host.outcome(info.id)) for info in (cooperative, stubborn)]
+
+
+def test_a_termination_kills_only_the_processes_that_outlive_the_grace_period(
+    tmp_path: Path,
+) -> None:
+    outcomes = run_callable(_kill_the_stubborn_among_the_finished, tmp_path, timeout=RUN_TIMEOUT)
+
+    assert outcomes.value == [["E", None, signal.SIGTERM], ["E", None, signal.SIGKILL]]
+
+
+def test_terminating_a_process_ends_it_by_sigterm_then_sigkill_and_spares_finished_ones(
+    tmp_path: Path,
+) -> None:
+    outcomes = run_callable(_terminate_one, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert outcomes == {
+        "cooperative": ["E", None, signal.SIGTERM],
+        "stubborn": ["E", None, signal.SIGKILL],
+        "finished": ["D", "done"],
+    }
+
+
+def _concurrent_termination(workdir: Path) -> list[Any]:
+    """Each child leaves only after the other has been told to terminate."""
+    hold = _Gate()
+    termed = [_Gate(), _Gate()]
+    ready = [_Gate(), _Gate()]
+
+    def handshaking(index: int) -> Callable[[], bytes]:
+        def child() -> bytes:
+            def on_terminate(number: int, frame: object) -> None:
+                termed[index].open()
+                termed[1 - index].wait()
+                raise SystemExit(7 + index)
+
+            signal.signal(signal.SIGTERM, on_terminate)
+            ready[index].open()
+            hold.pass_through()
+            return b"unreachable"
+
+        return child
+
+    # A sequential termination would wait out the grace period for the first child.
+    with _host(grace=5.0) as host:
+        infos = [host.fork(handshaking(index), ()) for index in range(2)]
+        for gate in ready:
+            gate.wait()
+        host.end(Disposition.TERMINATE)
+        return [_show(host.outcome(info.id)) for info in infos]
+
+
+def test_several_processes_are_terminated_concurrently_under_one_deadline(
+    tmp_path: Path,
+) -> None:
+    outcomes = run_callable(_concurrent_termination, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert outcomes == [["E", 7, None], ["E", 8, None]]
+
+
+def _sigterms_sent_to_a_group_leader(workdir: Path) -> int:
+    """How many SIGTERMs reach a child that leads its own group during its termination."""
+    gate = _Gate()
+    sent: list[int] = []
+    real_kill, real_killpg = os.kill, os.killpg
+
+    with _host() as host:
+        info = host.fork(gate.wait_then(b"unreachable"), ())
+
+        def kill(pid: int, number: int) -> None:
+            if pid == info.pid:
+                sent.append(number)
+            real_kill(pid, number)
+
+        def killpg(pgid: int, number: int) -> None:
+            if pgid == info.pid:
+                sent.append(number)
+            real_killpg(pgid, number)
+
+        with mock.patch.object(os, "kill", kill), mock.patch.object(os, "killpg", killpg):
+            host.terminate(info.id)
+    return sent.count(signal.SIGTERM)
+
+
+def test_a_terminated_child_receives_sigterm_once(tmp_path: Path) -> None:
+    # A duplicate signal re-enters a handler that is still cleaning up.
+    count = run_callable(_sigterms_sent_to_a_group_leader, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert count == 1
+
+
+def _interrupted_termination(workdir: Path) -> dict[str, Any]:
+    ready, gate = _Gate(), _Gate()
+
+    interrupts = [signal.SIGINT]
+
+    def interrupt(call: int) -> None:
+        if interrupts:
+            os.kill(os.getpid(), interrupts.pop())
+
+    # A grace period that no test waits out: only the interrupt can end the termination.
+    with _host(grace=600.0) as host:
+        stubborn = host.fork(_stubborn(ready, gate), ())
+        ready.wait()
+        with before_each_poll(interrupt):
+            try:
+                host.terminate(stubborn.id)
+            except KeyboardInterrupt:
+                interrupted = True
+            else:
+                interrupted = False
+        return {
+            "interrupted": interrupted,
+            "reaped": _is_reaped(stubborn.pid),
+            "outcome": _show(host.outcome(stubborn.id)),
+        }
+
+
+def test_an_interrupt_during_termination_kills_the_remaining_processes_at_once(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_interrupted_termination, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert report == {
+        "interrupted": True,
+        "reaped": True,
+        "outcome": ["E", None, signal.SIGKILL],
+    }
+
+
+def _scopes(workdir: Path) -> dict[str, Any]:
+    open_gate, doomed = _Gate(), _Gate()
+    report: dict[str, Any] = {}
+    exceptions = {"error": ValueError("x"), "interrupt": KeyboardInterrupt(), "exit": SystemExit(2)}
+    with _host() as host:
+        outside = host.fork(open_gate.wait_then(b"outside"), ())
+        for name, exception in exceptions.items():
+            try:
+                with host.scope():
+                    first = host.fork(doomed.wait_then(b"first"), ())
+                    with host.scope():
+                        nested = host.fork(doomed.wait_then(b"nested"), ())
+                    raise exception
+            except (ValueError, KeyboardInterrupt, SystemExit):
+                pass
+            report[name] = [_show(host.outcome(info.id)) for info in (first, nested)]
+        with host.scope():
+            kept = host.fork(open_gate.wait_then(b"kept"), ())
+            try:
+                with host.scope():
+                    inner = host.fork(doomed.wait_then(b"inner"), ())
+                    raise ValueError
+            except ValueError:
+                pass
+            report["inner"] = _show(host.outcome(inner.id))
+        # One byte for each of the two waiting processes.
+        open_gate.open()
+        open_gate.open()
+        report["outside"] = _show(host.outcome(outside.id))
+        report["normal exit"] = _show(host.outcome(kept.id))
+    return report
+
+
+def test_leaving_a_scope_by_exception_terminates_only_the_processes_forked_inside_it(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_scopes, tmp_path, timeout=RUN_TIMEOUT).value
+
+    terminated = ["E", None, signal.SIGTERM]
+    for name in ("error", "interrupt", "exit"):
+        assert report[name] == [terminated, terminated]
+    assert report["inner"] == terminated
+    assert report["outside"] == ["D", "outside"]
+    assert report["normal exit"] == ["D", "kept"]
+
+
+def _terminated_right_after_the_fork(workdir: Path) -> dict[str, Any]:
+    gate, doomed_gate = _Gate(), _Gate()
+    with _host() as host:
+        bystander = host.fork(gate.wait_then(b"bystander"), ())
+        outcomes = []
+        for _ in range(_REPEATS):
+            doomed = host.fork(doomed_gate.wait_then(b"unreachable"), ())
+            host.terminate(doomed.id)
+            outcomes.append(_show(host.outcome(doomed.id)))
+        gate.open()
+        return {"doomed": outcomes, "bystander": _show(host.outcome(bystander.id))}
+
+
+def test_a_child_interrupted_as_it_starts_never_touches_its_parents_processes(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_terminated_right_after_the_fork, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert report == {
+        "doomed": [["E", None, signal.SIGTERM]] * _REPEATS,
+        "bystander": ["D", "bystander"],
+    }
+
+
+def _delivered_failures(workdir: Path) -> dict[str, Any]:
+    log = workdir / "log"
+    with _host(_Recorder("a", log)) as host:
+        children = {
+            "failure": host.fork(lambda: Delivered(b"carrier", failure="the summary"), ()),
+            "empty": host.fork(lambda: Delivered(b"", failure=""), ()),
+            "unicode": host.fork(lambda: Delivered(b"ok", failure="é中"), ()),
+            "value": host.fork(lambda: Delivered(b"value"), ()),
+        }
+        outcomes = {name: _show(host.outcome(info.id)) for name, info in children.items()}
+    exits = [line[2:] for line in _lines(log) if line.startswith("C exit")]
+    return {"outcomes": outcomes, "exits": sorted(exits)}
+
+
+def test_a_delivered_failure_carries_its_payload_and_summary_and_tears_down_as_a_failure(
+    tmp_path: Path,
+) -> None:
+    result = run_callable(_delivered_failures, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert result["outcomes"] == {
+        "failure": ["DF", "carrier", "the summary"],
+        "empty": ["DF", "", ""],
+        "unicode": ["DF", "ok", "é中"],
+        "value": ["D", "value"],
+    }
+    assert result["exits"] == ["exit SETTLE:a", *["exit TERMINATE:a"] * 3]
+
+
+def _settling_end(workdir: Path) -> dict[str, Any]:
+    gate, late = _Gate(), _Gate()
+    reports: list[Any] = []
+    stderr = io.StringIO()
+    with _host(reporter=lambda info, outcome: reports.append([info.pid, _show(outcome)])) as host:
+
+        def opener() -> bytes:
+            gate.open()
+            return b"opened"
+
+        waiter = host.fork(gate.wait_then(b"waited"), ())
+        opened = host.fork(opener, ())
+        carrying = host.fork(lambda: Delivered(b"carrier", failure="summary-text"), ())
+        raising = host.fork(_raise_value_error, ())
+        exiting = host.fork(lambda: sys.exit(3), ())
+        killed = host.fork(lambda: _kill_self(signal.SIGKILL), ())
+        consumed = host.fork(_raise_value_error, ())
+        host.outcome(consumed.id)
+        released = host.fork(late.wait_then(b"x"), ())
+        host.detach(released.id)
+        with contextlib.redirect_stderr(stderr):
+            host.end(Disposition.SETTLE)
+            settled = [_is_reaped(info.pid) for info in (waiter, opened, carrying, raising)]
+            host.end(Disposition.SETTLE)
+        late.open()
+        os.waitid(os.P_PID, released.pid, os.WEXITED | os.WNOWAIT)
+        host.end(Disposition.SETTLE)
+        result: dict[str, Any] = {
+            "settled": settled,
+            "reaped detached": _is_reaped(released.pid),
+            "pids": [info.pid for info in (carrying, raising, exiting, killed)],
+            "reports": reports,
+            "warnings": stderr.getvalue().splitlines(),
+        }
+    # Without a reporter, the warning is all there is.
+    alone = io.StringIO()
+    with _host() as unreported, contextlib.redirect_stderr(alone):
+        unreported.fork(_raise_value_error, ())
+        unreported.end(Disposition.SETTLE)
+    result["alone"] = alone.getvalue().splitlines()
+    return result
+
+
+def test_ending_by_settling_waits_for_all_and_warns_once_about_unconsumed_failures(
+    tmp_path: Path,
+) -> None:
+    result = run_callable(_settling_end, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert all(result["settled"])
+    assert result["reaped detached"]
+    carrying, raising, exiting, killed = result["pids"]
+    # Clean, consumed, and detached processes are not reported, and nothing is reported twice.
+    assert [report[0] for report in result["reports"]] == [carrying, raising, exiting, killed]
+    assert result["reports"][0][1] == ["DF", "carrier", "summary-text"]
+    assert [report[1][0] for report in result["reports"][1:]] == ["F", "E", "E"]
+    warnings = result["warnings"]
+    assert len(warnings) == 4
+    for line, pid in zip(warnings, result["pids"], strict=True):
+        assert str(pid) in line
+    assert "summary-text" in warnings[0]
+    assert "boom" in warnings[1]
+    assert len(result["alone"]) == 1
+
+
+def _terminating_end(workdir: Path) -> dict[str, Any]:
+    running, survivor = _Gate(), _Gate()
+    reports: list[Any] = []
+    stderr = io.StringIO()
+    with _host(reporter=lambda info, outcome: reports.append(info.pid)) as host:
+        doomed = host.fork(running.wait_then(b"unreachable"), ())
+        released = host.fork(survivor.wait_then(b"x"), ())
+        host.detach(released.id)
+        with contextlib.redirect_stderr(stderr):
+            host.end(Disposition.TERMINATE)
+        survivor.open()
+        _, status = os.waitpid(released.pid, 0)
+        return {
+            "doomed": _show(host.outcome(doomed.id)),
+            "released": os.waitstatus_to_exitcode(status),
+            "reports": reports,
+            "warnings": stderr.getvalue(),
+        }
+
+
+def test_ending_by_terminating_ends_attached_processes_and_spares_detached_ones(
+    tmp_path: Path,
+) -> None:
+    result = run_callable(_terminating_end, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert result == {
+        "doomed": ["E", None, signal.SIGTERM],
+        "released": 0,
+        "reports": [],
+        "warnings": "",
+    }
+
+
+def _interrupted_settling_end(workdir: Path) -> dict[str, Any]:
+    gate = _Gate()
+
+    interrupts = [signal.SIGINT]
+
+    def interrupt(call: int) -> None:
+        if interrupts:
+            os.kill(os.getpid(), interrupts.pop())
+
+    with _host() as host:
+        infos = [host.fork(gate.wait_then(b"unreachable"), ()) for _ in range(2)]
+        with before_each_poll(interrupt):
+            try:
+                host.end(Disposition.SETTLE)
+            except KeyboardInterrupt:
+                interrupted = True
+            else:
+                interrupted = False
+        return {
+            "interrupted": interrupted,
+            "outcomes": [_show(host.outcome(info.id)) for info in infos],
+        }
+
+
+def test_an_interrupt_while_settling_terminates_the_remaining_processes(tmp_path: Path) -> None:
+    report = run_callable(_interrupted_settling_end, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert report == {"interrupted": True, "outcomes": [["E", None, signal.SIGTERM]] * 2}
+
+
+def _child_settles_its_grandchildren(workdir: Path) -> dict[str, Any]:
+    marker = workdir / "marker"
+    forked, release = _Gate(), _Gate()
+
+    def grandchild() -> bytes:
+        release.pass_through()
+        marker.write_text("done")
+        return b""
+
+    def middle() -> bytes:
+        info = host.fork(grandchild, ())
+        forked.open()
+        return str(info.pid).encode()
+
+    with _host() as host:
+        child = host.fork(middle, ())
+        forked.wait()
+        release.open()
+        outcome = host.outcome(child.id)
+        return {
+            "delivered": isinstance(outcome, Delivered),
+            "marker": marker.exists(),
+            "gone": isinstance(outcome, Delivered) and _pid_is_gone(int(outcome.payload)),
+        }
+
+
+def test_a_child_that_ends_normally_awaits_its_grandchildren_before_delivering(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_child_settles_its_grandchildren, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert report == {"delivered": True, "marker": True, "gone": True}
+
+
+def _child_terminates_its_grandchildren(workdir: Path, stubborn: bool) -> dict[str, Any]:
+    unwound, pid_file = workdir / "unwound", workdir / "pid"
+    ready, gate = _Gate(), _Gate()
+
+    def cooperative() -> bytes:
+        try:
+            ready.open()
+            gate.pass_through()
+        finally:
+            unwound.write_text("unwound")
+        return b""
+
+    def middle() -> bytes:
+        grandchild = host.fork(_stubborn(ready, gate) if stubborn else cooperative, ())
+        ready.wait()
+        pid_file.write_text(str(grandchild.pid))
+        raise ValueError("middle failed")
+
+    # A stubborn grandchild is killed whatever the timing; a cooperative one must be allowed
+    # to unwind.
+    with _host(grace=0.3 if stubborn else 30.0) as host:
+        outcome = _show(host.outcome(host.fork(middle, ()).id))
+        return {
+            "outcome": outcome[0],
+            "unwound": unwound.exists(),
+            "gone": _pid_is_gone(int(pid_file.read_text())),
+        }
+
+
+@pytest.mark.parametrize("stubborn", [False, True], ids=["cooperative", "stubborn"])
+def test_a_child_that_fails_terminates_its_grandchildren_escalating_to_sigkill(
+    tmp_path: Path, stubborn: bool
+) -> None:
+    report = run_callable(
+        _child_terminates_its_grandchildren, tmp_path, {"stubborn": stubborn}, timeout=RUN_TIMEOUT
+    ).value
+
+    assert report == {"outcome": "F", "unwound": not stubborn, "gone": True}
+
+
+def _terminated_while_settling(workdir: Path) -> dict[str, Any]:
+    ready, forked, termed, gate = _Gate(), _Gate(), _Gate(), _Gate()
+    alive_read, alive_write = os.pipe()
+
+    def middle() -> bytes:
+        host.fork(_stubborn(ready, gate, termed), ())
+        forked.open()
+        return b"unreachable"
+
+    # A grace period that no test waits out: only the second SIGTERM can end the termination.
+    with _host(grace=600.0) as host:
+        child = host.fork(middle, ())
+        os.close(alive_write)
+        # A signal during the child's own fork would abort that fork.
+        ready.wait()
+        forked.wait()
+        kill_group(child.pid, signal.SIGTERM)
+        termed.wait()
+        kill_group(child.pid, signal.SIGTERM)
+        outcome = _show(host.outcome(child.id))
+        # EOF: the child and its grandchild, which ignores the first SIGTERM, are gone.
+        eof = os.read(alive_read, 1) == b""
+    os.close(alive_read)
+    return {"outcome": outcome, "eof": eof}
+
+
+def test_a_child_terminated_while_settling_terminates_its_children_and_a_second_signal_kills(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_terminated_while_settling, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert report == {"outcome": ["E", None, signal.SIGTERM], "eof": True}
+
+
+def _leaving_its_group(inner: Callable[[], bytes]) -> Callable[[], bytes]:
+    """A child that moves into the group of a helper process before it runs *inner*.
+
+    Its own group is then gone, so it can be signalled by its pid only. The helper ends when
+    the child does.
+    """
+
+    def child() -> bytes:
+        read_fd, write_fd = os.pipe()
+        helper = os.fork()
+        if helper == 0:
+            for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                signal.signal(number, signal.SIG_DFL)
+            os.close(write_fd)
+            os.read(read_fd, 1)
+            os._exit(0)
+        os.setpgid(helper, helper)
+        os.setpgid(0, helper)
+        return inner()
+
+    return child
+
+
+def _terminate_outside_the_group(workdir: Path) -> dict[str, Any]:
+    gate, ready = _Gate(), _Gate()
+    report = {}
+
+    def cooperative() -> bytes:
+        ready.open()
+        gate.pass_through()
+        return b"unreachable"
+
+    with _host() as host:
+        moved = host.fork(_leaving_its_group(cooperative), ())
+        ready.wait()
+        host.terminate(moved.id)
+        report["cooperative"] = _show(host.outcome(moved.id))
+    stubborn_ready = _Gate()
+    with _host(grace=0.3) as host:
+        moved = host.fork(_leaving_its_group(_stubborn(stubborn_ready, gate)), ())
+        stubborn_ready.wait()
+        host.terminate(moved.id)
+        report["stubborn"] = _show(host.outcome(moved.id))
+    return report
+
+
+def test_a_process_that_left_its_group_is_still_terminated_escalating_to_sigkill(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_terminate_outside_the_group, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert report == {
+        "cooperative": ["E", None, signal.SIGTERM],
+        "stubborn": ["E", None, signal.SIGKILL],
+    }
+
+
+def _terminate_above_a_stubborn_grandchild(workdir: Path) -> dict[str, Any]:
+    ready, forked, gate = _Gate(), _Gate(), _Gate()
+    pid_file = workdir / "pid"
+
+    def middle() -> bytes:
+        grandchild = host.fork(_stubborn(ready, gate), ())
+        ready.wait()
+        pid_file.write_text(str(grandchild.pid))
+        forked.open()
+        gate.pass_through()
+        return b"unreachable"
+
+    # The child's grace is half of the parent's: the child ends before the parent kills it.
+    with _host(grace=4.0) as host:
+        child = host.fork(middle, ())
+        forked.wait()
+        pid = int(pid_file.read_text())
+        try:
+            host.terminate(child.id)
+            return {"outcome": _show(host.outcome(child.id)), "gone": _pid_is_gone(pid)}
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+
+
+def test_terminating_a_child_ends_its_stubborn_grandchildren_before_it_is_killed(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_terminate_above_a_stubborn_grandchild, tmp_path, timeout=RUN_TIMEOUT)
+
+    assert report.value == {"outcome": ["E", None, signal.SIGTERM], "gone": True}
+
+
+class _ExitLog(ForkParticipant[None]):
+    """Appends ``pid disposition`` to a file for every child exit."""
+
+    def __init__(self, log: Path) -> None:
+        self.log = log
+
+    def prepare(self, request: ForkRequest) -> None:
+        return None
+
+    def child_exit(self, disposition: Disposition) -> None:
+        with self.log.open("a") as handle:
+            handle.write(f"{os.getpid()} {disposition.name}\n")
+
+
+def _interrupted_settling_exits(workdir: Path) -> list[str]:
+    log = workdir / "log"
+    gate = _Gate()
+    parent = os.getpid()
+    armed: list[None] = []
+
+    def interrupt(call: int) -> None:
+        # The child's wait for its grandchild gets its termination.
+        if os.getpid() != parent and armed:
+            armed.clear()
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    def settling() -> bytes:
+        host.fork(gate.wait_then(b"unreachable"), ())
+        armed.append(None)
+        return b"delivered"
+
+    with _host(_ExitLog(log)) as host, before_each_poll(interrupt):
+        child = host.fork(settling, ())
+        outcome = _show(host.outcome(child.id))
+    exits = [line.split() for line in _lines(log)]
+    return [outcome[0], *[disposition for pid, disposition in exits if int(pid) == child.pid]]
+
+
+def test_a_child_whose_settling_is_interrupted_runs_its_exit_hooks_as_terminated(
+    tmp_path: Path,
+) -> None:
+    report = run_callable(_interrupted_settling_exits, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert report == ["E", "TERMINATE"]
+
+
+def _interrupted_last_resort_termination(workdir: Path, exits: bool) -> list[Any]:
+    gate = _Gate()
+    parent = os.getpid()
+    armed: list[None] = []
+    armed_last_resort: list[None] = []
+    tool = 3
+
+    def interrupt_teardown(code: object, offset: int) -> None:
+        # The teardown is cut short before it ends the child's processes, so the last resort
+        # has work to do.
+        if os.getpid() != parent and armed:
+            armed.clear()
+            armed_last_resort.append(None)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    def interrupt_last_resort(call: int) -> None:
+        if armed_last_resort:
+            armed_last_resort.clear()
+            if exits:
+                raise SystemExit(7)
+            os.kill(os.getpid(), signal.SIGINT)
+
+    def child() -> bytes:
+        host.fork(gate.wait_then(b"unreachable"), ())
+        armed.append(None)
+        return b"delivered"
+
+    sys.monitoring.use_tool_id(tool, "cut-short teardown")
+    try:
+        sys.monitoring.register_callback(tool, sys.monitoring.events.PY_START, interrupt_teardown)
+        sys.monitoring.set_local_events(
+            tool, ProcessHost._teardown.__code__, sys.monitoring.events.PY_START
+        )
+        with _host() as host, before_each_poll(interrupt_last_resort):
+            return _show(host.outcome(host.fork(child, ()).id))
+    finally:
+        sys.monitoring.set_local_events(tool, ProcessHost._teardown.__code__, 0)
+        sys.monitoring.register_callback(tool, sys.monitoring.events.PY_START, None)
+        sys.monitoring.free_tool_id(tool)
+
+
+@pytest.mark.parametrize(
+    ("exits", "expected"),
+    [(False, ["E", None, signal.SIGINT]), (True, ["E", 7, None])],
+    ids=["signal", "exit"],
+)
+def test_an_interrupt_during_the_last_resort_termination_ends_the_child_that_way(
+    tmp_path: Path, exits: bool, expected: list[Any]
+) -> None:
+    outcome = run_callable(
+        _interrupted_last_resort_termination, tmp_path, {"exits": exits}, timeout=RUN_TIMEOUT
+    ).value
+
+    assert outcome == expected
+
+
+def _unconsumed_failures_after_terminations(workdir: Path) -> dict[str, Any]:
+    stderr = io.StringIO()
+
+    def failed_child(host: ProcessHost) -> ProcessInfo:
+        info = host.fork(_raise_value_error, ())
+        # Exited, so its failure waits unread in its pipe.
+        os.waitid(os.P_PID, info.pid, os.WEXITED | os.WNOWAIT)
+        return info
+
+    with _host() as host:
+        try:
+            with host.scope():
+                in_scope = failed_child(host)
+                raise ValueError
+        except ValueError:
+            pass
+        explicit = failed_child(host)
+        host.terminate(explicit.id)
+        ended = failed_child(host)
+        host.end(Disposition.TERMINATE)
+        with contextlib.redirect_stderr(stderr):
+            host.end(Disposition.SETTLE)
+        return {
+            "reported": [
+                f"process {info.pid} " in stderr.getvalue() for info in (in_scope, explicit, ended)
+            ],
+            "lines": len(stderr.getvalue().splitlines()),
+        }
+
+
+def test_only_an_explicit_termination_counts_as_consuming_the_outcome(tmp_path: Path) -> None:
+    report = run_callable(_unconsumed_failures_after_terminations, tmp_path, timeout=RUN_TIMEOUT)
+
+    assert report.value == {"reported": [True, False, True], "lines": 2}
+
+
+# ---------------------------------------------------------------------------
 # Pure helpers
 # ---------------------------------------------------------------------------
 
@@ -1541,17 +2318,23 @@ def _record(tag: bytes, length: int, body: bytes) -> bytes:
         (_record(b"D", 3, b"abc"), Delivered(b"abc")),
         (_record(b"D", 0, b""), Delivered(b"")),
         (_record(b"F", 4, "booé".encode()[:4]), Failed("boo�")),
+        (_record(b"X", 11, (3).to_bytes(8, "big") + b"abc"), Delivered(b"", "abc")),
+        (_record(b"X", 14, (3).to_bytes(8, "big") + b"abcpay"), Delivered(b"pay", "abc")),
+        (_record(b"X", 9, (0).to_bytes(8, "big") + b"p"), Delivered(b"p", "")),
+        (_record(b"X", 14, (3).to_bytes(8, "big") + b"abcpay")[:-1], None),
+        (_record(b"X", 3, b"abc"), None),
+        (_record(b"X", 11, (9).to_bytes(8, "big") + b"abc"), None),
         (_record(b"D", 3, b"abc")[:-1], None),
         (_record(b"D", 3, b"abc") + b"x", None),
         (_record(b"D", 3, b"abc")[:5], None),
         (b"", None),
-        (_record(b"X", 1, b"a"), None),
+        (_record(b"Z", 1, b"a"), None),
     ],
 )
 def test_outcome_records_are_complete_only_when_framed_exactly(
     data: bytes, expected: Outcome | None
 ) -> None:
-    assert _parse_record(data) == expected
+    assert parse_record(data) == expected
 
 
 def test_an_interrupt_leaves_with_its_signal_by_default_sigint() -> None:
