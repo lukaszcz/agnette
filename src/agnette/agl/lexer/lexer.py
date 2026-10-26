@@ -45,10 +45,11 @@ from agnette.agl.keywords import (
     KW_HIDING,
     KW_IMPORT,
     KW_SCOPE,
+    KW_TYPE,
     KW_USE,
     OPERATOR_SOFT_KEYWORDS,
 )
-from agnette.agl.lexer.errors import LexError
+from agnette.agl.lexer.errors import LexError, ModuleRouteError
 from agnette.agl.lexer.layout import layout
 from agnette.agl.lexer.operators import (
     EXPRESSION_END_TYPES,
@@ -60,25 +61,38 @@ from agnette.agl.lexer.operators import (
 from agnette.agl.lexer.positions import token_span
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
+    ARROW,
+    ASSIGN,
     CALL_LBRACE,
+    COLON,
+    COMMA,
     DCOLON,
+    DEDENT,
     DO_LSQB,
     END,
+    EQ,
     EXPORT,
     GRAMMAR_TOKEN_REMAP,
     HIDING,
     IMPORT,
+    INDENT,
     INDEX_LSQB,
     LBRACE,
+    LPAR,
     LSQB,
     MODPATH,
     MODQUAL,
     NAME,
+    NEWLINE,
     OP_NAME,
+    RBRACE,
+    RPAR,
     RSQB,
     SCOPE,
+    SEMICOLON,
     SLASH,
     STAR,
+    THIN_ARROW,
     TYPEARG_LSQB,
     USE,
     WILDCARD,
@@ -690,46 +704,104 @@ def _reaches_a_spaced_dcolon(tokens: list[Token], slash_index: int) -> bool:
     return False
 
 
-# Tokens after which a name path reads as a type, where division is no reading.
-_TYPE_POSITION_PRECEDERS = frozenset({"COLON", "THIN_ARROW", "TYPEARG_LSQB"})
+_BRACES = frozenset({LBRACE, CALL_LBRACE})
+_OPENERS = frozenset({LPAR, LSQB, INDEX_LSQB, DO_LSQB, TYPEARG_LSQB}) | _BRACES
+_CLOSERS = frozenset({RPAR, RSQB, RBRACE})
+_ITEM_ENDS = frozenset({NEWLINE, INDENT, DEDENT, SEMICOLON, COMMA, EQ, ARROW, ASSIGN})
+_CONTAINER_TYPES = frozenset({"array", "dict"})
+
+
+def _in_type_position(tokens: list[Token], index: int) -> bool:
+    """Whether the token at *index* lies where a type is written, and division is no reading.
+
+    Types follow an annotation colon (not a dict entry's) or ``->``, fill the
+    brackets opened inside a type, and follow ``type X =``. A bracket after
+    ``array`` or ``dict`` opens type arguments; after any other name it may as
+    well index a value, which this does not decide.
+    """
+    in_type = False
+    after_type_keyword = False
+    # Per open bracket: the enclosing state, whether it holds braces, whether it holds a type.
+    frames: list[tuple[bool, bool, bool]] = []
+    for position in range(index):
+        token = tokens[position]
+        kind = scanner_token_type(token.type)
+        if kind in _OPENERS:
+            previous = tokens[position - 1] if position else None
+            container = (
+                kind == LSQB
+                and previous is not None
+                and previous.type == NAME
+                and str(previous).lower() in _CONTAINER_TYPES
+            )
+            frames.append((in_type, kind in _BRACES, in_type or container))
+            in_type = in_type or container
+            after_type_keyword = False
+        elif kind in _CLOSERS and frames:
+            in_type = frames.pop()[0]
+        elif kind == COLON:
+            in_type = not (frames and frames[-1][1])
+        elif kind == THIN_ARROW:
+            in_type = True
+        elif kind == EQ and after_type_keyword:
+            in_type = True
+            after_type_keyword = False
+        elif kind in _ITEM_ENDS:
+            in_type = bool(frames and frames[-1][2])
+            after_type_keyword = False
+        elif kind == KW_TYPE:
+            after_type_keyword = True
+    return in_type
 
 
 def _tight_route(tokens: list[Token], index: int) -> tuple[int, int] | None:
     """The bounds of the module route through the slash at *index*, if it lies in one.
 
     A route is two or more names joined by byte-adjacent slashes, a leading
-    slash anchoring it.
+    slash anchoring it. A slash joining a name to anything else (``a/b/2``,
+    ``2/a/b``) is division's, not part of the route.
     """
 
     def joined(position: int) -> bool:
         return tokens[position].end_pos == tokens[position + 1].start_pos
 
+    def name_at(position: int) -> bool:
+        return 0 <= position < len(tokens) and tokens[position].type == NAME
+
     first = index
-    while first > 0 and tokens[first - 1].type == NAME and joined(first - 1):
+    while name_at(first - 1) and joined(first - 1):
         first -= 1
         if first > 0 and tokens[first - 1].type == SLASH and joined(first - 1):
             first -= 1
+    if tokens[first].type == SLASH and first > 0 and joined(first - 1):
+        first += 1  # the slash divides the operand before it
     last = index
-    while last + 1 < len(tokens) and tokens[last + 1].type == NAME and joined(last):
+    while name_at(last + 1) and joined(last):
         last += 1
-        if last + 1 < len(tokens) and tokens[last + 1].type == SLASH and joined(last):
+        if (
+            name_at(last + 2)
+            and tokens[last + 1].type == SLASH
+            and joined(last)
+            and joined(last + 1)
+        ):
             last += 1
+    if first > last:
+        return None
     names = sum(tok.type == NAME for tok in tokens[first : last + 1])
     return (first, last) if names >= 2 else None
 
 
-def _clinging_slash_message(tokens: list[Token], index: int) -> str:
+def _clinging_slash_error(tokens: list[Token], index: int) -> LexError:
     """Explain a clinging slash; a run of names joined by slashes is a module route."""
+    span = token_span(tokens[index])
     bounds = _tight_route(tokens, index)
     if bounds is None:
-        return "'/' is a module path separator here; write ' / ' with spaces to divide"
+        return LexError(
+            "'/' is a module path separator here; write ' / ' with spaces to divide", span=span
+        )
     first, last = bounds
     route = "".join(str(tok) for tok in tokens[first : last + 1])
-    advice = f"'{route}' is a module route: import the module and reach its names with '::'"
-    before = tokens[first - 1] if first > 0 else None
-    if before is not None and before.type in _TYPE_POSITION_PRECEDERS:
-        return advice
-    return f"{advice}, or write ' / ' with spaces to divide"
+    return ModuleRouteError(route, divides=not _in_type_position(tokens, first), span=span)
 
 
 def _reject_clinging_slash(
@@ -760,10 +832,7 @@ def _reject_clinging_slash(
             and tok.end_pos == next_tok.start_pos
         )
         if tight_left or tight_right:
-            error = LexError(
-                _clinging_slash_message(tokens, index),
-                span=token_span(tok),
-            )
+            error = _clinging_slash_error(tokens, index)
             if errors is None:
                 raise error
             # Preserve the slash and its neighbors; flag only its own span.

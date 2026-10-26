@@ -21,6 +21,7 @@ from agnette.agl.lexer import (
     tab_warning_collector,
     tokenize,
 )
+from agnette.agl.lexer.errors import ModuleRouteError
 from agnette.agl.lexer.lexer import AglLexer
 from agnette.agl.syntax.advisories import SpacedQualifier
 
@@ -3373,38 +3374,61 @@ class TestDivisionRequiresSurroundingSpace:
         with pytest.raises(LexError):
             lark_tok(source)
 
-    def test_a_name_route_is_reported_as_a_module_route(self) -> None:
-        with pytest.raises(LexError) as route:
-            lark_tok("std/fs")
-        with pytest.raises(LexError) as number:
-            lark_tok("10/2")
-
-        assert "std/fs" in str(route.value)
-        assert str(number.value) != str(route.value)
-
     @pytest.mark.parametrize(
         ("source", "route"),
         [
+            ("std/fs", "std/fs"),
             ("let u = a/b/c", "a/b/c"),
             ("let u = /a/b", "/a/b"),
             ("let u = /a/b/c", "/a/b/c"),
             ("let t: a/b/c = 1", "a/b/c"),
+            ("a/b/2", "a/b"),
+            ("2/a/b", "a/b"),
+            ("f(x)/a/b", "a/b"),
         ],
     )
-    def test_a_multi_segment_route_is_named_whole(self, source: str, route: str) -> None:
-        with pytest.raises(LexError) as raised:
+    def test_a_name_route_is_named_whole_and_only_by_its_names(
+        self, source: str, route: str
+    ) -> None:
+        with pytest.raises(ModuleRouteError) as raised:
             lark_tok(source)
 
-        assert f"'{route}'" in str(raised.value)
+        assert raised.value.route == route
 
-    def test_a_route_in_type_position_is_not_called_a_value(self) -> None:
-        with pytest.raises(LexError) as value:
-            lark_tok("let u = a/b")
-        with pytest.raises(LexError) as annotation:
-            lark_tok("let t: a/b = 1")
+    def test_a_clinging_slash_not_in_a_route_names_none(self) -> None:
+        with pytest.raises(LexError) as raised:
+            lark_tok("10/2")
 
-        assert "divide" in str(value.value)
-        assert "divide" not in str(annotation.value)
+        assert not isinstance(raised.value, ModuleRouteError)
+
+    @pytest.mark.parametrize(
+        ("source", "divides"),
+        [
+            ("let u = a/b", True),
+            ("xs[a/b]", True),
+            ("Box[a/b]", True),
+            ("{1: a/b}", True),
+            ("f({1: a/b})", True),
+            ("let t: a/b = 1", False),
+            ("def f(x: a/b) -> int = 1", False),
+            ("def f(x: int) -> a/b = 1", False),
+            ("def f(x: int, y: a/b) -> int = 1", False),
+            ("let t: array[a/b] = []", False),
+            ("let t: dict[text, a/b] = {}", False),
+            ("let t: array[dict[text, a/b]] = []", False),
+            ("let t: (int, a/b) -> int = f", False),
+            ("type T = a/b", False),
+            ("def f(x: int = a/b) -> int = 1", True),
+            ("let t: int = a/b", True),
+        ],
+    )
+    def test_division_is_a_reading_of_a_route_only_where_a_value_may_stand(
+        self, source: str, divides: bool
+    ) -> None:
+        with pytest.raises(ModuleRouteError) as raised:
+            lark_tok(source)
+
+        assert raised.value.divides is divides
 
     @pytest.mark.parametrize("lexer", (tok, lark_tok), ids=("public", "lark"))
     @pytest.mark.parametrize(
