@@ -445,7 +445,7 @@ def lookup_bare_hidden(
         _step(sources, step, injects=kind is LookupKind.VALUE, contributions=contributions)
         for step in lookup_steps(scope_path)
     )
-    walk = _Walk(sources, scope_path, steps, (), None, (name,), span)
+    walk = _Walk(sources, scope_path, steps, (), None, (name,), span, in_pattern=constructors)
     return (
         HiddenMemberError("", name, span=span)
         if walk.bare_removed(kind, constructors=constructors)
@@ -598,10 +598,11 @@ def _chain_walk(
     via: Via | None = None,
     *,
     constructors: Callable[[Mapping[ConstructorRef, Layers]], AglError] | None = None,
+    in_pattern: bool = False,
 ) -> _Walk:
     """The walk of *chain*'s full path, written in *scope_path*, read through *via*.
 
-    *span* locates a ``::name`` miss.
+    *span* locates a ``::name`` miss; *in_pattern* is as for :class:`_Walk`.
     """
     names = (*(segment.name for segment in chain.segments), chain.member)
     anchor = _anchor(sources, chain, scope_path, via)
@@ -614,6 +615,7 @@ def _chain_walk(
         names,
         span,
         constructors=constructors,
+        in_pattern=in_pattern,
     )
 
 
@@ -632,7 +634,14 @@ def lookup_qualified(
     :class:`Misfit`. *span* locates a ``::name`` miss; *constructors*, when
     given, reports an ambiguity among constructors alone.
     """
-    walk = _chain_walk(sources, chain, scope_path, span, constructors=constructors)
+    walk = _chain_walk(
+        sources,
+        chain,
+        scope_path,
+        span,
+        constructors=constructors,
+        in_pattern=kind is LookupKind.CONSTRUCTOR,
+    )
     names = walk.names
     found = walk.find(kind)
     if found is not None:
@@ -832,7 +841,9 @@ class _Walk:
 
     *site* is the scope the spelling is written in; *route* is the module
     route it leads with, if any; *constructors*, when given, reports an
-    ambiguity among constructors alone.
+    ambiguity among constructors alone. With *in_pattern*, ``hiding`` removes
+    only constructors, as a pattern or ``is`` spelling reads them: any other
+    declaration it reaches is read as the visible one.
     """
 
     def __init__(
@@ -846,10 +857,12 @@ class _Walk:
         span: SourceSpan,
         *,
         constructors: Callable[[Mapping[ConstructorRef, Layers]], AglError] | None = None,
+        in_pattern: bool = False,
     ) -> None:
         self._sources = sources
         self._site = site
         self._constructors = constructors
+        self._in_pattern = in_pattern
         self._steps = steps
         self._route = route
         self._chain = chain
@@ -979,7 +992,6 @@ class _Walk:
             origins: frozenset[Origin] = frozenset()
             if constructors:
                 kept_candidates = tuple(c for c in kept_candidates if c.target.constructor)
-                dropped = tuple(c for c in dropped if c.target.constructor)
             else:
                 origins = step.origins((*step.path, *self._names))
             if kept_candidates or not all(removed(o.hiding, o.key, sources) for o in origins):
@@ -1181,7 +1193,9 @@ class _Walk:
         kept: list[Candidate] = []
         dropped: list[Candidate] = []
         for candidate in reading.candidates:
-            gone = removed(candidate.hiding, candidate.target.key, self._sources)
+            gone = (not self._in_pattern or candidate.target.constructor is not None) and removed(
+                candidate.hiding, candidate.target.key, self._sources
+            )
             (dropped if gone else kept).append(candidate)
         chain = self._chain
         if not dropped or chain is None:

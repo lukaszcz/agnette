@@ -116,3 +116,44 @@ def test_a_hidden_non_constructor_after_is_no_constructor(session: ReplSession) 
     result = session.eval_entry("def h(c: Col) -> bool = c is g")
 
     assert isinstance(result.failure, NoVisibleConstructorError)
+
+
+@pytest.mark.parametrize("name", ["g", "gv"])
+@pytest.mark.parametrize("form", ["{0}", "{0}(x)"])
+def test_a_hidden_qualified_non_constructor_in_a_pattern_is_rejected_like_a_visible_one(
+    tmp_path: Path, name: str, form: str
+) -> None:
+    (tmp_path / "hid.agl").write_text(_LIB, encoding="utf-8")
+    entry = (
+        "def h(c: int) -> int =\n  case c of\n    | hid::"
+        + form.format(name)
+        + " => 1\n    | _ => 2"
+    )
+    failures = []
+    for hiding in ("", f" hiding {name}"):
+        session = repl_session_with_root(tmp_path)
+        assert session.eval_entry(f"import hid{hiding}").ok
+        failures.append(session.eval_entry(entry).failure)
+
+    visible, hidden = failures
+    assert visible is not None and hidden is not None
+    assert not isinstance(hidden, HiddenMemberError)
+    assert type(hidden) is type(visible)
+
+
+@pytest.mark.parametrize(
+    ("hiding", "pattern"),
+    [("Rec", "hid::Rec(a)"), ("Col::Red", "hid::Col::Red")],
+)
+def test_a_hidden_qualified_constructor_in_a_pattern_is_hidden(
+    tmp_path: Path, hiding: str, pattern: str
+) -> None:
+    (tmp_path / "hid.agl").write_text(_LIB, encoding="utf-8")
+    session = repl_session_with_root(tmp_path)
+    assert session.eval_entry(f"import hid hiding {hiding}").ok
+
+    result = session.eval_entry(
+        f"def h(c: int) -> int =\n  case c of\n    | {pattern} => 1\n    | _ => 2"
+    )
+
+    assert isinstance(result.failure, HiddenMemberError)
