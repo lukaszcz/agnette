@@ -92,6 +92,28 @@ def test_many_aliases_do_not_multiply_the_work_of_an_unspellable_base(
     assert many_work == few_work
 
 
+def test_aliases_of_imported_types_do_not_multiply_the_work_of_an_unspellable_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "lib.agl").write_text("record LR\ntype LA = LR\n", encoding="utf-8")
+
+    def session_with(aliases: int) -> ReplSession:
+        session = ReplSession(cwd=tmp_path)
+        session.open()
+        for entry in ["import lib", "exception X", "exception Y extends X", "exception X"]:
+            assert session.eval_entry(entry).ok
+        for i in range(aliases):
+            assert session.eval_entry(f"type A{i} = lib::LA").ok
+        return session
+
+    few, many = session_with(3), session_with(40)
+
+    few_work = _resolutions(monkeypatch, few, lambda s: s.eval_entry("Y"))
+    many_work = _resolutions(monkeypatch, many, lambda s: s.eval_entry("Y"))
+
+    assert many_work == few_work
+
+
 def test_a_base_is_spelled_by_an_alias_when_its_own_name_is_out_of_reach() -> None:
     session = _session()
     assert session.eval_entry("scope sc\n  exception E\nend sc").ok
@@ -200,3 +222,17 @@ def test_a_rejected_info_name_probes_the_session_scope_once(
         session.info_of("std/option::Nope")
 
     assert probes == 1
+
+
+def test_a_base_is_spelled_afresh_after_a_reset() -> None:
+    session = _session()
+    for entry in ["exception X", "type K = X", "exception Y extends K"]:
+        assert session.eval_entry(entry).ok
+    session.reset()
+    session.open()
+    for entry in ["exception Z", "type K = Z", "exception Y extends K"]:
+        assert session.eval_entry(entry).ok
+
+    shown = _extends_line(session.info_of("Y"))
+
+    assert shown.endswith(("Z", "K"))

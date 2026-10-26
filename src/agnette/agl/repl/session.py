@@ -519,9 +519,6 @@ class ReplSession:
         # Each retained type-owned path maps to the owner it resolved to when
         # declared, so a retained alias keeps its target across entries.
         self._session_type_paths: dict[tuple[str, ...], TypeOwner] = {}
-        # Every owner a promoted entry retained, by declaration identity: an alias's
-        # target names a declaration that its path no longer holds once redeclared.
-        self._type_owners_by_decl: dict[int, TypeOwner] = {}
         # The empty-entry resolution of the one `info_of` query running, if made.
         self._info_probe: "ResolvedProgram | None" = None
         # Builtin type and def identities of the current declarations, keyed by
@@ -1110,14 +1107,15 @@ class ReplSession:
     def _base_spelling(self, base: "ExceptionType") -> str:
         """The bare name, read at the entry level, of exception *base*: ``extends`` takes no other.
 
-        Its declared name where that names it here, else a top-level alias of it.
+        Its declared name where that names it here, else a top-level alias denoting it,
+        each confirmed by one display-free probe; only an alias denoting *base* is probed.
         When nothing does, the declared name.
         """
         from agnette.agl.syntax.spans import SourceId
 
         names = (
             base.name,
-            *(name for name in self._top_level_aliases() if self._may_target(name, base)),
+            *(name for name in self._top_level_aliases() if self._denotes(name, base)),
         )
         for name in names:
             named = self._try_type_entry(
@@ -1139,26 +1137,16 @@ class ReplSession:
             if len(path) == 1 and owner.alias is not None
         ]
 
-    def _may_target(self, alias: str, base: "ExceptionType") -> bool:
-        """Whether session alias *alias* may stand, through its alias chain, for *base*.
+    def _denotes(self, alias: str, base: "ExceptionType") -> bool:
+        """Whether session alias *alias* is, as declared, exactly the exception *base*.
 
-        The chain is followed by declaration identity, so a redeclared path is not
-        mistaken for the declaration the alias resolved. A link into another module
-        is not followed: it may stand for *base*, which the caller's probe decides.
+        Read from the session type environment, which keeps the type each alias was
+        checked against, so a redeclared target is not mistaken for the one it names.
         """
         from agnette.agl.modules.ids import ENTRY_ID
 
-        owner = self._session_type_paths.get((alias,))
-        seen: set[int] = set()
-        while owner is not None and owner.target is not None and owner.decl_node_id not in seen:
-            seen.add(owner.decl_node_id)
-            module_id = owner.target.qname[0]
-            if module_id == base.module_id and owner.target.decl_node_id == base.decl_id:
-                return True
-            if module_id != ENTRY_ID:
-                return True
-            owner = self._type_owners_by_decl.get(owner.target.decl_node_id)
-        return False
+        template = self._type_env.declared_type_template(ENTRY_ID, alias)
+        return not template.type_params and template.template == base
 
     def _type_entry_result(
         self,
@@ -1742,10 +1730,6 @@ class ReplSession:
         self._session_type_paths.update(
             (type_path, checked.resolved.type_owners[type_path])
             for type_path in promoted_type_paths
-        )
-        self._type_owners_by_decl.update(
-            (owner.decl_node_id, owner)
-            for owner in (checked.resolved.type_owners[path] for path in promoted_type_paths)
         )
         attributes = checked.resolved.attributes
         self._session_docs.update(
