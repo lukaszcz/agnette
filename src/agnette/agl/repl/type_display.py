@@ -60,15 +60,15 @@ def format_generic_type_def_for_repl(name: str, gdef: GenericTypeDef, table: Typ
     return format_type_def_for_repl(f"{name}[{', '.join(gdef.type_params)}]", gdef.template, table)
 
 
-def format_type_def_for_repl(name: str, typ: Type, table: TypeTable) -> str:
+def format_type_def_for_repl(
+    name: str, typ: RecordType | EnumType | ExceptionType, table: TypeTable
+) -> str:
     """Return a declaration-like display of nominal type *typ* declared as *name*."""
     if isinstance(typ, RecordType):
         return _format_record_type_with_name(typ, name, table)
     if isinstance(typ, EnumType):
         return _format_enum_type_with_name(typ, name, table)
-    if isinstance(typ, ExceptionType):
-        return _format_exception_type_with_name(typ, name, table)
-    return name
+    return _format_exception_type_with_name(typ, name, table)
 
 
 def _format_exception_type_with_name(typ: ExceptionType, name: str, table: TypeTable) -> str:
