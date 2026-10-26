@@ -29,6 +29,7 @@ from agnette.agl.pipeline import RunError
 from agnette.agl.repl import meta as meta_mod
 from agnette.agl.repl import render as render_mod
 from agnette.agl.repl.entry import EntryKind, EntryResult
+from agnette.agl.repl.info_sections import SECTION_RE
 from agnette.agl.repl.session import ReplSession, SessionOpenError
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.scope.symbols import (
@@ -582,6 +583,11 @@ class TestType:
         assert session.bindings() == []
 
 
+def _section_labels(info: str) -> list[str]:
+    """The headings of the code sections of one ``:info`` description."""
+    return [m.group(0).removesuffix(":\n") for m in SECTION_RE.finditer(info)]
+
+
 class TestInfo:
     def test_info_reports_a_binding_type_value_and_location(self) -> None:
         session = _open_session()
@@ -598,7 +604,7 @@ class TestInfo:
         assert outcome.highlight_as_agl is True
         assert outcome.agl_ranges[0] == (0, len("count"))
 
-    @pytest.mark.parametrize("name", ["int", "text", "bool", "decimal", "unit", "json"])
+    @pytest.mark.parametrize("name", ["int", "text", "decimal", "unit", "json"])
     def test_info_describes_a_builtin_type_as_an_entry_reads_it(self, name: str) -> None:
         session = _open_session()
         assert session.eval_entry(name).kind == "type"
@@ -606,7 +612,28 @@ class TestInfo:
         info = session.info_of(name)
 
         assert info is not None
-        assert info.startswith(f"{name} is a builtin type.\nType:\n")
+        assert "builtin type" in info.splitlines()[0]
+        assert _section_labels(info) == ["Type"]
+        assert f"builtin type {name}" in info
+
+    @pytest.mark.parametrize(
+        ("setup", "name", "sources"),
+        [
+            ("import std/json", "json", ["Type (builtin)", "Module (std/json)"]),
+            ("", "bool", ["Type (builtin)", "Scope (std/math)"]),
+        ],
+    )
+    def test_info_shows_a_builtin_type_beside_the_modules_and_scopes_it_names(
+        self, setup: str, name: str, sources: list[str]
+    ) -> None:
+        session = _open_session()
+        if setup:
+            assert session.eval_entry(setup).ok
+
+        info = session.info_of(name)
+
+        assert info is not None
+        assert _section_labels(info) == sources
 
     def test_info_prefers_a_binding_to_the_builtin_type_of_the_same_name(self) -> None:
         session = _open_session()
@@ -1658,8 +1685,42 @@ class TestInfoAsEntry:
         session.open()
         assert session.eval_entry("import l::* hiding D").ok
 
-        with pytest.raises(HiddenMemberError):
+        with pytest.raises(HiddenMemberError) as raised:
             session.info_of("D")
+        assert (raised.value.owner, raised.value.member) == ("", "D")
+        span = raised.value.span
+        assert span is not None
+        assert "D"[span.start_offset : span.end_offset] == "D"
+
+    @pytest.mark.parametrize(
+        ("source", "import_", "name"),
+        [
+            ("scope D\n  def c() -> int = 1\nend D\n", "import l::* hiding D", "D"),
+            ("record T\n  a: int\n", "import l::* hiding T", "T"),
+            ("type TA = int\n", "import l::* hiding TA", "TA"),
+        ],
+    )
+    def test_info_of_a_bare_hidden_name_reports_the_written_name(
+        self, tmp_path: Path, source: str, import_: str, name: str
+    ) -> None:
+        (tmp_path / "l.agl").write_text(source, encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry(import_).ok
+
+        with pytest.raises(HiddenMemberError) as raised:
+            session.info_of(name)
+
+        assert (raised.value.owner, raised.value.member) == ("", name)
+
+    def test_info_of_a_hidden_prelude_type_reports_the_written_name(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("import std/prelude::* hiding Option").ok
+
+        with pytest.raises(HiddenMemberError) as raised:
+            session.info_of("Option")
+
+        assert (raised.value.owner, raised.value.member) == ("", "Option")
 
 
 class TestInfoDocsRetention:

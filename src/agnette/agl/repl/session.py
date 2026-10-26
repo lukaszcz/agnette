@@ -1883,8 +1883,9 @@ class ReplSession:
             )
 
         if resolved_reference is not None and resolved_reference.builtin_type:
-            display = _format_info_section("Type", f"builtin type {name}")
-            return f"{name} is a builtin type.\n{display}"
+            return self._describe_scopes(
+                name, self._qualifier_of(resolved_reference.reference), builtin_type=True
+            )
         if resolved_reference is not None:
             described = self._describe_type_declaration(name, resolved_reference)
             if described is not None:
@@ -2066,14 +2067,20 @@ class ReplSession:
         return table.declaration_doc(typ)
 
     def _describe_scopes(
-        self, name: str, target: "tuple[str, ...] | QualifierChain", *, anchored: bool = False
+        self,
+        name: str,
+        target: "tuple[str, ...] | QualifierChain",
+        *,
+        anchored: bool = False,
+        builtin_type: bool = False,
     ) -> str | None:
         """Describe every module and scope region *name* reaches, or ``None`` if it reaches none.
 
         Scope resolves *target* (*name* as a slash route, ``anchored`` when written
         ``/a/b``, or as a qualifier chain) as an entry would: through imports, uses,
         aliases, and the session's own regions. One source is described by itself;
-        several are each described under a label naming their source.
+        several are each described under a label naming their source. A *builtin_type*
+        *name* also names that type, which is one more source.
         """
         from agnette.agl.modules.ids import spell_scope_path
         from agnette.agl.scope.hiding import unremoved
@@ -2083,7 +2090,9 @@ class ReplSession:
         resolved = self._probe_resolve()
         sources = resolved.sources(resolved.entry_id)
         origins = spelled_origins(sources, target, (), anchored=anchored)
-        found: list[tuple[SectionLabel, str, str]] = []
+        found: list[tuple[SectionLabel, str, str]] = (
+            [("Type", "builtin", f"builtin type {name}")] if builtin_type else []
+        )
         for module, atom in sorted(unremoved(origins, sources), key=_qname_order):
             path = to_bare_path(atom)
             source = "this session" if module.is_entry else module.path_str()
@@ -2103,11 +2112,13 @@ class ReplSession:
             return None
         if len(found) == 1:
             label, _source, code = found[0]
-            return f"{name} is a {label.lower()}.\n{_format_info_section(label, code)}"
+            kind = "builtin type" if builtin_type else label.lower()
+            return f"{name} is a {kind}.\n{_format_info_section(label, code)}"
         sections = (
             _format_info_section(label, code, source=source) for label, source, code in found
         )
-        return f"{name} names several modules or scopes.\n" + "\n".join(sections)
+        what = "a builtin type, modules, or scopes" if builtin_type else "several modules or scopes"
+        return f"{name} names {what}.\n" + "\n".join(sections)
 
     def _prune_session_docs(self) -> None:
         """Drop the docs of declarations the session no longer reaches (superseded or retired)."""
@@ -2145,7 +2156,11 @@ class ReplSession:
                 reference.node_id,
             )
         resolved = self._probe_resolve()
-        return lookup_hidden(resolved.sources(resolved.entry_id), chain, (), None)
+        hidden = lookup_hidden(resolved.sources(resolved.entry_id), chain, (), None)
+        if hidden is None or reference.qualifier is not None:
+            return hidden
+        # The probe's synthetic member must not leak: report the written name.
+        return HiddenMemberError("", reference.name, span=reference.span)
 
     def _probe_resolve(self) -> "ResolvedProgram":
         """Resolve an empty entry: the scope state an entry written now would see."""
