@@ -773,8 +773,10 @@ def _type_positions(tokens: list[Token]) -> list[bool]:
     brackets opened inside a type, and follow ``type X[...] =``. A bracket
     after ``array`` or ``dict``, one after ``::``, and one a ``::`` member
     follows (``Option[T]::None``) open type arguments; after any other name it
-    may as well index a value, which this does not decide. One forward pass.
+    may as well index a value, which this does not decide. Linear: one pass over the
+    tokens, with bracket closes matched once up front (:func:`_bracket_closes`).
     """
+    closes = _bracket_closes(tokens)
     in_type = False
     after_type_keyword = False
     # Per open bracket: the enclosing state, whether it holds braces, whether it
@@ -795,7 +797,7 @@ def _type_positions(tokens: list[Token]) -> list[bool]:
                     or (
                         previous.type == NAME
                         and previous.end_pos == token.start_pos
-                        and _precedes_type_member(tokens, position)
+                        and _precedes_type_member(tokens, closes, position)
                     )
                 )
             )
@@ -984,25 +986,36 @@ def _remap_adjacent_brackets(tokens: list[Token]) -> list[Token]:
 _OPEN_TYPES = frozenset({LSQB, INDEX_LSQB, TYPEARG_LSQB, DO_LSQB})
 
 
-def _precedes_type_member(tokens: list[Token], index: int) -> bool:
+def _bracket_closes(tokens: list[Token]) -> dict[int, int]:
+    """Map each opening ``[`` index to the index of the ``]`` closing it; unclosed ones are absent.
+
+    Only square brackets pair, as in a type application's argument group; other
+    delimiters are ignored. One stack pass.
+    """
+    closes: dict[int, int] = {}
+    opened: list[int] = []
+    for index, token in enumerate(tokens):
+        if token.type in _OPEN_TYPES:
+            opened.append(index)
+        elif token.type == RSQB and opened:
+            closes[opened.pop()] = index
+    return closes
+
+
+def _precedes_type_member(tokens: list[Token], closes: dict[int, int], index: int) -> bool:
     """Whether the ``[`` at *index* closes before ``::`` and a member that is no ``[``.
 
     Such a bracket group is a type application (``Type[T]::Ctor``); a following
-    ``::[`` instead applies a value (``xs[i]::[T]``).
+    ``::[`` instead applies a value (``xs[i]::[T]``). *closes* is
+    :func:`_bracket_closes` of *tokens*.
     """
+    close = closes.get(index)
+    if close is None:
+        return False
     n = len(tokens)
-    depth = 0
-    for j in range(index, n):
-        token_type = tokens[j].type
-        if token_type in _OPEN_TYPES:
-            depth += 1
-        elif token_type == RSQB:
-            depth -= 1
-            if depth == 0:
-                after = tokens[j + 1].type if j + 1 < n else None
-                after_next = tokens[j + 2].type if j + 2 < n else None
-                return after == DCOLON and after_next != LSQB
-    return False
+    after = tokens[close + 1].type if close + 1 < n else None
+    after_next = tokens[close + 2].type if close + 2 < n else None
+    return after == DCOLON and after_next != LSQB
 
 
 def _mark_typearg_lsqb(tokens: list[Token]) -> list[Token]:
@@ -1012,13 +1025,14 @@ def _mark_typearg_lsqb(tokens: list[Token]) -> list[Token]:
     retagged, and only when :func:`_precedes_type_member` holds.  The guard
     preserves value-position type application such as ``xs[i]::[T]``.
     """
+    closes = _bracket_closes(tokens)
     result = list(tokens)
     for i, tok in enumerate(result):
         if (
             tok.type == INDEX_LSQB
             and i > 0
             and result[i - 1].type == NAME
-            and _precedes_type_member(result, i)
+            and _precedes_type_member(result, closes, i)
         ):
             result[i] = _retype(tok, TYPEARG_LSQB)
     return result

@@ -6,12 +6,13 @@ public ``tokenize`` helper.  No scanner/layout internals are tested.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
-from lark.lexer import LexerState, TextSlice
+from lark.lexer import LexerState, TextSlice, Token
 
-from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.lexer import (
     IncompleteInputError,
     LexError,
@@ -3459,6 +3460,46 @@ class TestDivisionRequiresSurroundingSpace:
             _, errors = tokenize_recover("".join(f"let x{i} = a/b\n" for i in range(lines)))
             assert len(errors) == lines
             return calls
+
+        assert work(400) < 2.5 * work(200)
+
+    @pytest.mark.parametrize(
+        "unit", ("a[1 ", "a[", "(a[1 ", "a[a[1 "), ids=("loose", "tight", "paren", "nested")
+    )
+    def test_bracket_scanning_is_linear_in_the_clinging_brackets(
+        self, unit: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deciding each clinging bracket's reading must not scan ahead to its close."""
+        from agnette.agl.lexer import lexer as lexer_module
+        from agnette.agl.parser.parser import parse_program
+
+        class Counting(list[Token]):
+            """Tokens counting every read."""
+
+            reads = 0
+
+            def __getitem__(self, index: Any) -> Any:
+                type(self).reads += 1
+                return super().__getitem__(index)
+
+            def __iter__(self) -> Iterator[Token]:
+                for token in super().__iter__():
+                    type(self).reads += 1
+                    yield token
+
+        def counted(function: Callable[[list[Token]], Any]) -> Callable[[list[Token]], Any]:
+            return lambda tokens: function(Counting(tokens))
+
+        monkeypatch.setattr(lexer_module, "_type_positions", counted(lexer_module._type_positions))
+        monkeypatch.setattr(
+            lexer_module, "_mark_typearg_lsqb", counted(lexer_module._mark_typearg_lsqb)
+        )
+
+        def work(count: int) -> int:
+            Counting.reads = 0
+            with pytest.raises(AglError):
+                parse_program("x = " + unit * count + "c/d")
+            return Counting.reads
 
         assert work(400) < 2.5 * work(200)
 
