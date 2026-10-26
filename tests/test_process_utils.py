@@ -37,6 +37,7 @@ from agnette.core.process import (
     terminating_signals_exit,
     terminating_signals_raise_interrupt,
 )
+from tests._proc_helpers import SLEEP_UNTIL_SIGNALLED_SNIPPET
 
 
 def _process_alive(pid: int) -> bool:
@@ -261,7 +262,8 @@ class TestTerminateProcess:
     def test_handles_process_that_exits_quickly_after_sigterm(self) -> None:
         # A process that responds quickly to SIGTERM
         sigterm_script = (
-            "import signal, time; signal.signal(signal.SIGTERM, lambda *a: exit(0)); time.sleep(30)"
+            "import signal, time\n"
+            "signal.signal(signal.SIGTERM, lambda *a: exit(0))\n" + SLEEP_UNTIL_SIGNALLED_SNIPPET
         )
         proc = subprocess.Popen(
             [sys.executable, "-c", sigterm_script],
@@ -529,8 +531,7 @@ class TestKillProcessGroup:
             "    time.sleep(0.005)\n"
             "open(sys.argv[3], 'w').write(str(child.pid))\n"
             "signal.signal(signal.SIGTERM, lambda *_a: (time.sleep(0.05), os._exit(0)))\n"
-            "open(sys.argv[4], 'w').close()\n"
-            "time.sleep(60)\n"
+            "open(sys.argv[4], 'w').close()\n" + SLEEP_UNTIL_SIGNALLED_SNIPPET
         )
 
         proc = subprocess.Popen(

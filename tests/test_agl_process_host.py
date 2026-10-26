@@ -61,6 +61,7 @@ from agnette.agl.runtime.request import AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost, SessionHostError
 from agnette.core.process import kill_group
 from tests._agl_helpers import repl_session_with_root
+from tests._proc_helpers import read_until_signalled
 from tests._signal_helpers import before_each_poll, trip_signal_off_thread
 from tests.agl.ir_harness import write_companion_file
 from tests.agl.isolated_runner import run_callable
@@ -152,7 +153,7 @@ class _Gate:
         The child drops its copy of the write end, so the parent's death ends the wait.
         """
         os.close(self.write_fd)
-        os.read(self.read_fd, 1)
+        read_until_signalled(self.read_fd, 1)
 
     def wait_then(self, payload: bytes) -> Callable[[], bytes]:
         def child() -> bytes:

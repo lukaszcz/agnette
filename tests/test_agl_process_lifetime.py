@@ -78,6 +78,7 @@ import sys
 import time
 
 from agl import runtime
+from tests._proc_helpers import sleep_until_signalled
 from tests.agl.programs.externs.process_host import forked_state
 
 
@@ -96,7 +97,7 @@ def spawn_sleeper(tag):
     def child():
         try:
             os.write(announce, b"r")
-            time.sleep(60)
+            sleep_until_signalled()
         finally:
             _say(f"{tag} terminated")
         return b""

@@ -3,9 +3,37 @@
 from __future__ import annotations
 
 import os
+import select
 import signal
 import time
 from pathlib import Path
+
+SIGNAL_POLL_SECONDS = 0.05
+"""Longest blocking call a process waiting for a Python-level signal handler makes."""
+
+SLEEP_UNTIL_SIGNALLED_SNIPPET = (
+    f"for _ in range({round(60 / SIGNAL_POLL_SECONDS)}):\n    time.sleep({SIGNAL_POLL_SECONDS})\n"
+)
+"""`sleep_until_signalled(60)` as a ``-c`` script tail; the script must ``import time``."""
+
+
+def sleep_until_signalled(seconds: float = 60.0) -> None:
+    """Sleep up to *seconds*, in short steps, for a signal whose Python handler ends the wait.
+
+    A single long blocking call can miss a signal that arrives just before the call starts:
+    CPython's C handler only sets a flag, the call is never interrupted, and the Python
+    handler would not run until the call returns. A pending handler runs within one step.
+    """
+    deadline = time.monotonic() + seconds
+    while (remaining := deadline - time.monotonic()) > 0:
+        time.sleep(min(remaining, SIGNAL_POLL_SECONDS))
+
+
+def read_until_signalled(fd: int, size: int) -> bytes:
+    """``os.read(fd, size)`` after short-step readability waits (see `sleep_until_signalled`)."""
+    while not select.select([fd], [], [], SIGNAL_POLL_SECONDS)[0]:
+        pass
+    return os.read(fd, size)
 
 
 def wait_for_path(path: Path, *, timeout: float = 30.0) -> None:

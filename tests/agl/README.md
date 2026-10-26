@@ -145,10 +145,11 @@ Inputs:
   `--warning NAME=LEVEL`; unlisted warnings keep their catalog level.
 - `runtime` — `PipelineDriver` overrides (`default_call_depth_limit`,
   `default_strict_json`) and the `parse_error_retries` engine seed.
-- `isolated` — `true` runs the scenario in a fresh single-threaded subprocess
-  (`isolated_runner.py`) instead of the pytest process, so companions may `os.fork`;
-  `stdout` is captured at fd level and includes children's output. Subprocess and
-  children are measured by `tests/isolated_coverage.toml` when coverage is active.
+- `isolated` — `true` runs the scenario in a single-threaded process of its own
+  (`isolated_runner.py`: a forked child of the worker's warm zygote, which shares its imports,
+  compile caches and hash seed, or else a cold subprocess) instead of the pytest process, so companions may `os.fork`; `stdout` is captured at fd level and
+  includes children's output. The process and its children are measured by
+  `tests/isolated_coverage.toml` when coverage is active.
 - `forks` — scripts for forked processes (use with `isolated`): a map from fork path to a
   section. A path names the n-th fork of a process: `"1"`, `"2"` are the root's first and
   second forks, `"1.1"` the first fork of the first one. A section holds the child's own
@@ -157,9 +158,9 @@ Inputs:
   starts from these alone, not from the parent's scripts; a process without a section gets
   empty scripts, which allow no calls. As it exits, each child checks that its scripts were
   consumed and its expectations hold, and writes a report. The scenario fails unless every
-  scripted path reports (waited for up to a bounded deadline: a scripted child may be detached
-  and still running, and one killed before it reports fails the scenario) and every report that
-  exists passes. Unscripted forked processes need not report (one terminated right after the fork
+  scripted path reports (a forked one is waited for up to a bounded deadline: a scripted child
+  may be detached and still running, and one killed before it reports fails the scenario; a
+  path that was never forked fails at once) and every report that exists passes. Unscripted forked processes need not report (one terminated right after the fork
   never does), but one that made a call fails when it reports. A scripted child must have ended
   (waited for, settled, or terminated) by the end of the run; its stdout joins the scenario's
   `stdout`.

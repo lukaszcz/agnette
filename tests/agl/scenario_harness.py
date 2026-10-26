@@ -1214,8 +1214,9 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
     A path names the n-th fork of a process (``"2.1"``: the first fork of the second fork of the
     root). A process without a section gets empty scripts, which allow no calls. Each child that
     entered its fork hooks checks its own scripts as it exits, after its sessions closed, and
-    writes the verdict atomically to ``reports/<path>.json``. :func:`assert_forks_reported` waits
-    for the verdicts of the scripted paths and reads all that exist. A scripted process must
+    writes the verdict atomically to ``reports/<path>.json``. The forking process first records
+    each fork as ``reports/<path>.forked``. :func:`assert_forks_reported` waits for the verdicts
+    of the scripted paths that were forked and reads all that exist. A scripted process must
     report: it ends (is waited for, settled or terminated) by the end of the run, or runs to its
     end on its own. An unscripted one may be terminated before it reports.
     """
@@ -1243,6 +1244,7 @@ class ScriptedForks(ForkParticipant[tuple[int, ...]]):
 
     def parent(self, state: tuple[int, ...]) -> None:
         self._forks += 1
+        (self._reports / f"{_dotted(state)}{_FORKED_SUFFIX}").touch()
 
     def child(self, state: tuple[int, ...]) -> None:
         self._path, self._forks = state, 0
@@ -1271,18 +1273,37 @@ def _dotted(path: tuple[int, ...]) -> str:
 
 
 _REPORT_TIMEOUT = 30.0
+_FORKED_SUFFIX = ".forked"
+
+
+def _never_forked(reports: Path, path: str) -> bool:
+    """Whether *path* was not forked and can no longer be.
+
+    Its forker (the path without the last component; the root for a top-level path) can no
+    longer fork once it is the root (the run is over) or has reported, or if it was never
+    forked itself. The forker's state is read before the marker: it records its forks before
+    it reports.
+    """
+    forker = path.rpartition(".")[0]
+    forker_done = forker == "" or (reports / f"{forker}.json").exists()
+    if (reports / f"{path}.json").exists() or (reports / f"{path}{_FORKED_SUFFIX}").exists():
+        return False
+    return forker_done or _never_forked(reports, forker)
 
 
 def _await_reports(reports: Path, paths: Collection[str], timeout: float) -> None:
     """Wait up to *timeout* seconds until every one of *paths* has reported.
 
-    A scripted process may be detached and still running; it reports as it exits.
+    A path that was never forked fails at once. A forked scripted process may be detached and
+    still running; it reports as it exits.
     """
     deadline = time.monotonic() + timeout
     while True:
         missing = sorted(path for path in paths if not (reports / f"{path}.json").exists())
         if not missing:
             return
+        unforked = [path for path in missing if _never_forked(reports, path)]
+        assert not unforked, f"scripted forks {unforked} were never forked"
         assert time.monotonic() < deadline, f"scripted forks {missing} never reported"
         time.sleep(0.01)
 
@@ -1290,7 +1311,7 @@ def _await_reports(reports: Path, paths: Collection[str], timeout: float) -> Non
 def assert_forks_reported(
     sections: dict[str, dict[str, Any]], reports: Path, timeout: float = _REPORT_TIMEOUT
 ) -> None:
-    """Every scripted fork path reports, and every process that reported passed its checks.
+    """Every scripted fork path was forked and reports, and every process that reported passed.
 
     Only scripted paths are awaited: a process terminated before it entered its fork hooks never
     reports, so an unscripted one may be missing. Every existing report is checked, so an

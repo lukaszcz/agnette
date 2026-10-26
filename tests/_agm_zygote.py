@@ -15,28 +15,22 @@ own, since every child inherits the zygote's. :envvar:`AGM_TEST_NO_ZYGOTE`
 turns the whole mechanism off and returns every invocation to a plain
 ``subprocess.run``, which is how the suite is run to settle either question.
 
-The zygote never runs a command itself, so a child inherits only import-time
-state — the same state a freshly started process would build for itself.
+The zygote never runs a command itself, so a child inherits only what the zygote
+imported, its hash seed and its interpreter-start environment.
 """
 
 from __future__ import annotations
 
-import array
-import gc
 import importlib
 import locale
 import os
-import pickle
-import socket
-import struct
 import subprocess
 import sys
 import tempfile
-import time
-import traceback
-import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
+
+from tests import _zygote
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -45,37 +39,13 @@ if TYPE_CHECKING:
 type Invocation = tuple[list[str], dict[str, str], str]
 
 # Set to "1" to run every e2e invocation as its own cold process.
-DISABLE_ENV = "AGM_TEST_NO_ZYGOTE"
-
-# Standard descriptors, in the order the client hands them over.
-_STREAM_COUNT = 3
-
-_LENGTH = struct.Struct("!I")
+DISABLE_ENV = _zygote.DISABLE_ENV
 
 # How long a client waits for a newly spawned zygote to start listening.
 _STARTUP_TIMEOUT = 60.0
 
-# How long the zygote waits for work before checking that it still has a worker
-# to serve. A killed worker leaves no one to shut it down, so it notices itself.
-_IDLE_CHECK = 5.0
-
-
-def _reaped_cpu_seconds() -> float:
-    """Return the CPU this process has been credited with for children it reaped."""
-    times = os.times()
-    return times.children_user + times.children_system
-
-
-def _charge(seconds: float) -> None:
-    """Report CPU the zygote burned on a test's behalf, or take it back when negative.
-
-    Imported on use rather than at module scope: the server half of this module
-    runs as ``__main__`` with only AgM's source on its path, and every module it
-    holds is inherited by every child it forks.
-    """
-    from tests._durations import charge_external_cpu_seconds
-
-    charge_external_cpu_seconds(seconds)
+# Standard descriptors, in the order the client hands them over.
+_STREAM_COUNT = 3
 
 
 def _encoding() -> str:
@@ -86,56 +56,6 @@ def _encoding() -> str:
 def _decode(data: bytes) -> str:
     """Decode captured output exactly as ``text=True`` does, newlines included."""
     return data.decode(_encoding()).replace("\r\n", "\n").replace("\r", "\n")
-
-
-def _send(conn: socket.socket, payload: bytes, fds: Sequence[int] = ()) -> None:
-    """Send one length-prefixed frame, optionally passing *fds* alongside it."""
-    frame = _LENGTH.pack(len(payload)) + payload
-    if not fds:
-        conn.sendall(frame)
-        return
-    rights = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", fds))]
-    sent = conn.sendmsg([frame], rights)
-    if sent < len(frame):
-        conn.sendall(frame[sent:])
-
-
-def _recv_exactly(conn: socket.socket, size: int) -> bytes:
-    """Read exactly *size* bytes, or return short on a closed connection."""
-    chunks = []
-    remaining = size
-    while remaining:
-        chunk = conn.recv(remaining)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
-def _recv(conn: socket.socket) -> bytes:
-    """Read one length-prefixed frame, or ``b""`` when the peer hung up."""
-    header = _recv_exactly(conn, _LENGTH.size)
-    if len(header) < _LENGTH.size:
-        return b""
-    return _recv_exactly(conn, _LENGTH.unpack(header)[0])
-
-
-def _recv_with_fds(conn: socket.socket) -> tuple[bytes, list[int]]:
-    """Read one frame together with the descriptors passed alongside it."""
-    space = socket.CMSG_SPACE(_STREAM_COUNT * array.array("i").itemsize)
-    header, ancillary, _flags, _addr = conn.recvmsg(_LENGTH.size, space)
-    fds: list[int] = []
-    for level, kind, data in ancillary:
-        if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
-            received = array.array("i")
-            received.frombytes(data[: len(data) - len(data) % received.itemsize])
-            fds.extend(received)
-    if len(header) < _LENGTH.size:
-        for fd in fds:
-            os.close(fd)
-        return b"", []
-    return _recv_exactly(conn, _LENGTH.unpack(header)[0]), fds
 
 
 # ---------------------------------------------------------------------------
@@ -162,100 +82,31 @@ def _preload() -> None:
         importlib.import_module(name)
 
 
-def _run_command(request: Invocation) -> object:
+def _run_command(request: Invocation) -> int:
     """Become the invocation described by *request* and run the CLI.
 
     Returns what the staged entry point would hand to ``sys.exit``.
     """
     argv, env, cwd = request
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(env)
-    # A prior command (or preload) may have cached the zygote's own TMPDIR;
-    # clear it so this child derives its temp directory from its own environ.
-    tempfile.tempdir = None
+    _zygote.adopt(env, cwd)
     sys.argv = list(argv)
     from agnette.agm.cli import main
 
-    return main()
+    return _zygote.exit_status(main())
 
 
-def _exit_status(code: object) -> int:
-    """Return what the interpreter would exit with for a ``SystemExit`` carrying *code*.
+def _child(request: Invocation, fds: list[int]) -> NoReturn:
+    """Take over the standard descriptors, run the command, and exit."""
 
-    A missing code is success and an integer is itself; anything else is a
-    message the interpreter prints before failing.
-    """
-    if code is None:
-        return 0
-    if isinstance(code, int):
-        return code
-    print(code, file=sys.stderr)
-    return 1
-
-
-def _child(request: Invocation, fds: Sequence[int], holding: Sequence[int]) -> None:
-    """Take over the standard descriptors, run the command, and exit. Never returns."""
-    code = 1
-    try:
+    def body() -> int:
         for target, fd in enumerate(fds):
             os.dup2(fd, target)
-        for fd in (*fds, *holding):
+        for fd in fds:
             if fd >= _STREAM_COUNT:
                 os.close(fd)
-        code = _exit_status(_run_command(request))
-    except SystemExit as exit_request:
-        code = _exit_status(exit_request.code)
-    except BaseException:
-        # A cold run reports an escaping exception on stderr and fails; so does this.
-        traceback.print_exc()
-    finally:
-        for stream in (sys.stdout, sys.stderr):
-            try:
-                stream.flush()
-            except ValueError:
-                pass
-        os._exit(code)
+        return _run_command(request)
 
-
-def _serve(address: str) -> None:
-    """Serve invocations until the worker that started this zygote is gone."""
-    _preload()
-    # Imported metadata stays live; keep child GC from dirtying its shared pages.
-    gc.collect()
-    gc.freeze()
-    worker = os.getppid()
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
-        server.bind(address)
-        server.listen(64)
-        server.settimeout(_IDLE_CHECK)
-        while True:
-            try:
-                conn, _peer = server.accept()
-            except TimeoutError:
-                if os.getppid() != worker:
-                    return
-                continue
-            with conn:
-                request_bytes, fds = _recv_with_fds(conn)
-                if not request_bytes:
-                    for fd in fds:
-                        os.close(fd)
-                    continue
-                request: Invocation = pickle.loads(request_bytes)
-                # Nothing of this process may reach the child half-written.
-                sys.stdout.flush()
-                sys.stderr.flush()
-                pid = os.fork()
-                if pid == 0:
-                    _child(request, fds, (conn.fileno(), server.fileno()))
-                for fd in fds:
-                    os.close(fd)
-                # The worker cannot see this child in its own ``os.times``,
-                # so its cost travels back with its status.
-                _waited, status, usage = os.wait4(pid, 0)
-                cost = usage.ru_utime + usage.ru_stime
-                _send(conn, pickle.dumps((status, cost)))
+    _zygote.run_child(body)
 
 
 # ---------------------------------------------------------------------------
@@ -263,12 +114,8 @@ def _serve(address: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-class Zygote:
-    """A running zygote process and the socket its clients invoke it through."""
-
-    def __init__(self, address: str, process: subprocess.Popen[bytes]) -> None:
-        self._address = address
-        self._process = process
+class Zygote(_zygote.Launcher):
+    """A running ``agm`` zygote and the socket its clients invoke it through."""
 
     def run(
         self,
@@ -291,74 +138,50 @@ class Zygote:
                 stdin_file.write(stdin_text.encode(_encoding()))
                 stdin_file.seek(0)
             request: Invocation = (list(argv), env, cwd)
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-                conn.connect(self._address)
-                _send(
-                    conn,
-                    pickle.dumps(request),
-                    (stdin_file.fileno(), stdout_file.fileno(), stderr_file.fileno()),
-                )
-                status_bytes = _recv(conn)
-            if not status_bytes:
-                raise RuntimeError("the agm zygote closed the connection before reporting")
-            status, cost = pickle.loads(status_bytes)
-            _charge(cost)
+            reply = self.invoke(
+                request, (stdin_file.fileno(), stdout_file.fileno(), stderr_file.fileno())
+            )
             stdout_file.seek(0)
             stderr_file.seek(0)
             return subprocess.CompletedProcess(
                 list(argv),
-                os.waitstatus_to_exitcode(status),
+                os.waitstatus_to_exitcode(reply.status),
                 _decode(stdout_file.read()),
                 _decode(stderr_file.read()),
             )
 
-    def close(self) -> None:
-        """Stop the zygote and un-charge its subtree.
 
-        Reaping the zygote credits this process with the CPU of every child the
-        zygote reaped -- which each invocation was already charged for as it
-        finished. Left alone, that arrives as one enormous extra cost against
-        whichever test happens to be the last, so it is taken back here.
-        """
-        before = _reaped_cpu_seconds()
-        self._process.terminate()
-        self._process.wait()
-        _charge(before - _reaped_cpu_seconds())
+# Run by the zygote's interpreter: place the checkout's source root and the repository
+# root (for this module), then drop the latter again so the children cannot import
+# ``tests``. ``-I`` ignores PYTHONPATH, which is why the paths travel as arguments.
+_BOOTSTRAP = """\
+import sys
+repo, source, name = sys.argv[1:]
+sys.path[:0] = [source, repo]
+from tests import _agm_zygote
+sys.path.remove(repo)
+_agm_zygote.main(name)
+"""
 
 
-def start(source_root: Path) -> Zygote:
+def start(source_root: Path, log: Path) -> Zygote:
     """Spawn a zygote and wait until it accepts connections.
 
-    It listens on a Linux abstract-namespace socket: no filesystem path, so no
-    path-length cap under a long ``TMPDIR``, and the name vanishes with the
-    process. *source_root* is prepended to the child's import path, which is
-    what makes the zygote serve this checkout — the same selection the staged
-    ``agm`` entry point makes for itself.
+    *source_root* is prepended to the child's import path, which is what makes the
+    zygote serve this checkout -- the same selection the staged ``agm`` entry point
+    makes for itself. The zygote's stderr goes to the file *log*.
     """
-    name = f"agm-zygote-{os.getpid()}-{uuid.uuid4().hex}"
-    address = "\0" + name
-    process = subprocess.Popen(
-        [sys.executable, "-I", str(Path(__file__).resolve()), name],
-        env={**os.environ, "PYTHONPATH": str(source_root)},
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
+    repo_root = Path(__file__).resolve().parents[1]
+    return _zygote.start(
+        Zygote,
+        [sys.executable, "-I", "-c", _BOOTSTRAP, str(repo_root), str(source_root)],
+        name=_zygote.unique_name("agm-zygote"),
+        env=os.environ,
+        log=log,
+        startup_timeout=_STARTUP_TIMEOUT,
     )
-    zygote = Zygote(address, process)
-    deadline = time.monotonic() + _STARTUP_TIMEOUT
-    while True:
-        try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-                probe.connect(address)
-            return zygote
-        except ConnectionRefusedError:
-            if process.poll() is not None or time.monotonic() > deadline:
-                zygote.close()
-                raise RuntimeError("the agm zygote did not start") from None
-            time.sleep(0.01)
 
 
-if __name__ == "__main__":
-    # -I ignores PYTHONPATH, so the checkout's source root is placed by hand.
-    sys.path.insert(0, os.environ["PYTHONPATH"])
-    # argv cannot carry the abstract namespace's leading NUL.
-    _serve("\0" + sys.argv[1])
+def main(name: str) -> None:
+    """Serve invocations on the socket *name* (the zygote process's entry point)."""
+    _zygote.serve(name, _preload, _child)

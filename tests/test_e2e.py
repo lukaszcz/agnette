@@ -433,7 +433,9 @@ def _agm_install(
     if os.environ.get(_agm_zygote.DISABLE_ENV):
         yield
         return
-    _AGM_LAUNCHER = _agm_zygote.start(repo_root / "src")
+    _AGM_LAUNCHER = _agm_zygote.start(
+        repo_root / "src", tmp_path_factory.mktemp("agm-zygote-log") / "stderr.txt"
+    )
     try:
         yield
     finally:
