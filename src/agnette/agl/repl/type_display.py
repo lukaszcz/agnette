@@ -86,16 +86,16 @@ def _format_exception_type_with_name(typ: ExceptionType, name: str, table: TypeT
     return "\n".join(lines)
 
 
-def _field_lines(fields: Iterable[tuple[str, Type]], docs: Mapping[str, str]) -> list[str]:
+def _field_lines(
+    fields: Iterable[tuple[str, Type]], docs: Mapping[str, str], indent: str = "  "
+) -> list[str]:
     """Render *fields* one per line, each below its ``@doc`` attribute when it has one."""
     lines: list[str] = []
     for field_name, field_type in fields:
         if field_name in docs:
-            lines.extend(
-                f"  {line}" if line else ""
-                for line in format_doc_attribute(docs[field_name]).split("\n")
-            )
-        lines.append(f"  {field_name}: {field_type!r}")
+            doc_lines = format_doc_attribute(docs[field_name]).split("\n")
+            lines.extend(f"{indent}{line}" if line else "" for line in doc_lines)
+        lines.append(f"{indent}{field_name}: {field_type!r}")
     return lines
 
 
@@ -117,18 +117,18 @@ def _format_enum_type(typ: EnumType, table: TypeTable) -> str:
 
 
 def _format_enum_type_with_name(typ: EnumType, name: str, table: TypeTable) -> str:
+    """Render an enum; documented fields force the block form, the only one attributes fit."""
     lines = [f"enum {name}"]
     for variant_name, member in table.enum_member_names(typ).items():
         fields = table.record_fields(member)
         docs = table.field_docs(member)
         member_doc = table.declaration_doc(member)
         head = "" if member_doc is None else f"{format_doc_attribute(member_doc)} "
-        if fields:
-            field_list = ", ".join(
-                (f"{format_doc_attribute(docs[field_name])} " if field_name in docs else "")
-                + f"{field_name}: {field_type!r}"
-                for field_name, field_type in fields.items()
-            )
+        if docs:
+            lines.append(f"  | {head}{variant_name}")
+            lines.extend(_field_lines(fields.items(), docs, "      "))
+        elif fields:
+            field_list = ", ".join(f"{n}: {ft!r}" for n, ft in fields.items())
             lines.append(f"  | {head}{variant_name}({field_list})")
         else:
             lines.append(f"  | {head}{variant_name}")

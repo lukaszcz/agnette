@@ -31,8 +31,8 @@ from agnette.agl.modules.ids import ModuleId
 from agnette.agl.parser import AglSyntaxError
 from agnette.agl.recursion import NestingTooDeepError
 from agnette.agl.repl import ReplSession
-from agnette.agl.repl.session import SessionOpenError
 from agnette.agl.repl.entry import EntryResult
+from agnette.agl.repl.session import SessionOpenError
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.runtime.types import ParamBindingInfo

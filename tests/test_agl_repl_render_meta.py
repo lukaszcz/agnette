@@ -1229,9 +1229,10 @@ class TestInfo:
     def test_info_shows_field_docs_above_their_fields(self) -> None:
         session = _open_session()
         source = (
-            'record R\n  @doc("the a")\n  a: int\n  @doc("""\n    multi\n    line\n  """)\n  b: text\n'
+            'record R\n  @doc("the a")\n  a: int\n'
+            '  @doc("""\n    multi\n    line\n  """)\n  b: text\n'
             '\nexception E\n  @doc("the code")\n  code: int\n'
-            '\nenum En\n  | @doc("first") A(@doc("x doc") x: int, y: int)\n  | B\n'
+            '\nenum En\n  | @doc("first") A\n      @doc("x doc")\n      x: int\n      y: int\n  | B\n'
         )
         assert session.eval_entry(source).ok
 
@@ -1243,7 +1244,10 @@ class TestInfo:
         assert '    @doc("the a")\n    a: int' in record
         assert "multi\n" in record and "    b: text" in record
         assert '    @doc("the code")\n    code: int' in exception
-        assert '| @doc("first") A(@doc("x doc") x: int, y: int)' in enum
+        assert (
+            '| @doc("first") A\n        @doc("x doc")\n        x: int\n        y: int\n    | B'
+            in enum
+        )
 
     def test_the_root_exception_type_entry_has_no_base(self) -> None:
         shown = render_mod.render_entry_result(_open_session().eval_entry("Exception"), echo=True)
