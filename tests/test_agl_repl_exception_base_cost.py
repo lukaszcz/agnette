@@ -96,7 +96,7 @@ def test_a_base_is_spelled_by_an_alias_when_its_own_name_is_out_of_reach() -> No
 
     assert shown is not None
     declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
-    assert session.eval_entry(declaration.replace("F", "G")).ok
+    assert session.eval_entry(declaration.replace("exception F", "exception G", 1)).ok
 
 
 def test_a_base_is_spelled_by_an_alias_of_an_alias() -> None:
@@ -116,4 +116,4 @@ def test_a_base_is_spelled_by_an_alias_of_an_alias() -> None:
 
     assert shown is not None
     declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
-    assert session.eval_entry(declaration.replace("F", "G")).ok
+    assert session.eval_entry(declaration.replace("exception F", "exception G", 1)).ok
