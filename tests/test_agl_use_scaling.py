@@ -8,10 +8,9 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.scope.lookup import Candidate, LookupKind
-from agnette.agl.scope.symbols import ScopeNode, ScopePath
-from agnette.agl.scope.uses import UseReader, _UseIndex
-from agnette.agl.syntax.nodes import ScopeSegment, UseDecl
-from agnette.agl.syntax.spans import SourceSpan
+from agnette.agl.scope.symbols import ScopePath
+from agnette.agl.scope.uses import UseReader
+from agnette.agl.syntax.nodes import UseDecl
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.commands import check as check_command
 
@@ -64,19 +63,6 @@ def test_the_exposures_read_per_use_item_do_not_grow_with_their_number(
         return reads
 
     assert work(80) < 2.5 * work(40)
-
-
-def _use(node_id: int, *names: str) -> UseDecl:
-    span = SourceSpan(1, 1, 1, 1, 0, 0)
-    return UseDecl(
-        anchored=False,
-        target=tuple(ScopeSegment(name, span, node_id) for name in names),
-        tail=None,
-        hidden=(),
-        alias=None,
-        span=span,
-        node_id=node_id,
-    )
 
 
 @pytest.mark.parametrize("shape", ["distinct", "repeated"])
