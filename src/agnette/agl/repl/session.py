@@ -950,8 +950,12 @@ class ReplSession:
         next_id: int,
         value_failure: AglError | None,
         source: "SourceId",
+        display: bool = True,
     ) -> EntryResult | None:
         """Attempt to interpret *text* as a bare type-expression entry.
+
+        With *display* false the result carries no ``type_display`` (only ``value_type``),
+        so formatting, which spells exception bases, is never entered.
 
         Returns a ``kind == "type"`` :class:`EntryResult` echoing the resolved
         type when *text* parses as inner attributes and a single type expression AND
@@ -1032,7 +1036,9 @@ class ReplSession:
                         checked.generic_def,
                         checked.type_table,
                         self._base_spelling,
-                    ),
+                    )
+                    if display
+                    else None,
                 )
             if checked.span is not None and checked.span.end_offset <= header_end:
                 return self._fail_static(checked, [])
@@ -1052,7 +1058,7 @@ class ReplSession:
             value_type=value_type,
             type_display=(
                 format_type_for_repl(value_type, table, self._base_spelling)
-                if isinstance(value_type, ExceptionType)
+                if display and isinstance(value_type, ExceptionType)
                 else None
             ),
             type_table=table,
@@ -1066,21 +1072,41 @@ class ReplSession:
         """
         from agnette.agl.syntax.spans import SourceId
 
-        aliases = (
-            path[0]
-            for path, owner in self._session_type_paths.items()
-            if len(path) == 1 and owner.alias is not None
+        names = (
+            base.name,
+            *(name for name in self._top_level_aliases() if self._targets(name, base)),
         )
-        for name in (base.name, *aliases):
+        for name in names:
             named = self._try_type_entry(
                 name,
                 next_id=self._next_node_id,
                 value_failure=None,
                 source=SourceId("<repl probe>"),
+                display=False,
             )
             if named is not None and named.value_type == base:
                 return name
         return base.name
+
+    def _top_level_aliases(self) -> list[str]:
+        """The names of the session's top-level type aliases."""
+        return [
+            path[0]
+            for path, owner in self._session_type_paths.items()
+            if len(path) == 1 and owner.alias is not None
+        ]
+
+    def _targets(self, alias: str, base: "ExceptionType") -> bool:
+        """Whether the session alias *alias* stands, through its alias chain, for *base*."""
+        owner = self._session_type_paths.get((alias,))
+        seen: set[int] = set()
+        while owner is not None and owner.target is not None and owner.decl_node_id not in seen:
+            seen.add(owner.decl_node_id)
+            module_id, atom = owner.target.qname
+            if module_id == base.module_id and owner.target.decl_node_id == base.decl_id:
+                return True
+            owner = self._session_type_paths.get((atom,) if isinstance(atom, str) else atom)
+        return False
 
     def _type_entry_result(
         self,
