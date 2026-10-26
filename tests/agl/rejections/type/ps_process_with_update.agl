@@ -1,0 +1,5 @@
+import std/ps::Process
+
+def forge(p: Process[int]) -> Process[int] = p with pid = 2
+
+program def main() -> unit = ()

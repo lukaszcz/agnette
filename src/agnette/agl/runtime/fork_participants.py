@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from agnette.agl.runtime.externs import ExternRuntimeState, ForkedEntries
 from agnette.agl.runtime.processes import (
     Disposition,
     ForkParticipant,
+    ForkRegistration,
     ForkRequest,
     ProcessHost,
     ProcessInfo,
@@ -81,6 +82,7 @@ def build_process_host(
     sessions: SessionHost,
     debug: Callable[[], bool],
     reporter: Callable[[ProcessInfo, str], None],
+    extra: Sequence[ForkRegistration] = (),
 ) -> ProcessHost:
     """A process host with the participants every host session needs, registered in order.
 
@@ -88,9 +90,12 @@ def build_process_host(
     the child's own processes: sessions close first, then companion state, as in a run's end.
     Stdio goes last so it is flushed right before ``os.fork``, after every other participant's
     ``prepare`` (a fork hook's output included); it has no exit hook, so it does not affect
-    the order of the others.
+    the order of the others. The host owner's *extra* participants come first: their ``child``
+    hooks run before the built-in ones, and their ``child_exit`` hooks after them.
     """
     host = ProcessHost(reporter=reporter)
+    for registration in extra:
+        registration.register_on(host)
     host.register(CompanionStateParticipant(state, debug))
     host.register(SessionParticipant(sessions))
     host.register(StdioFlushParticipant())

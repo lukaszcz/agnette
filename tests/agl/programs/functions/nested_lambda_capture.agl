@@ -1,0 +1,22 @@
+def call(f: () -> int) -> int = f()
+
+def attempt(act: () -> int) -> int = act()
+
+def apply(f: (int) -> int) -> int = f(5)
+
+program def main() -> unit =
+  let mine = 9
+  var count = 1
+  let read = fn() => attempt(fn() => count)
+  count := 2
+  print call(fn() => attempt(fn() => mine))
+  let deep = fn() => fn() => fn() => mine + 1
+  print deep()()()
+  print read()
+  print apply(fn(x) => attempt(fn() => x + mine))
+  # A `var` captured two lambdas deep is shared through the cell, not copied.
+  var total = 0
+  let bump = fn() => fn() => fn() => do total := total + 1 until true
+  bump()()()
+  bump()()()
+  print total

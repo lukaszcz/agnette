@@ -1,0 +1,99 @@
+# Results of every value kind cross back from a forked process as copies: scalars, collections,
+# records with `var` fields, enums, exceptions as values, closures with captures (cells of `var`
+# bindings included), shared substructure and cycles. Two parts keep each scenario cheap.
+import std/ps
+
+record Counter
+  var count: int
+  label: text
+
+enum Shape
+  | Dot
+  | Line(length: int, tags: array[text])
+
+record Node
+  var next: array[Node]
+  name: text
+
+exception Oops extends Exception
+  code: int
+
+record Meter
+  read: () -> int
+  bump: () -> unit
+
+# Both closures share the cell of the captured `var`.
+def make-meter() -> Meter =
+  var n = 0
+  Meter(read = fn() => n, bump = fn() => do n := n + 1 until true)
+
+def make-adder(step: int) -> (int) -> int =
+  let offset = [step]
+  fn(x) => x + offset[0]
+
+def make-cycle(nodes: array[Node]) -> Node =
+  let n = Node(next = [], name = "loop")
+  n.next.push(n)
+  nodes.push(n)
+  n
+
+def make-shapes() -> array[Shape] = [Dot, Line(length = 2, tags = ["x", "y"])]
+
+def check(name: text, ok: bool) -> unit =
+  print "%{name}: %{if ok => "ok" else => "WRONG"}"
+
+def scalars-and-closures() -> unit =
+  check("int", ps::wait(ps::fork(fn() => 6 * 7)) == 42)
+  check("text", ps::wait(ps::fork(fn() => "a" ++ "b")) == "ab")
+  check("decimal", ps::wait(ps::fork(fn() => 1.25)) == 1.25)
+  check("bool", ps::wait(ps::fork(fn() => not false)))
+  # A unit result carries nothing back, but the child ran.
+  let nothing: unit = ps::wait(ps::fork(fn() => print "unit: child ran"))
+
+  # A closure returned by the child keeps its own copy of the captured state.
+  let add: (int) -> int = ps::wait(ps::fork(fn() => make-adder(10)))
+  check("closure", add(5) == 15 and add(1) == 11)
+
+  # A captured `var` travels as a cell: the closures still share it, apart from the parent.
+  let meter: Meter = ps::wait(ps::fork(fn() => make-meter()))
+  let read = meter.read
+  let bump = meter.bump
+  bump()
+  bump()
+  check("cell", read() == 2)
+
+  # An exception is a value like any other until it is raised.
+  let oops: Oops = ps::wait(ps::fork(fn() => Oops(code = 4, message = "returned")))
+  check("exception", oops.code == 4 and oops.message == "returned")
+
+def structures() -> unit =
+  let counter: Counter = ps::wait(ps::fork(fn() => Counter(count = 3, label = "c")))
+  counter.count := counter.count + 1
+  check("record", counter.count == 4 and counter.label == "c")
+
+  let shapes: array[Shape] = ps::wait(ps::fork(fn() => make-shapes()))
+  check("enums", shapes == make-shapes())
+
+  let table: dict[text, array[int]] = ps::wait(ps::fork(fn() => {"a": [1, 2], "b": []}))
+  check("dict", table["a"] == [1, 2] and table["b"].is-empty())
+
+  # Sharing inside one result survives; sharing with the parent does not.
+  let inner = [1]
+  let pair: array[array[int]] = ps::wait(ps::fork(fn() => [inner, inner]))
+  pair[0].push(2)
+  check("sharing", pair[1] == [1, 2] and inner == [1])
+
+  # Cycles survive, and the child's mutations of parent state stay in the child.
+  var nodes: array[Node] = [Node(next = [], name = "n")]
+  let cyclic: Node = ps::wait(ps::fork(fn() => make-cycle(nodes)))
+  check("cycle", cyclic.next[0].next[0].name == "loop" and cyclic.next[0] == cyclic.next[0].next[0])
+  check("copy", nodes.size() == 1)
+
+  # The handle is a value of the parent; the same child's result is the same value.
+  let p = ps::fork(fn() => [1, 2])
+  let first = ps::wait(p)
+  first.push(3)
+  check("idempotent", ps::wait(p) == [1, 2, 3])
+
+program def main(part: text) -> unit =
+  if part == "closures" => scalars-and-closures() else => structures()

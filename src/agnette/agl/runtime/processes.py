@@ -62,6 +62,7 @@ __all__ = [
     "Ended",
     "Failed",
     "ForkParticipant",
+    "ForkRegistration",
     "ForkRequest",
     "Outcome",
     "ProcessHost",
@@ -141,6 +142,20 @@ class ForkParticipant[S](ABC):
 
     def child_exit(self, disposition: Disposition) -> None:
         """Run in the child as it exits, with the disposition of its outcome."""
+
+
+class ForkRegistration:
+    """A fork participant of any state type, ready to be registered on a host.
+
+    Lets a host owner hand participants with different state types to the hosts it builds.
+    """
+
+    def __init__[S](self, participant: ForkParticipant[S]) -> None:
+        self._participant: Callable[[ProcessHost], None] = lambda host: host.register(participant)
+
+    def register_on(self, host: ProcessHost) -> None:
+        """Register the participant on *host*, after those already registered."""
+        self._participant(host)
 
 
 class _Prepared(NamedTuple):
@@ -586,17 +601,18 @@ class ProcessHost:
 
     # -- termination, scopes, session end -----------------------------------
 
-    def terminate(self, id: str) -> None:
-        """Terminate process *id* and wait until it has ended; a finished one is left alone.
+    def terminate(self, *ids: str) -> None:
+        """Terminate processes *ids* under one shared deadline and wait until they have ended.
 
-        A process ended before it delivered reports ``Ended(signal=SIGTERM)``, or ``SIGKILL``
-        if it outlived the grace period. The outcome counts as consumed, so :meth:`end` does
-        not report it.
+        Finished ones are left alone. A process ended before it delivered reports
+        ``Ended(signal=SIGTERM)``, or ``SIGKILL`` if it outlived the grace period. The outcomes
+        count as consumed, so :meth:`end` does not report them.
         """
         self._reap_detached()
-        entry = self._entry(id)
-        self._terminate([entry])
-        entry.consumed = True
+        entries = [self._entry(id) for id in ids]
+        self._terminate(entries)
+        for entry in entries:
+            entry.consumed = True
 
     @contextmanager
     def scope(self) -> Iterator[None]:

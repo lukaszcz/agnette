@@ -1,0 +1,20 @@
+{
+  "scenarios": [
+    {
+      "name": "exceptions_are_raised_again_by_type_and_exit_is_a_process_error",
+      "isolated": true,
+      "params": {"mode": "caught"},
+      "expect": {
+        "stdout": "boom 7: boom in child\nindex 5 of 2\nexit Option::Some(value = 3) signal Option::None pid-ok true\nvalue 0\nboom 9: boom in child\nboom 9: boom in child\nis process error: true\n"
+      }
+    },
+    {
+      "name": "an_uncaught_child_exception_reports_the_childs_raise_site",
+      "isolated": true,
+      "params": {"mode": "raise"},
+      "expect": {
+        "raises": {"type": "Boom", "fields": {"code": 1}, "message_contains": ["boom in child"], "line": 12}
+      }
+    }
+  ]
+}

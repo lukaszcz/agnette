@@ -1,0 +1,49 @@
+# Exceptions escaping a forked function are raised again by `wait` with their type, fields and
+# source location; a child that leaves through `std/os::exit` or fails in the host delivers
+# no outcome and raises `ProcessExitError`.
+import std/ps
+import std/ps::{Process, ProcessError, ProcessExitError}
+import std/os
+
+exception Boom extends Exception
+  code: int
+
+def explode(code: int) -> int =
+  raise Boom(code, message = "boom in child")
+
+def leave(code: int) -> int =
+  os::exit(code)
+  0
+
+def classify(p: Process[int]) -> text =
+  try
+    "value %{ps::wait(p)}"
+  catch IndexError as e =>
+    "index %{e.index} of %{e.length}"
+  catch Boom as b =>
+    "boom %{b.code}: %{b.message}"
+  catch ProcessExitError as e =>
+    "exit %{e.exit-code} signal %{e.signal} pid-ok %{e.pid == p.pid}"
+  catch ProcessError as e =>
+    "process error"
+  catch Exception as e =>
+    "other %{e.message}"
+
+program def main(mode: text) -> unit =
+  if mode == "caught" =>
+    print classify(ps::fork(fn() => explode(7)))
+    print classify(ps::fork(fn() => [1, 2][5]))
+    print classify(ps::fork(fn() => leave(3)))
+    print classify(ps::fork(fn() => 0))
+    # The same exception is raised each time the process is waited for.
+    let p = ps::fork(fn() => explode(9))
+    print classify(p)
+    print classify(p)
+    # A ProcessExitError is a ProcessError.
+    try
+      let _ = ps::wait(ps::fork(fn() => leave(4)))
+    catch ProcessError as e =>
+      print "is process error: %{e is ProcessExitError}"
+  else =>
+    let p = ps::fork(fn() => explode(1))
+    let _ = ps::wait(p)

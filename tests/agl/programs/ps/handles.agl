@@ -1,0 +1,68 @@
+# Handle lifetime: `terminate`, `detach`, handles that belong to other processes, and forks
+# nested in forks. A handle is valid only in the process that forked it, while it is attached.
+import std/ps
+import std/ps::{Process, ProcessError, ProcessExitError}
+import std/fs
+import std/time
+import std/path::path
+
+def await-file(flag: path) -> int =
+  while not fs::exists(flag) do
+    time::sleep(0.005)
+  done
+  0
+
+# What `act` does with a handle: its result, or the kind of failure.
+def attempt(act: () -> int) -> text =
+  try
+    "ok %{act()}"
+  catch ProcessExitError as e =>
+    "exit signal %{e.signal}"
+  catch ProcessError as e =>
+    "process error"
+
+def settle(p: Process[int]) -> int =
+  ps::settle(p)
+  0
+
+def terminate(p: Process[int]) -> int =
+  ps::terminate(p)
+  0
+
+def detach(p: Process[int]) -> int =
+  ps::detach(p)
+  0
+
+def misuse(p: Process[int]) -> unit =
+  print attempt(fn() => ps::wait(p))
+  print attempt(fn() => settle(p))
+  print attempt(fn() => terminate(p))
+  print attempt(fn() => detach(p))
+  print attempt(fn() => ps::settle-any([p]))
+
+program def main(root: path) -> unit =
+  # A terminated process delivers no outcome; terminating a finished one changes nothing.
+  let stuck = ps::fork(fn() => await-file(root ++ "/never"))
+  ps::terminate(stuck)
+  print attempt(fn() => ps::wait(stuck))
+  let finished = ps::fork(fn() => 7)
+  ps::settle(finished)
+  ps::terminate(finished)
+  print attempt(fn() => ps::wait(finished))
+
+  # A detached process is gone for good, however its handle is used.
+  let detached = ps::fork(fn() => 8)
+  ps::detach(detached)
+  misuse(detached)
+
+  # A handle of the parent is foreign to the child.
+  let mine = ps::fork(fn() => 9)
+  print ps::wait(ps::fork(fn() => attempt(fn() => ps::wait(mine))))
+  print attempt(fn() => ps::wait(mine))
+
+  # A handle returned by a grandchild is foreign to the parent.
+  let returned = ps::wait(ps::fork(fn() => ps::fork(fn() => 1)))
+  misuse(returned)
+
+  # Forks nest: a child waits for its own children.
+  print ps::wait(ps::fork(fn() => ps::wait(ps::fork(fn() => 21)) * 2))

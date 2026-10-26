@@ -7,12 +7,16 @@ documented in ``tests/agl/README.md``.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+import time
+import traceback
 import unittest.mock
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, get_args
+from typing import Any, NamedTuple, Protocol, Self, get_args
 
 import pytest
 
@@ -29,6 +33,12 @@ from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import JsonContractRequest
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery
+from agnette.agl.runtime.processes import (
+    Disposition,
+    ForkParticipant,
+    ForkRegistration,
+    ForkRequest,
+)
 from agnette.agl.semantics.values import IntValue, Value
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agl.warnings import WARNING_CATALOG, WarningLevel
@@ -44,7 +54,7 @@ from tests._agl_helpers import (
     write_sandbox_home,
     write_transparent_sandbox_shims,
 )
-from tests._http_helpers import fake_session
+from tests._http_helpers import FakeHttp, fake_session
 from tests._jev_helpers import install_jev_transport, jev_roots
 from tests._package_helpers import package_info
 from tests._process_helpers import FakeShell
@@ -554,6 +564,11 @@ class ScenarioSessionHost:
             str, tuple[Any, str, PermissionMode, SandboxLimits | None, dict[str, str], bool]
         ] = {}
         self._default_handle: str | None = None
+        self._child_services: dict[str, _ScriptedSessionService] | None = None
+
+    def script_child(self, agents: dict[str, ScriptedAgent]) -> None:
+        """Serve the next forked child from *agents* alone, not the parent's scripts."""
+        self._child_services = {name: agent.session_service() for name, agent in agents.items()}
 
     def open(
         self,
@@ -792,6 +807,8 @@ class ScenarioSessionHost:
         for service in self._services.values():
             service.enter_forked_child()
         self._default_handle = None
+        if self._child_services is not None:
+            self._services, self._child_services = self._child_services, None
 
     def close_all(self) -> None:
         failures: list[Exception] = []
@@ -1148,27 +1165,172 @@ class _Script(Protocol):
     def assert_complete(self) -> None: ...
 
 
+@dataclass
+class ScriptedBoundaries:
+    """One process's scripted agents, shell and HTTP, built from a scenario or fork section."""
+
+    agents: dict[str, ScriptedAgent]
+    shell: FakeShell
+    http_session: Any
+    http: FakeHttp
+
+    @classmethod
+    def from_spec(cls, spec: dict[str, Any], *, require_session_id: bool = False) -> Self:
+        agents = {
+            name: agent_from_spec(name, item) for name, item in spec.get("agents", {}).items()
+        }
+        for agent in agents.values():
+            agent.require_session_id = require_session_id
+        http_session, http = fake_session(spec.get("http", []))
+        return cls(agents, FakeShell(spec.get("shell", [])), http_session, http)
+
+
+_FORK_SECTION_KEYS = frozenset({"agents", "shell", "http", "expect"})
+_FORK_EXPECT_KEYS = frozenset(
+    {"calls", "prompts", "sessions", "session_prompts", "session_operations"}
+)
+
+
+def assert_boundaries(
+    boundaries: ScriptedBoundaries, expect: dict[str, Any], extra_scripts: list[_Script]
+) -> None:
+    """Check one process's scripts: every script consumed, every call and session as expected."""
+    _assert_calls(boundaries.agents, expect)
+    assert_sessions(boundaries.agents, expect)
+    for script in [boundaries.shell, boundaries.http, *extra_scripts]:
+        script.assert_complete()
+
+
+class ActiveBoundaries:
+    """The scripted boundaries of the running process: a forked child replaces them."""
+
+    def __init__(self, boundaries: ScriptedBoundaries) -> None:
+        self.current = boundaries
+
+
+class ScriptedForks(ForkParticipant[tuple[int, ...]]):
+    """Gives each forked process the scripted boundaries of its ``forks`` path.
+
+    A path names the n-th fork of a process (``"2.1"``: the first fork of the second fork of the
+    root). A process without a section gets empty scripts, which allow no calls. Each child that
+    entered its fork hooks checks its own scripts as it exits, after its sessions closed, and
+    writes the verdict atomically to ``reports/<path>.json``. :func:`assert_forks_reported` waits
+    for the verdicts of the scripted paths and reads all that exist. A scripted process must
+    report: it ends (is waited for, settled or terminated) by the end of the run, or runs to its
+    end on its own. An unscripted one may be terminated before it reports.
+    """
+
+    def __init__(
+        self,
+        active: ActiveBoundaries,
+        sections: dict[str, dict[str, Any]],
+        boundaries: dict[str, ScriptedBoundaries],
+        unscripted: ScriptedBoundaries,
+        reports: Path,
+        session_host: ScenarioSessionHost | None,
+    ) -> None:
+        self._active = active
+        self._sections = sections
+        self._boundaries = boundaries
+        self._unscripted = unscripted
+        self._reports = reports
+        self._session_host = session_host
+        self._path: tuple[int, ...] = ()
+        self._forks = 0
+
+    def prepare(self, request: ForkRequest) -> tuple[int, ...]:
+        return (*self._path, self._forks + 1)
+
+    def parent(self, state: tuple[int, ...]) -> None:
+        self._forks += 1
+
+    def child(self, state: tuple[int, ...]) -> None:
+        self._path, self._forks = state, 0
+        self._active.current = self._boundaries.get(self._name, self._unscripted)
+        if self._session_host is not None:
+            self._session_host.script_child(self._active.current.agents)
+
+    def child_exit(self, disposition: Disposition) -> None:
+        expect = self._sections.get(self._name, {}).get("expect", {})
+        try:
+            assert_boundaries(self._active.current, expect, [])
+            error = None
+        except Exception:
+            error = traceback.format_exc()
+        pending = self._reports / f"{self._name}.json.tmp"
+        pending.write_text(json.dumps({"error": error}))
+        os.replace(pending, self._reports / f"{self._name}.json")
+
+    @property
+    def _name(self) -> str:
+        return _dotted(self._path)
+
+
+def _dotted(path: tuple[int, ...]) -> str:
+    return ".".join(map(str, path))
+
+
+_REPORT_TIMEOUT = 30.0
+
+
+def _await_reports(reports: Path, paths: Collection[str], timeout: float) -> None:
+    """Wait up to *timeout* seconds until every one of *paths* has reported.
+
+    A scripted process may be detached and still running; it reports as it exits.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        missing = sorted(path for path in paths if not (reports / f"{path}.json").exists())
+        if not missing:
+            return
+        assert time.monotonic() < deadline, f"scripted forks {missing} never reported"
+        time.sleep(0.01)
+
+
+def assert_forks_reported(
+    sections: dict[str, dict[str, Any]], reports: Path, timeout: float = _REPORT_TIMEOUT
+) -> None:
+    """Every scripted fork path reports, and every process that reported passed its checks.
+
+    Only scripted paths are awaited: a process terminated before it entered its fork hooks never
+    reports, so an unscripted one may be missing. Every existing report is checked, so an
+    unscripted process that made a call fails its empty scripts.
+    """
+    _await_reports(reports, sections, timeout)
+    for report in sorted(reports.glob("*.json")):
+        error = json.loads(report.read_text())["error"]
+        assert error is None, f"forked process {report.stem!r} failed its checks:\n{error}"
+
+
 def _run_program(
     source: str,
     scenario: dict[str, Any],
     program: Path,
     monkeypatch: pytest.MonkeyPatch,
     get_sandbox_context: Callable[[], SandboxContext] | None,
+    reports: Path,
     compilations: CompilationCache | None = None,
-) -> tuple[Any, dict[str, ScriptedAgent], FakeShell, list[_Script], tuple[Diagnostic, ...]]:
+) -> tuple[Any, ScriptedBoundaries, list[_Script], tuple[Diagnostic, ...]]:
     from agnette.agl import PipelineDriver
     from agnette.agl.runtime.externs import ExternRegistry
 
-    agents = {
-        name: agent_from_spec(name, spec) for name, spec in scenario.get("agents", {}).items()
-    }
-    shell = FakeShell(scenario.get("shell", []))
-    http_session, http_adapter = fake_session(scenario.get("http", []))
     runtime_options: dict[str, Any] = {}
     runtime_config = scenario.get("runtime", {})
-    if runtime_config.get("enforce_command_sessions") is True:
-        for agent in agents.values():
-            agent.require_session_id = True
+    enforce = runtime_config.get("enforce_command_sessions") is True
+    sections: dict[str, dict[str, Any]] = scenario.get("forks", {})
+    for path, section in sections.items():
+        unknown = (section.keys() - _FORK_SECTION_KEYS) | (
+            section.get("expect", {}).keys() - _FORK_EXPECT_KEYS
+        )
+        assert not unknown, f"fork {path!r}: unsupported keys {sorted(unknown)}"
+    boundaries = ScriptedBoundaries.from_spec(scenario, require_session_id=enforce)
+    child_boundaries = {
+        path: ScriptedBoundaries.from_spec(section, require_session_id=enforce)
+        for path, section in sections.items()
+    }
+    unscripted = ScriptedBoundaries.from_spec({})
+    active = ActiveBoundaries(boundaries)
+    agents = boundaries.agents
     if "default_call_depth_limit" in runtime_config:
         runtime_options["default_call_depth_limit"] = runtime_config["default_call_depth_limit"]
     if "default_strict_json" in runtime_config:
@@ -1180,21 +1342,27 @@ def _run_program(
         )
 
     def dispatch_agent(request: Any) -> str:
-        return agents[_scripted_agent_name(request.agent)](request)
+        return active.current.agents[_scripted_agent_name(request.agent)](request)
 
-    if agents:
+    session_host: ScenarioSessionHost | None = None
+    if agents or any(item.agents for item in child_boundaries.values()):
         runtime_options["agent_dispatcher"] = dispatch_agent
-    if agents:
-        runtime_options["session_host"] = ScenarioSessionHost(agents)
+        session_host = ScenarioSessionHost(agents)
+        runtime_options["session_host"] = session_host
     runtime_options["get_sandbox_context"] = get_sandbox_context
     registry = ExternRegistry()
     runtime = PipelineDriver(
         extern_registry=registry,
         resolve_agent_spec=None,
         warning_policy=spec_warning_policy(scenario),
+        fork_participants=[
+            ForkRegistration(
+                ScriptedForks(active, sections, child_boundaries, unscripted, reports, session_host)
+            )
+        ],
         **runtime_options,
     )
-    scripts: list[_Script] = [shell, http_adapter]
+    scripts: list[_Script] = []
     default_stdlib = not scenario.get("no_stdlib", False)
     entry_path: Path | None = None
     roots = fixture_roots(scenario)
@@ -1215,8 +1383,11 @@ def _run_program(
         prepare_inline_code if scenario.get("inline_entry") else PipelineDriver.prepare_program
     )
     with (
-        unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell),
-        unittest.mock.patch("agnette.core.http.open_session", lambda: http_session),
+        unittest.mock.patch(
+            "agnette.core.process.run_capture_result",
+            side_effect=lambda args, **options: active.current.shell(args, **options),
+        ),
+        unittest.mock.patch("agnette.core.http.open_session", lambda: active.current.http_session),
     ):
         key = (default_stdlib, bool(scenario.get("inline_entry")))
         cached = next(
@@ -1252,7 +1423,7 @@ def _run_program(
             result = exc
     # A terminated run reports no result; discovery holds the static warnings.
     warnings = discovery.warnings if isinstance(result, SystemExit) else tuple(result.warnings)
-    return result, agents, shell, scripts, warnings
+    return result, boundaries, scripts, warnings
 
 
 def _assert_host_error(result: Any, agents: dict[str, ScriptedAgent], spec: dict[str, Any]) -> None:
@@ -1674,18 +1845,21 @@ def assert_program_scenario(
     # scenario using both never depends on incidental call order.
     scenario = prepare_temp_filesystem(scenario, tmp_path)
     scenario, get_sandbox_context = _apply_sandbox_home(scenario, tmp_path)
-    result, agents, shell, scripts, warnings = _run_program(
+    reports = Path(tempfile.mkdtemp(prefix="fork-reports-", dir=tmp_path))
+    result, boundaries, scripts, warnings = _run_program(
         program.read_text(encoding="utf-8"),
         scenario,
         program,
         monkeypatch,
         get_sandbox_context,
+        reports,
         compilations,
     )
+    agents = boundaries.agents
     out = read_stdout()
     expect = scenario["expect"]
     if expect.get("shell_sandbox_units_distinct"):
-        units = [argv[argv.index("--unit") + 1] for argv in shell.argvs]
+        units = [argv[argv.index("--unit") + 1] for argv in boundaries.shell.argvs]
         assert len(set(units)) == len(units), f"expected distinct scope names, got {units}"
     if "host_error" in expect:
         _assert_host_error(result, agents, expect["host_error"])
@@ -1699,7 +1873,5 @@ def assert_program_scenario(
         _assert_outcome(result, expect)
     _assert_warnings(warnings, expect)
     _assert_output(out, expect)
-    _assert_calls(agents, expect)
-    assert_sessions(agents, expect)
-    for script in scripts:
-        script.assert_complete()
+    assert_boundaries(boundaries, expect, scripts)
+    assert_forks_reported(scenario.get("forks", {}), reports)

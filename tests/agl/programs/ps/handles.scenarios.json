@@ -1,0 +1,13 @@
+{
+  "scenarios": [
+    {
+      "name": "terminate_detach_and_foreign_handles",
+      "isolated": true,
+      "params": {"root": "$TEMP_ROOT"},
+      "filesystem": {},
+      "expect": {
+        "stdout": "exit signal Option::Some(value = 15)\nok 7\nprocess error\nprocess error\nprocess error\nprocess error\nprocess error\nprocess error\nok 9\nprocess error\nprocess error\nprocess error\nprocess error\nprocess error\n42\n"
+      }
+    }
+  ]
+}

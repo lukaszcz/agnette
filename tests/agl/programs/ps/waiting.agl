@@ -1,0 +1,117 @@
+# `settle` and `settle-any` wait without consuming outcomes; `wait-all` collects results in
+# order under each failure policy. Children synchronize through flag files: a child blocks until
+# its flag exists, so the order in which processes finish does not depend on timing.
+import std/ps
+import std/ps::{OnFailure, Process, ProcessError, ProcessExitError}
+import std/fs
+import std/time
+import std/path::path
+
+exception Boom extends Exception
+  tag: text
+
+def await-file(flag: path) -> unit =
+  while not fs::exists(flag) do
+    time::sleep(0.005)
+  done
+
+def after(flag: path, value: int) -> int =
+  await-file(flag)
+  value
+
+def failing(tag: text) -> int =
+  raise Boom(tag, message = "failed %{tag}")
+
+# Fails with `tag` once `flag` exists.
+def failing-after(flag: path, tag: text) -> int =
+  await-file(flag)
+  failing(tag)
+
+# Creates `flag`, then fails with `tag`.
+def failing-signaling(flag: path, tag: text) -> int =
+  fs::write(flag, "")
+  failing(tag)
+
+def outcome(ps: array[Process[int]], policy: OnFailure) -> text =
+  try
+    "values %{ps::wait-all(ps, policy)}"
+  catch Boom as b =>
+    "boom %{b.tag}"
+
+def settling(root: path) -> unit =
+  let go0 = root ++ "/go0"
+  let go2 = root ++ "/go2"
+  let ps = [
+    ps::fork(fn() => after(go0, 10)),
+    ps::fork(fn() => 20),
+    ps::fork(fn() => after(go2, 30)),
+  ]
+  print "first: %{ps::settle-any(ps)}"
+  fs::write(go2, "")
+  ps::settle(ps[2])
+  print "lowest: %{ps::settle-any(ps)}"
+  fs::write(go0, "")
+  ps::settle(ps[0])
+  print "now: %{ps::settle-any(ps)}"
+  # Settling consumes nothing, and a failure is raised only by `wait`.
+  let bad = ps::fork(fn() => failing("bad"))
+  ps::settle(bad)
+  print "settled: %{ps::wait-all(ps)}"
+  print outcome([bad], SettleAll)
+  let none: array[Process[int]] = []
+  try
+    let _ = ps::settle-any(none)
+  catch ProcessError as e =>
+    print "empty array"
+
+def policies(root: path) -> unit =
+  print outcome([ps::fork(fn() => 1), ps::fork(fn() => 2)], SettleAll)
+  # The lowest index failure wins although the other process fails first.
+  let flag = root ++ "/signal"
+  print outcome(
+    [ps::fork(fn() => failing-after(flag, "slow")), ps::fork(fn() => failing-signaling(flag, "fast"))],
+    SettleAll,
+  )
+  # The first failure to occur wins, and the others stay attached.
+  let go = root ++ "/go"
+  let slow = ps::fork(fn() => after(go, 5))
+  print outcome([slow, ps::fork(fn() => failing("first"))], RaiseFirst)
+  fs::write(go, "")
+  print "slow: %{ps::wait(slow)}"
+  # The others are terminated.
+  let stuck = ps::fork(fn() => after(root ++ "/never", 6))
+  print outcome([stuck, ps::fork(fn() => failing("only"))], TerminateRest)
+  try
+    let _ = ps::wait(stuck)
+  catch ProcessExitError as e =>
+    print "stuck: %{e.signal}"
+
+def report-stuck(p: Process[int]) -> unit =
+  try
+    let _ = ps::wait(p)
+  catch ProcessExitError as e =>
+    print "stuck: %{e.signal}"
+
+# Several processes are still running when the first failure terminates the rest.
+def terminating-many(root: path) -> unit =
+  let never = root ++ "/never"
+  let stuck = [
+    ps::fork(fn() => after(never, 1)),
+    ps::fork(fn() => after(never, 2)),
+    ps::fork(fn() => after(never, 3)),
+  ]
+  print outcome(stuck.concat([ps::fork(fn() => failing("last"))]), TerminateRest)
+  stuck.each(report-stuck)
+
+# The failure nobody caught keeps the child's raise site under every policy.
+def uncaught(root: path, policy: OnFailure) -> unit =
+  let stuck = ps::fork(fn() => after(root ++ "/never", 1))
+  let _ = ps::wait-all([stuck, ps::fork(fn() => failing("child"))], policy)
+
+program def main(mode: text, root: path) -> unit =
+  case mode of
+    | "settle" => settling(root)
+    | "policies" => policies(root)
+    | "many" => terminating-many(root)
+    | "raise-first" => uncaught(root, RaiseFirst)
+    | _ => uncaught(root, TerminateRest)

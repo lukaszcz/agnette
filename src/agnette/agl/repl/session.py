@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from threading import Lock
@@ -31,7 +31,7 @@ from agnette.agl.repl.entry import EntryKind, EntryResult
 from agnette.agl.repl.entry_pipeline import EntryPipeline
 from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.fork_participants import build_process_host
-from agnette.agl.runtime.processes import Disposition, ProcessHost, ProcessInfo
+from agnette.agl.runtime.processes import Disposition, ForkRegistration, ProcessHost, ProcessInfo
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.warning_policy import apply_program_policy
@@ -296,6 +296,7 @@ class ReplSession:
         ) = None,
         process_environment: "Mapping[str, str] | None" = None,
         host_settings_policy: "HostSettingsPolicy | None" = None,
+        fork_participants: Sequence[ForkRegistration] = (),
         cwd: "Path | None" = None,
         stdlib_root: "Path | None" = None,
         stdlib_installed: bool = False,
@@ -409,6 +410,7 @@ class ReplSession:
         # Set while an entry runs: a forked child honours that entry's live ``debug`` and
         # traces to that entry's store.
         self._active_interpreter: IrInterpreter | None = None
+        self._fork_participants = tuple(fork_participants)
         # Forked processes outlive the entry that forked them: an entry scopes its own,
         # and :meth:`close` and :meth:`reset` end them all.
         self._process_host = self._new_process_host()
@@ -1981,6 +1983,7 @@ class ReplSession:
             sessions=self._session_host,
             debug=self._debug_enabled,
             reporter=self._report_unconsumed,
+            extra=self._fork_participants,
         )
 
     def _report_unconsumed(self, info: ProcessInfo, problem: str) -> None:

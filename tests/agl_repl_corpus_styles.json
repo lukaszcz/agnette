@@ -1724,5 +1724,18 @@
   "docs/commands/agl.md:555": "8a590036bbccf8d57aee3be0f3deee45c75f02dbc7a353394022ef8c9469785d",
   "docs/commands/dev.md:118": "cea8499eeb11fdf086f2bfcc63732b6b8c9dcad8a337dda36d523a6e684ce087",
   "docs/commands/pkg.md:32": "4c62a1915a2ea8a320fef2c19e23c573fcc1342376bd02758874f2de14d3a279",
-  "docs/commands/pkg.md:187": "3807a0b898312b0d481697c2ba54d2c0d4a68e9a2b51134b99446dde936741e0"
+  "docs/commands/pkg.md:187": "3807a0b898312b0d481697c2ba54d2c0d4a68e9a2b51134b99446dde936741e0",
+  "tests/agl/programs/functions/nested_lambda_capture.agl": "ef0b0e213738838a21c13f43fd7bc6ab536af87100a5f8546b2e2d9cd32a44c6",
+  "tests/agl/programs/ps/errors.agl": "5b7b9d7a89e5f57d94d63c590a7975137f649da9fb4ab3c2c172809b8fb56de3",
+  "tests/agl/programs/ps/forks.agl": "8bc1315e613ca5854d0f7a68ee1d782efe1f44b89587206070671785f095c9d8",
+  "tests/agl/programs/ps/handles.agl": "7fc6df13a04289f6e202658e89bb1019eb9ebf4c5cfb8704c259c34420abf4cc",
+  "tests/agl/programs/ps/values.agl": "5ab8206a0dc3b4f02ced2b716b1b2e18e9f330408b5a2f9a12a44e2b78e5b326",
+  "tests/agl/programs/ps/waiting.agl": "472e4f3b6373a26b42d1b7883b9757ea745302b229b530ed514b7c160ef996bc",
+  "tests/agl/rejections/type/ps_process_ask_output.agl": "1a5b1e15646a268c7dfecd4fffe9ab0f4c08dc367c2af61d597f943d4f904734",
+  "tests/agl/rejections/type/ps_process_construct.agl": "79d3c58b09e81d8d2842a20a300d957bd609d4c0f2f6c249fa7a546b413bfc9f",
+  "tests/agl/rejections/type/ps_process_exec_output.agl": "899c00abf6c711962162cd30a2bff6e9a7a8dc89775e1303826854ee85367d16",
+  "tests/agl/rejections/type/ps_process_fallible_cast.agl": "4124a6d4442afe99c1dd811a0df92d49228f1299eeaa0dff305c3b4b2809255d",
+  "tests/agl/rejections/type/ps_process_json_encode.agl": "585a8ac018f1ea42a4872d655ca498168936be339bc8a5b8356b1566adf0cb42",
+  "tests/agl/rejections/type/ps_process_with_update.agl": "77005b25fa18d3cd1b870af4990376e46656bc7ffb224bd82888cc831e18a6ed",
+  "packages/stdlib/src/ps.agl": "db3ad4386ed0d87fe6e01ecf71da9daeb228d3c0cdcddabb3ebc2489273a0f3a"
 }

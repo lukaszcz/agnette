@@ -48,6 +48,7 @@ from agnette.agl.runtime.processes import (
     Ended,
     Failed,
     ForkParticipant,
+    ForkRegistration,
     ForkRequest,
     Outcome,
     ProcessHost,
@@ -59,6 +60,7 @@ from agnette.agl.runtime.processes import (
 from agnette.agl.runtime.request import AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost, SessionHostError
 from agnette.core.process import kill_group
+from tests._agl_helpers import repl_session_with_root
 from tests._signal_helpers import before_each_poll, trip_signal_off_thread
 from tests.agl.ir_harness import write_companion_file
 from tests.agl.isolated_runner import run_callable
@@ -479,6 +481,32 @@ def test_participants_run_in_order_with_the_disposition_of_the_child_outcome(
         "exit TERMINATE:b",
         "exit TERMINATE:a",
     ]
+
+
+def _repl_extra_participant(workdir: Path) -> list[str]:
+    log = workdir / "log"
+    session = repl_session_with_root(
+        workdir, fork_participants=[ForkRegistration(_Recorder("extra", log))]
+    )
+    try:
+        for _ in range(2):
+            session.eval_entry("import std/ps")
+            session.eval_entry("ps::wait(ps::fork(fn() => 1))")
+            session.reset()
+    finally:
+        session.close()
+    return _lines(log)
+
+
+def test_a_repl_sessions_extra_participant_serves_its_hosts_before_and_after_a_reset(
+    tmp_path: Path,
+) -> None:
+    lines = run_callable(_repl_extra_participant, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert [line for line in lines if line.startswith("C ")] == [
+        "C child extra:extra",
+        "C exit SETTLE:extra",
+    ] * 2
 
 
 def _prepare_failure(workdir: Path) -> list[str]:
@@ -1748,13 +1776,11 @@ def test_terminating_a_process_ends_it_by_sigterm_then_sigkill_and_spares_finish
     }
 
 
-def _concurrent_termination(workdir: Path) -> list[Any]:
+def _concurrent_termination(workdir: Path) -> dict[str, list[Any]]:
     """Each child leaves only after the other has been told to terminate."""
     hold = _Gate()
-    termed = [_Gate(), _Gate()]
-    ready = [_Gate(), _Gate()]
 
-    def handshaking(index: int) -> Callable[[], bytes]:
+    def handshaking(index: int, termed: list[_Gate], ready: list[_Gate]) -> Callable[[], bytes]:
         def child() -> bytes:
             def on_terminate(number: int, frame: object) -> None:
                 termed[index].open()
@@ -1768,21 +1794,29 @@ def _concurrent_termination(workdir: Path) -> list[Any]:
 
         return child
 
+    report: dict[str, list[Any]] = {}
     # A sequential termination would wait out the grace period for the first child.
-    with _host(grace=5.0) as host:
-        infos = [host.fork(handshaking(index), ()) for index in range(2)]
-        for gate in ready:
-            gate.wait()
-        host.end(Disposition.TERMINATE)
-        return [_show(host.outcome(info.id)) for info in infos]
+    for how in ("end", "terminate"):
+        termed, ready = [_Gate(), _Gate()], [_Gate(), _Gate()]
+        with _host(grace=5.0) as host:
+            infos = [host.fork(handshaking(index, termed, ready), ()) for index in range(2)]
+            for gate in ready:
+                gate.wait()
+            if how == "end":
+                host.end(Disposition.TERMINATE)
+            else:
+                host.terminate(*(info.id for info in infos))
+            report[how] = [_show(host.outcome(info.id)) for info in infos]
+    return report
 
 
 def test_several_processes_are_terminated_concurrently_under_one_deadline(
     tmp_path: Path,
 ) -> None:
-    outcomes = run_callable(_concurrent_termination, tmp_path, timeout=RUN_TIMEOUT).value
+    report = run_callable(_concurrent_termination, tmp_path, timeout=RUN_TIMEOUT).value
 
-    assert outcomes == [["E", 7, None], ["E", 8, None]]
+    expected = [["E", 7, None], ["E", 8, None]]
+    assert report == {"end": expected, "terminate": expected}
 
 
 def _sigterms_sent_to_a_group_leader(workdir: Path) -> int:

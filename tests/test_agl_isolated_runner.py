@@ -240,3 +240,116 @@ def test_children_left_in_the_session_are_killed_when_the_run_ends(
     while not _is_gone(pid) and time.monotonic() < deadline:
         time.sleep(0.01)
     assert _is_gone(pid)
+
+
+_FORK_HARNESS_PROGRAM = """\
+import std/ps
+
+def child() -> int = 1
+
+def asking() -> text =
+  let out: text = exec "echo hi"
+  out
+
+program def main(mode: int) -> unit =
+  if mode != 1 =>
+    print ps::wait(ps::fork(child))
+  if mode != 0 =>
+    print ps::wait(ps::fork(asking))
+"""
+
+_EMPTY_SECTION: dict[str, Any] = {"expect": {}}
+_SHELL_SECTION: dict[str, Any] = {"shell": [{"command": "echo hi", "stdout": "hi\n"}], "expect": {}}
+
+
+def _fork_harness_scenario(
+    directory: Path, name: str, mode: int, forks: dict[str, Any]
+) -> tuple[Path, dict[str, Any]]:
+    """A program with one scenario scripting *forks*, written to *directory*."""
+    directory.mkdir()
+    program = directory / "harness.agl"
+    program.write_text(_FORK_HARNESS_PROGRAM)
+    scenario = {
+        "name": name,
+        "isolated": True,
+        "params": {"mode": mode},
+        "forks": forks,
+        "expect": {},
+    }
+    program.with_name("harness.scenarios.json").write_text(json.dumps({"scenarios": [scenario]}))
+    return program, scenario
+
+
+def test_scripted_forks_are_checked_in_every_process(tmp_path: Path) -> None:
+    # The first child makes no calls, the second one runs its scripted shell command.
+    program, _ = _fork_harness_scenario(
+        tmp_path / "ok", "s", 2, {"1": _EMPTY_SECTION, "2": _SHELL_SECTION}
+    )
+
+    run_scenario(program, "s", tmp_path)
+
+
+_BROKEN_FORKS: dict[str, tuple[int, dict[str, Any]]] = {
+    "path-never-forked": (0, {"1": _EMPTY_SECTION, "2": _EMPTY_SECTION}),
+    "script-unconsumed": (0, {"1": _SHELL_SECTION}),
+    "unscripted-call": (1, {}),
+}
+
+
+def _scenarios_that_fail(workdir: Path) -> dict[str, bool]:
+    """Whether the harness rejects each broken fork script (run inside the subprocess)."""
+    from tests.agl.scenario_harness import assert_program_scenario
+
+    rejected = {}
+    for name, (mode, forks) in _BROKEN_FORKS.items():
+        program, scenario = _fork_harness_scenario(workdir / name, name, mode, forks)
+        with pytest.MonkeyPatch.context() as patch:
+            try:
+                assert_program_scenario(program, scenario, lambda: "", workdir / name, patch, None)
+            except (AssertionError, pytest.fail.Exception):
+                rejected[name] = True
+            else:
+                rejected[name] = False
+    return rejected
+
+
+def test_a_fork_script_that_is_not_followed_fails_the_scenario(tmp_path: Path) -> None:
+    rejected = run_callable(_scenarios_that_fail, tmp_path).value
+
+    assert rejected == dict.fromkeys(_BROKEN_FORKS, True)
+
+
+def _write_report(reports: Path, path: str, error: str | None) -> None:
+    (reports / f"{path}.json").write_text(json.dumps({"error": error}))
+
+
+def test_an_unscripted_fork_that_never_reported_does_not_fail_the_scenario(
+    tmp_path: Path,
+) -> None:
+    from tests.agl.scenario_harness import assert_forks_reported
+
+    # Fork "1" was terminated before it reported; "2" reported and passed.
+    _write_report(tmp_path, "2", None)
+
+    assert_forks_reported({}, tmp_path, timeout=0.0)
+
+
+def test_a_scripted_fork_that_never_reported_fails_the_scenario(tmp_path: Path) -> None:
+    from tests.agl.scenario_harness import assert_forks_reported
+
+    _write_report(tmp_path, "2", None)
+
+    with pytest.raises(AssertionError):
+        assert_forks_reported({"1": _EMPTY_SECTION}, tmp_path, timeout=0.0)
+
+
+def test_reports_that_exist_are_checked_whether_or_not_the_fork_was_scripted(
+    tmp_path: Path,
+) -> None:
+    from tests.agl.scenario_harness import assert_forks_reported
+
+    _write_report(tmp_path, "1", None)
+    _write_report(tmp_path, "2", "unscripted call")
+
+    with pytest.raises(AssertionError):
+        assert_forks_reported({"1": _EMPTY_SECTION}, tmp_path, timeout=0.0)
