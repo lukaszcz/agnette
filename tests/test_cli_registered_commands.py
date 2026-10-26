@@ -1090,7 +1090,7 @@ def test_registered_command_applies_exec_run_time_options(
     assert lenient.stdout == "false\n"
     records = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
     start = next(record for record in records if record["kind"] == "run_start")
-    assert list(start)[:5] == ["kind", "ts", "file", "line", "col"]
+    assert list(start)[:6] == ["kind", "ts", "file", "line", "col", "pid"]
     assert str(start["file"]).endswith("main.agl")
     assert start["command"] == "tools run"
     assert start["function"] == "main"

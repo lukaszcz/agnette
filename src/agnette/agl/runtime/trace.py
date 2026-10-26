@@ -1,7 +1,8 @@
 """Best-effort JSONL tracing for observable AgL runtime effects.
 
 Trace records contain an ISO-8601 offset-aware timestamp, source coordinates,
-and a kind-specific payload. Run boundaries, stdout, agent requests and
+the writing process's ``pid`` (forked children append to the same file), and
+a kind-specific payload. Run boundaries, stdout, agent requests and
 responses, shell execution, escaping exceptions, and a companion's own
 ``runtime.trace`` records are traced; ordinary expression evaluation is
 intentionally absent.
@@ -9,6 +10,7 @@ intentionally absent.
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -31,7 +33,7 @@ if TYPE_CHECKING:
 #: Envelope keys :meth:`TraceStore.companion_record` writes itself; a
 #: companion's own payload may never contribute one, so its shape can never
 #: collide with the envelope it is embedded in.
-RESERVED_ENVELOPE_KEYS = frozenset({"kind", "ts", "file", "line", "col", "origin", "site"})
+RESERVED_ENVELOPE_KEYS = frozenset({"kind", "ts", "file", "line", "col", "pid", "origin", "site"})
 
 
 def _sanitize(value: object, active: frozenset[int]) -> object:
@@ -137,7 +139,9 @@ class TraceStore:
         """Append a record, disabling this best-effort service on I/O failure.
 
         Source identity and coordinates follow the timestamp in the stable
-        ``file``/``line``/``col`` order. Collisions from *extra* are omitted.
+        ``file``/``line``/``col`` order, then the writer's ``pid``, read now so a forked
+        child writing through an inherited store reports itself. Collisions from *extra*
+        are omitted.
         """
         timestamp = datetime.now().astimezone().isoformat(timespec="milliseconds")
         # Wall clocks may move backwards; preserve trace-file ordering as an
@@ -164,6 +168,7 @@ class TraceStore:
             "file": file,
             "line": line,
             "col": col,
+            "pid": os.getpid(),
         }
         record.update({key: value for key, value in extra.items() if key not in record})
         try:

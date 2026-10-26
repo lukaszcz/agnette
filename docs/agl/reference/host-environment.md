@@ -446,10 +446,12 @@ and a package command whose first word is a section name is rejected.
 ## Tracing
 
 While tracing is active, a conforming host writes one JSON object per line.
-Every record starts with `kind`, `ts`, `file`, `line`, and `col`, in that
+Every record starts with `kind`, `ts`, `file`, `line`, `col`, and `pid`, in that
 order. `ts` is an ISO-8601 local timestamp with an offset; `file`, `line`, and
 `col` identify the source location when known and are `null` otherwise. Source
-columns are 1-based. `run_start` records the invoked `command` and selected
+columns are 1-based. `pid` is the id of the process that wrote the record.
+Each record is written with a single append, so concurrent processes' records
+do not interleave on local filesystems. `run_start` records the invoked `command` and selected
 `function` when known. It also includes `arguments` by program parameter name,
 `parameters` for host-seeded `@param` bindings, and `config` for other
 host-seeded values. Parameter and config keys use qualified binding names;

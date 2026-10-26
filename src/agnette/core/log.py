@@ -133,7 +133,10 @@ def prepare_trace_log(
 
 
 def append_jsonl(path: Path | None, record: Mapping[str, object]) -> None:
-    """Append *record* as a single JSONL line to *path*.
+    """Append *record* as a single JSONL line to *path*, whole and uninterleaved.
+
+    Concurrent writers, forked processes included, append through
+    :func:`~agnette.core.fs.append_text` (one ``os.write`` per line unless the kernel writes short).
 
     A DSL-agnostic helper: any command that needs structured
     append-a-record logging can use this rather than writing its own JSONL

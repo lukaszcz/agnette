@@ -23,7 +23,7 @@ The runtime package is the eval-free services layer: agent dispatch and session 
 
 ## Host-Backed Values and Tracing
 
-`builtin var` bindings are identified by module, scope path, and name. Root `std/config` bindings are engine-setting registers with live effects ([../hosting.md](../hosting.md)); others are ambient values a host may seed (e.g. the environment snapshot). The trace store (`runtime/trace.py`) writes best-effort JSONL for run boundaries, `print`, agent requests and responses, shell executions, escaping exceptions, and companion `runtime.trace` records ([ffi.md](ffi.md)) — never ordinary evaluation. Writes to `trace`/`trace-file` repoint it live (`runtime/host_settings.py`).
+`builtin var` bindings are identified by module, scope path, and name. Root `std/config` bindings are engine-setting registers with live effects ([../hosting.md](../hosting.md)); others are ambient values a host may seed (e.g. the environment snapshot). The trace store (`runtime/trace.py`) writes best-effort JSONL (each record tagged with the writer's `pid` and appended whole, so forked processes' records do not interleave) for run boundaries, `print`, agent requests and responses, shell executions, escaping exceptions, and companion `runtime.trace` records ([ffi.md](ffi.md)) — never ordinary evaluation. Writes to `trace`/`trace-file` repoint it live (`runtime/host_settings.py`).
 
 ## Code Entry Points
 

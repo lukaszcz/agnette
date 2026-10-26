@@ -193,13 +193,23 @@ def chmod(path: Path, mode: int) -> None:
 
 
 def append_text(path: Path, content: str) -> None:
-    """Append text unless dry-run is enabled."""
+    """Append text unless dry-run is enabled.
+
+    *content* goes out in one ``os.write`` unless the kernel writes short, on an ``O_APPEND``
+    descriptor opened and closed per call, so concurrent appenders (forked children included)
+    do not interleave within a *content* and no buffered data is inherited across ``fork``.
+    """
 
     if dry_run.enabled():
         dry_run.print_operation("append-file", display_path(path))
         return
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(content)
+    pending = memoryview(content.encode("utf-8"))
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666)
+    try:
+        while pending:
+            pending = pending[os.write(fd, pending) :]
+    finally:
+        os.close(fd)
 
 
 def copy_file(source: Path, destination: Path) -> None:
