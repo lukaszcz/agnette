@@ -131,7 +131,7 @@ from agnette.agl.syntax.nodes import (
     static_type_items,
 )
 from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.typecheck.builder import _TypeBuilder
+from agnette.agl.typecheck.builder import _TypeBuilder, reconcile_inline_member_arities
 from agnette.agl.typecheck.checker import (
     _check_prepared_module,
     _Checker,
@@ -664,9 +664,9 @@ def _build_program_type_table(
     # Transparent aliases can erase enum-owner parameters from inline member
     # records. Finalize every member shell before resolving any declaration
     # body, so a forward reference observes the same arity as a backward one.
-    for mid, builder in cross_builders.items():
-        builder.reconcile_inline_member_arities()
-        _sync_program_env_extensions(mid, cross_envs[mid], tables)
+    reconcile_inline_member_arities(
+        cross_builders, lambda mid: _sync_program_env_extensions(mid, cross_envs[mid], tables)
+    )
 
     # Use the COMPLETE set of declared type keys (including aliases), NOT just
     # the record/enum handles already in the type table, as the fixed

@@ -50,9 +50,10 @@ to anchor a cycle — by the existing alias-cycle check in
 
 from __future__ import annotations
 
-from collections.abc import Container, Iterator, Mapping, Sequence
+from collections.abc import Callable, Container, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import replace
-from typing import cast
+from typing import NamedTuple, cast
 
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.scope.symbols import AttributeFacts
@@ -194,6 +195,43 @@ def _check_external_name_siblings(
 # ---------------------------------------------------------------------------
 
 
+class _ArityPass(NamedTuple):
+    """What one pass over a builder's inline-member shells did."""
+
+    narrowed: bool
+    unresolved: bool
+
+
+def reconcile_inline_member_arities(
+    builders: Mapping[ModuleId, "_TypeBuilder"], publish: Callable[[ModuleId], None]
+) -> None:
+    """Finalize every inline-member shell of *builders* before any dependent body resolves.
+
+    A member's arity can depend on another member's, in the same or another
+    module and declared earlier or later, so shells narrow in passes until
+    none changes. A bare reference to a member names none of the referenced
+    member's parameters, so cycles of members settle too. A member left
+    unresolved by the last pass is then reported by one strict pass.
+    *publish* runs after each builder's pass to make its shells visible to
+    the others.
+    """
+    members = frozenset().union(*(builder.inline_member_ids() for builder in builders.values()))
+    with ExitStack() as scope:
+        for builder in builders.values():
+            scope.enter_context(builder.accepting_bare_members(members))
+        while True:
+            passes = []
+            for module_id, builder in builders.items():
+                passes.append(builder.reconcile_inline_member_arities(strict=False))
+                publish(module_id)
+            if not any(outcome.narrowed for outcome in passes):
+                break
+        if any(outcome.unresolved for outcome in passes):
+            for module_id, builder in builders.items():
+                builder.reconcile_inline_member_arities(strict=True)
+                publish(module_id)
+
+
 class _TypeBuilder:
     """Collect record/enum/exception/alias declarations and validate them.
 
@@ -234,6 +272,8 @@ class _TypeBuilder:
         # A source declaration can supersede a seeded fallback at the same
         # name path, so contract validation must inspect this exact object.
         self._resolved_defs: dict[str, TypeDef] = {}
+        # Each inline member's type parameters its shell currently captures.
+        self._inline_member_params: dict[int, tuple[str, ...]] = {}
 
     @staticmethod
     def _static_type_items(
@@ -266,7 +306,7 @@ class _TypeBuilder:
         does not repeat it per module.
         """
         self.collect_shells_only(program)
-        self.reconcile_inline_member_arities()
+        reconcile_inline_member_arities({self._module_id: self}, lambda _module_id: None)
 
         for item in self._static_type_items(program.body.items):
             if isinstance(item, RecordDef):
@@ -360,28 +400,54 @@ class _TypeBuilder:
                 if item.is_builtin:
                     self._builtin_alias_defs[item.name] = item
 
-    def reconcile_inline_member_arities(self) -> None:
-        """Finalize inline-member shells before any dependent body resolves.
+    def inline_member_ids(self) -> frozenset[int]:
+        """The declaration ids of this module's inline enum members."""
+        return frozenset(self._inline_member_params)
+
+    def accepting_bare_members(self, members: frozenset[int]) -> AbstractContextManager[None]:
+        """Within the scope, resolve a bare reference to any of *members* without arguments."""
+        return self._env.accepting_bare_generics(members)
+
+    def reconcile_inline_member_arities(self, *, strict: bool) -> _ArityPass:
+        """Narrow each inline-member shell to the parameters its fields keep free.
 
         Transparent aliases can erase owner parameters mentioned in source
-        syntax. Resolve only the member field types here, then replace each
-        provisional shell with the parameters that remain genuinely free.
-        Full enum bodies and constructor metadata are still built in phase 2.
+        syntax, and a field naming another inline member sees that member's
+        current arity. Resolve only the member field types here, then replace
+        each shell with the parameters that remain genuinely free (never more
+        than it has now, so repeated passes converge). Full enum bodies and
+        constructor metadata are still built in phase 2.
+
+        A member whose fields do not resolve is left as it is when not
+        *strict* -- a referenced member may not have narrowed yet -- and
+        raises otherwise.
         """
+        narrowed = unresolved = False
         for stmt in self._enum_defs.values():
             type_vars = frozenset(stmt.type_params)
             for member in stmt.members:
                 if not isinstance(member, VariantDef):
                     continue
-                field_types = tuple(
-                    self._resolve_field_type(field, type_vars=type_vars) for field in member.fields
-                )
+                try:
+                    field_types = tuple(
+                        self._resolve_field_type(field, type_vars=type_vars)
+                        for field in member.fields
+                    )
+                except AglTypeError:
+                    if strict:
+                        raise
+                    unresolved = True
+                    continue
+                current = self._inline_member_params[member.node_id]
                 captured_params = tuple(
                     param
-                    for param in stmt.type_params
+                    for param in current
                     if any(param in free_type_vars(field_type) for field_type in field_types)
                 )
-                self._replace_inline_member_handle(stmt, member, captured_params)
+                if captured_params != current:
+                    self._replace_inline_member_handle(stmt, member, captured_params)
+                    narrowed = True
+        return _ArityPass(narrowed, unresolved)
 
     def _clear_inline_member_names(self, enum: EnumDef) -> None:
         """Release member record names from a superseded enum declaration."""
@@ -409,6 +475,7 @@ class _TypeBuilder:
         enum_name = _bare_name(enum.name)
         enum_scope_path = tuple(segment.name for segment in enum.scope_path)
         member_name = f"{enum.name}::{member.name}"
+        self._inline_member_params[member.node_id] = type_params
         self._env.unregister_name(member_name)
         decl_id = member.node_id
         template = RecordType(
