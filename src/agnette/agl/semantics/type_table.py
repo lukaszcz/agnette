@@ -588,6 +588,8 @@ class TypeTable:
         # there is no type_args substitution — the memo is keyed directly by
         # declaration identity, one entry per exception.
         self._exception_fields_cache: dict[DeclId, Mapping[str, Type]] = {}
+        # Memo for _exception_chain: each exception's base-first chain.
+        self._exception_chain_cache: dict[DeclId, tuple[tuple[DeclId, TypeDef], ...]] = {}
         # Memo for field_kinds's exception branch — same keying convention as
         # _exception_fields_cache above.
         self._exception_field_kinds_cache: dict[DeclId, tuple[tuple[str, ParamZone], ...]] = {}
@@ -952,21 +954,25 @@ class TypeTable:
             if methods
         }
 
-    def _exception_chain(self, decl_id: DeclId) -> list[tuple[DeclId, TypeDef]]:
+    def _exception_chain(self, decl_id: DeclId) -> tuple[tuple[DeclId, TypeDef], ...]:
         """Return *decl_id*'s base chain, base first.
 
         Every flattened exception accessor inherits base-first declaration
         order from this one walk. The whole-program inhabitation fixpoint
         rejects a cyclic ``extends`` chain before any exception's fields are
-        ever flattened, so the walk here is unconditionally finite.
+        ever flattened, so the walk here is unconditionally finite. Each chain
+        extends its base's memoized one, so a hierarchy is walked once in all.
         """
-        chain: list[tuple[DeclId, TypeDef]] = []
+        cache = self._exception_chain_cache
+        pending: list[DeclId] = []
         current: DeclId | None = decl_id
-        while current is not None:
-            typedef = self._defs[current]
-            chain.append((current, typedef))
-            current = typedef.base
-        chain.reverse()
+        while current is not None and current not in cache:
+            pending.append(current)
+            current = self._defs[current].base
+        chain = () if current is None else cache[current]
+        for pending_id in reversed(pending):
+            chain = (*chain, (pending_id, self._defs[pending_id]))
+            cache[pending_id] = chain
         return chain
 
     def exception_chain_defs(self, decl_id: DeclId) -> tuple[TypeDef, ...]:
@@ -1055,6 +1061,7 @@ class TypeTable:
         # one exception can invalidate cached descendants as well as the changed
         # identity. Clear the exception caches wholesale rather than trying to
         # maintain a reverse-inheritance index.
+        self._exception_chain_cache.clear()
         self._exception_fields_cache.clear()
         self._exception_field_kinds_cache.clear()
         self._exception_field_has_default_cache.clear()

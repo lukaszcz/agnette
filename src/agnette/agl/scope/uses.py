@@ -82,10 +82,7 @@ def _first_names(decl: UseDecl) -> frozenset[str] | None:
         return None
     names = set()
     for item in decl.tail:
-        path = _item_path(item)
-        if not path:
-            return None
-        names.add(path[0])
+        names.add(_item_path(item)[0])
         if item.rename is not None:
             names.add(item.rename)
     return frozenset(names)
