@@ -8,6 +8,7 @@ import pytest
 
 from agnette.agl.scope.resolver import _Resolver
 from agnette.agl.semantics.types import Type
+from agnette.agl.typecheck.builder import _TypeBuilder
 from agnette.agl.typecheck.env import TypeEnvironment
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.commands import check as check_command
@@ -49,6 +50,22 @@ def test_the_scope_layers_of_many_types_are_built_in_linear_work(tmp_path: Path)
             _Resolver._build_scope_nodes,
             lambda: _check(
                 tmp_path, f"s{records}", "".join(f"record R{i}\n  a: int\n" for i in range(records))
+            ),
+        )
+
+    work(1)  # loads the standard library once, whichever test runs first
+    floor = work(1)
+    assert work(160) - floor < 2.5 * (work(80) - floor)
+
+
+def test_releasing_the_inline_member_names_of_many_enums_is_linear_work(tmp_path: Path) -> None:
+    def work(enums: int) -> int:
+        return instructions_run_in(
+            _TypeBuilder._clear_inline_member_names,
+            lambda: _check(
+                tmp_path,
+                f"e{enums}",
+                "".join(f"enum E{i}\n  | M{i}(x: int)\n  | Q{i}\n" for i in range(enums)),
             ),
         )
 

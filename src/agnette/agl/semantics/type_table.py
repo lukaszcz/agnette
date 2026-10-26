@@ -649,6 +649,9 @@ class TypeTable:
         # them a phase before the enum's body registers (see
         # :meth:`declare_inline_member`); a superseded enum keeps its own.
         self._inline_members: dict[DeclId, dict[str, tuple[tuple[str, ...], RecordType]]] = {}
+        # (module, enum scope path) -> names of every inline-member record
+        # declaration ever registered there, superseded ones included.
+        self._inline_member_names: dict[tuple[ModuleId, tuple[str, ...]], dict[str, None]] = {}
 
     def register(self, typedef: TypeDef) -> None:
         """Register *typedef* under its own declaration identity.
@@ -705,6 +708,7 @@ class TypeTable:
         self._name_index[(typedef.module_id, typedef.scope_path, typedef.name)] = decl_id
         if existing is None:
             self._defs[decl_id] = typedef
+            self._note_inline_member_record(typedef)
             if typedef.kind == "enum":
                 member_path = (*typedef.scope_path, typedef.name)
                 for member in typedef.members:
@@ -723,6 +727,18 @@ class TypeTable:
                 f"conflicting TypeDef registration for identity {decl_id!r}: "
                 f"{existing!r} is already registered, got {typedef!r}"
             )
+
+    def _note_inline_member_record(self, typedef: TypeDef) -> None:
+        """Index *typedef* by its enum's scope path when it is an inline member record."""
+        if typedef.kind == "record" and typedef.is_inline_enum_member:
+            key = (typedef.module_id, typedef.scope_path)
+            self._inline_member_names.setdefault(key, {})[typedef.name] = None
+
+    def inline_member_record_names(
+        self, module_id: ModuleId, enum_scope_path: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Return the names of every inline-member record registered under an enum's scope path."""
+        return tuple(self._inline_member_names.get((module_id, enum_scope_path), ()))
 
     def declare_inline_member(
         self, enum_id: DeclId, type_params: tuple[str, ...], member: RecordType
@@ -2298,6 +2314,7 @@ class TypeTable:
             if self._defs.get(decl_id) == typedef:
                 continue
             self._defs[decl_id] = typedef
+            self._note_inline_member_record(typedef)
             self._forget_methods_of(decl_id)
             self._invalidate_cache_for(decl_id)
         for name_key, decl_id in other._name_index.items():

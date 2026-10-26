@@ -386,14 +386,8 @@ class _TypeBuilder:
     def _clear_inline_member_names(self, enum: EnumDef) -> None:
         """Release member record names from a superseded enum declaration."""
         scope_path = (*tuple(segment.name for segment in enum.scope_path), _bare_name(enum.name))
-        for typedef in self._env.type_table.entries():
-            if (
-                typedef.kind == "record"
-                and typedef.module_id == self._module_id
-                and typedef.scope_path == scope_path
-                and typedef.is_inline_enum_member
-            ):
-                self._env.unregister_name(f"{enum.name}::{typedef.name}")
+        for name in self._env.type_table.inline_member_record_names(self._module_id, scope_path):
+            self._env.unregister_name(f"{enum.name}::{name}")
 
     def _enum_identity(self, enum: EnumDef) -> int:
         """Return the declaration identity of *enum*, declared in this module."""
