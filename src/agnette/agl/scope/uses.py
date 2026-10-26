@@ -12,7 +12,7 @@ from __future__ import annotations
 import heapq
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from typing import Protocol, cast
 from weakref import proxy
 
@@ -57,8 +57,17 @@ from agnette.agl.scope.symbols import to_bare_atom as _bare_atom
 from agnette.agl.scope.type_owners import TypeOwnerIndex
 from agnette.agl.syntax.nodes import QualifierAnchor, QualifierChain, QualifierSegment, UseDecl
 
-# What one outermost read has learned each ``use`` reaches, by declaration, path and kind.
-type _UseReads = dict[tuple[int, ScopePath, LookupKind], tuple[Candidate, ...]]
+
+@dataclass(slots=True)
+class _UseReads:
+    """What one outermost read has learned each ``use`` reaches, by declaration and path."""
+
+    reached: dict[tuple[int, ScopePath, LookupKind], tuple[Candidate, ...]] = field(
+        default_factory=dict
+    )
+    origins: dict[tuple[int, ScopePath], frozenset[Origin]] = field(default_factory=dict)
+    beneath: dict[tuple[int, str], bool] = field(default_factory=dict)
+
 
 
 def _use_target(decl: UseDecl) -> ScopePath:
@@ -263,7 +272,7 @@ class UseReader:
         What one outermost read learns about every use is kept until it ends.
         """
         horizon, reads = self._horizon, self._reads
-        current: _UseReads = {} if reads is None else reads
+        current = _UseReads() if reads is None else reads
         if reads is None:
             self._outermost_reads += 1
         self._horizon, self._reads = decl.node_id, current
@@ -453,6 +462,25 @@ class UseReader:
             for base in bases
         )
 
+    def _reaches_beneath_target(self, site: ScopePath, decl: UseDecl, name: str) -> bool:
+        """Whether anything, removed or not, is reached as *name* beneath *decl*'s target.
+
+        A longer path beneath the target reaches something only if its first
+        name does, so a glob need not read the rest of a path it cannot start.
+        Without this, each glob would read every longer path through every
+        earlier glob, and the paths read would compose their subsets.
+        """
+        with self._reading_use(decl) as reads:
+            key = (decl.node_id, name)
+            found = reads.beneath.get(key)
+            if found is None:
+                names = (*_use_target(decl), name)
+                found = reads.beneath[key] = any(
+                    self._use_path_reached(site, decl, names, kind, keep_removed=True)
+                    for kind in LookupKind
+                ) or bool(self._use_path_origins(site, decl, names))
+            return found
+
     def _use_rests(
         self, site: ScopePath, decl: UseDecl, relative: ScopePath
     ) -> tuple[ScopePath, ...]:
@@ -471,7 +499,8 @@ class UseReader:
             if len(target) > 1 and relative[0] == target[-1] and self._use_renames(site, decl):
                 rests[relative[1:]] = None
         elif not decl.tail:
-            rests[relative] = None
+            if len(relative) == 1 or self._reaches_beneath_target(site, decl, relative[0]):
+                rests[relative] = None
         else:
             for item in decl.tail:
                 path = _item_path(item)
@@ -493,7 +522,7 @@ class UseReader:
         """
         with self._reading_use(decl) as reads:
             key = (decl.node_id, relative, kind)
-            found = reads.get(key)
+            found = reads.reached.get(key)
             if found is None:
                 target = _use_target(decl)
                 owners_within = len(target) - (1 if self._use_renames(site, decl) else 0)
@@ -504,7 +533,7 @@ class UseReader:
                         site, decl, (*target, *rest), kind, owners_within, keep_removed=True
                     )
                 )
-                reads[key] = found
+                reads.reached[key] = found
             return found
 
     def exposure(
@@ -583,20 +612,25 @@ class UseReader:
         A path holding a tail item names what the target's path there names;
         each also removed by what the use's ``hiding`` removes.
         """
-        with self._reading_use(decl):
-            target = _use_target(decl)
-            paths = [(*target, *rest) for rest in self._use_rests(site, decl, relative)]
-            if any(
-                len(path := _item_path(item)) > len(relative) and path[: len(relative)] == relative
-                for item in decl.tail or ()
-            ):
-                paths.append((*target, *relative))
-            removed = self._use_hidden(site, decl)
-            return frozenset(
-                replace(origin, hiding=frozenset(way | removed for way in origin.hiding))
-                for path in paths
-                for origin in self._use_path_origins(site, decl, path)
-            )
+        with self._reading_use(decl) as reads:
+            key = (decl.node_id, relative)
+            found = reads.origins.get(key)
+            if found is None:
+                target = _use_target(decl)
+                paths = [(*target, *rest) for rest in self._use_rests(site, decl, relative)]
+                if any(
+                    len(path := _item_path(item)) > len(relative)
+                    and path[: len(relative)] == relative
+                    for item in decl.tail or ()
+                ):
+                    paths.append((*target, *relative))
+                removed = self._use_hidden(site, decl)
+                found = reads.origins[key] = frozenset(
+                    replace(origin, hiding=frozenset(way | removed for way in origin.hiding))
+                    for path in paths
+                    for origin in self._use_path_origins(site, decl, path)
+                )
+            return found
 
     def name_references(
         self, site: ScopePath, decl: UseDecl
