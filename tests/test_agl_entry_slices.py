@@ -12,7 +12,7 @@ _SOURCES = {
     "same-line": "let a = 1; let b = 2\nlet c = a; b\n",
     "indented": "def f(x: int) -> int =\n  let y = x + 1\n  if y > 2 => y else => 0\n\nf(2)\n",
     "attributes": '@!doc("m")\n@!allow("x")\nlet a = 1\ndef g() -> int =\n  a\n',
-    "scope": "scope S\n  def q() -> int = 9\n  scope T\n    let k = 3\n  end T\nend S\nS::q()\n",
+    "scope": "scope S\n  def q() -> int = 9\n\n  scope T\n    let k = 3\n  end T\nend S\n\nS::q()\n",
     "comments": "let a = 1 # one\n# alone\n\n\nlet b = 2 # two\n",
     "records": "record P\n  x: int\n  y: int\nenum E =\n  | A\n  | B(v: int)\nlet p = P(x = 1)\n",
     "text": 'let s = "a {1 + 1} b"\nlet t = $"x {s}"\nlet u = $\n  raw\n  more\n',
