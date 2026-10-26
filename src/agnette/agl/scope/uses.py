@@ -69,7 +69,6 @@ class _UseReads:
     beneath: dict[tuple[int, str], bool] = field(default_factory=dict)
 
 
-
 def _use_target(decl: UseDecl) -> ScopePath:
     """The path *decl* names as its target, beneath its anchor."""
     return tuple(segment.name for segment in decl.target)
