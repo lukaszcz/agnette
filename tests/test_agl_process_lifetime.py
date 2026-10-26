@@ -70,15 +70,19 @@ extern def interrupt() -> unit
 
 @extern-name("signal_self")
 extern def signal-self(number: int) -> unit
+
+@extern-name("sigint_when_blocked")
+extern def sigint-when-blocked() -> unit
 """
 
 _LIBRARY_PY = """\
 import os
+import subprocess
 import sys
 import time
 
 from agl import runtime
-from tests._proc_helpers import sleep_until_signalled
+from tests._proc_helpers import signal_when_sleeping_script, sleep_until_signalled
 from tests.agl.programs.externs.process_host import forked_state
 
 
@@ -187,6 +191,15 @@ def interrupt_run():
 def signal_self(number):
     os.kill(os.getpid(), number)
     time.sleep(5)
+
+
+_senders = []
+
+
+def sigint_when_blocked():
+    # An outside process (not one of the host's children) interrupts this one once it is blocked.
+    script = signal_when_sleeping_script(os.getpid(), 2)
+    _senders.append(subprocess.Popen(["sh", "-c", script]))
 """
 
 
@@ -492,6 +505,8 @@ def _entry_scope_family(workdir: Path, cases: list[str]) -> dict[str, Any]:
     plans: _Plans = {
         "raise": (failing_entry('raise Abort(message = "boom")'), {}),
         "interrupt": (failing_entry("interrupt()"), {}),
+        # A SIGINT from another process while the entry waits on its child, as a terminal's Ctrl-C.
+        "sigint": (failing_entry("sigint-when-blocked()\nconsume(failed)"), {}),
         "close": (
             [
                 _IMPORT,
@@ -520,12 +535,14 @@ def _entry_scope_family(workdir: Path, cases: list[str]) -> dict[str, Any]:
 def _reset_family(workdir: Path, cases: list[str]) -> dict[str, Any]:
     pids = workdir / "pids"
     trace = workdir / "trace.jsonl"
+    survivor = workdir / "survivor"
     plans: _Plans = {
         "reset": (
             [
                 _IMPORT,
                 "touch()",
                 'spawn("before")',
+                f'detach(marker("{survivor}"))',
                 "!fork-handle",
                 "!handle-known",
                 "!reset",
@@ -543,6 +560,8 @@ def _reset_family(workdir: Path, cases: list[str]) -> dict[str, Any]:
         "nested_failure": ([_IMPORT, f'nested-failure("{pids}")', "!close"], {"trace": trace}),
     }
     results = _run_plans(workdir, plans, cases)
+    if "reset" in cases:
+        results["survived"] = _wait_for(survivor)
     if "nested_failure" in cases:
         results["pids"] = [int(line) for line in pids.read_text().split()]
         results["records"] = _trace_records(trace, "process_unconsumed")
@@ -562,7 +581,7 @@ def resets(tmp_path_factory: pytest.TempPathFactory) -> _Scenarios:
     return _run_scenarios(_reset_family, tmp_path_factory, "resets", ["reset"])
 
 
-@pytest.mark.parametrize("name", ["raise", "interrupt"])
+@pytest.mark.parametrize("name", ["raise", "interrupt", "sigint"])
 def test_a_failed_entry_terminates_only_its_own_children(
     tmp_path_factory: pytest.TempPathFactory, name: str
 ) -> None:
@@ -604,8 +623,12 @@ def test_reset_ends_processes_then_sessions_then_state_and_the_session_stays_usa
 
 
 def test_reset_forgets_the_handles_of_the_processes_it_ended(resets: _Scenarios) -> None:
-    known_before, known_after = resets.results["reset"][3:5]
+    known_before, known_after = resets.results["reset"][4:6]
     assert (known_before, known_after) == (True, False)
+
+
+def test_a_detached_child_survives_a_reset(resets: _Scenarios) -> None:
+    assert resets.results["survived"]
 
 
 def test_reset_completes_when_ending_the_processes_is_interrupted_again(

@@ -504,3 +504,22 @@ A run ends in one of three ways:
    are keyed by their effective JSON names as in the typed encoding, and a
    non-empty dict with non-`text` keys is an array of `{"key": …, "value": …}`
    objects.
+
+### Child processes
+
+A process the program forked through `std/ps` belongs to the run until it is detached.
+
+- **Success.** The run waits for every such process still running. Their results are discarded; a
+  failure nobody consumed is reported as a warning.
+- **Any other end** — an uncaught exception, `std/os::exit`, an interrupt (Ctrl-C), or
+  termination by SIGTERM or SIGHUP. The run terminates those processes (SIGTERM, then SIGKILL
+  after a grace period), each unwinding and releasing what it owns, before the run's other
+  cleanup. A second interrupt during termination kills them at once.
+
+A detached process is neither waited for nor terminated.
+
+In the REPL, a process belongs to the session and outlives the entry that forked it. Ctrl-C
+cancels the entry and terminates only the processes that entry forked; an entry that ends with
+an uncaught exception does the same. Leaving the REPL (`:quit`, `:exit`, Ctrl-D,
+`std/os::exit`, or a termination signal) or `:reset` terminates every attached process of every
+entry.

@@ -309,6 +309,9 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
             With a single program or -p, `agm exec FILE -h` shows the program's
             help. With several programs and no -p, this help lists them.
 
+            Forked std/ps processes are awaited at a normal end; Ctrl-C, SIGTERM/SIGHUP,
+            an uncaught error, or std/os::exit terminate them (detached ones excepted).
+
             Exit codes:
               0  Success.
               1  Failure before execution: unreadable source, static error, or
@@ -338,7 +341,8 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
             other than dumb; otherwise the plain front end runs, without styling.
 
             :help lists meta-commands; :quit or Ctrl-D exits; Ctrl-C cancels the
-            current entry.
+            current entry. Forked std/ps processes: Ctrl-C or an uncaught error
+            terminates the entry's; exit and :reset terminate all (detached ones excepted).
 
             Exit codes:
               0  Normal exit.

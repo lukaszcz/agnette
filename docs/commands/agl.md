@@ -610,12 +610,20 @@ drives shell execution.
 | `0` | The workflow completed successfully, or `std/os::exit(0)` requested success |
 | `1` | Pre-execution failure: unreadable file, static language diagnostics (including invalid `case` coverage and a `deny`-level warning), host configuration error (including an invalid engine setting from the CLI, a config table, `@config`, or the manifest, or an invalid `[warnings]` table), or program-argument validation failure; it can also be requested with `std/os::exit(1)` |
 | `2` | The workflow executed but ended with an uncaught AgL exception; it can also be requested with `std/os::exit(2)` |
-| `130` | An agent call was cancelled by Ctrl-C; execution unwinds through cleanup |
+| `130` | The run was interrupted by Ctrl-C (for example, cancelling an agent call); execution unwinds through cleanup |
 | `3`–`255` | Requested by `std/os::exit(code)` |
 | `128+N` | Terminated by signal `N` (SIGTERM → `143`, SIGHUP → `129`), after the run's cleanup |
 
 `std/os::exit` accepts only the portable range `0..255`, so every supported host preserves
 the status; an out-of-range value is a runtime error, not a termination.
+
+### Forked processes
+
+Processes the program forked with `std/ps` and did not detach are awaited at a normal end (their
+results are discarded and unconsumed failures are warned about). Ctrl-C, SIGTERM, SIGHUP,
+`std/os::exit`, and an uncaught exception terminate them instead, before the run's other
+cleanup. Detached processes are left alone. See
+[Child processes](../agl/reference/host-environment.md#child-processes).
 
 ### Diagnostics and warnings
 
@@ -808,6 +816,9 @@ In both front ends:
 - Ctrl-C cancels the current entry without exiting. During a live agent call it interrupts the
   call and stops the entry. Effects completed before cancellation persist; unreached operations
   do not run.
+  Processes the entry forked with `std/ps` are terminated, as when an entry ends with an
+  uncaught exception; those of other entries keep running until `:reset` or exit terminates
+  them (detached processes survive both).
 
 ### Console-only editing features
 
@@ -834,8 +845,8 @@ Meta-commands start with `:`, which never collides with AgL syntax:
 | Command | Action |
 |---------|--------|
 | `:help` | List the available meta-commands |
-| `:quit` / `:exit` (or Ctrl-D) | Exit the REPL |
-| `:reset` | Clear the whole session (bindings, types, declarations, imports, and uses) |
+| `:quit` / `:exit` (or Ctrl-D) | Exit the REPL, terminating the session's attached forked processes |
+| `:reset` | Clear the whole session (bindings, types, declarations, imports, and uses), terminating its attached forked processes |
 | `:type EXPR` | Type-check `EXPR` against the session and print its type (no eval) |
 | `:info NAME` | Show the current binding, function, constructor, or type as concise AgL; the rich console highlights it |
 | `:bindings` / `:env` | List current bindings as `name : Type = value` |

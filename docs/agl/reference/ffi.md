@@ -226,12 +226,9 @@ pairs with `agl.transfer`:
 - `detach(id)` releases the process: it is no longer awaited, terminated, or
   warned about.
 
-The host ends the attached processes with the run. A normal end waits for
-them (`SETTLE`); an abnormal end terminates them (`TERMINATE`): an uncaught
-exception, an interrupt, `std/os::exit`, or SIGTERM or SIGHUP. In the REPL,
-an entry is a scope: a failing or interrupted entry terminates the processes
-it forked, and the other entries' processes stay attached until the session is
-reset or closed, which terminates them all.
+The host ends the attached processes with the run (`SETTLE` at a normal end, else
+`TERMINATE`) and treats each REPL entry as a scope; see
+[Child processes](host-environment.md#child-processes).
 
 An id is valid only in the process that forked it and only while attached:
 unknown, detached, and inherited ids raise `agl.ProcessHostError`. Waiting

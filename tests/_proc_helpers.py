@@ -72,6 +72,24 @@ def wait_for_signal_ignored_script(pid: int | str, signum: int, *, timeout: int 
     )
 
 
+def signal_when_sleeping_script(pid: int | str, signum: int, *, timeout: int = 30) -> str:
+    """Shell snippet: wait until *pid* is blocked (`/proc` state ``S``), then send it *signum*.
+
+    Exits 1 after *timeout* seconds if *pid* never blocks. *pid* is a literal pid or a shell
+    expression. For delivering an interrupt from outside, while the target waits in a call.
+    """
+    return (
+        f"t={pid}\n"
+        f"d=$(( $(date +%s) + {timeout} ))\n"
+        "while :; do\n"
+        '  [ "$(date +%s)" -lt "$d" ] || exit 1\n'
+        '  [ "$(sed -n "s/^.*) \\(.\\).*/\\1/p" /proc/$t/stat)" = S ] && break\n'
+        "  sleep 0.02\n"
+        "done\n"
+        f'kill -{signum} "$t"\n'
+    )
+
+
 def reap_child(pid: int, *, timeout: float = 10.0) -> int:
     """Reap child *pid* and return its wait status, killing it if it outlives *timeout*."""
     deadline = time.monotonic() + timeout
