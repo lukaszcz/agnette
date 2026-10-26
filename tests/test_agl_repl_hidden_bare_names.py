@@ -1,4 +1,4 @@
-"""A bare name missing only because of ``hiding`` is reported as hidden, in entries and ``:info``."""
+"""A bare name removed only by ``hiding`` is reported as hidden in entries and ``:info``."""
 
 from __future__ import annotations
 
