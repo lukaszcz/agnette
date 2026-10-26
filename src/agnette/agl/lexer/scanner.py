@@ -1278,6 +1278,8 @@ class _Scanner:
             raise self._surrogate_error(start)
         try:
             yield from self._scan_code()
+        except RecursionError:
+            raise LexError(_RECURSION_MESSAGE, span=self._span_here()) from None
         except LexError:
             if self._deferred_bracket_error is not None:
                 raise self._deferred_bracket_error from None
@@ -1309,10 +1311,7 @@ class _Scanner:
                 self._track_code_token(token)
         except RecursionError:
             self._record_recovery_error(
-                LexError(
-                    "Interpolation nesting exceeds the scanner's recursion capacity",
-                    span=self._span_here(),
-                )
+                LexError(_RECURSION_MESSAGE, span=self._span_here())
             )
             self._bracket_depth = bracket_depth
             # The unwound mode stack cannot establish a safe CODE boundary.
@@ -1582,6 +1581,9 @@ def _apply_triple_dedent(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
+
+_RECURSION_MESSAGE = "Interpolation nesting exceeds the scanner's recursion capacity"
 
 
 def scan(source: str) -> Iterator[Token]:

@@ -245,6 +245,11 @@ class TestMultiline:
         if echoed is not None:
             assert echoed in output
 
+    def test_deeply_nested_interpolation_is_reported_not_a_crash(self) -> None:
+        deep = 'let s = "' + '%{"' * 200 + "x" + '"}' * 200 + '"'
+        output = drive(deep + "\r\x04")
+        assert ": error:" in output.lower()
+
     def test_incomplete_header_keeps_prompting(self) -> None:
         # ``enum E`` alone is incomplete, so the first Enter opens a
         # continuation rather than submitting.  A blank line then force-submits
