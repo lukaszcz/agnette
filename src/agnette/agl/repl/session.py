@@ -519,6 +519,9 @@ class ReplSession:
         # Each retained type-owned path maps to the owner it resolved to when
         # declared, so a retained alias keeps its target across entries.
         self._session_type_paths: dict[tuple[str, ...], TypeOwner] = {}
+        # Every owner a promoted entry retained, by declaration identity: an alias's
+        # target names a declaration that its path no longer holds once redeclared.
+        self._type_owners_by_decl: dict[int, TypeOwner] = {}
         # Builtin type and def identities of the current declarations, keyed by
         # scoped name to the declaring module and its enclosing scope path. A
         # REPL entry's own source cannot see an earlier entry's builtin
@@ -1103,7 +1106,7 @@ class ReplSession:
 
         names = (
             base.name,
-            *(name for name in self._top_level_aliases() if self._targets(name, base)),
+            *(name for name in self._top_level_aliases() if self._may_target(name, base)),
         )
         for name in names:
             named = self._try_type_entry(
@@ -1125,16 +1128,25 @@ class ReplSession:
             if len(path) == 1 and owner.alias is not None
         ]
 
-    def _targets(self, alias: str, base: "ExceptionType") -> bool:
-        """Whether the session alias *alias* stands, through its alias chain, for *base*."""
+    def _may_target(self, alias: str, base: "ExceptionType") -> bool:
+        """Whether session alias *alias* may stand, through its alias chain, for *base*.
+
+        The chain is followed by declaration identity, so a redeclared path is not
+        mistaken for the declaration the alias resolved. A link into another module
+        is not followed: it may stand for *base*, which the caller's probe decides.
+        """
+        from agnette.agl.modules.ids import ENTRY_ID
+
         owner = self._session_type_paths.get((alias,))
         seen: set[int] = set()
         while owner is not None and owner.target is not None and owner.decl_node_id not in seen:
             seen.add(owner.decl_node_id)
-            module_id, atom = owner.target.qname
+            module_id = owner.target.qname[0]
             if module_id == base.module_id and owner.target.decl_node_id == base.decl_id:
                 return True
-            owner = self._session_type_paths.get((atom,) if isinstance(atom, str) else atom)
+            if module_id != ENTRY_ID:
+                return True
+            owner = self._type_owners_by_decl.get(owner.target.decl_node_id)
         return False
 
     def _type_entry_result(
@@ -1710,6 +1722,10 @@ class ReplSession:
         self._session_type_paths.update(
             (type_path, checked.resolved.type_owners[type_path])
             for type_path in promoted_type_paths
+        )
+        self._type_owners_by_decl.update(
+            (owner.decl_node_id, owner)
+            for owner in (checked.resolved.type_owners[path] for path in promoted_type_paths)
         )
         attributes = checked.resolved.attributes
         self._session_docs.update(
