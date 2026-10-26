@@ -829,7 +829,7 @@ In both front ends:
 
 ### Meta-commands
 
-Meta-commands start with `:`, which never collides with AgL syntax:
+Meta-commands start with a single `:`; a line starting with `::` is an AgL entry (an anchored name):
 
 | Command | Action |
 |---------|--------|
@@ -881,10 +881,11 @@ Meta-commands start with `:`, which never collides with AgL syntax:
 - **`:info NAME`** reads `NAME` exactly as an entry would: bare, qualified, applied-owner
   (`Slot[int]::Filled`), and alias-qualified spellings select what they select in an
   expression or type (including anchored `::name` spellings), and a hidden, unknown, or ambiguous
-  name reports that error, a hidden module or scope region included. `:info` answers before the
-  first entry. A declaration
-  is shown by its written path — scope path and name in its declaring module — whichever
-  spelling reached it: with `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`.
+  name reports that error, a hidden module or scope region included (a bare name hidden by
+  `hiding` is simply not defined, as in an entry). A builtin type (`int`, `text`, `bool`, ...)
+  reads as a type, as in an entry. `:info` answers before the first entry; if the standard
+  library fails to load, it reports that failure. A declaration is shown by its written path
+  — scope path and name in its declaring module — whichever spelling reached it: with `type G = Base` and `def Base::h`, `:info G::h` shows `def Base::h`.
   A declaration's `@doc` is shown as an attribute line above its AgL (triple-quoted when
   multi-line). A module or scope region (`Debug`, `a::b`, `lib::Debug`) is whatever the spelling
   names as a qualifier in an entry, through imports, `use`, aliases, and regions declared in the

@@ -122,9 +122,9 @@ def run_repl_loop(
     ``prompt_session.prompt`` and ``print``; the plain console wires a
     line-accumulating reader over plain stdin/stdout and a plain ``print``-alike.
 
-    A ``:`` line is routed to :func:`agnette.agl.repl.meta.dispatch_meta`; a blank or
-    comment-only entry is a no-op (fresh prompt, no error); any other entry is
-    evaluated and its result rendered via
+    A meta line (:func:`agnette.agl.repl.meta.is_meta_line`) is routed to
+    :func:`agnette.agl.repl.meta.dispatch_meta`; a blank or comment-only entry is a no-op
+    (fresh prompt, no error); any other entry is evaluated and its result rendered via
     :func:`agnette.agl.repl.render.render_entry_result`.
 
     *echo_unit* selects whether a ``unit``-typed expression/binding entry also
@@ -159,7 +159,7 @@ def run_repl_loop(
             # Ctrl-D (or closed stdin) exits.
             break
 
-        if entry.lstrip().startswith(":"):
+        if meta_mod.is_meta_line(entry):
             outcome = meta_mod.dispatch_meta(entry, ctx)
             if outcome.text is not None:
                 if outcome.highlight_as_agl and highlighted_writer is not None:

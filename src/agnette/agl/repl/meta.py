@@ -1,9 +1,8 @@
 """Meta-command (``:`` prefix) dispatch for the AgL REPL.
 
-A meta-command is any console line whose first non-blank character is ``:`` —
-``:help``, ``:quit``, etc.  The leading colon never collides with AgL syntax
-(no AgL statement begins with ``:``), so the loop can route on that single
-character.
+A meta-command is any console line whose first non-blank characters are a single ``:`` —
+``:help``, ``:quit``, etc.  A line starting ``::`` is an AgL entry (an anchored name), so
+the loop can route on :func:`is_meta_line`.
 
 The meta-command set is implemented here: ``:help``, ``:quit`` /
 ``:exit``, ``:reset``, ``:type``, ``:bindings`` / ``:env``,
@@ -371,8 +370,17 @@ def meta_command_names() -> tuple[str, ...]:
     return _COMMAND_NAMES
 
 
+def is_meta_line(line: str) -> bool:
+    """Return whether *line* is a meta-command: its first non-blank character is a lone ``:``.
+
+    A leading ``::`` is AgL's anchored-name syntax, so such a line is an entry.
+    """
+    body = line.lstrip()
+    return body.startswith(":") and not body.startswith("::")
+
+
 def dispatch_meta(line: str, ctx: MetaContext) -> MetaOutcome:
-    """Parse a leading-``:`` *line* and route it to its handler.
+    """Parse a meta-command *line* (see :func:`is_meta_line`) and route it to its handler.
 
     *line* is the raw console entry including the leading ``:``.  The first
     whitespace-delimited word (minus the colon) selects the command; the rest is

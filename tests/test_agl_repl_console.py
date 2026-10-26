@@ -842,6 +842,13 @@ class TestCompleter:
         assert ":help" in suggestions
         assert ":quit" in suggestions
 
+    def test_anchored_name_completes_as_an_entry_not_a_meta_command(self) -> None:
+        session = ReplSession()
+        session.eval_entry("let myvar = 10")
+        completer = AglCompleter(session)
+        assert "myvar" in _completions(completer, "::myv")
+        assert ":quit" not in _completions(completer, "::")
+
     def test_meta_prefix_filters(self) -> None:
         completer = AglCompleter(ReplSession())
         suggestions = _completions(completer, ":q")

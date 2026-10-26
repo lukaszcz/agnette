@@ -11493,8 +11493,10 @@ class TestInfoOpensTheLibraryImage:
         policy = WarningPolicy({"tab-indentation": "deny"})
         assert ReplSession(stdlib_root=stdlib, warning_policy=policy).open()
 
-        with pytest.raises(AglError):
+        with pytest.raises(AglError) as raised:
             ReplSession(stdlib_root=stdlib, warning_policy=policy).info_of("print")
+
+        assert raised.value.to_diagnostic().severity == "error"
 
     def test_info_remembers_a_failed_load_until_reset(self, tmp_path: Path) -> None:
         stdlib = self._stdlib_with(tmp_path, "config.agl", '\nlet broken: int = "text"\n')

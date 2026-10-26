@@ -172,7 +172,7 @@ class AglCompleter(Completer):
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         del complete_event
-        if document.text_before_cursor.lstrip().startswith(":"):
+        if meta_mod.is_meta_line(document.text_before_cursor):
             yield from self._meta_completions(document)
             return
         yield from self._word_completions(document)

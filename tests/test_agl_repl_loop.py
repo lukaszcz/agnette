@@ -38,6 +38,18 @@ def _scripted_reader(entries: list[str]) -> Callable[[], str]:
     return reader
 
 
+@pytest.mark.parametrize("anchored", ["::x", "  ::x"])
+def test_a_line_leading_with_double_colon_is_an_entry_not_a_meta_command(anchored: str) -> None:
+    session = ReplSession()
+    written: list[str] = []
+    reader = _scripted_reader(["let x = 7", anchored, ":quit"])
+
+    run_repl_loop(session, reader=reader, writer=written.append)
+
+    assert any(line.rstrip().endswith("7") for line in written[2:])
+    assert session.bindings()
+
+
 def test_theme_switch_with_no_on_setting_change_hook_is_tolerated() -> None:
     # ``on_setting_change`` defaults to ``None``; a ``:theme`` switch must not
     # crash when there is nothing to notify.
