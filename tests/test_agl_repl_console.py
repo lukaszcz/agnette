@@ -250,6 +250,17 @@ class TestMultiline:
         output = drive(deep + "\r\x04")
         assert ": error:" in output.lower()
 
+    def test_inner_attributes_stay_open_for_the_entry_they_head(self) -> None:
+        # Were the inner attributes submitted alone, the ``@!doc`` entry would
+        # warn: ``@!allow`` governs only its own entry.
+        output = drive('@!allow("unused-module-doc")\r@!doc("m")\rlet x = 1\r\x04')
+        assert "unused-module-doc" not in output
+        assert "x : int = 1" in output
+
+    def test_prefix_attributes_stay_open_for_their_declaration(self) -> None:
+        output = drive('@doc("m")\rlet x = 1\r\x04')
+        assert "x : int = 1" in output
+
     def test_incomplete_header_keeps_prompting(self) -> None:
         # ``enum E`` alone is incomplete, so the first Enter opens a
         # continuation rather than submitting.  A blank line then force-submits

@@ -248,6 +248,15 @@ class TestPlainMultiline:
         assert "declared" not in output
         assert ": error:" in output.lower()
 
+    def test_inner_attributes_stay_open_for_the_entry_they_head(self) -> None:
+        output = drive_plain('@!allow("unused-module-doc")\n@!doc("m")\nlet x = 1\n')
+        assert "unused-module-doc" not in output
+        assert "x : int = 1" in output
+
+    def test_prefix_attributes_stay_open_for_their_declaration(self) -> None:
+        output = drive_plain('@doc("m")\nlet x = 1\n')
+        assert "x : int = 1" in output
+
     def test_bare_record_header_submits_fieldless_on_blank_line(self) -> None:
         output = drive_plain("record R\n\nR == R()\n")
         assert "R declared" in output

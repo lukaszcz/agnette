@@ -234,7 +234,7 @@ def is_incomplete_source(text: str) -> bool:
         return _incomplete_cache[1]
 
     try:
-        result = _ends_with_bodyless_declaration(_PARSER.parse(text))
+        result = _ends_unfinished(_PARSER.parse(text))
     except UnexpectedToken as exc:
         # The LALR parser reports a premature end of input as an unexpected
         # ``$END`` token (it never raises ``UnexpectedEOF``), so this single
@@ -259,16 +259,19 @@ _BODYLESS_CAPABLE_DECLARATIONS = frozenset(
 )
 
 
-def _ends_with_bodyless_declaration(tree: Tree) -> bool:
-    """Return ``True`` when the module's final child is a body-less record/exception."""
+def _ends_unfinished(tree: Tree) -> bool:
+    """Return ``True`` when the module's final child may still gain a body or an item.
+
+    That is a body-less record/exception, or an inner attribute that nothing follows.
+    """
     module_block = cast(Tree, tree.children[0])
     last = module_block.children[-1] if module_block.children else None
-    return (
-        isinstance(last, Tree)
-        and last.data in _BODYLESS_CAPABLE_DECLARATIONS
-        and not any(
-            isinstance(child, Tree) and str(child.data).endswith("_body") for child in last.children
-        )
+    if not isinstance(last, Tree):
+        return False
+    if last.data == "inner_attribute":
+        return True
+    return last.data in _BODYLESS_CAPABLE_DECLARATIONS and not any(
+        isinstance(child, Tree) and str(child.data).endswith("_body") for child in last.children
     )
 
 
