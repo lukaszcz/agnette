@@ -896,7 +896,8 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   session: an imported module shows its `@!doc` above `module std/fs`, a region above
   `scope a::b`. A module or region without documentation shows just its header. A spelling
   reaching several modules, regions, or a builtin type shows each under a label naming its
-  source (`Module (lib):`, `Scope (this session):`, `Type (builtin):`). Re-opening a region in a later entry with a new
+  source (`Module (lib):`, `Scope (this session):`, `Type (builtin):`) after a headline counting
+  them (`json names a builtin type and a module.`). Re-opening a region in a later entry with a new
   `@!doc` replaces its documentation. A declaration of the same spelling takes precedence over a
   module or region, except that a lone slash route (`std/fs`, `/std/fs`) names the module.
   A module-level `@!doc` in an entry or a `:load`ed file documents nothing (a session is no

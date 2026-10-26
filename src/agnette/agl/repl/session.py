@@ -19,8 +19,8 @@ rendering, meta-commands, and the prompt_toolkit console live in sibling modules
 from __future__ import annotations
 
 import uuid
-from collections import OrderedDict
-from collections.abc import Callable, Iterable, Mapping
+from collections import Counter, OrderedDict
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, cast
@@ -291,6 +291,17 @@ def _qname_order(qname: "QName") -> tuple[str, str]:
     """Order scope origins by module route, then scope path."""
     module, atom = qname
     return module.path_str(), str(atom)
+
+
+def _count_phrase(kinds: Sequence[str]) -> str:
+    """Phrase the *kinds* counted in order of first appearance: a module and two scopes."""
+    counts = Counter(kinds)
+    words = ("a", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+    parts = [
+        f"a {kind}" if count == 1 else f"{words[count - 1] if count <= 9 else count} {kind}s"
+        for kind, count in counts.items()
+    ]
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
 
 
 def _documented_header(header: str, doc: str | None) -> str:
@@ -2166,7 +2177,9 @@ class ReplSession:
         sections = (
             _format_info_section(label, code, source=source) for label, source, code in found
         )
-        what = "a builtin type, modules, or scopes" if builtin_type else "several modules or scopes"
+        what = _count_phrase(
+            [("builtin type" if label == "Type" else label.lower()) for label, _src, _code in found]
+        )
         return f"{name} names {what}.\n" + "\n".join(sections)
 
     def _prune_session_docs(self) -> None:

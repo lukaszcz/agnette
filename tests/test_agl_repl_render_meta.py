@@ -617,14 +617,24 @@ class TestInfo:
         assert f"builtin type {name}" in info
 
     @pytest.mark.parametrize(
-        ("setup", "name", "sources"),
+        ("setup", "name", "sources", "headline"),
         [
-            ("import std/json", "json", ["Type (builtin)", "Module (std/json)"]),
-            ("", "bool", ["Type (builtin)", "Scope (std/math)"]),
+            (
+                "import std/json",
+                "json",
+                ["Type (builtin)", "Module (std/json)"],
+                "json names a builtin type and a module.",
+            ),
+            (
+                "",
+                "bool",
+                ["Type (builtin)", "Scope (std/math)"],
+                "bool names a builtin type and a scope.",
+            ),
         ],
     )
     def test_info_shows_a_builtin_type_beside_the_modules_and_scopes_it_names(
-        self, setup: str, name: str, sources: list[str]
+        self, setup: str, name: str, sources: list[str], headline: str
     ) -> None:
         session = _open_session()
         if setup:
@@ -634,6 +644,19 @@ class TestInfo:
 
         assert info is not None
         assert _section_labels(info) == sources
+        assert info.splitlines()[0] == headline
+
+    def test_info_counts_the_modules_a_name_reaches(self, tmp_path: Path) -> None:
+        for directory in ("p", "q"):
+            (tmp_path / directory).mkdir()
+            (tmp_path / directory / "m.agl").write_text("def f() -> int = 1\n", encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        assert session.eval_entry("import p/m\nimport q/m").ok
+
+        info = session.info_of("m")
+
+        assert info is not None
+        assert info.splitlines()[0] == "m names two modules."
 
     def test_info_prefers_a_binding_to_the_builtin_type_of_the_same_name(self) -> None:
         session = _open_session()
