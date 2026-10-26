@@ -33,6 +33,7 @@ from agnette.agl.repl.info_sections import SectionLabel, sourced_label
 from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
+from agnette.agl.syntax import BUILTIN_TYPE_NAMES
 from agnette.agl.warning_policy import apply_program_policy
 
 if TYPE_CHECKING:
@@ -133,6 +134,10 @@ class _BootstrapSnapshot:
     checked_modules: dict["ModuleId", "CheckedModule"]
 
 
+_NULLARY_BUILTIN_TYPE_NAMES = BUILTIN_TYPE_NAMES - {"array", "dict"}
+"""The builtin types an entry reads as a type by their bare name."""
+
+
 class SessionOpenError(AglError):
     """The library image was rejected; carries every :meth:`ReplSession.open` diagnostic."""
 
@@ -165,6 +170,8 @@ class _InfoReference:
     # Query-scoped view carrying this reference's own ad-hoc qualifier
     # identities; read only by :meth:`ReplSession._constructor_signature`.
     type_env: "TypeEnvironment"
+    # Whether the name selects a builtin type, which has no declaration to select.
+    builtin_type: bool = False
 
 
 # Bootstrap images retain complete frontend graphs, so keep only a small working
@@ -1872,6 +1879,9 @@ class ReplSession:
                 )
             )
 
+        if resolved_reference is not None and resolved_reference.builtin_type:
+            display = _format_info_section("Type", f"builtin type {name}")
+            return f"{name} is a builtin type.\n{display}"
         if resolved_reference is not None:
             described = self._describe_type_declaration(name, resolved_reference)
             if described is not None:
@@ -1945,8 +1955,13 @@ class ReplSession:
             ).type_name_declaration(type_name)
         )
         type_env = self._type_env
+        builtin = (
+            type_key is None
+            and reference.qualifier is None
+            and reference.name in _NULLARY_BUILTIN_TYPE_NAMES
+        )
         if isinstance(resolved, AglError):
-            if type_key is None:
+            if type_key is None and not builtin:
                 raise resolved
             binding, constructor = None, None
         else:
@@ -1967,6 +1982,7 @@ class ReplSession:
             type_key=type_key,
             reference=reference,
             type_env=type_env,
+            builtin_type=builtin,
         )
 
     def _describe_type_declaration(self, name: str, reference: _InfoReference) -> str | None:

@@ -598,6 +598,38 @@ class TestInfo:
         assert outcome.highlight_as_agl is True
         assert outcome.agl_ranges[0] == (0, len("count"))
 
+    @pytest.mark.parametrize("name", ["int", "text", "bool", "decimal", "unit", "json"])
+    def test_info_describes_a_builtin_type_as_an_entry_reads_it(self, name: str) -> None:
+        session = _open_session()
+        assert session.eval_entry(name).kind == "type"
+
+        info = session.info_of(name)
+
+        assert info is not None
+        assert info.startswith(f"{name} is a builtin type.\nType:\n")
+
+    def test_info_prefers_a_binding_to_the_builtin_type_of_the_same_name(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("let json = 1").ok
+
+        info = session.info_of("json")
+
+        assert info is not None
+        assert info.startswith("json is a binding.")
+
+    @pytest.mark.parametrize("name", ["array", "dict"])
+    def test_info_of_an_unapplied_builtin_container_is_as_undefined_as_its_entry(
+        self, name: str
+    ) -> None:
+        session = _open_session()
+        entry = session.eval_entry(name)
+        assert entry.failure is not None
+
+        with pytest.raises(AglError) as raised:
+            session.info_of(name)
+
+        assert type(raised.value) is type(entry.failure)
+
     def test_info_works_after_reset(self) -> None:
         ctx = _session_ctx()
         before = meta_mod.dispatch_meta(":info Some", ctx)
