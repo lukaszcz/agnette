@@ -1232,7 +1232,8 @@ class TestInfo:
             'record R\n  @doc("the a")\n  a: int\n'
             '  @doc("""\n    multi\n    line\n  """)\n  b: text\n'
             '\nexception E\n  @doc("the code")\n  code: int\n'
-            '\nenum En\n  | @doc("first") A\n      @doc("x doc")\n      x: int\n      y: int\n  | B\n'
+            '\nenum En\n  | @doc("first") A\n'
+            '      @doc("x doc")\n      x: int\n      y: int\n  | B\n'
         )
         assert session.eval_entry(source).ok
 
