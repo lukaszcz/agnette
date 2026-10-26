@@ -4168,6 +4168,22 @@ class TestIsExceptionAncestor:
         assert not table.is_exception_ancestor(700042, 700041)  # Leaf is Mid's descendant
 
 
+class TestExceptionNesting:
+    def test_numbers_each_exception_inside_its_ancestors_and_is_kept(self) -> None:
+        table = _exception_hierarchy_table()
+        nesting = table.exception_nesting()
+        assert table.exception_nesting() is nesting
+        root, mid, leaf, sibling, other = 700040, 700041, 700042, 700043, 700044
+        assert [nesting.depth[d] for d in (root, mid, leaf, sibling, other)] == [0, 1, 2, 1, 0]
+        assert nesting.pre[root] < nesting.pre[mid] < nesting.pre[leaf] < nesting.end[mid]
+        assert nesting.end[mid] <= nesting.pre[sibling] < nesting.end[root] <= nesting.pre[other]
+
+    def test_a_non_exception_has_no_ancestors(self) -> None:
+        table = _exception_hierarchy_table()
+        table.register(TypeDef(kind="record", name="R", module_id=ENTRY_ID, decl_node_id=700050))
+        assert table.ancestor_defs(700050) == ()
+
+
 class TestExceptionDescendants:
     def test_returns_every_transitive_descendant(self) -> None:
         table = _exception_hierarchy_table()
