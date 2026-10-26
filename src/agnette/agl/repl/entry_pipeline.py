@@ -726,6 +726,7 @@ class EntryPipeline:
                 param_seeds={**self._ctx._param_seed_values, **decoded_param_seeds},
                 process_environment=self._ctx._process_environment,
                 extern_runtime_state=self._ctx._extern_runtime_state,
+                process_host=self._ctx._process_host,
             )
         except AglRaise as exc:
             error = exception_value_to_run_error(
@@ -915,7 +916,10 @@ class EntryPipeline:
             )
 
         try:
-            interp.run()
+            self._ctx._active_interpreter = interp
+            # An interrupt or an uncaught raise terminates the processes this entry forked.
+            with self._ctx._process_host.scope():
+                interp.run()
         except SystemExit as exc:
             trace.run_end(ok=exc.code is None or exc.code == 0)
             raise
@@ -948,6 +952,8 @@ class EntryPipeline:
             return partial_failure(
                 diagnostics=[Diagnostic(message=cancellation_message, line=1)], error=None
             )
+        finally:
+            self._ctx._active_interpreter = None
         trace.run_end(ok=True)
         # Setting writes are ordinary non-transactional mutations: persist all
         # effects that completed, on success or before a later runtime failure.

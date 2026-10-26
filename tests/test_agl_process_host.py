@@ -75,9 +75,7 @@ _REPEATS = 20
 class _TrackedHost(ProcessHost):
     """A host that remembers its attached children, for the fixture's cleanup."""
 
-    def __init__(
-        self, grace: float, reporter: Callable[[ProcessInfo, Outcome], None] | None
-    ) -> None:
+    def __init__(self, grace: float, reporter: Callable[[ProcessInfo, str], None] | None) -> None:
         super().__init__(grace=grace, reporter=reporter)
         self.attached: list[ProcessInfo] = []
 
@@ -104,7 +102,7 @@ def _is_reaped(pid: int) -> bool:
 def _host(
     *participants: ForkParticipant[Any],
     grace: float = 30.0,
-    reporter: Callable[[ProcessInfo, Outcome], None] | None = None,
+    reporter: Callable[[ProcessInfo, str], None] | None = None,
 ) -> Iterator[ProcessHost]:
     """A host that reaps its children on exit and fails if any child is left behind.
 
@@ -1959,7 +1957,7 @@ def _settling_end(workdir: Path) -> dict[str, Any]:
     gate, late = _Gate(), _Gate()
     reports: list[Any] = []
     stderr = io.StringIO()
-    with _host(reporter=lambda info, outcome: reports.append([info.pid, _show(outcome)])) as host:
+    with _host(reporter=lambda info, text: reports.append([info.pid, text])) as host:
 
         def opener() -> bytes:
             gate.open()
@@ -2008,12 +2006,14 @@ def test_ending_by_settling_waits_for_all_and_warns_once_about_unconsumed_failur
     carrying, raising, exiting, killed = result["pids"]
     # Clean, consumed, and detached processes are not reported, and nothing is reported twice.
     assert [report[0] for report in result["reports"]] == [carrying, raising, exiting, killed]
-    assert result["reports"][0][1] == ["DF", "carrier", "summary-text"]
-    assert [report[1][0] for report in result["reports"][1:]] == ["F", "E", "E"]
+    assert "summary-text" in result["reports"][0][1]
+    assert "boom" in result["reports"][1][1]
     warnings = result["warnings"]
     assert len(warnings) == 4
-    for line, pid in zip(warnings, result["pids"], strict=True):
+    # The reporter receives the text of the warning.
+    for line, pid, report in zip(warnings, result["pids"], result["reports"], strict=True):
         assert str(pid) in line
+        assert line.endswith(report[1])
     assert "summary-text" in warnings[0]
     assert "boom" in warnings[1]
     assert len(result["alone"]) == 1
@@ -2023,7 +2023,7 @@ def _terminating_end(workdir: Path) -> dict[str, Any]:
     running, survivor = _Gate(), _Gate()
     reports: list[Any] = []
     stderr = io.StringIO()
-    with _host(reporter=lambda info, outcome: reports.append(info.pid)) as host:
+    with _host(reporter=lambda info, text: reports.append(info.pid)) as host:
         doomed = host.fork(running.wait_then(b"unreachable"), ())
         released = host.fork(survivor.wait_then(b"x"), ())
         host.detach(released.id)

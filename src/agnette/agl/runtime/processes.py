@@ -280,8 +280,8 @@ class ProcessHost:
     Not thread-safe. A forked child gets an empty process table: handles of its parent
     are foreign to it. The outcome types are class attributes, so a companion reaches
     them through the host it holds. *grace* is the seconds between SIGTERM and SIGKILL when
-    terminating processes (halved in each forked child). *reporter*, if given, is called for
-    each outcome :meth:`end` reports, after its stderr warning.
+    terminating processes (halved in each forked child). *reporter*, if given, is called with
+    the one-line problem text of each outcome :meth:`end` reports, after its stderr warning.
     """
 
     Delivered: ClassVar[type[Delivered]] = Delivered
@@ -292,7 +292,7 @@ class ProcessHost:
         self,
         *,
         grace: float = TERMINATION_GRACE,
-        reporter: Callable[[ProcessInfo, Outcome], None] | None = None,
+        reporter: Callable[[ProcessInfo, str], None] | None = None,
     ) -> None:
         self._grace = grace
         self._participants: list[Callable[[ForkRequest], _Prepared]] = []
@@ -641,11 +641,11 @@ class ProcessHost:
             return
         entry.consumed = True
         assert entry.result is not None
-        problem = _problem(entry.result)
-        if problem is not None:
-            sys.stderr.write(f"warning: process {entry.pid} {problem}\n")
+        text = _problem(entry.result)
+        if text is not None:
+            sys.stderr.write(f"warning: process {entry.pid} {text}\n")
             if self._reporter is not None:
-                self._reporter(ProcessInfo(entry.id, entry.pid), entry.result)
+                self._reporter(ProcessInfo(entry.id, entry.pid), text)
 
     @contextmanager
     def _terminating_on_error(self, targets: Callable[[], Sequence[_Entry]]) -> Iterator[None]:

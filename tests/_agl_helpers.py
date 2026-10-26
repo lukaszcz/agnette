@@ -66,7 +66,7 @@ import itertools
 import os
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agnette.agl import PipelineDriver
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
@@ -866,9 +866,17 @@ def repl_session_with_root(
         Callable[[ModuleId, tuple[ParamBindingInfo, ...]], Mapping[StaticBindingKey, object]] | None
     ) = None,
     warning_policy: WarningPolicy | None = None,
+    **session_options: Any,
 ) -> ReplSession:
-    """Build a REPL session whose only module search root besides the stdlib is *root*."""
-    session = ReplSession(param_seed_resolver=param_seed_resolver, warning_policy=warning_policy)
+    """Build a REPL session whose only module search root besides the stdlib is *root*.
+
+    *session_options* are further ``ReplSession`` constructor arguments.
+    """
+    session = ReplSession(
+        param_seed_resolver=param_seed_resolver,
+        warning_policy=warning_policy,
+        **session_options,
+    )
     session._roots = assemble_roots(
         invocation_root=root,
         stdlib_root=REPO_STDLIB_ROOT,

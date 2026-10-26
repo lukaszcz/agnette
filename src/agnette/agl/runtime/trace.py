@@ -344,6 +344,12 @@ class TraceStore:
             return
         self._emit("exception", {"type_name": type_name, "message": message}, span)
 
+    def process_unconsumed(self, *, child_pid: int, problem: str) -> None:
+        """Record a forked child's failure that nobody consumed before the run ended."""
+        if self._path is None:
+            return
+        self._emit("process_unconsumed", {"child_pid": child_pid, "problem": problem})
+
     def companion_record(
         self,
         origin: str,

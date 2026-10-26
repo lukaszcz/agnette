@@ -126,7 +126,10 @@ class EffectCtx(Protocol):
     _strict_json: bool
     _extern_registry: ExternRegistry
     _extern_runtime_state: ExternRuntimeState
-    _process_host: ProcessHost
+
+    @property
+    def _process_host(self) -> ProcessHost: ...
+
     _extern_span_resolver: Callable[
         [ModuleId, "Location | None"], "tuple[Location | None, ModuleId | None]"
     ]

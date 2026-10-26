@@ -162,10 +162,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
         raise SystemExit(1) from exc
 
     process_environment = dict(os.environ)
-    with (
-        terminating_signals_exit(),
-        preserve_primary_error(session_host.close_all, label="agent session cleanup"),
-    ):
+    with terminating_signals_exit():
         session = ReplSession(
             default_strict_json=strict_json,
             default_call_depth_limit=call_depth_limit,
@@ -190,7 +187,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
             warning_policy=warning_policy,
         )
 
-        with preserve_primary_error(session.close, label="companion state cleanup"):
+        with preserve_primary_error(session.close, label="session cleanup"):
             # Load and check the session's initial library image now, so any
             # startup failure loading the standard library exits before the
             # console opens and prints its banner, rather than surfacing only

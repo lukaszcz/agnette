@@ -5,7 +5,11 @@ from agl import ProcessHostError, runtime
 
 def _state() -> str:
     return runtime.state(
-        "process-host", lambda: "parent", _closed, fork=lambda value: f"{value}>child"
+        "process-host",
+        lambda: "parent",
+        _closed,
+        keep_in_debug=True,
+        fork=lambda value: f"{value}>child",
     )
 
 

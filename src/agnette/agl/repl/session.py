@@ -22,6 +22,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from threading import Lock
 from typing import TYPE_CHECKING, cast
 
@@ -29,9 +30,12 @@ from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.repl.entry import EntryKind, EntryResult
 from agnette.agl.repl.entry_pipeline import EntryPipeline
 from agnette.agl.runtime.externs import ExternRuntimeState
+from agnette.agl.runtime.fork_participants import build_process_host
+from agnette.agl.runtime.processes import Disposition, ProcessHost, ProcessInfo
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.warning_policy import apply_program_policy
+from agnette.core.cleanup import run_cleanup_steps
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -402,6 +406,12 @@ class ReplSession:
         # Companion state (``std/fs`` temporary paths, ...) lives for the whole
         # session: every entry's interpreter shares this bag; :meth:`close` ends it.
         self._extern_runtime_state = ExternRuntimeState()
+        # Set while an entry runs: a forked child honours that entry's live ``debug`` and
+        # traces to that entry's store.
+        self._active_interpreter: IrInterpreter | None = None
+        # Forked processes outlive the entry that forked them: an entry scopes its own,
+        # and :meth:`close` and :meth:`reset` end them all.
+        self._process_host = self._new_process_host()
         self._runtime = PipelineDriver(
             default_call_depth_limit=default_call_depth_limit,
             agent_dispatcher=agent_dispatcher,
@@ -1965,22 +1975,56 @@ class ReplSession:
             name for name, _, _, _ in owned_constructors(ENTRY_ID, self._session_type_paths)
         )
 
-    def close(self) -> None:
-        """Close the session's companion state, honoring the current ``debug`` setting."""
+    def _new_process_host(self) -> ProcessHost:
+        return build_process_host(
+            state=self._extern_runtime_state,
+            sessions=self._session_host,
+            debug=self._debug_enabled,
+            reporter=self._report_unconsumed,
+        )
+
+    def _report_unconsumed(self, info: ProcessInfo, problem: str) -> None:
+        """Trace a failure unconsumed by a child forked mid-entry, in that entry's store."""
+        assert self._active_interpreter is not None
+        self._active_interpreter.report_unconsumed(info, problem)
+
+    def _debug_enabled(self) -> bool:
+        """The ``debug`` setting now in force: the running entry's, else the last persisted."""
+        if self._active_interpreter is not None:
+            return self._active_interpreter.debug
         debug = self._current.get("debug")
-        self._extern_runtime_state.close_all(
-            debug=debug is not None and cast("BoolValue", debug).value
+        return debug is not None and cast("BoolValue", debug).value
+
+    def close(self) -> None:
+        """Terminate the session's forked processes, then close its agent sessions and state.
+
+        Companion state is closed honoring the current ``debug`` setting.
+        """
+        run_cleanup_steps(
+            [
+                partial(self._process_host.end, Disposition.TERMINATE),
+                self._session_host.close_all,
+                lambda: self._extern_runtime_state.close_all(debug=self._debug_enabled()),
+            ]
         )
 
     def reset(self) -> None:
         """Clear ALL session state (symbols, types, values, source, ids).
 
-        Closes the session's companion state first (see :meth:`close`).
+        Closes the session first (see :meth:`close`), however that ends, and replaces its
+        process host, so no handle survives.
         Restores the live engine settings (strict-json/timeout)
         to their values at session construction, undoing any effect-at-binding
         from ``std/config`` writes entered during the session.
         """
-        self.close()
+        try:
+            self.close()
+        finally:
+            self._clear()
+
+    def _clear(self) -> None:
+        """Forget all session state; see :meth:`reset`."""
+        self._process_host = self._new_process_host()
         from agnette.agl.lower import LinkImage
         from agnette.agl.scope.symbols import ScopeNode
         from agnette.agl.typecheck.env import TypeEnvironment

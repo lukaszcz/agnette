@@ -6,10 +6,21 @@ import sys
 from collections.abc import Callable
 
 from agnette.agl.runtime.externs import ExternRuntimeState, ForkedEntries
-from agnette.agl.runtime.processes import Disposition, ForkParticipant, ForkRequest
+from agnette.agl.runtime.processes import (
+    Disposition,
+    ForkParticipant,
+    ForkRequest,
+    ProcessHost,
+    ProcessInfo,
+)
 from agnette.agl.runtime.sessions import SessionHost, SessionHostError
 
-__all__ = ["CompanionStateParticipant", "SessionParticipant", "StdioFlushParticipant"]
+__all__ = [
+    "build_process_host",
+    "CompanionStateParticipant",
+    "SessionParticipant",
+    "StdioFlushParticipant",
+]
 
 
 class StdioFlushParticipant(ForkParticipant[None]):
@@ -62,3 +73,25 @@ class SessionParticipant(ForkParticipant[None]):
 
     def child_exit(self, disposition: Disposition) -> None:
         self._sessions.close_all()
+
+
+def build_process_host(
+    *,
+    state: ExternRuntimeState,
+    sessions: SessionHost,
+    debug: Callable[[], bool],
+    reporter: Callable[[ProcessInfo, str], None],
+) -> ProcessHost:
+    """A process host with the participants every host session needs, registered in order.
+
+    A child's ``child_exit`` hooks run in reverse registration order, after the host has ended
+    the child's own processes: sessions close first, then companion state, as in a run's end.
+    Stdio goes last so it is flushed right before ``os.fork``, after every other participant's
+    ``prepare`` (a fork hook's output included); it has no exit hook, so it does not affect
+    the order of the others.
+    """
+    host = ProcessHost(reporter=reporter)
+    host.register(CompanionStateParticipant(state, debug))
+    host.register(SessionParticipant(sessions))
+    host.register(StdioFlushParticipant())
+    return host
