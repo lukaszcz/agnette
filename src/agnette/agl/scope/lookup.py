@@ -840,6 +840,8 @@ class _Walk:
         self._span = span
         self._refusals: list[AglError] = []
         self._reached: dict[tuple[ScopePath, int], tuple[Candidate, ...]] = {}
+        # Per step path: how far its counts were scanned, and those reaching a type.
+        self._owning: dict[ScopePath, tuple[int, list[int]]] = {}
 
     def find(self, kind: LookupKind) -> QualifiedTarget | AglError | None:
         """Return what the first step selecting a declaration of *kind* selects."""
@@ -898,6 +900,7 @@ class _Walk:
         walk = _Walk(self._sources, self._site, self._steps, self._route, prefix, names, self._span)
         # A prefix's walk reads the same names, so it shares the types they reach.
         walk._reached = self._reached
+        walk._owning = self._owning
         return walk
 
     def reached(
@@ -1025,7 +1028,7 @@ class _Walk:
         As :meth:`_reading` reads it, *owners_within* as there.
         """
         reading = Reading()
-        for count in range(step.start + 1, len(self._names)):
+        for count in self._owning_counts(step, len(self._names)):
             for owner in self._owners(step, count):
                 key = owner.target.key
                 if key is not None and (count <= owners_within or self._sources.aliases(key)):
@@ -1044,6 +1047,19 @@ class _Walk:
             prefix = (*step.path, *self._names[:count])
             owners = self._reached[at] = step.owners(prefix).candidates
         return owners
+
+    def _owning_counts(self, step: _Step, upto: int) -> list[int]:
+        """The counts in ``(step.start, upto)`` whose first names reach a type at *step*, ascending.
+
+        Scanned once per count however many prefix walks ask, so a long chain
+        reaching few types costs each walk only those.
+        """
+        scanned, counts = self._owning.get(step.path, (step.start, []))
+        for count in range(scanned + 1, upto):
+            if self._owners(step, count):
+                counts.append(count)
+        self._owning[step.path] = (max(scanned, upto - 1), counts)
+        return [count for count in counts if count < upto]
 
     def _beneath(
         self,
@@ -1088,7 +1104,7 @@ class _Walk:
         found: set[Origin] = set()
         for step in self._steps:
             found |= step.origins((*step.path, *names))
-            for count in range(step.start + 1, len(names)):
+            for count in self._owning_counts(step, len(names)):
                 for owner in self._owners(step, count):
                     key = owner.target.key
                     for origin in sources.projected_origins(key, names[count:]) if key else ():
@@ -1223,9 +1239,7 @@ class _Walk:
         for its target's spelling. Where no shorter prefix reaches a type,
         nothing is beneath one.
         """
-        if not selecting and any(
-            self._owners(step, shorter) for shorter in range(step.start + 1, count)
-        ):
+        if not selecting and self._owning_counts(step, count):
             prefix = replace(
                 chain, segments=chain.segments[: count - 1], member=self._names[count - 1]
             )
@@ -1240,6 +1254,7 @@ class _Walk:
             )
             # The prefixes it reads are this walk's own.
             walk._reached = self._reached
+            walk._owning = self._owning
             selecting = walk._through_prefixes(
                 step, prefix, LookupKind.TYPE, owners_within=step.start
             ).candidates
