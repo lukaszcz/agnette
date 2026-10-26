@@ -23,7 +23,7 @@ from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from threading import Lock
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
 from agnette.agl.repl.entry import (
@@ -105,14 +105,26 @@ _TRANSCRIPT_HEADER = "# agm:repl-transcript:v1\n"
 _TRANSCRIPT_ENTRY_PREFIX = "# agm:entry:"
 
 
-def _decode_transcript(text: str) -> tuple[tuple[str, int], ...] | None:
-    """Decode a framed ``:save`` transcript into its entries with their offsets in *text*.
+_TRANSCRIPT_ALLOW_MARK = " allow="
 
-    Returns ``None`` for an ordinary file.
+
+class _SavedEntry(NamedTuple):
+    """One transcript entry: its *text*, its offset in the file, and the ``@!allow`` names it ran under."""
+
+    text: str
+    offset: int
+    allows: frozenset[str]
+
+
+def _decode_transcript(text: str) -> tuple[_SavedEntry, ...] | None:
+    """Decode a framed ``:save`` transcript into its entries.
+
+    An entry header is ``# agm:entry:LENGTH``, followed by `` allow=NAME,...`` when a loaded
+    file's leading ``@!allow`` governed it. Returns ``None`` for an ordinary file.
     """
     if not text.startswith(_TRANSCRIPT_HEADER):
         return None
-    entries: list[tuple[str, int]] = []
+    entries: list[_SavedEntry] = []
     offset = len(_TRANSCRIPT_HEADER)
     while offset < len(text):
         if not text.startswith(_TRANSCRIPT_ENTRY_PREFIX, offset):
@@ -120,14 +132,17 @@ def _decode_transcript(text: str) -> tuple[tuple[str, int], ...] | None:
         length_end = text.find("\n", offset)
         if length_end < 0:
             return None
-        rendered_length = text[offset + len(_TRANSCRIPT_ENTRY_PREFIX) : length_end]
+        rendered_length, _, rendered_allows = text[
+            offset + len(_TRANSCRIPT_ENTRY_PREFIX) : length_end
+        ].partition(_TRANSCRIPT_ALLOW_MARK)
         if not rendered_length.isdecimal():
             return None
         entry_start = length_end + 1
         entry_end = entry_start + int(rendered_length)
         if entry_end >= len(text) or text[entry_end] != "\n":
             return None
-        entries.append((text[entry_start:entry_end], entry_start))
+        allows = frozenset(filter(None, rendered_allows.split(",")))
+        entries.append(_SavedEntry(text[entry_start:entry_end], entry_start, allows))
         offset = entry_end + 1
     return tuple(entries)
 
@@ -515,7 +530,7 @@ class ReplSession:
         self._next_node_id: int = 0
         self._open_failure: tuple[Diagnostic, ...] = ()
         # Source log of successfully-promoted entries (for dump_source / :save).
-        self._source_log: list[str] = []
+        self._source_log: list[tuple[str, frozenset[str]]] = []
 
         # Module roots configuration.
         # These are stored so _ensure_roots() can assemble the RootSet lazily.
@@ -1669,7 +1684,7 @@ class ReplSession:
             self._type_env = new_type_env
 
         if not partial:
-            self._source_log.append(text)
+            self._source_log.append((text, self._inherited_allows))
         self._accumulated_infix.update(
             (item.name, checked.resolved.fixities[item.name])
             for item in program.body.items
@@ -2495,11 +2510,17 @@ class ReplSession:
         saved_entries = _decode_transcript(normalized)
         if saved_entries is not None:
             saved_results: list[EntryResult] = []
-            for entry, offset in saved_entries:
-                result = self.eval_entry(entry, origin=_origin_at(label, normalized, offset))
-                saved_results.append(result)
-                if not result.ok:
-                    break
+            try:
+                for entry in saved_entries:
+                    self._inherited_allows = entry.allows
+                    result = self.eval_entry(
+                        entry.text, origin=_origin_at(label, normalized, entry.offset)
+                    )
+                    saved_results.append(result)
+                    if not result.ok:
+                        break
+            finally:
+                self._inherited_allows = frozenset()
             return saved_results
 
         # A blank / comment-only file parses to an empty module with nothing
@@ -2545,7 +2566,9 @@ class ReplSession:
             return ""
         from agnette.util.text import normalize_newlines
 
-        entries = tuple(normalize_newlines(source) for source in self._source_log)
-        return _TRANSCRIPT_HEADER + "".join(
-            f"{_TRANSCRIPT_ENTRY_PREFIX}{len(entry)}\n{entry}\n" for entry in entries
-        )
+        def frame(source: str, allows: frozenset[str]) -> str:
+            entry = normalize_newlines(source)
+            mark = _TRANSCRIPT_ALLOW_MARK + ",".join(sorted(allows)) if allows else ""
+            return f"{_TRANSCRIPT_ENTRY_PREFIX}{len(entry)}{mark}\n{entry}\n"
+
+        return _TRANSCRIPT_HEADER + "".join(frame(*logged) for logged in self._source_log)

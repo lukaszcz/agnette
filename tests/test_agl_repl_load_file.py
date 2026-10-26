@@ -239,3 +239,24 @@ def test_a_file_with_a_syntax_error_runs_nothing(tmp_path: Path) -> None:
     assert [r.ok for r in results] == [False]
     assert results[0].diagnostics[0].source_label == str(tmp_path / "f.agl")
     assert session.bindings() == []
+
+
+def test_a_saved_transcript_keeps_the_loaded_files_allow(tmp_path: Path) -> None:
+    source = f'@!allow("{HOLE}")\n\n{HOLES}'
+    session = _session()
+    assert all(result.ok for result in _load(tmp_path, source, session))
+    saved = tmp_path / "saved.agl"
+    saved.write_text(session.dump_source(), encoding="utf-8")
+
+    replayed = _load(tmp_path, saved.read_text(), _session())
+
+    assert all(result.ok for result in replayed)
+    assert _names(replayed) == _names(_load(tmp_path, source)) == []
+    assert _names(_load(tmp_path, HOLES)) != []
+    assert session.dump_source() == _session_dump_after(tmp_path, saved)
+
+
+def _session_dump_after(tmp_path: Path, saved: Path) -> str:
+    session = _session()
+    session.load_file(saved)
+    return session.dump_source()

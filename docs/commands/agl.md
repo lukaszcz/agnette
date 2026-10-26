@@ -906,8 +906,10 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   `@!allow("unused-module-doc")` hides the warning. A loaded file's leading inner attributes
   head its first entry (which draws the `unused-module-doc` warning, once), and its
   `@!allow` names govern the warnings of every entry loaded from it, but not warnings from imported library
-  modules. A loaded file's (or transcript's) diagnostics and runtime errors name the file and use
-  file-relative lines and columns; a file that is not UTF-8 text reports an error.
+  modules. A saved transcript records the `@!allow` names an entry ran under, so replaying it
+  raises the same warnings. A loaded file's (or transcript's) diagnostics, runtime errors and trace
+  records name the file and use file-relative lines and columns (text typed at the prompt is
+  `<repl>`); a file that is not UTF-8 text reports an error.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the
