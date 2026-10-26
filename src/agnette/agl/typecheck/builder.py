@@ -85,7 +85,13 @@ from agnette.agl.syntax.nodes import (
     static_type_items,
 )
 from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.syntax.types import AppliedT, NameT, TypeExpr, member_type_params
+from agnette.agl.syntax.types import (
+    NULLARY_BUILTIN_TYPE_NAMES,
+    AppliedT,
+    NameT,
+    TypeExpr,
+    member_type_params,
+)
 from agnette.agl.typecheck.builtin_contracts import (
     BUILTIN_ENUM_CONTRACTS,
     BUILTIN_EXCEPTION_CONTRACTS,
@@ -106,9 +112,7 @@ from agnette.agl.zones import ParamZone
 
 # Built-in type names that the user may not shadow with a record/enum/alias.
 _BUILTIN_TYPE_NAMES: frozenset[str] = (
-    frozenset({"text", "json", "bool", "int", "decimal", "unit"})
-    | BUILTIN_EXCEPTION_NAMES
-    | BUILTIN_PRELUDE_TYPE_NAMES
+    NULLARY_BUILTIN_TYPE_NAMES | BUILTIN_EXCEPTION_NAMES | BUILTIN_PRELUDE_TYPE_NAMES
 )
 
 # Built-ins whose shape is checked against another built-in's declaration

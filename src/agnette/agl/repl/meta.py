@@ -120,15 +120,11 @@ def _static_query(query: Callable[[], MetaOutcome]) -> MetaOutcome:
     string, so it never escapes ``dispatch_meta``.
     """
     from agnette.agl.diagnostics import AglError, format_diagnostic
-    from agnette.agl.repl.session import SessionOpenError
 
     try:
         return query()
     except AglError as exc:
-        diagnostics = (
-            exc.diagnostics if isinstance(exc, SessionOpenError) else (exc.to_diagnostic(),)
-        )
-        text = "\n".join(format_diagnostic(d, source_name=None) for d in diagnostics)
+        text = "\n".join(format_diagnostic(d, source_name=None) for d in exc.diagnostics())
         return MetaOutcome(text=text)
 
 

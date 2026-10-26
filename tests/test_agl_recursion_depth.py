@@ -18,6 +18,7 @@ REPL drive.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -25,6 +26,7 @@ from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.eval import ir_interpreter
 from agnette.agl.pipeline import PipelineDriver, RunResult
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
+from agnette.agl.repl.meta import MetaContext, dispatch_meta
 from agnette.agl.repl.session import ReplSession
 from agnette.agl.semantics.values import IntValue
 from tests._agl_helpers import run_inline_code
@@ -264,3 +266,42 @@ class TestReplNestingDegradesToDiagnostic:
         assert all(isinstance(d, Diagnostic) for d in result.diagnostics)
         # The session survives: an ordinary entry still evaluates afterwards.
         assert not session.eval_entry("1 + 1").diagnostics
+
+
+DEEP_PARENS = "(" * 200 + "1" + ")" * 200
+DEEP_TYPE = "array[" * 1500 + "int" + "]" * 1500
+
+
+class TestReplQueriesReportNestingAsDiagnostic:
+    """Entries, ``:type`` and ``:info`` report over-deep source without crashing."""
+
+    @pytest.mark.parametrize("source", [DEEP_PARENS, DEEP_TYPE], ids=["parens", "type"])
+    def test_entry_fails_with_nesting_too_deep(self, source: str) -> None:
+        session = ReplSession()
+        result = session.eval_entry(source)
+
+        assert isinstance(result.failure, NestingTooDeepError)
+        assert not session.eval_entry("1 + 1").diagnostics
+
+    @pytest.mark.parametrize("source", [DEEP_PARENS, DEEP_TYPE], ids=["parens", "type"])
+    def test_type_and_info_raise_nesting_too_deep(self, source: str) -> None:
+        session = ReplSession()
+        with pytest.raises(NestingTooDeepError):
+            session.type_of(source)
+        with pytest.raises(NestingTooDeepError):
+            session.info_of(source)
+
+    def test_meta_commands_show_a_diagnostic(self) -> None:
+        ctx = MetaContext(session=ReplSession())
+        for command in (":type", ":info"):
+            outcome = dispatch_meta(f"{command} {DEEP_PARENS}", ctx)
+            assert outcome.text and "Traceback" not in outcome.text
+
+    def test_load_reports_a_deeply_nested_file(self, tmp_path: Path) -> None:
+        source = tmp_path / "deep.agl"
+        source.write_text(DEEP_PARENS, encoding="utf-8")
+        session = ReplSession()
+
+        results = session.load_file(source)
+
+        assert [type(r.failure) for r in results] == [NestingTooDeepError]

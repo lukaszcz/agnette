@@ -29,7 +29,7 @@ from agnette.agl.pipeline import RunError
 from agnette.agl.repl import meta as meta_mod
 from agnette.agl.repl import render as render_mod
 from agnette.agl.repl.entry import EntryKind, EntryResult
-from agnette.agl.repl.session import ReplSession
+from agnette.agl.repl.session import ReplSession, SessionOpenError
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.scope.symbols import (
     AglScopeError,
@@ -637,7 +637,12 @@ class TestInfo:
 
         assert meta_mod.dispatch_meta(":info Some", ctx) == before
 
-    def test_info_shows_a_rejected_library_image_as_diagnostics(self, tmp_path: Path) -> None:
+    @staticmethod
+    def _session_with_tabbed_prelude(tmp_path: Path) -> tuple[ReplSession, Path, str]:
+        """A session whose library image is rejected (two denied tab diagnostics).
+
+        Returns the session, the broken prelude path and its repaired text.
+        """
         from shutil import copytree
 
         from agnette.agl.warning_policy import WarningPolicy
@@ -647,17 +652,38 @@ class TestInfo:
         stdlib = tmp_path / "stdlib"
         copytree(REPO_STDLIB_ROOT, stdlib)
         prelude = stdlib / MODULE_TREE_DIRNAME / "prelude.agl"
+        good = prelude.read_text(encoding="utf-8")
         prelude.write_text(
-            prelude.read_text(encoding="utf-8") + "\ndef tabbed() -> int =\n\t1\n",
+            good + "\ndef tabbed() -> int =\n\t1\ndef tabbed2() -> int =\n\t1\n",
             encoding="utf-8",
         )
         session = ReplSession(
             stdlib_root=stdlib, warning_policy=WarningPolicy({"tab-indentation": "deny"})
         )
+        return session, prelude, good
+
+    def test_info_shows_a_rejected_library_image_as_diagnostics(self, tmp_path: Path) -> None:
+        session, _, _ = self._session_with_tabbed_prelude(tmp_path)
+        with pytest.raises(SessionOpenError) as raised:
+            session.info_of("print")
+        expected = len(raised.value.diagnostics())
+        assert expected >= 2
 
         outcome = meta_mod.dispatch_meta(":info print", _session_ctx(session))
 
         assert outcome.text and not outcome.highlight_as_agl
+        assert outcome.text.count("tab-indentation") == expected
+
+    def test_info_forgets_a_rejected_image_once_an_entry_succeeds(self, tmp_path: Path) -> None:
+        session, prelude, good = self._session_with_tabbed_prelude(tmp_path)
+        with pytest.raises(SessionOpenError):
+            session.info_of("print")
+        prelude.write_text(good, encoding="utf-8")
+        assert session.eval_entry("let x = 2").ok
+
+        info = session.info_of("x")
+
+        assert info is not None and info.startswith("x is a binding.")
 
     @pytest.mark.parametrize(
         ("source", "setup", "name", "entry"),

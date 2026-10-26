@@ -13,7 +13,7 @@ def exit_for_agl_exception(error: Exception) -> None:
     from agnette.agl.semantics.exceptions import AglRaise
 
     if isinstance(error, AglError):
-        message = format_diagnostic(error.to_diagnostic())
+        message = "\n".join(format_diagnostic(d) for d in error.diagnostics())
         exit_code = 1
     elif isinstance(error, AgentCancelled):
         message = "Agent call cancelled — execution aborted."

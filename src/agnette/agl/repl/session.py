@@ -33,7 +33,7 @@ from agnette.agl.repl.info_sections import SectionLabel, sourced_label
 from agnette.agl.runtime.externs import ExternRuntimeState
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
-from agnette.agl.syntax import BUILTIN_TYPE_NAMES
+from agnette.agl.syntax import NULLARY_BUILTIN_TYPE_NAMES
 from agnette.agl.warning_policy import apply_program_policy
 
 if TYPE_CHECKING:
@@ -134,19 +134,18 @@ class _BootstrapSnapshot:
     checked_modules: dict["ModuleId", "CheckedModule"]
 
 
-_NULLARY_BUILTIN_TYPE_NAMES = BUILTIN_TYPE_NAMES - {"array", "dict"}
-"""The builtin types an entry reads as a type by their bare name."""
-
-
 class SessionOpenError(AglError):
     """The library image was rejected; carries every :meth:`ReplSession.open` diagnostic."""
 
     def __init__(self, diagnostics: tuple[Diagnostic, ...]) -> None:
         super().__init__(diagnostics[0].message)
-        self.diagnostics = diagnostics
+        self._diagnostics = diagnostics
 
     def to_diagnostic(self) -> Diagnostic:
-        return self.diagnostics[0]
+        return self._diagnostics[0]
+
+    def diagnostics(self) -> tuple[Diagnostic, ...]:
+        return self._diagnostics
 
 
 @dataclass(frozen=True, slots=True)
@@ -974,7 +973,7 @@ class ReplSession:
         fails.
         """
         from agnette.agl.lexer import spaced_qualifier_collector, tab_warning_collector
-        from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+        from agnette.agl.parser import parse_program_seeded
 
         host_env = self._runtime.host_environment()
 
@@ -985,7 +984,7 @@ class ReplSession:
         with tab_warning_collector() as tab_sink, spaced_qualifier_collector() as spaced_sink:
             try:
                 program, next_start_id = parse_program_seeded(text, start_id=self._next_node_id)
-            except AglSyntaxError as exc:
+            except AglError as exc:
                 return self._fail_static_governed(exc, list(tab_sink))
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
@@ -1788,12 +1787,16 @@ class ReplSession:
 
         Library declarations are described from a checked library image, so a session
         that has promoted nothing is :meth:`open`-ed first, as a host does; a rejected
-        image raises :class:`SessionOpenError` until :meth:`reset` or another ``open``.
+        image raises :class:`SessionOpenError` until :meth:`reset`, another ``open``, or an entry
+        promotes an image.
         """
-        if not self._next_node_id and not self._open_failure:
-            self.open()
-        if self._open_failure:
-            raise SessionOpenError(self._open_failure)
+        if self._next_node_id:
+            self._open_failure = ()
+        else:
+            if not self._open_failure:
+                self.open()
+            if self._open_failure:
+                raise SessionOpenError(self._open_failure)
         parts = tuple(name.removeprefix("::").split("::"))
         if not name or any(not part for part in parts):
             return None
@@ -1958,7 +1961,7 @@ class ReplSession:
         builtin = (
             type_key is None
             and reference.qualifier is None
-            and reference.name in _NULLARY_BUILTIN_TYPE_NAMES
+            and reference.name in NULLARY_BUILTIN_TYPE_NAMES
         )
         if isinstance(resolved, AglError):
             if type_key is None and not builtin:
@@ -2303,11 +2306,11 @@ class ReplSession:
         the returned list holds the results collected so far, including the
         failing one.  Items that already succeeded remain promoted.
 
-        A syntax error in the file yields a single failed ``EntryResult`` carrying
-        the parse diagnostic.  An empty or comment-only file has no items to
-        run and yields an empty list (a benign no-op).
+        A syntax error (or over-deep nesting) in the file yields a single failed
+        ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
+        items to run and yields an empty list (a benign no-op).
         """
-        from agnette.agl.parser import AglSyntaxError, parse_repl_transcript
+        from agnette.agl.parser import parse_repl_transcript
         from agnette.core.fs import read_text
         from agnette.util.text import normalize_newlines
 
@@ -2335,7 +2338,7 @@ class ReplSession:
         # the session's continuing node-id counter).  start_id=0 is fine here.
         try:
             program = parse_repl_transcript(normalized)
-        except AglSyntaxError as exc:
+        except AglError as exc:
             return [self._fail_static(exc, [])]
 
         results: list[EntryResult] = []

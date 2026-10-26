@@ -27,6 +27,9 @@ BUILTIN_TYPE_NAMES: frozenset[str] = frozenset(
     {"text", "json", "bool", "int", "decimal", "unit", "array", "dict"}
 )
 
+# The builtin types that take no type arguments: all but the containers.
+NULLARY_BUILTIN_TYPE_NAMES: frozenset[str] = BUILTIN_TYPE_NAMES - {"array", "dict"}
+
 # The type-parameter wildcard occupies a source-level slot without introducing
 # a type variable.  A declaration retains every slot for later
 # declaration-specific interpretation (notably method receivers), while

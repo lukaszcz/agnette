@@ -34,6 +34,7 @@ from agnette.agl.lexer.positions import token_span
 from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import AstBuilder
+from agnette.agl.recursion import frontend_recursion_boundary
 from agnette.agl.syntax.spans import SourceId
 
 
@@ -175,10 +176,11 @@ def _parse_to_program(
     stamped with that ``SourceId``; the same id is also stamped on any
     ``AglSyntaxError`` raised during parsing.
     """
-    tree = _parse_tree(_PARSER, text, source=source)
-    result, next_id = _transform_tree(
-        tree, start_id=start_id, source=source, allow_late_uses=allow_late_uses
-    )
+    with frontend_recursion_boundary():
+        tree = _parse_tree(_PARSER, text, source=source)
+        result, next_id = _transform_tree(
+            tree, start_id=start_id, source=source, allow_late_uses=allow_late_uses
+        )
     return cast(syntax.Program, result), next_id
 
 
@@ -371,6 +373,7 @@ def parse_type_expr_seeded(
     evaluation. Returns ``(type_expr, next_start_id)`` so the caller can keep
     assigning ids past the result.
     """
-    tree = _parse_tree(_type_parser(), text, source=source)
-    result, next_id = _transform_tree(tree, start_id=start_id, source=source)
+    with frontend_recursion_boundary():
+        tree = _parse_tree(_type_parser(), text, source=source)
+        result, next_id = _transform_tree(tree, start_id=start_id, source=source)
     return cast(syntax.TypeExpr, result), next_id
