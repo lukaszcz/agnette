@@ -499,7 +499,7 @@ class UseReader:
             if len(target) > 1 and relative[0] == target[-1] and self._use_renames(site, decl):
                 rests[relative[1:]] = None
         elif not decl.tail:
-            if len(relative) == 1 or self._reaches_beneath_target(site, decl, relative[0]):
+            if len(relative) <= 1 or self._reaches_beneath_target(site, decl, relative[0]):
                 rests[relative] = None
         else:
             for item in decl.tail:

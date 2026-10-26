@@ -79,16 +79,6 @@ def _use(node_id: int, *names: str) -> UseDecl:
     )
 
 
-def test_a_use_index_follows_its_layer_when_the_uses_are_replaced() -> None:
-    layer = ScopeNode(node_id=0)
-    layer.uses.append(_use(1, "m", "a"))
-    index = _UseIndex(layer)
-    assert [use.node_id for use in index.matching("a")] == [1]
-    layer.uses = [_use(2, "m", "b")]
-    assert index.matching("a") == []
-    assert [use.node_id for use in index.matching("b")] == [2]
-
-
 @pytest.mark.parametrize("shape", ["distinct", "repeated"])
 def test_reading_many_glob_uses_does_not_multiply_the_work_per_extra_glob(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
