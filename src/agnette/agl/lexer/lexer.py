@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import contextvars
 import importlib.resources
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
+from functools import cache
 from typing import Iterator, TypeVar
 
 from lark import Lark
@@ -42,6 +44,7 @@ from agnette.agl.keywords import (
     KW_AS,
     KW_END,
     KW_EXPORT,
+    KW_EXTENDS,
     KW_HIDING,
     KW_IMPORT,
     KW_SCOPE,
@@ -711,37 +714,48 @@ _ITEM_ENDS = frozenset({NEWLINE, INDENT, DEDENT, SEMICOLON, COMMA, EQ, ARROW, AS
 _CONTAINER_TYPES = frozenset({"array", "dict"})
 
 
-def _in_type_position(tokens: list[Token], index: int) -> bool:
-    """Whether the token at *index* lies where a type is written, and division is no reading.
+def _type_positions(tokens: list[Token]) -> list[bool]:
+    """Per index, whether the token there lies where a type is written (division is no reading).
 
-    Types follow an annotation colon (not a dict entry's) or ``->``, fill the
-    brackets opened inside a type, and follow ``type X =``. A bracket after
-    ``array`` or ``dict`` opens type arguments; after any other name it may as
-    well index a value, which this does not decide.
+    Entry ``len(tokens)`` is the state after the last token. Types follow an
+    annotation colon (not a dict entry's), ``->`` and ``extends``, fill the
+    brackets opened inside a type, and follow ``type X[...] =``. A bracket
+    after ``array`` or ``dict``, one after ``::``, and one a ``::`` member
+    follows (``Option[T]::None``) open type arguments; after any other name it
+    may as well index a value, which this does not decide. One forward pass.
     """
     in_type = False
     after_type_keyword = False
-    # Per open bracket: the enclosing state, whether it holds braces, whether it holds a type.
-    frames: list[tuple[bool, bool, bool]] = []
-    for position in range(index):
-        token = tokens[position]
+    # Per open bracket: the enclosing state, whether it holds braces, whether it
+    # holds a type, and whether it interrupts a ``type`` header.
+    frames: list[tuple[bool, bool, bool, bool]] = []
+    positions: list[bool] = []
+    for position, token in enumerate(tokens):
+        positions.append(in_type)
         kind = scanner_token_type(token.type)
         if kind in _OPENERS:
             previous = tokens[position - 1] if position else None
             container = (
                 kind == LSQB
                 and previous is not None
-                and previous.type == NAME
-                and str(previous).lower() in _CONTAINER_TYPES
+                and (
+                    (previous.type == NAME and str(previous).lower() in _CONTAINER_TYPES)
+                    or previous.type == DCOLON
+                    or (
+                        previous.type == NAME
+                        and previous.end_pos == token.start_pos
+                        and _precedes_type_member(tokens, position)
+                    )
+                )
             )
-            frames.append((in_type, kind in _BRACES, in_type or container))
+            frames.append((in_type, kind in _BRACES, in_type or container, after_type_keyword))
             in_type = in_type or container
             after_type_keyword = False
         elif kind in _CLOSERS and frames:
-            in_type = frames.pop()[0]
+            in_type, _, _, after_type_keyword = frames.pop()
         elif kind == COLON:
             in_type = not (frames and frames[-1][1])
-        elif kind == THIN_ARROW:
+        elif kind in (THIN_ARROW, KW_EXTENDS):
             in_type = True
         elif kind == EQ and after_type_keyword:
             in_type = True
@@ -751,7 +765,8 @@ def _in_type_position(tokens: list[Token], index: int) -> bool:
             after_type_keyword = False
         elif kind == KW_TYPE:
             after_type_keyword = True
-    return in_type
+    positions.append(in_type)
+    return positions
 
 
 def _tight_route(tokens: list[Token], index: int) -> tuple[int, int] | None:
@@ -791,8 +806,13 @@ def _tight_route(tokens: list[Token], index: int) -> tuple[int, int] | None:
     return (first, last) if names >= 2 else None
 
 
-def _clinging_slash_error(tokens: list[Token], index: int) -> LexError:
-    """Explain a clinging slash; a run of names joined by slashes is a module route."""
+def _clinging_slash_error(
+    tokens: list[Token], index: int, type_positions: Callable[[], list[bool]]
+) -> LexError:
+    """Explain a clinging slash; a run of names joined by slashes is a module route.
+
+    *type_positions* yields :func:`_type_positions` of *tokens* (computed once by the caller).
+    """
     span = token_span(tokens[index])
     bounds = _tight_route(tokens, index)
     if bounds is None:
@@ -801,7 +821,7 @@ def _clinging_slash_error(tokens: list[Token], index: int) -> LexError:
         )
     first, last = bounds
     route = "".join(str(tok) for tok in tokens[first : last + 1])
-    return ModuleRouteError(route, divides=not _in_type_position(tokens, first), span=span)
+    return ModuleRouteError(route, divides=not type_positions()[first], span=span)
 
 
 def _reject_clinging_slash(
@@ -816,6 +836,7 @@ def _reject_clinging_slash(
     operand is a path that went nowhere, and reporting it here beats letting it
     reach the grammar as arithmetic (``a/ b``) or a stray anchor (``a /b``).
     """
+    type_positions = cache(lambda: _type_positions(tokens))
     for index, tok in enumerate(tokens):
         if tok.type != SLASH or _reaches_a_spaced_dcolon(tokens, index):
             continue
@@ -832,7 +853,7 @@ def _reject_clinging_slash(
             and tok.end_pos == next_tok.start_pos
         )
         if tight_left or tight_right:
-            error = _clinging_slash_error(tokens, index)
+            error = _clinging_slash_error(tokens, index, type_positions)
             if errors is None:
                 raise error
             # Preserve the slash and its neighbors; flag only its own span.
@@ -909,37 +930,46 @@ def _remap_adjacent_brackets(tokens: list[Token]) -> list[Token]:
     return result
 
 
+_OPEN_TYPES = frozenset({LSQB, INDEX_LSQB, TYPEARG_LSQB, DO_LSQB})
+
+
+def _precedes_type_member(tokens: list[Token], index: int) -> bool:
+    """Whether the ``[`` at *index* closes before ``::`` and a member that is no ``[``.
+
+    Such a bracket group is a type application (``Type[T]::Ctor``); a following
+    ``::[`` instead applies a value (``xs[i]::[T]``).
+    """
+    n = len(tokens)
+    depth = 0
+    for j in range(index, n):
+        token_type = tokens[j].type
+        if token_type in _OPEN_TYPES:
+            depth += 1
+        elif token_type == RSQB:
+            depth -= 1
+            if depth == 0:
+                after = tokens[j + 1].type if j + 1 < n else None
+                after_next = tokens[j + 2].type if j + 2 < n else None
+                return after == DCOLON and after_next != LSQB
+    return False
+
+
 def _mark_typearg_lsqb(tokens: list[Token]) -> list[Token]:
     """Retag ``Type[T]::Ctor`` opening brackets for the parser.
 
     Only the outer ``[`` immediately adjacent to a preceding ``NAME`` is
-    retagged, and only when its matching ``]`` is followed by ``::`` and then a
-    non-``[`` token.  The guard preserves value-position type application such
-    as ``xs[i]::[T]``.
+    retagged, and only when :func:`_precedes_type_member` holds.  The guard
+    preserves value-position type application such as ``xs[i]::[T]``.
     """
     result = list(tokens)
-    n = len(result)
-    open_types = {LSQB, INDEX_LSQB, TYPEARG_LSQB, DO_LSQB}
     for i, tok in enumerate(result):
-        if tok.type != INDEX_LSQB:
-            continue
-        if i == 0 or result[i - 1].type != NAME:
-            continue
-        depth = 1
-        j = i + 1
-        while j < n:
-            tt = result[j].type
-            if tt in open_types:
-                depth += 1
-            elif tt == RSQB:
-                depth -= 1
-                if depth == 0:
-                    after = result[j + 1].type if j + 1 < n else None
-                    after_next = result[j + 2].type if j + 2 < n else None
-                    if after == DCOLON and after_next != LSQB:
-                        result[i] = _retype(tok, TYPEARG_LSQB)
-                    break
-            j += 1
+        if (
+            tok.type == INDEX_LSQB
+            and i > 0
+            and result[i - 1].type == NAME
+            and _precedes_type_member(result, i)
+        ):
+            result[i] = _retype(tok, TYPEARG_LSQB)
     return result
 
 

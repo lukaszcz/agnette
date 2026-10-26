@@ -3418,6 +3418,12 @@ class TestDivisionRequiresSurroundingSpace:
             ("let t: array[dict[text, a/b]] = []", False),
             ("let t: (int, a/b) -> int = f", False),
             ("type T = a/b", False),
+            ("type X[T] = a/b", False),
+            ("type X[T: Eq] = a/b", False),
+            ("exception E extends a/b", False),
+            ("Option[a/b]::None", False),
+            ("f::[a/b](1)", False),
+            ("xs[a/b]::[int]", True),
             ("def f(x: int = a/b) -> int = 1", True),
             ("let t: int = a/b", True),
         ],
@@ -3429,6 +3435,32 @@ class TestDivisionRequiresSurroundingSpace:
             lark_tok(source)
 
         assert raised.value.divides is divides
+
+    def test_recovery_work_on_clinging_slashes_is_linear(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deciding each slash's reading must not rescan the tokens before it."""
+        from agnette.agl.lexer import lexer as lexer_module
+        from agnette.agl.lexer import tokenize_recover
+
+        real = lexer_module.scanner_token_type
+        calls = 0
+
+        def counting(token_type: str) -> str:
+            nonlocal calls
+            calls += 1
+            return real(token_type)
+
+        monkeypatch.setattr(lexer_module, "scanner_token_type", counting)
+
+        def work(lines: int) -> int:
+            nonlocal calls
+            calls = 0
+            _, errors = tokenize_recover("".join(f"let x{i} = a/b\n" for i in range(lines)))
+            assert len(errors) == lines
+            return calls
+
+        assert work(400) < 2.5 * work(200)
 
     @pytest.mark.parametrize("lexer", (tok, lark_tok), ids=("public", "lark"))
     @pytest.mark.parametrize(
