@@ -82,11 +82,10 @@ token; a name-addressable one takes `--name value` or `--name=value`, and a
 as `Some`. A positional token is read as the same parameter's `--name` value
 is; a `bool` slot takes `true` or `false`. `@opt-short` adds a one-letter
 spelling. Supplying a parameter twice, or naming no declared parameter, is a
-usage error. Only an explicit `@arg-pos` parameter may be named after an
-[engine setting](#engine-settings); any other, an unzoned required one
-included, shares the settings' flag and config namespace and is a static
-error. Token details (short-flag groups, `--`): [`agm
-exec`](../../commands/agl.md#program-arguments).
+usage error. A parameter may be named after an [engine
+setting](#engine-settings): it claims the setting's bare flag and config leaf,
+and the setting stays reachable through its qualified spellings. Token details
+(short-flag groups, `--`): [`agm exec`](../../commands/agl.md#program-arguments).
 
 **Validation.** Supplied values are validated after type checking and
 **before any statement executes**; a default is not validated, only evaluated
@@ -288,11 +287,12 @@ arguments](#program-arguments).
 A bare spelling (long or short) is claimed by the first of these **claim
 levels** that has a claimant:
 
-1. host flags and engine-setting names;
+1. host flags;
 2. the selected program's own value parameters;
 3. parameters of the program's own module;
 4. parameters of modules with the program's **owner**;
-5. parameters of modules with any other owner.
+5. parameters of modules with any other owner;
+6. the [engine settings](#engine-settings).
 
 A module's owner is the package mounting it, or else the loose module root it
 was found through; an inline `-c` program belongs to the working directory's
@@ -360,6 +360,16 @@ value.
 | `parse-error-retries` | `int` | `4` | `ask` without a `parse-error-retries` option (`exec` defaults to `0`) |
 | `debug` | `bool` | `false` | whether `std/fs` temporary paths are kept |
 
+Every engine setting is also a host parameter of the selected program, claimed
+at the last level: its bare flag (`--timeout 30s`) and its qualified flag
+(`--std.config.timeout 30s`) set the initial value. `bool` and `Option[T]`
+settings also take `--no-...` (`--no-trace`, `--no-timeout`, `--no-debug`,
+`--no-strict-json`), except `trace-file`, which has no negation. `--trace`,
+`--trace-file`, and `--no-trace` are mutually exclusive, as are a flag and its
+negation. A program or module parameter of
+the same name claims the bare spelling first, so the setting is then set
+through the qualified spelling or `[exec]`.
+
 A call option always overrides its setting, in both directions:
 `strict-json = false` forces lenient parsing under a strict setting. With no
 `timeout`, the agent idle timeout is host-defined.
@@ -416,6 +426,10 @@ engine setting:    CLI flag   >  program route  >  @config  >  manifest [config]
   arguments.
 - **Module route** — the declaring module's table; **`[exec]`** — global
   engine defaults.
+
+A program-route leaf with the bare name of an engine setting sets a same-named
+parameter instead when one claims that spelling; the setting is then addressed
+by the quoted key `"std.config.NAME"`.
 
 These tiers choose an engine setting's **initial** value; a source write to
 `std/config::X` overrides it from its program point onward

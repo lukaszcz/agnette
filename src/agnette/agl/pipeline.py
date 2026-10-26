@@ -37,6 +37,7 @@ from agnette.agl.eval.ir_interpreter import (
 from agnette.agl.ir.nodes import UseDefault
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.runtime.agents import AgentFn
+from agnette.agl.runtime.engine_config import engine_setting_params
 from agnette.agl.runtime.types import (
     HostEnvironment,
     HostParamInfo,
@@ -135,8 +136,11 @@ class ProgramDiscovery:
     module_params: Mapping["ModuleId", tuple[HostParamInfo, ...]] = field(default_factory=dict)
 
     def params_for(self, program: ProgramDeclInfo) -> tuple[HostParamInfo, ...]:
-        """Return the module parameters *program* statically reaches, closure modules first."""
-        return self._params(program, include_closure=False)
+        """Return the host parameters of *program*: reached module parameters, then engine settings.
+
+        Module parameters come closure modules first.
+        """
+        return (*self._params(program, include_closure=False), *engine_setting_params())
 
     def declared_params_for(self, program: ProgramDeclInfo) -> tuple[HostParamInfo, ...]:
         """Return the module parameters declared by *program*'s closure or reached by it.

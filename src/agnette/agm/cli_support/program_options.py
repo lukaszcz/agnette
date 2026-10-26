@@ -1,4 +1,4 @@
-"""Type-directed CLI projection shared by engine keys and program parameters.
+"""Type-directed CLI projection shared by every host parameter kind.
 
 :func:`project_option` maps one name and AgL type onto its CLI surface:
 ``bool`` becomes a bare ``--x``/``--no-x`` flag pair (no value); ``Option[T]``
@@ -9,11 +9,9 @@ as ``T`` and is wrapped ``Some``, and ``--no-x`` supplies ``None``;
 Agent syntax; every other type takes one strict-JSON ``VALUE``.
 Whether a type is the standard ``Option`` or ``Optional`` is decided by nominal
 provenance, not by name, so a user-declared enum sharing either name projects as
-an ordinary JSON-form value. This is the single derivation shared by
-an engine key's CLI flags (:func:`engine_key_flags`, folded into
-:data:`EXEC_RESERVED_FLAGS`) and a program parameter's own flags
-(:class:`ProgramCommand`), so the reserved set and the parameter flags can
-never disagree.
+an ordinary JSON-form value. This is the single derivation of every CLI flag:
+program arguments and host parameters, engine settings included
+(:func:`project_param_option`), so they can never disagree.
 
 :func:`build_program_command` builds a whole program's CLI surface from its
 declaration: one ``click.Command`` carrying a catch-all positional argument
@@ -46,12 +44,15 @@ the declared name, so the shared binder only ever sees declared names.
 
 Each surface a program runs under reserves its own flag inventory.
 ``EXEC_RESERVED_FLAGS`` is ``agm exec``'s: the flags it declares itself
-(``--help``, ``-p``, ``--program``, …) union every engine-key
-flag. ``REGISTERED_RESERVED_FLAGS`` is a package-registered command's: its
-``agm exec`` run-time options (``REGISTERED_RUN_FLAGS``) beside the help
-flags every program command owns. A program
-parameter can never be projected onto its surface's reserved flags —
-:func:`build_program_command` reports the collision instead.
+(``--help``, ``-p``, ``--program``, …). ``REGISTERED_RESERVED_FLAGS`` is a
+package-registered command's: its ``agm exec`` run-time options
+(``REGISTERED_RUN_FLAGS``) beside the help flags every program command owns.
+A program parameter can never be projected onto its surface's reserved flags
+— :func:`build_program_command` reports the collision instead. Engine settings
+are host parameters of the lowest claim level, so they reserve nothing, and no
+reserved flag is an engine-setting flag. A host with no program (``agm repl``,
+the FILE scan of ``agm exec``) uses :func:`engine_command`, the engine settings'
+bare surface.
 
 The same inventory decides which tail token is ``agm exec``'s FILE argument
 and which belong to the program: :func:`split_exec_tail` is the one place
@@ -90,16 +91,16 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
 
 import click
 from click.core import ParameterSource
 
+from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.runtime.arguments import OptionSome, ProgramArguments
 from agnette.agl.runtime.serialize import dumps_exact
-from agnette.agl.runtime.types import HostParamInfo, ProgramParamInfo
-from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
+from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramParamInfo
 from agnette.agl.semantics.types import (
     BoolType,
     JsonType,
@@ -115,11 +116,12 @@ from agnette.agm.cli_support.execution_options import (
     execution_option_flags,
     write_execution_options,
 )
-from agnette.config.engine_keys import ENGINE_KEYS, EngineKeySpec
+from agnette.config.engine_keys import (
+    REGISTER_ENABLING_ENGINE_KEYS,
+)
 from agnette.util.text import keep_indented_paragraphs
 
 if TYPE_CHECKING:
-    from agnette.agl.ir.static_keys import StaticBindingKey
     from agnette.agl.runtime.types import ProgramDeclInfo
     from agnette.agl.semantics.types import Type as AglType
     from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
@@ -139,8 +141,7 @@ __all__ = [
     "ValueForm",
     "build_program_command",
     "contains_help_flag",
-    "engine_key_flags",
-    "engine_key_option_flags",
+    "engine_command",
     "exec_program_help",
     "exec_program_name",
     "native_raw_value",
@@ -151,10 +152,14 @@ __all__ = [
     "protect_potential_program_values",
     "protect_host_option_values",
     "project_option",
+    "project_param_option",
     "render_program_help",
     "retain_end_of_options",
     "split_exec_tail",
 ]
+
+#: Help section listing the engine settings.
+ENGINE_SETTINGS_SECTION = "Engine settings"
 
 # Zones whose parameter fills a positional CLI slot.
 _POSITIONAL_ZONES = (ParamZone.POSITIONAL_ONLY, ParamZone.STANDARD)
@@ -351,36 +356,23 @@ def project_option(name: str, type_: "AglType") -> ProjectedOption:
     )
 
 
-def engine_key_option_flags(spec: EngineKeySpec) -> tuple[str, str | None]:
-    """Return one engine key's CLI flag and its negative, if any.
+def project_param_option(param: HostParamInfo, name: str) -> ProjectedOption:
+    """Project *param* under the external spelling *name*.
 
-    The key runs through :func:`project_option` against its AgL type, exactly
-    like a program parameter. A key whose value turns its register on has no
-    negative: the register's own (``--no-trace``) turns it off.
+    An engine setting that turns its register on has no negative: the
+    register's own switch (``--no-trace``) turns it off.
     """
-    projected = project_option(spec.name, ENGINE_KEY_TYPES[spec.name])
-    return projected.flag, None if spec.enables_register else projected.negative_flag
+    projected = project_option(name, param.type)
+    if param.kind is HostParamKind.ENGINE and param.name in REGISTER_ENABLING_ENGINE_KEYS:
+        return replace(projected, negative_flag=None)
+    return projected
 
 
-def engine_key_flags() -> frozenset[str]:
-    """Return the CLI flags the engine-key catalog reserves.
-
-    The single derivation shared with :data:`EXEC_RESERVED_FLAGS`, so the two
-    can never disagree.
-    """
-    flags: set[str] = set()
-    for spec in ENGINE_KEYS:
-        flag, negative_flag = engine_key_option_flags(spec)
-        flags.update((flag, *_spelling_tuple(negative_flag)))
-    return frozenset(flags)
-
-
-# Flags ``agm exec`` declares that the engine-key catalog does not spell,
-# short spellings included: with ``@opt-short`` a program parameter can claim
-# a single-dash spelling of its own, so the host's own short flags are
-# reserved beside its long ones.
+# Flags ``agm exec`` declares itself, short spellings included: with
+# ``@opt-short`` a program parameter can claim a single-dash spelling of its
+# own, so the host's own short flags are reserved beside its long ones.
 # Every flag the command declares must appear either here or in
-# ``engine_key_flags()``: an unreserved flag is worse than a rejected
+# ``execution_option_flags()``: an unreserved flag is worse than a rejected
 # program parameter, because Click binds the token to the built-in option and
 # the parameter advertised under that flag silently keeps its default. The
 # declarations live in ``agnette.agm.cli``, a layer above this one, so they are
@@ -407,9 +399,7 @@ _BUILTIN_EXEC_FLAGS: frozenset[str] = frozenset(
 
 # ``agm exec``'s reserved flag strings: built-ins plus every shared execution
 # option. Collision checking is verbatim — no underscore/hyphen normalisation.
-EXEC_RESERVED_FLAGS: frozenset[str] = (
-    _BUILTIN_EXEC_FLAGS | engine_key_flags() | execution_option_flags()
-)
+EXEC_RESERVED_FLAGS: frozenset[str] = _BUILTIN_EXEC_FLAGS | execution_option_flags()
 
 # ``agm exec``'s run-time options a package-registered command parses too.
 # ``agnette.agm.cli_dispatch`` takes the options themselves from ``agm exec``'s command
@@ -442,7 +432,7 @@ class ExecTail:
 
 @dataclass(frozen=True, slots=True)
 class ParsedTail:
-    """Raw program arguments and module-parameter values from one CLI tail.
+    """Raw program arguments and host-parameter values from one CLI tail.
 
     ``positionally_filled`` names the parameters a positional token supplied.
     """
@@ -469,8 +459,12 @@ def _is_host_option(token: str) -> bool:
     return token.partition("=")[0] in _BUILTIN_EXEC_FLAGS
 
 
-def _file_index(tokens: "Sequence[str]") -> int | None:
+def _file_index(tokens: "Sequence[str]", arity: Mapping[str, bool] | None = None) -> int | None:
     """Return the position of the FILE token in *tokens*, or ``None`` for no FILE.
+
+    *arity* gives the separate-value arity of the options known beforehand;
+    :func:`split_exec_tail` passes the engine-only surface's, and only when no
+    program resolves.
 
     Only the host's own options may precede the FILE, and Click has already
     consumed the ones it declares, so what is left before the FILE is a help
@@ -483,7 +477,11 @@ def _file_index(tokens: "Sequence[str]") -> int | None:
     claims_next = False
     for index, token in enumerate(tokens):
         if _is_option_token(token):
-            claims_next = not _is_host_option(token) and "=" not in token
+            flag, separator, _value = token.partition("=")
+            if arity is not None and flag in arity:
+                claims_next = arity[flag] and not separator
+            else:
+                claims_next = not _is_host_option(token) and "=" not in token
             continue
         if claims_next:
             claims_next = False
@@ -631,6 +629,9 @@ def split_exec_tail(
                 if marker_names_file
                 else _file_index_from_program(before_marker, program_command_for_file)
             )
+            if index is None and not marker_names_file:
+                # No program resolves: only the engine-only surface's option arity applies.
+                index = _file_index(before_marker, engine_command().option_arity())
     consumed: set[int] = set()
     if index is None and marker is not None and marker + 1 < len(tokens):
         # The marker is what named the FILE, so the host consumes it. A marker
@@ -685,11 +686,14 @@ def protect_potential_program_values(
 
     Before a source has been discovered its unknown options have unknown
     arity. Treat a separate token after one as a possible value only for the
-    preview that locates that source. The authoritative pass later uses the
-    discovered :class:`ProgramCommand` and restores ordinary host ownership.
+    preview that locates that source, except after a flag the engine-only
+    surface (:func:`engine_command`) knows takes none. The authoritative pass
+    later uses the discovered :class:`ProgramCommand` and restores ordinary
+    host ownership.
     """
     parsed = list(tokens)
     unavailable = set(tokens)
+    engine_arity = engine_command().option_arity()
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -698,6 +702,9 @@ def protect_potential_program_values(
         owned_by_host, host_claims_next = _option_token_ownership(token, host_options)
         if owned_by_host:
             index += 2 if host_claims_next and index + 1 < len(tokens) else 1
+            continue
+        if engine_arity.get(token) is False:
+            index += 1
             continue
         possible_program_option = token.startswith("--") and "=" not in token
         possible_program_option = possible_program_option or (
@@ -1087,10 +1094,10 @@ def _click_params(
     return [positive, _negative_option(index, param, negative)]
 
 
-def _module_click_params(
+def _surface_click_params(
     index: int, entry: "ParamSurfaceEntry", projected: ProjectedOption
 ) -> list[click.Parameter]:
-    """Build one module parameter's Click options from its resolved flag table.
+    """Build one surface parameter's Click options from its resolved flag table.
 
     A polarity every higher level already claimed contributes no option at
     all; a parameter left with no positive spelling keeps its ``@opt-env``
@@ -1115,35 +1122,42 @@ def _module_click_params(
     return params
 
 
-def _module_help_record(entry: "ParamSurfaceEntry", projected: ProjectedOption) -> tuple[str, str]:
-    """Render one module parameter under its shortest resolving option spelling."""
-    spelling = next(
-        iter(
-            (
-                *entry.positive_option_spellings,
-                *_spelling_tuple(entry.short_option),
-                *entry.negative_option_spellings,
-            )
-        )
-    )
-    if projected.takes_value and spelling not in entry.negative_option_spellings:
-        spelling = (
-            f"{spelling} {entry.param.cli.metavar or _default_metavar(entry.param, projected)}"
-        )
+def _surface_help_record(entry: "ParamSurfaceEntry", projected: ProjectedOption) -> tuple[str, str]:
+    """Render one surface parameter: its shortest positive spelling beside its shortest negative."""
+    positive = (*entry.positive_option_spellings, *_spelling_tuple(entry.short_option))
+    labels: list[str] = []
+    if positive:
+        metavar = entry.param.cli.metavar or _default_metavar(entry.param, projected)
+        labels.append(f"{positive[0]} {metavar}" if projected.takes_value else positive[0])
+    labels.extend(entry.negative_option_spellings[:1])
     help_text = keep_indented_paragraphs(entry.param.cli.doc or "")
     if entry.param.cli.env is not None:
         environment = f"[env var: {entry.param.cli.env}]"
         help_text = f"{help_text}  {environment}" if help_text else environment
-    return spelling, help_text
+    return " / ".join(labels), help_text
 
 
-def _module_primary_flag(entry: "ParamSurfaceEntry") -> str:
-    """Return an available spelling, or the logical positive flag for diagnostics."""
-    if entry.positive_option_spellings:
-        return entry.positive_option_spellings[0]
-    if entry.negative_option_spellings:
-        return entry.negative_option_spellings[0]
-    return f"--{entry.param.cli.name}"
+def _help_section_title(entry: "ParamSurfaceEntry") -> str:
+    """Return the help section *entry* is listed under."""
+    if entry.param.kind is HostParamKind.ENGINE:
+        return ENGINE_SETTINGS_SECTION
+    return f"Parameters of {entry.section}"
+
+
+def _write_surface_section(
+    formatter: click.HelpFormatter,
+    title: str,
+    entries: "Sequence[tuple[ParamSurfaceEntry, ProjectedOption]]",
+    *,
+    col_max: int = 30,
+) -> None:
+    """Write *title* listing the visible *entries*, or nothing when none is."""
+    records = [
+        _surface_help_record(entry, projected) for entry, projected in entries if not entry.hidden
+    ]
+    if records:
+        with formatter.section(title):
+            formatter.write_dl(records, col_max=col_max)
 
 
 class _ProgramClickCommand(click.Command):
@@ -1164,7 +1178,7 @@ class _ProgramClickCommand(click.Command):
         usage_slots: tuple[str, ...],
         positional_help: tuple[tuple[str, str], ...] = (),
         parameter_sections: tuple[tuple[str, tuple[click.Parameter, ...]], ...] = (),
-        module_help_sections: tuple[
+        surface_help_sections: tuple[
             tuple[str, tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]], ...
         ] = (),
         ambiguous_options: Mapping[str, tuple["HostParamInfo", ...]] | None = None,
@@ -1182,7 +1196,7 @@ class _ProgramClickCommand(click.Command):
         self.usage_slots = usage_slots
         self.positional_help = positional_help
         self.parameter_sections = parameter_sections
-        self.module_help_sections = module_help_sections
+        self.surface_help_sections = surface_help_sections
         self.ambiguous_options = {} if ambiguous_options is None else ambiguous_options
         self.surface_entries = {} if surface_entries is None else surface_entries
         self.execution_option_params = tuple(
@@ -1278,15 +1292,8 @@ class _ProgramClickCommand(click.Command):
         if self.positional_help:
             with formatter.section("Arguments"):
                 formatter.write_dl(list(self.positional_help))
-        for title, entries in self.module_help_sections:
-            records = [
-                _module_help_record(entry, projected)
-                for entry, projected in entries
-                if not entry.hidden
-            ]
-            if records:
-                with formatter.section(f"Parameters of {title}"):
-                    formatter.write_dl(records)
+        for title, entries in self.surface_help_sections:
+            _write_surface_section(formatter, title, entries)
         write_execution_options(formatter)
 
 
@@ -1299,7 +1306,7 @@ def _build_click_command(
     positional_help: tuple[tuple[str, str], ...] = (),
     extra_options: Sequence[click.Parameter] = (),
     parameter_sections: tuple[tuple[str, tuple[click.Parameter, ...]], ...] = (),
-    module_help_sections: tuple[
+    surface_help_sections: tuple[
         tuple[str, tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]], ...
     ] = (),
     ambiguous_options: Mapping[str, tuple["HostParamInfo", ...]] | None = None,
@@ -1320,7 +1327,7 @@ def _build_click_command(
         usage_slots=usage_slots,
         positional_help=positional_help,
         parameter_sections=parameter_sections,
-        module_help_sections=module_help_sections,
+        surface_help_sections=surface_help_sections,
         ambiguous_options=ambiguous_options,
         surface_entries=surface_entries,
         context_settings=context_settings,
@@ -1371,7 +1378,7 @@ class ProgramCommand:
     command: _ProgramClickCommand
     positional: tuple["ProgramParamInfo", ...]
     options: tuple[tuple["ProgramParamInfo", ProjectedOption], ...]
-    module_options: tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]
+    surface_options: tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]
     surface: "ParamSurface"
     params: tuple[click.Parameter, ...]
 
@@ -1459,12 +1466,12 @@ class ProgramCommand:
                 named[slot.name] = value
             else:
                 positional.append(value)
-        module_params: dict[StaticBindingKey, object] = {}
-        for offset, (entry, projected) in enumerate(self.module_options, start=len(self.options)):
-            # Every module spelling is resolved ahead of the parse, so a
+        surface_params: dict[StaticBindingKey, object] = {}
+        for offset, (entry, projected) in enumerate(self.surface_options, start=len(self.options)):
+            # Every surface spelling is resolved ahead of the parse, so a
             # polarity whose spellings a higher level claimed has no Click
             # parameter at all and the diagnostics fall back to the other.
-            flag = _module_primary_flag(entry)
+            flag = entry.primary_flag
             value = _supplied_value(
                 ctx,
                 values,
@@ -1476,10 +1483,10 @@ class ProgramCommand:
                 suppress_positive=False,
             )
             if value is not _NOT_SUPPLIED:
-                module_params[entry.param.key] = value
+                surface_params[entry.param.key] = value
         return ParsedTail(
             arguments=ProgramArguments(positional=tuple(positional), named=named),
-            params=module_params,
+            params=surface_params,
             positionally_filled=positionally_filled,
         )
 
@@ -1512,6 +1519,30 @@ class ProgramCommand:
             return None
         return self._token_slots(count + 1, flagged)[-1][0]
 
+    def option_arity(self) -> Mapping[str, bool]:
+        """Return each option spelling this command accepts and whether it takes a separate value.
+
+        Only a positive spelling of a value-taking form does; a derived
+        ``--no-x`` is valueless even when a parameter named ``no-x`` makes the
+        same string a positive one elsewhere.
+        """
+        arity: dict[str, bool] = {}
+        for param, projected in self.options:
+            if param.cli.cli_positional:
+                continue
+            arity[projected.flag] = projected.takes_value
+            if projected.negative_flag is not None:
+                arity[projected.negative_flag] = False
+            short = _short_flag(param)
+            if short is not None:
+                arity[short] = projected.takes_value
+        for entry, projected in self.surface_options:
+            for spelling in entry.option_spellings:
+                arity[spelling] = projected.takes_value and (
+                    spelling in entry.positive_option_spellings or spelling == entry.short_option
+                )
+        return arity
+
     def value_options(
         self,
     ) -> tuple[tuple["ProgramParamInfo | HostParamInfo", tuple[str, ...]], ...]:
@@ -1526,7 +1557,7 @@ class ProgramCommand:
             if not projected.takes_value or param.cli.cli_positional:
                 continue
             result.append((param, (projected.flag, *_spelling_tuple(_short_flag(param)))))
-        for entry, projected in self.module_options:
+        for entry, projected in self.surface_options:
             if projected.takes_value:
                 result.append(
                     (
@@ -1544,29 +1575,13 @@ class ProgramCommand:
         The named parameters are the program parameters an option token
         supplies by name — the ``flagged`` set :meth:`_token_slots` takes.
         """
-        long_options: dict[str, bool] = {}
-        short_options: dict[str, bool] = {}
+        arity = self.option_arity()
         spelled_names: dict[str, str] = {}
         for param, projected in self.options:
             if param.cli.cli_positional:
                 continue
-            long_options[projected.flag] = projected.takes_value
-            spelled_names[projected.flag] = param.name
-            if projected.negative_flag is not None:
-                long_options[projected.negative_flag] = False
-                spelled_names[projected.negative_flag] = param.name
-            short = _short_flag(param)
-            if short is not None:
-                short_options[short] = projected.takes_value
-                spelled_names[short] = param.name
-        for entry, projected in self.module_options:
-            for spelling in entry.option_spellings:
-                if spelling.startswith("--"):
-                    long_options[spelling] = projected.takes_value and not spelling.startswith(
-                        "--no-"
-                    )
-                else:
-                    short_options[spelling] = projected.takes_value
+            for spelling in param_spellings(param, projected):
+                spelled_names[spelling] = param.name
 
         values: set[int] = set()
         flagged: set[str] = set()
@@ -1585,7 +1600,7 @@ class ProgramCommand:
                 flag, separator, _value = token.partition("=")
                 if flag in spelled_names:
                     flagged.add(spelled_names[flag])
-                if separator or not long_options.get(flag, False):
+                if separator or not arity.get(flag, False):
                     index += 1
                     continue
                 if index + 1 < len(tokens):
@@ -1595,7 +1610,7 @@ class ProgramCommand:
             elif token.startswith("-") and token != "-":
                 short_group = token[1:]
                 for offset, short in enumerate(short_group):
-                    takes_value = short_options.get(f"-{short}")
+                    takes_value = arity.get(f"-{short}")
                     if takes_value is None:
                         continue
                     if f"-{short}" in spelled_names:
@@ -1640,7 +1655,7 @@ class ProgramCommand:
             positional_help=self.command.positional_help,
             extra_options=extra_options,
             parameter_sections=self.command.parameter_sections,
-            module_help_sections=self.command.module_help_sections,
+            surface_help_sections=self.command.surface_help_sections,
             ambiguous_options=self.command.ambiguous_options,
             surface_entries=self.command.surface_entries,
         )
@@ -1659,7 +1674,7 @@ class ProgramCommand:
             if param.cli.hidden or param.cli.cli_positional:
                 continue
             spellings.extend(param_spellings(param, projected))
-        for entry, _projected in self.module_options:
+        for entry, _projected in self.surface_options:
             if not entry.hidden:
                 spellings.extend(entry.option_spellings)
         spellings.extend(HELP_FLAGS)
@@ -1804,9 +1819,60 @@ def build_program_command(
         return collision
     from agnette.agm.cli_support.param_surface import build_param_surface
 
-    surface = build_param_surface(reserved_flags, program, params)
-    module_options = tuple(
-        (entry, project_option(entry.param.cli.name, entry.param.type))
+    return _assemble_command(
+        program.declaration_path,
+        program.doc,
+        positional,
+        options,
+        build_param_surface(reserved_flags, program, params),
+    )
+
+
+_engine_command: ProgramCommand | None = None
+
+
+def engine_command() -> ProgramCommand:
+    """Return the command of a host with no program: the engine settings' bare surface.
+
+    The one engine-only command ``agm repl`` parses with, ``agm exec`` completes
+    and describes without a program, and every FILE scan takes its option
+    arity from. No reserved flag spells an engine-setting flag, so none is
+    claimed. Built once (a manual cache: the project's mypy configuration
+    disallows the ``Any`` ``functools.cache`` introduces).
+    """
+    global _engine_command
+    if _engine_command is None:
+        from agnette.agl.runtime.engine_config import engine_setting_params
+        from agnette.agm.cli_support.param_surface import build_param_surface
+
+        _engine_command = _assemble_command(
+            "",
+            None,
+            (),
+            (),
+            build_param_surface(frozenset(), None, engine_setting_params(), bare_only=True),
+        )
+    return _engine_command
+
+
+def engine_settings_section(*, width: int) -> str:
+    """Render the ``Engine settings`` help section of the bare engine flags, wrapped to *width*."""
+    formatter = click.HelpFormatter(width=width)
+    for title, entries in engine_command().command.surface_help_sections:
+        _write_surface_section(formatter, title, entries)
+    return formatter.getvalue()
+
+
+def _assemble_command(
+    name: str,
+    description: str | None,
+    positional: "tuple[ProgramParamInfo, ...]",
+    options: "tuple[tuple[ProgramParamInfo, ProjectedOption], ...]",
+    surface: "ParamSurface",
+) -> ProgramCommand:
+    """Assemble the Click command over a signature's *options* and the resolved *surface*."""
+    surface_options = tuple(
+        (entry, project_param_option(entry.param, entry.param.cli.name))
         for entry in surface.entries
         if entry.option_spellings or entry.param.cli.env is not None
     )
@@ -1827,18 +1893,18 @@ def build_program_command(
             click_params.extend(_click_params(index, param, projected))
     sections: dict[str, list[click.Parameter]] = {}
     help_sections: dict[str, list[tuple[ParamSurfaceEntry, ProjectedOption]]] = {}
-    for offset, (entry, projected) in enumerate(module_options, start=len(options)):
-        entry_params = _module_click_params(offset, entry, projected)
+    for offset, (entry, projected) in enumerate(surface_options, start=len(options)):
+        entry_params = _surface_click_params(offset, entry, projected)
         click_params.extend(entry_params)
         sections.setdefault(entry.section, []).extend(entry_params)
         if entry.option_spellings:
-            help_sections.setdefault(entry.section, []).append((entry, projected))
+            help_sections.setdefault(_help_section_title(entry), []).append((entry, projected))
     entries = {entry.param: entry for entry in surface.entries}
     click_params.extend(_ambiguous_click_options(surface.ambiguous_options, entries))
     command = _build_click_command(
-        program.declaration_path,
+        name,
         params=click_params,
-        description=program.doc,
+        description=description,
         usage_slots=_usage_slots(positional),
         positional_help=tuple(
             (param.cli.metavar or param.cli.name, keep_indented_paragraphs(param.cli.doc))
@@ -1850,7 +1916,7 @@ def build_program_command(
         parameter_sections=tuple(
             (section, tuple(section_params)) for section, section_params in sections.items()
         ),
-        module_help_sections=tuple(
+        surface_help_sections=tuple(
             (section, tuple(section_entries)) for section, section_entries in help_sections.items()
         ),
         ambiguous_options=surface.ambiguous_options,
@@ -1860,7 +1926,7 @@ def build_program_command(
         command=command,
         positional=positional,
         options=options,
-        module_options=module_options,
+        surface_options=surface_options,
         surface=surface,
         params=tuple(click_params),
     )

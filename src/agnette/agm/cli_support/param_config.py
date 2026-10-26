@@ -9,15 +9,10 @@ from typing import NamedTuple
 
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import ModuleId
-from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo
+from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
 from agnette.agl.zones import ParamZone
-from agnette.agm.cli_support.param_surface import (
-    ParamSurface,
-    ParamSurfaceEntry,
-    declared_spellings,
-)
+from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
 from agnette.agm.cli_support.program_options import native_raw_value, project_option
-from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from agnette.config.general import GeneralConfig
 from agnette.config.qualified_keys import (
     QualifiedConfigKey,
@@ -52,10 +47,16 @@ class ParamValueTiers:
     same key. The full chain also ranks a selected program's own ``@config``
     entries between the two — ``PipelineDriver.preflight_arguments`` merges
     all three; there is no flattened two-tier view here.
+
+    Every host parameter kind is keyed alike, engine settings included
+    (their module-route tier is ``[exec]``, which the host reads itself).
+    ``supplied`` names the ``upper`` keys the command line or environment
+    supplied, as opposed to the program route.
     """
 
     upper: Mapping[StaticBindingKey, object]
     lower: Mapping[StaticBindingKey, object]
+    supplied: frozenset[StaticBindingKey] = frozenset()
 
 
 class _RouteReport(NamedTuple):
@@ -141,9 +142,9 @@ def _report_unused_manifest_leaves(
 ) -> None:
     """Warn for manifest leaves in the selected command's own tables that nothing consumes.
 
-    Engine settings are read by the host and *consumed* holds every spelling that
-    addresses a declared parameter: the spellings reached parameters won on the
-    surface, and all spellings of the unreached ones. Inherited group and root
+    *consumed* holds every spelling that addresses a declared parameter, an engine
+    setting included: the spellings reached parameters won on the surface, and
+    all spellings of the unreached ones. Inherited group and root
     tables are skipped, since a sibling command may be the one that consumes
     them, as are tables a registered descendant command inherits from.
     """
@@ -154,7 +155,7 @@ def _report_unused_manifest_leaves(
     leaf_tables = manifest_leaf_tables(package_config, command_paths)
     for leaf in sorted(leaf_tables):
         table_path = leaf_tables[leaf]
-        if table_path not in own_tables or leaf in ENGINE_KEY_NAMES or leaf in consumed:
+        if table_path not in own_tables or leaf in consumed:
             continue
         print(
             f"warning: manifest config key '{leaf}' in the '{display_table_path(table_path)}' "
@@ -176,7 +177,7 @@ def resolve_param_values(
     package_config: TomlDict | None = None,
     declared_params: Sequence[HostParamInfo] | None = None,
 ) -> ParamValueTiers:
-    """Resolve module-parameter config values beneath parsed CLI/environment values.
+    """Resolve parameter config values beneath parsed CLI/environment values.
 
     Module routes are addressed by each binding's declaration module and
     scope. A selected program's qualified table overrides a parameter through
@@ -199,6 +200,10 @@ def resolve_param_values(
     to exempt a command's own table from that warning when one of its leaves
     is really an inherited default for a registered descendant command.
 
+    Engine settings are surface entries too, so their program-route and
+    manifest values merge into the tiers like any parameter's; they have no
+    declaration-module route, so they take no part in module-route resolution.
+
     Only the *surface* parameters (those the program reaches) take values.
     *declared_params* are the parameters the program's closure declares, reached
     or not; a configured key addressing one of them is not undeclared, so it
@@ -206,11 +211,11 @@ def resolve_param_values(
     """
     supplied = frozenset(params)
     entries = surface.entries
-    declared = (
-        tuple(entry.param for entry in entries) if declared_params is None else declared_params
+    declared = _module_declared(
+        (entry.param for entry in entries) if declared_params is None else declared_params
     )
-    module_params = tuple(entry.param for entry in entries)
-    reached = frozenset(param.key for param in module_params)
+    reached = frozenset(entry.param.key for entry in entries)
+    module_params = _module_declared(entry.param for entry in entries)
     unreached_leaves = _declared_leaves(param for param in declared if param.key not in reached)
     module_routes = _module_routes(module_params)
     program_routes = _program_routes(program, entry_segments, command_paths, entries)
@@ -246,7 +251,12 @@ def resolve_param_values(
         ),
         package_command_paths,
     )
-    return ParamValueTiers(upper=upper, lower=lower)
+    return ParamValueTiers(upper=upper, lower=lower, supplied=supplied)
+
+
+def _module_declared(params: Iterable[HostParamInfo]) -> tuple[HostParamInfo, ...]:
+    """Return the *params* a declaration module routes: all but the engine settings."""
+    return tuple(param for param in params if param.kind is not HostParamKind.ENGINE)
 
 
 def _reject_configured_cross_route_ambiguities(
@@ -380,9 +390,9 @@ def _program_routes(
 
     Every spelling a parameter wins on the CLI surface addresses it in the
     selected program's table too, so a parameter whose bare name is claimed by
-    a nearer declaration — the host's engine keys included — stays configurable
-    per program through a qualified spelling. :class:`ParamSurface` is the sole
-    authority on which spellings those are.
+    a nearer declaration stays configurable per program through a qualified
+    spelling. Engine settings route like module parameters. :class:`ParamSurface`
+    is the sole authority on which spellings those are.
     """
     if not entry_segments:
         return ()
@@ -500,7 +510,6 @@ def _route_reports(
                 *(parameter.cli.name for parameter in program.parameters),
                 *(spelling for _entry, key in program_routes for spelling in key.leaf_spellings()),
                 *unreached_leaves,
-                *ENGINE_KEY_NAMES,
             }
         )
         positional_only = frozenset(
@@ -522,7 +531,7 @@ def _route_reports(
 
 def _declared_leaves(declared: Iterable[HostParamInfo]) -> frozenset[str]:
     """Return every spelling that can address one of *declared*, claimed or not."""
-    return frozenset(spelling for param in declared for spelling in declared_spellings(param))
+    return frozenset(spelling for param in declared for spelling in param.declared_spellings)
 
 
 def _report_modules(

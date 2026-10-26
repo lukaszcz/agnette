@@ -591,13 +591,7 @@ class TestUncaughtAgentCallErrorSpan:
             "create_agl_session_host",
             lambda **_: AgentDispatcherSessionHost(failing_agent),
         )
-        args = ExecArgs(
-            file=str(agl_file),
-            argument_tokens=[],
-            strict_json=None,
-            no_trace=True,
-            trace_file=None,
-        )
+        args = ExecArgs(file=str(agl_file), argument_tokens=["--no-trace"])
         with pytest.raises(SystemExit) as exc_info:
             exec_run(args)
         assert exc_info.value.code == 2

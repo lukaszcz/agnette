@@ -10053,7 +10053,7 @@ class TestProgramFunctionDefinitions:
 
 
 class TestProgramParameterValidation:
-    """Program-parameter host-decodability and name-reservation rules."""
+    """Program-parameter host-decodability rules."""
 
     def test_decodable_parameters_typecheck(self) -> None:
         checked = resolve_and_check_repl_entry(
@@ -10069,29 +10069,17 @@ class TestProgramParameterValidation:
             ("label", ParamZone.NAMED_ONLY),
         ]
 
-    @pytest.mark.parametrize("zone", ("named-only", "standard"))
-    def test_engine_key_name_is_rejected_for_a_name_addressable_parameter(self, zone: str) -> None:
-        header = (
-            "program def main(timeout: text) -> unit = ()"
-            if zone == "named-only"
-            else "program def main(@arg-pos a: int, @arg-std timeout: text) -> unit = ()"
-        )
-        err = reject_type(header)
-        assert "engine setting name" in str(err).lower()
-
-    def test_engine_key_name_is_accepted_for_a_positional_only_parameter(self) -> None:
-        checked = resolve_and_check_repl_entry(
-            "program def main(@arg-pos timeout: text) -> unit = ()"
-        )
-        sig = checked.function_signatures["main"]
-        assert [(p.name, p.kind) for p in sig.params] == [("timeout", ParamZone.POSITIONAL_ONLY)]
-
-    def test_opt_name_replaces_the_declared_name_in_the_engine_namespace(self) -> None:
-        checked = resolve_and_check_repl_entry(
-            'program def main(@opt-name("mode") strict-json: text) -> unit = ()'
-        )
-
-        assert checked.function_signatures["main"].params[0].name == "strict-json"
+    @pytest.mark.parametrize(
+        "header",
+        (
+            "program def main(timeout: text) -> unit = ()",
+            "program def main(@arg-pos a: int, @arg-std timeout: text) -> unit = ()",
+            "program def main(@arg-pos timeout: text) -> unit = ()",
+            'program def main(@opt-name("debug") mode: text) -> unit = ()',
+        ),
+    )
+    def test_engine_key_name_is_accepted_for_any_parameter(self, header: str) -> None:
+        resolve_and_check_repl_entry(header)
 
     def test_required_after_defaulted_ordering_fires_for_program_parameters(self) -> None:
         err = reject_type("program def main(@arg-pos a: int = 1, @arg-pos b: int) -> unit = ()")

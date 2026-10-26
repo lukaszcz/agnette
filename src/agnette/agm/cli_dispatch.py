@@ -97,18 +97,8 @@ def registered_run_options(ctx: click.Context | TyperContext) -> tuple[TyperOpti
 class _RunOptionValues(TypedDict):
     """The ``ExecArgs`` fields :func:`registered_run_options` fill, keyed by option name."""
 
-    strict_json: bool | None
     echo: bool | None
     max_call_depth: int | None
-    default_agent: str | None
-    default_sandbox: str | None
-    trace_file: str | None
-    no_trace: bool
-    trace: bool
-    timeout: str | None
-    no_timeout: bool
-    debug: bool | None
-    parse_error_retries: int | None
 
 
 def _command_summary(path: str, command: CommandRegistration) -> str:
@@ -330,7 +320,6 @@ class RegisteredProgramCommand(TyperCommand):
             contains_help_flag,
             program_help_requested,
         )
-        from agnette.agm.cli_support.run_options import execution_option_conflict
 
         metadata = cast(dict[str, object], ctx.meta)
         cached_program = cast("ProgramDeclInfo | None", metadata.pop("registered_program", None))
@@ -362,10 +351,6 @@ class RegisteredProgramCommand(TyperCommand):
             argument_tokens=list(ctx.args),
             **cast(_RunOptionValues, ctx.params),
         )
-        conflict = execution_option_conflict(exec_args)
-        if conflict is not None:
-            declaration, command = program_command()
-            self._usage_error(conflict, declaration, command)
         from agnette.agm.cli_support.warning_levels import command_warning_policy
         from agnette.agm.commands.exec_program import RegisteredProgramUsageError, run_registered
 

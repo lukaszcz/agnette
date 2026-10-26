@@ -2,8 +2,9 @@
 
 Launches an interactive read-eval-print loop for the AgL workflow language.
 The REPL shares ``agm exec``'s ``[exec]`` configuration (default-agent,
-default-sandbox, and timeout), so an interactive session evaluates entries
-with the same agent dispatch backing a batch ``agm exec`` run would use.
+default-sandbox, and timeout) and its engine-setting flags, so an interactive
+session evaluates entries with the same agent dispatch backing a batch
+``agm exec`` run would use.
 
 The command itself is thin: it resolves configuration the same way ``exec``
 does, builds a value-driven dispatcher, constructs a :class:`ReplSession`,
@@ -45,8 +46,8 @@ from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.agm.cli_support.engine_seeds import (
     build_host_engine_seeds,
-    execution_cli_values,
     host_agent_spec_resolver,
+    parse_engine_flags,
     resolve_strict_json,
     resolve_timeout,
 )
@@ -86,6 +87,15 @@ def _resolve_param_seeds(
         raise AglError(str(exc)) from exc
 
 
+def _engine_cli_values(tokens: Sequence[str]) -> dict[str, object | None]:
+    """Parse *tokens* as engine-setting flags, exiting 1 on a malformed one."""
+    try:
+        return parse_engine_flags(tokens)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
 def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     """Run the ``agm repl`` command; every entry is governed by *warning_policy*."""
     ctx = current_config_context()
@@ -108,7 +118,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     # Seed only explicit CLI/config controls.  Trace-service fallbacks remain
     # absent so a ``builtin var`` initializer can provide the setting default.
     # The raw timeout preserves its configured spelling.
-    cli_values = execution_cli_values(args)
+    cli_values = _engine_cli_values(args.tokens)
     engine_tiers = build_host_engine_seeds(
         config=config,
         primary_table=toml_dict(merged_config.get("exec")),

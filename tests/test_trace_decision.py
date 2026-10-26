@@ -29,6 +29,7 @@ from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import EngineSeedTiers, build_host_engine_seeds
 from agnette.config.general import exec_config_from_merged
 from agnette.core.log import LiveTracePathResolver, TraceDecision
+from tests._engine_flags import engine_flag_tokens
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -271,7 +272,9 @@ class TestLiveTracePathResolver:
 # ---------------------------------------------------------------------------
 
 
-class TestExecLogFlagParsing:
+class TestLogFlagParsing:
+    """``--trace`` reaches the host as an engine-setting token on both commands."""
+
     @pytest.fixture()
     def runner(self) -> CliRunner:
         return CliRunner()
@@ -284,85 +287,26 @@ class TestExecLogFlagParsing:
             calls.append(args)
 
         monkeypatch.setattr(exec_command, "run", fake_run)
-        return calls
-
-    def test_trace_flag_sets_trace_true(
-        self, runner: CliRunner, tmp_path: Path, recorded_runs: list[object]
-    ) -> None:
-        agl_file = tmp_path / "test.agl"
-        agl_file.write_text("let x = 1\n")
-        result = invoke(runner, ["exec", "--trace", str(agl_file)])
-        assert result.exit_code == 0
-        assert getattr(recorded_runs[0], "trace") is True
-
-    def test_trace_and_no_trace_mutually_exclusive(
-        self, runner: CliRunner, tmp_path: Path, recorded_runs: list[object]
-    ) -> None:
-        agl_file = tmp_path / "test.agl"
-        agl_file.write_text("let x = 1\n")
-        result = invoke(runner, ["exec", "--trace", "--no-trace", str(agl_file)])
-        assert result.exit_code != 0
-        assert recorded_runs == []
-
-    def test_trace_and_trace_file_mutually_exclusive(
-        self, runner: CliRunner, tmp_path: Path, recorded_runs: list[object]
-    ) -> None:
-        agl_file = tmp_path / "test.agl"
-        agl_file.write_text("let x = 1\n")
-        result = invoke(runner, ["exec", "--trace", "--trace-file", "/tmp/x.jsonl", str(agl_file)])
-        assert result.exit_code != 0
-        assert recorded_runs == []
-
-    def test_default_trace_is_false(
-        self, runner: CliRunner, tmp_path: Path, recorded_runs: list[object]
-    ) -> None:
-        agl_file = tmp_path / "test.agl"
-        agl_file.write_text("let x = 1\n")
-        result = invoke(runner, ["exec", str(agl_file)])
-        assert result.exit_code == 0
-        assert getattr(recorded_runs[0], "trace") is False
-
-
-class TestReplLogFlagParsing:
-    @pytest.fixture()
-    def runner(self) -> CliRunner:
-        return CliRunner()
-
-    @pytest.fixture()
-    def recorded_runs(self, monkeypatch: pytest.MonkeyPatch) -> list[object]:
-        calls: list[object] = []
-
-        def fake_run(args: object, **_: object) -> None:
-            calls.append(args)
-
         monkeypatch.setattr(repl_command, "run", fake_run)
         return calls
 
-    def test_trace_flag_sets_trace_true(
+    def test_exec_forwards_the_trace_flag(
+        self, runner: CliRunner, tmp_path: Path, recorded_runs: list[object]
+    ) -> None:
+        agl_file = tmp_path / "test.agl"
+        agl_file.write_text("let x = 1\n")
+        assert invoke(runner, ["exec", "--trace", str(agl_file)]).exit_code == 0
+        assert getattr(recorded_runs[0], "argument_tokens") == ["--trace"]
+        assert invoke(runner, ["exec", str(agl_file)]).exit_code == 0
+        assert getattr(recorded_runs[1], "argument_tokens") == []
+
+    def test_repl_forwards_the_trace_flag(
         self, runner: CliRunner, recorded_runs: list[object]
     ) -> None:
-        result = invoke(runner, ["repl", "--trace"])
-        assert result.exit_code == 0
-        assert getattr(recorded_runs[0], "trace") is True
-
-    def test_trace_and_no_trace_mutually_exclusive(
-        self, runner: CliRunner, recorded_runs: list[object]
-    ) -> None:
-        result = invoke(runner, ["repl", "--trace", "--no-trace"])
-        assert result.exit_code != 0
-        assert recorded_runs == []
-
-    def test_trace_and_trace_file_mutually_exclusive(
-        self, runner: CliRunner, recorded_runs: list[object]
-    ) -> None:
-        result = invoke(runner, ["repl", "--trace", "--trace-file", "/tmp/x.jsonl"])
-        assert result.exit_code != 0
-        assert recorded_runs == []
-
-    def test_default_trace_is_false(self, runner: CliRunner, recorded_runs: list[object]) -> None:
-        result = invoke(runner, ["repl"])
-        assert result.exit_code == 0
-        assert getattr(recorded_runs[0], "trace") is False
+        assert invoke(runner, ["repl", "--trace"]).exit_code == 0
+        assert getattr(recorded_runs[0], "tokens") == ["--trace"]
+        assert invoke(runner, ["repl"]).exit_code == 0
+        assert getattr(recorded_runs[1], "tokens") == []
 
 
 # ---------------------------------------------------------------------------
@@ -381,12 +325,9 @@ def _exec_args(
     return ExecArgs(
         file=None,
         code=code,
-        argument_tokens=[],
-        strict_json=None,
-        trace=trace,
-        no_trace=no_trace,
-        trace_file=trace_file,
-        debug=debug,
+        argument_tokens=engine_flag_tokens(
+            trace=trace, no_trace=no_trace, trace_file=trace_file, debug=debug
+        ),
     )
 
 

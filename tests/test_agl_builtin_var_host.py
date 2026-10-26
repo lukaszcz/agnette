@@ -25,6 +25,7 @@ from agnette.agm.commands import exec_program as exec_engine
 from agnette.config.context import ConfigContext
 from agnette.packages.stdlib import StdlibSelection
 from tests._agl_helpers import write_file_program
+from tests._engine_flags import engine_flag_tokens
 from tests.conftest import FakeAgentTransport
 from tests.test_agent_rpc import RpcStub
 
@@ -37,11 +38,7 @@ def _exec_args(
     """Build ExecArgs for *agl_file* with logging off unless overridden."""
     return ExecArgs(
         file=str(agl_file),
-        argument_tokens=[],
-        strict_json=None,
-        no_trace=no_trace,
-        trace=trace,
-        trace_file=trace_file,
+        argument_tokens=engine_flag_tokens(no_trace=no_trace, trace=trace, trace_file=trace_file),
     )
 
 

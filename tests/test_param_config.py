@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 import pytest
 
 from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.runtime.engine_config import engine_setting_params
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
 from agnette.agl.semantics.types import BoolType, IntType, TextType, Type
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
+from agnette.agm.cli_support.engine_seeds import split_engine_tiers
 from agnette.agm.cli_support.param_config import ParamValueTiers, resolve_param_values
 from agnette.agm.cli_support.param_surface import ParamSurface, build_param_surface
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
@@ -75,7 +78,7 @@ def _surface(
     bindings: tuple[HostParamInfo, ...],
     reserved: frozenset[str] = frozenset(),
 ) -> ParamSurface:
-    return build_param_surface(reserved, program, bindings)
+    return build_param_surface(reserved, program, (*bindings, *engine_setting_params()))
 
 
 def _resolve(
@@ -313,20 +316,75 @@ def test_a_qualified_leaf_reaches_a_param_named_after_an_engine_key() -> None:
     assert values == {binding.key: "30s"}
 
 
-def test_a_bare_engine_key_leaf_still_never_reaches_a_param() -> None:
-    """The host reserves every engine key's flag, so the parameter never wins
-    that bare name on the surface and the leaf stays the engine key's own."""
+def test_a_bare_leaf_reaches_the_param_that_shadows_the_engine_setting() -> None:
     binding = _binding("A/logging", "timeout", TextType())
     program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
 
-    values = _resolve(
-        _config({"workflow": {"run": {"timeout": "30s"}}}),
+    tiers = _tiers(_config({"workflow": {"run": {"timeout": "30s"}}}), program, (binding,))
+    module, engine = split_engine_tiers(tiers)
+
+    assert module.upper == {binding.key: "30s"}
+    assert engine.program == {}
+
+
+def _tiers(
+    config: GeneralConfig,
+    program: ProgramDeclInfo,
+    bindings: tuple[HostParamInfo, ...],
+    **kwargs: Any,
+) -> ParamValueTiers:
+    return resolve_param_values(
+        config,
         program,
-        (binding,),
-        reserved=EXEC_RESERVED_FLAGS,
+        {},
+        entry_segments=("workflow",),
+        command_paths=(),
+        surface=_surface(program, bindings),
+        **kwargs,
     )
 
-    assert values == {}
+
+def test_a_bare_leaf_reaches_the_engine_setting_when_no_param_claims_the_name() -> None:
+    program = _program()
+
+    tiers = _tiers(_config({"workflow": {"run": {"timeout": "30s", "debug": True}}}), program, ())
+
+    module, engine = split_engine_tiers(tiers)
+
+    assert engine.program == {"timeout": "30s", "debug": True}
+    assert module.upper == {}
+
+
+def test_a_qualified_leaf_always_reaches_the_engine_setting() -> None:
+    binding = _binding("A/logging", "timeout", TextType())
+    program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+    tiers = _tiers(
+        _config({"workflow": {"run": {"std.config.timeout": "30s", "logging.timeout": "9s"}}}),
+        program,
+        (binding,),
+    )
+
+    module, engine = split_engine_tiers(tiers)
+
+    assert engine.program == {"timeout": "30s"}
+    assert module.upper == {binding.key: "9s"}
+
+
+def test_manifest_config_supplies_the_engine_settings_beneath_the_program_table() -> None:
+    program = _program()
+
+    tiers = _tiers(
+        _config({"workflow": {"run": {"debug": True}}}),
+        program,
+        (),
+        package_config={"timeout": "5s", "debug": False},
+    )
+
+    _, engine = split_engine_tiers(tiers)
+
+    assert engine.program == {"debug": True}
+    assert engine.manifest == {"timeout": "5s"}
 
 
 def test_rejects_two_spellings_of_one_param_in_one_program_table() -> None:

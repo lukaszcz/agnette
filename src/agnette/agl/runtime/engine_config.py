@@ -15,12 +15,14 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from agnette.agl.ir.ids import NominalId
+    from agnette.agl.runtime.types import HostParamInfo
     from agnette.agl.semantics.type_table import TypeTable
     from agnette.agl.semantics.types import Type as AglType
     from agnette.agl.semantics.values import Value
 
 __all__ = [
     "engine_default_settings",
+    "engine_setting_params",
     "EngineRangeError",
     "raw_option_str",
     "restamp_engine_setting",
@@ -213,6 +215,33 @@ def engine_default_settings() -> "dict[str, Value]":
     return build_engine_config_seeds(
         {spec.name: spec.default for spec in ENGINE_KEYS if spec.has_default}
     )
+
+
+_engine_setting_params: "tuple[HostParamInfo, ...] | None" = None
+
+
+def engine_setting_params() -> "tuple[HostParamInfo, ...]":
+    """Return every engine setting as a host parameter, in catalog order.
+
+    Built once (a manual cache: the project's mypy configuration disallows the
+    ``Any`` ``functools.cache`` introduces).
+    """
+    global _engine_setting_params
+    if _engine_setting_params is None:
+        from agnette.agl.attributes import ProgramOptionSpec
+        from agnette.agl.runtime.types import HostParamInfo
+        from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
+
+        _engine_setting_params = tuple(
+            HostParamInfo.engine_setting(
+                spec.name,
+                ENGINE_KEY_TYPES[spec.name],
+                ProgramOptionSpec(name=spec.name, metavar=spec.metavar, doc=spec.doc),
+                is_path=spec.is_path,
+            )
+            for spec in ENGINE_KEYS
+        )
+    return _engine_setting_params
 
 
 def _reserved_default_resolver(nominal: "NominalId", field_index: int) -> "Value":

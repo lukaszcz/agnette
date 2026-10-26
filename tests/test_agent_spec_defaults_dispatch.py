@@ -451,9 +451,7 @@ def _run_repl(monkeypatch: pytest.MonkeyPatch) -> list[ReplSession]:
         sessions.append(session)
 
     monkeypatch.setattr(plain_console_mod, "run_plain_console", capture_session)
-    repl_command.run(
-        ReplArgs(strict_json=None, quiet=False, no_trace=True, trace_file=None, plain=True)
-    )
+    repl_command.run(ReplArgs(quiet=False, plain=True, tokens=["--no-trace"]))
     return sessions
 
 

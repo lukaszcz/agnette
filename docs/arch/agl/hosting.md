@@ -16,7 +16,7 @@ The REPL accepts an optional parameter-seed resolver, invoked once per entry for
 
 ## Engine Settings and Host Seeds
 
-Engine settings are root `builtin var` bindings of `std/config`, catalogued in `config/engine_keys.py` ([config.md](../config.md)). Hosts seed them by engine key (`builtin_host_settings`) and any host-backed binding by qualified key (`builtin_var_seeds`, which wins on overlap); a source write overrides a seed from that program point on, and the evaluator routes each write to an interpreter field or a host register per the catalog. Enum-backed settings are restamped between the reserved fallback identity and the running program's nominal identity by one helper (`runtime/engine_config.py`). Agent output echo is a host option, not an engine setting.
+Engine settings are root `builtin var` bindings of `std/config`, catalogued in `config/engine_keys.py` ([config.md](../config.md)). Hosts seed them by engine key (`builtin_host_settings`) and any host-backed binding by qualified key (`builtin_var_seeds`, which wins on overlap); a source write overrides a seed from that program point on, and the evaluator routes each write to an interpreter field or a host register per the catalog. Enum-backed settings are restamped between the reserved fallback identity and the running program's nominal identity by one helper (`runtime/engine_config.py`). Each setting is also a host parameter (`HostParamKind.ENGINE`, `engine_setting_params`) appended after a program's reachable module parameters, so command surfaces project and shadow it like any parameter ([../cli.md](../cli.md)). Agent output echo is a host option, not an engine setting.
 
 ## Diagnostics and Recursion
 

@@ -95,6 +95,14 @@ a direct `agm repl` entry is a static error.
   `warn` (report it), or `deny` (report it as an error). Overrides the `[warnings]` config table;
   a source `@allow` region outranks both. An unknown name or level, or one name given two
   different levels, is a usage error (exit 1).
+- **Engine settings**: `--strict-json`, `--default-agent`, `--default-sandbox`, `--timeout`,
+  `--trace`, `--trace-file`, `--debug`, and `--parse-error-retries`, with their `--no-...`
+  forms, are the `std/config` engine settings' own [parameters](#module-parameters), at the
+  last claim level. The program's value parameters and every module parameter it reaches claim
+  a name first, so a parameter named `timeout` shadows `--timeout`; every engine setting
+  stays addressable as `--std.config.NAME` (`--std.config.timeout 30s`, `--no-std.config.timeout`)
+  and, in a program table, as the quoted key `"std.config.timeout"`. A flag given on the command
+  line outranks every config layer.
 - `--strict-json`: Agents must return exactly one bare JSON value (no fences, prose, or repair).
 - `--no-strict-json` (default): Recover exactly one JSON value from chatty output (stripping
   fences/prose, repairing trivially malformed JSON), then validate it strictly against the
@@ -180,25 +188,18 @@ through to the declared default. For
 Also reported before any agent runs: a parameter supplied twice (two flags, or positional plus
 `--x`), an unrecognized `--flag`, or more positionals than positional-capable parameters.
 
-**Reserved names.** Program arguments and engine settings share one flag and config namespace,
-so a parameter named after an engine setting (`default-agent`, `default-sandbox`, `strict-json`,
-`timeout`, `trace`, `trace-file`, `debug`, `parse-error-retries`) is a static error even if never
-supplied, also reported by `agm check` — an unzoned required one included, since it keeps its
-config key; only an explicit `@arg-pos` parameter may take such a name.
-A projected flag that collides with a reserved flag has no static check, only a host one: selecting that
+**Reserved names.** A projected flag that collides with a reserved flag has no static check, only a host one: selecting that
 program for execution fails, while `--help` and shell completion silently fall back to
 `agm exec`'s own help and no completions. `agm exec` reserves:
 
 - its own options: `--help`/`-h`, `--program`/`-p`, `--code`/`-c`, `--module-path`/`-I`,
   `--max-call-depth`, `--no-stdlib`, `--warning`, `--echo`/`--no-echo`;
-- every engine-setting flag in both polarities: `--default-agent`, `--default-sandbox`,
-  `--strict-json`/`--no-strict-json`, `--timeout`/`--no-timeout`,
-  `--trace`/`--no-trace`, `--trace-file`, `--debug`/`--no-debug`, `--parse-error-retries`
-  (so `no-trace: text` collides);
 - other parameters' projected flags (`cache: bool`'s `--no-cache` vs `no-cache: bool`).
 
-A [registered package command](pkg.md#registered-commands) reserves `-h`/`--help`,
-and its run-time options: the engine-setting flags and `--max-call-depth`. Because of the help
+The engine settings are not reserved: a parameter may take an engine setting's name and shadows
+its bare spelling. A [registered package command](pkg.md#registered-commands) reserves `-h`/`--help`,
+`--echo`/`--no-echo`, and `--max-call-depth`; its engine-setting flags are the same parameters as
+under `agm exec`. Because of the help
 fallback, `agm exec FILE --nope -h` prints `agm exec`'s help (exit 0) for a colliding program, but
 is a usage error (exit 1) when the program's own parser exists to reject `--nope`.
 
@@ -260,8 +261,10 @@ in flags; `::` is only for declaration paths in AgL source.
 
 Bare names are claimed by the host, the selected program's value parameters, parameters of its
 own module, parameters of modules with the program's owner (the package mounting a module, else
-the loose module root it was found through), then parameters of other owners, in that order; a same-package helper
-therefore shadows a dependency's parameter of the same name. A shadowed parameter keeps its
+the loose module root it was found through), parameters of other owners, then the engine settings,
+in that order; a same-package helper
+therefore shadows a dependency's parameter of the same name, and any parameter shadows an engine
+setting's bare name. A shadowed parameter keeps its
 qualified flags. Several parameters in one level can make a bare flag ambiguous; declaring them
 is valid, but using that flag (or the config key of that spelling) is an error that names the
 declarations. `@opt-name` supplies the
@@ -269,7 +272,8 @@ external name in flags and config; `@opt-env` is the fallback after CLI flags; `
 removes the entry from help and completion without disabling it.
 
 Selected-program help shows its usual options first, then one `Parameters of MODULE` section for
-each module declaring a reached parameter, then the shared execution options. Each visible module
+each module declaring a reached parameter, then an `Engine settings` section, then the shared
+execution options. Each visible module
 parameter appears under its shortest resolving spelling, so a shadowed one shows only qualified
 spellings; one with no resolving spelling is omitted.
 For module parameter precedence and configuration routes, see
@@ -665,8 +669,7 @@ failure; a clean `FILE` prints nothing.
 No `program def` is required, so `agm check` can check library modules directly. `agm exec`
 requires an entry `program def`. A `program def` is validated with its module, including that each value parameter's
 type can cross the host/JSON boundary (`text` verbatim, or a finite, JSON-decodable data type;
-a function type is rejected) and that no name-addressable parameter uses a reserved
-engine-setting name. `check` never selects, configures, or runs an entry: no argument
+a function type is rejected). `check` never selects, configures, or runs an entry: no argument
 projection, no `-p`.
 
 [`agm pkg check`](pkg.md) is different: it validates a package's manifest and module-tree
@@ -855,9 +858,11 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
 
 ### Options
 
-- `--strict-json` / `--no-strict-json`, `--max-call-depth N`, `--default-agent AGENT`,
+- `--strict-json` / `--no-strict-json`, `--default-agent AGENT`,
   `--default-sandbox SANDBOX`, `--timeout DURATION` / `--no-timeout`, `--debug` / `--no-debug`,
-  `--parse-error-retries N`: As for `agm exec`; `debug` is read when the session ends.
+  `--parse-error-retries N`: The engine settings, by their bare names only, as for `agm exec`;
+  `debug` is read when the session ends. There is no program to shadow them.
+- `--max-call-depth N`: As for `agm exec`.
 - `--echo` / `--no-echo`: Echo live agent progress and final responses to stderr, as in `agm exec`;
   defaults to `[exec] echo` (off).
 - `--quiet`: Do not echo entry results, for this session only (does not persist and overrides a

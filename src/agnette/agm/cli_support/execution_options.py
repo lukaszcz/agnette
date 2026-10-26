@@ -1,4 +1,8 @@
-"""Shared declarations and help display for AgL execution options."""
+"""Shared declarations and help display for the AgL options that are not engine settings.
+
+Engine settings are host parameters (``cli_support/param_surface.py``), not
+execution options.
+"""
 
 from __future__ import annotations
 
@@ -30,19 +34,7 @@ class _HelpGroup:
 
 EXECUTION_OPTION_SPECS: tuple[ExecutionOptionSpec, ...] = (
     ExecutionOptionSpec("echo", ("--echo/--no-echo",), None, "echo"),
-    ExecutionOptionSpec("strict_json", ("--strict-json/--no-strict-json",), None, "strict_json"),
     ExecutionOptionSpec("max_call_depth", ("--max-call-depth",), "N", "call_depth"),
-    ExecutionOptionSpec("default_agent", ("--default-agent",), "AGENT", "default_agent"),
-    ExecutionOptionSpec("default_sandbox", ("--default-sandbox",), "SANDBOX", "default_sandbox"),
-    ExecutionOptionSpec("timeout", ("--timeout",), "DURATION", "timeout"),
-    ExecutionOptionSpec("no_timeout", ("--no-timeout",), None, "timeout"),
-    ExecutionOptionSpec("trace", ("--trace",), None, "trace"),
-    ExecutionOptionSpec("no_trace", ("--no-trace",), None, "trace"),
-    ExecutionOptionSpec("trace_file", ("--trace-file",), "PATH", "trace_file"),
-    ExecutionOptionSpec("debug", ("--debug/--no-debug",), None, "debug"),
-    ExecutionOptionSpec(
-        "parse_error_retries", ("--parse-error-retries",), "N", "parse_error_retries"
-    ),
 )
 
 _SPEC_BY_NAME = {spec.name: spec for spec in EXECUTION_OPTION_SPECS}
@@ -51,15 +43,7 @@ _SPEC_BY_NAME = {spec.name: spec for spec in EXECUTION_OPTION_SPECS}
 EXECUTION_OPTION_NAMES: frozenset[str] = frozenset(_SPEC_BY_NAME)
 _HELP_GROUPS: tuple[_HelpGroup, ...] = (
     _HelpGroup("echo", "Echo agent turn output to stderr."),
-    _HelpGroup("strict_json", "Strict or lenient agent JSON parsing."),
     _HelpGroup("call_depth", "Maximum call depth."),
-    _HelpGroup("default_agent", "Default agent (Agent value or command)."),
-    _HelpGroup("default_sandbox", "Default agent sandbox (AgentSandbox)."),
-    _HelpGroup("timeout", "Shell-exec/agent idle timeout, or none."),
-    _HelpGroup("trace", "Enable or disable trace logging."),
-    _HelpGroup("trace_file", "Write the JSONL trace to PATH."),
-    _HelpGroup("debug", "Debug mode."),
-    _HelpGroup("parse_error_retries", "Default parse-error-retries for ask."),
 )
 
 

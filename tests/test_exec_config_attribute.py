@@ -264,15 +264,7 @@ class TestConfigLogFileDerivesLog:
             f'import std/config\n\n@config(config::trace-file = Some("{trace_path}"))\n'
             'program def main() -> unit = print "hi"\n',
         )
-        exec_command.run(
-            ExecArgs(
-                file=str(agl_file),
-                argument_tokens=[],
-                strict_json=None,
-                no_trace=False,
-                trace_file=None,
-            )
-        )
+        exec_command.run(ExecArgs(file=str(agl_file), argument_tokens=[]))
         assert trace_path.exists()
 
     def test_config_trace_file_seeds_the_trace_register_true(
@@ -289,15 +281,7 @@ class TestConfigLogFileDerivesLog:
             f'import std/config\n\n@config(config::trace-file = Some("{trace_path}"))\n'
             "program def main() -> unit = print(config::trace)\n",
         )
-        exec_command.run(
-            ExecArgs(
-                file=str(agl_file),
-                argument_tokens=[],
-                strict_json=None,
-                no_trace=False,
-                trace_file=None,
-            )
-        )
+        exec_command.run(ExecArgs(file=str(agl_file), argument_tokens=[]))
         assert capsys.readouterr().out == "true\n"
         assert trace_path.exists()
 
@@ -313,15 +297,7 @@ class TestConfigLogFlagInteractions:
             f'import std/config\n\n@config(config::trace-file = Some("{trace_path}"))\n'
             'program def main() -> unit = print "hi"\n',
         )
-        exec_command.run(
-            ExecArgs(
-                file=str(agl_file),
-                argument_tokens=[],
-                strict_json=None,
-                no_trace=True,
-                trace_file=None,
-            )
-        )
+        exec_command.run(ExecArgs(file=str(agl_file), argument_tokens=["--no-trace"]))
         assert not trace_path.exists()
 
 

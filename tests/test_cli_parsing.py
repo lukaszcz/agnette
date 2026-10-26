@@ -38,7 +38,7 @@ import agnette.agm.commands.worktree.remove as worktree_remove_command
 import agnette.agm.parser as parser_helpers
 from agnette.core import dry_run as dry_run_state
 from agnette.packages.layout import MODULE_TREE_DIRNAME
-from tests._help_helpers import assert_lists_execution_options
+from tests._help_helpers import assert_lists_engine_settings, assert_lists_execution_options
 
 
 class RecordedArgs(Protocol):
@@ -1436,17 +1436,16 @@ class TestParserHelpers:
         result = output.getvalue()
         assert "agm open" in result
 
-    def test_exec_help_lists_current_engine_options(self) -> None:
+    @pytest.mark.parametrize("command", ["exec", "repl"])
+    def test_help_lists_the_engine_settings_section(self, command: str) -> None:
         output = io.StringIO()
-        parser_helpers.print_help_for_command_path(["exec"], file=output)
+        parser_helpers.print_help_for_command_path([command], file=output)
         result = output.getvalue()
-        for option in (
-            "--default-agent",
-            "--timeout",
-            "--no-timeout",
-        ):
-            assert option in result
+
+        assert_lists_engine_settings(result)
         assert "--runner" not in result
+        assert result.index("Options:") < result.index("Engine settings:")
+        assert result.index("Engine settings:") < result.index("Execution options:")
 
     @pytest.mark.parametrize("command", ["exec", "repl"])
     def test_execution_options_follow_the_command_options(self, command: str) -> None:
@@ -1463,14 +1462,6 @@ class TestParserHelpers:
         parser_helpers.print_help_for_command_path(["exec"], file=output)
 
         assert "PACKAGE/MODULE::PROGRAM" in output.getvalue()
-
-    def test_repl_help_lists_engine_options(self) -> None:
-        output = io.StringIO()
-        parser_helpers.print_help_for_command_path(["repl"], file=output)
-        result = output.getvalue()
-        assert "--strict-json" in result
-        assert "--default-agent" in result
-        assert "--runner" not in result
 
     def test_print_command_help_with_file_param(self) -> None:
         output = io.StringIO()
@@ -1618,55 +1609,6 @@ class TestExecModulePathOption:
         assert getattr(calls[0], "module_paths") == []
 
 
-class TestExecEngineFlagExclusivity:
-    """Parser-contract tests for exec's mutually exclusive engine flags."""
-
-    def test_exec_rejects_trace_file_with_no_trace(self, runner: CliRunner, tmp_path: Path) -> None:
-        agl_file = tmp_path / "prog.agl"
-        agl_file.write_text("let x = 1\n")
-        result = invoke(runner, ["exec", str(agl_file), "--trace-file", "out.log", "--no-trace"])
-        assert result.exit_code != 0
-        assert "mutually exclusive" in result.output
-
-    def test_exec_rejects_timeout_with_no_timeout(self, runner: CliRunner, tmp_path: Path) -> None:
-        agl_file = tmp_path / "prog.agl"
-        agl_file.write_text("let x = 1\n")
-        result = invoke(runner, ["exec", str(agl_file), "--timeout", "30s", "--no-timeout"])
-        assert result.exit_code != 0
-        assert "mutually exclusive" in result.output
-
-    def test_exec_rejects_removed_no_trace_file_flag(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        agl_file = tmp_path / "prog.agl"
-        agl_file.write_text("let x = 1\n")
-        assert invoke(runner, ["exec", str(agl_file), "--no-trace-file"]).exit_code != 0
-
-    def test_every_negatable_engine_key_excludes_its_own_negative(self) -> None:
-        """The rule is derived from the projection, so a new key brings its own."""
-        from agnette.agm.cli_support.program_options import engine_key_option_flags
-        from agnette.agm.cli_support.run_options import _exclusive_flag_groups
-        from agnette.config.engine_keys import ENGINE_KEYS
-
-        groups = _exclusive_flag_groups()
-        for spec in ENGINE_KEYS:
-            flag, negative_flag = engine_key_option_flags(spec)
-            if negative_flag is None:
-                continue
-            both = {flag, negative_flag}
-            assert any(both <= set(group) for group in groups), spec.name
-
-    def test_register_members_exclude_the_registers_switch(self) -> None:
-        """Keys sharing a register name one destination, so only one may be given."""
-        from agnette.agm.cli_support.run_options import _exclusive_flag_groups
-        from agnette.config.engine_keys import TRACE_ENGINE_KEYS
-
-        flags = {f"--{name}" for name in TRACE_ENGINE_KEYS}
-        assert any(
-            flags <= set(group) and "--no-trace" in group for group in _exclusive_flag_groups()
-        )
-
-
 class TestReplStdlibOption:
     def test_no_stdlib_passed_to_repl_args(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
@@ -1732,41 +1674,34 @@ class TestMaxCallDepthOption:
         assert getattr(calls[0], "max_call_depth") == 7
 
 
-class TestParseErrorRetriesOption:
-    """``--parse-error-retries`` reaches exec and repl argument containers."""
+class TestEngineSettingTokens:
+    """Engine-setting flags are not Typer options: they reach the host as tail tokens."""
 
-    @pytest.mark.parametrize(
-        ("command", "flags", "expected"),
-        [
-            ("exec", ["--parse-error-retries", "3"], 3),
-            ("exec", [], None),
-            ("repl", ["--parse-error-retries", "0"], 0),
-            ("repl", [], None),
-        ],
-    )
-    def test_flag_passed_to_args(
-        self,
-        runner: CliRunner,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        command: str,
-        flags: list[str],
-        expected: int | None,
+    def test_exec_forwards_engine_flags_with_the_program_tokens(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import agnette.agm.commands.exec as exec_mod
+
+        calls: list[object] = []
+        monkeypatch.setattr(exec_mod, "run", lambda args, **_: calls.append(args))
+        agl_file = tmp_path / "prog.agl"
+        agl_file.write_text("program def main() -> unit =\n  ()\n")
+
+        result = invoke(runner, ["exec", str(agl_file), "--parse-error-retries", "3"])
+
+        assert result.exit_code == 0, result.output
+        assert getattr(calls[0], "argument_tokens") == ["--parse-error-retries", "3"]
+
+    def test_repl_forwards_engine_flags_as_tokens(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import agnette.agm.commands.repl as repl_mod
 
         calls: list[object] = []
-        monkeypatch.setattr(
-            exec_mod if command == "exec" else repl_mod,
-            "run",
-            lambda args, **_: calls.append(args),
-        )
-        agl_file = tmp_path / "prog.agl"
-        agl_file.write_text("let x = 1\n")
-        target = [str(agl_file)] if command == "exec" else []
+        monkeypatch.setattr(repl_mod, "run", lambda args, **_: calls.append(args))
 
-        result = invoke(runner, [command, *flags, *target])
+        result = invoke(runner, ["repl", "--parse-error-retries", "0", "--max-call-depth", "7"])
 
         assert result.exit_code == 0, result.output
-        assert getattr(calls[0], "parse_error_retries") == expected
+        assert getattr(calls[0], "tokens") == ["--parse-error-retries", "0"]
+        assert getattr(calls[0], "max_call_depth") == 7

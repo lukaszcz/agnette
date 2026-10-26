@@ -1128,6 +1128,43 @@ class TestManifestConfigDiscipline:
         with pytest.raises(DisciplineError):
             validate_package(package)
 
+    def test_a_param_spelling_shadows_an_engine_setting_leaf(self, tmp_path: Path) -> None:
+        """A word a ``@param`` spells is decoded per program, not as the engine setting."""
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            '[config]\ntimeout = "never"\n',
+            '@param let timeout: text = "x"\nprogram def main() -> unit = ()\n',
+        )
+
+        validate_package(package)
+
+    def test_accepts_the_qualified_engine_setting_spelling(self, tmp_path: Path) -> None:
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            '[config]\n"std.config.timeout" = "5s"\n',
+            "program def main() -> unit = ()\n",
+        )
+
+        validate_package(package)
+
+    def test_rejects_an_invalid_value_for_the_qualified_engine_setting_spelling(
+        self, tmp_path: Path
+    ) -> None:
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            '[config]\n"std.config.timeout" = "not-a-duration"\n',
+            "program def main() -> unit = ()\n",
+        )
+
+        with pytest.raises(DisciplineError):
+            validate_package(package)
+
     def test_accepts_the_packages_own_dotted_param_spellings(self, tmp_path: Path) -> None:
         """A package's own module addresses its ``@param`` bindings by dotted spelling too."""
         package = self._write(

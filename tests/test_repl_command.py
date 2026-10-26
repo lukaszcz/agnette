@@ -44,6 +44,7 @@ from agnette.config.general import GeneralConfig
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.stdlib import StdlibSelection
 from agnette.sandbox.request import SandboxLimits
+from tests._engine_flags import engine_flag_tokens
 
 
 class RecordedArgs(Protocol):
@@ -81,16 +82,9 @@ class TestReplArgsParsing:
         result = invoke(runner, ["repl"])
         assert result.exit_code == 0
         args = recorded_runs[0]
-        assert getattr(args, "strict_json") is None
+        assert getattr(args, "tokens") == []
         assert getattr(args, "quiet") is False
-        assert getattr(args, "no_trace") is False
-        assert getattr(args, "trace_file") is None
         assert getattr(args, "plain") is False
-
-    def test_input_option_removed(self, runner: CliRunner, recorded_runs: list[object]) -> None:
-        # agm repl has no --input option.
-        result = invoke(runner, ["repl", "--input", "a=1"])
-        assert result.exit_code != 0  # unknown option
 
     def test_dry_run_option_removed(self, runner: CliRunner) -> None:
         result = invoke(runner, ["repl", "--dry-run"])
@@ -100,20 +94,6 @@ class TestReplArgsParsing:
         result = invoke(runner, ["repl", "--help"])
         assert result.exit_code == 0
         assert "--dry-run" not in result.output
-
-    def test_strict_json_flag(self, runner: CliRunner, recorded_runs: list[object]) -> None:
-        assert invoke(runner, ["repl", "--strict-json"]).exit_code == 0
-        assert getattr(recorded_runs[0], "strict_json") is True
-
-    def test_no_strict_json_flag(self, runner: CliRunner, recorded_runs: list[object]) -> None:
-        assert invoke(runner, ["repl", "--no-strict-json"]).exit_code == 0
-        assert getattr(recorded_runs[0], "strict_json") is False
-
-    def test_agent_flag(self, runner: CliRunner, recorded_runs: list[object]) -> None:
-        assert (
-            invoke(runner, ["repl", "--default-agent", 'AgentCommand("echo agent")']).exit_code == 0
-        )
-        assert getattr(recorded_runs[0], "default_agent") == 'AgentCommand("echo agent")'
 
     def test_quiet_flag(self, runner: CliRunner, recorded_runs: list[object]) -> None:
         assert invoke(runner, ["repl", "--quiet"]).exit_code == 0
@@ -126,63 +106,54 @@ class TestReplArgsParsing:
         assert invoke(runner, ["repl", flag]).exit_code == 0
         assert getattr(recorded_runs[0], "echo") is expected
 
-    def test_trace_file_flag(self, runner: CliRunner, recorded_runs: list[object]) -> None:
-        assert invoke(runner, ["repl", "--trace-file", "/tmp/r.log"]).exit_code == 0
-        assert getattr(recorded_runs[0], "trace_file") == "/tmp/r.log"
-
-    def test_no_trace_flag(self, runner: CliRunner, recorded_runs: list[object]) -> None:
-        assert invoke(runner, ["repl", "--no-trace"]).exit_code == 0
-        assert getattr(recorded_runs[0], "no_trace") is True
-
     def test_plain_flag(self, runner: CliRunner, recorded_runs: list[object]) -> None:
         assert invoke(runner, ["repl", "--plain"]).exit_code == 0
         assert getattr(recorded_runs[0], "plain") is True
 
     @pytest.mark.parametrize(
-        ("argv", "field", "expected"),
+        "argv",
         [
-            (["--timeout", "5s"], "timeout", "5s"),
-            (["--no-timeout"], "no_timeout", True),
+            ["--strict-json"],
+            ["--no-strict-json"],
+            ["--default-agent", 'AgentCommand("echo agent")'],
+            ["--trace-file", "/tmp/r.log"],
+            ["--no-trace"],
+            ["--timeout", "5s"],
+            ["--no-timeout"],
         ],
     )
-    def test_accepts_every_exec_execution_option(
-        self,
-        runner: CliRunner,
-        recorded_runs: list[object],
-        argv: list[str],
-        field: str,
-        expected: object,
+    def test_engine_setting_flags_reach_the_tokens(
+        self, runner: CliRunner, recorded_runs: list[object], argv: list[str]
     ) -> None:
         assert invoke(runner, ["repl", *argv]).exit_code == 0
-        assert getattr(recorded_runs[0], field) == expected
+        assert getattr(recorded_runs[0], "tokens") == argv
 
 
-class TestReplMutualExclusion:
-    def test_rejects_removed_no_trace_file_flag(
-        self, runner: CliRunner, recorded_runs: list[object]
-    ) -> None:
-        assert invoke(runner, ["repl", "--no-trace-file"]).exit_code != 0
-        assert recorded_runs == []
-
-    def test_no_trace_and_trace_file_conflict(
-        self, runner: CliRunner, recorded_runs: list[object]
-    ) -> None:
-        result = invoke(runner, ["repl", "--no-trace", "--trace-file", "/tmp/x.log"])
-        assert result.exit_code == 1
-        assert recorded_runs == []  # never dispatched
+class TestReplEngineFlagErrors:
+    """Malformed engine-setting flags are reported before any session starts."""
 
     @pytest.mark.parametrize(
         "argv",
         [
+            ["--no-trace-file"],
+            ["--input", "a=1"],
+            ["stray"],
+            ["--no-trace", "--trace-file", "/tmp/x.log"],
             ["--timeout", "5s", "--no-timeout"],
             ["--trace-file", "x.jsonl", "--trace"],
         ],
     )
-    def test_exclusive_execution_options_conflict(
-        self, runner: CliRunner, recorded_runs: list[object], argv: list[str]
+    def test_unknown_or_conflicting_flags_exit_1(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        argv: list[str],
     ) -> None:
-        assert invoke(runner, ["repl", *argv]).exit_code == 1
-        assert recorded_runs == []
+        _isolated_home(monkeypatch, tmp_path)
+        result = invoke(runner, ["repl", "--plain", *argv])
+        assert result.exit_code != 0
+        assert not (tmp_path / "x.jsonl").exists()
 
 
 def test_agent_cancellation_is_reported_without_traceback(
@@ -341,17 +312,19 @@ def _args(
     tty state (see the module docstring).
     """
     return ReplArgs(
-        strict_json=strict_json,
         quiet=quiet,
-        no_trace=no_trace,
-        trace=trace,
-        trace_file=trace_file,
-        timeout=timeout,
-        no_timeout=no_timeout,
-        default_agent=default_agent,
-        default_sandbox=default_sandbox,
+        tokens=engine_flag_tokens(
+            strict_json=strict_json,
+            no_trace=no_trace,
+            trace=trace,
+            trace_file=trace_file,
+            timeout=timeout,
+            no_timeout=no_timeout,
+            default_agent=default_agent,
+            default_sandbox=default_sandbox,
+            parse_error_retries=parse_error_retries,
+        ),
         no_stdlib=no_stdlib,
-        parse_error_retries=parse_error_retries,
         plain=plain,
     )
 
@@ -1231,12 +1204,7 @@ class TestReplRun:
             raise ValueError("bad config")
 
         monkeypatch.setattr(repl_command, "exec_config_from_merged", boom)
-        args = ReplArgs(
-            strict_json=None,
-            quiet=False,
-            no_trace=False,
-            trace_file=None,
-        )
+        args = ReplArgs(quiet=False)
         with pytest.raises(SystemExit) as excinfo:
             repl_command.run(args)
         assert excinfo.value.code == 1

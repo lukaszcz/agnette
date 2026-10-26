@@ -23,20 +23,15 @@ Exit-code contract:
 Flag notes:
     - ``--echo`` echoes live agent progress and final output to stderr;
       ``--no-echo`` disables it. ``[exec] echo = true`` enables it by default.
-    - ``--strict-json`` controls JSON-codec strictness: when set, agents must
-      return exactly one bare JSON value; the default is lenient recovery
-      (fence/prose stripping + trivial repair, then strict schema validation).
-      A source-level ``strict_json`` call option overrides this default.
-    - Trace logging is OFF by default.  ``--trace`` enables it (auto-named path);
-      ``--trace-file PATH`` writes to PATH; ``--no-trace`` disables it.  At most one
-      of these three flags may be given (mutually exclusive).  ``[exec] trace =
-      true`` in config also enables logging; CLI flags override config.
-    - ``--default-agent AGENT`` seeds ``std/config::default-agent`` from host Agent
-      syntax or a canonical constructor, taking precedence over the qualified program
-      table/``[exec] default-agent``.
-    - ``--default-sandbox SANDBOX`` seeds ``std/config::default-sandbox`` from host
-      AgentSandbox syntax, taking precedence over the qualified program
-      table/``[exec] default-sandbox``.
+    - The engine settings (``strict-json``, ``default-agent``, ``default-sandbox``,
+      ``timeout``, ``trace``, ``trace-file``, ``debug``, ``parse-error-retries``) are
+      host parameters of the selected program's surface, at its lowest claim level:
+      the bare flag (``--strict-json``, ``--no-trace``, ``--trace-file PATH``, ...) and
+      ``--std.config.NAME`` set one, unless a same-named program or module parameter
+      shadows the bare spelling. A CLI value takes precedence over the qualified
+      program table/``[exec]``; ``--trace``, ``--trace-file`` and ``--no-trace`` are
+      mutually exclusive. Trace logging is OFF by default; ``[exec] trace = true``
+      in config also enables it.
     - A sole entry-module ``program def`` runs after initializers; when several
       are declared, ``-p``/``--program`` selects one by declaration path. A file
       must declare at least one program; inline ``-c`` statements are wrapped in
@@ -51,7 +46,7 @@ Flag notes:
       ``default-agent``, ``default-sandbox``, ``timeout``, ``trace``, ``trace-file``,
       ``debug``, ``parse-error-retries``) through the ``std/config`` module; a
       ``std/config::KEY := VALUE`` write takes effect from its program point onward
-      and overrides the CLI flag, which overrides the config-file layer.
+      and overrides the CLI value, which overrides the config-file layer.
       ``--max-call-depth`` remains a host/runtime recursion guard.
 """
 
@@ -67,24 +62,24 @@ from agnette.agent.session import create_agl_session_host
 from agnette.agl import ArgumentPreflightFailure, PipelineDriver
 from agnette.agl.diagnostics import format_diagnostic
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agnette.agl.ir.builtin_vars import is_engine_builtin_var_key
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.runtime.agents import value_driven_agent_factory
 from agnette.agl.runtime.arguments import ProgramArguments
 from agnette.agl.runtime.engine_config import restamp_engine_setting
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import ProgramDeclInfo
-from agnette.agl.semantics.engine_keys import ENGINE_KEY_NAMES
 from agnette.agl.syntax.nodes import FuncDef, scope_names, static_items
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import (
     build_host_engine_seeds,
-    execution_cli_values,
+    engine_setting_name,
     host_agent_spec_resolver,
+    reject_register_conflicts,
     resolve_strict_json,
     resolve_timeout,
+    split_engine_tiers,
     validate_config_engine_values,
 )
 from agnette.agm.cli_support.exec_roots import effective_exec_roots_or_none
@@ -117,13 +112,13 @@ from agnette.config.context import ConfigContext, current_config_context
 from agnette.config.engine_keys import PATH_ENGINE_KEYS
 from agnette.config.general import (
     exec_config_from_merged,
+    exec_options_from_merged,
     load_general_config,
     resolve_section_paths,
 )
 from agnette.config.qualified_keys import (
     QualifiedConfigKey,
     QualifiedConfigLookupError,
-    resolve_manifest_values,
     resolve_qualified_values,
 )
 from agnette.core.cleanup import preserve_primary_error
@@ -139,12 +134,8 @@ from agnette.sandbox.prepare import lazy_sandbox_context
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from agnette.agl.ir.nodes import UseDefault
-    from agnette.agl.ir.program import ExecutableProgram
-    from agnette.agl.ir.static_keys import StaticBindingKey
     from agnette.agl.runtime.types import HostParamInfo
-    from agnette.agl.semantics.values import Value
-    from agnette.config.general import GeneralConfig
+    from agnette.config.general import ExecConfig, GeneralConfig
 
 
 class RegisteredProgramUsageError(Exception):
@@ -174,7 +165,7 @@ class RegisteredProgramUsageError(Exception):
 def _bind_host_inputs(
     *,
     tokens: "Sequence[str]",
-    program: ProgramDeclInfo | None,
+    program: ProgramDeclInfo,
     params: "Sequence[HostParamInfo]",
     declared_params: "Sequence[HostParamInfo]",
     reserved_flags: frozenset[str],
@@ -186,27 +177,23 @@ def _bind_host_inputs(
 ) -> tuple[ProgramArguments, ParamValueTiers]:
     """Bind one selected program's CLI, environment, and config host inputs.
 
-    *params* are the module parameters the program reaches; *declared_params*
-    additionally holds those its closure merely declares, which only exempt
-    their config keys from the undeclared-key warnings.
+    *params* are the host parameters the program reaches, engine settings
+    included; *declared_params* additionally holds the module parameters its
+    closure merely declares, which only exempt their config keys from the
+    undeclared-key warnings.
 
     This is the only execution-host path that combines the signature and
-    module-parameter surfaces.  Registered commands reach it through
+    host-parameter surfaces.  Registered commands reach it through
     :func:`run`, retaining their smaller reserved-flag inventory while sharing
     parsing, config precedence, warning reports, and preflight input shape.
 
     The returned :class:`ParamValueTiers` is handed to
-    ``PipelineDriver.preflight_arguments`` unmerged: it, not this function,
-    ranks the ``lower`` tier — the plain module route, with a package-owned
-    program's manifest ``[config]`` values already folded in above it — beneath
-    the selected program's own ``@config`` values, which are only known once
-    the program is lowered.
+    ``PipelineDriver.preflight_arguments`` unmerged (once its engine settings
+    are split off): it, not this function, ranks the ``lower`` tier — the plain
+    module route, with a package-owned program's manifest ``[config]`` values
+    already folded in above it — beneath the selected program's own ``@config``
+    values, which are only known once the program is lowered.
     """
-    if program is None:
-        if tokens:
-            raise RegisteredProgramUsageError(f"unexpected argument: {tokens[0]!r}")
-        return ProgramArguments(positional=(), named={}), ParamValueTiers(upper={}, lower={})
-
     command_result = build_program_command(program, reserved_flags, params)
     if not isinstance(command_result, ProgramCommand):
         print(f"Error: {_program_option_error_message(command_result)}", file=sys.stderr)
@@ -214,6 +201,7 @@ def _bind_host_inputs(
     program_command = command_result
     try:
         parsed_tail = program_command.parse(tokens)
+        reject_register_conflicts(program_command.surface.entries, parsed_tail.params)
     except ProgramHelpRequested as exc:
         raise ProgramHelpRequested(exc.command, program) from exc
     except ValueError as exc:
@@ -256,9 +244,10 @@ def _bind_host_inputs(
             if key in configured_arguments and info.name not in cli_supplied_names:
                 program_named[info.name] = native_raw_value(projected, configured_arguments[key])
 
-    return ProgramArguments(
-        positional=parsed_tail.arguments.positional, named=program_named
-    ), param_tiers
+    return (
+        ProgramArguments(positional=parsed_tail.arguments.positional, named=program_named),
+        param_tiers,
+    )
 
 
 def _package_entry_segments(entry_path: Path | None, roots: RootSet) -> tuple[str, ...] | None:
@@ -328,25 +317,29 @@ def _package_program_route(
     return _PackageProgramRoute(package, command_paths, package_command_paths)
 
 
-def _manifest_engine_table(
-    package: PackageInfo, engine_keys: tuple[QualifiedConfigKey, ...], *, cwd: Path
-) -> dict[str, object]:
-    """Resolve *engine_keys* from *package*'s manifest ``[config]``, anchoring path values.
+def _anchored_paths(values: "Mapping[str, object]", *, cwd: Path) -> dict[str, object]:
+    """Return manifest engine *values* with path settings anchored at *cwd*.
 
-    Command paths beat inherited groups beat the manifest root, per
-    :func:`~agnette.config.qualified_keys.resolve_manifest_values`. A relative
-    ``trace-file`` resolves against *cwd*, like a CLI flag value, never
-    against the package root — which for an installed package is immutable.
+    A relative ``trace-file`` resolves against *cwd*, like a CLI flag value,
+    never against the package root — which for an installed package is immutable.
     """
-    if not package.manifest.config:
-        return {}
-    raw = {
-        key.leaf: value
-        for key, value in resolve_manifest_values(package.manifest.config, engine_keys).items()
-    }
-    if not raw:
-        return raw
-    return resolve_section_paths(raw, PATH_ENGINE_KEYS, cwd, cwd)
+    return resolve_section_paths(dict(values), PATH_ENGINE_KEYS, cwd, cwd) if values else {}
+
+
+def _exec_config(
+    merged: TomlDict,
+    *,
+    program_table: "dict[str, object] | None" = None,
+    package_table: "dict[str, object] | None" = None,
+) -> "ExecConfig":
+    """Read ``[exec]`` over the engine tables, exiting 1 on an invalid configuration."""
+    try:
+        return exec_config_from_merged(
+            merged, program_table=program_table, package_table=package_table
+        )
+    except ValueError as exc:
+        print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 def _registered_command_mismatch(command_path: str) -> NoReturn:
@@ -521,8 +514,8 @@ def run(
     parsed_programs = tuple(
         item for item in parsed_items if isinstance(item, FuncDef) and item.is_program
     )
-    # The engine settings a program's own config table overrides must be known
-    # before the pipeline that discovers declarations can be built, so this
+    # A program's owning package and command paths must be known before the
+    # pipeline that discovers declarations can be built, so this
     # pre-pass applies ``select_declared_program``'s rule to the parsed AST.
     # ``select_entry_program`` still makes the authoritative selection below.
     selected_parsed_program = select_declared_program(
@@ -530,74 +523,31 @@ def run(
         requested=args.program,
         declaration_path=lambda item: "::".join((*scope_names(item.scope_path), item.name)),
     )
-    engine_program_table: dict[str, object] = {}
-    manifest_engine_table: dict[str, object] = {}
     command_paths: tuple[tuple[str, ...], ...] = ()
     package_command_paths: frozenset[tuple[str, ...]] = frozenset()
     owning_package_info: PackageInfo | None = None
     if entry_path is not None and selected_parsed_program is not None:
-        program_path = scope_names(selected_parsed_program.scope_path) + (
-            selected_parsed_program.name,
-        )
         package_route = _package_program_route(
-            entry_path, exec_roots.roots, config_entry_segments, program_path
+            entry_path,
+            exec_roots.roots,
+            config_entry_segments,
+            scope_names(selected_parsed_program.scope_path) + (selected_parsed_program.name,),
         )
         owning_package_info = package_route.package
         command_paths = package_route.command_paths
         package_command_paths = package_route.package_command_paths
-        engine_keys = tuple(
-            QualifiedConfigKey(config_entry_segments, program_path, key, command_paths)
-            for key in ENGINE_KEY_NAMES
-        )
-        try:
-            engine_program_table = {
-                key.leaf: value
-                for key, value in resolve_qualified_values(config_view, engine_keys).items()
-            }
-            if owning_package_info is not None:
-                manifest_engine_table = _manifest_engine_table(
-                    owning_package_info, engine_keys, cwd=ctx.cwd
-                )
-        except QualifiedConfigLookupError as exc:
-            print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
-    try:
-        config = exec_config_from_merged(
-            merged_config, program_table=engine_program_table, package_table=manifest_engine_table
-        )
-    except ValueError as exc:
-        print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+    # ``echo`` and ``max-call-depth`` come from ``[exec]`` alone; the engine settings
+    # are resolved with every other host parameter once the program is selected.
+    options = exec_options_from_merged(merged_config)
     resolve_agent_spec = host_agent_spec_resolver(merged_config)
 
     # Resolve max call depth: CLI > config.  ``None`` (nothing set at
     # any layer) lets the driver apply its canonical default.
     resolved_call_depth_limit = (
-        config.max_call_depth if args.max_call_depth is None else args.max_call_depth
+        options.max_call_depth if args.max_call_depth is None else args.max_call_depth
     )
 
-    # Seed only settings explicitly controlled by CLI/config. Runtime fallbacks
-    # are not seeds: passing them here would suppress a declared
-    # ``builtin var`` initializer.  The shared decoder preserves explicit
-    # ``None`` values for Option settings such as --no-timeout.  A host Agent
-    # value (``--default-agent``/``[exec] default-agent``) decodes through
-    # the same shared path as every other key; a bad value exits 1 here,
-    # before the module graph is loaded.
-    cli_values = execution_cli_values(args)
-
-    # strict-json/timeout/trace are resolved only after preflight, below, once a
-    # selected program's own ``@config`` entries (ranked below the program route and
-    # above the other config tables, see ``EngineSeedTiers.merged``) are known. Building
-    # these three tiers (never merging them) is possible now: neither
-    # ``build_host_engine_seeds`` nor discovery/preflight reads
-    # strict-json/timeout/trace's resolved host values.
     process_environment = dict(os.environ)
-    engine_tiers = build_host_engine_seeds(
-        config=config,
-        primary_table=engine_program_table,
-        fallback_table={**toml_dict(merged_config.get("exec")), **manifest_engine_table},
-        cli_values=cli_values,
-    )
 
     # Load + scope the graph ONCE, against the module roots assembled above. A
     # source ``std/config::KEY := VALUE`` write takes effect at its program
@@ -642,7 +592,7 @@ def run(
     # can never disagree about which program a given name selects.
     selection = select_entry_program(discovery.programs, requested=args.program)
     entry_programs = selection.entry_programs
-    if args.file is not None and not entry_programs:
+    if not entry_programs:
         print("Error: file must declare at least one program.", file=sys.stderr)
         raise SystemExit(1)
 
@@ -650,22 +600,19 @@ def run(
     if selected_program is None:
         if selection.requested_unmatched:
             print(unmatched_program_message(args.program, entry_programs), file=sys.stderr)
-            raise SystemExit(1)
-        if len(entry_programs) > 1:
+        else:
             candidates = program_candidates(entry_programs)
             print(
                 f"Error: multiple programs declared; select one with -p: {candidates}",
                 file=sys.stderr,
             )
-            raise SystemExit(1)
+        raise SystemExit(1)
 
     arguments, param_tiers = _bind_host_inputs(
         tokens=args.argument_tokens,
         program=selected_program,
-        params=() if selected_program is None else discovery.params_for(selected_program),
-        declared_params=(
-            () if selected_program is None else discovery.declared_params_for(selected_program)
-        ),
+        params=discovery.params_for(selected_program),
+        declared_params=discovery.declared_params_for(selected_program),
         reserved_flags=reserved_flags,
         config=config_view,
         entry_segments=config_entry_segments,
@@ -675,6 +622,29 @@ def run(
             owning_package_info.manifest.config if owning_package_info is not None else None
         ),
     )
+    module_tiers, engine_values = split_engine_tiers(param_tiers)
+
+    # Seed only settings explicitly controlled by CLI/config. Runtime fallbacks
+    # are not seeds: passing them here would suppress a declared
+    # ``builtin var`` initializer.  The shared decoder preserves explicit
+    # ``None`` values for Option settings such as --no-timeout.  A host Agent
+    # value (``--default-agent``/``[exec] default-agent``) decodes through
+    # the same shared path as every other key; a bad value exits 1 here,
+    # before the program is lowered. strict-json/timeout/trace are merged only
+    # after preflight, below, once a selected program's own ``@config`` entries
+    # (ranked below the program route and above the other config tables, see
+    # ``EngineSeedTiers.merged``) are known.
+    manifest_engine_table = _anchored_paths(engine_values.manifest, cwd=ctx.cwd)
+    engine_tiers = build_host_engine_seeds(
+        config=_exec_config(
+            merged_config,
+            program_table=dict(engine_values.program),
+            package_table=manifest_engine_table,
+        ),
+        primary_table=engine_values.program,
+        fallback_table={**toml_dict(merged_config.get("exec")), **manifest_engine_table},
+        cli_values=engine_values.cli,
+    )
 
     # Program arguments are validated against the lowered program, so this
     # preflight lowers the graph.  It must report a failure (exit 1) BEFORE
@@ -682,15 +652,11 @@ def run(
     # check-only pass here rather than letting the run below surface it.
     # The lowered program it produces is handed to that run, so the graph
     # is lowered exactly once per invocation.
-    executable: "ExecutableProgram | None" = None
-    program_symbol = None
-    arguments_bound: "tuple[Value | UseDefault, ...] | None" = None
-    param_seeds: "Mapping[StaticBindingKey, Value] | None" = None
     # The selected program's own ``@config`` entries (evaluated by preflight)
     # rank below the program route and above the other config tables for both a module
     # parameter (folded into ``param_seeds`` by preflight already, filtered by
     # ``key in executable.param_bindings``) and an engine setting (folded in
-    # here, filtered by ``is_engine_builtin_var_key`` — the checker admits only
+    # here, filtered by ``engine_setting_name`` -- the checker admits only
     # these two target kinds, so every entry lands in exactly one filter).
     # Resolving these only after a preflight failure has already exited 1 is
     # what lets ``@config`` reach them without a second lowering pass or a
@@ -699,39 +665,42 @@ def run(
     # enum-backed value (``timeout``, ``trace-file``, ``default-agent``,
     # ``default-sandbox``) is restamped onto the standard identity every other
     # engine tier already uses, so it reads back through the same plain accessors.
-    config_engine_values: dict[str, Value] = {}
-    if selected_program is not None:
-        argument_preflight = runtime.preflight_arguments(
-            prepared,
-            selected_program,
-            arguments,
-            compiled=discovery.compiled,
-            param_values=param_tiers.upper,
-            param_values_lower=param_tiers.lower,
-        )
-        if isinstance(argument_preflight, ArgumentPreflightFailure):
-            if argument_preflight.argument_diagnostics:
-                raise RegisteredProgramUsageError(
-                    "; ".join(diag.message for diag in argument_preflight.result.diagnostics),
-                    selected_program,
-                )
-            for diag in argument_preflight.result.diagnostics:
-                print(format_diagnostic(diag, source_name=diagnostic_source_name), file=sys.stderr)
-            raise SystemExit(1)
-        executable = argument_preflight.executable
-        program_symbol = executable.program_symbols[selected_program.node_id]
-        arguments_bound = argument_preflight.arguments
-        param_seeds = argument_preflight.param_seeds
-        config_engine_values = {
-            key[2]: restamp_engine_setting(
-                key[2],
-                value,
-                from_table=executable.builtin_nominals,
-                to_table=NO_BUILTIN_DECLARATIONS,
+    #
+    # Program arguments are validated against the lowered program, so this
+    # preflight lowers the graph.  It must report a failure (exit 1) BEFORE
+    # the trace file is prepared and the runner is built — hence a
+    # check-only pass here rather than letting the run below surface it.
+    # The lowered program it produces is handed to that run, so the graph
+    # is lowered exactly once per invocation.
+    argument_preflight = runtime.preflight_arguments(
+        prepared,
+        selected_program,
+        arguments,
+        compiled=discovery.compiled,
+        param_values=module_tiers.upper,
+        param_values_lower=module_tiers.lower,
+    )
+    if isinstance(argument_preflight, ArgumentPreflightFailure):
+        if argument_preflight.argument_diagnostics:
+            raise RegisteredProgramUsageError(
+                "; ".join(diag.message for diag in argument_preflight.result.diagnostics),
+                selected_program,
             )
-            for key, value in argument_preflight.program_config.items()
-            if is_engine_builtin_var_key(key)
-        }
+        for diag in argument_preflight.result.diagnostics:
+            print(format_diagnostic(diag, source_name=diagnostic_source_name), file=sys.stderr)
+        raise SystemExit(1)
+    executable = argument_preflight.executable
+    program_symbol = executable.program_symbols[selected_program.node_id]
+    config_engine_values = {
+        name: restamp_engine_setting(
+            name,
+            value,
+            from_table=executable.builtin_nominals,
+            to_table=NO_BUILTIN_DECLARATIONS,
+        )
+        for key, value in argument_preflight.program_config.items()
+        if (name := engine_setting_name(key)) is not None
+    }
     validate_config_engine_values(config_engine_values)
     engine_seeds = engine_tiers.merged(middle=config_engine_values)
 
@@ -799,13 +768,11 @@ def run(
         try:
             result = runtime.run_prepared(
                 prepared,
-                echo_agent_output=config.echo if args.echo is None else args.echo,
+                echo_agent_output=options.echo if args.echo is None else args.echo,
                 trace_file=trace_file,
                 invoked_command=invoked_command,
-                program_function=(
-                    None if selected_program is None else selected_program.declaration_path
-                ),
-                program_span=None if selected_program is None else selected_program.span,
+                program_function=selected_program.declaration_path,
+                program_span=selected_program.span,
                 # Reused from discovery and preflight: nothing is re-checked or re-lowered.
                 compiled=discovery.compiled,
                 executable=executable,
@@ -813,8 +780,8 @@ def run(
                 builtin_host_settings=engine_seeds,
                 process_environment=process_environment,
                 program_symbol=program_symbol,
-                arguments=arguments_bound,
-                param_seeds=param_seeds,
+                arguments=argument_preflight.arguments,
+                param_seeds=argument_preflight.param_seeds,
             )
         except Exception as exc:
             exit_for_agl_exception(exc)

@@ -7,7 +7,13 @@ from pathlib import Path
 
 from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
+from agnette.agl.runtime.engine_config import engine_setting_params
+from agnette.agl.runtime.types import (
+    HostParamInfo,
+    HostParamKind,
+    ProgramDeclInfo,
+    ProgramParamInfo,
+)
 from agnette.agl.semantics.types import BoolType, IntType, TextType, Type
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
@@ -19,6 +25,7 @@ from agnette.agm.cli_support.param_surface import (
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS, REGISTERED_RESERVED_FLAGS
 from tests._agl_helpers import EMPTY_REACHABLE
 
+ENGINE = HostParamKind.ENGINE
 _SPAN = SourceSpan(1, 1, 1, 2, 0, 1)
 
 
@@ -245,17 +252,25 @@ def test_hidden_param_remains_resolvable_and_is_marked_hidden() -> None:
 
 
 def test_exec_and_registered_host_surfaces_shadow_different_bare_names() -> None:
-    trace = _param("A/logging", "trace")
     call_depth = _param("A/logging", "max-call-depth", IntType())
-    exec_surface = build_param_surface(EXEC_RESERVED_FLAGS, _program(), (trace, call_depth))
+    echo = _param("A/logging", "echo")
+    exec_surface = build_param_surface(EXEC_RESERVED_FLAGS, _program(), (echo, call_depth))
     registered_surface = build_param_surface(
-        REGISTERED_RESERVED_FLAGS, _program(), (trace, call_depth)
+        REGISTERED_RESERVED_FLAGS, _program(), (echo, call_depth)
     )
 
-    assert "trace" not in _entry(exec_surface, trace).spellings
-    assert "trace" not in _entry(registered_surface, trace).spellings
-    assert "max-call-depth" not in _entry(exec_surface, call_depth).spellings
-    assert "max-call-depth" not in _entry(registered_surface, call_depth).spellings
+    for surface in (exec_surface, registered_surface):
+        assert "max-call-depth" not in _entry(surface, call_depth).spellings
+        assert "echo" not in _entry(surface, echo).spellings
+
+
+def test_exec_only_reserves_flags_registered_commands_leave_to_the_program() -> None:
+    verbose = _param("A/logging", "warning")
+    exec_surface = build_param_surface(EXEC_RESERVED_FLAGS, _program(), (verbose,))
+    registered_surface = build_param_surface(REGISTERED_RESERVED_FLAGS, _program(), (verbose,))
+
+    assert "warning" not in _entry(exec_surface, verbose).spellings
+    assert "warning" in _entry(registered_surface, verbose).spellings
 
 
 def test_only_negatable_projections_contribute_negation_spellings() -> None:
@@ -300,7 +315,90 @@ def test_signature_short_and_positional_parameters_claim_only_their_valid_flags(
 
     assert "-v" not in _entry(surface, param).option_spellings
     assert _entry(surface, param).short_option is None
-    # A positional-only signature parameter claims its bare name without
-    # claiming any flag, so the module parameter keeps its option spellings.
+    # A positional-only signature parameter claims its bare name (and so every
+    # flag derived from it) without claiming any flag itself, so no live
+    # ``--positional`` is left for the module parameter, only its qualified flags.
     assert "positional" not in _entry(surface, positional).spellings
-    assert "--positional" in _entry(surface, positional).option_spellings
+    assert "--positional" not in _entry(surface, positional).option_spellings
+    assert "--main.positional" in _entry(surface, positional).option_spellings
+
+
+def _engine_surface(
+    params: tuple[HostParamInfo, ...] = (),
+    signature: tuple[ProgramParamInfo, ...] = (),
+    *,
+    program: bool = True,
+) -> ParamSurface:
+    return build_param_surface(
+        EXEC_RESERVED_FLAGS,
+        _program(*signature) if program else None,
+        (*params, *engine_setting_params()),
+        bare_only=not program,
+    )
+
+
+def _engine(surface: ParamSurface, name: str) -> ParamSurfaceEntry:
+    return next(e for e in surface.entries if e.param.name == name and e.param.kind is ENGINE)
+
+
+def test_an_engine_setting_has_a_bare_and_a_qualified_spelling_and_flags() -> None:
+    entry = _engine(_engine_surface(), "timeout")
+
+    assert entry.spellings == ("timeout", "std.config.timeout")
+    assert entry.positive_option_spellings == ("--timeout", "--std.config.timeout")
+    assert entry.negative_option_spellings == ("--no-timeout", "--no-std.config.timeout")
+
+
+def test_a_register_enabling_setting_has_no_negative_flag() -> None:
+    entry = _engine(_engine_surface(), "trace-file")
+
+    assert entry.negative_option_spellings == ()
+
+
+def test_a_signature_parameter_shadows_the_bare_engine_spelling_only() -> None:
+    entry = _engine(_engine_surface(signature=(_signature("timeout"),)), "timeout")
+
+    assert entry.spellings == ("std.config.timeout",)
+    assert entry.positive_option_spellings == ("--std.config.timeout",)
+    assert entry.negative_option_spellings == ("--no-std.config.timeout",)
+
+
+def test_a_shadowed_setting_keeps_no_flag_derived_from_the_lost_name() -> None:
+    param = _param("A/logging", "timeout")
+    entry = _engine(_engine_surface((param,)), "timeout")
+
+    assert "--no-timeout" not in entry.option_spellings
+    assert "--timeout" not in entry.option_spellings
+
+
+def test_a_module_parameter_shadows_the_bare_engine_spelling_at_its_level() -> None:
+    param = _param("A/logging", "debug")
+    surface = _engine_surface((param,))
+
+    assert _entry(surface, param).spellings[0] == "debug"
+    assert _engine(surface, "debug").spellings == ("std.config.debug",)
+    assert "debug" not in surface.ambiguous
+
+
+def test_a_module_parameters_qualified_spelling_does_not_touch_the_engine_setting() -> None:
+    param = _param("A/logging", "debug")
+    surface = _engine_surface((param,))
+
+    assert _entry(surface, param).spellings[1:] == ("logging.debug", "A.logging.debug")
+    assert _engine(surface, "debug").spellings == ("std.config.debug",)
+
+
+def test_engine_settings_follow_the_module_parameters_in_entry_order() -> None:
+    param = _param("A/logging", "zzz")
+    surface = _engine_surface((param,))
+
+    assert surface.entries[0].param == param
+    assert all(e.param.kind is ENGINE for e in surface.entries[1:])
+
+
+def test_engine_settings_without_a_program_take_only_their_bare_spelling() -> None:
+    entry = _engine(_engine_surface(program=False), "timeout")
+
+    assert entry.spellings == ("timeout",)
+    assert entry.positive_option_spellings == ("--timeout",)
+    assert entry.negative_option_spellings == ("--no-timeout",)

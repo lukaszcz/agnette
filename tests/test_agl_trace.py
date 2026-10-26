@@ -30,6 +30,7 @@ from agnette.agm.cli_support.args import ExecArgs
 from agnette.packages.manifest import PackageManifest
 from agnette.packages.model import PackageInfo
 from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots, run_inline_code, write_file_program
+from tests._engine_flags import engine_flag_tokens
 from tests._http_helpers import install as install_fake_http
 from tests._process_helpers import FakeShell
 from tests.agl.ir_harness import write_companion_file, write_module_file
@@ -76,10 +77,10 @@ def _exec_args(
 ) -> ExecArgs:
     return ExecArgs(
         file=str(agl_file),
-        argument_tokens=argument_tokens or [],
-        strict_json=None,
-        no_trace=no_trace,
-        trace_file=trace_file,
+        argument_tokens=[
+            *engine_flag_tokens(no_trace=no_trace, trace_file=trace_file),
+            *(argument_tokens or []),
+        ],
     )
 
 

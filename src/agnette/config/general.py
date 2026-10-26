@@ -351,6 +351,27 @@ class ExecConfig:
     parse_error_retries: object | None = None
 
 
+@dataclass(frozen=True)
+class ExecOptions:
+    """The ``[exec]`` options that are not engine settings."""
+
+    echo: bool
+    max_call_depth: int | None
+
+
+def exec_options_from_merged(merged: TomlDict) -> ExecOptions:
+    """Read the non-engine ``[exec]`` options of an already-merged config dict.
+
+    Never fails: an engine setting is validated where it is decoded, with every
+    other host parameter, so a malformed one does not surface here.
+    """
+    exec_table = toml_dict(merged.get("exec"))
+    return ExecOptions(
+        echo=_optional_bool(exec_table, "echo"),
+        max_call_depth=_optional_positive_int(exec_table, "max-call-depth"),
+    )
+
+
 def exec_config_from_merged(
     merged: TomlDict,
     *,
@@ -383,9 +404,8 @@ def exec_config_from_merged(
             if key in table:
                 effective[key] = table[key]
 
+    options = exec_options_from_merged(merged)
     resolved_strict_json = effective.get("strict-json")
-    resolved_echo = _optional_bool(exec_table, "echo") is True
-    resolved_max_call_depth = _optional_positive_int(exec_table, "max-call-depth")
 
     resolved_timeout = _optional_timeout(effective, "timeout")
 
@@ -401,9 +421,9 @@ def exec_config_from_merged(
     resolved_parse_error_retries = effective.get("parse-error-retries")
 
     return ExecConfig(
-        echo=resolved_echo,
+        echo=options.echo,
         strict_json=resolved_strict_json,
-        max_call_depth=resolved_max_call_depth,
+        max_call_depth=options.max_call_depth,
         timeout=resolved_timeout,
         trace=resolved_trace,
         trace_file=resolved_trace_file,

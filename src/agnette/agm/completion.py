@@ -613,6 +613,17 @@ def _program_argument_completion_items(
     ]
 
 
+def _engine_setting_completion_items(incomplete: str) -> list[CompletionItem[str]]:
+    """Return the engine-only surface's option spellings matching *incomplete*."""
+    from agnette.agm.cli_support.program_options import engine_command
+
+    return [
+        CompletionItem(flag)
+        for flag in engine_command().option_spellings()
+        if flag.startswith(incomplete)
+    ]
+
+
 def _program_value_completer(
     param: ProgramParamInfo | HostParamInfo,
 ) -> Callable[[click.Context, list[str], str], list[str]]:
@@ -724,8 +735,13 @@ def _exec_program_command(ctx: click.Context) -> tuple[ExecTail, ProgramCommand 
 
 @_completes_quietly
 def _exec_value_options(ctx: click.Context) -> list[TyperOption]:
-    """Return completion-only options for ``agm exec``'s selected program."""
-    return program_value_completion_options(_exec_program_command(ctx)[1])
+    """Return completion-only options for ``agm exec``'s selected program.
+
+    With no usable program, those of the engine-only surface.
+    """
+    from agnette.agm.cli_support.program_options import engine_command
+
+    return program_value_completion_options(_exec_program_command(ctx)[1] or engine_command())
 
 
 @_completes_quietly
@@ -758,8 +774,9 @@ class ExecCommand(TyperCommand):
     """Typer Command subclass for ``agm exec`` that augments shell completion.
 
     When the incomplete token starts with ``--``, the standard completion (built-in
-    exec options) is extended with ``--<param>`` / ``--no-<param>`` items discovered
-    from the FILE or ``-c``/``--code`` source already parsed into ``ctx.params``.
+    exec options) gains the ``--<param>`` / ``--no-<param>`` items, engine settings
+    included, discovered from the FILE or ``-c``/``--code`` source already parsed
+    into ``ctx.params``; with no program selected it gains the engine-only surface's.
     Its completion-only parameters complete the selected program's option values
     (see :func:`program_value_completion_options`).
     Degrades to base completion on any error (unreadable file, parse failure, etc.).
@@ -841,11 +858,12 @@ class ExecCommand(TyperCommand):
         if not incomplete.startswith("-"):
             return base
         discovery, tail = _exec_selection_inputs(ctx)
+        engine_only = [*base, *_engine_setting_completion_items(incomplete)]
 
         def complete() -> list[CompletionItem[str]]:
             selection = discovery.selection(tail.file)
             if selection.selected is None:
-                return base
+                return engine_only
             extra = _program_argument_completion_items(
                 selection.selected,
                 incomplete,
@@ -857,5 +875,30 @@ class ExecCommand(TyperCommand):
             return list(items_by_value.values())
 
         # A failure past the shared discovery (option-map projection, item
-        # building) degrades to the built-in exec options.
-        return _advisory(complete, base)
+        # building) degrades to the engine-only surface.
+        return _advisory(complete, engine_only)
+
+
+class ReplCommand(TyperCommand):
+    """Typer Command subclass for ``agm repl`` that completes its engine-setting flags.
+
+    ``agm repl`` has no program: the tokens it does not declare itself are
+    read over the engine-only surface (``program_options.engine_command``), whose
+    option spellings complete here and whose value-taking options complete their
+    values like any program's.
+    """
+
+    def get_params(self, ctx: click.Context) -> list[click.Parameter]:
+        """Return this command's parameters, plus completion-only engine value options."""
+        from agnette.agm.cli_support.program_options import engine_command
+
+        params = super().get_params(ctx)
+        if not ctx.resilient_parsing:
+            return params
+        return [*params, *program_value_completion_options(engine_command())]
+
+    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem[str]]:
+        base = super().shell_complete(ctx, incomplete)
+        if not incomplete.startswith("-"):
+            return base
+        return [*base, *_engine_setting_completion_items(incomplete)]

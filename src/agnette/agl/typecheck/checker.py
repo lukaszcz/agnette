@@ -260,7 +260,6 @@ from agnette.agl.typecheck.inference import (
 )
 from agnette.agl.typecheck.references import compute_references
 from agnette.agl.zones import ParamZone
-from agnette.config.engine_keys import ENGINE_KEY_NAMES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1187,21 +1186,10 @@ class _Checker:
 
         Every parameter's type must be finite-schema and JSON-wire-serializable
         (text crosses verbatim; every other type round-trips through JSON),
-        since a host argument arrives that way. Every name-addressable
-        parameter (standard or named-only) additionally cannot spell an
-        ``ENGINE_KEY_NAMES`` name, since program arguments and engine settings
-        share one flag and config namespace; a positional-only parameter is
-        exempt, as it never becomes a flag or config key.
+        since a host argument arrives that way.
         """
         for param, spec in zip(node.params, sig.params, strict=True):
             self._reject_undecodable_boundary_type(spec.type, param.span)
-            zone = self._resolved.attributes.param_zones[param.node_id]
-            external_name = self._resolved.attributes.program_options[param.node_id].name
-            if zone != ParamZone.POSITIONAL_ONLY and external_name in ENGINE_KEY_NAMES:
-                raise AglTypeError(
-                    f"Program parameter '{external_name}' conflicts with an engine setting name.",
-                    span=param.span,
-                )
 
     def _validate_extern_signature(self, node: FuncDef, sig: FunctionSignature) -> None:
         """Require finite, extern-keyable data shapes while allowing callback parameters.

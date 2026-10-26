@@ -101,6 +101,7 @@ class HostParamKind(Enum):
     """The kind of declaration a :class:`HostParamInfo` is a host parameter of."""
 
     MODULE = "module"
+    ENGINE = "engine"
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +112,7 @@ class HostParamInfo:
     ``kind``         — what declares it.
     ``module``       — the declaring module.
     ``route_path``   — the declaration route below ``module``: the scope path of
-                        a module parameter.
+                        a module parameter; empty for an engine setting.
     ``cli``          — its CLI presentation (external name, ``@opt-*``).
     ``is_path``      — whether its annotation spells the builtin ``path`` alias
                         (including ``Option[path]``), for filesystem completion.
@@ -119,7 +120,7 @@ class HostParamInfo:
                         using ``@name`` when present.
     ``owner``        — the root or mount ``module`` resolved through
                         (:meth:`~agnette.agl.modules.roots.RootSet.owner_of`);
-                        ``None`` when it has none.
+                        ``None`` when it has none (always, for an engine setting).
 
     Built only by the per-kind factories, which derive ``key`` from the
     identity fields; a new kind adds its own factory.
@@ -165,11 +166,39 @@ class HostParamInfo:
             owner=owner,
         )
 
+    @classmethod
+    def engine_setting(
+        cls, name: str, type: "AglType", cli: "ProgramOptionSpec", *, is_path: bool = False
+    ) -> "HostParamInfo":
+        """Build the info of a root ``builtin var`` of ``std/config``."""
+        from agnette.agl.ir.static_keys import static_binding_key
+        from agnette.agl.modules.ids import STD_CONFIG_ID
+
+        return cls(
+            key=static_binding_key(STD_CONFIG_ID, (), name),
+            kind=HostParamKind.ENGINE,
+            module=STD_CONFIG_ID,
+            route_path=(),
+            name=name,
+            type=type,
+            cli=cli,
+            is_path=is_path,
+        )
+
     @property
     def declaration_path(self) -> str:
         """Return the module-qualified spelling of this parameter."""
         path = "::".join((*self.route_path, self.name))
         return f"{self.module.display()}::{path}"
+
+    @property
+    def declared_spellings(self) -> tuple[str, ...]:
+        """Return every spelling that can address this parameter, before any claim is resolved."""
+        from agnette.config.qualified_keys import param_spellings_for
+
+        return param_spellings_for(
+            self.module.segments, self.route_path, self.cli.name, is_entry=self.module.is_entry
+        )
 
 
 @dataclass(frozen=True, slots=True)

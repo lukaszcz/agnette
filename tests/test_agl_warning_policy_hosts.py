@@ -25,9 +25,7 @@ def _source(tmp_path: Path) -> Path:
 
 
 def _exec_args(source: Path) -> ExecArgs:
-    return ExecArgs(
-        file=str(source), strict_json=None, no_trace=True, trace_file=None, no_stdlib=True
-    )
+    return ExecArgs(file=str(source), no_stdlib=True, argument_tokens=["--no-trace"])
 
 
 @pytest.fixture(autouse=True)

@@ -12,7 +12,7 @@ from agnette.agm.commands import exec_program as exec_engine
 from agnette.agm.commands.exec import run
 from agnette.config.context import ConfigContext
 from agnette.packages.layout import MODULE_TREE_DIRNAME
-from tests._help_helpers import print_exec_help
+from tests._help_helpers import assert_lists_engine_settings, print_exec_help
 
 _PARAM = "@param let verbose: bool = false\n"
 
@@ -56,10 +56,7 @@ def _exec(entry: Path, *tokens: str, module_paths: tuple[Path, ...] = ()) -> Non
     run(
         ExecArgs(
             file=str(entry),
-            strict_json=None,
-            no_trace=True,
-            trace_file=None,
-            argument_tokens=list(tokens),
+            argument_tokens=["--no-trace", *list(tokens)],
             module_paths=[str(path) for path in module_paths],
         )
     )
@@ -216,10 +213,7 @@ class TestOwnerShadowing:
                     "import helper\nimport std/log\n"
                     "program def main() -> unit = print helper::lvl\n"
                 ),
-                strict_json=None,
-                no_trace=True,
-                trace_file=None,
-                argument_tokens=["--log-level", "x"],
+                argument_tokens=["--no-trace", "--log-level", "x"],
             )
         )
 
@@ -278,3 +272,133 @@ class TestHelp:
         assert "--bravo.shared.verbose" not in own
         assert "--shared.verbose" in shadowed
         assert "--verbose " not in shadowed
+
+
+_ENGINE_SHADOW = (
+    "import std/config\n"
+    'program def main(timeout: text = "dflt") -> unit =\n'
+    "  print timeout\n"
+    "  print std/config::timeout\n"
+)
+
+
+def _engine_entry(tmp_path: Path, source: str = _ENGINE_SHADOW) -> Path:
+    entry = tmp_path / "main.agl"
+    entry.write_text(source)
+    return entry
+
+
+class TestEngineSettingShadowing:
+    """A same-named program or module parameter shadows the bare engine-setting flag."""
+
+    def _lines(self, capsys: pytest.CaptureFixture[str], entry: Path, *tokens: str) -> list[str]:
+        run(ExecArgs(file=str(entry), argument_tokens=["--no-trace", *tokens]))
+        return capsys.readouterr().out.splitlines()
+
+    def test_the_bare_flag_feeds_the_program_argument(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home("")
+        entry = _engine_entry(tmp_path)
+
+        assert self._lines(capsys, entry, "--timeout", "7") == ["7", "Option::None"]
+
+    def test_the_engine_setting_stays_settable_qualified(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home("")
+        entry = _engine_entry(tmp_path)
+
+        assert self._lines(capsys, entry, "--std.config.timeout", "5s") == [
+            "dflt",
+            'Option::Some(value = "5s")',
+        ]
+        assert self._lines(capsys, entry, "--no-std.config.timeout") == ["dflt", "Option::None"]
+
+    def test_the_negated_bare_flag_is_not_left_live_for_the_shadowed_setting(
+        self, tmp_path: Path, config_home: Callable[[str], None]
+    ) -> None:
+        config_home("")
+        entry = _engine_entry(tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            run(ExecArgs(file=str(entry), argument_tokens=["--no-trace", "--no-timeout"]))
+
+        assert exc_info.value.code != 0
+
+    def test_the_exec_table_sets_the_engine_setting_and_leaves_the_argument(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home('[exec]\ntimeout = "9s"\n')
+        entry = _engine_entry(tmp_path)
+
+        assert self._lines(capsys, entry) == ["dflt", 'Option::Some(value = "9s")']
+
+    def test_the_program_table_feeds_the_argument_not_the_engine_setting(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home('[main.main]\ntimeout = "tabled"\n')
+        entry = _engine_entry(tmp_path)
+
+        assert self._lines(capsys, entry) == ["tabled", "Option::None"]
+
+    def test_an_unshadowed_engine_flag_sets_the_engine_setting(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home('[exec]\ntimeout = "9s"\n')
+        entry = _engine_entry(
+            tmp_path,
+            "import std/config\nprogram def main() -> unit =\n  print std/config::timeout\n",
+        )
+
+        assert self._lines(capsys, entry, "--timeout", "5s") == ['Option::Some(value = "5s")']
+        assert self._lines(capsys, entry, "--no-timeout") == ["Option::None"]
+        assert self._lines(capsys, entry) == ['Option::Some(value = "9s")']
+
+    def test_a_negated_boolean_engine_flag_sets_the_engine_setting(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home("[exec]\nstrict-json = true\n")
+        entry = _engine_entry(
+            tmp_path,
+            "import std/config\nprogram def main() -> unit =\n  print std/config::strict-json\n",
+        )
+
+        assert self._lines(capsys, entry) == ["true"]
+        assert self._lines(capsys, entry, "--no-strict-json") == ["false"]
+
+    def test_a_module_parameter_shadows_the_engine_setting_at_its_level(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home("")
+        modules = tmp_path / "modules"
+        modules.mkdir()
+        (modules / "helper.agl").write_text('@param let timeout: text = "module"\n')
+        entry = _engine_entry(
+            tmp_path,
+            "import helper\nimport std/config\n"
+            "program def main() -> unit =\n"
+            "  print helper::timeout\n"
+            "  print std/config::timeout\n",
+        )
+
+        run(
+            ExecArgs(
+                file=str(entry),
+                argument_tokens=["--no-trace", "--timeout", "7"],
+                module_paths=[str(modules)],
+            )
+        )
+
+        assert capsys.readouterr().out.splitlines() == ["7", "Option::None"]
+
+    def test_help_lists_the_shadowed_engine_setting_qualified_only(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home("")
+        entry = _engine_entry(tmp_path)
+
+        assert print_exec_help(tokens=["--help"], file=str(entry), code=None)
+
+        output = capsys.readouterr().out
+        assert_lists_engine_settings(output, qualified=("timeout",))

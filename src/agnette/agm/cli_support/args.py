@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
 
 
 @dataclass(slots=True)
@@ -190,71 +189,30 @@ class CheckArgs:
     no_stdlib: bool = False
 
 
-class ExecutionOptionValues(Protocol):
-    """Execution options shared by commands that run AgL programs."""
-
-    strict_json: bool | None
-    default_agent: str | None
-    default_sandbox: str | None
-    timeout: str | None
-    no_timeout: bool
-    trace: bool
-    no_trace: bool
-    trace_file: str | None
-    debug: bool | None
-    parse_error_retries: int | None
-
-
 @dataclass(slots=True)
 class ExecArgs:
     file: str | None
-    strict_json: bool | None
-    no_trace: bool
-    trace_file: str | None
     echo: bool | None = None
     argument_tokens: list[str] = field(default_factory=list)
-    trace: bool = False
     code: str | None = None
     program: str | None = None
     module_paths: list[str] = field(default_factory=list)
     no_stdlib: bool = False
     # Optional recursion call-depth override (None = no override).
     max_call_depth: int | None = None
-    timeout: str | None = None
-    no_timeout: bool = False
-    # An AgL ``Agent`` literal used to seed std/config::default-agent.
-    default_agent: str | None = None
-    # An AgL ``AgentSandbox`` literal used to seed std/config::default-sandbox.
-    default_sandbox: str | None = None
-    # Seeds std/config::debug (None = no override).
-    debug: bool | None = None
-    # Seeds std/config::parse-error-retries (None = no override).
-    parse_error_retries: int | None = None
     # Static artifacts produced only when CLI ambiguity required early discovery.
     pipeline_cache: object | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(slots=True)
 class ReplArgs:
-    strict_json: bool | None
     quiet: bool
-    no_trace: bool
-    trace_file: str | None
     echo: bool | None = None
-    trace: bool = False
     # Optional recursion call-depth override (None = no override).
     max_call_depth: int | None = None
-    timeout: str | None = None
-    no_timeout: bool = False
     no_stdlib: bool = False
-    # An AgL ``Agent`` literal used to seed std/config::default-agent.
-    default_agent: str | None = None
-    # An AgL ``AgentSandbox`` literal used to seed std/config::default-sandbox.
-    default_sandbox: str | None = None
-    # Seeds std/config::debug (None = no override).
-    debug: bool | None = None
-    # Seeds std/config::parse-error-retries (None = no override).
-    parse_error_retries: int | None = None
+    # Engine-setting flag tokens (``--timeout 5``, ``--no-trace``).
+    tokens: list[str] = field(default_factory=list)
     # Force the plain, non-interactive line front end even on a tty; the
     # auto-detected default (non-tty stdin/stdout, or TERM=dumb) needs no flag.
     plain: bool = False

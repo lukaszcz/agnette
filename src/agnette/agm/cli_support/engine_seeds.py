@@ -15,72 +15,152 @@ the dispatch-time agent defaults both hosts apply from ``[agent]``.
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import TYPE_CHECKING, cast
 
 from agnette.agent.spec_defaults import AgentSpecResolver, configured_defaults_resolver
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.ir.static_keys import StaticBindingKey, static_binding_key
+from agnette.agl.modules.ids import STD_CONFIG_ID
+from agnette.agl.runtime.arguments import OptionSome
 from agnette.agl.runtime.engine_config import (
+    engine_setting_params,
     raw_option_str,
     validate_engine_leaf_value,
     validate_engine_value,
 )
 from agnette.agl.runtime.option import option_text
 from agnette.agl.semantics.values import BoolValue, RecordValue
+from agnette.agm.cli_support.param_config import ParamValueTiers
+from agnette.agm.cli_support.program_options import engine_command, option_none_raw
 from agnette.config.engine_keys import (
     ENGINE_KEYS,
+    ENGINE_REGISTERS,
     EngineKeyKind,
     EngineKeySpec,
+    engine_keys_for_register,
     trace_write_implies_enabled,
 )
 from agnette.core.log import TraceDecision
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from agnette.agl.semantics.type_table import TypeTable
     from agnette.agl.semantics.values import Value
-    from agnette.agm.cli_support.args import ExecutionOptionValues
+    from agnette.agm.cli_support.param_surface import ParamSurfaceEntry
     from agnette.config.general import ExecConfig
     from agnette.core.toml import TomlDict
 
 __all__ = [
+    "EngineHostValues",
     "EngineSeedTiers",
     "build_host_engine_seeds",
-    "execution_cli_values",
+    "engine_setting_name",
     "host_agent_spec_resolver",
+    "parse_engine_flags",
+    "reject_register_conflicts",
     "resolve_timeout",
+    "split_engine_params",
+    "split_engine_tiers",
 ]
 
 
-def execution_cli_values(args: "ExecutionOptionValues") -> dict[str, object | None]:
-    """Return the engine settings *args*' execution flags explicitly set.
+def engine_setting_name(key: "StaticBindingKey") -> str | None:
+    """Return the engine setting *key* identifies, or ``None`` for any other binding."""
+    return next((param.name for param in engine_setting_params() if param.key == key), None)
 
-    A present ``None`` is an explicit empty ``Option`` (``--no-timeout``).
+
+def split_engine_params(
+    params: "Mapping[StaticBindingKey, object]",
+) -> "tuple[dict[StaticBindingKey, object], dict[str, object | None]]":
+    """Split host *params* into the non-engine ones and the engine ones.
+
+    The engine values are keyed by setting name, unboxed to the native shape
+    config values take; a present ``None`` is an explicit empty ``Option``
+    (``--no-timeout``).
     """
-    values: dict[str, object | None] = {}
-    if args.strict_json is not None:
-        values["strict-json"] = args.strict_json
-    if args.timeout is not None:
-        values["timeout"] = args.timeout
-    elif args.no_timeout:
-        values["timeout"] = None
-    if args.no_trace:
-        values["trace"] = False
-    elif args.trace:
-        values["trace"] = True
-    if args.trace_file is not None:
-        values["trace-file"] = args.trace_file
-    if args.default_agent is not None:
-        values["default-agent"] = args.default_agent
-    if args.default_sandbox is not None:
-        values["default-sandbox"] = args.default_sandbox
-    if args.debug is not None:
-        values["debug"] = args.debug
-    if args.parse_error_retries is not None:
-        values["parse-error-retries"] = args.parse_error_retries
-    return values
+    others: dict[StaticBindingKey, object] = {}
+    engine: dict[str, object | None] = {}
+    for key, raw in params.items():
+        name = engine_setting_name(key)
+        if name is None:
+            others[key] = raw
+        elif isinstance(raw, OptionSome):
+            engine[name] = raw.value
+        elif raw == option_none_raw():
+            engine[name] = None
+        else:
+            engine[name] = raw
+    return others, engine
+
+
+@dataclass(frozen=True, slots=True)
+class EngineHostValues:
+    """The engine settings' resolved parameter values, by setting name.
+
+    ``cli``: supplied on the command line; ``program``: from the selected
+    program's table; ``manifest``: from the owning package's ``[config]``.
+    """
+
+    cli: Mapping[str, object | None]
+    program: Mapping[str, object | None]
+    manifest: Mapping[str, object | None]
+
+
+def split_engine_tiers(tiers: ParamValueTiers) -> tuple[ParamValueTiers, EngineHostValues]:
+    """Split the engine settings out of resolved parameter *tiers*, the one place they leave them.
+
+    Returns the tiers of the remaining (module) parameters, which the pipeline
+    decodes, and the engine values, which :func:`build_host_engine_seeds` seeds.
+    """
+    upper, engine_upper = split_engine_params(tiers.upper)
+    lower, manifest = split_engine_params(tiers.lower)
+    supplied = {name for key in tiers.supplied if (name := engine_setting_name(key)) is not None}
+    return (
+        replace(tiers, upper=upper, lower=lower),
+        EngineHostValues(
+            cli={name: raw for name, raw in engine_upper.items() if name in supplied},
+            program={name: raw for name, raw in engine_upper.items() if name not in supplied},
+            manifest=manifest,
+        ),
+    )
+
+
+def reject_register_conflicts(
+    entries: "Iterable[ParamSurfaceEntry]", supplied: "Mapping[StaticBindingKey, object]"
+) -> None:
+    """Reject two engine settings of one register supplied together.
+
+    Keys sharing a register name one destination, so ``--trace-file`` excludes
+    ``--trace`` and ``--no-trace``, whatever spellings were typed. Raises
+    ``ValueError`` naming the *entries*' primary flags.
+    """
+    flags = {entry.param.key: entry.primary_flag for entry in entries}
+    for register in ENGINE_REGISTERS:
+        given = [
+            flags[key]
+            for name in sorted(engine_keys_for_register(register))
+            if (key := static_binding_key(STD_CONFIG_ID, (), name)) in supplied
+        ]
+        if len(given) > 1:
+            raise ValueError(f"Options {' and '.join(given)} are mutually exclusive")
+
+
+def parse_engine_flags(tokens: "Sequence[str]") -> dict[str, object | None]:
+    """Parse *tokens* as the bare engine-setting flags of a host with no program.
+
+    Returns the explicit values as :func:`split_engine_params` does; raises
+    ``ValueError`` for a malformed flag, a conflicting pair, or a leftover
+    positional token.
+    """
+    command = engine_command()
+    parsed = command.parse(tokens)
+    if parsed.arguments.positional:
+        raise ValueError(f"unexpected argument: {parsed.arguments.positional[0]!r}")
+    reject_register_conflicts(command.surface.entries, parsed.params)
+    return split_engine_params(parsed.params)[1]
 
 
 def resolve_timeout(engine_seeds: "Mapping[str, Value]") -> float | None:

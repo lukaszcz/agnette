@@ -237,7 +237,9 @@ table names one of the package's own registered command, group, or alias paths
 (`@command`-registered paths included). A leaf is an engine setting or a `@param` binding's bare
 or dotted spelling — never a program signature argument — and must be reachable from the
 package's own import graph: a dependency or `std` module the package never imports contributes no
-spelling. `pkg check`/`create`/`install` reject an unregistered nested table, an unknown leaf, an
+spelling. A bare leaf names a `@param` binding of the closure that shadows the engine setting's
+name (the parameter wins, as for flags); the engine setting is then addressed as
+`"std.config.NAME"`. `pkg check`/`create`/`install` reject an unregistered nested table, an unknown leaf, an
 engine value that fails to decode, and a word that is ambiguously both a registered subcommand and
 a setting spelling. At run time, whenever the selected program is owned by the package (run as a
 registered command, an installed reference, or a file path), its command table beats an inherited
@@ -262,13 +264,14 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   resolving bare flag and dotted qualified flags, including `--no-...` where its type permits.
   Help groups visible module parameters by declaring module, and completion offers their resolving
   spellings. See [Program arguments](agl.md#program-arguments) and
-  [Module parameters](agl.md#module-parameters). A registered command reserves its run-time
-  options and `-h`/`--help`; its parameters may reuse other spellings `agm exec`
+  [Module parameters](agl.md#module-parameters). A registered command reserves `--echo`/`--no-echo`,
+  `--max-call-depth`, and `-h`/`--help`; its parameters may reuse other spellings `agm exec`
   reserves, such as `--module-path` or `-p`, which `agm exec` still rejects.
-- **Run-time options.** `agm exec`'s engine-setting flags (`--strict-json`/`--no-strict-json`,
-  `--default-agent`, `--default-sandbox`, `--timeout`/`--no-timeout`, `--trace`/`--no-trace`,
-  `--trace-file`, `--debug`/`--no-debug`, `--parse-error-retries`) and `--max-call-depth` work
-  as for [`agm exec`](agl.md#agm-exec), anywhere after the command path.
+- **Run-time options.** `--echo`/`--no-echo` and `--max-call-depth` work as for
+  [`agm exec`](agl.md#agm-exec), anywhere after the command path. The engine settings
+  (`--strict-json`, `--default-agent`, `--timeout`, `--trace`, ...) are parameters of the command's
+  surface like any other, so a same-named parameter shadows the bare flag and
+  `--std.config.NAME` always addresses the setting.
   There is no `--warning` flag: warning levels come from the [`[warnings]`](config.md#warnings)
   config table only.
 - **Configuration.** Omitted signature arguments and engine settings use the program route:

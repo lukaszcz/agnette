@@ -264,6 +264,54 @@ class TestExecPathParameterCompletion:
         assert f"{program.parent}/data.txt" not in values
 
 
+class TestEngineSettingCompletion:
+    """The engine-only surface completes engine settings for ``agm repl`` and a bare ``exec``."""
+
+    @pytest.fixture
+    def data_dir(self, tmp_path: Path) -> Path:
+        (tmp_path / "data.txt").write_text("", encoding="utf-8")
+        return tmp_path
+
+    def test_repl_completes_engine_setting_flags(self) -> None:
+        values = _completion_values(["repl"], "--ti")
+
+        assert "--timeout" in values
+
+    def test_repl_offers_no_engine_flag_for_a_non_option_word(self) -> None:
+        from typer._click.shell_completion import _resolve_context
+
+        from agnette.agm.cli import app
+
+        cli = typer.main.get_command(app)
+        ctx = _resolve_context(cli, {}, "agm", ["repl"])
+        repl_cmd = cast(click.Group, cli).commands["repl"]
+
+        assert not any(item.value == "--timeout" for item in repl_cmd.shell_complete(ctx, "ti"))
+
+    def test_repl_completes_an_engine_path_setting_value(self, data_dir: Path) -> None:
+        values = _completion_values(["repl", "--trace-file"], f"{data_dir}/d")
+
+        assert f"{data_dir}/data.txt" in values
+
+    def test_exec_completes_an_engine_path_setting_value_before_the_file(
+        self, data_dir: Path
+    ) -> None:
+        values = _completion_values(["exec", "--trace-file"], f"{data_dir}/d")
+
+        assert f"{data_dir}/data.txt" in values
+
+    def test_exec_without_a_program_completes_engine_setting_flags(self) -> None:
+        assert "--timeout" in _completion_values(["exec"], "--ti")
+
+    def test_exec_with_a_program_completes_each_engine_flag_once(self, tmp_path: Path) -> None:
+        program = tmp_path / "prog.agl"
+        program.write_text("program def main() -> unit = ()\n", encoding="utf-8")
+
+        values = _completion_values(["exec", str(program)], "--ti")
+
+        assert values.count("--timeout") == 1
+
+
 def test_registered_command_completes_path_parameter_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

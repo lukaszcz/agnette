@@ -276,10 +276,4 @@ class PythonInstaller:
 
 def exec_args(argument_tokens: list[str] | None = None) -> ExecArgs:
     """Return the ``agm exec`` arguments ``run_registered`` receives for a bare reference."""
-    return ExecArgs(
-        file=None,
-        argument_tokens=[] if argument_tokens is None else argument_tokens,
-        strict_json=None,
-        no_trace=False,
-        trace_file=None,
-    )
+    return ExecArgs(file=None, argument_tokens=[] if argument_tokens is None else argument_tokens)

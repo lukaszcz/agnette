@@ -18,7 +18,14 @@ from agnette.agl.pipeline import (
     ProgramDiscovery,
 )
 from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
+from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots
+
+
+def _module_params(discovery: ProgramDiscovery, program: ProgramDeclInfo) -> list[HostParamInfo]:
+    """Return the module parameters *program* reaches, without the engine settings."""
+    return [p for p in discovery.params_for(program) if p.kind is HostParamKind.MODULE]
 
 
 def _discover(source: str, tmp_path: Path) -> ProgramDiscovery:
@@ -94,6 +101,21 @@ program def main() -> unit = ()
     assert params[0].key == (discovery.programs[0].module, (), "verbose")
 
 
+def test_params_for_lists_the_engine_settings_after_the_reached_module_params(
+    tmp_path: Path,
+) -> None:
+    discovery = _discover(
+        "@param let root: int = 0\nprogram def main() -> unit =\n  let _ = root\n", tmp_path
+    )
+
+    params = discovery.params_for(discovery.programs[0])
+
+    assert [p.name for p in params if p.kind is HostParamKind.MODULE] == ["root"]
+    assert params[0].kind is HostParamKind.MODULE
+    assert {p.name for p in params if p.kind is HostParamKind.ENGINE} == set(ENGINE_KEY_NAMES)
+    assert all(p.kind is HostParamKind.ENGINE for p in params[1:])
+
+
 def test_discovery_closure_and_params_follow_source_reachability_order(tmp_path: Path) -> None:
     (tmp_path / "first.agl").write_text("@param let first: int = 1\n", encoding="utf-8")
     (tmp_path / "second.agl").write_text(
@@ -122,7 +144,7 @@ program def main() -> unit =
         ModuleId(("second",)),
         ModuleId(("third",)),
     )
-    assert [param.name for param in discovery.params_for(program)] == [
+    assert [param.name for param in _module_params(discovery, program)] == [
         "root",
         "first",
         "second",
@@ -174,7 +196,7 @@ def test_imported_program_uses_its_own_source_reachable_closure(tmp_path: Path) 
     imported_program = next(program for program in discovery.programs if program.name == "run")
 
     assert imported_program.closure == (ModuleId(("library",)), ModuleId(("dependency",)))
-    assert [param.name for param in discovery.params_for(imported_program)] == [
+    assert [param.name for param in _module_params(discovery, imported_program)] == [
         "library",
         "dependency",
     ]
@@ -190,11 +212,11 @@ def test_discovery_has_empty_module_param_inventory_without_param_bindings(tmp_p
     )
 
     assert all(not params for params in discovery.module_params.values())
-    assert tuple(discovery.params_for(discovery.programs[0])) == ()
+    assert tuple(_module_params(discovery, discovery.programs[0])) == ()
 
 
 def _reachable_names(discovery: ProgramDiscovery) -> list[str]:
-    return [param.name for param in discovery.params_for(discovery.programs[0])]
+    return [param.name for param in _module_params(discovery, discovery.programs[0])]
 
 
 def test_a_param_of_an_imported_but_unreferenced_module_is_not_reachable(tmp_path: Path) -> None:
@@ -211,7 +233,7 @@ def test_a_param_of_an_imported_but_unreferenced_module_is_not_reachable(tmp_pat
     assert [param.name for param in discovery.declared_params_for(program)] == ["used", "unused"]
     preflight = _preflight(runtime, prepared, discovery)
     assert set(preflight.executable.param_bindings) == {
-        param.key for param in discovery.params_for(program)
+        param.key for param in _module_params(discovery, program)
     }
 
 
@@ -348,8 +370,8 @@ def test_each_program_has_its_own_reachable_params(tmp_path: Path) -> None:
     )
     first, second = discovery.programs
 
-    assert [p.name for p in discovery.params_for(first)] == ["one"]
-    assert [p.name for p in discovery.params_for(second)] == ["two"]
+    assert [p.name for p in _module_params(discovery, first)] == ["one"]
+    assert [p.name for p in _module_params(discovery, second)] == ["two"]
     assert [p.name for p in discovery.declared_params_for(first)] == ["one", "two"]
 
 
@@ -377,7 +399,7 @@ program def main() -> unit =
 
         assert preflight.result.ok
         assert preflight.executable is not None
-        expected_keys = {param.key for param in discovery.params_for(discovery.programs[0])}
+        expected_keys = {param.key for param in _module_params(discovery, discovery.programs[0])}
         assert set(preflight.executable.param_bindings) == expected_keys
         assert set(preflight.executable.param_decoders) == expected_keys
         assert set(preflight.executable.param_bindings.values()) <= set(
@@ -399,7 +421,7 @@ program def main() -> unit =
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
-        number, enabled = discovery.params_for(discovery.programs[0])
+        number, enabled = _module_params(discovery, discovery.programs[0])
         unknown = (ModuleId(("missing",)), (), "unknown")
 
         preflight = _preflight(
@@ -421,7 +443,7 @@ program def main() -> unit =
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
-        retries = discovery.params_for(discovery.programs[0])[0]
+        retries = _module_params(discovery, discovery.programs[0])[0]
 
         preflight = _preflight(
             runtime, prepared, discovery, param_values={retries.key: "not-an-int"}
@@ -460,7 +482,7 @@ program def main() -> unit =
             roots=agl_roots(tmp_path),
         )
         discovery = runtime.discover_programs(prepared)
-        params = {param.name: param for param in discovery.params_for(discovery.programs[0])}
+        params = {param.name: param for param in _module_params(discovery, discovery.programs[0])}
 
         preflight = _preflight(
             runtime,
@@ -521,7 +543,7 @@ program def main() -> unit = print value
             roots=agl_roots(tmp_path),
         )
         discovery = runtime.discover_programs(prepared)
-        value = discovery.params_for(discovery.programs[0])[0]
+        value = _module_params(discovery, discovery.programs[0])[0]
 
         preflight = _preflight(
             runtime,
@@ -561,7 +583,7 @@ class TestParamValueTierMerge:
             "@param let count: int = 1\nprogram def main() -> unit =\n  let _ = count\n", tmp_path
         )
         discovery = runtime.discover_programs(prepared)
-        (count,) = discovery.params_for(discovery.programs[0])
+        (count,) = _module_params(discovery, discovery.programs[0])
 
         preflight = _preflight(runtime, prepared, discovery, param_values_lower={count.key: 5})
 
@@ -576,7 +598,7 @@ class TestParamValueTierMerge:
             "@param let count: int = 1\nprogram def main() -> unit =\n  let _ = count\n", tmp_path
         )
         discovery = runtime.discover_programs(prepared)
-        (count,) = discovery.params_for(discovery.programs[0])
+        (count,) = _module_params(discovery, discovery.programs[0])
 
         preflight = _preflight(
             runtime,
@@ -599,7 +621,7 @@ class TestParamValueTierMerge:
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
-        (count,) = discovery.params_for(discovery.programs[0])
+        (count,) = _module_params(discovery, discovery.programs[0])
 
         preflight = _preflight(runtime, prepared, discovery, param_values_lower={count.key: 5})
 
@@ -616,7 +638,7 @@ class TestParamValueTierMerge:
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
-        (count,) = discovery.params_for(discovery.programs[0])
+        (count,) = _module_params(discovery, discovery.programs[0])
 
         preflight = _preflight(runtime, prepared, discovery, param_values={count.key: 7})
 
@@ -635,7 +657,7 @@ class TestParamValueTierMerge:
             tmp_path,
         )
         discovery = runtime.discover_programs(prepared)
-        (count,) = discovery.params_for(discovery.programs[0])
+        (count,) = _module_params(discovery, discovery.programs[0])
 
         preflight = _preflight(
             runtime, prepared, discovery, param_values_lower={count.key: "not-an-int"}
@@ -652,7 +674,7 @@ class TestParamValueTierMerge:
             "@param let count: int = 1\nprogram def main() -> unit =\n  let _ = count\n", tmp_path
         )
         discovery = runtime.discover_programs(prepared)
-        (count,) = discovery.params_for(discovery.programs[0])
+        (count,) = _module_params(discovery, discovery.programs[0])
 
         preflight = _preflight(
             runtime,

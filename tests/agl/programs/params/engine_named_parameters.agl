@@ -1,0 +1,9 @@
+# A program parameter may be named like an engine setting. The parameter takes
+# the bare name; the setting stays readable through `std/config`.
+
+import std/config
+
+program def main(timeout: text = "never", debug: bool = false) -> unit =
+  print timeout
+  print debug
+  print std/config::debug

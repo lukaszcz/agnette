@@ -291,8 +291,10 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
         + _NO_STDLIB_ROW
         + _WARNING_ROW,
         textwrap.dedent("""\
-            Execution options override config files; a `std/config::KEY := VALUE`
-            write overrides both from its program point.
+            Engine settings and execution options override config files; a
+            `std/config::KEY := VALUE` write overrides both from its program
+            point. A program parameter named like an engine setting shadows its
+            bare flag; `--std.config.NAME` always addresses the setting.
 
             Program arguments:
               The selected program's value parameters fill ARG slots (positional)
@@ -331,7 +333,7 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
             """)
         + _WARNING_ROW,
         textwrap.dedent("""\
-            Execution options override [exec] config; a `std/config::KEY := VALUE`
+            Engine settings override [exec] config; a `std/config::KEY := VALUE`
             entry holds for the session until :reset.
 
             The interactive console needs a terminal on stdin and stdout and TERM
@@ -343,7 +345,7 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
             Exit codes:
               0  Normal exit.
               1  Setup failure before the prompt: invalid [exec] or [warnings]
-                 config, invalid execution option, or an unwritable --trace-file.
+                 config, invalid option, or an unwritable --trace-file.
         """),
     ),
 }
@@ -659,8 +661,14 @@ def _overview_text() -> str:
 def help_text_for(command: str) -> str | None:
     canonical = _HELP_ALIASES.get(command, command)
     if canonical in _EXECUTION_HELP_TEXTS:
+        from agnette.agm.cli_support.program_options import engine_settings_section
+
         before, after = _EXECUTION_HELP_TEXTS[canonical]
-        return f"{before}\n{execution_options_section(width=help_width())}\n{after}"
+        width = help_width()
+        return (
+            f"{before}\n{engine_settings_section(width=width)}"
+            f"\n{execution_options_section(width=width)}\n{after}"
+        )
     return _HELP_TEXTS.get(canonical)
 
 

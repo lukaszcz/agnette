@@ -388,14 +388,9 @@ class TestDefaultSandboxRejection:
     def test_exec_rejects_malformed_default_sandbox_literal_from_cli(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A syntactically broken CLI literal exits 1, before the module graph loads.
-
-        The program carries an unresolvable import: if seed decoding ran
-        after module loading, the module-not-found diagnostic would surface
-        instead. It never does, pinning the decode-before-load ordering.
-        """
+        """A syntactically broken CLI literal exits 1, before the program runs."""
         program = tmp_path / "program.agl"
-        write_file_program(program, 'import nonexistent/mod\nprint "not-run"\n')
+        write_file_program(program, 'print "not-run"\n')
 
         with pytest.raises(SystemExit) as exc_info:
             exec_command.run(_exec_args_no_trace(program, default_sandbox="Sandbox("))
@@ -405,21 +400,16 @@ class TestDefaultSandboxRejection:
         assert out == ""
         assert "default-sandbox" in err
         assert "--default-sandbox" in err
-        assert "nonexistent" not in err
 
     def test_exec_rejects_malformed_default_sandbox_literal_from_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A syntactically broken config-table literal exits 1, before the module graph loads.
-
-        See :meth:`test_exec_rejects_malformed_default_sandbox_literal_from_cli`
-        for why the program carries an unresolvable import.
-        """
+        """A syntactically broken config-table literal exits 1, before the program runs."""
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
         (home / ".agm" / "config.toml").write_text('[exec]\ndefault-sandbox = "Sandbox("\n')
         program = tmp_path / "program.agl"
-        write_file_program(program, 'import nonexistent/mod\nprint "not-run"\n')
+        write_file_program(program, 'print "not-run"\n')
         monkeypatch.setattr(
             exec_engine,
             "current_config_context",
@@ -434,7 +424,6 @@ class TestDefaultSandboxRejection:
         assert out == ""
         assert "default-sandbox" in err
         assert "configuration key" in err
-        assert "nonexistent" not in err
 
     def test_exec_rejects_wrong_shape_default_sandbox_value_from_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

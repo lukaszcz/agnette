@@ -33,10 +33,8 @@ _TYPE_BY_KIND: dict[EngineKeyKind, Type] = {
     EngineKeyKind.AGENT_SANDBOX: BUILTIN_PRELUDE_TYPES["AgentSandbox"],
 }
 
-# Lookup: kebab key name → resolved AgL type. Built from the same
-# ``ENGINE_KEY_KINDS`` tuple ``cli_support.program_options.engine_key_flags``
-# iterates, so that lookup is total by construction: every name it visits is
-# a key of this mapping.
+# Lookup: kebab key name → resolved AgL type. Built from the ``ENGINE_KEY_KINDS``
+# tuple, so the lookup is total over the engine settings.
 ENGINE_KEY_TYPES: Mapping[str, Type] = MappingProxyType(
     {name: _TYPE_BY_KIND[kind] for name, kind in ENGINE_KEY_KINDS}
 )

@@ -5,6 +5,8 @@ shared by engine keys and program parameters, and the ``click`` command a
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import click
 import pytest
 from typer.core import TyperGroup, TyperOption
@@ -12,8 +14,9 @@ from typer.core import TyperGroup, TyperOption
 from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
-from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID, ModuleId
 from agnette.agl.runtime.arguments import OptionSome, decode_param_value
+from agnette.agl.runtime.engine_config import engine_setting_params
 from agnette.agl.runtime.option import none_value, some_value
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
 from agnette.agl.semantics.type_table import create_seeded_type_table
@@ -32,6 +35,7 @@ from agnette.agl.semantics.values import ArrayValue, BoolValue, IntValue, TextVa
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.type_schema import build_param_decoder
 from agnette.agl.zones import ParamZone
+from agnette.agm.cli_support.engine_seeds import parse_engine_flags, split_engine_params
 from agnette.agm.cli_support.program_options import (
     EXEC_RESERVED_FLAGS,
     HELP_FLAGS,
@@ -44,7 +48,7 @@ from agnette.agm.cli_support.program_options import (
     ReservedFlagError,
     ValueForm,
     build_program_command,
-    engine_key_flags,
+    engine_command,
     exec_program_name,
     native_raw_value,
     program_help_requested,
@@ -299,35 +303,11 @@ class TestProjectOption:
 
 
 # ---------------------------------------------------------------------------
-# engine_key_flags
+# reserved flag inventories
 # ---------------------------------------------------------------------------
 
 
-class TestEngineKeyFlags:
-    def test_bool_engine_key_contributes_both_polarities(self) -> None:
-        flags = engine_key_flags()
-        assert "--trace" in flags
-        assert "--no-trace" in flags
-
-    def test_option_engine_key_contributes_both_polarities(self) -> None:
-        flags = engine_key_flags()
-        assert "--timeout" in flags
-        assert "--no-timeout" in flags
-
-    def test_agent_engine_key_contributes_only_its_positive_flag(self) -> None:
-        flags = engine_key_flags()
-        assert "--default-agent" in flags
-        assert "--no-default-agent" not in flags
-
-    def test_register_enabling_engine_key_contributes_only_its_positive_flag(self) -> None:
-        """``--no-trace`` turns tracing off; ``trace-file`` has no negative of its own."""
-        flags = engine_key_flags()
-        assert "--trace-file" in flags
-        assert "--no-trace-file" not in flags
-
-    def test_exec_reserves_every_engine_key_flag(self) -> None:
-        assert engine_key_flags() <= EXEC_RESERVED_FLAGS
-
+class TestReservedFlags:
     def test_exec_reserves_exactly_the_flags_the_exec_command_declares(self) -> None:
         """The reserved set is derived from ``agm exec``'s own declarations,
         not restated. An unreserved host flag would silently shadow the
@@ -350,17 +330,14 @@ class TestEngineKeyFlags:
             for flag in (*param.opts, *param.secondary_opts)
         }
 
-        engine_flags = engine_key_flags()
-        assert (declared - engine_flags) | frozenset(HELP_FLAGS) == (
-            EXEC_RESERVED_FLAGS - engine_flags
-        )
+        assert declared | frozenset(HELP_FLAGS) == EXEC_RESERVED_FLAGS
 
     def test_every_flag_a_registered_command_declares_is_reserved(self) -> None:
         """Derived from the registered command's own declarations, as for ``agm exec``."""
         assert _registered_command_flags() <= REGISTERED_RESERVED_FLAGS
 
     def test_a_registered_command_declares_every_run_time_exec_flag(self) -> None:
-        assert engine_key_flags() | {"--max-call-depth"} <= _registered_command_flags()
+        assert {"--echo", "--no-echo", "--max-call-depth"} <= _registered_command_flags()
 
 
 # ---------------------------------------------------------------------------
@@ -406,10 +383,16 @@ class TestBuildProgramCommand:
 
         assert result == ReservedFlagError(parameter="help", flag="--help")
 
-    def test_named_param_colliding_with_an_engine_key_is_rejected(self) -> None:
-        result = build_program_command(_program(_param("timeout", TextType())), EXEC_RESERVED_FLAGS)
+    def test_named_param_named_like_an_engine_setting_shadows_its_bare_flag(self) -> None:
+        params = engine_setting_params()
+        result = build_program_command(
+            _program(_param("timeout", TextType())), EXEC_RESERVED_FLAGS, params
+        )
 
-        assert result == ReservedFlagError(parameter="timeout", flag="--timeout")
+        assert isinstance(result, ProgramCommand)
+        parsed = result.parse(["--timeout", "abc", "--std.config.timeout", "5s"])
+        assert parsed.arguments.named == {"timeout": "abc"}
+        assert parsed.params[(STD_CONFIG_ID, (), "timeout")] == OptionSome("5s")
 
     def test_bool_param_colliding_only_via_its_negative_flag_is_rejected(self) -> None:
         # ``--no-stdlib`` is a reserved built-in host flag with no paired
@@ -482,9 +465,7 @@ class TestBuildProgramCommand:
 
         assert isinstance(result, ProgramCommand)
 
-    @pytest.mark.parametrize(
-        "flag", ["max-call-depth", "trace-file", "no-timeout", "default-sandbox"]
-    )
+    @pytest.mark.parametrize("flag", ["max-call-depth", "echo", "no-echo"])
     def test_run_time_exec_flags_are_reserved_on_a_registered_command(self, flag: str) -> None:
         result = build_program_command(
             _program(_param("value", TextType(), external=flag)), REGISTERED_RESERVED_FLAGS
@@ -1857,18 +1838,16 @@ class TestModuleParameterOptions:
 
     def test_help_omits_a_metavar_for_a_negative_only_option_module_parameter(self) -> None:
         program = self._program()
-        region = _module_param(program.module, "region", _option_type(TextType()))
-        command = build_program_command(
-            program,
-            frozenset({"--region", "--no-region", "--tool.region"}),
-            (region,),
-        )
+        # The signature's ``--no-foo`` takes the module parameter's positive flag.
+        signature = replace(program, parameters=(_param("foo", BoolType()),))
+        no_foo = _module_param(ENTRY_ID, "no-foo", _option_type(TextType()))
+        command = build_program_command(signature, EXEC_RESERVED_FLAGS, (no_foo,))
         assert isinstance(command, ProgramCommand)
 
         help_text = command.render_help("agm exec tool.agl")
 
-        assert "--no-tool.region" in help_text
-        assert "--no-tool.region TEXT" not in help_text
+        assert "--no-no-foo" in help_text
+        assert "--no-no-foo TEXT" not in help_text
 
     def test_module_bool_rejects_both_resolving_polarities(self) -> None:
         program = self._program()
@@ -2006,6 +1985,94 @@ class TestModuleParameterOptions:
         assert parsed.params == {}
 
 
+class TestEngineSettingFlags:
+    """The engine settings project onto flags through the shared module-parameter projection."""
+
+    @staticmethod
+    def _engine_command() -> ProgramCommand:
+        return engine_command()
+
+    @staticmethod
+    def _values(*tokens: str) -> dict[str, object | None]:
+        return parse_engine_flags(tokens)
+
+    def test_no_reserved_flag_is_an_engine_setting_flag(self) -> None:
+        """So no host with a program-less surface needs to reserve against them."""
+        import typer.main
+
+        from agnette.agm import cli
+
+        group = typer.main.get_command(cli.app)
+        assert isinstance(group, TyperGroup)
+        repl_flags = {
+            flag
+            for param in group.commands["repl"].params
+            if isinstance(param, TyperOption)
+            for flag in (*param.opts, *param.secondary_opts)
+        }
+        engine_flags = set(self._engine_command().option_spellings()) - {"--help", "-h"}
+
+        assert not engine_flags & (repl_flags | EXEC_RESERVED_FLAGS | REGISTERED_RESERVED_FLAGS)
+        assert engine_flags >= {"--timeout", "--no-trace"}
+
+    def test_every_setting_has_its_bare_flag_and_the_negations_its_type_has(self) -> None:
+        flags = {opt for param in self._engine_command().params for opt in param.opts}
+
+        assert {"--trace", "--no-trace", "--timeout", "--no-timeout"} <= flags
+        assert {"--strict-json", "--no-strict-json", "--debug", "--no-debug"} <= flags
+        assert {"--default-agent", "--default-sandbox", "--parse-error-retries"} <= flags
+        assert "--no-default-agent" not in flags
+
+    def test_the_trace_file_setting_has_no_negation_of_its_own(self) -> None:
+        flags = {opt for param in self._engine_command().params for opt in param.opts}
+
+        assert "--trace-file" in flags
+        assert "--no-trace-file" not in flags
+
+    def test_values_are_unboxed_to_the_native_shape_config_values_take(self) -> None:
+        assert self._values("--timeout", "30s", "--debug", "--no-strict-json") == {
+            "timeout": "30s",
+            "debug": True,
+            "strict-json": False,
+        }
+        assert self._values("--no-timeout") == {"timeout": None}
+        assert self._values("--parse-error-retries", "3") == {"parse-error-retries": "3"}
+
+    def test_unsupplied_settings_are_absent(self) -> None:
+        assert self._values() == {}
+
+    def test_the_qualified_spelling_is_unavailable_without_a_program(self) -> None:
+        with pytest.raises(ValueError):
+            self._engine_command().parse(["--std.config.timeout", "5s"])
+
+    @pytest.mark.parametrize(
+        "tokens",
+        [
+            ["--trace", "--no-trace"],
+            ["--trace", "--trace-file", "x"],
+            ["--no-trace", "--trace-file", "x"],
+            ["--timeout", "5s", "--no-timeout"],
+        ],
+    )
+    def test_conflicting_flags_of_one_setting_or_register_are_rejected(
+        self, tokens: list[str]
+    ) -> None:
+        with pytest.raises(ValueError):
+            self._values(*tokens)
+
+    def test_a_program_with_a_parameter_of_the_same_name_keeps_the_setting_qualified(
+        self,
+    ) -> None:
+        result = build_program_command(
+            _program(_param("debug", BoolType())), EXEC_RESERVED_FLAGS, engine_setting_params()
+        )
+
+        assert isinstance(result, ProgramCommand)
+        parsed = result.parse(["--debug", "--std.config.debug"])
+        assert parsed.arguments.named == {"debug": True}
+        assert split_engine_params(parsed.params)[1] == {"debug": True}
+
+
 class TestProgramCommandFor:
     def test_returns_the_built_command_for_a_valid_signature(self) -> None:
         from agnette.agm.cli_support.program_options import program_command_for
@@ -2055,6 +2122,16 @@ class TestHostLookingProgramValues:
         ]
 
         assert command.value_token_indexes(tokens) == frozenset({3, 5, 8})
+
+    def test_a_module_value_parameter_named_no_x_takes_its_value_after_its_positive_flag(
+        self,
+    ) -> None:
+        program = _program()
+        module_param = _module_param(ENTRY_ID, "no-cache", TextType())
+        command = _command_with_module_params(program, module_param)
+
+        assert command.option_arity()["--no-cache"] is True
+        assert command.value_token_indexes(["--no-cache", "value"]) == frozenset({1})
 
     def test_incomplete_and_unknown_short_options_claim_no_value(self) -> None:
         command = _command(_param("message", TextType()), _param("tag", TextType(), short="t"))

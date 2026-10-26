@@ -43,7 +43,6 @@ from agnette.agm.cli_support.args import (
     WorktreeRemoveArgs,
 )
 from agnette.agm.cli_support.execution_options import execution_option_spec
-from agnette.agm.cli_support.run_options import execution_option_conflict
 from agnette.agm.parser import (
     exit_with_usage_error,
     print_command_help,
@@ -56,6 +55,11 @@ if TYPE_CHECKING:
     from agnette.agm.cli_support.program_discovery import ExecProgramDiscovery
 
 _BASE_CONTEXT_SETTINGS: dict[str, bool | list[str]] = {"help_option_names": []}
+# Lets the engine-setting flags, which the command parses itself, through Click.
+_ENGINE_FLAGS_CONTEXT_SETTINGS: dict[str, bool | list[str]] = {
+    "allow_extra_args": True,
+    "ignore_unknown_options": True,
+}
 _RUN_CONTEXT_SETTINGS: dict[str, bool | list[str]] = {
     "help_option_names": [],
     "allow_extra_args": True,
@@ -161,16 +165,6 @@ def _no_fetch_option() -> bool:
     )
 
 
-def _strict_json_option() -> bool | None:
-    option = execution_option_spec("strict_json")
-    return typer.Option(
-        None,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Strict or lenient agent JSON parsing.",
-    )
-
-
 def _echo_option() -> bool | None:
     option = execution_option_spec("echo")
     return typer.Option(
@@ -181,26 +175,6 @@ def _echo_option() -> bool | None:
     )
 
 
-def _debug_option() -> bool | None:
-    option = execution_option_spec("debug")
-    return typer.Option(
-        None,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Debug mode.",
-    )
-
-
-def _parse_error_retries_option() -> int | None:
-    option = execution_option_spec("parse_error_retries")
-    return typer.Option(
-        None,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Default parse-error-retries for ask.",
-    )
-
-
 def _max_call_depth_option() -> int | None:
     option = execution_option_spec("max_call_depth")
     return typer.Option(
@@ -208,74 +182,6 @@ def _max_call_depth_option() -> int | None:
         *option.declarations,
         metavar=option.metavar,
         help="Maximum call depth.",
-    )
-
-
-def _default_agent_option() -> str | None:
-    option = execution_option_spec("default_agent")
-    return typer.Option(
-        None,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Default agent (Agent value or command).",
-    )
-
-
-def _default_sandbox_option() -> str | None:
-    option = execution_option_spec("default_sandbox")
-    return typer.Option(
-        None,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Default agent sandbox (AgentSandbox).",
-    )
-
-
-def _trace_file_option() -> str | None:
-    option = execution_option_spec("trace_file")
-    return typer.Option(
-        None,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Write the JSONL trace to PATH.",
-        autocompletion=completion.complete_path_argument,
-    )
-
-
-def _no_trace_option() -> bool:
-    option = execution_option_spec("no_trace")
-    return typer.Option(
-        False, *option.declarations, metavar=option.metavar, help="Disable trace logging."
-    )
-
-
-def _trace_option() -> bool:
-    option = execution_option_spec("trace")
-    return typer.Option(
-        False,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Enable trace logging to an auto-named file.",
-    )
-
-
-def _timeout_option() -> str | None:
-    option = execution_option_spec("timeout")
-    return typer.Option(
-        None,
-        *option.declarations,
-        metavar=option.metavar,
-        help="Shell-exec and agent idle timeout.",
-    )
-
-
-def _no_timeout_option() -> bool:
-    option = execution_option_spec("no_timeout")
-    return typer.Option(
-        False,
-        *option.declarations,
-        metavar=option.metavar,
-        help="No shell-exec or agent idle timeout.",
     )
 
 
@@ -307,12 +213,6 @@ def _warning_option() -> list[str]:
 def _missing_arguments(command_path: Sequence[str], names: Sequence[str]) -> NoReturn:
     joined = ", ".join(names)
     exit_with_usage_error(command_path, f"error: the following arguments are required: {joined}")
-
-
-def _reject_run_option_conflict(command: str, conflict: str | None) -> None:
-    """Exit with a usage error for *conflict* among *command*'s run-time options, if any."""
-    if conflict is not None:
-        exit_with_usage_error([command], f"error: {conflict}")
 
 
 def _require_value(
@@ -864,19 +764,9 @@ def exec_cmd(
         help="Select a program def by declaration path.",
     ),
     echo: bool | None = _echo_option(),
-    strict_json: bool | None = _strict_json_option(),
     max_call_depth: int | None = _max_call_depth_option(),
-    default_agent: str | None = _default_agent_option(),
-    default_sandbox: str | None = _default_sandbox_option(),
-    trace_file: str | None = _trace_file_option(),
-    no_trace: bool = _no_trace_option(),
-    trace: bool = _trace_option(),
     module_paths: list[str] = _module_path_option(),
     no_stdlib: bool = _no_stdlib_option(),
-    timeout: str | None = _timeout_option(),
-    no_timeout: bool = _no_timeout_option(),
-    debug: bool | None = _debug_option(),
-    parse_error_retries: int | None = _parse_error_retries_option(),
     warning: list[str] = _warning_option(),
 ) -> None:
     # ``_RUN_CONTEXT_SETTINGS`` disables Click's built-in ``--help`` interception
@@ -931,22 +821,11 @@ def exec_cmd(
         program=program,
         argument_tokens=argument_tokens,
         echo=echo,
-        strict_json=strict_json,
         max_call_depth=max_call_depth,
-        default_agent=default_agent,
-        default_sandbox=default_sandbox,
-        no_trace=no_trace,
-        trace_file=trace_file,
-        trace=trace,
         module_paths=module_paths,
         no_stdlib=no_stdlib,
-        timeout=timeout,
-        no_timeout=no_timeout,
-        debug=debug,
-        parse_error_retries=parse_error_retries,
         pipeline_cache=discovery.cached_artifacts(file),
     )
-    _reject_run_option_conflict("exec", execution_option_conflict(exec_args))
     # Resolved once after help, so a bad flag or table never blocks help; the
     # discovery above was governed by the same policy, so the run reuses it.
     warning_policy = command_warning_policy(["exec"], warning)
@@ -957,26 +836,23 @@ def exec_cmd(
     exec_command.run(exec_args, warning_policy=warning_policy)
 
 
-@app.command(name="repl")
+@app.command(
+    name="repl", context_settings=_ENGINE_FLAGS_CONTEXT_SETTINGS, cls=completion.ReplCommand
+)
 def repl_cmd(
+    tokens: list[str] | None = typer.Argument(
+        None,
+        metavar="[ENGINE-SETTING-OPTION]...",
+        help="Engine setting options (--timeout 30s, --no-trace, ...).",
+    ),
     echo: bool | None = _echo_option(),
-    strict_json: bool | None = _strict_json_option(),
     max_call_depth: int | None = _max_call_depth_option(),
-    default_agent: str | None = _default_agent_option(),
-    default_sandbox: str | None = _default_sandbox_option(),
     quiet: bool = typer.Option(
         False,
         "--quiet",
         help="Do not echo entry results.",
     ),
-    trace_file: str | None = _trace_file_option(),
-    no_trace: bool = _no_trace_option(),
-    trace: bool = _trace_option(),
     no_stdlib: bool = _no_stdlib_option(),
-    timeout: str | None = _timeout_option(),
-    no_timeout: bool = _no_timeout_option(),
-    debug: bool | None = _debug_option(),
-    parse_error_retries: int | None = _parse_error_retries_option(),
     warning: list[str] = _warning_option(),
     plain: bool = typer.Option(
         False,
@@ -988,22 +864,12 @@ def repl_cmd(
     del _help
     repl_args = ReplArgs(
         echo=echo,
-        strict_json=strict_json,
         max_call_depth=max_call_depth,
-        default_agent=default_agent,
-        default_sandbox=default_sandbox,
         quiet=quiet,
-        no_trace=no_trace,
-        trace_file=trace_file,
-        trace=trace,
-        timeout=timeout,
-        no_timeout=no_timeout,
-        debug=debug,
-        parse_error_retries=parse_error_retries,
         no_stdlib=no_stdlib,
+        tokens=list(tokens or ()),
         plain=plain,
     )
-    _reject_run_option_conflict("repl", execution_option_conflict(repl_args))
     # Imported lazily: pulls in the AgL DSL (runtime, repl console), which would
     # otherwise slow every non-AgL ``agm`` invocation's startup.
     import agnette.agm.commands.repl as repl_command

@@ -29,6 +29,7 @@ from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import CommandSpec, PackageManifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
+from tests._help_helpers import assert_lists_engine_settings
 from tests._package_helpers import exec_args, install_directory, write_installed_package
 
 if TYPE_CHECKING:
@@ -345,27 +346,11 @@ def test_registered_command_preserves_a_host_looking_program_option_value(
 
     monkeypatch.setattr(exec_program, "run_registered", run_registered)
 
-    result = invoke(CliRunner(), ["tools", "lint", "--message", "--no-timeout"])
+    result = invoke(CliRunner(), ["tools", "lint", "--message", "--no-echo"])
 
     assert result.exit_code == 0, result.output
     assert calls[0][1] is not None, calls
-    assert calls[0][0] == ["--message", "--no-timeout"]
-
-    conflict_result = invoke(
-        CliRunner(),
-        [
-            "tools",
-            "lint",
-            "--message",
-            "--no-timeout",
-            "--trace",
-            "--trace-file",
-            "trace.log",
-        ],
-    )
-
-    assert conflict_result.exit_code != 0
-    assert len(calls) == 1
+    assert calls[0][0] == ["--message", "--no-echo"]
 
 
 def _record_registered_exec_args(
@@ -397,7 +382,7 @@ def _record_registered_exec_args(
 def test_registered_command_forwards_exec_run_time_options(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """``agm exec``'s run-time options, among the program's own tokens, reach execution."""
+    """The echo and call-depth options are lifted; engine-setting flags stay program tokens."""
     calls = _record_registered_exec_args(monkeypatch, tmp_path)
 
     full = invoke(
@@ -413,56 +398,35 @@ def test_registered_command_forwards_exec_run_time_options(
             "9",
             "--default-agent",
             "claude",
-            "--default-sandbox",
-            "Native",
             "--timeout",
             "30s",
             "--trace-file",
             "trace.jsonl",
-            "--debug",
-            "--parse-error-retries",
-            "2",
         ],
     )
-    negated = invoke(
-        CliRunner(),
-        ["tools", "lint", "--no-echo", "--trace", "--no-timeout", "--no-debug"],
-    )
+    negated = invoke(CliRunner(), ["tools", "lint", "--no-echo", "--trace", "--no-timeout"])
     plain = invoke(CliRunner(), ["tools", "lint", "--no-trace", "--level=--timeout"])
 
     assert [result.exit_code for result in (full, negated, plain)] == [0, 0, 0]
     assert calls == [
         ExecArgs(
             file="tools/lint::main",
-            argument_tokens=["--level", "strict"],
+            argument_tokens=[
+                "--no-strict-json",
+                "--level",
+                "strict",
+                "--default-agent",
+                "claude",
+                "--timeout",
+                "30s",
+                "--trace-file",
+                "trace.jsonl",
+            ],
             echo=True,
-            strict_json=False,
             max_call_depth=9,
-            default_agent="claude",
-            default_sandbox="Native",
-            timeout="30s",
-            trace_file="trace.jsonl",
-            no_trace=False,
-            debug=True,
-            parse_error_retries=2,
         ),
-        ExecArgs(
-            file="tools/lint::main",
-            strict_json=None,
-            echo=False,
-            no_trace=False,
-            trace_file=None,
-            trace=True,
-            no_timeout=True,
-            debug=False,
-        ),
-        ExecArgs(
-            file="tools/lint::main",
-            argument_tokens=["--level=--timeout"],
-            strict_json=None,
-            no_trace=True,
-            trace_file=None,
-        ),
+        ExecArgs(file="tools/lint::main", echo=False, argument_tokens=["--trace", "--no-timeout"]),
+        ExecArgs(file="tools/lint::main", argument_tokens=["--no-trace", "--level=--timeout"]),
     ]
 
 
@@ -475,16 +439,29 @@ def test_registered_command_forwards_exec_run_time_options(
         ["--timeout", "5s", "--no-timeout"],
     ],
 )
-def test_registered_command_rejects_mutually_exclusive_run_time_options(
+def test_registered_command_rejects_mutually_exclusive_engine_settings(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, options: list[str]
 ) -> None:
-    calls = _record_registered_exec_args(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    write_installed_package(
+        home,
+        "tools",
+        source='program def main(level: text = "x") -> unit = ()\n',
+        commands={"tools lint": "tools/main::main"},
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(
+        dispatch,
+        "load_command_index",
+        lambda **_: ActivationIndex(
+            commands={"tools lint": CommandRegistration("tools", "tools/main::main")}
+        ),
+    )
 
     result = invoke(CliRunner(), ["tools", "lint", *options])
 
     assert result.exit_code == 1
     assert "agm tools lint" in result.output
-    assert calls == []
 
 
 def test_registered_command_conflict_help_includes_module_parameters(
@@ -545,7 +522,7 @@ def test_ambiguous_registered_value_reuses_static_pipeline_artifacts(
 
     monkeypatch.setattr(PipelineDriver, "discover_programs", counting_discover)
 
-    result = invoke(CliRunner(), ["tools", "run", "--message", "--dry-run"])
+    result = invoke(CliRunner(), ["tools", "run", "--message", "--no-echo"])
 
     assert result.exit_code == 0
     assert discoveries == 1
@@ -1057,7 +1034,7 @@ def test_registered_help_reuses_discovery_for_a_host_shaped_program_value(
             commands={"tools run": CommandRegistration("tools", "tools/main::main")}
         ),
     )
-    result = invoke(CliRunner(), ["tools", "run", "--tag", "--dry-run", "--help"])
+    result = invoke(CliRunner(), ["tools", "run", "--tag", "--no-echo", "--help"])
 
     assert result.exit_code == 0
     assert "--tag" in result.output
@@ -1096,8 +1073,7 @@ def test_registered_command_applies_exec_run_time_options(
     assert str(start["file"]).endswith("main.agl")
     assert start["command"] == "tools run"
     assert start["function"] == "main"
-    assert "--trace-file" in help_result.output
-    assert "--no-timeout" in help_result.output
+    assert_lists_engine_settings(help_result.output)
     assert "--module-path" not in help_result.output
 
 
@@ -1221,17 +1197,22 @@ def test_exec_installed_reference_preserves_all_file_options(
 
     args = ExecArgs(
         file="tools/review::main",
-        strict_json=True,
-        no_trace=True,
-        trace_file="trace.jsonl",
-        argument_tokens=["--subject", "changes"],
-        trace=True,
+        argument_tokens=[
+            "--strict-json",
+            "--no-trace",
+            "--trace",
+            "--no-timeout",
+            "--trace-file",
+            "trace.jsonl",
+            "--timeout",
+            "5s",
+            "--default-agent",
+            'AgentCommand("fake")',
+            *["--subject", "changes"],
+        ],
         module_paths=["modules"],
         no_stdlib=True,
         max_call_depth=4,
-        timeout="5s",
-        no_timeout=True,
-        default_agent='AgentCommand("fake")',
     )
 
     exec_command.run(args)
@@ -1254,7 +1235,7 @@ def test_exec_prefers_an_existing_file_path_containing_a_reference_separator(
         lambda args, **_: calls.append(args),
     )
 
-    args = ExecArgs(file=str(agl_file), strict_json=None, no_trace=False, trace_file=None)
+    args = ExecArgs(file=str(agl_file))
     exec_command.run(args)
 
     assert calls == [args]
@@ -1721,14 +1702,7 @@ def test_program_argument_parse_failure_raises_a_typed_usage_error(tmp_path: Pat
 
     with pytest.raises(RegisteredProgramUsageError) as exc_info:
         exec_program.run(
-            ExecArgs(
-                file=str(source),
-                argument_tokens=["--unknown"],
-                strict_json=None,
-                no_trace=False,
-                trace_file=None,
-                no_stdlib=True,
-            ),
+            ExecArgs(file=str(source), argument_tokens=["--unknown"], no_stdlib=True),
         )
 
     assert "--unknown" in exc_info.value.message
@@ -1836,16 +1810,7 @@ def test_plain_exec_argument_error_still_renders_the_base_exec_usage(
     source.write_text("program def main() -> unit = ()\n", encoding="utf-8")
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_command.run(
-            ExecArgs(
-                file=str(source),
-                argument_tokens=["--unknown"],
-                strict_json=None,
-                no_trace=False,
-                trace_file=None,
-                no_stdlib=True,
-            )
-        )
+        exec_command.run(ExecArgs(file=str(source), argument_tokens=["--unknown"], no_stdlib=True))
 
     assert exc_info.value.code == 1
     error = capsys.readouterr().err
@@ -1968,14 +1933,7 @@ def test_editable_registered_dispatch_uses_the_live_manifest(
 
     assert calls == [
         (
-            ExecArgs(
-                file=str(updated.resolve()),
-                program="main",
-                argument_tokens=[],
-                strict_json=None,
-                no_trace=False,
-                trace_file=None,
-            ),
+            ExecArgs(file=str(updated.resolve()), program="main", argument_tokens=[]),
             ("tools", "updated"),
         )
     ]
@@ -2115,9 +2073,7 @@ def test_exec_unknown_installed_reference_exits_cleanly(
     monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: ())
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_command.run(
-            ExecArgs(file="missing/main::main", strict_json=None, no_trace=False, trace_file=None)
-        )
+        exec_command.run(ExecArgs(file="missing/main::main"))
 
     assert exc_info.value.code == 1
 

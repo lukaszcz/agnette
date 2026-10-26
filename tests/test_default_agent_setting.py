@@ -28,6 +28,7 @@ from tests._agl_helpers import (
 from tests._agl_helpers import (
     run_program as _run,
 )
+from tests._engine_flags import engine_flag_tokens
 
 
 def test_engine_key_uses_the_agent_nominal_type() -> None:
@@ -139,17 +140,7 @@ def test_exec_uses_stdlib_default_agent_when_no_host_seed(
     program = tmp_path / "program.agl"
     write_file_program(program, "import std/config\nprint std/config::default-agent\n")
 
-    assert (
-        exec_command.run(
-            ExecArgs(
-                file=str(program),
-                strict_json=None,
-                no_trace=True,
-                trace_file=None,
-            )
-        )
-        is None
-    )
+    assert exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace"])) is None
 
     assert "AgentPi" in capsys.readouterr().out
 
@@ -233,10 +224,7 @@ def test_exec_agent_source_cli_and_config_precedence(
         exec_command.run(
             ExecArgs(
                 file=str(program),
-                strict_json=None,
-                default_agent=cli_literal,
-                no_trace=True,
-                trace_file=None,
+                argument_tokens=engine_flag_tokens(no_trace=True, default_agent=cli_literal),
             )
         )
         is None
@@ -274,12 +262,7 @@ def test_program_table_default_agent_beats_exec_default_agent(
         lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
     )
 
-    assert (
-        exec_command.run(
-            ExecArgs(file=str(program), strict_json=None, no_trace=True, trace_file=None)
-        )
-        is None
-    )
+    assert exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace"])) is None
 
     rendered = capsys.readouterr().out
     assert "program-level" in rendered
@@ -311,10 +294,7 @@ def test_cli_default_agent_beats_program_table(
         exec_command.run(
             ExecArgs(
                 file=str(program),
-                strict_json=None,
-                default_agent='AgentCommand("cli-level")',
-                no_trace=True,
-                trace_file=None,
+                argument_tokens=["--no-trace", "--default-agent", 'AgentCommand("cli-level")'],
             )
         )
         is None
@@ -343,12 +323,7 @@ def test_exec_config_runner_key_leaves_the_default_agent_unset(
         lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
     )
 
-    assert (
-        exec_command.run(
-            ExecArgs(file=str(program), strict_json=None, no_trace=True, trace_file=None)
-        )
-        is None
-    )
+    assert exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace"])) is None
 
     rendered = capsys.readouterr().out
     assert "AgentPi" in rendered
@@ -364,13 +339,7 @@ def test_exec_treats_non_agent_syntax_from_cli_as_a_command(
 
     assert (
         exec_command.run(
-            ExecArgs(
-                file=str(program),
-                strict_json=None,
-                default_agent=value,
-                no_trace=True,
-                trace_file=None,
-            )
+            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--default-agent", value])
         )
         is None
     )
@@ -388,13 +357,7 @@ def test_exec_rejects_text_that_opens_a_member_call_but_fails_to_read_from_cli(
 
     with pytest.raises(SystemExit) as exc_info:
         exec_command.run(
-            ExecArgs(
-                file=str(program),
-                strict_json=None,
-                default_agent=value,
-                no_trace=True,
-                trace_file=None,
-            )
+            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--default-agent", value])
         )
 
     assert exc_info.value.code == 1
@@ -422,14 +385,7 @@ def test_exec_rejects_non_string_agent_value_from_config(
     )
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_command.run(
-            ExecArgs(
-                file=str(program),
-                strict_json=None,
-                no_trace=True,
-                trace_file=None,
-            )
-        )
+        exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace"]))
 
     assert exc_info.value.code == 1
     error = capsys.readouterr().err
@@ -453,12 +409,7 @@ def test_exec_treats_non_agent_syntax_from_config_as_a_command(
         lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
     )
 
-    assert (
-        exec_command.run(
-            ExecArgs(file=str(program), strict_json=None, no_trace=True, trace_file=None)
-        )
-        is None
-    )
+    assert exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace"])) is None
     assert capsys.readouterr().out == "ran\n"
 
 
@@ -471,13 +422,7 @@ def test_exec_rejects_blank_agent_literal_from_cli(
 
     with pytest.raises(SystemExit) as exc_info:
         exec_command.run(
-            ExecArgs(
-                file=str(program),
-                strict_json=None,
-                default_agent="",
-                no_trace=True,
-                trace_file=None,
-            )
+            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--default-agent", ""])
         )
 
     assert exc_info.value.code == 1
@@ -506,10 +451,11 @@ def test_exec_rejects_malformed_agent_command_literal_from_cli(
         exec_command.run(
             ExecArgs(
                 file=str(program),
-                strict_json=None,
-                default_agent='AgentCommand("nonexistent-bin -p \'oops")',
-                no_trace=True,
-                trace_file=None,
+                argument_tokens=[
+                    "--no-trace",
+                    "--default-agent",
+                    'AgentCommand("nonexistent-bin -p \'oops")',
+                ],
             )
         )
 
@@ -531,10 +477,7 @@ def test_exec_allows_well_formed_agent_command_literal_from_cli(
         exec_command.run(
             ExecArgs(
                 file=str(program),
-                strict_json=None,
-                default_agent='AgentCommand("echo hi")',
-                no_trace=True,
-                trace_file=None,
+                argument_tokens=["--no-trace", "--default-agent", 'AgentCommand("echo hi")'],
             )
         )
         is None
@@ -564,9 +507,7 @@ def test_source_write_of_malformed_agent_command_stays_a_runtime_error(
     )
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_command.run(
-            ExecArgs(file=str(program), strict_json=None, no_trace=True, trace_file=None)
-        )
+        exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace"]))
 
     assert exc_info.value.code == 2
     out, err = capsys.readouterr()

@@ -26,7 +26,6 @@ from agnette.agl.syntax.resources import ResourceError, resolve_resource, resour
 from agnette.agl.syntax.types import UnitT
 from agnette.agl.syntax.visitor import walk
 from agnette.command_catalog import RESERVED_CONFIG_SECTION_NAMES, invalid_command_path
-from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from agnette.config.qualified_keys import display_table_path, param_spellings_for
 from agnette.core import fs
 from agnette.core.toml import TomlDict
@@ -512,16 +511,28 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
     """
     if not manifest.config:
         return
-    from agnette.agl.runtime.engine_config import validate_manifest_leaf_value
+    from agnette.agl.runtime.engine_config import (
+        engine_setting_params,
+        validate_manifest_leaf_value,
+    )
     from agnette.agl.semantics.type_table import create_seeded_type_table
 
     registered = registered_command_paths(manifest)
     param_spellings = _closure_param_spellings(resolutions)
+    # A word a ``@param`` spells shadows the engine setting of that spelling for
+    # some programs; its value is then decoded per program at run time.
+    engine_spellings = {
+        spelling: param.name
+        for param in engine_setting_params()
+        for spelling in param.declared_spellings
+        if spelling not in param_spellings
+    }
     _validate_config_level(
         manifest.config,
         (),
         registered,
         param_spellings,
+        engine_spellings,
         create_seeded_type_table(),
         validate_manifest_leaf_value,
     )
@@ -532,13 +543,14 @@ def _validate_config_level(
     prefix: tuple[str, ...],
     registered: frozenset[tuple[str, ...]],
     param_spellings: frozenset[str],
+    engine_spellings: Mapping[str, str],
     type_table: "TypeTable",
     decode: Callable[[str, object, "TypeTable"], object],
 ) -> None:
     for key, value in table.items():
         path = (*prefix, key)
         is_command_word = path in registered
-        is_leaf_spelling = key in ENGINE_KEY_NAMES or key in param_spellings
+        is_leaf_spelling = key in engine_spellings or key in param_spellings
         if is_command_word and is_leaf_spelling:
             raise DisciplineError(
                 f"manifest config key {display_table_path(path)!r} is ambiguous between a "
@@ -551,11 +563,13 @@ def _validate_config_level(
                     "and must be a table"
                 )
             nested: TomlDict = value
-            _validate_config_level(nested, path, registered, param_spellings, type_table, decode)
+            _validate_config_level(
+                nested, path, registered, param_spellings, engine_spellings, type_table, decode
+            )
             continue
-        if key in ENGINE_KEY_NAMES:
+        if key in engine_spellings:
             try:
-                decode(key, value, type_table)
+                decode(engine_spellings[key], value, type_table)
             except ValueError as exc:
                 raise DisciplineError(
                     f"manifest config key {display_table_path(path)!r}: {exc}"

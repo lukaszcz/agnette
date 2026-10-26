@@ -360,10 +360,10 @@ def select_declared_program(
     A *requested* name selects only the candidate whose declaration path it
     spells, never a differently named one; with no request, a sole candidate
     is selected implicitly and several are left unselected. Held here so the
-    AST pre-pass in ``commands.exec_program.run`` — which must resolve the
-    selected program's qualified engine-config table before the pipeline that
-    produces :class:`ProgramDeclInfo` values can be built — applies exactly
-    the rule :func:`select_entry_program` applies later.
+    AST pre-pass in ``commands.exec_program.run`` — which must find the
+    selected program's owning package and command paths before the pipeline
+    that produces :class:`ProgramDeclInfo` values can be built — applies
+    exactly the rule :func:`select_entry_program` applies later.
     """
     if requested is not None:
         return next(

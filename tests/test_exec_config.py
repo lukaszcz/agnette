@@ -193,7 +193,8 @@ class TestModuleParameterConfigRoutes:
     def _run(self, source: Path, modules: Path) -> None:
         exec_engine.run(
             replace(
-                ExecArgs(file=str(source), strict_json=None, no_trace=True, trace_file=None),
+                # The module parameter `trace` shadows the bare engine flag.
+                ExecArgs(file=str(source), argument_tokens=["--no-std.config.trace"]),
                 module_paths=[str(modules)],
             )
         )
@@ -303,9 +304,7 @@ class TestPackageEntryConfigRoute:
         home, module = self._install(tmp_path)
         self._use_home(monkeypatch, home, tmp_path)
 
-        exec_engine.run(
-            ExecArgs(file=str(module), strict_json=None, no_trace=False, trace_file=None)
-        )
+        exec_engine.run(ExecArgs(file=str(module)))
 
         assert capsys.readouterr().out == "prod\n"
 
@@ -357,9 +356,7 @@ class TestPackageEntryConfigRoute:
         home, module = self._install_registered(tmp_path, '[dv.review]\nlevel = "cmd"\n')
         self._use_home(monkeypatch, home, tmp_path)
 
-        exec_engine.run(
-            ExecArgs(file=str(module), strict_json=None, no_trace=False, trace_file=None)
-        )
+        exec_engine.run(ExecArgs(file=str(module)))
         exec_engine.run_registered("tools/main::main", args=exec_args())
 
         assert capsys.readouterr().out == "cmd\ncmd\n"
@@ -373,9 +370,7 @@ class TestPackageEntryConfigRoute:
         self._use_home(monkeypatch, home, tmp_path)
 
         with pytest.raises(SystemExit):
-            exec_engine.run(
-                ExecArgs(file=str(module), strict_json=None, no_trace=False, trace_file=None)
-            )
+            exec_engine.run(ExecArgs(file=str(module)))
 
     def test_command_table_key_is_not_reported_as_undeclared(
         self,
@@ -386,9 +381,7 @@ class TestPackageEntryConfigRoute:
         home, module = self._install_registered(tmp_path, '[dv.review]\nlevel = "cmd"\n')
         self._use_home(monkeypatch, home, tmp_path)
 
-        exec_engine.run(
-            ExecArgs(file=str(module), strict_json=None, no_trace=False, trace_file=None)
-        )
+        exec_engine.run(ExecArgs(file=str(module)))
 
         assert capsys.readouterr().err == ""
 
@@ -442,9 +435,7 @@ class TestPackageEntryConfigRoute:
         home, module = self._install_registered(tmp_path, "[dv.review]\nbogus = 1\n")
         self._use_home(monkeypatch, home, tmp_path)
 
-        exec_engine.run(
-            ExecArgs(file=str(module), strict_json=None, no_trace=False, trace_file=None)
-        )
+        exec_engine.run(ExecArgs(file=str(module)))
 
         assert "bogus" in capsys.readouterr().err
 
@@ -462,9 +453,7 @@ class TestPackageEntryConfigRoute:
         loose.write_text(self._SOURCE, encoding="utf-8")
         self._use_home(monkeypatch, home, tmp_path)
 
-        exec_engine.run(
-            ExecArgs(file=str(loose), strict_json=None, no_trace=False, trace_file=None)
-        )
+        exec_engine.run(ExecArgs(file=str(loose)))
 
         assert capsys.readouterr().out == "stem\n"
 
@@ -482,13 +471,5 @@ class TestPackageEntryConfigRoute:
         home, module = self._install(tmp_path)
         self._use_home(monkeypatch, home, tmp_path)
 
-        exec_engine.run(
-            ExecArgs(
-                file=str(module),
-                strict_json=None,
-                no_trace=False,
-                trace_file=None,
-                argument_tokens=["--level", "bare"],
-            )
-        )
+        exec_engine.run(ExecArgs(file=str(module), argument_tokens=["--level", "bare"]))
         assert capsys.readouterr().out == "bare\n"

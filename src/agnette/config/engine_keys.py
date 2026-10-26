@@ -72,6 +72,8 @@ class EngineKeySpec:
     enables_register: bool = False
     is_path: bool = False
     non_negative: bool = False
+    doc: str = ""
+    metavar: str | None = None
 
 
 #: The register backing the trace destination, named after its on/off switch.
@@ -87,6 +89,7 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         config_attr="trace",
         default=False,
         register=TRACE_REGISTER,
+        doc="Enable or disable trace logging.",
     ),
     EngineKeySpec(
         "strict-json",
@@ -94,6 +97,7 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         EngineKeyConsumer.RUNTIME_LIVE,
         config_attr="strict_json",
         default=False,
+        doc="Strict or lenient agent JSON parsing.",
     ),
     EngineKeySpec(
         "default-agent",
@@ -101,6 +105,8 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         EngineKeyConsumer.HOST_CONSUMED,
         config_attr="default_agent",
         has_default=False,
+        doc="Default agent (Agent value or command).",
+        metavar="AGENT",
     ),
     EngineKeySpec(
         "default-sandbox",
@@ -108,6 +114,8 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         EngineKeyConsumer.HOST_CONSUMED,
         config_attr="default_sandbox",
         has_default=False,
+        doc="Default agent sandbox (AgentSandbox).",
+        metavar="SANDBOX",
     ),
     EngineKeySpec(
         "trace-file",
@@ -118,6 +126,7 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         register=TRACE_REGISTER,
         enables_register=True,
         is_path=True,
+        doc="Write the JSONL trace to PATH.",
     ),
     EngineKeySpec(
         "timeout",
@@ -125,6 +134,8 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         EngineKeyConsumer.RUNTIME_LIVE,
         config_attr="timeout",
         default=None,
+        doc="Shell-exec/agent idle timeout, or none.",
+        metavar="DURATION",
     ),
     EngineKeySpec(
         "debug",
@@ -132,6 +143,7 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         EngineKeyConsumer.HOST_CONSUMED,
         config_attr="debug",
         default=False,
+        doc="Debug mode.",
     ),
     EngineKeySpec(
         "parse-error-retries",
@@ -140,6 +152,8 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         config_attr="parse_error_retries",
         default=4,
         non_negative=True,
+        doc="Default parse-error-retries for ask.",
+        metavar="N",
     ),
 )
 
@@ -173,6 +187,11 @@ def engine_keys_for_register(register: str) -> frozenset[str]:
 #: The key pair backing the trace destination. A write to either repoints the
 #: same trace store; see ``IrInterpreter._reconfigure_host_service``.
 TRACE_ENGINE_KEYS: frozenset[str] = engine_keys_for_register(TRACE_REGISTER)
+
+#: Keys whose ``Some`` value turns their register on; the register's own switch turns it off.
+REGISTER_ENABLING_ENGINE_KEYS: frozenset[str] = frozenset(
+    spec.name for spec in ENGINE_KEYS if spec.enables_register
+)
 
 _TRACE_ENABLING_KEYS: frozenset[str] = frozenset(
     spec.name for spec in ENGINE_KEYS if spec.register == TRACE_REGISTER and spec.enables_register
