@@ -271,7 +271,7 @@ class UseReader:
         self._indexes: dict[int, _UseIndex] = {}
         self._renamed: dict[int, bool] = {}
         self._identities: dict[int, frozenset[QName]] = {}
-        self._hidden_by: dict[int, frozenset[DeclarationKey]] = {}
+        self._hidden_by = ReadMemo[int, frozenset[DeclarationKey]](self._value_reads)
 
     @property
     def horizon(self) -> int | None:
@@ -662,17 +662,17 @@ class UseReader:
 
         Each declaration an item names, and what a path beneath it reaches.
         """
-        found = self._hidden_by.get(decl.node_id)
-        if found is None:
-            target = _use_target(decl)
+        target = _use_target(decl)
+
+        def read() -> frozenset[DeclarationKey]:
             with self._reading_use(decl):
-                found = hidden_keys(
+                return hidden_keys(
                     decl.hidden,
                     lambda item: self._named_declarations(site, decl, (*target, *_item_path(item))),
                     self._sources.removed_with,
                 )
-            self._hidden_by[decl.node_id] = found
-        return found
+
+        return self._hidden_by.get(decl.node_id, read)
 
     def _named_declarations(self, site: ScopePath, decl: UseDecl, names: ScopePath) -> set[QName]:
         """The declarations and scopes *names*, spelled beneath *decl*'s anchor, names unremoved."""

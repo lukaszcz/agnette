@@ -1414,8 +1414,10 @@ _TWO_GEOS = {
 }
 
 
-def _placement_failure(tmp_path: Path, graph_kind: str, source: str) -> BaseException:
-    """The error resolving *source* as an inline entry, a file entry, or one REPL entry."""
+def _placement_failure(
+    tmp_path: Path, graph_kind: str, source: str, error: type[AglError] = AglScopeError
+) -> BaseException:
+    """The *error* resolving *source* as an inline entry, a file entry, or one REPL entry."""
     modules = {"entry": source, **_TWO_GEOS}
     if graph_kind == "repl":
         session = ReplSession(cwd=tmp_path, default_stdlib=False)
@@ -1426,7 +1428,7 @@ def _placement_failure(tmp_path: Path, graph_kind: str, source: str) -> BaseExce
         assert failure is not None
         return failure
     make = make_file_graph_from_files if graph_kind == "file" else _make_graph_from_files
-    with pytest.raises(AglScopeError) as caught:
+    with pytest.raises(error) as caught:
         resolve_program(make(tmp_path, modules, default_stdlib=False))
     return caught.value
 
@@ -1533,6 +1535,22 @@ class TestOwnUseSelectionsInSourceOrder:
     def test_a_later_scoped_binding_is_selectable(self, tmp_path: Path, use: str) -> None:
         result = evaluate_ir_graph(f"{use}\n\n{_OWN_SCOPE}\n\nlet seen = S::x", {}, tmp_path)
         assert result["seen"] == IntValue(1)
+
+
+class TestHidingAndRenamesOfLaterScopedBindings:
+    """A use naming a scoped let bound later reads the same however earlier reads went."""
+
+    @pytest.mark.parametrize("graph_kind", ("inline", "file", "repl"))
+    def test_a_read_before_the_binding_does_not_stale_the_hiding(
+        self, tmp_path: Path, graph_kind: str
+    ) -> None:
+        source = (
+            "use S::* hiding v\n\nscope S\n  def f() -> int = 1\nend S\n\nlet a = f()\n\n"
+            "scope S\n  let v = 10\nend S\n\nlet b = v"
+        )
+        failure = _placement_failure(tmp_path, graph_kind, source, HiddenMemberError)
+        assert isinstance(failure, HiddenMemberError)
+        assert failure.span.start_line == 13
 
 
 # ---------------------------------------------------------------------------
