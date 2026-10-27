@@ -495,8 +495,8 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     their parse, so reading it parses nothing; the module's leading inner attributes belong
     to the first entry. What follows an item's last token, which an indented block's closing
     layout covers (whitespace, a comment), is no part of it: the slice's spans end there, as
-    parsing its text alone puts them. ``None`` for an entry that is not a pass of its own: all of them
-    when *lexed* failed.
+    parsing its text alone puts them. ``None`` for an entry that is not a pass of its own: all
+    of them when *lexed* failed.
     """
     lines = LineIndex(lexed.text)
     slices = lexed_slices(lexed, ranges, lines)
