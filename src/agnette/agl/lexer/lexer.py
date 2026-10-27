@@ -288,7 +288,8 @@ def lexed_slices(
     rebased. One walk over each of *lexed*'s sequences. The dedents closing a range's last
     block past its end sit on its last token, as scanning its text alone puts them; the newline
     after it is no token of it. A range is no pass of its own, and reads ``None``, when a
-    token crosses its boundary; all of them are when *lexed* failed.
+    token crosses its boundary or a dedent closes a block opened before it; all of them are
+    when *lexed* failed.
     """
     if lexed.failure is not None:
         return [None] * len(ranges)
@@ -297,31 +298,32 @@ def lexed_slices(
 
     tokens: list[list[Token]] = [[] for _ in ranges]
     last_code: list[Token | None] = [None] * len(ranges)
+    open_blocks = [0] * len(ranges)
     crossed: set[int] = set()
     for token in lexed.tokens:
         start_pos, end_pos = cast(int, token.start_pos), cast(int, token.end_pos)
         index = range_at(starts, start_pos)
         anchor = last_code[index]
-        if starts[index] <= start_pos and end_pos <= ranges[index][1]:
+        within = starts[index] <= start_pos and end_pos <= ranges[index][1]
+        if token.type == INDENT and within:
+            open_blocks[index] += 1
+        elif token.type == DEDENT and (within or start_pos >= ranges[index][1]):
+            # A dedent closing a block opened before the range is no layout of the range alone.
+            if open_blocks[index] == 0:
+                crossed.add(index)
+                continue
+            open_blocks[index] -= 1
+            if not within:
+                # A range ending in a block, short of the newline, is closed by dedents past its
+                # end; scanning its text alone closes it at its last token.
+                assert anchor is not None  # the range's own block opened after some code
+                tokens[index].append(Token.new_borrow_pos(DEDENT, token.value, anchor))
+                continue
+        if within:
             rebased = rebases[index].token(token)
             tokens[index].append(rebased)
             if token.type not in LAYOUT_TOKENS:
                 last_code[index] = rebased
-        elif token.type == DEDENT and start_pos >= ranges[index][1] and anchor is not None:
-            # A range ending in a block, short of the newline, is closed by dedents past its end;
-            # scanning its text alone closes it at its last token.
-            tokens[index].append(
-                Token(
-                    DEDENT,
-                    token.value,
-                    cast(int, anchor.start_pos),
-                    anchor.line,
-                    anchor.column,
-                    anchor.end_line,
-                    anchor.end_column,
-                    anchor.end_pos,
-                )
-            )
         elif token.type != NEWLINE or start_pos < ranges[index][1]:
             # The newline after a range is no token of it; any other token outside is a crossing.
             crossed.update(touched_ranges(ranges, starts, start_pos, end_pos))

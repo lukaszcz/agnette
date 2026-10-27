@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agnette.agl.repl.entry import EntryResult
 from agnette.agl.repl.session import ReplSession
 from agnette.agl.warning_policy import WarningPolicy
@@ -44,6 +46,16 @@ def _typed_and_reloaded(
     path.write_text(typed_session.dump_source())
     loaded = [_outcome(r, 1) for r in _session(deny_tabs).load_file(path)]
     return typed, loaded
+
+
+@pytest.mark.parametrize("indent", ["  ", "\t"], ids=("spaces", "tab"))
+def test_an_indented_entry_reloads_as_typed(tmp_path: Path, indent: str) -> None:
+    entries = ["let a = 1", f"{indent}let b = 2", "b"]
+
+    typed, loaded = _typed_and_reloaded(tmp_path, entries)
+
+    assert all(ok for ok, _ in typed)
+    assert [ok for ok, _ in loaded] == [True] * 3
 
 
 def test_an_entry_allowed_a_tab_is_still_allowed_when_reloaded(tmp_path: Path) -> None:
