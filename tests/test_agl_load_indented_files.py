@@ -13,7 +13,7 @@ from agnette.agl.warning_policy import WarningPolicy
 TAB = "tab-indentation"
 
 _FILES = {
-    "scope": "    scope S\n        def g() -> int = 1\n    end S\n    let x = S::g()\n",
+    "scope": "    scope S\n      def g() -> int = 1\n    end S\n\n    let x = S::g()\n",
     "loop": (
         "    def f() -> int =\n        var i = 0\n        while i < 3 do\n"
         "            i := i + 1\n        done\n        i\n    let y = f()\n"
