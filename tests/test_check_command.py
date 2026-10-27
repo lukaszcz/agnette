@@ -163,6 +163,21 @@ class TestCheckCommand:
         assert captured.out == ""
         assert captured.err == ""
 
+    def test_inherit_address_naming_no_command_passes_for_a_loose_source(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A loose source sees no command registry, so only the address syntax is checked."""
+        agl_file = tmp_path / "loose.agl"
+        agl_file.write_text(
+            'program def main(@inherit("nope.limit") limit: int = 1) -> unit = print limit\n'
+        )
+
+        check_command.run(CheckArgs(files=[str(agl_file)]))
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
     def test_clean_library_module_without_program_def_succeeds(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -1460,6 +1461,257 @@ class TestParamSpellingCollisions:
             validate_archive_package(
                 manifest, archive_paths=modules, read_module=modules.__getitem__
             )
+
+
+class TestInheritAddressDiscipline:
+    """``@inherit`` addresses resolve against visible commands and the target's spellings."""
+
+    _TARGET = (
+        "import custom/helpers\n"
+        "@param let rounds: int = 1\n"
+        "def refine(@param steps: int = 1) -> int = steps\n"
+        "program def review(limit: int = 1) -> unit = ()\n"
+    )
+    _HELPERS = "@param let depth: int = 1\n"
+    _UNRELATED = "@param let elsewhere: int = 1\n"
+    _TOOLS = {
+        "tools": CommandSpec(doc="Tools"),
+        "tools review": CommandSpec("custom/target::review"),
+    }
+
+    @staticmethod
+    def _inheriting(address: str) -> str:
+        return f'program def start(@inherit("{address}") value: int = 1) -> unit = ()\n'
+
+    @staticmethod
+    def _tree(
+        root: Path,
+        name: str,
+        modules: dict[str, str],
+        *,
+        commands: dict[str, CommandSpec] | None = None,
+        dependencies: tuple[str, ...] = (),
+    ) -> PackageInfo:
+        package = PackageInfo(
+            root,
+            PackageManifest(
+                name,
+                semver.Version.parse("1.0.0"),
+                commands=commands or {},
+                dependencies={
+                    dependency: DependencySpec(semver.Version.parse("1.0.0"))
+                    for dependency in dependencies
+                },
+            ),
+        )
+        package.module_root.mkdir(parents=True)
+        for module, source in modules.items():
+            (package.module_root / f"{module}.agl").write_text(source, encoding="utf-8")
+        return package
+
+    def _own(self, tmp_path: Path, address: str) -> PackageInfo:
+        return self._tree(
+            tmp_path / "custom",
+            "custom",
+            {
+                "main": self._inheriting(address),
+                "target": self._TARGET,
+                "helpers": self._HELPERS,
+                "unrelated": self._UNRELATED,
+            },
+            commands={**self._TOOLS, "start": CommandSpec("custom/main::start")},
+        )
+
+    def _dependency(self, tmp_path: Path, *, target: str | None = None) -> PackageInfo:
+        modules = {"target": target or self._TARGET.replace("custom/", "tools-pkg/")}
+        modules |= {"helpers": self._HELPERS, "unrelated": self._UNRELATED}
+        return self._tree(
+            tmp_path / "tools-pkg",
+            "tools-pkg",
+            modules,
+            commands={
+                "tools": CommandSpec(doc="Tools"),
+                "tools review": CommandSpec("tools-pkg/target::review"),
+            },
+        )
+
+    def _consumer(
+        self,
+        tmp_path: Path,
+        address: str,
+        *,
+        imports: str = "",
+        dependencies: tuple[str, ...] = ("tools-pkg",),
+    ) -> PackageInfo:
+        return self._tree(
+            tmp_path / "consumer",
+            "consumer",
+            {"main": imports + self._inheriting(address)},
+            commands={"start": CommandSpec("consumer/main::start")},
+            dependencies=dependencies,
+        )
+
+    @pytest.mark.parametrize(
+        "leaf",
+        [
+            "limit",
+            "rounds",
+            "target.rounds",
+            "custom.target.rounds",
+            "steps",
+            "target.refine.steps",
+            "depth",
+            "helpers.depth",
+            "timeout",
+            "agent",
+        ],
+        ids=lambda leaf: leaf,
+    )
+    def test_accepts_every_member_of_the_targets_superset(self, tmp_path: Path, leaf: str) -> None:
+        validate_package(self._own(tmp_path, f"tools.review.{leaf}"))
+
+    @pytest.mark.parametrize(
+        "address",
+        ["tools.review.bogus", "tools.review.elsewhere", "tools.review.value"],
+        ids=["unknown", "outside_the_target_closure", "other_programs_argument"],
+    )
+    def test_rejects_a_leaf_outside_the_targets_superset(
+        self, tmp_path: Path, address: str
+    ) -> None:
+        with pytest.raises(DisciplineError):
+            validate_package(self._own(tmp_path, address))
+
+    @pytest.mark.parametrize(
+        "address",
+        ["nope.limit", "tools.limit", "tools.review"],
+        ids=["unregistered", "group_only", "no_leaf"],
+    )
+    def test_rejects_an_address_without_a_registered_program_prefix(
+        self, tmp_path: Path, address: str
+    ) -> None:
+        with pytest.raises(DisciplineError):
+            validate_package(self._own(tmp_path, address))
+
+    def test_accepts_an_alias_path_prefix(self, tmp_path: Path) -> None:
+        package = self._own(tmp_path, "rev.limit")
+        manifest = replace(package.manifest, aliases={"rev": "tools review"})
+
+        validate_package(replace(package, manifest=manifest))
+
+    @pytest.mark.parametrize("imported", [False, True], ids=["not_imported", "imported"])
+    @pytest.mark.parametrize(
+        "leaf", ["limit", "rounds", "tools-pkg.target.rounds", "steps", "depth", "timeout"]
+    )
+    def test_accepts_a_declared_dependencys_command(
+        self, tmp_path: Path, leaf: str, imported: bool
+    ) -> None:
+        imports = "import tools-pkg/target\n" if imported else ""
+        consumer = self._consumer(tmp_path, f"tools.review.{leaf}", imports=imports)
+
+        validate_package(consumer, dependency_packages=(self._dependency(tmp_path),))
+
+    @pytest.mark.parametrize("imported", [False, True], ids=["not_imported", "imported"])
+    @pytest.mark.parametrize("leaf", ["bogus", "elsewhere"])
+    def test_rejects_a_leaf_outside_a_dependency_targets_superset(
+        self, tmp_path: Path, leaf: str, imported: bool
+    ) -> None:
+        imports = "import tools-pkg/target\n" if imported else ""
+        consumer = self._consumer(tmp_path, f"tools.review.{leaf}", imports=imports)
+
+        with pytest.raises(DisciplineError):
+            validate_package(consumer, dependency_packages=(self._dependency(tmp_path),))
+
+    def test_rejects_the_command_of_a_mounted_but_undeclared_dependency(
+        self, tmp_path: Path
+    ) -> None:
+        consumer = self._consumer(tmp_path, "tools.review.limit", dependencies=())
+
+        with pytest.raises(DisciplineError):
+            validate_package(consumer, dependency_packages=(self._dependency(tmp_path),))
+
+    def test_rejects_a_dependency_program_that_does_not_exist(self, tmp_path: Path) -> None:
+        dependency = self._dependency(tmp_path, target="program def other() -> unit = ()\n")
+        consumer = self._consumer(tmp_path, "tools.review.limit")
+
+        with pytest.raises(DisciplineError, match="tools-pkg") as error:
+            validate_package(consumer, dependency_packages=(dependency,))
+
+        assert "consumer/main" in str(error.value)
+        assert "tools.review.limit" in str(error.value)
+
+    def test_attributes_an_unresolvable_dependency_target_to_the_dependency(
+        self, tmp_path: Path
+    ) -> None:
+        dependency = self._dependency(
+            tmp_path, target="program def review(limit: int = 1) -> unit = missing_name\n"
+        )
+        consumer = self._consumer(tmp_path, "tools.review.limit")
+
+        with pytest.raises(DisciplineError, match="'tools-pkg'"):
+            validate_package(consumer, dependency_packages=(dependency,))
+
+    def test_accepts_several_addresses_naming_one_program(self, tmp_path: Path) -> None:
+        consumer = self._consumer(tmp_path, "tools.review.limit")
+        main = consumer.module_root / "main.agl"
+        main.write_text(
+            'program def start(@inherit("tools.review.limit", "tools.review.depth") v: int = 1) '
+            "-> unit = ()\n"
+            'program def stop(@inherit("tools.review.rounds") w: int = 1) -> unit = ()\n',
+            encoding="utf-8",
+        )
+
+        validate_package(consumer, dependency_packages=(self._dependency(tmp_path),))
+
+    @pytest.mark.parametrize("address", ["tools.limit", "tools.review"], ids=["group", "command"])
+    def test_distinguishes_an_address_without_a_program_command_and_key(
+        self, tmp_path: Path, address: str
+    ) -> None:
+        with pytest.raises(DisciplineError, match="tools") as error:
+            validate_package(self._own(tmp_path, address))
+
+        assert ("group" in str(error.value)) == (address == "tools.limit")
+
+    def test_archive_validation_checks_the_addresses(self) -> None:
+        def validate(address: str) -> None:
+            modules = {
+                f"{MODULE_TREE_DIRNAME}/main.agl": self._inheriting(address),
+                f"{MODULE_TREE_DIRNAME}/target.agl": self._TARGET,
+                f"{MODULE_TREE_DIRNAME}/helpers.agl": self._HELPERS,
+            }
+            manifest = PackageManifest(
+                "custom",
+                semver.Version.parse("1.0.0"),
+                commands={**self._TOOLS, "start": CommandSpec("custom/main::start")},
+            )
+            validate_archive_package(
+                manifest, archive_paths=modules, read_module=modules.__getitem__
+            )
+
+        validate("tools.review.depth")
+        with pytest.raises(DisciplineError):
+            validate("tools.review.bogus")
+        with pytest.raises(DisciplineError):
+            validate("nope.limit")
+
+    def test_pkg_check_rejects_an_unregistered_address(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        package = self._own(tmp_path, "nope.limit")
+        (package.root / "package.toml").write_text(
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::start" }\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            check_command,
+            "current_config_context",
+            lambda: ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path),
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            check_command.run(PkgCheckArgs(directory=str(package.root)))
+
+        assert exc_info.value.code == 1
 
 
 class TestManifestConfigCheckCommand:

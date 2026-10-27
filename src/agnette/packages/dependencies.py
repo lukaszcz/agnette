@@ -15,7 +15,7 @@ from agnette.packages.activation import (
 )
 from agnette.packages.discipline import DisciplineError, validate_package_structure
 from agnette.packages.install import PackageInstallError, installed_packages
-from agnette.packages.manifest import DependencySpec, ManifestError, load_manifest
+from agnette.packages.manifest import DependencySpec, ManifestError
 from agnette.packages.model import PackageInfo, is_std_package_name, unmet_std_requirement
 from agnette.packages.store import satisfying_installed_package
 
@@ -132,8 +132,7 @@ def _path_package(
         raise DependencyError(f"cannot use symbolic-link package dependency {root}")
     try:
         # A path source is live source, satisfied on identity and structure.
-        manifest = load_manifest(root / "package.toml", commands_complete=False)
-        selected = PackageInfo(root.resolve(), manifest)
+        selected = PackageInfo.live_source(root.resolve())
         validate_package_structure(selected)
     except (DisciplineError, ManifestError) as exc:
         raise DependencyError(f"cannot validate path dependency {name!r}: {exc}") from exc

@@ -422,7 +422,9 @@ supplies it. Only configuration is read: the command's program tables
 [manifest `[config]`](../../commands/pkg.md#config) — never that command's
 command line, environment, `@config`, or `@inherit`, so inheritance does not
 chain. An address naming no registered command, or a command group, contributes
-nothing and draws a warning.
+nothing and draws a warning in a loose source; inside a package it is a
+[`pkg check`](../../commands/pkg.md#commands) validation error, as is a key that is
+no argument, `@param` spelling, or engine setting of the target program.
 
 The value is decoded as the inheriting parameter's own type, with relative path
 values anchored to the file that defines them; a value its type rejects is a

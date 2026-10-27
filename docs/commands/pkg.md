@@ -319,12 +319,18 @@ exists; refuses a directory that already holds a manifest.
 **`check`** scans the module tree for `@command`-registered programs, merges them with
 `[commands]`, then validates the manifest, the `src/` module tree, command program references,
 literal `resource` targets, import visibility, `@param` spellings (no two parameters a registered
-program reaches may share a fully qualified spelling), and dependency satisfiability without modifying
-anything — the same diagnostics `install` reports. The `std` floor is checked against the running
-AgM; other dependencies resolve from the store, then a `path`; a `url` counts as satisfiable and
-is not fetched. Each `[python]` requirement AgM's interpreter environment does not satisfy is
+program reaches may share a fully qualified spelling), `@inherit` addresses, and dependency
+satisfiability without modifying anything — the same diagnostics `install` reports. The `std`
+floor is checked against the running AgM; other dependencies resolve from the store, then a
+`path`; a `url` counts as satisfiable and is not fetched. Each `[python]` requirement AgM's interpreter environment does not satisfy is
 reported with its status (as `info` shows it) and fails the check; `check` never installs it —
 `sync` does, once the package is active.
+
+An [`@inherit`](../agl/reference/attributes.md#inherit) address must start with a command or alias
+path that runs a program and that the package or a declared dependency registers (a dependency's
+`@command` registrations count, whether it is installed, editable, or a `path`); the rest must
+spell a name-addressable argument of that program, a `@param` spelling of its module's import
+closure, or an engine setting name. Loose sources are checked for address syntax only.
 
 **`create`** runs the same validation on the *distribution*, after merging the module tree's
 `@command` registrations into the manifest, then writes a deterministic archive beside `DIR` (or

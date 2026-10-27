@@ -1751,6 +1751,6 @@
   "tests/agl/rejections/scope/attribute_inherit_on_program.agl": "9b94ab5a57eea03bc6115d90f78873d6227292c721aadcd3545253efe443d020",
   "tests/agl/rejections/scope/attribute_inherit_single_segment.agl": "b5da1efcc36abf51aff2da43949bcd6c5b850f7fa530ca0f40717fafc4166beb",
   "tests/agl/rejections/scope/attribute_inherit_trailing_hyphen.agl": "3417918f22be1e27abbc59ecfcd5a05c2140f25c54a2ecc57e4a641a2833f89f",
-  "docs/agl/reference/attributes.md:433": "cc26c53aef3f473fddf9f6e94d287164e02350467b298f0fa33086a76c1ad09f",
-  "docs/agl/reference/attributes.md:458": "5ad40ecf8a4036714a25b7346f1798273d44bfd0d97cacdf85d677689b217ad3"
+  "docs/agl/reference/attributes.md:435": "cc26c53aef3f473fddf9f6e94d287164e02350467b298f0fa33086a76c1ad09f",
+  "docs/agl/reference/attributes.md:460": "5ad40ecf8a4036714a25b7346f1798273d44bfd0d97cacdf85d677689b217ad3"
 }

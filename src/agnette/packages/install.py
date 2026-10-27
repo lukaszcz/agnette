@@ -522,8 +522,7 @@ def _validated_directory_package(source: Path) -> PackageInfo:
         raise PackageInstallError(f"cannot install symbolic-link package root {source}")
     root = source.resolve()
     try:
-        manifest = load_manifest(root / "package.toml", commands_complete=False)
-        package = PackageInfo(root, manifest)
+        package = PackageInfo.live_source(root)
         validate_package_structure(package)
         package = package_with_source_commands(package)
     except (ManifestError, DisciplineError) as exc:

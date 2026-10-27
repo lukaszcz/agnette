@@ -26,7 +26,7 @@ from agnette.packages.archive import (
     write_archive,
 )
 from agnette.packages.layout import MODULE_TREE_DIRNAME
-from agnette.packages.manifest import CommandSpec, expanded_commands
+from agnette.packages.manifest import CommandSpec, expanded_commands, load_manifest
 from agnette.packages.record import RecordEntry, serialize_record
 from tests._package_helpers import archive_contents, write_zip
 from tests._parse_counts import parse_counts
@@ -493,7 +493,7 @@ def test_write_archive_reports_source_stat_failure(
     root = _package_tree(tmp_path)
     payload = root / MODULE_TREE_DIRNAME / "payload.bin"
     payload.write_bytes(b"payload")
-    manifest = package_archive.load_manifest(root / "package.toml")
+    manifest = load_manifest(root / "package.toml")
     selected = package_archive.distribution_files(root)
     original_stat = Path.stat
 

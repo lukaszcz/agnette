@@ -185,11 +185,7 @@ def satisfying_installed_package(
     if selected is not None or active is None or active.editable is None:
         return selected
     # Live source, selected on identity alone; its commands are not read here.
-    manifest = load_installed_manifest(
-        active.editable / "package.toml",
-        commands_complete=False,
-    )
-    editable = PackageInfo(active.editable, manifest)
+    editable = PackageInfo.live_source(active.editable, legacy_aliases=True)
     return (
         editable
         if editable.manifest.name == name and editable.manifest.version >= requirement.version

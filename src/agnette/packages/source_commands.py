@@ -115,8 +115,6 @@ def package_with_source_commands_or_declared(package: PackageInfo) -> PackageInf
     except ManifestError:
         declared = replace(package.manifest, commands={}, aliases={})
         return replace(package, manifest=declared, commands_complete=True)
-    if package.commands_complete:
-        return package
     return replace(package, commands_complete=True)
 
 

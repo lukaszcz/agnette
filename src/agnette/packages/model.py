@@ -10,7 +10,12 @@ from typing import Protocol
 import semver
 
 from agnette.packages.layout import MODULE_TREE_DIRNAME
-from agnette.packages.manifest import DependencySpec, PackageManifest
+from agnette.packages.manifest import (
+    DependencySpec,
+    PackageManifest,
+    load_installed_manifest,
+    load_manifest,
+)
 from agnette.version import AGM_VERSION
 
 PackageIdentity = tuple[str, str]
@@ -67,13 +72,14 @@ def unmet_std_requirement(requirement: DependencySpec) -> str | None:
 class PackageInfo:
     """A manifest paired with its canonical package-root directory.
 
-    ``commands_complete`` is false only for a raw development-checkout
-    discovery (:mod:`agnette.packages.development`), whose manifest is loaded
-    without the AST scan that merges a program's own ``@command``
+    ``commands_complete`` is false for live source (:meth:`live_source`: a
+    development checkout, path or editable dependency), whose manifest is
+    loaded without the AST scan that merges a program's own ``@command``
     registrations in — a cost mounting a module root should not always pay.
-    A command host that owns the selected program completes it on demand
-    (:func:`agnette.packages.source_commands.package_with_source_commands_or_declared`),
-    which always returns a package with this true.
+    A reader of commands completes it on demand
+    (:func:`agnette.packages.source_commands.complete_packages`, or
+    :func:`~agnette.packages.source_commands.package_with_source_commands_or_declared`
+    for one package), which always yields a package with this true.
 
     ``installed`` is true for an immutable store tree and false for live source
     (a development checkout or an editable selection). It is the package's
@@ -88,6 +94,19 @@ class PackageInfo:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", self.root.resolve())
+
+    @classmethod
+    def live_source(cls, root: Path, *, legacy_aliases: bool = False) -> PackageInfo:
+        """Load the live source package at *root*, its command table still incomplete.
+
+        The single way to build a package from a manifest loaded with
+        ``commands_complete=False``, so the flag always matches the manifest.
+        ``legacy_aliases`` reads a manifest installed by an older AgM
+        (:func:`~agnette.packages.manifest.load_installed_manifest`).
+        """
+        load = load_installed_manifest if legacy_aliases else load_manifest
+        manifest = load(root / "package.toml", commands_complete=False)
+        return cls(root, manifest, commands_complete=False)
 
     @property
     def module_root(self) -> Path:

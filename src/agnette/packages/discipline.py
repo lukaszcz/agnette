@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
@@ -17,7 +17,7 @@ from agnette.agl.ir.static_keys import (
     static_binding_key,
 )
 from agnette.agl.modules.ids import ModuleId
-from agnette.agl.modules.loader import build_repl_graph
+from agnette.agl.modules.loader import ModuleGraph, build_repl_graph
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.parser.parser import parse_program_seeded
 from agnette.agl.scope import BuiltinKind, ModuleResolution, resolve_program
@@ -41,6 +41,12 @@ from agnette.config.qualified_keys import (
 )
 from agnette.core import fs
 from agnette.core.toml import TomlDict
+from agnette.packages.command_registry import (
+    CommandRegistry,
+    ProgramTarget,
+    command_registry,
+    split_command_address,
+)
 from agnette.packages.distribution import MANIFEST_NAME, distribution_files
 from agnette.packages.errors import DisciplineError as DisciplineError
 from agnette.packages.layout import MODULE_TREE_DIRNAME
@@ -49,6 +55,7 @@ from agnette.packages.manifest import (
     describe_unknown_fields,
     distribution_manifest,
     expanded_commands,
+    program_reference,
     registered_command_paths,
 )
 from agnette.packages.model import PackageInfo, is_std_package_name
@@ -99,12 +106,12 @@ def validate_package(
 
     _validate_manifest_schema(package.manifest)
     modules = validate_package_structure(package)
-    resolution = _resolve_package_modules(
-        package, modules, dependency_packages=tuple(dependency_packages)
-    )
+    dependencies = tuple(dependency_packages)
+    resolution = _resolve_package_modules(package, modules, dependency_packages=dependencies)
     _validate_command_programs(package.manifest, resolution.resolutions)
     _validate_program_param_spellings(package.manifest, resolution)
     _validate_manifest_config(package.manifest, resolution.all_resolutions)
+    _validate_inherit_addresses(resolution, dependency_packages=dependencies)
     _validate_resources(
         modules,
         resolution.resolutions,
@@ -231,18 +238,42 @@ def _resolve_package_modules(
 
     if not modules:
         return PackageResolution(package)
+    entry, next_id = _graph_entry([(package.manifest.name,)], wildcard=True)
+    graph, resolved = _load_resolved(
+        package, dependency_packages, entry, next_id, subject=f"package {package.manifest.name!r}"
+    )
+    return PackageResolution(
+        package,
+        modules=dict(modules),
+        all_resolutions=resolved,
+        adjacency=dict(graph.adjacency),
+        digests={module_id: _digest(graph.modules[module_id].source_text) for module_id in modules},
+    )
+
+
+def _load_resolved(
+    package: PackageInfo,
+    dependency_packages: tuple[PackageInfo, ...],
+    entry: Program,
+    next_id: int,
+    *,
+    subject: str,
+) -> tuple[ModuleGraph, dict[ModuleId, ModuleResolution]]:
+    """Load and name-resolve *entry*'s graph with *package* and its dependencies mounted.
+
+    A failure is reported as one resolving *subject*.
+    """
+
     stdlib_root = (
         package.root
         if is_std_package_name(package.manifest.name)
         else shipped_stdlib_root().resolve()
     )
-    mounted_packages = (package, *dependency_packages)
     roots = RootSet(
         roots=frozenset(),
-        packages=mounted_packages,
+        packages=(package, *dependency_packages),
         stdlib_roots=frozenset({stdlib_root}),
     )
-    entry, next_id = _package_graph_entry(package.manifest.name)
     try:
         graph, _next_id, _loaded = build_repl_graph(
             entry,
@@ -254,17 +285,11 @@ def _resolve_package_modules(
         )
         resolved = resolve_program(graph)
     except AglError as exc:
-        raise DisciplineError(f"cannot resolve package {package.manifest.name!r}: {exc}") from exc
-    return PackageResolution(
-        package,
-        modules=dict(modules),
-        all_resolutions={
-            module_id: resolved_module.resolved
-            for module_id, resolved_module in resolved.modules.items()
-        },
-        adjacency=dict(graph.adjacency),
-        digests={module_id: _digest(graph.modules[module_id].source_text) for module_id in modules},
-    )
+        raise DisciplineError(f"cannot resolve {subject}: {exc}") from exc
+    return graph, {
+        module_id: resolved_module.resolved
+        for module_id, resolved_module in resolved.modules.items()
+    }
 
 
 def _digest(source_text: str) -> str:
@@ -273,15 +298,24 @@ def _digest(source_text: str) -> str:
     return hashlib.sha256(source_text.encode()).hexdigest()
 
 
-def _package_graph_entry(package_name: str) -> tuple[Program, int]:
-    """Build a synthetic wildcard entry without reparsing the package name."""
+def _graph_entry(module_paths: Sequence[tuple[str, ...]], *, wildcard: bool) -> tuple[Program, int]:
+    """Build a synthetic entry importing each of *module_paths*, without reparsing the paths.
 
-    program, next_id = parse_program_seeded("import package_root/*\n", start_id=0)
-    declaration = replace(
-        next(item for item in program.body.items if isinstance(item, ImportDecl)),
-        module_path=(package_name,),
+    A wildcard import is unaliased; a single-module one takes its own alias, so
+    modules sharing a last segment do not clash.
+    """
+
+    source = "".join(
+        "import package_root/*\n" if wildcard else f"import package_root/m as m{n}\n"
+        for n in range(len(module_paths))
     )
-    return replace(program, body=replace(program.body, items=(declaration,))), next_id
+    program, next_id = parse_program_seeded(source, start_id=0)
+    declarations = [item for item in program.body.items if isinstance(item, ImportDecl)]
+    imports = tuple(
+        replace(declaration, module_path=module_path)
+        for declaration, module_path in zip(declarations, module_paths, strict=True)
+    )
+    return replace(program, body=replace(program.body, items=imports)), next_id
 
 
 def validate_archive_package(
@@ -347,6 +381,7 @@ def _validate_archive_content(
             resolution = _resolve_package_modules(
                 package, materialized, dependency_packages=dependency_packages
             )
+            _validate_inherit_addresses(resolution, dependency_packages=dependency_packages)
     except (OSError, UnicodeDecodeError) as exc:
         raise DisciplineError(f"cannot load archive package {manifest.name!r}: {exc}") from exc
     _validate_command_programs(manifest, resolution.resolutions)
@@ -603,13 +638,18 @@ def _command_argument_spellings(
         module_path, _separator, declaration_path = command.program.partition("::")
         resolution = resolutions[ModuleId.from_path(module_path)]
         function = _program_declarations(resolution)[tuple(declaration_path.split("::"))]
-        attributes = resolution.attributes
-        spellings[tuple(path.split())] = frozenset(
-            attributes.program_options[param.node_id].name
-            for param in function.params
-            if attributes.param_zones[param.node_id] in NAME_ADDRESSABLE_ZONES
-        )
+        spellings[tuple(path.split())] = _program_argument_spellings(resolution, function)
     return spellings
+
+
+def _program_argument_spellings(resolution: ModuleResolution, function: FuncDef) -> frozenset[str]:
+    """Return the name-addressable argument spellings of *function*, a program of *resolution*."""
+    attributes = resolution.attributes
+    return frozenset(
+        attributes.program_options[param.node_id].name
+        for param in function.params
+        if attributes.param_zones[param.node_id] in NAME_ADDRESSABLE_ZONES
+    )
 
 
 def _level_argument_spellings(
@@ -642,10 +682,7 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
     """
     if not manifest.config:
         return
-    from agnette.agl.runtime.engine_config import (
-        engine_setting_params,
-        validate_manifest_leaf_value,
-    )
+    from agnette.agl.runtime.engine_config import validate_manifest_leaf_value
     from agnette.agl.semantics.type_table import create_seeded_type_table
 
     registered = registered_command_paths(manifest)
@@ -653,12 +690,7 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
     arguments = _command_argument_spellings(manifest, resolutions)
     # A word a ``@param`` spells shadows the engine setting of that spelling for
     # some programs; its value is then decoded per program at run time.
-    engine_spellings = {
-        spelling: param.name
-        for param in engine_setting_params()
-        for spelling in param.declared_spellings
-        if spelling not in param_spellings
-    }
+    engine_spellings = _engine_spellings(excluding=param_spellings)
     _validate_config_level(
         manifest.config,
         (),
@@ -736,3 +768,143 @@ def _closure_param_spellings(resolutions: _ModuleResolutions) -> frozenset[str]:
             module_id.segments, route, name, is_entry=module_id.is_entry
         )
     )
+
+
+def _engine_spellings(*, excluding: frozenset[str] = frozenset()) -> dict[str, str]:
+    """Map each engine-setting spelling not in *excluding* to its setting's name."""
+    from agnette.agl.runtime.engine_config import engine_setting_params
+
+    return {
+        spelling: param.name
+        for param in engine_setting_params()
+        for spelling in param.declared_spellings
+        if spelling not in excluding
+    }
+
+
+def _validate_inherit_addresses(
+    package: PackageResolution, *, dependency_packages: tuple[PackageInfo, ...]
+) -> None:
+    """Validate each ``@inherit`` address in the package's modules at scope level.
+
+    As for manifest ``[config]``, only static facts count. An address splits at
+    the longest command or alias path that runs a program and that the package
+    or a declared dependency registers (the packages its imports may name, not
+    every installed one); its leaf must then be in the target program's
+    spelling superset: its arguments, the ``@param`` spellings of its module
+    closure, and the engine settings.
+    """
+    addresses = [
+        (module_id, address)
+        for module_id, resolution in package.resolutions.items()
+        for written in resolution.attributes.inherits.values()
+        for address in written
+    ]
+    if not addresses:
+        return
+    # Deferred: source discovery itself imports this module.
+    from agnette.packages.source_commands import complete_packages
+
+    manifest = package.package.manifest
+    declared = (dep for dep in dependency_packages if dep.manifest.name in manifest.dependencies)
+    registry = command_registry(complete_packages((package.package, *declared)))
+    targets: list[tuple[ModuleId, str, ProgramTarget, str]] = []
+    for module_id, address in addresses:
+        split = split_command_address(address, registry)
+        if split is None:
+            reason = _unsplit_reason(address, registry)
+            raise DisciplineError(f"{module_id.path_str()}: @inherit address {address!r} {reason}")
+        targets.append((module_id, address, *split))
+    resolutions, adjacency = _target_resolutions(
+        package, dependency_packages, {_target_module(target) for _, _, target, _ in targets}
+    )
+    engine = frozenset(_engine_spellings())
+    # Each program's spellings are computed once, however many addresses name it.
+    spellings: dict[tuple[tuple[str, ...], tuple[str, ...]], frozenset[str] | None] = {}
+    for module_id, address, target, leaf in targets:
+        where = f"{module_id.path_str()}: @inherit address {address!r}"
+        key = (target.module_segments, target.declaration_path)
+        if key not in spellings:
+            spellings[key] = _target_spellings(target, resolutions, adjacency, engine)
+        accepted = spellings[key]
+        if accepted is None:
+            reference = program_reference(target.module_segments, target.declaration_path)
+            raise DisciplineError(
+                f"{where}: command program {reference!r} of package "
+                f"{target.package.manifest.name!r} names no program declaration"
+            )
+        if leaf not in accepted:
+            raise DisciplineError(
+                f"{where}: {leaf!r} is no argument, parameter or engine setting "
+                "of the target program"
+            )
+
+
+def _unsplit_reason(address: str, registry: CommandRegistry) -> str:
+    """Say why *address* names no program command followed by a key."""
+    words = address.split(".")
+    for length in range(len(words), 0, -1):
+        registered = registry.get(tuple(words[:length]))
+        if registered is None:
+            continue
+        path = ".".join(words[:length])
+        if registered.spec.program is None:
+            return f"names the command group {path!r}, not a program command followed by a key"
+        return f"names the program command {path!r} without a key after it"
+    return "names no command registered by the package or its declared dependencies"
+
+
+def _target_module(target: ProgramTarget) -> ModuleId:
+    """Return the module declaring *target*'s program."""
+    return ModuleId(target.module_segments)
+
+
+def _target_resolutions(
+    package: PackageResolution,
+    dependency_packages: tuple[PackageInfo, ...],
+    modules: set[ModuleId],
+) -> tuple[_ModuleResolutions, Mapping[ModuleId, tuple[ModuleId, ...]]]:
+    """Return resolutions and import adjacency covering *modules* and their closures.
+
+    The package's own graph covers its modules and what they import; a
+    dependency module it never imports is loaded, with its closure, in one
+    further graph per owning package, so a failure is attributed to that
+    package (modules already parsed or resolved are reused from the shared
+    caches).
+    """
+    resolutions = dict(package.all_resolutions)
+    adjacency = dict(package.adjacency)
+    missing: dict[str, list[tuple[str, ...]]] = {}
+    for module in sorted((m for m in modules if m not in resolutions), key=str):
+        missing.setdefault(module.segments[0], []).append(module.segments)
+    for owner, module_paths in missing.items():
+        entry, next_id = _graph_entry(module_paths, wildcard=False)
+        graph, loaded = _load_resolved(
+            package.package,
+            dependency_packages,
+            entry,
+            next_id,
+            subject=f"package {owner!r} (an @inherit target of {package.package.manifest.name!r})",
+        )
+        resolutions.update(loaded)
+        adjacency.update(graph.adjacency)
+    return resolutions, adjacency
+
+
+def _target_spellings(
+    target: ProgramTarget,
+    resolutions: _ModuleResolutions,
+    adjacency: Mapping[ModuleId, tuple[ModuleId, ...]],
+    engine: frozenset[str],
+) -> frozenset[str] | None:
+    """Return the leaves an ``@inherit`` address may name on *target*'s program.
+
+    ``None`` when its module declares no such program.
+    """
+    module_id = _target_module(target)
+    function = _program_declarations(resolutions[module_id]).get(target.declaration_path)
+    if function is None:
+        return None
+    closure = _import_closure(module_id, adjacency)
+    param_spellings = _closure_param_spellings({m: resolutions[m] for m in closure})
+    return _program_argument_spellings(resolutions[module_id], function) | param_spellings | engine

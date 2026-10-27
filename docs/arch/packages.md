@@ -14,14 +14,14 @@ A package is a portable, versioned AgL module collection: a `package.toml` manif
 
 ## Discipline Validation
 
-`agm pkg check` validates a development package without modifying it; `pkg create` and `pkg install` run the same validation once. Source-free manifest and tree checks come first, then the module graph is loaded and name-resolved with runtime visibility, rejecting unresolved modules, imports outside the closure, invalid command programs, missing resources, `@param` spellings shared within a registered program's closure, and invalid `[config]` keys. Unknown manifest keys are rejected when validating but tolerated when loading, so stored packages stay manageable. A distribution is validated against the source tree it ships from, with exclusion-specific checks and a digest proving the staged copy matches; a `.agmpkg` archive is materialized and resolved once.
+`agm pkg check` validates a development package without modifying it; `pkg create` and `pkg install` run the same validation once. Source-free manifest and tree checks come first, then the module graph is loaded and name-resolved with runtime visibility, rejecting unresolved modules, imports outside the closure, invalid command programs, missing resources, `@param` spellings shared within a registered program's closure, invalid `[config]` keys, and `@inherit` addresses naming no command of the package or a declared dependency, or no leaf of its target program (its arguments, the `@param` spellings of its module closure, and engine names). Unknown manifest keys are rejected when validating but tolerated when loading, so stored packages stay manageable. A distribution is validated against the source tree it ships from, with exclusion-specific checks and a digest proving the staged copy matches; a `.agmpkg` archive is materialized and resolved once.
 
 ## Registered Commands
 
 Commands come from two equivalent sources:
 
 - The manifest `[commands]` hierarchy maps nested tables to CLI path words, naming a program or describing a group; `[aliases]` maps alternate paths. Group prose lives here.
-- `@command` on a `program def` ([agl/frontend/scope.md](agl/frontend/scope.md)). A parse-only, AST-level scan (`source_commands.py`) merges these registrations into the manifest wherever a command table is needed (install, check, archive, editable resolution, `exec`'s mounted development checkouts, completed once per run by `complete_packages`); it reuses the module loader's parse cache and needs no module graph. Conflicting declarations of one path are errors.
+- `@command` on a `program def` ([agl/frontend/scope.md](agl/frontend/scope.md)). A parse-only, AST-level scan (`source_commands.py`) merges these registrations into the manifest wherever a command table is needed (install, check, archive, editable resolution, `exec`'s mounted development checkouts, completed once per run by `complete_packages`; `PackageInfo.live_source` builds every live-source package — checkout, path or editable dependency — with the matching incomplete-table flag); it reuses the module loader's parse cache and needs no module graph. Conflicting declarations of one path are errors.
 
 Each invocation derives its command registry from the selected manifests, so project pins affect dispatch, help, and completion. A command path may not start with a reserved AgM name (`command_catalog.py`); activation rejects path conflicts between packages unless installed with `--shadow`. Dispatch runs the program through the same host as `agm exec`, with the same parameter projection and precedence ([cli.md](cli.md)). An editable package re-scans its source when its commands are needed: operations that persist command state (install) fail on a scan error, while reads (dispatch, help, completion, `pkg sync`) fall back to the manifest's own commands.
 
@@ -29,7 +29,7 @@ Each invocation derives its command registry from the selected manifests, so pro
 
 - `src/agnette/packages/manifest.py` — manifest schema, alias expansion, distribution-manifest view.
 - `src/agnette/packages/model.py`, `development.py`, `dependencies.py` — identity and version selection, development-package discovery, dependency closure.
-- `src/agnette/packages/discipline.py` — package validation; `source_commands.py` — `@command` scan and merge; `command_registry.py` — command and alias path to registering package.
+- `src/agnette/packages/discipline.py` — package validation; `source_commands.py` — `@command` scan and merge; `command_registry.py` — command and alias path to registering package, and `@inherit` address splitting shared by validation and the host.
 - `src/agnette/packages/layout.py` — pure layout constants.
 - `src/agnette/agl/modules/roots.py`, `loader.py` — package-root mounting and import visibility.
 - `src/agnette/agm/commands/pkg/` — the package CLI; `src/agnette/agm/cli_dispatch.py`, `commands/exec_program.py` — registered-command dispatch and execution.

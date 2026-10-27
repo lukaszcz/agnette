@@ -13,7 +13,7 @@ from agnette.packages.discipline import (
     validate_package,
     validate_package_structure,
 )
-from agnette.packages.manifest import ManifestError, load_manifest
+from agnette.packages.manifest import ManifestError
 from agnette.packages.model import PackageInfo
 from agnette.packages.python_deps import unsatisfied_python_dependencies
 from agnette.packages.source_commands import package_with_source_commands
@@ -24,8 +24,7 @@ def run(args: PkgCheckArgs) -> None:
 
     root = Path.cwd() if args.directory is None else Path(args.directory)
     try:
-        manifest = load_manifest(root / "package.toml", commands_complete=False)
-        package = PackageInfo(root=root, manifest=manifest)
+        package = PackageInfo.live_source(root)
         validate_package_structure(package)
         package = package_with_source_commands(package)
         dependencies = validate_dependencies(package, home=current_config_context().home)

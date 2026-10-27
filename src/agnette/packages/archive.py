@@ -25,7 +25,6 @@ from agnette.packages.manifest import (
     ManifestError,
     PackageManifest,
     distribution_manifest,
-    load_manifest,
     load_manifest_text,
 )
 from agnette.packages.record import (
@@ -595,10 +594,6 @@ def _source_distribution_manifest(root: Path) -> tuple[PackageManifest, PackageM
     registrations, so an archive carries the same complete command table an
     installed store package does.
     """
-    try:
-        source_manifest = load_manifest(root / MANIFEST_NAME, commands_complete=False)
-    except ManifestError as exc:
-        raise ArchiveError(f"cannot load package manifest from {root}: {exc}") from exc
     # Imported lazily so agnette.packages.archive stays importable without the AgL
     # parser for operations that never read a source tree's manifest; baking in
     # source-declared commands always needs it.
@@ -607,7 +602,9 @@ def _source_distribution_manifest(root: Path) -> tuple[PackageManifest, PackageM
     from agnette.packages.source_commands import package_with_source_commands
 
     try:
-        source_manifest = package_with_source_commands(PackageInfo(root, source_manifest)).manifest
+        source_manifest = package_with_source_commands(PackageInfo.live_source(root)).manifest
+    except ManifestError as exc:
+        raise ArchiveError(f"cannot load package manifest from {root}: {exc}") from exc
     except DisciplineError as exc:
         raise ArchiveError(f"package at {root} violates discipline: {exc}") from exc
     manifest = distribution_manifest(source_manifest)

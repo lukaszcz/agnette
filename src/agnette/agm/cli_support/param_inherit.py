@@ -17,9 +17,11 @@ from agnette.config.qualified_keys import (
     resolve_manifest_values,
     resolve_qualified_values,
 )
-from agnette.packages.command_registry import CommandRegistry, RegisteredCommand
-from agnette.packages.manifest import command_paths_for_program, split_program_reference
-from agnette.packages.model import PackageInfo
+from agnette.packages.command_registry import (
+    CommandRegistry,
+    ProgramTarget,
+    split_command_address,
+)
 
 __all__ = [
     "InheritRequest",
@@ -51,49 +53,16 @@ class InheritedConfigValue(NamedTuple):
     address: str
 
 
-@dataclass(frozen=True)
-class _Target:
-    """A registered command's program, addressed as its own command resolves it."""
-
-    package: PackageInfo
-    module_segments: tuple[str, ...]
-    declaration_path: tuple[str, ...]
-    command_paths: tuple[tuple[str, ...], ...]
-
-    def key(self, leaf: str) -> QualifiedConfigKey:
-        """Return the program-route key of *leaf*."""
-        return QualifiedConfigKey(
-            self.module_segments, self.declaration_path, leaf, self.command_paths
-        )
-
-
-def _target_of(registered: RegisteredCommand) -> _Target | None:
-    """Return the program *registered* runs, or ``None`` for a group or malformed reference."""
-    reference = registered.spec.program
-    if reference is None:
-        return None
-    try:
-        module_segments, declaration_path = split_program_reference(reference)
-    except ValueError:
-        return None
-    command_paths = command_paths_for_program(registered.package.manifest, reference)
-    return _Target(registered.package, module_segments, declaration_path, command_paths)
-
-
-def _split_address(address: str, registry: CommandRegistry) -> tuple[_Target, str] | None:
-    """Split *address* at its longest registered command path; the rest is the target leaf."""
-    words = tuple(address.split("."))
-    for length in range(len(words) - 1, 0, -1):
-        registered = registry.get(words[:length])
-        target = None if registered is None else _target_of(registered)
-        if target is not None:
-            return target, ".".join(words[length:])
-    return None
+def _key(target: ProgramTarget, leaf: str) -> QualifiedConfigKey:
+    """Return the program-route key of *leaf* for *target*."""
+    return QualifiedConfigKey(
+        target.module_segments, target.declaration_path, leaf, target.command_paths
+    )
 
 
 def _target_value(
     config: GeneralConfig,
-    target: _Target,
+    target: ProgramTarget,
     leaf: str,
     command_tables: frozenset[tuple[str, ...]],
     cwd: Path,
@@ -104,7 +73,7 @@ def _target_value(
     routes never contribute, so inheritance is not transitive. Nor does the
     inheriting program: only registered command tables are routes.
     """
-    key = target.key(leaf)
+    key = _key(target, leaf)
     # A leaf matching several routes is an error of the target program alone, so
     # each address is resolved once, independent of the inheriting program.
     routes = known_route_tables((key,), command_tables)
@@ -134,7 +103,7 @@ def resolve_inherited_values(
     resolved: dict[HostParamKey, InheritedConfigValue] = {}
     for key, request in requests.items():
         for address in request.addresses:
-            split = _split_address(address, scope.registry)
+            split = split_command_address(address, scope.registry)
             if split is None:
                 print(
                     f"warning: @inherit address '{address}' of parameter {request.label} "

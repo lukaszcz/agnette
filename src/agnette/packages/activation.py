@@ -841,7 +841,7 @@ def resolve_active_package(
     if active.editable is not None:
         root = active.editable
         manifest = _load_installed_manifest(root, commands_complete=False)
-        package = _checked_active_package(name, active, root, manifest)
+        package = _checked_active_package(name, active, root, manifest, commands_complete=False)
         return _with_editable_source_commands(
             package, fallback_to_manifest_commands=fallback_to_manifest_commands
         )
@@ -892,7 +892,12 @@ def _with_editable_source_commands(
 
 
 def _checked_active_package(
-    name: str, active: ActivePackage, root: Path, manifest: PackageManifest
+    name: str,
+    active: ActivePackage,
+    root: Path,
+    manifest: PackageManifest,
+    *,
+    commands_complete: bool = True,
 ) -> PackageInfo:
     """Return the resolved package, rejecting one whose manifest disagrees with its activation.
 
@@ -907,7 +912,9 @@ def _checked_active_package(
         manifest.name, manifest.version
     ) != canonical_package_identity(name, active.version):
         raise PackageActivationError(f"active package {name!r} has a mismatched installed version")
-    return PackageInfo(root, manifest, installed=active.editable is None)
+    return PackageInfo(
+        root, manifest, commands_complete=commands_complete, installed=active.editable is None
+    )
 
 
 def _resolved_index_packages(
