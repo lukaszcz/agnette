@@ -18,7 +18,6 @@ from agnette.agl.pipeline import (
     PipelineDriver,
     PreparedProgram,
 )
-from agnette.agl.runtime.arguments import ProgramArguments
 from tests._agl_helpers import agl_roots, prepare_inline_code
 
 
@@ -40,9 +39,7 @@ def _preflight(runtime: PipelineDriver, prepared: PreparedProgram) -> ArgumentPr
     """
     discovery = runtime.discover_programs(prepared)
     (program,) = discovery.programs
-    return runtime.preflight_arguments(
-        prepared, program, ProgramArguments(positional=(), named={}), compiled=discovery.compiled
-    )
+    return runtime.preflight_arguments(prepared, program, compiled=discovery.compiled)
 
 
 def test_run_rejects_executable_from_different_prepared_program(

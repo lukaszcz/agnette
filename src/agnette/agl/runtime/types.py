@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from agnette.agent.spec_defaults import AgentSpecResolver
     from agnette.agl.attributes import ProgramOptionSpec
-    from agnette.agl.ir.static_keys import Reachable, StaticBindingKey
+    from agnette.agl.ir.static_keys import FunctionParamKey, Reachable, StaticBindingKey
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.runtime.agents import AgentFn
     from agnette.agl.runtime.externs import ExternRegistry
@@ -242,3 +242,9 @@ class ProgramDeclInfo:
     def declaration_path(self) -> str:
         """Return the program's scope-qualified declaration spelling."""
         return "::".join(self.route_path)
+
+    def param_key(self, name: str) -> "FunctionParamKey":
+        """Return the host-parameter identity of this program's parameter *name*."""
+        from agnette.agl.ir.static_keys import FunctionParamKey
+
+        return FunctionParamKey(self.module, self.scope_path, self.name, name)

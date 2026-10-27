@@ -180,8 +180,10 @@ A positional token is read exactly as the same parameter's `--x VALUE` is: for a
 parameter's declared default; a `bool` slot takes `true` or `false`.
 
 An omitted argument resolves as `CLI > @opt-env variable > qualified program table (see
-[Configuration](#configuration)) > signature default > required error`; errors are reported
-as CLI usage before any agent runs. An explicit `@arg-pos` parameter skips the config table;
+[Configuration](#configuration)) > package manifest `[config]` (package-owned programs) >
+signature default > required error`. A value from the command line or an `@opt-env` variable
+that fails to parse is reported as CLI usage before any agent runs; one from a config table
+fails as a configuration error (exit 1, no usage). An explicit `@arg-pos` parameter skips the config table;
 an unzoned required parameter retains its config key. A config key cannot spell `None` for
 `Option[T]` or `Optional[T]`: a present key normally supplies `Some`, and an absent one falls
 through to the declared default. For
@@ -521,8 +523,9 @@ the **program route**: it overrides a module parameter through any resolving spe
 external name, or a dotted qualified spelling as a quoted key such as `"A.logging.verbose"`, which
 reaches a parameter whose bare name a nearer declaration claims — and wins over the program's own
 [`@config`](../agl/reference/attributes.md#config) entries. Below `@config`, a package-owned
-program's [manifest `[config]`](pkg.md#config) table supplies further defaults — its own command
-table, then an inherited group table, then the manifest root — still above the module route; CLI and
+program's [manifest `[config]`](pkg.md#config) table supplies further defaults, signature
+arguments included — its own command table, then an inherited group table, then the manifest
+root — still above the module route; CLI and
 `@opt-env` still win over all of these. An inline entry has no config-file route or manifest, but
 its `@config` entries still apply to its own module parameters, so they resolve as
 CLI > `@opt-env` > `@config` > initializer; its imported modules retain their module routes and

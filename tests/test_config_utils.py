@@ -223,7 +223,7 @@ class TestOptionalBool:
         assert _optional_bool({"flag": False}, "flag", default=True) is False
 
 
-def test_config_path_interpolation_runs_once_and_resolves_program_trace_file(
+def test_config_path_interpolation_runs_once_and_leaves_program_tables_as_written(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
@@ -240,13 +240,13 @@ def test_config_path_interpolation_runs_once_and_resolves_program_trace_file(
     merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
 
     assert merged["exec"]["trace-file"] == str(config_dir / "%{PROMPT_DIR}" / "prompt.md")
-    assert merged["program"]["trace-file"] == str(tmp_path / "program.log")
+    assert merged["program"]["trace-file"] == "program.log"
 
 
-def test_every_path_valued_engine_key_resolves_in_exec_and_program_sections(
+def test_every_path_valued_engine_key_resolves_in_the_exec_section_only(
     tmp_path: Path,
 ) -> None:
-    """Path resolution follows the catalog, not a hand-listed key name."""
+    """Load-time resolution follows the catalog; program tables anchor once typed."""
     from agnette.config.engine_keys import PATH_ENGINE_KEYS
 
     home = tmp_path / "home"
@@ -260,9 +260,19 @@ def test_every_path_valued_engine_key_resolves_in_exec_and_program_sections(
 
     merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
 
-    for section in ("exec", "program"):
-        for key in PATH_ENGINE_KEYS:
-            assert merged[section][key] == str(tmp_path / f"{section}-{key}.log")
+    for key in PATH_ENGINE_KEYS:
+        assert merged["exec"][key] == str(tmp_path / f"exec-{key}.log")
+        assert merged["program"][key] == f"program-{key}.log"
+
+
+def test_a_blank_path_value_is_not_anchored(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".agm").mkdir(parents=True)
+    (home / ".agm" / "config.toml").write_text('[exec]\ntrace-file = "  "\n', encoding="utf-8")
+
+    merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
+
+    assert merged["exec"]["trace-file"] == "  "
 
 
 def test_a_later_layer_replaces_a_key_whose_kind_changed(tmp_path: Path) -> None:

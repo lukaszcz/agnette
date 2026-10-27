@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, NamedTuple, Sequence
+from typing import Literal, NamedTuple, Sequence, TypeVar, overload
 
 # Re-export the canonical source-span definitions.
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE as UNKNOWN_SOURCE
@@ -95,8 +95,21 @@ def related_diagnostic_from_span(message: str, span: SourceSpan) -> RelatedDiagn
     )
 
 
-def diagnostic_from_span(message: str, span: SourceSpan) -> Diagnostic:
-    """Build an error diagnostic pinned to a concrete source span.
+_D = TypeVar("_D", bound=Diagnostic)
+
+
+@overload
+def diagnostic_from_span(message: str, span: SourceSpan) -> Diagnostic: ...
+
+
+@overload
+def diagnostic_from_span(message: str, span: SourceSpan, diagnostic_type: type[_D]) -> _D: ...
+
+
+def diagnostic_from_span(
+    message: str, span: SourceSpan, diagnostic_type: type[Diagnostic] = Diagnostic
+) -> Diagnostic:
+    """Build an error diagnostic (of *diagnostic_type*) pinned to a concrete source span.
 
     When ``span.source`` is a real (non-default) ``SourceId``, the diagnostic's
     ``source_label`` is populated from ``span.source.label`` so that multi-file
@@ -104,7 +117,7 @@ def diagnostic_from_span(message: str, span: SourceSpan) -> Diagnostic:
     ``UNKNOWN_SOURCE``, ``source_label`` is left as ``None`` so that callers
     can supply a ``source_name`` argument to the formatting functions.
     """
-    return Diagnostic(
+    return diagnostic_type(
         message=message,
         line=span.start_line,
         column=span.start_col,

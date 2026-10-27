@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import (
@@ -17,7 +17,6 @@ from agnette.agl.pipeline import (
     PreparedProgram,
     ProgramDiscovery,
 )
-from agnette.agl.runtime.arguments import ProgramArguments
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
 from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots
@@ -56,14 +55,13 @@ def _preflight(
     prepared: PreparedProgram,
     discovery: ProgramDiscovery,
     *,
-    param_values: dict[StaticBindingKey, object] | None = None,
-    param_values_lower: dict[StaticBindingKey, object] | None = None,
+    param_values: dict[HostParamKey, object] | None = None,
+    param_values_lower: dict[HostParamKey, object] | None = None,
 ) -> ArgumentPreflight:
     """Preflight the first discovered program with no value arguments."""
     return runtime.preflight_arguments(
         prepared,
         discovery.programs[0],
-        ProgramArguments(positional=(), named={}),
         compiled=discovery.compiled,
         param_values=param_values,
         param_values_lower=param_values_lower,
@@ -686,3 +684,128 @@ class TestParamValueTierMerge:
 
         assert preflight.result.ok
         assert preflight.param_seeds == {count.key: IntValue(7)}
+
+
+class TestProgramArgumentTierMerge:
+    """A program argument's value merges through the same tiers as a module parameter:
+    upper > lower."""
+
+    _SOURCE = "program def main(count: int = 1) -> unit = ()\n"
+
+    def _bound(
+        self,
+        tmp_path: Path,
+        *,
+        upper: object | None = None,
+        lower: object | None = None,
+    ) -> object:
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared(self._SOURCE, tmp_path)
+        discovery = runtime.discover_programs(prepared)
+        program = discovery.programs[0]
+        key = program.param_key("count")
+        preflight = runtime.preflight_arguments(
+            prepared,
+            program,
+            compiled=discovery.compiled,
+            param_values=None if upper is None else {key: upper},
+            param_values_lower=None if lower is None else {key: lower},
+        )
+        assert isinstance(preflight, ArgumentPreflight)
+        (value,) = preflight.arguments
+        return value
+
+    def test_the_default_applies_without_a_value(self, tmp_path: Path) -> None:
+        from agnette.agl.ir.nodes import UseDefault
+
+        assert isinstance(self._bound(tmp_path), UseDefault)
+
+    def test_a_lower_value_is_used_when_nothing_overrides_it(self, tmp_path: Path) -> None:
+        from agnette.agl.semantics.values import IntValue
+
+        assert self._bound(tmp_path, lower=5) == IntValue(5)
+
+    def test_upper_overrides_lower(self, tmp_path: Path) -> None:
+        from agnette.agl.semantics.values import IntValue
+
+        assert self._bound(tmp_path, upper=7, lower=5) == IntValue(7)
+
+    def test_an_overridden_lower_value_is_never_decoded(self, tmp_path: Path) -> None:
+        from agnette.agl.semantics.values import IntValue
+
+        assert self._bound(tmp_path, upper=7, lower="not an int") == IntValue(7)
+
+    def _failure(self, tmp_path: Path, *, supplied: bool) -> ArgumentPreflightFailure:
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared(self._SOURCE, tmp_path)
+        discovery = runtime.discover_programs(prepared)
+        program = discovery.programs[0]
+        key = program.param_key("count")
+
+        preflight = runtime.preflight_arguments(
+            prepared,
+            program,
+            compiled=discovery.compiled,
+            param_values={key: "not an int"},
+            supplied=frozenset({key}) if supplied else frozenset(),
+        )
+
+        assert isinstance(preflight, ArgumentPreflightFailure)
+        assert preflight.result.diagnostics
+        return preflight
+
+    def test_a_malformed_supplied_value_is_a_usage_diagnostic(self, tmp_path: Path) -> None:
+        assert self._failure(tmp_path, supplied=True).usage_diagnostics
+
+    def test_a_malformed_configured_value_is_no_usage_diagnostic(self, tmp_path: Path) -> None:
+        """A configuration tier's bad value is a configuration failure, not a usage error."""
+        assert not self._failure(tmp_path, supplied=False).usage_diagnostics
+
+    def test_a_malformed_lower_tier_value_is_no_usage_diagnostic(self, tmp_path: Path) -> None:
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared(self._SOURCE, tmp_path)
+        discovery = runtime.discover_programs(prepared)
+        program = discovery.programs[0]
+
+        preflight = runtime.preflight_arguments(
+            prepared,
+            program,
+            compiled=discovery.compiled,
+            param_values_lower={program.param_key("count"): "not an int"},
+        )
+
+        assert isinstance(preflight, ArgumentPreflightFailure)
+        assert preflight.result.diagnostics
+        assert not preflight.usage_diagnostics
+
+
+class TestSplitProgramArguments:
+    """Host values split by the kind of parameter their key identifies."""
+
+    def test_every_key_of_the_selected_program_is_one_of_its_arguments_declared_or_not(
+        self, tmp_path: Path
+    ) -> None:
+        from agnette.agl.ir.static_keys import FunctionParamKey
+        from agnette.agl.runtime.arguments import split_program_arguments
+
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        discovery = runtime.discover_programs(
+            _prepared("program def main(count: int = 1) -> unit = ()\n", tmp_path)
+        )
+        program = discovery.programs[0]
+        foreign = FunctionParamKey(program.module, (), "helper", "count")
+        other_program = FunctionParamKey(program.module, (), "other", "count")
+
+        params, arguments, functions = split_program_arguments(
+            {
+                program.param_key("count"): 3,
+                program.param_key("undeclared"): 6,
+                foreign: 4,
+                other_program: 5,
+            },
+            program,
+        )
+
+        assert params == {}
+        assert arguments == {"count": 3, "undeclared": 6}
+        assert functions == {foreign: 4, other_program: 5}

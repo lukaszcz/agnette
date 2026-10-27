@@ -1078,17 +1078,17 @@ def _run_prepared_entry(
             "signature"
         )
 
-    from agnette.agl.runtime.arguments import ProgramArguments
-
     argument_preflight = runtime.preflight_arguments(
         prepared,
         entry_program,
-        ProgramArguments(
-            positional=tuple(positional) if positional else (),
-            named=dict(param_values) if param_values else {},
-        ),
+        positional=tuple(positional) if positional else (),
         compiled=discovery.compiled,
-        param_values=module_param_values(discovery, entry_program, module_params),
+        param_values={
+            **module_param_values(discovery, entry_program, module_params),
+            **{
+                entry_program.param_key(name): value for name, value in (param_values or {}).items()
+            },
+        },
     )
     if not argument_preflight.result.ok:
         return argument_preflight.result

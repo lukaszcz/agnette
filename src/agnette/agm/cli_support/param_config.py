@@ -7,18 +7,26 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NamedTuple, NoReturn
 
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, StaticBindingKey
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
-from agnette.agl.zones import ParamZone
+from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
 from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
 from agnette.agm.cli_support.program_options import (
-    NAME_ADDRESSABLE_ZONES,
+    ProjectedOption,
+    is_optional_default,
     native_raw_value,
     project_option,
 )
-from agnette.config.general import EXEC_CONFIG_SECTION, GeneralConfig, undeclared_exec_keys
+from agnette.config.general import (
+    EXEC_CONFIG_SECTION,
+    GeneralConfig,
+    PathAnchor,
+    anchor_path_value,
+    undeclared_exec_keys,
+)
 from agnette.config.qualified_keys import (
+    ConfiguredValue,
     QualifiedConfigKey,
     QualifiedConfigLookupError,
     configured_leaf_table_candidates,
@@ -40,7 +48,7 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ParamValueTiers:
-    """Supplied/program-route values (``upper``) above module-route values (``lower``).
+    """Supplied/program-route values (``upper``) above declaration-route values (``lower``).
 
     ``lower`` holds only keys absent from ``upper``, and within it a
     package manifest ``[config]`` value (when the selected program is
@@ -49,15 +57,18 @@ class ParamValueTiers:
     entries between the two — ``PipelineDriver.preflight_arguments`` merges
     all three; there is no flattened two-tier view here.
 
-    Every host parameter kind is keyed alike, engine settings included
-    (their module-route tier is ``[exec]``, which the host reads itself).
-    ``supplied`` names the ``upper`` keys the command line or environment
-    supplied, as opposed to the program route.
+    Every host parameter kind is keyed alike by :data:`HostParamKey`: module
+    parameters and engine settings by binding key (an engine setting's
+    declaration route is ``[exec]``, which the host reads itself), program
+    arguments by the program's :class:`FunctionParamKey` (they have no
+    declaration route). ``supplied`` names the keys the command line or
+    environment supplied, as opposed to the program route; a program argument
+    bound positionally is supplied but holds no value in either tier.
     """
 
-    upper: Mapping[StaticBindingKey, object]
-    lower: Mapping[StaticBindingKey, object]
-    supplied: frozenset[StaticBindingKey] = frozenset()
+    upper: Mapping[HostParamKey, object]
+    lower: Mapping[HostParamKey, object]
+    supplied: frozenset[HostParamKey] = frozenset()
 
 
 class _RouteReport(NamedTuple):
@@ -89,6 +100,12 @@ def _tables_with_registered_descendants(
             len(other) > len(path) and other[: len(path)] == path for other in package_command_paths
         )
     )
+
+
+_NOT_A_PARAMETER = "is not a parameter of the program"
+_POSITIONAL_ONLY = (
+    "names a positional-only program argument, which can only be supplied positionally"
+)
 
 
 def _warn_ignored_config_key(leaf: str, table_name: str, reason: str) -> None:
@@ -136,12 +153,7 @@ def _report_undeclared_config_keys(
             table_path = leaf_tables[leaf]
             table_name = display_table_path(table_path)
             if leaf in route.positional_only:
-                _warn_ignored_config_key(
-                    leaf,
-                    table_name,
-                    "names a positional-only program argument, which can only be supplied "
-                    "positionally,",
-                )
+                _warn_ignored_config_key(leaf, table_name, _POSITIONAL_ONLY)
                 continue
             if leaf in route.declared_leaves:
                 continue
@@ -152,15 +164,18 @@ def _report_unused_manifest_leaves(
     package_config: TomlDict,
     command_paths: tuple[tuple[str, ...], ...],
     consumed: frozenset[str],
+    positional_only: frozenset[str],
     package_command_paths: frozenset[tuple[str, ...]],
 ) -> None:
     """Warn for manifest leaves in the selected command's own tables that nothing consumes.
 
-    *consumed* holds every spelling that addresses a declared parameter, an engine
-    setting included: the spellings reached parameters won on the surface, and
-    all spellings of the unreached ones. Inherited group and root
-    tables are skipped, since a sibling command may be the one that consumes
-    them, as are tables a registered descendant command inherits from.
+    *consumed* holds every spelling that addresses a declared parameter, a program
+    argument or engine setting included: the spellings reached parameters won on
+    the surface, and all spellings of the unreached ones. *positional_only* holds
+    the program's positional-only argument names, which get their own reason.
+    Inherited group and root tables are skipped, since a sibling command may be
+    the one that consumes them, as are tables a registered descendant command
+    inherits from.
     """
     exempt_tables = _tables_with_registered_descendants(command_paths, package_command_paths)
     own_tables = {("config", *path) for path in command_paths} - {
@@ -171,10 +186,10 @@ def _report_unused_manifest_leaves(
         table_path = leaf_tables[leaf]
         if table_path not in own_tables or leaf in consumed:
             continue
+        reason = _POSITIONAL_ONLY if leaf in positional_only else _NOT_A_PARAMETER
         print(
             f"warning: manifest config key '{leaf}' in the '{display_table_path(table_path)}' "
-            "table is not an engine setting or a module parameter of the program "
-            "and will be ignored",
+            f"table {reason} and will be ignored",
             file=sys.stderr,
         )
 
@@ -182,7 +197,7 @@ def _report_unused_manifest_leaves(
 def resolve_param_values(
     config: GeneralConfig,
     program: ProgramDeclInfo,
-    params: Mapping[StaticBindingKey, object],
+    params: Mapping[HostParamKey, object],
     *,
     entry_segments: tuple[str, ...],
     command_paths: tuple[tuple[str, ...], ...],
@@ -190,23 +205,33 @@ def resolve_param_values(
     package_command_paths: frozenset[tuple[str, ...]] = frozenset(),
     package_config: TomlDict | None = None,
     declared_params: Sequence[HostParamInfo] | None = None,
+    positional: frozenset[FunctionParamKey] = frozenset(),
+    manifest_anchor: PathAnchor | None = None,
 ) -> ParamValueTiers:
     """Resolve parameter config values beneath parsed CLI/environment values.
 
-    Module routes are addressed by each binding's declaration module and
-    scope. A selected program's qualified table overrides a parameter through
-    any spelling it wins on *surface*: its bare name, or a qualified spelling
-    when a nearer declaration claims that name. The two routes are resolved
-    independently, so a program route wins even when its value comes from a
-    less-specific config layer than the module route. The supplied and
-    program-route values form :attr:`ParamValueTiers.upper`; the module-route
-    values not already covered by that tier form :attr:`ParamValueTiers.lower`.
+    The one resolver of every host parameter kind: *params* are the CLI and
+    environment values, *positional* the program arguments a positional token
+    bound (a CLI value, so configured values skip it). Below them it ranks the
+    program route (exact, then group tables), the manifest ``[config]``
+    (command, group, root) and the declaration route; the selected program's
+    ``@config`` entries rank between the first and the second, merged by
+    ``PipelineDriver.preflight_arguments``. Module routes are addressed by each
+    binding's declaration module and scope. A selected program's qualified table
+    overrides a parameter through any spelling it wins on *surface*: its bare
+    name, or a qualified spelling when a nearer declaration claims that name.
+    The two routes are resolved independently, so a program route wins even
+    when its value comes from a less-specific config layer than the module
+    route. The supplied and program-route values form
+    :attr:`ParamValueTiers.upper`; the module-route values not already covered
+    by that tier form :attr:`ParamValueTiers.lower`.
 
     *package_config* is the owning package's manifest ``[config]`` table
     (``None``/empty when the program is not package-owned). Its values
     address the same program-route spellings and are merged into ``lower``,
     above the plain module-route value, for every key not already resolved
-    in ``upper`` — never overriding an ``upper`` entry.
+    in ``upper`` — never overriding an ``upper`` entry. Its path values anchor
+    at *manifest_anchor*, the package root.
 
     Configured leaves on those routes that no host input consumes are reported
     as warnings here, where the routes are known. *package_command_paths* is
@@ -214,16 +239,17 @@ def resolve_param_values(
     to exempt a command's own table from that warning when one of its leaves
     is really an inherited default for a registered descendant command.
 
-    Engine settings are surface entries too, so their program-route and
-    manifest values merge into the tiers like any parameter's; they have no
-    declaration-module route, so they take no part in module-route resolution.
+    Program arguments and engine settings are addressed like surface entries,
+    so their program-route and manifest values merge into the tiers like any
+    parameter's; they have no declaration-module route, so they take no part in
+    module-route resolution.
 
     Only the *surface* parameters (those the program reaches) take values.
     *declared_params* are the parameters the program's closure declares, reached
     or not; a configured key addressing one of them is not undeclared, so it
     draws no warning. ``None`` declares just the surface's.
     """
-    supplied = frozenset(params)
+    supplied = frozenset(params) | positional
     entries = surface.entries
     declared = _module_declared(
         (entry.param for entry in entries) if declared_params is None else declared_params
@@ -231,32 +257,38 @@ def resolve_param_values(
     reached = frozenset(entry.param.key for entry in entries)
     module_params = _module_declared(entry.param for entry in entries)
     unreached_leaves = _declared_leaves(param for param in declared if param.key not in reached)
-    program_routes = _program_routes(program, entry_segments, command_paths, entries)
+    targets = _targets(program, entries)
+    program_routes = _program_routes(program, entry_segments, command_paths, targets)
     if entry_segments:
         program_tables = configured_leaf_table_candidates(
             config, entry_segments, program.route_path, command_paths
         )
-        _reject_configured_cross_route_ambiguities(config, program, entries, program_tables)
+        _reject_configured_cross_route_ambiguities(config, targets, entries, program_tables)
         _reject_configured_ambiguous_program_leaves(
             program_tables, command_paths, surface, package_config
         )
     module_values = resolve_module_param_values(config, module_params)
-    program_values = resolve_qualified_values(config, tuple(key for _entry, key in program_routes))
+    program_values = resolve_qualified_values(config, tuple(key for _target, key in program_routes))
     upper = dict(params)
     _merge_route_values(upper, supplied, program_routes, program_values)
-    lower = {key: value for key, value in module_values.items() if key not in upper}
+    lower: dict[HostParamKey, object] = {
+        key: value for key, value in module_values.items() if key not in upper
+    }
     if package_config:
         manifest_values = resolve_manifest_values(
-            package_config, tuple(key for _entry, key in program_routes)
+            package_config,
+            tuple(key for _target, key in program_routes),
+            manifest_anchor,
         )
-        _merge_route_values(lower, frozenset(upper), program_routes, manifest_values)
+        _merge_route_values(lower, frozenset(upper) | positional, program_routes, manifest_values)
         _report_unused_manifest_leaves(
             package_config,
             command_paths,
             frozenset(
-                spelling for _entry, key in program_routes for spelling in key.leaf_spellings()
+                spelling for _target, key in program_routes for spelling in key.leaf_spellings()
             )
             | unreached_leaves,
+            _positional_only_leaves(program),
             package_command_paths,
         )
 
@@ -275,29 +307,37 @@ def _module_declared(params: Iterable[HostParamInfo]) -> tuple[HostParamInfo, ..
     return tuple(param for param in params if param.kind is not HostParamKind.ENGINE)
 
 
-class _Addressee(NamedTuple):
+class _Target(NamedTuple):
     """A parameter the selected program's tables address, by every leaf spelling it wins."""
 
     label: str
-    key: StaticBindingKey | None
+    key: HostParamKey
+    projected: ProjectedOption
     spellings: tuple[str, ...]
+    is_path: bool
 
 
-def _addressees(
-    program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]
-) -> tuple[_Addressee, ...]:
+def _targets(program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]) -> tuple[_Target, ...]:
     """Return the program arguments and surface parameters its own tables address."""
     arguments = tuple(
-        _Addressee(
+        _Target(
             f"{program.module.display()}::{program.declaration_path}::{argument.name}",
-            None,
+            program.param_key(argument.name),
+            project_option(argument.cli.name, argument.type),
             (argument.cli.name,),
+            argument.is_path,
         )
         for argument in program.parameters
         if argument.kind in NAME_ADDRESSABLE_ZONES
     )
     parameters = tuple(
-        _Addressee(entry.param.declaration_path, entry.param.key, entry.spellings)
+        _Target(
+            entry.param.declaration_path,
+            entry.param.key,
+            project_option(entry.param.cli.name, entry.param.type),
+            entry.spellings,
+            entry.param.is_path,
+        )
         for entry in entries
     )
     return (*arguments, *parameters)
@@ -305,7 +345,7 @@ def _addressees(
 
 def _reject_configured_cross_route_ambiguities(
     config: GeneralConfig,
-    program: ProgramDeclInfo,
+    targets: Sequence[_Target],
     entries: Sequence[ParamSurfaceEntry],
     program_tables: Mapping[str, frozenset[tuple[str, ...]]],
 ) -> None:
@@ -313,21 +353,18 @@ def _reject_configured_cross_route_ambiguities(
 
     A module parameter's declaration route addresses it by its bare name; the
     selected program's tables (*program_tables*: its exact route and the group
-    tables it inherits) address the program arguments and every spelling a
-    surface parameter won. One table may be both (``[devel.review]`` is the
-    ``devel review`` program route and the ``devel/review`` module route), so a
-    leaf set there that names a different parameter on each side feeds both.
-    Engine settings take no part: their ``[exec]`` section is reserved, never
-    a program or module route.
+    tables it inherits) address every spelling each of *targets* (program
+    arguments and surface parameters) won. One table may be both
+    (``[devel.review]`` is the ``devel review`` program route and the
+    ``devel/review`` module route), so a leaf set there that names a different
+    parameter on each side feeds both. Engine settings take no part: their
+    ``[exec]`` section is reserved, never a program or module route.
     """
     if not program_tables:
         return
-    addressees = _addressees(program, entries)
     for param, key in _module_routes(_module_declared(entry.param for entry in entries)):
         peers = tuple(
-            addressee
-            for addressee in addressees
-            if addressee.key != param.key and key.leaf in addressee.spellings
+            target for target in targets if target.key != param.key and key.leaf in target.spellings
         )
         if not peers:
             continue
@@ -381,8 +418,20 @@ def resolve_module_param_values(
         if key not in configured:
             continue
         projected = project_option(param.cli.name, param.type)
-        values[param.key] = native_raw_value(projected, configured[key])
+        values[param.key] = _native_value(projected, param.is_path, configured[key])
     return values
+
+
+def _native_value(projected: ProjectedOption, is_path: bool, configured: ConfiguredValue) -> object:
+    """Project a configured value onto its raw argument shape.
+
+    A path-typed value anchors to the file (or manifest) that supplied it,
+    unless it is the ``Optional`` keyword standing for no path.
+    """
+    raw = configured.value
+    if is_path and not is_optional_default(projected, raw):
+        raw = anchor_path_value(raw, configured.anchor)
+    return native_raw_value(projected, raw)
 
 
 def _module_routes(
@@ -392,11 +441,7 @@ def _module_routes(
     return tuple(
         (
             param,
-            QualifiedConfigKey(
-                param.module.segments,
-                param.route_path,
-                param.cli.name,
-            ),
+            QualifiedConfigKey(param.module.segments, param.route_path, param.cli.name),
         )
         for param in params
         if not param.module.is_entry
@@ -427,26 +472,27 @@ def _program_routes(
     program: ProgramDeclInfo,
     entry_segments: tuple[str, ...],
     command_paths: tuple[tuple[str, ...], ...],
-    entries: Sequence[ParamSurfaceEntry],
-) -> tuple[tuple[ParamSurfaceEntry, QualifiedConfigKey], ...]:
-    """Return selected-program routes for resolving module-parameter spellings.
+    targets: Sequence[_Target],
+) -> tuple[tuple[_Target, QualifiedConfigKey], ...]:
+    """Return selected-program routes for resolving every host parameter's spellings.
 
     Every spelling a parameter wins on the CLI surface addresses it in the
     selected program's table too, so a parameter whose bare name is claimed by
     a nearer declaration stays configurable per program through a qualified
-    spelling. Engine settings route like module parameters. :class:`ParamSurface`
-    is the sole authority on which spellings those are.
+    spelling. Program arguments and engine settings route like module
+    parameters. :class:`ParamSurface` is the sole authority on which spellings
+    surface parameters won.
     """
     if not entry_segments:
         return ()
-    routes: list[tuple[ParamSurfaceEntry, QualifiedConfigKey]] = []
-    for entry in entries:
-        if not entry.spellings:
+    routes: list[tuple[_Target, QualifiedConfigKey]] = []
+    for target in targets:
+        if not target.spellings:
             continue
-        leaf, *aliases = entry.spellings
+        leaf, *aliases = target.spellings
         routes.append(
             (
-                entry,
+                target,
                 QualifiedConfigKey(
                     entry_segments, program.route_path, leaf, command_paths, tuple(aliases)
                 ),
@@ -456,10 +502,10 @@ def _program_routes(
 
 
 def _merge_route_values(
-    values: dict[StaticBindingKey, object],
-    supplied: frozenset[StaticBindingKey],
-    routes: Iterable[tuple[ParamSurfaceEntry, QualifiedConfigKey]],
-    configured: Mapping[QualifiedConfigKey, object],
+    values: dict[HostParamKey, object],
+    supplied: frozenset[HostParamKey],
+    routes: Iterable[tuple[_Target, QualifiedConfigKey]],
+    configured: Mapping[QualifiedConfigKey, ConfiguredValue],
 ) -> None:
     """Project configured native values into *values*, skipping keys already in *supplied*.
 
@@ -468,11 +514,10 @@ def _merge_route_values(
     every key already resolved in ``upper``, so a manifest value never
     overrides one): both are "does a higher tier already own this key".
     """
-    for entry, key in routes:
-        if entry.param.key in supplied or key not in configured:
+    for target, key in routes:
+        if target.key in supplied or key not in configured:
             continue
-        projected = project_option(entry.param.cli.name, entry.param.type)
-        values[entry.param.key] = native_raw_value(projected, configured[key])
+        values[target.key] = _native_value(target.projected, target.is_path, configured[key])
 
 
 def _reject_configured_ambiguous_program_leaves(
@@ -503,7 +548,7 @@ def _route_reports(
     command_paths: tuple[tuple[str, ...], ...],
     declared_params: Sequence[HostParamInfo],
     unreached_leaves: frozenset[str],
-    program_routes: Sequence[tuple[ParamSurfaceEntry, QualifiedConfigKey]],
+    program_routes: Sequence[tuple[_Target, QualifiedConfigKey]],
 ) -> list[_RouteReport]:
     """Describe module and selected-program config routes for warning reporting.
 
@@ -542,15 +587,9 @@ def _route_reports(
     if entry_segments:
         declared = frozenset(
             {
-                *(parameter.cli.name for parameter in program.parameters),
-                *(spelling for _entry, key in program_routes for spelling in key.leaf_spellings()),
+                *(spelling for _target, key in program_routes for spelling in key.leaf_spellings()),
                 *unreached_leaves,
             }
-        )
-        positional_only = frozenset(
-            parameter.cli.name
-            for parameter in program.parameters
-            if parameter.kind is ParamZone.POSITIONAL_ONLY
         )
         reports.append(
             _RouteReport(
@@ -558,10 +597,19 @@ def _route_reports(
                 program.route_path,
                 command_paths,
                 declared,
-                positional_only,
+                _positional_only_leaves(program),
             )
         )
     return reports
+
+
+def _positional_only_leaves(program: ProgramDeclInfo) -> frozenset[str]:
+    """Return the config spellings of *program*'s positional-only arguments."""
+    return frozenset(
+        parameter.cli.name
+        for parameter in program.parameters
+        if parameter.kind is ParamZone.POSITIONAL_ONLY
+    )
 
 
 def _declared_leaves(declared: Iterable[HostParamInfo]) -> frozenset[str]:

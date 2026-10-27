@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import enum
 
-__all__ = ["ParamZone"]
+__all__ = ["NAME_ADDRESSABLE_ZONES", "ParamZone"]
 
 
 class ParamZone(enum.Enum):
@@ -32,3 +32,7 @@ class ParamZone(enum.Enum):
     POSITIONAL_ONLY = "positional_only"
     STANDARD = "standard"
     NAMED_ONLY = "named_only"
+
+
+NAME_ADDRESSABLE_ZONES = (ParamZone.STANDARD, ParamZone.NAMED_ONLY)
+"""The zones whose parameter a host addresses by name (a flag or a config key)."""

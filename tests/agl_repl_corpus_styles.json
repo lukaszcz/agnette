@@ -1622,7 +1622,7 @@
   "docs/agl/reference/grammar.md:163": "d2b7ab0428c78cdd27ed66d3f9a37b3d48b3fbebb418b03ec5f0ca450b20e4e2",
   "docs/agl/reference/grammar.md:558": "bbd62690dc531e16422335d610818b3e3db9ed4eef3ffd1253f50ed519c2d69c",
   "docs/agl/reference/host-environment.md:121": "e9117ebeee4674c2c769588d2cfac4bc04e4b16f39fd23d3862ab7b2f4221a5a",
-  "docs/agl/reference/host-environment.md:217": "5c0c6985615d7041f3139b224b974da7c268344c83c941af31ec0408f0088b09",
+  "docs/agl/reference/host-environment.md:221": "5c0c6985615d7041f3139b224b974da7c268344c83c941af31ec0408f0088b09",
   "docs/agl/reference/index.md:39": "f85739efa852c4a1057c737054775ebf21e77e7f68adf986a99cd97ce7f7ab98",
   "docs/agl/reference/lexical-structure.md:18": "2bd54fd01fb09e4da52674ffbeadda226b75f9fe8a0425d92d72484b62b15c50",
   "docs/agl/reference/lexical-structure.md:52": "c71eb7c8d5c96e92102f20b82520d9612e460da4d1d4a04a5b83890a0e3b7698",
@@ -1712,10 +1712,10 @@
   "docs/agl/reference/types.md:1060": "6e62fb74564579e136f69252519f1dff9baf8a78b054ea3b824bda1b6fae63a1",
   "docs/agl/reference/warnings.md:51": "65ada0019f1bcc76c78f1fe543fa3e9e07ac5c88da566c8b64af92731494ca58",
   "docs/agl/reference/warnings.md:71": "926d6c5511c7ed9ea3c4796c5a53a3fe0a21f193833f886a8ccca7d4adce99d8",
-  "docs/commands/agl.md:341": "5f2601c2fce55dd1ea0af8b9ef3f9b5c96672a9fdcab735b7f668cb37bd8c0f2",
-  "docs/commands/agl.md:349": "bd6358e77582df1b0918fae25ecb9323cfceaca47be76fe06c1010fea1912b04",
-  "docs/commands/agl.md:568": "1078c1704d6c5e192e1c1c688284e44cb8c18d08c2c75fa776d0235ed6195c82",
+  "docs/commands/agl.md:343": "5f2601c2fce55dd1ea0af8b9ef3f9b5c96672a9fdcab735b7f668cb37bd8c0f2",
+  "docs/commands/agl.md:351": "bd6358e77582df1b0918fae25ecb9323cfceaca47be76fe06c1010fea1912b04",
+  "docs/commands/agl.md:571": "1078c1704d6c5e192e1c1c688284e44cb8c18d08c2c75fa776d0235ed6195c82",
   "docs/commands/dev.md:118": "cea8499eeb11fdf086f2bfcc63732b6b8c9dcad8a337dda36d523a6e684ce087",
   "docs/commands/pkg.md:32": "4c62a1915a2ea8a320fef2c19e23c573fcc1342376bd02758874f2de14d3a279",
-  "docs/commands/pkg.md:187": "3807a0b898312b0d481697c2ba54d2c0d4a68e9a2b51134b99446dde936741e0"
+  "docs/commands/pkg.md:188": "3807a0b898312b0d481697c2ba54d2c0d4a68e9a2b51134b99446dde936741e0"
 }

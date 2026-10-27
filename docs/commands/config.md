@@ -52,6 +52,11 @@ lenient: unresolved or malformed holes stay verbatim — one config file serves 
 command, so an irrelevant broken path must not block loading; any resulting failure
 follows the consuming command's normal path semantics.
 
+A `path`-typed AgL host parameter set in config (a program argument, module parameter or
+engine path setting such as `trace-file`) is path-valued too: it expands `%{VAR}` and `~`, and a
+relative value resolves against its defining config file, else the invocation directory when that
+path does not exist there.
+
 When the config directory is a git repository, AgM auto-commits changes it makes
 there — covering `agm config update`, `agm init`, `agm open`, `agm close`,
 `agm dep new`, `agm dep switch`, and `agm worktree new`, each committing the config it

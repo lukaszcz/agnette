@@ -144,13 +144,12 @@ def _preflight_builtin_nominal(
     nominal)`` — run with ``rt.run_prepared(prepared, executable=executable,
     select_default_program=True)`` to execute the already-lowered program.
     """
-    from agnette.agl.runtime.arguments import ProgramArguments
 
     prepared = prepare_inline_code(source)
     discovery = rt.discover_programs(prepared)
     entry_programs = [program for program in discovery.programs if program.module.is_entry]
     program = entry_programs[0] if entry_programs else None
-    preflight = rt.preflight_arguments(prepared, program, ProgramArguments(positional=(), named={}))
+    preflight = rt.preflight_arguments(prepared, program)
     assert preflight.executable is not None
     return prepared, preflight.executable, preflight.executable.builtin_nominals.resolve(name)
 
@@ -2967,7 +2966,6 @@ class TestConfigureExecutionServices:
     def test_run_prepared_uses_services_configured_after_preflight(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agnette.agl.runtime.arguments import ProgramArguments
 
         prompts: list[str] = []
 
@@ -2985,7 +2983,6 @@ class TestConfigureExecutionServices:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -3573,7 +3570,6 @@ class TestRunPreparedEdgeCases:
     ) -> None:
         """A precompiled graph binds and executes a program's own value arguments."""
         from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
-        from agnette.agl.runtime.arguments import ProgramArguments
         from agnette.agl.typecheck.program import check_program as real_check_program
 
         roots = agl_roots()
@@ -3591,8 +3587,8 @@ class TestRunPreparedEdgeCases:
         preflight = rt.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={"n": 7}),
             compiled=match_result.compiled,
+            param_values={program.param_key("n"): 7},
         )
         assert preflight.result.ok
         executable = preflight.executable

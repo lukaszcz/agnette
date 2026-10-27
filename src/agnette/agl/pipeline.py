@@ -62,12 +62,11 @@ if TYPE_CHECKING:
         SourceFile,
         ValueDescriptors,
     )
-    from agnette.agl.ir.static_keys import StaticBindingKey
+    from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey
     from agnette.agl.matchcompile import MatchCompiledProgram
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import ModuleGraph
     from agnette.agl.modules.roots import RootSet
-    from agnette.agl.runtime.arguments import ProgramArguments
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
@@ -208,12 +207,13 @@ class ArgumentPreflight:
 class ArgumentPreflightFailure:
     """Failed result of ``PipelineDriver.preflight_arguments``; ``result`` holds the diagnostics.
 
-    ``argument_diagnostics`` are the program argument failures, separate from static and
-    module parameter diagnostics so CLI hosts can present them as usage errors.
+    ``usage_diagnostics`` are the failures of values the command line or environment
+    supplied, and of missing or unknown program arguments, separate from the static and
+    configured-value diagnostics so CLI hosts can present them as usage errors.
     """
 
     result: "RunResult"
-    argument_diagnostics: "tuple[Diagnostic, ...]" = ()
+    usage_diagnostics: "tuple[Diagnostic, ...]" = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1303,34 +1303,46 @@ class PipelineDriver:
         self,
         prepared: PreparedProgram,
         program: ProgramDeclInfo,
-        arguments: "ProgramArguments",
         *,
+        positional: "tuple[object, ...]" = (),
         compiled: "MatchCompiledProgram | None" = None,
-        param_values: "Mapping[StaticBindingKey, object] | None" = None,
-        param_values_lower: "Mapping[StaticBindingKey, object] | None" = None,
+        param_values: "Mapping[HostParamKey, object] | None" = None,
+        param_values_lower: "Mapping[HostParamKey, object] | None" = None,
+        supplied: "frozenset[HostParamKey]" = frozenset(),
     ) -> "ArgumentPreflight | ArgumentPreflightFailure":
-        """Validate program arguments and module parameter values before execution.
+        """Validate program arguments and host parameter values before execution.
 
         Runs the static pipeline exactly as :meth:`run_prepared` does under
-        ``check_only``, then binds and decodes *arguments* against the
-        lowered program's signature for *program*
+        ``check_only``, then binds and decodes the *positional* arguments and the
+        named ones the tiers carry against the lowered program's signature for *program*
         (:func:`~agnette.agl.runtime.arguments.bind_program_arguments_for`). Hand
         the lowered executable and the bound arguments back to
         :meth:`run_prepared` (``executable=``, ``arguments=``) to execute it
         without lowering it a second time.
 
-        *param_values* (the supplied/program-route tier) always wins.
-        *param_values_lower* (the module-route tier — a package-owned
-        program's manifest ``[config]`` values already folded in above the
-        plain module route) is decoded only for keys neither *param_values*
-        nor the selected program's own ``@config`` cover — a value either of
-        those overrides is never decoded, exactly as a program-route override
-        is today. The ``@config`` values targeting a ``@param`` binding are
-        already typed ``Value``s (evaluated by
-        :meth:`_evaluate_program_config`) and need no decoding; they rank
-        between the two raw tiers.
+        Values are keyed by :data:`~agnette.agl.ir.static_keys.HostParamKey`
+        and merged by tier, lowest first, so one chain ranks every kind:
+        *param_values_lower* (the declaration route, a package-owned program's
+        manifest ``[config]`` values already folded in above it), then the
+        program's own ``@config`` entries, then *param_values* (supplied and
+        program-route values). A value a higher tier overrides is never
+        decoded. The ``@config`` values are already typed ``Value``s (evaluated
+        by :meth:`_evaluate_program_config`) and need no decoding. The tiers are
+        the only channel of named program arguments: one is keyed by its
+        program's :class:`~agnette.agl.ir.static_keys.FunctionParamKey`, the
+        other keys become the module seeds. A value for a positionally bound
+        argument must be left out by the caller. *supplied* names the keys the
+        command line or environment supplied: a decode failure of a value
+        among them (or a missing or unknown argument) is a usage diagnostic, any
+        other failure is a configuration one.
         """
-        from agnette.agl.runtime.arguments import bind_param_values, bind_program_arguments_for
+        from agnette.agl.runtime.arguments import (
+            ConfiguredArgumentDiagnostic,
+            ProgramArguments,
+            bind_param_values,
+            bind_program_arguments_for,
+            split_program_arguments,
+        )
 
         result, executable = self._lower_and_record(prepared, program, compiled=compiled)
         if executable is None or not result.ok:
@@ -1338,27 +1350,58 @@ class PipelineDriver:
 
         get_interp = lazy_interpreter(executable)
         default_resolver = resolver_over_interpreter(get_interp)
-        bound, argument_diagnostics = bind_program_arguments_for(
-            executable, program, arguments, default_resolver=default_resolver
+        upper, upper_arguments, upper_foreign = split_program_arguments(param_values or {}, program)
+        lower_params, lower_arguments, lower_foreign = split_program_arguments(
+            param_values_lower or {}, program
+        )
+        # No host yet supplies another function's parameter.
+        assert not upper_foreign and not lower_foreign
+        named = {**lower_arguments, **upper_arguments}
+        bound, bind_diagnostics = bind_program_arguments_for(
+            executable,
+            program,
+            ProgramArguments(positional=positional, named=named),
+            default_resolver=default_resolver,
+            configured=frozenset(name for name in named if program.param_key(name) not in supplied),
+        )
+        usage_diagnostics = tuple(
+            diag for diag in bind_diagnostics if not isinstance(diag, ConfiguredArgumentDiagnostic)
         )
         program_config = self._evaluate_program_config(executable, program, get_interp)
         config_param_values = {
             key: value for key, value in program_config.items() if key in executable.param_bindings
         }
-        upper = param_values or {}
         lower = {
             key: value
-            for key, value in (param_values_lower or {}).items()
+            for key, value in lower_params.items()
             if key not in upper and key not in config_param_values
         }
         decoded_lower, lower_diagnostics = bind_param_values(
             executable, lower, default_resolver=default_resolver
         )
-        decoded_upper, upper_diagnostics = bind_param_values(
-            executable, upper, default_resolver=default_resolver
+        decoded_configured, configured_diagnostics = bind_param_values(
+            executable,
+            {key: value for key, value in upper.items() if key not in supplied},
+            default_resolver=default_resolver,
         )
-        param_seeds = {**decoded_lower, **config_param_values, **decoded_upper}
-        diagnostics = (*argument_diagnostics, *lower_diagnostics, *upper_diagnostics)
+        decoded_supplied, supplied_diagnostics = bind_param_values(
+            executable,
+            {key: value for key, value in upper.items() if key in supplied},
+            default_resolver=default_resolver,
+        )
+        param_seeds = {
+            **decoded_lower,
+            **config_param_values,
+            **decoded_configured,
+            **decoded_supplied,
+        }
+        usage_diagnostics = (*usage_diagnostics, *supplied_diagnostics)
+        diagnostics = (
+            *bind_diagnostics,
+            *lower_diagnostics,
+            *configured_diagnostics,
+            *supplied_diagnostics,
+        )
         if diagnostics:
             return ArgumentPreflightFailure(
                 result=RunResult(
@@ -1367,7 +1410,7 @@ class PipelineDriver:
                     error=None,
                     warnings=result.warnings,
                 ),
-                argument_diagnostics=argument_diagnostics,
+                usage_diagnostics=usage_diagnostics,
             )
         return ArgumentPreflight(
             result=result,

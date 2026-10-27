@@ -12,6 +12,26 @@ StaticBindingKey: TypeAlias = tuple[ModuleId, tuple[str, ...], str]
 """A static binding identity: its owning module, scope path, and name."""
 
 
+@dataclass(frozen=True, slots=True)
+class FunctionParamKey:
+    """A function parameter's identity: its function's declaration key and its name.
+
+    A ``program def``'s own parameters are keyed alike.
+    """
+
+    module: ModuleId
+    scope_path: tuple[str, ...]
+    function: str
+    param: str
+
+
+HostParamKey: TypeAlias = StaticBindingKey | FunctionParamKey
+"""Any host parameter's identity, told apart by type.
+
+Engine settings are root bindings of ``std/config``, so they are binding keys.
+"""
+
+
 def static_binding_key(
     module_id: ModuleId, scope_path: Iterable[str], name: str
 ) -> StaticBindingKey:

@@ -1101,14 +1101,66 @@ class TestManifestConfigDiscipline:
         with pytest.raises(DisciplineError):
             validate_package(package)
 
-    def test_rejects_a_signature_argument_name(self, tmp_path: Path) -> None:
-        """A program value parameter is not a manifest config spelling."""
+    def test_accepts_a_program_argument_at_every_level_it_is_reached_from(
+        self, tmp_path: Path
+    ) -> None:
+        """An argument's name is a leaf of its command's, its groups' and the root table."""
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands."tools review"]\nprogram = "custom/main::main"\n\n'
+            "[config]\nlimit = 1\n\n[config.tools]\nlimit = 2\n\n"
+            "[config.tools.review]\nlimit = 3\n",
+            "program def main(limit: int = 1) -> unit = ()\n",
+        )
+
+        validate_package(package)
+
+    def test_an_argument_spelling_shadows_an_engine_setting_leaf(self, tmp_path: Path) -> None:
+        """A value only the argument can decode is not decoded as the engine setting."""
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            "[config]\nagent = 5\n",
+            "program def main(agent: int = 1) -> unit = ()\n",
+        )
+
+        validate_package(package)
+
+    def test_accepts_an_argument_under_its_opt_name_spelling(self, tmp_path: Path) -> None:
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            "[config]\nmax-items = 5\n",
+            'program def main(@opt-name("max-items") n: int = 1) -> unit = ()\n',
+        )
+
+        validate_package(package)
+
+    def test_rejects_an_argument_leaf_outside_the_commands_that_reach_it(
+        self, tmp_path: Path
+    ) -> None:
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n'
+            'other = { program = "custom/main::other" }\n\n'
+            "[config.other]\nlimit = 1\n",
+            "program def main(limit: int = 1) -> unit = ()\nprogram def other() -> unit = ()\n",
+        )
+
+        with pytest.raises(DisciplineError):
+            validate_package(package)
+
+    def test_rejects_a_positional_only_argument_leaf(self, tmp_path: Path) -> None:
         package = self._write(
             tmp_path / "package",
             '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
             '[commands]\nstart = { program = "custom/main::main" }\n\n'
             "[config]\nvalue = 1\n",
-            "program def main(value: int) -> unit = ()\n",
+            "program def main(@arg-pos value: int) -> unit = ()\n",
         )
 
         with pytest.raises(DisciplineError):

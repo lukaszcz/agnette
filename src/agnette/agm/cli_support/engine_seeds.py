@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, cast
 
 from agnette.agent.spec_defaults import AgentSpecResolver, configured_defaults_resolver
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agnette.agl.ir.static_keys import StaticBindingKey, static_binding_key
+from agnette.agl.ir.static_keys import HostParamKey, static_binding_key
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.runtime.arguments import OptionSome
 from agnette.agl.runtime.engine_config import (
@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "EngineHostValues",
+    "EngineUsageError",
     "EngineSeedTiers",
     "build_host_engine_seeds",
     "engine_setting_name",
@@ -67,21 +68,21 @@ __all__ = [
 ]
 
 
-def engine_setting_name(key: "StaticBindingKey") -> str | None:
-    """Return the engine setting *key* identifies, or ``None`` for any other binding."""
+def engine_setting_name(key: "HostParamKey") -> str | None:
+    """Return the engine setting *key* identifies, or ``None`` for any other parameter."""
     return next((param.name for param in engine_setting_params() if param.key == key), None)
 
 
 def split_engine_params(
-    params: "Mapping[StaticBindingKey, object]",
-) -> "tuple[dict[StaticBindingKey, object], dict[str, object | None]]":
+    params: "Mapping[HostParamKey, object]",
+) -> "tuple[dict[HostParamKey, object], dict[str, object | None]]":
     """Split host *params* into the non-engine ones and the engine ones.
 
     The engine values are keyed by setting name, unboxed to the native shape
     config values take; a present ``None`` is an explicit empty ``Option``
     (``--no-timeout``).
     """
-    others: dict[StaticBindingKey, object] = {}
+    others: dict[HostParamKey, object] = {}
     engine: dict[str, object | None] = {}
     for key, raw in params.items():
         name = engine_setting_name(key)
@@ -112,8 +113,8 @@ class EngineHostValues:
 def split_engine_tiers(tiers: ParamValueTiers) -> tuple[ParamValueTiers, EngineHostValues]:
     """Split the engine settings out of resolved parameter *tiers*, the one place they leave them.
 
-    Returns the tiers of the remaining (module) parameters, which the pipeline
-    decodes, and the engine values, which :func:`build_host_engine_seeds` seeds.
+    Returns the tiers of the remaining (module and program-argument) parameters,
+    which the pipeline decodes, and the engine values, which :func:`build_host_engine_seeds` seeds.
     """
     upper, engine_upper = split_engine_params(tiers.upper)
     lower, manifest = split_engine_params(tiers.lower)
@@ -129,7 +130,7 @@ def split_engine_tiers(tiers: ParamValueTiers) -> tuple[ParamValueTiers, EngineH
 
 
 def reject_register_conflicts(
-    entries: "Iterable[ParamSurfaceEntry]", supplied: "Mapping[StaticBindingKey, object]"
+    entries: "Iterable[ParamSurfaceEntry]", supplied: "Mapping[HostParamKey, object]"
 ) -> None:
     """Reject two engine settings of one register supplied together.
 
@@ -206,19 +207,32 @@ def _configured_value(
     return configured_value
 
 
-def _exit_on_invalid[T](key_name: str, origin: str, check: "Callable[[], T]") -> T:
-    """Run *check*; on ``ValueError`` print an origin-tagged error and exit 1."""
+class EngineUsageError(ValueError):
+    """An engine value the command line supplied is invalid: a usage error."""
+
+
+def _exit_on_invalid[T](
+    key_name: str, origin: str, check: "Callable[[], T]", *, supplied: bool = False
+) -> T:
+    """Run *check*; on ``ValueError`` fail with an origin-tagged error.
+
+    A *supplied* (command-line) value raises :exc:`EngineUsageError`; any other
+    prints the error and exits 1.
+    """
     try:
         return check()
     except ValueError as exc:
-        print(f"Error: invalid {key_name} value from {origin}: {exc}", file=sys.stderr)
+        message = f"invalid {key_name} value from {origin}: {exc}"
+        if supplied:
+            raise EngineUsageError(message) from exc
+        print(f"Error: {message}", file=sys.stderr)
         raise SystemExit(1) from exc
 
 
 def _decode_engine_value(
-    key_name: str, raw: object, origin: str, type_table: "TypeTable"
+    key_name: str, raw: object, origin: str, type_table: "TypeTable", *, supplied: bool = False
 ) -> "Value":
-    """Decode one engine value, printing an origin-tagged error and exiting 1 on failure.
+    """Decode one engine value; see :func:`_exit_on_invalid` for a failure.
 
     Shared by the ordinary per-key seeding loop and the derived ``trace`` rule,
     so both go through one decode-failure contract (message and exit code).
@@ -228,7 +242,10 @@ def _decode_engine_value(
     identically.
     """
     return _exit_on_invalid(
-        key_name, origin, partial(validate_engine_leaf_value, key_name, raw, type_table)
+        key_name,
+        origin,
+        partial(validate_engine_leaf_value, key_name, raw, type_table),
+        supplied=supplied,
     )
 
 
@@ -362,6 +379,7 @@ def build_host_engine_seeds(
     primary_table: "Mapping[str, object]",
     fallback_table: "Mapping[str, object] | None" = None,
     cli_values: "Mapping[str, object | None]",
+    cli_usage_errors: bool = False,
 ) -> "EngineSeedTiers":
     """Decode the engine settings the host explicitly controls into a three-tier seed set.
 
@@ -381,7 +399,8 @@ def build_host_engine_seeds(
     one shared seeded ``TypeTable``. A decode failure prints an error naming
     the offending key and its origin (``--<name>`` for a CLI flag, otherwise
     ``configuration key <name>``) to stderr and exits 1 here, before anything
-    runs.
+    runs. With *cli_usage_errors*, an invalid CLI value raises
+    :exc:`EngineUsageError` instead.
     """
     from agnette.agl.semantics.type_table import create_seeded_type_table
 
@@ -394,7 +413,11 @@ def build_host_engine_seeds(
     for spec in ENGINE_KEYS:
         if spec.name in cli_values:
             cli[spec.name] = _decode_engine_value(
-                spec.name, cli_values[spec.name], f"--{spec.name}", type_table
+                spec.name,
+                cli_values[spec.name],
+                f"--{spec.name}",
+                type_table,
+                supplied=cli_usage_errors,
             )
             continue
         if spec.name in primary_table:

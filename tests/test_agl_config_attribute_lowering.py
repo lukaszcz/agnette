@@ -21,7 +21,6 @@ from agnette.agl.lower.program import lower_program
 from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.pipeline import PipelineDriver
-from agnette.agl.runtime.arguments import ProgramArguments
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.semantics.values import BoolValue, DecimalValue, IntValue, JsonValue
 from agnette.agl.syntax.nodes import FuncDef, static_items
@@ -166,7 +165,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -186,7 +184,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -208,7 +205,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -226,7 +222,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -253,7 +248,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -277,7 +271,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
 
@@ -304,7 +297,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -324,7 +316,6 @@ class TestPreflightProgramConfig:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -348,7 +339,6 @@ class TestPreflightProgramConfig:
         build_preflight = runtime.preflight_arguments(
             prepared,
             by_name["build"],
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert build_preflight.result.ok
@@ -357,7 +347,6 @@ class TestPreflightProgramConfig:
         alt_preflight = runtime.preflight_arguments(
             prepared,
             by_name["alt"],
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert alt_preflight.result.ok
@@ -428,7 +417,6 @@ class TestProgramDefCalledAsAnOrdinaryFunction:
         preflight = runtime.preflight_arguments(
             prepared,
             main,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok

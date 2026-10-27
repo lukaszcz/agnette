@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from agnette.command_catalog import RESERVED_CONFIG_SECTION_NAMES, SCHEMA_CONFIG_SECTION_NAMES
-from agnette.config.general import GeneralConfig
+from agnette.config.general import GeneralConfig, PathAnchor
 from agnette.core.toml import TomlDict
 
 _MISSING = object()
+
+
+class ConfiguredValue(NamedTuple):
+    """A configured value with the :class:`PathAnchor` of the layer that supplied it."""
+
+    value: object
+    anchor: PathAnchor | None
 
 
 class QualifiedConfigLookupError(ValueError):
@@ -48,8 +56,10 @@ class QualifiedConfigKey:
 
 def resolve_qualified_values(
     config: GeneralConfig, keys: Iterable[QualifiedConfigKey]
-) -> dict[QualifiedConfigKey, object]:
+) -> dict[QualifiedConfigKey, ConfiguredValue]:
     """Resolve *keys* from the normalized layers of *config*.
+
+    Each value comes with the anchor of the layer that supplied it.
 
     Each key resolves in specificity tiers, most specific first: its exact
     route, then tables inherited from a proper prefix of a command path,
@@ -67,14 +77,15 @@ def resolve_qualified_values(
         )
         for key in unique_keys
     }
-    return _resolve_tiers(config.layers, unique_keys, tiers_by_key)
+    return _resolve_tiers(config.layers, config.anchors, unique_keys, tiers_by_key)
 
 
 def _resolve_tiers(
     layers: tuple[TomlDict, ...],
+    anchors: tuple[PathAnchor | None, ...],
     keys: tuple[QualifiedConfigKey, ...],
     tiers_by_key: Mapping[QualifiedConfigKey, tuple[tuple[tuple[str, ...], ...], ...]],
-) -> dict[QualifiedConfigKey, object]:
+) -> dict[QualifiedConfigKey, ConfiguredValue]:
     """Resolve *keys* tier by tier, most specific first, keeping each key's first hit.
 
     *tiers_by_key* maps every key to its own ordered specificity tiers (each
@@ -82,15 +93,16 @@ def _resolve_tiers(
     tiers than another simply contributes nothing once its own are exhausted.
     Shared by :func:`resolve_qualified_values` (exact route, then inherited
     groups) and :func:`resolve_manifest_values` (a program's own command
-    table, then inherited groups, then the manifest root).
+    table, then inherited groups, then the manifest root). *anchors* run
+    parallel to *layers*.
     """
-    resolved: dict[QualifiedConfigKey, object] = {}
+    resolved: dict[QualifiedConfigKey, ConfiguredValue] = {}
     tier_count = max((len(tiers) for tiers in tiers_by_key.values()), default=0)
     for index in range(tier_count):
         tier_paths = {
             key: tiers[index] if index < len(tiers) else () for key, tiers in tiers_by_key.items()
         }
-        for key, value in _resolve_tier(layers, keys, tier_paths).items():
+        for key, value in _resolve_tier(layers, anchors, keys, tier_paths).items():
             resolved.setdefault(key, value)
     return resolved
 
@@ -130,9 +142,10 @@ def _inherited_group_paths(
 
 def _resolve_tier(
     layers: tuple[TomlDict, ...],
+    anchors: tuple[PathAnchor | None, ...],
     keys: tuple[QualifiedConfigKey, ...],
     paths_by_key: Mapping[QualifiedConfigKey, tuple[tuple[str, ...], ...]],
-) -> dict[QualifiedConfigKey, object]:
+) -> dict[QualifiedConfigKey, ConfiguredValue]:
     """Resolve *keys* against *paths_by_key*'s tables across every layer.
 
     One specificity tier: :func:`resolve_qualified_values` calls this once per
@@ -140,20 +153,21 @@ def _resolve_tier(
     *paths_by_key* must map every one of *keys*, even to an empty tuple when a
     key has no table at this tier.
     """
-    resolved: dict[QualifiedConfigKey, object] = {}
-    for layer in layers:
+    resolved: dict[QualifiedConfigKey, ConfiguredValue] = {}
+    for layer, anchor in zip(layers, anchors, strict=True):
         for key in keys:
             if any(_table_path_replaced(layer, path) for path in paths_by_key[key]):
                 resolved.pop(key, None)
-        resolved.update(_resolve_layer(layer, keys, paths_by_key))
+        resolved.update(_resolve_layer(layer, anchor, keys, paths_by_key))
     return resolved
 
 
 def _resolve_layer(
     layer: TomlDict,
+    anchor: PathAnchor | None,
     keys: tuple[QualifiedConfigKey, ...],
     paths_by_key: Mapping[QualifiedConfigKey, tuple[tuple[str, ...], ...]],
-) -> dict[QualifiedConfigKey, object]:
+) -> dict[QualifiedConfigKey, ConfiguredValue]:
     matches_by_value: dict[
         tuple[tuple[str, ...], str],
         dict[tuple[tuple[str, ...], tuple[str, ...]], list[QualifiedConfigKey]],
@@ -183,14 +197,14 @@ def _resolve_layer(
                 f"config key {display_table_path(path)}.{leaf} matches multiple routes: {names}"
             )
 
-    resolved: dict[QualifiedConfigKey, object] = {}
+    resolved: dict[QualifiedConfigKey, ConfiguredValue] = {}
     for key, values in values_by_key.items():
         if len(values) > 1:
             spellings = ", ".join(f"{display_table_path(path)}.{leaf}" for path, leaf, _ in values)
             raise QualifiedConfigLookupError(
                 f"config key {key.display_name()} is set by conflicting tables: {spellings}"
             )
-        resolved[key] = values[0][2]
+        resolved[key] = ConfiguredValue(values[0][2], anchor)
     return resolved
 
 
@@ -301,16 +315,19 @@ def _manifest_tiers(
 
 
 def resolve_manifest_values(
-    manifest_config: TomlDict, keys: Iterable[QualifiedConfigKey]
-) -> dict[QualifiedConfigKey, object]:
+    manifest_config: TomlDict,
+    keys: Iterable[QualifiedConfigKey],
+    anchor: PathAnchor | None = None,
+) -> dict[QualifiedConfigKey, ConfiguredValue]:
     """Resolve *keys* from a package manifest's ``[config]`` table.
 
     See :func:`_manifest_tiers` for tier order; reuses :func:`_resolve_tiers`
-    against the manifest as a single ``"config"``-prefixed layer.
+    against the manifest as a single ``"config"``-prefixed layer, whose values
+    carry *anchor*: the package root, else the invocation directory.
     """
     unique_keys = _dedupe_keys(keys)
     tiers_by_key = {key: _manifest_tiers(key.command_paths) for key in unique_keys}
-    return _resolve_tiers(_manifest_layer(manifest_config), unique_keys, tiers_by_key)
+    return _resolve_tiers(_manifest_layer(manifest_config), (anchor,), unique_keys, tiers_by_key)
 
 
 def manifest_leaf_tables(

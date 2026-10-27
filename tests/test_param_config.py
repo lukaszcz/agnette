@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from agnette.agl.attributes import ProgramOptionSpec
+from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.runtime.engine_config import engine_setting_params
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
@@ -18,16 +20,13 @@ from agnette.agm.cli_support.engine_seeds import split_engine_tiers
 from agnette.agm.cli_support.param_config import ParamValueTiers, resolve_param_values
 from agnette.agm.cli_support.param_surface import ParamSurface, build_param_surface
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
-from agnette.config.general import GeneralConfig
+from agnette.config.general import GeneralConfig, PathAnchor
 from agnette.config.qualified_keys import QualifiedConfigLookupError
 from agnette.core.toml import TomlDict, toml_dict
 from tests._agl_helpers import EMPTY_REACHABLE
+from tests._config_helpers import unanchored_config as _config
 
 _SPAN = SourceSpan(1, 1, 1, 2, 0, 1)
-
-
-def _config(*layers: Mapping[str, object]) -> GeneralConfig:
-    return GeneralConfig.from_layers(toml_dict(layer) for layer in layers)
 
 
 def _option(name: str) -> ProgramOptionSpec:
@@ -41,6 +40,7 @@ def _binding(
     *,
     external: str | None = None,
     scope_path: tuple[str, ...] = (),
+    is_path: bool = False,
 ) -> HostParamInfo:
     return HostParamInfo.module_param(
         ModuleId.from_path(module) if isinstance(module, str) else module,
@@ -48,6 +48,7 @@ def _binding(
         name,
         type_,
         _option(name if external is None else external),
+        is_path=is_path,
     )
 
 
@@ -57,9 +58,16 @@ def _argument(
     type_: Type = BoolType(),
     *,
     has_default: bool = True,
+    is_path: bool = False,
 ) -> ProgramParamInfo:
     return ProgramParamInfo(
-        name=name, kind=kind, type=type_, has_default=has_default, span=_SPAN, cli=_option(name)
+        name=name,
+        kind=kind,
+        type=type_,
+        has_default=has_default,
+        span=_SPAN,
+        cli=_option(name),
+        is_path=is_path,
     )
 
 
@@ -768,11 +776,13 @@ class TestSpellingsLostByReachedParams:
             package_config=None if package_config is None else dict(package_config),
         )
 
-    def test_a_manifest_leaf_lost_to_a_program_argument_warns(
+    def test_a_manifest_leaf_lost_to_a_reserved_flag_warns(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         self._resolve(
-            _config(), signature=True, package_config={"devel": {"review": {"verbose": True}}}
+            _config(),
+            reserved=frozenset({"--verbose"}),
+            package_config={"devel": {"review": {"verbose": True}}},
         )
 
         assert "verbose" in capsys.readouterr().err
@@ -1103,7 +1113,7 @@ class TestProgramArgumentsAgainstDeclarationRoutes:
         )
 
         assert tiers.lower == {}
-        assert tiers.upper == {}
+        assert tiers.upper == {_program().param_key("agent"): True}
 
     def test_a_manifest_leaf_does_not_feed_a_shadowed_module_parameter(self) -> None:
         """The program argument wins the bare name, so a manifest leaf names no module parameter."""
@@ -1113,7 +1123,8 @@ class TestProgramArgumentsAgainstDeclarationRoutes:
             _config(), "agent", (binding,), package_config={"devel": {"review": {"agent": True}}}
         )
 
-        assert tiers.lower == {}
+        assert binding.key not in tiers.lower
+        assert tiers.lower == {_program().param_key("agent"): True}
 
 
 class TestManifestConfigMergesBelowConfigFileRoutes:
@@ -1372,6 +1383,25 @@ class TestUnusedManifestLeafWarnings:
 
         assert "verbose" in capsys.readouterr().err
 
+    def test_a_positional_only_argument_leaf_draws_exactly_one_warning(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        positional = _argument("input", ParamZone.POSITIONAL_ONLY, TextType(), has_default=False)
+        program = _program(parameters=(positional,))
+
+        resolve_param_values(
+            _config(),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            package_config={"devel": {"review": {"input": "value", "typo": 1}}},
+        )
+
+        lines = [line for line in capsys.readouterr().err.splitlines() if "'input'" in line]
+        assert len(lines) == 1
+
     def test_a_consumed_leaf_draws_no_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
         self._resolve({"devel": {"review": {"logging.verbose": True}}})
 
@@ -1406,3 +1436,280 @@ class TestUnusedManifestLeafWarnings:
         )
 
         assert capsys.readouterr().err == ""
+
+
+class TestProgramArgumentsResolveThroughTheOneChain:
+    """A program argument reads the same tiers as any host parameter."""
+
+    @staticmethod
+    def _resolve(
+        *,
+        config: GeneralConfig | None = None,
+        params: Mapping[HostParamKey, object] | None = None,
+        positional: frozenset[FunctionParamKey] = frozenset(),
+        package_config: TomlDict | None = None,
+        argument: str = "limit",
+    ) -> tuple[ParamValueTiers, FunctionParamKey]:
+        program = _program(parameters=(_argument(argument, type_=IntType()),))
+        tiers = resolve_param_values(
+            _config() if config is None else config,
+            program,
+            {} if params is None else params,
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            package_config=package_config,
+            positional=positional,
+        )
+        return tiers, program.param_key(argument)
+
+    def test_a_manifest_leaf_supplies_a_program_argument(self) -> None:
+        tiers, key = self._resolve(package_config={"devel": {"review": {"limit": 5}}})
+
+        assert tiers.lower == {key: 5}
+        assert tiers.upper == {}
+
+    def test_a_manifest_root_leaf_supplies_a_program_argument(self) -> None:
+        tiers, key = self._resolve(package_config={"limit": 5})
+
+        assert tiers.lower == {key: 5}
+
+    def test_the_program_route_beats_the_manifest(self) -> None:
+        tiers, key = self._resolve(
+            config=_config({"workflow": {"run": {"limit": 7}}}),
+            package_config={"devel": {"review": {"limit": 5}}},
+        )
+
+        assert tiers.upper == {key: 7}
+        assert tiers.lower == {}
+
+    def test_a_supplied_value_beats_the_program_route_and_the_manifest(self) -> None:
+        program_key = _program().param_key("limit")
+
+        tiers, key = self._resolve(
+            config=_config({"workflow": {"run": {"limit": 7}}}),
+            params={program_key: "9"},
+            package_config={"devel": {"review": {"limit": 5}}},
+        )
+
+        assert tiers.upper == {key: "9"}
+        assert tiers.lower == {}
+        assert tiers.supplied == {key}
+
+    def test_a_positionally_bound_argument_takes_no_configured_value(self) -> None:
+        key = _program().param_key("limit")
+
+        tiers, _ = self._resolve(
+            config=_config({"workflow": {"run": {"limit": 7}}}),
+            positional=frozenset({key}),
+            package_config={"limit": 5},
+        )
+
+        assert tiers.upper == {}
+        assert tiers.lower == {}
+        assert tiers.supplied == {key}
+
+    def test_a_manifest_leaf_naming_a_program_argument_draws_no_warning(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._resolve(package_config={"devel": {"review": {"limit": 5}}})
+
+        assert capsys.readouterr().err == ""
+
+    def test_a_manifest_leaf_lost_to_a_program_argument_feeds_only_the_argument(self) -> None:
+        """The argument wins the bare name, so the engine setting of that name is not fed."""
+        tiers, key = self._resolve(
+            package_config={"devel": {"review": {"agent": True}}}, argument="agent"
+        )
+
+        assert tiers.lower == {key: True}
+
+    def test_a_program_argument_and_a_surface_entry_never_conflict_with_themselves(self) -> None:
+        """One table is the program route and a module route; distinct parameters still apply."""
+        binding = _binding("devel/review", "other")
+
+        tiers = _resolve_argument_routes(
+            _config({"devel": {"review": {"limit": 3, "other": 4}}}), "limit", (binding,)
+        )
+
+        assert tiers.upper == {
+            _program().param_key("limit"): 3,
+            binding.key: 4,
+        }
+
+
+class TestConfiguredPathValuesAnchorToTheirDefiningFile:
+    """A config-sourced value of a path-typed parameter resolves like an engine path key."""
+
+    @staticmethod
+    def _dirs(tmp_path: Path) -> tuple[Path, Path]:
+        config_dir = tmp_path / "cfg"
+        cwd = tmp_path / "cwd"
+        config_dir.mkdir()
+        cwd.mkdir()
+        (config_dir / "data.txt").write_text("", encoding="utf-8")
+        return config_dir, cwd
+
+    @staticmethod
+    def _file_config(config_dir: Path, cwd: Path, layer: Mapping[str, object]) -> GeneralConfig:
+        return GeneralConfig.from_layers([toml_dict(layer)], [PathAnchor(config_dir, cwd)])
+
+    def test_a_program_route_argument_anchors_to_its_config_file(self, tmp_path: Path) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        program = _program(parameters=(_argument("data", type_=TextType(), is_path=True),))
+
+        tiers = resolve_param_values(
+            self._file_config(config_dir, cwd, {"workflow": {"run": {"data": "data.txt"}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, ()),
+        )
+
+        assert tiers.upper == {program.param_key("data"): str(config_dir / "data.txt")}
+
+    def test_a_group_table_argument_anchors_to_its_config_file(self, tmp_path: Path) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        program = _program(parameters=(_argument("data", type_=TextType(), is_path=True),))
+
+        tiers = resolve_param_values(
+            self._file_config(config_dir, cwd, {"devel": {"data": "data.txt"}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+        )
+
+        assert tiers.upper == {program.param_key("data"): str(config_dir / "data.txt")}
+
+    def test_a_module_route_parameter_anchors_to_its_config_file(self, tmp_path: Path) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        binding = _binding("A/logging", "data", TextType(), is_path=True)
+        program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+        tiers = resolve_param_values(
+            self._file_config(config_dir, cwd, {"A": {"logging": {"data": "data.txt"}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, (binding,)),
+        )
+
+        assert tiers.lower == {binding.key: str(config_dir / "data.txt")}
+
+    def test_a_path_missing_beside_the_config_file_falls_back_to_the_invocation_directory(
+        self, tmp_path: Path
+    ) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        program = _program(parameters=(_argument("data", type_=TextType(), is_path=True),))
+
+        tiers = resolve_param_values(
+            self._file_config(config_dir, cwd, {"workflow": {"run": {"data": "other.txt"}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, ()),
+        )
+
+        assert tiers.upper == {program.param_key("data"): str(cwd / "other.txt")}
+
+    def test_a_manifest_value_anchors_to_the_package_directory(self, tmp_path: Path) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        program = _program(parameters=(_argument("data", type_=TextType(), is_path=True),))
+
+        tiers = resolve_param_values(
+            self._file_config(config_dir, cwd, {}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            package_config={"data": "data.txt"},
+            manifest_anchor=PathAnchor(config_dir, cwd),
+        )
+
+        assert tiers.lower == {program.param_key("data"): str(config_dir / "data.txt")}
+
+    def test_a_manifest_path_missing_in_the_package_falls_back_to_the_invocation_directory(
+        self, tmp_path: Path
+    ) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        program = _program(parameters=(_argument("data", type_=TextType(), is_path=True),))
+
+        tiers = resolve_param_values(
+            self._file_config(config_dir, cwd, {}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            package_config={"data": "other.txt"},
+            manifest_anchor=PathAnchor(config_dir, cwd),
+        )
+
+        assert tiers.lower == {program.param_key("data"): str(cwd / "other.txt")}
+
+    def test_a_manifest_module_parameter_and_engine_path_anchor_to_the_package_directory(
+        self, tmp_path: Path
+    ) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        binding = _binding("A/logging", "data", TextType(), is_path=True)
+        program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+        tiers = resolve_param_values(
+            self._file_config(config_dir, cwd, {}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, (binding,)),
+            package_config={"data": "data.txt", "trace-file": "data.txt"},
+            manifest_anchor=PathAnchor(config_dir, cwd),
+        )
+        module_tiers, engine = split_engine_tiers(tiers)
+
+        assert module_tiers.lower == {binding.key: str(config_dir / "data.txt")}
+        assert engine.manifest == {"trace-file": str(config_dir / "data.txt")}
+
+    def test_a_text_parameter_and_a_supplied_value_stay_as_written(self, tmp_path: Path) -> None:
+        config_dir, cwd = self._dirs(tmp_path)
+        program = _program(
+            parameters=(
+                _argument("note", type_=TextType()),
+                _argument("data", type_=TextType(), is_path=True),
+            )
+        )
+
+        tiers = resolve_param_values(
+            self._file_config(
+                config_dir, cwd, {"workflow": {"run": {"note": "data.txt", "data": "data.txt"}}}
+            ),
+            program,
+            {program.param_key("data"): "data.txt"},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, ()),
+        )
+
+        assert tiers.upper == {
+            program.param_key("note"): "data.txt",
+            program.param_key("data"): "data.txt",
+        }
+
+    def test_a_layer_without_an_anchor_leaves_a_path_as_written(self) -> None:
+        program = _program(parameters=(_argument("data", type_=TextType(), is_path=True),))
+
+        tiers = resolve_param_values(
+            _config({"workflow": {"run": {"data": "data.txt"}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, ()),
+        )
+
+        assert tiers.upper == {program.param_key("data"): "data.txt"}

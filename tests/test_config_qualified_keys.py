@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import pytest
 
-from agnette.config.general import GeneralConfig, load_general_config
+from agnette.config.general import GeneralConfig, PathAnchor, load_general_config
 from agnette.config.qualified_keys import (
+    ConfiguredValue,
     QualifiedConfigKey,
     QualifiedConfigLookupError,
     configured_leaf_table_candidates,
@@ -17,11 +18,26 @@ from agnette.config.qualified_keys import (
     resolve_qualified_values,
     route_table_paths,
 )
-from agnette.core.toml import toml_dict
+from agnette.core.toml import TomlDict
+from tests._config_helpers import unanchored_config as _config
 
 
-def _config(*layers: Mapping[str, object]) -> GeneralConfig:
-    return GeneralConfig.from_layers(toml_dict(layer) for layer in layers)
+def _plain(
+    resolved: Mapping[QualifiedConfigKey, ConfiguredValue],
+) -> dict[QualifiedConfigKey, object]:
+    return {key: configured.value for key, configured in resolved.items()}
+
+
+def resolved_values(
+    config: GeneralConfig, keys: Iterable[QualifiedConfigKey]
+) -> dict[QualifiedConfigKey, object]:
+    return _plain(resolve_qualified_values(config, keys))
+
+
+def resolved_manifest_values(
+    manifest: TomlDict, keys: Iterable[QualifiedConfigKey]
+) -> dict[QualifiedConfigKey, object]:
+    return _plain(resolve_manifest_values(manifest, keys))
 
 
 class TestQualifiedConfigKeys:
@@ -41,16 +57,14 @@ class TestQualifiedConfigKeys:
     ) -> None:
         key = QualifiedConfigKey(("review-tools", "tools", "judge"), ("review",), "max-tries")
 
-        assert resolve_qualified_values(_config(table), (key,)) == {key: expected}
+        assert resolved_values(_config(table), (key,)) == {key: expected}
 
     def test_rejects_table_that_matches_multiple_identities(self) -> None:
         first = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
         second = QualifiedConfigKey(("quality-tools", "judge"), ("review",), "max-tries")
 
         with pytest.raises(QualifiedConfigLookupError) as exc_info:
-            resolve_qualified_values(
-                _config({"judge": {"review": {"max-tries": 1}}}), (first, second)
-            )
+            resolved_values(_config({"judge": {"review": {"max-tries": 1}}}), (first, second))
 
         assert "review-tools/judge::review::max-tries" in str(exc_info.value)
         assert "quality-tools/judge::review::max-tries" in str(exc_info.value)
@@ -59,7 +73,7 @@ class TestQualifiedConfigKeys:
         first = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
         second = QualifiedConfigKey(("quality-tools", "judge"), ("review",), "region")
 
-        assert resolve_qualified_values(
+        assert resolved_values(
             _config({"judge": {"review": {"max-tries": 1, "region": "eu"}}}),
             (first, second),
         ) == {first: 1, second: "eu"}
@@ -69,7 +83,7 @@ class TestQualifiedConfigKeys:
         second = QualifiedConfigKey(("quality-tools", "judge"), ("review",), "max-tries")
         config = {"review-tools/judge": {"review": {"max-tries": 4}}}
 
-        assert resolve_qualified_values(_config(config), (first, second)) == {first: 4}
+        assert resolved_values(_config(config), (first, second)) == {first: 4}
 
     def test_rejects_conflicting_spellings_in_one_layer(self) -> None:
         key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
@@ -79,7 +93,7 @@ class TestQualifiedConfigKeys:
         }
 
         with pytest.raises(QualifiedConfigLookupError) as exc_info:
-            resolve_qualified_values(_config(config), (key,))
+            resolved_values(_config(config), (key,))
 
         assert "judge.review" in str(exc_info.value)
         assert "review-tools.judge.review" in str(exc_info.value)
@@ -89,7 +103,7 @@ class TestQualifiedConfigKeys:
         lower = {"judge": {"review": {"max-tries": 1}}}
         higher = {"review-tools": {"judge": {"review": {"max-tries": 2}}}}
 
-        assert resolve_qualified_values(_config(lower, higher), (key,)) == {key: 2}
+        assert resolved_values(_config(lower, higher), (key,)) == {key: 2}
 
     @pytest.mark.parametrize(
         "higher",
@@ -101,14 +115,14 @@ class TestQualifiedConfigKeys:
         key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
         lower = {"judge": {"review": {"max-tries": 1}}}
 
-        assert resolve_qualified_values(_config(lower, higher), (key,)) == {}
+        assert resolved_values(_config(lower, higher), (key,)) == {}
 
     def test_higher_table_omitting_leaf_retains_lower_qualified_value(self) -> None:
         key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
         lower = {"judge": {"review": {"max-tries": 1}}}
         higher = {"judge": {"review": {"region": "eu"}}}
 
-        assert resolve_qualified_values(_config(lower, higher), (key,)) == {key: 1}
+        assert resolved_values(_config(lower, higher), (key,)) == {key: 1}
 
     def test_names_a_quoted_anchor_in_a_same_layer_conflict(self) -> None:
         key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
@@ -118,7 +132,7 @@ class TestQualifiedConfigKeys:
         }
 
         with pytest.raises(QualifiedConfigLookupError) as exc_info:
-            resolve_qualified_values(_config(config), (key,))
+            resolved_values(_config(config), (key,))
 
         assert '["review-tools/judge"].review' in str(exc_info.value)
 
@@ -130,7 +144,7 @@ class TestQualifiedConfigKeys:
         key = QualifiedConfigKey((reserved_name,), (), "max-tries")
         config = {reserved_name: {"max-tries": 1}}
 
-        assert resolve_qualified_values(_config(config), (key,)) == {}
+        assert resolved_values(_config(config), (key,)) == {}
 
     @pytest.mark.parametrize("schema_name", ("deps", "modules", "packages", "params"))
     def test_schema_sections_are_not_config_modules_at_any_depth(self, schema_name: str) -> None:
@@ -138,7 +152,7 @@ class TestQualifiedConfigKeys:
         key = QualifiedConfigKey((schema_name,), ("main",), "region")
         config = {schema_name: {"main": {"region": "configured"}}}
 
-        assert resolve_qualified_values(_config(config), (key,)) == {}
+        assert resolved_values(_config(config), (key,)) == {}
 
     @pytest.mark.parametrize("command_name", ("exec", "wsp", "wt"))
     def test_command_sections_still_serve_a_loose_files_program_table(
@@ -147,32 +161,30 @@ class TestQualifiedConfigKeys:
         key = QualifiedConfigKey((command_name,), ("main",), "region")
         config = {command_name: {"main": {"region": "configured"}}}
 
-        assert resolve_qualified_values(_config(config), (key,)) == {key: "configured"}
+        assert resolved_values(_config(config), (key,)) == {key: "configured"}
 
     def test_legacy_params_subtable_cannot_route_to_a_params_module(self) -> None:
         key = QualifiedConfigKey(("params", "workflow"), (), "region")
         config = {"params": {"workflow": {"region": "legacy"}}}
 
-        assert resolve_qualified_values(_config(config), (key,)) == {}
+        assert resolved_values(_config(config), (key,)) == {}
 
     def test_returns_no_value_when_no_table_matches(self) -> None:
         key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
 
-        assert (
-            resolve_qualified_values(_config({"other": {"review": {"max-tries": 1}}}), (key,)) == {}
-        )
+        assert resolved_values(_config({"other": {"review": {"max-tries": 1}}}), (key,)) == {}
 
     def test_ignores_malformed_non_table_paths(self) -> None:
         key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
 
-        assert resolve_qualified_values(_config({"judge": "not a table"}), (key,)) == {}
+        assert resolved_values(_config({"judge": "not a table"}), (key,)) == {}
 
     def test_one_table_supplies_multiple_leaves_for_one_module_identity(self) -> None:
         first = QualifiedConfigKey(("review-tools", "judge"), ("review",), "region")
         second = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
         config = {"judge": {"review": {"region": "eu", "max-tries": 3}}}
 
-        assert resolve_qualified_values(_config(config), (first, second)) == {
+        assert resolved_values(_config(config), (first, second)) == {
             first: "eu",
             second: 3,
         }
@@ -181,7 +193,7 @@ class TestQualifiedConfigKeys:
         key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
         config = {"judge": {"review": {"max-tries": 1}}}
 
-        assert resolve_qualified_values(_config(config), (key, key)) == {key: 1}
+        assert resolved_values(_config(config), (key, key)) == {key: 1}
 
     def test_route_table_paths_share_a_table_between_a_suffix_and_its_own_route(self) -> None:
         """A nested module route reads the table its last segment names."""
@@ -205,9 +217,7 @@ class TestQualifiedConfigKeys:
             ("review-tools", "review"), ("main",), "strict", command_paths=(("dv", "review"),)
         )
 
-        assert resolve_qualified_values(_config({"dv": {"review": {"strict": True}}}), (key,)) == {
-            key: True
-        }
+        assert resolved_values(_config({"dv": {"review": {"strict": True}}}), (key,)) == {key: True}
 
     def test_rejects_a_command_path_table_conflicting_with_its_module_route(self) -> None:
         key = QualifiedConfigKey(
@@ -216,7 +226,7 @@ class TestQualifiedConfigKeys:
         config = _config({"dv": {"review": {"strict": True}}, "judge": {"main": {"strict": False}}})
 
         with pytest.raises(QualifiedConfigLookupError) as exc_info:
-            resolve_qualified_values(config, (key,))
+            resolved_values(config, (key,))
 
         assert "conflicting tables" in str(exc_info.value)
 
@@ -228,7 +238,7 @@ class TestQualifiedConfigKeys:
             {"judge": {"main": {"strict": False}}}, {"dv": {"review": {"strict": True}}}
         )
 
-        assert resolve_qualified_values(config, (key,)) == {key: True}
+        assert resolved_values(config, (key,)) == {key: True}
 
     def test_resolves_every_command_path_registered_for_one_program(self) -> None:
         """Two registrations of one program are two spellings of its address."""
@@ -236,7 +246,7 @@ class TestQualifiedConfigKeys:
             ("tools", "run"), ("main",), "level", command_paths=(("dv", "run"), ("dv", "r"))
         )
 
-        assert resolve_qualified_values(_config({"dv": {"r": {"level": "high"}}}), (first,)) == {
+        assert resolved_values(_config({"dv": {"r": {"level": "high"}}}), (first,)) == {
             first: "high"
         }
 
@@ -245,7 +255,7 @@ class TestQualifiedConfigKeys:
         paths = route_table_paths(("tools", "judge"), ("main",), (("judge", "main"),))
 
         assert paths.count(("judge", "main")) == 1
-        assert resolve_qualified_values(
+        assert resolved_values(
             _config({"judge": {"main": {"level": "high"}}}),
             (
                 QualifiedConfigKey(
@@ -269,7 +279,7 @@ class TestQualifiedConfigKeys:
         assert ("agent", "review") not in route_table_paths(
             key.module_segments, key.scope_path, key.command_paths
         )
-        assert resolve_qualified_values(config, (key,)) == {}
+        assert resolved_values(config, (key,)) == {}
         assert (
             configured_leaf_table_candidates(
                 config, key.module_segments, key.scope_path, key.command_paths
@@ -310,7 +320,7 @@ class TestQualifiedConfigKeys:
 
         assert configured_leaf_tables(config, ("workflow",)) == {}
 
-    def test_resolves_path_normalized_file_layers_with_dotted_and_quoted_headers(
+    def test_resolves_file_layers_with_dotted_and_quoted_headers_and_their_anchors(
         self, tmp_path: Path
     ) -> None:
         home = tmp_path / "home"
@@ -319,8 +329,6 @@ class TestQualifiedConfigKeys:
         cwd_config = cwd / ".agm"
         home_config.mkdir(parents=True)
         cwd_config.mkdir(parents=True)
-        (home_config / "lower.log").touch()
-        (cwd_config / "higher.log").touch()
         (home_config / "config.toml").write_text(
             "[judge.review]\ntrace-file = 'lower.log'\n", encoding="utf-8"
         )
@@ -333,10 +341,12 @@ class TestQualifiedConfigKeys:
         config = load_general_config(home=home, proj_dir=None, cwd=cwd)
 
         assert config.layers == (
-            {"judge": {"review": {"trace-file": str(home_config / "lower.log")}}},
-            {"review-tools/judge": {"review": {"trace-file": str(cwd_config / "higher.log")}}},
+            {"judge": {"review": {"trace-file": "lower.log"}}},
+            {"review-tools/judge": {"review": {"trace-file": "higher.log"}}},
         )
-        assert resolve_qualified_values(config, (key,)) == {key: str(cwd_config / "higher.log")}
+        assert resolve_qualified_values(config, (key,)) == {
+            key: ConfiguredValue("higher.log", PathAnchor(cwd_config, cwd))
+        }
 
 
 class TestGroupTableInheritance:
@@ -347,7 +357,7 @@ class TestGroupTableInheritance:
             ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
         )
 
-        assert resolve_qualified_values(_config({"devel": {"strict": True}}), (key,)) == {key: True}
+        assert resolved_values(_config({"devel": {"strict": True}}), (key,)) == {key: True}
 
     def test_a_deeper_group_table_wins_over_a_shallower_one(self) -> None:
         key = QualifiedConfigKey(
@@ -358,7 +368,7 @@ class TestGroupTableInheritance:
         )
         config = _config({"devel": {"strict": False, "sub": {"strict": True}}})
 
-        assert resolve_qualified_values(config, (key,)) == {key: True}
+        assert resolved_values(config, (key,)) == {key: True}
 
     def test_the_exact_route_beats_every_inherited_group_table(self) -> None:
         key = QualifiedConfigKey(
@@ -368,7 +378,7 @@ class TestGroupTableInheritance:
             {"devel": {"review": {"strict": True}, "strict": False}},
         )
 
-        assert resolve_qualified_values(config, (key,)) == {key: True}
+        assert resolved_values(config, (key,)) == {key: True}
 
     def test_specificity_beats_layer_order(self) -> None:
         """An earlier, deeper table beats a later, shallower one."""
@@ -381,14 +391,14 @@ class TestGroupTableInheritance:
         earlier = {"devel": {"sub": {"x": 1}}}
         later = {"devel": {"x": 2}}
 
-        assert resolve_qualified_values(_config(earlier, later), (key,)) == {key: 1}
+        assert resolved_values(_config(earlier, later), (key,)) == {key: 1}
 
     def test_a_later_layer_overrides_an_earlier_one_within_one_inherited_tier(self) -> None:
         key = QualifiedConfigKey(
             ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
         )
 
-        assert resolve_qualified_values(
+        assert resolved_values(
             _config({"devel": {"strict": False}}, {"devel": {"strict": True}}), (key,)
         ) == {key: True}
 
@@ -401,7 +411,7 @@ class TestGroupTableInheritance:
             command_paths=(("dv", "review"), ("devel", "review")),
         )
 
-        assert resolve_qualified_values(_config({"dv": {"strict": True}}), (key,)) == {key: True}
+        assert resolved_values(_config({"dv": {"strict": True}}), (key,)) == {key: True}
 
     def test_same_depth_conflict_from_two_command_paths_in_one_layer_errors(self) -> None:
         key = QualifiedConfigKey(
@@ -413,7 +423,7 @@ class TestGroupTableInheritance:
         config = _config({"devel": {"strict": True}, "staging": {"strict": False}})
 
         with pytest.raises(QualifiedConfigLookupError):
-            resolve_qualified_values(config, (key,))
+            resolved_values(config, (key,))
 
     def test_a_conflict_in_a_tier_shadowed_by_a_higher_one_still_errors(self) -> None:
         """A higher tier's value winning does not exempt a lower tier from its own conflicts."""
@@ -426,7 +436,7 @@ class TestGroupTableInheritance:
         config = _config({"dv": {"x": 1, "review": {"x": 3}}, "devel": {"x": 2}})
 
         with pytest.raises(QualifiedConfigLookupError):
-            resolve_qualified_values(config, (key,))
+            resolved_values(config, (key,))
 
     def test_a_later_layer_non_tabular_exact_route_falls_through_to_an_inherited_tier(
         self,
@@ -439,22 +449,19 @@ class TestGroupTableInheritance:
             {"devel": {"review": "off"}},
         )
 
-        assert resolve_qualified_values(config, (key,)) == {key: False}
+        assert resolved_values(config, (key,)) == {key: False}
 
     def test_a_later_layer_non_tabular_replacement_drops_an_inherited_value(self) -> None:
         key = QualifiedConfigKey(
             ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
         )
 
-        assert (
-            resolve_qualified_values(_config({"devel": {"strict": True}}, {"devel": "off"}), (key,))
-            == {}
-        )
+        assert resolved_values(_config({"devel": {"strict": True}}, {"devel": "off"}), (key,)) == {}
 
     def test_no_command_paths_means_no_inheritance(self) -> None:
         key = QualifiedConfigKey(("tools", "review"), ("main",), "strict")
 
-        assert resolve_qualified_values(_config({"tools": {"strict": True}}), (key,)) == {}
+        assert resolved_values(_config({"tools": {"strict": True}}), (key,)) == {}
 
     def test_configured_leaf_tables_never_reports_inherited_tables(self) -> None:
         config = _config({"devel": {"strict": True}})
@@ -500,7 +507,7 @@ class TestResolveManifestValues:
         )
         manifest = {"devel": {"strict": False, "review": {"strict": True}}}
 
-        assert resolve_manifest_values(manifest, (key,)) == {key: True}
+        assert resolved_manifest_values(manifest, (key,)) == {key: True}
 
     def test_a_group_table_wins_over_the_root(self) -> None:
         key = QualifiedConfigKey(
@@ -508,7 +515,7 @@ class TestResolveManifestValues:
         )
         manifest = {"strict": False, "devel": {"strict": True}}
 
-        assert resolve_manifest_values(manifest, (key,)) == {key: True}
+        assert resolved_manifest_values(manifest, (key,)) == {key: True}
 
     def test_a_deeper_group_table_wins_over_a_shallower_one(self) -> None:
         key = QualifiedConfigKey(
@@ -519,20 +526,20 @@ class TestResolveManifestValues:
         )
         manifest = {"devel": {"strict": False, "sub": {"strict": True}}}
 
-        assert resolve_manifest_values(manifest, (key,)) == {key: True}
+        assert resolved_manifest_values(manifest, (key,)) == {key: True}
 
     def test_a_program_with_no_command_paths_reads_only_the_root(self) -> None:
         key = QualifiedConfigKey(("tools", "review"), ("main",), "strict")
         manifest = {"strict": True, "devel": {"strict": False}}
 
-        assert resolve_manifest_values(manifest, (key,)) == {key: True}
+        assert resolved_manifest_values(manifest, (key,)) == {key: True}
 
     def test_no_root_and_no_command_table_resolves_nothing(self) -> None:
         key = QualifiedConfigKey(
             ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
         )
 
-        assert resolve_manifest_values({"devel": {"other": 1}}, (key,)) == {}
+        assert resolved_manifest_values({"devel": {"other": 1}}, (key,)) == {}
 
     def test_a_leaf_alias_resolves_like_its_primary_spelling(self) -> None:
         key = QualifiedConfigKey(
@@ -544,7 +551,7 @@ class TestResolveManifestValues:
         )
         manifest = {"devel": {"review": {"logging.verbose": True}}}
 
-        assert resolve_manifest_values(manifest, (key,)) == {key: True}
+        assert resolved_manifest_values(manifest, (key,)) == {key: True}
 
     def test_same_tier_conflicting_spellings_error(self) -> None:
         key = QualifiedConfigKey(
@@ -557,13 +564,13 @@ class TestResolveManifestValues:
         manifest = {"devel": {"review": {"verbose": True, "logging.verbose": False}}}
 
         with pytest.raises(QualifiedConfigLookupError):
-            resolve_manifest_values(manifest, (key,))
+            resolved_manifest_values(manifest, (key,))
 
     def test_a_module_suffix_route_never_addresses_a_manifest_table(self) -> None:
         """Only command paths and the root apply; a bare module name is not a route."""
         key = QualifiedConfigKey(("tools", "review"), ("main",), "strict")
 
-        assert resolve_manifest_values({"tools": {"strict": True}}, (key,)) == {}
+        assert resolved_manifest_values({"tools": {"strict": True}}, (key,)) == {}
 
     def test_a_root_tier_conflict_reports_cleanly_instead_of_crashing(self) -> None:
         """A program with no command table still gets a clean error, not a raw ``ValueError``."""
@@ -573,4 +580,4 @@ class TestResolveManifestValues:
         manifest = {"verbose": True, "logging.verbose": False}
 
         with pytest.raises(QualifiedConfigLookupError, match=r"config\.verbose"):
-            resolve_manifest_values(manifest, (key,))
+            resolved_manifest_values(manifest, (key,))

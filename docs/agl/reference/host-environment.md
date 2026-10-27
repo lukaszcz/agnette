@@ -163,7 +163,11 @@ enum decodes normally, subject to the
 annotated [`path`](types.md#type-aliases) — directly, as `Option[path]` or
 `Optional[path]`, or through an alias — takes its value as the corresponding
 `text` parameter does; a host presents it as a filesystem location (value
-placeholder `PATH`, filesystem completion).
+placeholder `PATH`, filesystem completion). A relative configured value
+resolves against its defining config file (else the invocation directory when
+that path does not exist; a package manifest's against its package root,
+likewise), a CLI or environment value against the invocation directory. A configured
+value also expands `%{VAR}` and a leading `~`, as a path-valued config field does.
 
 **Unicode.** A CLI token, an `@opt-env` variable's value, and a config string
 must be valid Unicode; a value holding a surrogate code point is a host
@@ -419,13 +423,17 @@ supplied by the host are pre-execution errors.
 
 ### Precedence
 
-Each external input takes the first value supplied, left to right:
+Every host parameter — program argument, module parameter or engine setting —
+takes the first value supplied, left to right:
 
 ```
-program argument:  CLI token  >  @opt-env  >  program route  >  declared default  (else required error)
-module parameter:  CLI flag   >  @opt-env  >  program route  >  @config  >  manifest [config]  >  module route  >  initializer
-engine setting:    CLI flag   >  program route  >  @config  >  manifest [config]  >  [exec]  >  declared default
+CLI  >  @opt-env  >  program route  >  @config  >  manifest [config]  >  declaration route  >  default
 ```
+
+A program argument has no declaration route, and its default is its declared
+default (else a missing required argument is an error). A module parameter's
+declaration route is its module route and its default its initializer. An
+engine setting has no `@opt-env`; its declaration route is `[exec]`.
 
 - **Program route** — the selected program's own tables (its qualified
   table and, for a registered command, its command-path table), then inherited
@@ -434,8 +442,8 @@ engine setting:    CLI flag   >  program route  >  @config  >  manifest [config]
   entries.
 - **Manifest `[config]`** — for a package-owned program only, its package
   manifest's [`[config]`](../../commands/pkg.md#config) table: command table,
-  then inherited group table, then manifest root. It never sets program
-  arguments.
+  then inherited group table, then manifest root. It supplies program
+  arguments, module parameters and engine settings alike.
 - **Module route** — the declaring module's table; **`[exec]`** — global
   engine defaults.
 

@@ -2956,11 +2956,11 @@ def test_a_package_owned_program_with_no_command_gets_only_manifest_root_leaves(
     assert file_result.stdout == "true\n"
 
 
-def test_manifest_trace_file_is_anchored_to_the_current_directory(
+def test_manifest_trace_file_missing_in_the_package_is_anchored_to_the_current_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A relative ``trace-file`` resolves against cwd, like a CLI flag value, never against
-    the package root — which for an installed package is immutable."""
+    """A relative manifest path resolves against the package root, else the invocation
+    directory when it does not exist there; a new trace file lands in the latter."""
     home = tmp_path / "home"
     root = tmp_path / "tools"
     _write_manifest_config_package(root, '[config]\ntrace-file = "manifest.log"\n')
@@ -2975,6 +2975,26 @@ def test_manifest_trace_file_is_anchored_to_the_current_directory(
     assert result.exit_code == 0
     assert (workdir / "manifest.log").read_text(encoding="utf-8")
     assert not (installed.root / "manifest.log").exists()
+
+
+def test_manifest_trace_file_existing_in_the_package_is_anchored_to_the_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    root = tmp_path / "tools"
+    _write_manifest_config_package(root, '[config]\ntrace-file = "package.log"\n')
+    (root / "package.log").write_text("", encoding="utf-8")
+    installed = install_directory(root, home=home, editable=True)
+    monkeypatch.setenv("HOME", str(home))
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+
+    result = invoke(CliRunner(), ["devel", "review"])
+
+    assert result.exit_code == 0
+    assert (installed.root / "package.log").read_text(encoding="utf-8")
+    assert not (workdir / "package.log").exists()
 
 
 def test_engine_setting_precedence_from_exec_through_manifest_to_cli(

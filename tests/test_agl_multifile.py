@@ -77,13 +77,13 @@ def _run_program(
     entry_program = next(program for program in discovery.programs if program.module.is_entry)
     if not entry_program.parameters:
         return rt.run_prepared(prepared, compiled=discovery.compiled, select_default_program=True)
-    from agnette.agl.runtime.arguments import ProgramArguments
-
     preflight = rt.preflight_arguments(
         prepared,
         entry_program,
-        ProgramArguments(positional=(), named=dict(param_values) if param_values else {}),
         compiled=discovery.compiled,
+        param_values={
+            entry_program.param_key(name): value for name, value in (param_values or {}).items()
+        },
     )
     if not preflight.result.ok:
         return preflight.result
@@ -133,7 +133,6 @@ def test_selected_program_does_not_wire_unreachable_extern(
     (library_root / "b.py").write_text('raise RuntimeError("must not import")\n')
 
     from agnette.agl import PipelineDriver
-    from agnette.agl.runtime.arguments import ProgramArguments
 
     prepared = PipelineDriver.prepare_program(
         "import a\nimport b\nprogram def main() -> unit = ()\n",
@@ -149,7 +148,6 @@ def test_selected_program_does_not_wire_unreachable_extern(
     preflight = runtime.preflight_arguments(
         prepared,
         selected,
-        ProgramArguments(positional=(), named={}),
         compiled=discovery.compiled,
     )
     assert preflight.result.ok

@@ -17,6 +17,7 @@ from agnette.agl.parser.parser import parse_program_seeded
 from agnette.agl.scope import BuiltinKind, ModuleResolution, resolve_program
 from agnette.agl.syntax.nodes import (
     Call,
+    FuncDef,
     ImportDecl,
     Program,
     scope_names,
@@ -25,6 +26,7 @@ from agnette.agl.syntax.nodes import (
 from agnette.agl.syntax.resources import ResourceError, resolve_resource, resource_path
 from agnette.agl.syntax.types import UnitT
 from agnette.agl.syntax.visitor import walk
+from agnette.agl.zones import NAME_ADDRESSABLE_ZONES
 from agnette.command_catalog import RESERVED_CONFIG_SECTION_NAMES, invalid_command_path
 from agnette.config.qualified_keys import display_table_path, param_spellings_for
 from agnette.core import fs
@@ -36,6 +38,7 @@ from agnette.packages.manifest import (
     PackageManifest,
     describe_unknown_fields,
     distribution_manifest,
+    expanded_commands,
     registered_command_paths,
 )
 from agnette.packages.model import PackageInfo, is_std_package_name
@@ -483,12 +486,7 @@ def _validate_program_reference(
     if resolution is None:
         raise DisciplineError(f"program reference {reference!r} names no package module")
 
-    candidates = {
-        scope_names(function.scope_path) + (function.name,): function
-        for function in static_function_items(resolution.program.body.items)
-        if function.is_program
-    }
-    function = candidates.get(declaration)
+    function = _program_declarations(resolution).get(declaration)
     if function is None:
         raise DisciplineError(f"program reference {reference!r} names no program declaration")
     if function.type_param_slots or (
@@ -499,13 +497,63 @@ def _validate_program_reference(
         )
 
 
+def _program_declarations(resolution: ModuleResolution) -> dict[tuple[str, ...], FuncDef]:
+    """Return *resolution*'s ``program def`` items by scope-qualified declaration path."""
+    return {
+        scope_names(function.scope_path) + (function.name,): function
+        for function in static_function_items(resolution.program.body.items)
+        if function.is_program
+    }
+
+
+def _command_argument_spellings(
+    manifest: PackageManifest, resolutions: _ModuleResolutions
+) -> dict[tuple[str, ...], frozenset[str]]:
+    """Return, per registered command path (aliases expanded), its name-addressable arguments.
+
+    A program's argument is addressed in a config table by its ``cli.name``,
+    exactly as the run-time reader does for the zones of ``NAME_ADDRESSABLE_ZONES``.
+    """
+    spellings: dict[tuple[str, ...], frozenset[str]] = {}
+    for path, command in expanded_commands(manifest).items():
+        if command.program is None:
+            continue
+        module_path, _separator, declaration_path = command.program.partition("::")
+        resolution = resolutions[ModuleId.from_path(module_path)]
+        function = _program_declarations(resolution)[tuple(declaration_path.split("::"))]
+        attributes = resolution.attributes
+        spellings[tuple(path.split())] = frozenset(
+            attributes.program_options[param.node_id].name
+            for param in function.params
+            if attributes.param_zones[param.node_id] in NAME_ADDRESSABLE_ZONES
+        )
+    return spellings
+
+
+def _level_argument_spellings(
+    commands: Mapping[tuple[str, ...], frozenset[str]], prefix: tuple[str, ...]
+) -> frozenset[str]:
+    """Return the argument spellings a ``[config]`` table at *prefix* may set.
+
+    As at run time, a command's table, its group tables and the root all reach
+    its program's arguments.
+    """
+    return frozenset(
+        spelling
+        for path, spellings in commands.items()
+        if path[: len(prefix)] == prefix
+        for spelling in spellings
+    )
+
+
 def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleResolutions) -> None:
     """Validate ``[config]``'s nested command tables and leaves.
 
     A nested table's key names a registered command, group, or alias path
     (*manifest*'s own, ``@command`` merged in); every other leaf spells an
-    engine setting or a ``@param`` binding in the package's resolved
-    dependency closure (*resolutions*: package, dependencies, and ``std``).
+    engine setting, a ``@param`` binding in the package's resolved dependency
+    closure (*resolutions*: package, dependencies, and ``std``) or, at a level a
+    command's program is reached from, one of that program's arguments.
     Per-program reachability, precedence and cross-route ambiguity are a run-time
     concern: a leaf the selected program does not consume is warned about there.
     """
@@ -519,6 +567,7 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
 
     registered = registered_command_paths(manifest)
     param_spellings = _closure_param_spellings(resolutions)
+    arguments = _command_argument_spellings(manifest, resolutions)
     # A word a ``@param`` spells shadows the engine setting of that spelling for
     # some programs; its value is then decoded per program at run time.
     engine_spellings = {
@@ -532,6 +581,7 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
         (),
         registered,
         param_spellings,
+        arguments,
         engine_spellings,
         create_seeded_type_table(),
         validate_manifest_leaf_value,
@@ -543,14 +593,18 @@ def _validate_config_level(
     prefix: tuple[str, ...],
     registered: frozenset[tuple[str, ...]],
     param_spellings: frozenset[str],
+    arguments: Mapping[tuple[str, ...], frozenset[str]],
     engine_spellings: Mapping[str, str],
     type_table: "TypeTable",
     decode: Callable[[str, object, "TypeTable"], object],
 ) -> None:
+    level_arguments = _level_argument_spellings(arguments, prefix)
     for key, value in table.items():
         path = (*prefix, key)
         is_command_word = path in registered
-        is_leaf_spelling = key in engine_spellings or key in param_spellings
+        is_leaf_spelling = (
+            key in engine_spellings or key in param_spellings or key in level_arguments
+        )
         if is_command_word and is_leaf_spelling:
             raise DisciplineError(
                 f"manifest config key {display_table_path(path)!r} is ambiguous between a "
@@ -564,10 +618,17 @@ def _validate_config_level(
                 )
             nested: TomlDict = value
             _validate_config_level(
-                nested, path, registered, param_spellings, engine_spellings, type_table, decode
+                nested,
+                path,
+                registered,
+                param_spellings,
+                arguments,
+                engine_spellings,
+                type_table,
+                decode,
             )
             continue
-        if key in engine_spellings:
+        if key in engine_spellings and key not in level_arguments:
             try:
                 decode(engine_spellings[key], value, type_table)
             except ValueError as exc:
@@ -575,10 +636,10 @@ def _validate_config_level(
                     f"manifest config key {display_table_path(path)!r}: {exc}"
                 ) from exc
             continue
-        if key not in param_spellings:
+        if key not in param_spellings and key not in level_arguments:
             raise DisciplineError(
                 f"manifest config key {display_table_path(path)!r} names neither a registered "
-                "command nor a known parameter or engine setting"
+                "command nor a known argument, parameter or engine setting"
             )
 
 

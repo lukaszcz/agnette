@@ -21,7 +21,6 @@ from agnette.agl.ir.program import IrFunctionBody
 from agnette.agl.lower.program import lower_program
 from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID, ModuleId
 from agnette.agl.modules.roots import RootSet
-from agnette.agl.runtime.arguments import ProgramArguments
 from agnette.agl.semantics.type_table import MethodDef, TypeTable
 from agnette.agl.semantics.types import (
     ArrayType,
@@ -393,9 +392,7 @@ def test_method_modules_reached_through_source_imports_wire_their_externs(
     assert ModuleId.from_path("std/math") in prepared.resolved.graph.adjacency[STD_PRELUDE_ID]
     assert discovery.compiled is not None, discovery.diagnostics
     (program,) = discovery.programs
-    preflight = runtime.preflight_arguments(
-        prepared, program, ProgramArguments(positional=(), named={}), compiled=discovery.compiled
-    )
+    preflight = runtime.preflight_arguments(prepared, program, compiled=discovery.compiled)
     assert preflight.result.ok, preflight.result.diagnostics
 
 

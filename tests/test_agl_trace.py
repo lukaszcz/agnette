@@ -940,7 +940,6 @@ class TestBuiltinExceptionFields:
 
 class TestRunBoundaryRecords:
     def test_run_start_records_program_arguments_and_config_values(self, tmp_path: Path) -> None:
-        from agnette.agl.runtime.arguments import ProgramArguments
         from agnette.agl.semantics.values import BoolValue, IntValue
         from tests._agl_helpers import agent_value
 
@@ -962,9 +961,10 @@ class TestRunBoundaryRecords:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(7,), named={"label": "release"}),
+            positional=(7,),
             compiled=discovery.compiled,
             param_values={
+                program.param_key("label"): "release",
                 parameters[0].key: "production",
                 parameters[1].key: 4,
                 parameters[2].key: "0.125",

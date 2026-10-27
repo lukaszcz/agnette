@@ -174,8 +174,9 @@ rev = "devel review"
 
 `agm devel`, `agm devel --help`, and `agm help devel` show the group's guidance and a generated
 subcommand listing. Leaf commands generate usage and option help from their program signatures and
-reached module parameters, so authored help is optional. Invalid or missing program arguments show
-that command's usage.
+reached module parameters, so authored help is optional. Missing program arguments, and values
+from the command line or the environment that do not parse, show that command's usage; a
+configured value that does not parse is a configuration error.
 
 A program may register its own command instead, via
 [`@command`](../agl/reference/attributes.md#command) on the `program def`
@@ -234,22 +235,25 @@ agent = "claude/opus"
 
 Package-author defaults: root leaves apply to every program the package owns, and each nested
 table names one of the package's own registered command, group, or alias paths
-(`@command`-registered paths included). A leaf is an engine setting or a `@param` binding's bare
-or dotted spelling — never a program signature argument — and must be reachable from the
-package's own import graph: a dependency or `std` module the package never imports contributes no
-spelling. A bare leaf names a `@param` binding of the closure that shadows the engine setting's
-name (the parameter wins, as for flags); the engine setting is then addressed as
-`"std.config.NAME"`. `pkg check`/`create`/`install` reject an unregistered nested table, an unknown leaf, an
-engine value that fails to decode, and a word that is ambiguously both a registered subcommand and
-a setting spelling. At run time, whenever the selected program is owned by the package (run as a
-registered command, an installed reference, or a file path), its command table beats an inherited
-group table beats the root, ranking below config-file program, command, and group tables and
-`@config`, and above `[exec]` and a module's own module route (see the Configuration bullet
-below); a relative path-valued engine key such as `trace-file` resolves against the current
-working directory, like a CLI flag value, never against the package root. Validation checks
-spellings against the whole closure; a leaf in a command's own table that the selected program
-does not consume (a parameter outside its import graph, or a bare name its signature shadows)
-is ignored with a run-time warning, like an unused config-file key.
+(`@command`-registered paths included). A leaf is an engine setting, a `@param` binding's bare or
+dotted spelling, or the external name of a name-addressable signature argument of a program
+registered under that table's command (or one beneath it; at the root, any command's), and must
+be reachable from the package's own import graph: a dependency or `std` module the package never
+imports contributes no spelling. A bare leaf names a `@param` binding of the closure or a
+signature argument that shadows the engine setting's name (the parameter wins, as for flags); the
+engine setting is then addressed as `"std.config.NAME"`. `pkg check`/`create`/`install` reject an
+unregistered nested table, an unknown leaf, an engine value that fails to decode, and a word that
+is ambiguously both a registered subcommand and a setting spelling. At run time, whenever the
+selected program is owned by the package (run as a registered command, an installed reference, or
+a file path), its command table beats an inherited group table beats the root, ranking below
+config-file program, command, and group tables and `@config`, and above `[exec]` and a module's
+own module route (see the Configuration bullet below); a program argument it sets is beaten by
+its CLI value, `@opt-env` and those tables. A relative path-valued setting, such as `trace-file`
+or a `path` parameter, resolves against the package root, else the current working directory
+when that path does not exist there. Validation checks spellings against the whole closure; a leaf in
+a command's own table that the selected program does not consume (a parameter outside its import
+graph, or a bare name a reserved flag shadows) is ignored with a run-time warning, like an unused
+config-file key.
 
 ## Registered commands
 
@@ -286,10 +290,11 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   through to `@config` before its declaring module's module route. Below `@config`, the owning
   package's manifest [`[config]`](#config) supplies further defaults — its own command table,
   then an inherited group table, then the root — still above `[exec]` and a module's own module
-  route. A resolving program-route leaf — its bare external name, or a dotted qualified spelling
-  as a quoted key — still overrides both. CLI values win over all of them; `@opt-env` reaches a
-  module parameter the same way, but not an engine setting, which only a source `std/config`
-  write outranks. See [Configuration](agl.md#configuration).
+  route; signature arguments read the manifest tier too. A resolving program-route leaf — its
+  bare external name, or a dotted qualified spelling as a quoted key — still overrides both. CLI
+  values win over all of them; `@opt-env` reaches a signature argument and a module parameter
+  alike, but not an engine setting, which only a source `std/config` write outranks. See
+  [Configuration](agl.md#configuration).
 - **Conflicts.** Two active packages cannot own the same command path; install the later one with
   `--shadow` to make it the owner. Shadowing is recorded per store tree, so a rebuilt activation
   index preserves it.

@@ -8,7 +8,6 @@ from agnette.agl.ir.nodes import IrBind, IrMakeClosure
 from agnette.agl.ir.program import ExternFunctionBody
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import ArgumentPreflight, PipelineDriver
-from agnette.agl.runtime.arguments import ProgramArguments
 
 
 def _compile(source: str, companion: str, tmp_path: Path) -> ArgumentPreflight:
@@ -26,9 +25,7 @@ def _compile(source: str, companion: str, tmp_path: Path) -> ArgumentPreflight:
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     discovery = runtime.discover_programs(prepared)
     (program,) = discovery.programs
-    return runtime.preflight_arguments(
-        prepared, program, ProgramArguments(positional=(), named={}), compiled=discovery.compiled
-    )
+    return runtime.preflight_arguments(prepared, program, compiled=discovery.compiled)
 
 
 def _extern_body(result: ArgumentPreflight) -> ExternFunctionBody:

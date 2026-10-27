@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Literal, assert_never, cast
 
 from agnette.agl.diagnostics import Diagnostic, diagnostic_from_span
 from agnette.agl.ir.nodes import UseDefault
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, StaticBindingKey
 from agnette.agl.semantics.arguments import (
     ArgumentBindingError,
     ArgumentBindingErrorKind,
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from agnette.agl.zones import ParamZone
 
 __all__ = [
+    "ConfiguredArgumentDiagnostic",
     "OptionSome",
     "ProgramArguments",
     "bind_program_arguments_for",
@@ -52,6 +53,7 @@ __all__ = [
     "decode_param_value",
     "default_program_arguments",
     "diagnose_process_environment",
+    "split_program_arguments",
 ]
 
 
@@ -88,6 +90,11 @@ def _missing_required_message(name: str) -> str:
     a missing required program argument, however it is reached, calls this.
     """
     return f"Missing required program argument: {name!r}"
+
+
+@dataclass(frozen=True, slots=True)
+class ConfiguredArgumentDiagnostic(Diagnostic):
+    """A decode failure of an argument value that a configuration tier supplied."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +289,7 @@ def bind_program_arguments(
     arguments: ProgramArguments,
     *,
     default_resolver: "DefaultResolver | None" = None,
+    configured: frozenset[str] = frozenset(),
 ) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
     """Bind and decode *arguments* against *signature*.
 
@@ -304,7 +312,9 @@ def bind_program_arguments(
     parameter that is missing-and-required or failed to decode (both keep
     checking every parameter rather than stopping at the first).
     *default_resolver*, when given, fills an omitted defaulted field nested in
-    a supplied argument's value (see :func:`decode_param_value`).
+    a supplied argument's value (see :func:`decode_param_value`). A decode
+    failure of a *configured* name (a configuration tier supplied its value) is
+    a :class:`ConfiguredArgumentDiagnostic`.
     """
     from agnette.agl.runtime.convert import StrictJsonParseError
 
@@ -339,6 +349,9 @@ def bind_program_arguments(
                     f"Program argument {param.name!r}: could not parse as "
                     f"{param.decoder.target_type_label}: {exc}",
                     param.span,
+                    diagnostic_type=(
+                        ConfiguredArgumentDiagnostic if param.name in configured else Diagnostic
+                    ),
                 )
             )
     if diagnostics:
@@ -352,19 +365,23 @@ def bind_program_arguments_for(
     arguments: ProgramArguments,
     *,
     default_resolver: "DefaultResolver | None" = None,
+    configured: frozenset[str] = frozenset(),
 ) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
     """Fuse *program*'s declaration info with *executable*'s signature, then bind *arguments*.
 
     *program* and *executable* must describe the same selected program.
     *default_resolver*, when given, fills a defaulted field an argument's value omits
     (built by the caller over *executable*'s own real nominal table — this package never
-    constructs an evaluator itself).
+    constructs an evaluator itself). *configured* names the arguments a configuration
+    tier supplied (see :func:`bind_program_arguments`).
     """
     program_symbol = executable.program_symbols[program.node_id]
     signature = ProgramSignature.fuse(
         executable.program_signatures[program_symbol], program.parameters, program.span
     )
-    return bind_program_arguments(signature, arguments, default_resolver=default_resolver)
+    return bind_program_arguments(
+        signature, arguments, default_resolver=default_resolver, configured=configured
+    )
 
 
 def bind_param_values(
@@ -412,6 +429,29 @@ def bind_param_values(
     if diagnostics:
         return {}, tuple(diagnostics)
     return values, ()
+
+
+def split_program_arguments(
+    values: "Mapping[HostParamKey, object]", program: "ProgramDeclInfo"
+) -> "tuple[dict[StaticBindingKey, object], dict[str, object], dict[FunctionParamKey, object]]":
+    """Split host parameter *values* by the kind of parameter their key identifies.
+
+    Returns the module-parameter values, *program*'s own arguments by name
+    (whether or not it declares them, so the binder can reject an unknown
+    one), and the values of other functions' parameters.
+    """
+    params: dict[StaticBindingKey, object] = {}
+    arguments: dict[str, object] = {}
+    functions: dict[FunctionParamKey, object] = {}
+    function = (program.module, program.scope_path, program.name)
+    for key, value in values.items():
+        if not isinstance(key, FunctionParamKey):
+            params[key] = value
+        elif (key.module, key.scope_path, key.function) == function:
+            arguments[key.param] = value
+        else:
+            functions[key] = value
+    return params, arguments, functions
 
 
 def default_program_arguments(

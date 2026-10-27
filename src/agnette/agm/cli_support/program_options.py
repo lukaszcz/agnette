@@ -97,7 +97,7 @@ from typing import TYPE_CHECKING, cast
 import click
 from click.core import ParameterSource
 
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.runtime.arguments import OptionSome, ProgramArguments
 from agnette.agl.runtime.serialize import dumps_exact
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramParamInfo
@@ -110,7 +110,7 @@ from agnette.agl.semantics.types import (
     is_standard_option_enum,
     is_standard_optional_enum,
 )
-from agnette.agl.zones import ParamZone
+from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
 from agnette.agm.cli_support.execution_options import (
     EXECUTION_OPTION_NAMES,
     execution_option_flags,
@@ -130,7 +130,6 @@ __all__ = [
     "DuplicateOptionFlagError",
     "EXEC_RESERVED_FLAGS",
     "ExecTail",
-    "NAME_ADDRESSABLE_ZONES",
     "ProgramCommand",
     "ProgramHelpRequested",
     "ProgramOptionError",
@@ -145,6 +144,7 @@ __all__ = [
     "engine_command",
     "exec_program_help",
     "exec_program_name",
+    "is_optional_default",
     "native_raw_value",
     "option_value_map",
     "param_spellings",
@@ -162,11 +162,11 @@ __all__ = [
 #: Help section listing the engine settings.
 ENGINE_SETTINGS_SECTION = "Engine settings"
 
+# The value text that supplies ``Optional::Default`` rather than a value.
+_OPTIONAL_DEFAULT_KEYWORD = "default"
+
 # Zones whose parameter fills a positional CLI slot.
 _POSITIONAL_ZONES = (ParamZone.POSITIONAL_ONLY, ParamZone.STANDARD)
-
-# Zones whose parameter is addressable by a ``--name`` flag.
-NAME_ADDRESSABLE_ZONES = (ParamZone.STANDARD, ParamZone.NAMED_ONLY)
 
 # The command parameter every positional token lands in. Click keys its parsed
 # values by parameter name, so this and the per-option names below are internal
@@ -439,7 +439,7 @@ class ParsedTail:
     """
 
     arguments: ProgramArguments
-    params: dict["StaticBindingKey", object]
+    params: dict["HostParamKey", object]
     positionally_filled: frozenset[str] = frozenset()
 
 
@@ -780,6 +780,15 @@ def optional_default_raw() -> object:
     return {"$case": "Default"}
 
 
+def is_optional_default(projected: ProjectedOption, raw: object) -> bool:
+    """Return whether *raw* is the exact ``default`` keyword of an ``Optional`` slot.
+
+    The one spelling of that rule: the keyword supplies ``Optional::Default``
+    rather than a value, so it is neither decoded nor read as a path.
+    """
+    return projected.value_form is ValueForm.OPTIONAL and raw == _OPTIONAL_DEFAULT_KEYWORD
+
+
 def native_raw_value(projected: ProjectedOption, raw: object) -> object:
     """Project one already-native host value onto *projected*'s raw argument shape.
 
@@ -796,7 +805,7 @@ def native_raw_value(projected: ProjectedOption, raw: object) -> object:
     decoded data. Keeping this beside :func:`_positive_raw` is what stops the
     envelope rule from being spelled once per host surface.
     """
-    if projected.value_form is ValueForm.OPTIONAL and raw == "default":
+    if is_optional_default(projected, raw):
         return optional_default_raw()
     if _is_nullable_value_form(projected.value_form):
         value = raw
@@ -820,7 +829,7 @@ def _positive_raw(projected: ProjectedOption, token: str) -> object:
     except for ``Optional``'s exact ``default`` shortcut. A ``bool`` flag
     takes no token and never reaches here; a ``bool`` slot's token is verbatim.
     """
-    if projected.value_form is ValueForm.OPTIONAL and token == "default":
+    if is_optional_default(projected, token):
         return optional_default_raw()
     if projected.option_inner is not None:
         return option_some_raw(token)
@@ -1467,7 +1476,7 @@ class ProgramCommand:
                 named[slot.name] = value
             else:
                 positional.append(value)
-        surface_params: dict[StaticBindingKey, object] = {}
+        surface_params: dict[HostParamKey, object] = {}
         for offset, (entry, projected) in enumerate(self.surface_options, start=len(self.options)):
             # Every surface spelling is resolved ahead of the parse, so a
             # polarity whose spellings a higher level claimed has no Click

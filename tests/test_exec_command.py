@@ -282,7 +282,7 @@ class TestModuleParameterHostInputs:
         with pytest.raises(SystemExit):
             exec_engine.run(replace(file_args(source), module_paths=[str(modules)]))
 
-    def test_module_parameter_decode_failure_exits_before_execution(
+    def test_a_supplied_module_parameter_decode_failure_is_a_usage_error_before_execution(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -291,7 +291,7 @@ class TestModuleParameterHostInputs:
         source, modules = self._program(tmp_path)
         self._context(tmp_path, monkeypatch)
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(exec_engine.RegisteredProgramUsageError):
             exec_engine.run(
                 replace(
                     file_args(source),
@@ -1301,7 +1301,7 @@ class TestExecBlankOptionTextFlags:
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "Error:" in captured.err
+        assert captured.err
         assert "should-not-run" not in captured.out
         assert not (tmp_path / " ").exists()
 
@@ -5031,26 +5031,6 @@ class TestExecProgramSelection:
         assert f"{agl_file.name}:1:" in capsys.readouterr().err
 
 
-class TestProgramLogFilePathResolution:
-    """Qualified program trace-file paths are anchored to their config directory."""
-
-    def test_program_trace_file_relative_resolved_to_config_dir(self, tmp_path: Path) -> None:
-        from agnette.config.general import load_general_config
-        from agnette.config.qualified_keys import QualifiedConfigKey, resolve_qualified_values
-
-        home = tmp_path / "home"
-        (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text('[myprog.main]\ntrace-file = "my.log"\n')
-
-        config = load_general_config(home=home, proj_dir=None, cwd=tmp_path)
-        key = QualifiedConfigKey(("myprog",), ("main",), "trace-file")
-        trace_file_val = resolve_qualified_values(config, (key,))[key]
-
-        assert isinstance(trace_file_val, str)
-        assert Path(trace_file_val).is_absolute()
-        assert trace_file_val.endswith("my.log")
-
-
 class TestExecDevelopmentPackages:
     def test_direct_exec_uses_the_package_qualified_config_identity(
         self,
@@ -5168,6 +5148,225 @@ class TestExecDevelopmentPackages:
         assert exec_command.run(_exec_args_no_trace(entry)) is None
 
         assert capsys.readouterr().out == "true\ntrue\ntrue\ntrue\n"
+
+    @staticmethod
+    def _manifest_argument_package(tmp_path: Path, parameter: str) -> Path:
+        """A package whose manifest ``[config]`` sets the ``limit`` program argument."""
+        alpha = tmp_path / "alpha"
+        (alpha / MODULE_TREE_DIRNAME).mkdir(parents=True)
+        (alpha / "package.toml").write_text(
+            '[package]\nname = "alpha"\nversion = "1.0.0"\n\n[config.tools.review]\nlimit = 5\n'
+        )
+        entry = alpha / MODULE_TREE_DIRNAME / "main.agl"
+        entry.write_text(
+            '@command("tools review")\n'
+            f'program def main(@opt-env("ALPHA_LIMIT") {parameter}) -> unit =\n'
+            "  print limit\n"
+        )
+        return entry
+
+    @pytest.mark.parametrize(
+        ("parameter", "file_config", "tokens", "environment", "expected"),
+        [
+            ("limit: int = 1", "", [], None, "5\n"),
+            ("limit: int = 1", "[tools.review]\nlimit = 7\n", [], None, "7\n"),
+            ("limit: int = 1", "[tools.review]\nlimit = 7\n", ["--limit", "9"], "8", "9\n"),
+            ("limit: int = 1", "[tools.review]\nlimit = 7\n", [], "8", "8\n"),
+            ("limit: int", "", [], None, "5\n"),
+            ("limit: int", "", ["4"], "8", "4\n"),
+        ],
+        ids=[
+            "manifest",
+            "program_route",
+            "cli_over_all",
+            "env_over_route",
+            "required",
+            "positional",
+        ],
+    )
+    def test_a_manifest_config_value_sets_a_program_argument_beneath_the_other_tiers(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        parameter: str,
+        file_config: str,
+        tokens: list[str],
+        environment: str | None,
+        expected: str,
+    ) -> None:
+        entry = self._manifest_argument_package(tmp_path, parameter)
+        _config_home(tmp_path, monkeypatch, file_config)
+        if environment is not None:
+            monkeypatch.setenv("ALPHA_LIMIT", environment)
+
+        assert exec_command.run(_exec_args_no_trace(entry, argument_tokens=tokens)) is None
+
+        captured = capsys.readouterr()
+        assert captured.out == expected
+        assert captured.err == ""
+
+    @pytest.mark.parametrize(
+        ("file_config", "tokens", "error"),
+        [
+            ('[tools.review]\nlimit = "x"\n', [], SystemExit),
+            ("", ["--limit", "x"], exec_engine.RegisteredProgramUsageError),
+        ],
+        ids=["configured", "cli"],
+    )
+    def test_a_bad_argument_value_is_a_config_error_only_when_a_config_supplied_it(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        file_config: str,
+        tokens: list[str],
+        error: type[BaseException],
+    ) -> None:
+        entry = self._manifest_argument_package(tmp_path, "limit: int = 1")
+        _config_home(tmp_path, monkeypatch, file_config)
+        manifest = entry.parent.parent / "package.toml"
+        manifest.write_text(manifest.read_text().replace("limit = 5\n", ""))
+
+        with pytest.raises(error) as exc_info:
+            exec_engine.run(_exec_args_no_trace(entry, argument_tokens=tokens))
+
+        assert exc_info.type is error
+        assert getattr(exc_info.value, "code", 1) == 1
+
+    def test_a_configured_path_value_anchors_to_its_config_file_not_the_invocation_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Both a program argument and a module parameter, as an engine path key does."""
+        _config_home(tmp_path, monkeypatch, '[prog.main]\ndata = "data.txt"\nnote = "data.txt"\n')
+        config_dir = tmp_path / "home" / ".agm"
+        (config_dir / "data.txt").write_text("")
+        source = tmp_path / "prog.agl"
+        source.write_text(
+            '@param let note: path = "none"\n'
+            'program def main(data: path = "none") -> unit =\n  print data\n  print note\n',
+            encoding="utf-8",
+        )
+
+        exec_engine.run(_exec_args_no_trace(source))
+
+        assert capsys.readouterr().out == f"{config_dir / 'data.txt'}\n{config_dir / 'data.txt'}\n"
+
+    def test_a_cli_path_value_stays_relative_to_the_invocation_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        _config_home(tmp_path, monkeypatch, "")
+        source = tmp_path / "prog.agl"
+        source.write_text(
+            "program def main(data: path) -> unit =\n  print data\n", encoding="utf-8"
+        )
+
+        exec_engine.run(_exec_args_no_trace(source, argument_tokens=["data.txt"]))
+
+        assert capsys.readouterr().out == "data.txt\n"
+
+    @pytest.mark.parametrize("value", ["lbl.txt", "%{LABEL_VAR}"])
+    def test_a_non_path_parameter_spelled_like_a_path_engine_key_keeps_its_value(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        value: str,
+    ) -> None:
+        monkeypatch.setenv("LABEL_VAR", "expanded")
+        _config_home(tmp_path, monkeypatch, f'[prog.main]\ntrace-file = "{value}"\n')
+        source = tmp_path / "prog.agl"
+        source.write_text(
+            '@param @opt-name("trace-file") let tf: text = "none"\n'
+            "program def main() -> unit =\n  print tf\n",
+            encoding="utf-8",
+        )
+
+        exec_engine.run(_exec_args_no_trace(source))
+
+        assert capsys.readouterr().out == f"{value}\n"
+
+    def test_a_program_route_engine_path_key_anchors_once_to_its_config_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _config_home(tmp_path, monkeypatch, '[prog.main]\ntrace = true\ntrace-file = "t.log"\n')
+        config_dir = tmp_path / "home" / ".agm"
+        (config_dir / "t.log").write_text("")
+        source = tmp_path / "prog.agl"
+        source.write_text("program def main() -> unit =\n  print 1\n", encoding="utf-8")
+
+        exec_engine.run(_exec_args(source))
+
+        assert (config_dir / "t.log").read_text() != ""
+
+    @pytest.mark.parametrize(
+        ("tokens", "file_config", "error"),
+        [
+            (["--count", "x"], "", exec_engine.RegisteredProgramUsageError),
+            ([], '[prog.main]\ncount = "x"\n', SystemExit),
+            (["--timeout", "x"], "", exec_engine.RegisteredProgramUsageError),
+            ([], '[prog.main]\ntimeout = "x"\n', SystemExit),
+        ],
+        ids=["cli_param", "configured_param", "cli_engine", "configured_engine"],
+    )
+    def test_a_bad_value_is_a_usage_error_only_when_the_command_line_supplied_it(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tokens: list[str],
+        file_config: str,
+        error: type[BaseException],
+    ) -> None:
+        _config_home(tmp_path, monkeypatch, file_config)
+        source = tmp_path / "prog.agl"
+        source.write_text(
+            "@param let count: int = 1\nprogram def main() -> unit =\n  print count\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(error) as exc_info:
+            exec_engine.run(_exec_args_no_trace(source, argument_tokens=tokens))
+
+        assert exc_info.type is error
+        assert getattr(exc_info.value, "code", 1) == 1
+
+    def test_a_usage_error_leaves_configured_failures_to_the_error_output(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        _config_home(tmp_path, monkeypatch, '[prog.main]\nconfigured = "x"\n')
+        source = tmp_path / "prog.agl"
+        source.write_text(
+            "program def main(supplied: int = 1, configured: int = 1) -> unit = ()\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(exec_engine.RegisteredProgramUsageError) as exc_info:
+            exec_engine.run(_exec_args_no_trace(source, argument_tokens=["--supplied", "x"]))
+
+        assert "supplied" in exc_info.value.message
+        assert "configured" not in exc_info.value.message
+        assert "configured" in capsys.readouterr().err
+
+    def test_a_bad_manifest_argument_value_is_a_config_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = self._manifest_argument_package(tmp_path, "limit: int = 1")
+        manifest = entry.parent.parent / "package.toml"
+        manifest.write_text(manifest.read_text().replace("limit = 5", 'limit = "x"'))
+        _config_home(tmp_path, monkeypatch, "")
+
+        with pytest.raises(SystemExit) as exc_info:
+            exec_command.run(_exec_args_no_trace(entry))
+
+        assert exc_info.value.code == 1
 
     def test_a_broken_sibling_module_does_not_block_execution_or_its_own_completion(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

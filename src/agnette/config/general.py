@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Generic, NamedTuple, TypeVar
 
 from agnette.agl.warnings import WarningLevel, warning_level_setting
 from agnette.agm.project.layout import project_config_dir
@@ -31,6 +31,13 @@ _K = TypeVar("_K")
 _D = TypeVar("_D")
 
 
+class PathAnchor(NamedTuple):
+    """Where a relative path value resolves: its defining directory, else *cwd*."""
+
+    config_dir: Path
+    cwd: Path
+
+
 @dataclass(frozen=True)
 class GeneralConfig:
     """Path-normalized general configuration and its precedence-ordered layers.
@@ -38,21 +45,30 @@ class GeneralConfig:
     ``layers`` run from least to most specific and retain the provenance that
     qualified AgL config lookup needs when equivalent table aliases differ
     between files. ``merged`` preserves the ordinary key-wise view consumed by
-    existing general-config readers.
+    existing general-config readers. ``anchors`` holds each layer's
+    :class:`PathAnchor` (``None``: values stay as written) so a value read
+    from a layer later, once its type is known to be a path, anchors to its
+    defining file.
     """
 
     layers: tuple[TomlDict, ...]
     merged: TomlDict
+    anchors: tuple[PathAnchor | None, ...]
 
     @classmethod
-    def from_layers(cls, layers: Iterable[TomlDict]) -> GeneralConfig:
-        """Build a config view from normalized layers in precedence order."""
+    def from_layers(
+        cls, layers: Iterable[TomlDict], anchors: Iterable[PathAnchor | None]
+    ) -> GeneralConfig:
+        """Build a config view from normalized layers in precedence order.
+
+        *anchors* run parallel to *layers*.
+        """
 
         ordered_layers = tuple(layers)
         merged: TomlDict = {}
         for layer in ordered_layers:
             merged = _merge_config(merged, layer)
-        return cls(layers=ordered_layers, merged=merged)
+        return cls(layers=ordered_layers, merged=merged, anchors=tuple(anchors))
 
 
 #: The config table holding engine settings and execution options.
@@ -129,49 +145,22 @@ class RunConfig:
         return self.pty.for_command(command_name)
 
 
-def _interpolate_and_expand_section_paths(
-    section: TomlDict,
-    fields: Sequence[str],
-) -> tuple[TomlDict, set[str]]:
-    resolved = dict(section)
-    unresolved_fields: set[str] = set()
-    for field in fields:
-        value = resolved.get(field)
-        if not isinstance(value, str) or not value.strip():
-            continue
-        interpolated, unresolved = interp_preserving(value, os.environ)
-        resolved[field] = os.path.expanduser(interpolated)
-        if unresolved:
-            unresolved_fields.add(field)
-    return resolved, unresolved_fields
+def _anchor_path(value: str, config_dir: Path, cwd: Path) -> str:
+    """Interpolate ``%{name}``, expand ``~`` in, and anchor the path *value*.
 
-
-def _anchor_section_paths(
-    section: TomlDict,
-    fields: Sequence[str],
-    config_dir: Path,
-    cwd: Path,
-    *,
-    unresolved_fields: set[str],
-) -> TomlDict:
-    resolved = dict(section)
-    for field in fields:
-        value = resolved.get(field)
-        if not isinstance(value, str) or not value.strip():
-            continue
-        # Values with unresolved holes are not usable paths, so leave them
-        # unanchored. Interpolation has already run exactly once above.
-        if field in unresolved_fields:
-            continue
-        path = Path(value)
-        if path.is_absolute():
-            continue
-        config_resolved = (config_dir / path).resolve()
-        if config_resolved.exists():
-            resolved[field] = str(config_resolved)
-        else:
-            resolved[field] = str((cwd / path).resolve())
-    return resolved
+    A relative path resolves against *config_dir* when it exists there, else
+    against *cwd*. A blank value, or one with unresolved holes, is not a usable
+    path and is not anchored.
+    """
+    if not value.strip():
+        return value
+    interpolated, unresolved = interp_preserving(value, os.environ)
+    expanded = os.path.expanduser(interpolated)
+    path = Path(expanded)
+    if unresolved or path.is_absolute():
+        return expanded
+    config_resolved = (config_dir / path).resolve()
+    return str(config_resolved if config_resolved.exists() else (cwd / path).resolve())
 
 
 def resolve_section_paths(
@@ -182,38 +171,43 @@ def resolve_section_paths(
 ) -> TomlDict:
     """Interpolate and anchor *section*'s path-like *fields* to *config_dir*.
 
-    Shared by config-file loading (anchored to the file's own directory) and
-    package manifest ``[config]`` engine-key resolution (anchored to *cwd* for
-    both arguments, like a CLI flag value), so each origin resolves a relative
-    path the way its own spelling implies.
+    Config-file loading anchors a known section's path fields to the file's own
+    directory, so a relative path is always read against the file defining it,
+    else *cwd*.
     """
-    expanded, unresolved_fields = _interpolate_and_expand_section_paths(section, fields)
-    resolved = _anchor_section_paths(
-        expanded,
-        fields,
-        config_dir,
-        cwd,
-        unresolved_fields=unresolved_fields,
-    )
-    for key, value in resolved.items():
-        if isinstance(value, dict) and key not in fields:
+    resolved = dict(section)
+    for key, value in section.items():
+        if key in fields and isinstance(value, str):
+            resolved[key] = _anchor_path(value, config_dir, cwd)
+        elif isinstance(value, dict):
             resolved[key] = resolve_section_paths(toml_dict(value), fields, config_dir, cwd)
     return resolved
 
 
+def anchor_path_value(value: object, anchor: PathAnchor | None) -> object:
+    """Return *value*, a configured path, interpolated and anchored at *anchor*.
+
+    The resolution a known path field gets at load time, for a value whose
+    type is only known to be a path once read; a value that is no text, or has
+    no *anchor*, is returned as written.
+    """
+    if anchor is None or not isinstance(value, str):
+        return value
+    return _anchor_path(value, anchor.config_dir, anchor.cwd)
+
+
 def _resolve_config_file_paths(config: TomlDict, config_dir: Path, cwd: Path) -> TomlDict:
+    """Anchor the path fields of the sections that explicitly list them.
+
+    Every other section's values are typed by their declaration, so they
+    anchor only once read as paths (:func:`anchor_path_value`).
+    """
     resolved = dict(config)
-    for section_name, section in resolved.items():
+    for section_name, fields in _CONFIG_PATH_FIELDS.items():
+        section = resolved.get(section_name)
         if isinstance(section, dict):
-            # Every known section lists its path-like fields explicitly;
-            # unknown/program sections carry only engine keys, so they fall
-            # back to the path-valued ones.
-            fields = _CONFIG_PATH_FIELDS.get(section_name, PATH_ENGINE_KEYS)
             resolved[section_name] = resolve_section_paths(
-                toml_dict(section),
-                fields,
-                config_dir,
-                cwd,
+                toml_dict(section), fields, config_dir, cwd
             )
     return resolved
 
@@ -228,11 +222,13 @@ def load_general_config(
     """Load path-normalized config layers and their conventional merged view."""
 
     layers: list[TomlDict] = []
+    anchors: list[PathAnchor | None] = []
     for path in config_file_candidates(home=home, proj_dir=proj_dir, cwd=cwd, env=env):
         if path.is_file():
             raw = load_toml_file(path)
             layers.append(_resolve_config_file_paths(raw, config_dir=path.parent, cwd=cwd))
-    return GeneralConfig.from_layers(layers)
+            anchors.append(PathAnchor(path.parent, cwd))
+    return GeneralConfig.from_layers(layers, anchors)
 
 
 def load_merged_config(

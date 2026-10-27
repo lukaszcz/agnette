@@ -10,15 +10,14 @@ from click.testing import CliRunner, Result
 from typer.main import get_command
 
 import agnette.agm.cli as cli
-from agnette.config.general import GeneralConfig
 from agnette.config.qualified_keys import QualifiedConfigKey, resolve_qualified_values
-from agnette.core.toml import toml_dict
 from agnette.packages.discipline import DisciplineError, validate_package
 from agnette.packages.errors import PackageInstallError
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import CommandSpec, PackageManifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
+from tests._config_helpers import unanchored_config
 from tests._package_helpers import install_directory
 
 _SCHEMA_SECTIONS = ("agent", "deps", "modules", "packages", "params", "warnings")
@@ -62,17 +61,8 @@ def test_a_command_path_may_contain_a_schema_section_below_its_root(tmp_path: Pa
 def test_agent_tables_never_configure_an_agent_module(
     module_segments: tuple[str, ...], scope_path: tuple[str, ...]
 ) -> None:
-    config = GeneralConfig.from_layers(
-        [
-            toml_dict(
-                {
-                    "agent": {
-                        "effort": "low",
-                        "claude": {"effort": "medium", "opus": {"effort": "high"}},
-                    }
-                }
-            )
-        ]
+    config = unanchored_config(
+        {"agent": {"effort": "low", "claude": {"effort": "medium", "opus": {"effort": "high"}}}}
     )
     key = QualifiedConfigKey(module_segments, scope_path, "effort")
 

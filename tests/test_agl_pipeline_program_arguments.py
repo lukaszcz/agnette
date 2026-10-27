@@ -14,7 +14,6 @@ import pytest
 
 from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.pipeline import ArgumentPreflightFailure, PipelineDriver, PreparedProgram
-from agnette.agl.runtime.arguments import ProgramArguments
 from agnette.agl.semantics.types import BoolType, IntType, TextType
 from agnette.agl.zones import ParamZone
 
@@ -114,8 +113,12 @@ class TestPreflightArgumentsAndRun:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(3,), named={"label": "hi", "verbose": True}),
+            positional=(3,),
             compiled=discovery.compiled,
+            param_values={
+                program.param_key("label"): "hi",
+                program.param_key("verbose"): True,
+            },
         )
         assert preflight.result.ok
         assert preflight.executable is not None
@@ -142,7 +145,6 @@ class TestPreflightArgumentsAndRun:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
@@ -170,7 +172,6 @@ class TestPreflightArgumentsFailures:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert not preflight.result.ok
@@ -188,8 +189,8 @@ class TestPreflightArgumentsFailures:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={"value": "not-an-int"}),
             compiled=discovery.compiled,
+            param_values={program.param_key("value"): "not-an-int"},
         )
         assert not preflight.result.ok
         assert preflight.result.error is None
@@ -203,7 +204,7 @@ class TestPreflightArgumentsFailures:
 
         bad_prepared = _prepared('program def main(value: int) -> unit = value + "x"\n')
         preflight = runtime.preflight_arguments(
-            bad_prepared, program, ProgramArguments(positional=(), named={"value": 1})
+            bad_prepared, program, param_values={program.param_key("value"): 1}
         )
         assert isinstance(preflight, ArgumentPreflightFailure)
         assert not preflight.result.ok
@@ -262,7 +263,6 @@ class TestRaisingDefault:
         preflight = runtime.preflight_arguments(
             prepared,
             program,
-            ProgramArguments(positional=(), named={}),
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
