@@ -282,13 +282,17 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
 
 
 def lexed_slices(
-    lexed: LexedSource, ranges: Sequence[tuple[int, int]], lines: LineIndex
+    lexed: LexedSource,
+    ranges: Sequence[tuple[int, int]],
+    lines: LineIndex,
+    paddings: Sequence[int],
 ) -> list[LexedSource]:
     """Return the pass over each of *ranges* of ``lexed.text``, read off *lexed*, not scanned.
 
     *lexed* is a pass that did not fail, and *ranges* are its items' ranges: disjoint, in
     order, and each holding whole tokens and closed blocks, as :meth:`ProgramTree.entry_ranges
-    <agnette.agl.parser.ProgramTree.entry_ranges>` gives them. *lines* indexes the text. A
+    <agnette.agl.parser.ProgramTree.entry_ranges>` gives them. *lines* indexes the text and
+    *paddings* are the entries' (:func:`~agnette.agl.lexer.positions.entry_padding`). A
     slice is the pass over the text of its entry (:func:`~agnette.agl.lexer.positions
     .entry_text`): its tokens are those of *lexed* within its range, rebased to it. Each
     spaced qualifier and TAB advisory of *lexed* goes to the one slice whose range starts last
@@ -297,8 +301,7 @@ def lexed_slices(
     """
     assert lexed.failure is None
     starts = [start for start, _ in ranges]
-    base = lexed.base
-    rebases = [Rebase(lines, start, base) for start in starts]
+    rebases = [Rebase(lines, start, padding) for start, padding in zip(starts, paddings)]
 
     tokens: list[list[Token]] = [[] for _ in ranges]
     for token in lexed.tokens:
@@ -324,9 +327,14 @@ def lexed_slices(
         tabs[index].append(rebases[index].advisory(advisory))
     return [
         LexedSource(
-            entry_text(lines, start, end, base), tuple(entry), tuple(qualifiers), tuple(warnings)
+            entry_text(lines, start, end, padding),
+            tuple(entry),
+            tuple(qualifiers),
+            tuple(warnings),
         )
-        for (start, end), entry, qualifiers, warnings in zip(ranges, tokens, spaced, tabs)
+        for (start, end), padding, entry, qualifiers, warnings in zip(
+            ranges, paddings, tokens, spaced, tabs
+        )
     ]
 
 

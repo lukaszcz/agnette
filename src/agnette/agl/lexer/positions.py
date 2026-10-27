@@ -79,9 +79,9 @@ def entry_padding(lines: LineIndex, start: int, base: int) -> int:
     return 0 if lines.line_start(start) == start else base
 
 
-def entry_text(lines: LineIndex, start: int, end: int, base: int) -> str:
-    """The text of the entry of a file at ``[start, end)``: itself, indented by its padding."""
-    return " " * entry_padding(lines, start, base) + lines.text[start:end]
+def entry_text(lines: LineIndex, start: int, end: int, padding: int) -> str:
+    """The text of the entry of a file at ``[start, end)``: itself, indented by its *padding*."""
+    return " " * padding + lines.text[start:end]
 
 
 class Rebase:
@@ -89,7 +89,7 @@ class Rebase:
 
     Positions are 1-based lines and columns and 0-based offsets, as tokens carry them; a TAB
     advisory's columns count characters (:meth:`advisory`). The entry is the tail of the text
-    from *start* (:func:`entry_text`, padded by *base* when it does not begin its line). With
+    from *start* (:func:`entry_text`, indented by *padding*, :func:`entry_padding`). With
     *bound* ``(end, last)``, the tail stops at *end*: a position past it, such as the newline
     a closing layout token covers after the tail's last item, is read as the end of *last*,
     the tail's last token already rebased, where scanning the tail alone puts it.
@@ -99,13 +99,13 @@ class Rebase:
         self,
         lines: LineIndex,
         start: int,
-        base: int = 0,
+        padding: int = 0,
         bound: tuple[int, Token] | None = None,
     ) -> None:
         self._start = start
         self._bound = bound
         self._line = lines.line(start)
-        self._padding = entry_padding(lines, start, base)
+        self._padding = padding
         self._first_column = lines.column(start) - 1 - self._padding
         self._first_character = start - lines.line_start(start) - self._padding
 

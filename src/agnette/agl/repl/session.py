@@ -26,7 +26,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
-from agnette.agl.lexer.positions import LineIndex, entry_padding, entry_text
+from agnette.agl.lexer.positions import LineIndex, entry_padding
 from agnette.agl.lexer.tokens import LAYOUT_TOKENS
 from agnette.agl.repl.entry import (
     REPL_LABEL,
@@ -2705,18 +2705,18 @@ class ReplSession:
 
         # The file's leading inner attributes head its first entry, as if typed with it;
         # their ``@!allow`` names govern every entry (see :meth:`_note_parsed`).
-        spans = tree.entry_ranges()
         lines = LineIndex(normalized)
+        spans = tree.entry_ranges(lines)
 
         def halted(result: EntryResult, programs: Sequence[Program], resume: int) -> None:
             self._report_advisories(result, label, lines, lexed, tree, programs, spans[resume:])
 
-        base = lexed.base
-        texts = [entry_text(lines, start, end, base) for start, end in spans]
+        paddings = [entry_padding(lines, start, lexed.base) for start, _ in spans]
+        slices = entry_slices(lexed, spans, lines, paddings)
         origins = [
-            _origin_at(label, lines, start, entry_padding(lines, start, base)) for start, _ in spans
+            _origin_at(label, lines, start, padding) for (start, _), padding in zip(spans, paddings)
         ]
-        return self._run_entries(texts, origins, entry_slices(lexed, spans), None, halted)
+        return self._run_entries([sliced.text for sliced in slices], origins, slices, None, halted)
 
     def _load_transcript(
         self, label: str, lines: LineIndex, saved_entries: tuple[_SavedEntry, ...]

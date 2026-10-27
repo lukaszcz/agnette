@@ -12,6 +12,7 @@ import pytest
 from lark.lexer import Token
 
 from agnette.agl.lexer import LexedSource, lex_replay, lex_source
+from agnette.agl.lexer.positions import LineIndex, entry_padding
 from agnette.agl.parser import entry_slices, parse_program_seeded, parse_program_tree
 
 _SOURCES = {
@@ -47,7 +48,14 @@ def _parsed(source: str) -> tuple[LexedSource, list[tuple[int, int]]]:
     lexed = lex_source(source)
     with lex_replay(lexed):
         tree = parse_program_tree(source)
-    return lexed, tree.entry_ranges()
+    return lexed, tree.entry_ranges(LineIndex(source))
+
+
+def _slices(lexed: LexedSource, spans: list[tuple[int, int]]) -> list[LexedSource]:
+    """The entries *spans* of *lexed* read off its pass, padded as a load pads them."""
+    lines = LineIndex(lexed.text)
+    paddings = [entry_padding(lines, start, lexed.base) for start, _ in spans]
+    return entry_slices(lexed, spans, lines, paddings)
 
 
 @pytest.mark.parametrize("name", sorted(_SOURCES))
@@ -55,7 +63,7 @@ def test_an_entry_read_off_the_file_is_the_entry_scanned_and_parsed(name: str) -
     source = _SOURCES[name]
     lexed, spans = _parsed(source)
 
-    slices = entry_slices(lexed, spans)
+    slices = _slices(lexed, spans)
 
     assert len(slices) == len(spans)
     for (start, end), read in zip(spans, slices):
@@ -76,7 +84,7 @@ def test_an_entry_of_several_items_carries_their_parse() -> None:
     source = "let a = 1; let b = a\nlet c = 3\n"
     lexed, ranges = _parsed(source)
 
-    slices = entry_slices(lexed, ranges)
+    slices = _slices(lexed, ranges)
 
     for (start, end), read in zip(ranges, slices):
         text = source[start:end]
@@ -144,7 +152,7 @@ def _slicing_work(entries: int) -> int:
     previous = sys.gettrace()
     sys.settrace(count_lines)
     try:
-        entry_slices(
+        _slices(
             replace(lexed, text=text, tokens=tokens, spaced_qualifiers=spaced, tab_warnings=tabs),
             spans,
         )
@@ -181,7 +189,7 @@ def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_
 ) -> None:
     lexed, _ = _parsed(source)
 
-    slices = entry_slices(lexed, ranges)
+    slices = _slices(lexed, ranges)
 
     for (start, end), read in zip(ranges, slices):
         text = source[start:end]
@@ -226,7 +234,7 @@ def test_an_entry_of_a_file_is_always_read_as_scanned_and_parsed(entry: str) -> 
     start, end = ranges[1]
     text = source[start:end]
 
-    read = entry_slices(lexed, ranges)[1]
+    read = _slices(lexed, ranges)[1]
 
     assert [_position(t) for t in read.tokens] == [_position(t) for t in lex_source(text).tokens]
     with lex_replay(read):
@@ -240,7 +248,7 @@ def test_an_entry_after_a_tab_indented_lines_start_is_read_at_the_columns_scanni
     source = "\tlet a = 1\n\tlet b = a\n\tdef f() -> int =\n\t\tb\n"
     lexed, spans = _parsed(source)
 
-    for (start, end), read in zip(spans, entry_slices(lexed, spans)):
+    for (start, end), read in zip(spans, _slices(lexed, spans)):
         assert [_position(t) for t in read.tokens] == [
             _position(t) for t in lex_source(source[start:end]).tokens
         ]

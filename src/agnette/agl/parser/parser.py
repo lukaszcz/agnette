@@ -342,11 +342,11 @@ class ProgramTree:
                 return child
         return None
 
-    def entry_ranges(self) -> list[tuple[int, int]]:
+    def entry_ranges(self, lines: LineIndex) -> list[tuple[int, int]]:
         """The source ranges of the module's entries: one per item, or one for attributes alone.
 
         The module's leading inner attributes head the first entry. An entry that begins its
-        line starts at the line's start, with its indentation.
+        line starts at the line's start, with its indentation. *lines* indexes the module's text.
         """
         children = self.children()
         attributes = [c.meta for c in children if c.data == "inner_attribute"]
@@ -356,7 +356,6 @@ class ProgramTree:
         if not ranges:
             ranges = [(min(a.start_pos for a in attributes), max(a.end_pos for a in attributes))]
         ranges[0] = (min([ranges[0][0], *(a.start_pos for a in attributes)]), ranges[0][1])
-        lines = LineIndex(self.text)
 
         def begin(start: int) -> int:
             line_start = lines.line_start(start)
@@ -503,29 +502,35 @@ def _module_tree(children: Sequence[Tree], rebase: Rebase, closing: Token | None
     return root
 
 
-def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[LexedSource]:
+def entry_slices(
+    lexed: LexedSource,
+    ranges: Sequence[tuple[int, int]],
+    lines: LineIndex,
+    paddings: Sequence[int],
+) -> list[LexedSource]:
     """Read each of *ranges*, a module's top-level entries, off the one pass *lexed* of its text.
 
     *lexed* records the module's program parse and *ranges* are
-    :meth:`ProgramTree.entry_ranges`. Each slice is the pass over its entry's text, read off
-    the tokens of *lexed* without scanning (:func:`~agnette.agl.lexer.lexed_slices`), and
-    carries its entry's parse, so reading it parses nothing; the module's leading inner
-    attributes belong to the first entry. What follows an item's last token, which an indented
-    block's closing layout covers (whitespace, a comment), is no part of it: the slice's spans
-    end there, as parsing its text alone puts them.
+    :meth:`ProgramTree.entry_ranges`; *lines* indexes the text and *paddings* are the entries'
+    (:func:`~agnette.agl.lexer.positions.entry_padding`). Each slice is the pass over its
+    entry's text, read off the tokens of *lexed* without scanning
+    (:func:`~agnette.agl.lexer.lexed_slices`), and carries its entry's parse, so reading it
+    parses nothing; the module's leading inner attributes belong to the first
+    entry. What follows an item's last token, which an indented block's closing layout covers
+    (whitespace, a comment), is no part of it: the slice's spans end there, as
+    parsing its text alone puts them.
     """
-    lines = LineIndex(lexed.text)
-    slices = lexed_slices(lexed, ranges, lines)
+    slices = lexed_slices(lexed, ranges, lines, paddings)
     whole = lexed.parses[_PROGRAM_START]
     assert isinstance(whole, Tree)
     entries: list[list[Tree]] = [[] for _ in ranges]
     starts = [start for start, _ in ranges]
     for child in ProgramTree(whole, lexed.text).children():
         entries[range_at(starts, child.meta.start_pos)].append(child)
-    for sliced, (start, end), entry in zip(slices, ranges, entries):
+    for sliced, (start, end), padding, entry in zip(slices, ranges, paddings, entries):
         last = max(i for i, t in enumerate(sliced.tokens) if t.type not in LAYOUT_TOKENS)
         code = sliced.tokens[last]
-        rebase = Rebase(lines, start, lexed.base, (end, code))
+        rebase = Rebase(lines, start, padding, (end, code))
         closing = next((t for t in sliced.tokens[last + 1 :] if t.type == NEWLINE), None)
         sliced.parses[_PROGRAM_START] = _module_tree(entry, rebase, closing)
     return slices
