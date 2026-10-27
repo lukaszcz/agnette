@@ -25,8 +25,14 @@ version = "1.0.0"
 {config}"""
 
 
-def _entry(tmp_path: Path, *, source_config: str = "", manifest_config: str = "") -> Path:
-    """Write package ``eng`` whose ``eng run`` program prints the ``timeout`` setting."""
+def _entry(
+    tmp_path: Path,
+    *,
+    source_config: str = "",
+    manifest_config: str = "",
+    setting: str = "timeout",
+) -> Path:
+    """Write package ``eng`` whose ``eng run`` program prints the *setting* engine setting."""
     root = tmp_path / "eng"
     (root / MODULE_TREE_DIRNAME).mkdir(parents=True)
     (root / "package.toml").write_text(_MANIFEST.format(config=manifest_config))
@@ -34,7 +40,7 @@ def _entry(tmp_path: Path, *, source_config: str = "", manifest_config: str = ""
     entry.write_text(
         "import std/config\n\n"
         f'{source_config}@command("eng run")\n'
-        "program def main() -> unit = print(config::timeout)\n"
+        f"program def main() -> unit = print(config::{setting})\n"
     )
     return entry
 
@@ -321,6 +327,23 @@ class TestTraceFollowsTheWinningTiers:
         assert not trace_file.exists()
 
 
+class TestEngineSettingPaths:
+    """A relative ``[exec]`` path anchors to the config layer's directory."""
+
+    def test_a_relative_trace_file_anchors_to_its_config_directory(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("[exec]\ntrace-file = 'layer.jsonl'\n")
+        anchored = tmp_path / "home" / ".agm" / "layer.jsonl"
+        anchored.touch()
+        entry = _entry(tmp_path, setting="trace-file")
+
+        assert _printed(entry, capsys) == _some(str(anchored))
+
+
 class TestEngineSettingFailures:
     """A bad value the command line supplied is a usage error; any other exits 1."""
 
@@ -330,7 +353,7 @@ class TestEngineSettingFailures:
         config_home("")
         entry = _entry(tmp_path)
 
-        with pytest.raises(exec_program.RegisteredProgramUsageError):
+        with pytest.raises(exec_program.CommandUsageError):
             exec_program.run(
                 ExecArgs(file=str(entry), argument_tokens=["--no-trace", "--timeout", "forever"])
             )

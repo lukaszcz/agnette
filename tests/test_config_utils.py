@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from agnette.agl.runtime.arguments import option_none_raw
 from agnette.config.general import (
     _optional_bool,
     load_merged_config,
@@ -223,6 +224,21 @@ class TestOptionalBool:
         assert _optional_bool({"flag": False}, "flag", default=True) is False
 
 
+def _exec_values(home: Path, cwd: Path) -> dict[str, object]:
+    """Resolve the ``[exec]`` engine settings of the config under *home* by name."""
+    from agnette.agl.runtime.arguments import OptionSome
+    from agnette.agl.runtime.engine_config import engine_setting_params, split_engine_values
+    from agnette.config.general import load_general_config
+    from agnette.host_params.config import resolve_declaration_route_values
+
+    config = load_general_config(home=home, proj_dir=None, cwd=cwd)
+    values = resolve_declaration_route_values(config, engine_setting_params())
+    return {
+        key[2]: value.value if isinstance(value, OptionSome) else value
+        for key, value in split_engine_values(values)[1].items()
+    }
+
+
 def test_config_path_interpolation_runs_once_and_leaves_program_tables_as_written(
     tmp_path: Path,
 ) -> None:
@@ -239,15 +255,18 @@ def test_config_path_interpolation_runs_once_and_leaves_program_tables_as_writte
 
     merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
 
-    assert merged["exec"]["trace-file"] == str(config_dir / "%{PROMPT_DIR}" / "prompt.md")
+    exec_values = _exec_values(home, tmp_path)
+    assert exec_values["trace-file"] == str(config_dir / "%{PROMPT_DIR}" / "prompt.md")
     assert merged["program"]["trace-file"] == "program.log"
 
 
-def test_every_path_valued_engine_key_resolves_in_the_exec_section_only(
+def test_every_path_valued_engine_key_anchors_when_read_from_the_exec_section(
     tmp_path: Path,
 ) -> None:
-    """Load-time resolution follows the catalog; program tables anchor once typed."""
-    from agnette.config.engine_keys import PATH_ENGINE_KEYS
+    """The declaration route anchors the catalog's path keys; program tables anchor once typed."""
+    from agnette.config.engine_keys import ENGINE_KEYS
+
+    path_keys = [spec.name for spec in ENGINE_KEYS if spec.is_path]
 
     home = tmp_path / "home"
     config_dir = home / ".agm"
@@ -255,13 +274,14 @@ def test_every_path_valued_engine_key_resolves_in_the_exec_section_only(
     lines: list[str] = []
     for section in ("exec", "program"):
         lines.append(f"[{section}]")
-        lines.extend(f'{key} = "{section}-{key}.log"' for key in PATH_ENGINE_KEYS)
+        lines.extend(f'{key} = "{section}-{key}.log"' for key in path_keys)
     (config_dir / "config.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
 
-    for key in PATH_ENGINE_KEYS:
-        assert merged["exec"][key] == str(tmp_path / f"exec-{key}.log")
+    exec_values = _exec_values(home, tmp_path)
+    for key in path_keys:
+        assert exec_values[key] == str(tmp_path / f"exec-{key}.log")
         assert merged["program"][key] == f"program-{key}.log"
 
 
@@ -270,9 +290,7 @@ def test_a_blank_path_value_is_not_anchored(tmp_path: Path) -> None:
     (home / ".agm").mkdir(parents=True)
     (home / ".agm" / "config.toml").write_text('[exec]\ntrace-file = "  "\n', encoding="utf-8")
 
-    merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
-
-    assert merged["exec"]["trace-file"] == "  "
+    assert _exec_values(home, tmp_path)["trace-file"] == option_none_raw()
 
 
 def test_a_later_layer_replaces_a_key_whose_kind_changed(tmp_path: Path) -> None:
@@ -312,6 +330,4 @@ def test_exec_trace_file_expands_tilde_and_interpolates(
     cwd = tmp_path / "work"
     cwd.mkdir()
 
-    merged = load_merged_config(home=home, proj_dir=None, cwd=cwd)
-
-    assert merged["exec"]["trace-file"] == str(home_dir / "logs" / "agm.log")
+    assert _exec_values(home, cwd)["trace-file"] == str(home_dir / "logs" / "agm.log")

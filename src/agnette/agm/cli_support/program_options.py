@@ -89,6 +89,7 @@ from agnette.util.text import keep_indented_paragraphs
 __all__ = [
     "DuplicateOptionFlagError",
     "EXEC_RESERVED_FLAGS",
+    "CommandUsageError",
     "ExecTail",
     "ProgramCommand",
     "ProgramHelpRequested",
@@ -167,6 +168,27 @@ class ProgramHelpRequested(_HelpSignal):
         super().__init__("program help requested")
         self.command = command
         self.program = program
+
+
+class CommandUsageError(Exception):
+    """Raised when a command's arguments or engine-setting values are invalid.
+
+    Carries the message and, for a program command, the selected ``program def``'s
+    declaration and command (when known), so the caller renders the usage message
+    its invocation calls for -- a plain ``agm exec``/``agm repl`` usage error, or a
+    registered command's help -- without a second discovery pass.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        program: ProgramDeclInfo | None = None,
+        command: "ProgramCommand | None" = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.program = program
+        self.command = command
 
 
 def _help_callback(ctx: click.Context, param: click.Parameter, value: object) -> None:

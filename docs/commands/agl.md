@@ -509,8 +509,8 @@ parse-error-retries = 4     # default parse-error-retries for ask
 
 A blank or non-positive `timeout` or `trace-file` means none, and masks a lower source's value.
 `debug` turns tracing on only when neither `trace` nor `trace-file` is set at any source, a none
-`trace-file` included. In `agm exec`, a table value (such as `agent` or `sandbox` as a TOML
-table) in a higher config layer replaces a lower layer's value wholesale, like any host
+`trace-file` included. A table value (such as `agent` or `sandbox` as a TOML table) in a
+higher config layer replaces a lower layer's value wholesale, like any host
 parameter.
 
 Qualified tables address a declaration by module suffix and scope path. A loose entry file's

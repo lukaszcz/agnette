@@ -255,8 +255,8 @@ class TestConfigTimeoutReachesEveryTimeoutConsumer:
 class TestConfigLogFileDerivesLog:
     def test_config_trace_file_enables_trace_via_derived_rule(self, tmp_path: Path) -> None:
         """A ``@config`` ``trace-file`` alone (no explicit ``trace = true``) enables
-        tracing through the same derived rule ``build_host_engine_seeds`` applies
-        to the config-file tiers."""
+        tracing through the same derived rule ``trace_decision`` applies to the
+        config-file tiers."""
         trace_path = tmp_path / "trace.jsonl"
         agl_file = tmp_path / "prog.agl"
         write_file_program(

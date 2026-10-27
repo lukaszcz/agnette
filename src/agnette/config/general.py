@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from decimal import Decimal
 from pathlib import Path
 from typing import Generic, NamedTuple, TypeVar
 
 from agnette.agl.warnings import WarningLevel, warning_level_setting
 from agnette.agm.project.layout import project_config_dir
-from agnette.config.engine_keys import ENGINE_KEY_NAMES, PATH_ENGINE_KEYS
+from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from agnette.config.home import agm_home_dir, agm_path_candidates
 from agnette.core.fs import mkdir, write_text
-from agnette.core.parse import parse_timeout as parse_timeout
 from agnette.core.toml import (
     TomlDict,
     dumps_toml,
@@ -73,16 +71,6 @@ class GeneralConfig:
 
 #: The config table holding engine settings and execution options.
 EXEC_CONFIG_SECTION = "exec"
-
-# Known path-like fields per config section. Values interpolate ``%{name}``
-# environment variables, expand ``~``, and resolve against the config file's directory
-# before merging, so that relative paths are always interpreted relative to
-# the config file that defines them.  When the config-dir-resolved path does
-# not exist, cwd is used as a fallback.
-_CONFIG_PATH_FIELDS: dict[str, Sequence[str]] = {
-    # ``[exec]`` carries exactly the path-valued engine keys.
-    EXEC_CONFIG_SECTION: PATH_ENGINE_KEYS,
-}
 
 
 def _merge_config(base: TomlDict, override: TomlDict) -> TomlDict:
@@ -168,53 +156,15 @@ def _anchor_path(value: str, config_dir: Path, cwd: Path) -> str:
     return str(config_resolved if config_resolved.exists() else (cwd / path).resolve())
 
 
-def resolve_section_paths(
-    section: TomlDict,
-    fields: Sequence[str],
-    config_dir: Path,
-    cwd: Path,
-) -> TomlDict:
-    """Interpolate and anchor *section*'s path-like *fields* to *config_dir*.
-
-    Config-file loading anchors a known section's path fields to the file's own
-    directory, so a relative path is always read against the file defining it,
-    else *cwd*.
-    """
-    resolved = dict(section)
-    for key, value in section.items():
-        if key in fields and isinstance(value, str):
-            resolved[key] = _anchor_path(value, config_dir, cwd)
-        elif isinstance(value, dict):
-            resolved[key] = resolve_section_paths(toml_dict(value), fields, config_dir, cwd)
-    return resolved
-
-
 def anchor_path_value(value: object, anchor: PathAnchor | None) -> object:
     """Return *value*, a configured path, interpolated and anchored at *anchor*.
 
-    The resolution a known path field gets at load time, for a value whose
-    type is only known to be a path once read; a value that is no text, or has
-    no *anchor*, is returned as written.
+    For a value whose type is only known to be a path once its declaring parameter
+    is known; a value that is no text, or has no *anchor*, is returned as written.
     """
     if anchor is None or not isinstance(value, str):
         return value
     return _anchor_path(value, anchor.config_dir, anchor.cwd)
-
-
-def _resolve_config_file_paths(config: TomlDict, config_dir: Path, cwd: Path) -> TomlDict:
-    """Anchor the path fields of the sections that explicitly list them.
-
-    Every other section's values are typed by their declaration, so they
-    anchor only once read as paths (:func:`anchor_path_value`).
-    """
-    resolved = dict(config)
-    for section_name, fields in _CONFIG_PATH_FIELDS.items():
-        section = resolved.get(section_name)
-        if isinstance(section, dict):
-            resolved[section_name] = resolve_section_paths(
-                toml_dict(section), fields, config_dir, cwd
-            )
-    return resolved
 
 
 def load_general_config(
@@ -224,10 +174,11 @@ def load_general_config(
     cwd: Path | None,
     env: Mapping[str, str] | None = None,
 ) -> GeneralConfig:
-    """Load path-normalized config layers and their conventional merged view.
+    """Load config layers and their conventional merged view.
 
-    Without a *cwd* (see :func:`config_file_candidates`) a relative path resolves
-    against its own config directory alone.
+    Each layer's :class:`PathAnchor` anchors the paths read from it; without a *cwd*
+    (see :func:`config_file_candidates`) a relative path resolves against its own
+    config directory alone.
     """
 
     layers: list[TomlDict] = []
@@ -236,7 +187,7 @@ def load_general_config(
         if path.is_file():
             raw = load_toml_file(path)
             anchor = PathAnchor(path.parent, path.parent if cwd is None else cwd)
-            layers.append(_resolve_config_file_paths(raw, anchor.config_dir, anchor.cwd))
+            layers.append(raw)
             anchors.append(anchor)
     return GeneralConfig.from_layers(layers, anchors)
 
@@ -304,11 +255,6 @@ def load_run_config(*, home: Path, proj_dir: Path | None, cwd: Path) -> RunConfi
     )
 
 
-def _optional_str(table: TomlDict, key: str) -> str | None:
-    value = table.get(key)
-    return value if isinstance(value, str) and value.strip() else None
-
-
 def _optional_positive_int(table: TomlDict, key: str) -> int | None:
     """Return a positive int config value, or ``None`` when absent/invalid.
 
@@ -324,36 +270,6 @@ def _optional_positive_int(table: TomlDict, key: str) -> int | None:
 def _optional_bool(table: TomlDict, key: str, *, default: bool = False) -> bool:
     value = table.get(key)
     return value if isinstance(value, bool) else default
-
-
-def _optional_timeout(table: TomlDict, key: str) -> float | None:
-    value = table.get(key)
-    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool) and value > 0:
-        return float(value)
-    if isinstance(value, str) and value.strip():
-        return parse_timeout(value)
-    return None
-
-
-@dataclass(frozen=True)
-class ExecConfig:
-    """Resolved exec-command configuration."""
-
-    # Raw TOML values (``None`` = unset): exec/repl decode the bool and
-    # ``parse_error_retries`` engine keys through the shared host-value decoder.
-    strict_json: object | None
-    timeout: float | None
-    trace: object | None
-    trace_file: str | None
-    # Raw TOML value (a string or a native table): exec/repl decode it as a
-    # host Agent value through the shared host-value decoder.
-    agent: object | None = None
-    # Raw TOML value (a string or a native table): exec/repl decode it as a
-    # host AgentSandbox value through the shared host-value decoder.
-    sandbox: object | None = None
-    # Keep debugging artifacts (``std/fs`` temporary paths) past the host session.
-    debug: object | None = None
-    parse_error_retries: object | None = None
 
 
 _ECHO_KEY = "echo"
@@ -390,42 +306,6 @@ def undeclared_exec_keys(merged: TomlDict) -> tuple[str, ...]:
     declared = ENGINE_KEY_NAMES | frozenset(EXEC_OPTION_KEYS)
     return tuple(
         sorted(key for key in toml_dict(merged.get(EXEC_CONFIG_SECTION)) if key not in declared)
-    )
-
-
-def exec_config_from_merged(merged: TomlDict) -> ExecConfig:
-    """Build :class:`ExecConfig` from an already-merged config dict.
-
-    The REPL holds a merged config, so the ``[exec]`` section is derived from it
-    rather than re-read. Engine keys use kebab-case names: ``strict-json``,
-    ``trace-file``.
-    """
-    effective = toml_dict(merged.get(EXEC_CONFIG_SECTION))
-
-    resolved_strict_json = effective.get("strict-json")
-
-    resolved_timeout = _optional_timeout(effective, "timeout")
-
-    resolved_trace = effective.get("trace")
-    resolved_trace_file = _optional_str(effective, "trace-file")
-    resolved_debug = effective.get("debug")
-    # Keep every explicitly supplied engine value raw (``agent`` and
-    # ``sandbox`` may be a native TOML table) so exec/repl decode and
-    # validate it through the shared host-value decoder at their AgL host
-    # boundary; other commands stay free of AgL imports.
-    resolved_agent = effective.get("agent")
-    resolved_sandbox = effective.get("sandbox")
-    resolved_parse_error_retries = effective.get("parse-error-retries")
-
-    return ExecConfig(
-        strict_json=resolved_strict_json,
-        timeout=resolved_timeout,
-        trace=resolved_trace,
-        trace_file=resolved_trace_file,
-        agent=resolved_agent,
-        sandbox=resolved_sandbox,
-        debug=resolved_debug,
-        parse_error_retries=resolved_parse_error_retries,
     )
 
 

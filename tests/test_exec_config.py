@@ -7,56 +7,43 @@ from pathlib import Path
 
 import pytest
 
+from agnette.agl.runtime.engine_config import EngineSettings
+from agnette.agl.semantics.values import BoolValue
 from agnette.agm.cli_support.args import ExecArgs
+from agnette.agm.cli_support.engine_seeds import (
+    engine_seed_values,
+    resolve_timeout,
+    trace_decision,
+)
 from agnette.agm.commands import exec_program as exec_engine
 from agnette.config.context import ConfigContext
 from agnette.config.general import (
-    ExecConfig,
-    exec_config_from_merged,
     exec_options_from_merged,
+    load_general_config,
     load_merged_config,
 )
+from agnette.core.log import TraceDecision
+from agnette.host_params.config import resolve_programless_engine_settings
 from tests._package_helpers import exec_args, write_installed_package
 
 
-class TestExecConfig:
-    def test_explicit_values(self) -> None:
-        cfg = ExecConfig(
-            strict_json=False,
-            timeout=None,
-            trace=False,
-            trace_file=None,
-        )
-        assert cfg.strict_json is False
-        assert cfg.timeout is None
-        assert cfg.trace is False
-        assert cfg.trace_file is None
-
-    def test_frozen(self) -> None:
-        cfg = ExecConfig(
-            strict_json=False,
-            timeout=None,
-            trace=False,
-            trace_file=None,
-        )
-        with pytest.raises((AttributeError, TypeError)):
-            cfg.strict_json = True
-
-
 class TestExecConfigFromConfigFiles:
-    """The ``[exec]`` section as every exec host reads it: merge, then resolve."""
+    """The ``[exec]`` section as every exec host reads it: layers, then the resolver."""
 
-    def _config(self, home: Path, cwd: Path, proj_dir: Path | None = None) -> ExecConfig:
-        return exec_config_from_merged(load_merged_config(home=home, proj_dir=proj_dir, cwd=cwd))
+    def _settings(self, home: Path, cwd: Path, proj_dir: Path | None = None) -> EngineSettings:
+        config = load_general_config(home=home, proj_dir=proj_dir, cwd=cwd)
+        settings, configured, usage = resolve_programless_engine_settings(config, {})
+        assert configured == usage == []
+        return settings
+
+    @staticmethod
+    def _timeout(settings: EngineSettings) -> float | None:
+        return resolve_timeout(engine_seed_values(settings))
 
     def test_load_defaults_when_no_config(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
         home.mkdir()
-        cfg = self._config(home, tmp_path)
-        assert cfg.strict_json is None
-        assert cfg.timeout is None
-        assert cfg.trace is None
-        assert cfg.trace_file is None
+        assert self._settings(home, tmp_path) == EngineSettings({}, {})
         merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
         assert exec_options_from_merged(merged).echo is False
 
@@ -65,9 +52,9 @@ class TestExecConfigFromConfigFiles:
         config = home / ".agm" / "config.toml"
         config.parent.mkdir(parents=True)
         config.write_text('[exec]\nstrict-json = true\ntimeout = "30m"\n')
-        cfg = self._config(home, tmp_path)
-        assert cfg.strict_json is True
-        assert cfg.timeout == pytest.approx(1800.0)
+        settings = self._settings(home, tmp_path)
+        assert settings.values["strict-json"] == BoolValue(True)
+        assert self._timeout(settings) == pytest.approx(1800.0)
 
     def test_agent_output_echo_loads_from_toml(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -85,24 +72,21 @@ class TestExecConfigFromConfigFiles:
         proj_dir = tmp_path / "proj"
         (proj_dir / "config").mkdir(parents=True)
         (proj_dir / "config" / "config.toml").write_text("[exec]\ntimeout = 7\n")
-        cfg = self._config(home, tmp_path, proj_dir)
-        assert cfg.timeout == pytest.approx(7.0)
+        assert self._timeout(self._settings(home, tmp_path, proj_dir)) == pytest.approx(7.0)
 
     def test_a_nested_exec_sub_table_supplies_nothing(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
         config = home / ".agm" / "config.toml"
         config.parent.mkdir(parents=True)
         config.write_text("[exec]\ntimeout = 3\n\n[exec.myflow]\ntimeout = 7\n")
-        cfg = self._config(home, tmp_path)
-        assert cfg.timeout == pytest.approx(3.0)
+        assert self._timeout(self._settings(home, tmp_path)) == pytest.approx(3.0)
 
     def test_numeric_timeout(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
         config = home / ".agm" / "config.toml"
         config.parent.mkdir(parents=True)
         config.write_text("[exec]\ntimeout = 60\n")
-        cfg = self._config(home, tmp_path)
-        assert cfg.timeout == pytest.approx(60.0)
+        assert self._timeout(self._settings(home, tmp_path)) == pytest.approx(60.0)
 
     def test_trace_settings_loaded_from_config(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -110,9 +94,8 @@ class TestExecConfigFromConfigFiles:
         config.parent.mkdir(parents=True)
         trace_path = tmp_path / "trace.jsonl"
         config.write_text(f"[exec]\ntrace = true\ntrace-file = {str(trace_path)!r}\n")
-        cfg = self._config(home, tmp_path)
-        assert cfg.trace is True
-        assert cfg.trace_file == str(trace_path)
+        decision = trace_decision(self._settings(home, tmp_path))
+        assert decision == TraceDecision(enabled=True, explicit_path=str(trace_path))
 
     def test_escaped_trace_file_interpolation_is_not_reapplied(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -125,9 +108,9 @@ class TestExecConfigFromConfigFiles:
         (literal_dir / "base.jsonl").touch()
         (config_dir / "config.toml").write_text('[exec]\ntrace-file = "\\\\%{NAME}/base.jsonl"\n')
 
-        cfg = self._config(home, tmp_path)
+        decision = trace_decision(self._settings(home, tmp_path))
 
-        assert cfg.trace_file == str(literal_dir / "base.jsonl")
+        assert decision.explicit_path == str(literal_dir / "base.jsonl")
 
 
 class TestExecConfigMaxCallDepth:

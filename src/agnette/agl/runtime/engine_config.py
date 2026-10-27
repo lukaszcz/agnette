@@ -31,13 +31,10 @@ __all__ = [
     "EngineValueFailure",
     "decode_engine_raw",
     "engine_default_settings",
-    "engine_origin",
     "engine_setting_params",
-    "invalid_engine_message",
     "resolve_engine_settings",
     "restamp_engine_setting",
     "split_engine_values",
-    "validate_engine_leaf_value",
     "validate_engine_value",
     "validate_manifest_leaf_value",
 ]
@@ -249,12 +246,12 @@ class EngineSettings:
     ranks: "Mapping[str, ParamTier]"
 
 
-def engine_origin(name: str, *, supplied: bool) -> str:
+def _engine_origin(name: str, *, supplied: bool) -> str:
     """Name where engine setting *name*'s value came from: its flag or its configuration key."""
     return f"--{name}" if supplied else f"configuration key {name}"
 
 
-def invalid_engine_message(name: str, origin: str, error: ValueError) -> str:
+def _invalid_engine_message(name: str, origin: str, error: ValueError) -> str:
     """Return the message for engine setting *name*'s invalid value from *origin*."""
     return f"invalid {name} value from {origin}: {error}"
 
@@ -292,7 +289,7 @@ def resolve_engine_settings(
             validate_engine_value(name, value)
         except ValueError as exc:
             configured_failures.append(
-                EngineValueFailure(name, invalid_engine_message(name, "@config", exc))
+                EngineValueFailure(name, _invalid_engine_message(name, "@config", exc))
             )
         else:
             from_config[key] = value
@@ -314,8 +311,8 @@ def resolve_engine_settings(
                 values[name] = decode_engine_raw(name, raw, ENGINE_KEY_TYPES[name], type_table)
             except ValueError as exc:
                 is_supplied = tier is ParamTier.SUPPLIED
-                origin = engine_origin(name, supplied=is_supplied)
-                failure = EngineValueFailure(name, invalid_engine_message(name, origin, exc))
+                origin = _engine_origin(name, supplied=is_supplied)
+                failure = EngineValueFailure(name, _invalid_engine_message(name, origin, exc))
                 (usage_failures if is_supplied else configured_failures).append(failure)
                 continue
         ranks[name] = tier
@@ -461,32 +458,22 @@ def validate_engine_value(
         raise EngineRangeError(f"setting {name!r} must not be negative, got {value.value}")
 
 
-def validate_engine_leaf_value(name: str, raw: object, type_table: "TypeTable") -> "Value":
-    """Decode one named engine setting's native value, raising ``ValueError`` on any failure.
-
-    Looks up *name*'s type in ``ENGINE_KEY_TYPES``, decodes through
-    :func:`convert_config_value` (``None`` is an empty ``Option``), and checks the result
-    with :func:`validate_engine_value`. *raw* is decoded as given (a blank ``timeout``
-    or ``trace-file`` fails): callers holding a config-file or manifest spelling
-    normalize it first.
-    """
-    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
-
-    value = convert_config_value(name, raw, ENGINE_KEY_TYPES[name], type_table)
-    validate_engine_value(name, value)
-    return value
-
-
 def validate_manifest_leaf_value(name: str, raw: object, type_table: "TypeTable") -> "Value":
-    """:func:`validate_engine_leaf_value` for a manifest ``[config]`` leaf.
+    """Decode one manifest ``[config]`` engine leaf, raising ``ValueError`` on any failure.
 
     An ``Option[text]``-kind key is first normalized by
     :func:`normalize_option_text`, as a config-file entry is: positive
     numbers become their string spelling, a blank or non-positive value is absent.
     A value of any other type (bool, array, table) is an error, not absence.
+    The result is decoded through :func:`convert_config_value` (``None`` is an empty
+    ``Option``) against ``ENGINE_KEY_TYPES`` and checked with :func:`validate_engine_value`.
     """
+    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
+
     if _ENGINE_KEY_KINDS_BY_NAME.get(name) is EngineKeyKind.OPTION_TEXT:
         if isinstance(raw, bool) or not isinstance(raw, (str, int, float, Decimal)):
             raise ValueError(f"Setting {name!r}: expected a string or number, got {raw!r}.")
         raw = normalize_option_text(raw)
-    return validate_engine_leaf_value(name, raw, type_table)
+    value = convert_config_value(name, raw, ENGINE_KEY_TYPES[name], type_table)
+    validate_engine_value(name, value)
+    return value

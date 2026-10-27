@@ -7,8 +7,7 @@ import time
 
 import pytest
 
-from agnette.config.general import parse_timeout
-from agnette.core.parse import parse_positive_timeout
+from agnette.core.parse import parse_positive_timeout, parse_timeout
 from agnette.core.process import run_capture, run_capture_result
 
 # ---------------------------------------------------------------------------

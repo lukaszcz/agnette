@@ -73,6 +73,7 @@ from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import (
     engine_seed_values,
+    fail_engine_settings,
     host_agent_spec_resolver,
     reject_register_conflicts,
     resolve_strict_json,
@@ -96,6 +97,7 @@ from agnette.agm.cli_support.program_discovery import (
 from agnette.agm.cli_support.program_options import (
     EXEC_RESERVED_FLAGS,
     REGISTERED_RESERVED_FLAGS,
+    CommandUsageError,
     DuplicateOptionFlagError,
     ProgramCommand,
     ProgramHelpRequested,
@@ -139,30 +141,6 @@ if TYPE_CHECKING:
 
     from agnette.agl.runtime.types import HostParamInfo
     from agnette.config.general import GeneralConfig
-
-
-class RegisteredProgramUsageError(Exception):
-    """Raised when CLI tokens fail to parse against a program's own value parameters.
-
-    Wraps a ``ProgramCommand.parse`` failure. Carries the
-    parse-failure message and the selected ``program def``'s own declaration
-    (when one was selected) so the caller can render a usage message
-    appropriate to how the program was invoked — a plain ``agm exec`` usage
-    error, or (for a dispatched registered command) the shared
-    registered-command help rendering — without a second discovery pass over
-    the same source.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        program: ProgramDeclInfo | None = None,
-        command: ProgramCommand | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.program = program
-        self.command = command
 
 
 def _bind_host_inputs(
@@ -215,7 +193,7 @@ def _bind_host_inputs(
     except ProgramHelpRequested as exc:
         raise ProgramHelpRequested(exc.command, program) from exc
     except ValueError as exc:
-        raise RegisteredProgramUsageError(str(exc), program, program_command) from exc
+        raise CommandUsageError(str(exc), program, program_command) from exc
 
     named: dict[HostParamKey, object] = {
         program.param_key(name): raw for name, raw in parsed_tail.arguments.named.items()
@@ -641,15 +619,12 @@ def run(
         for diag in argument_preflight.result.diagnostics:
             if diag not in usage:
                 print(format_diagnostic(diag, source_name=diagnostic_source_name), file=sys.stderr)
-        for failure in argument_preflight.engine_failures:
-            print(f"error: {failure.message}", file=sys.stderr)
-        usage_messages = [
-            *(diag.message for diag in usage),
-            *(failure.message for failure in argument_preflight.engine_usage_failures),
-        ]
-        if usage_messages:
-            raise RegisteredProgramUsageError("; ".join(usage_messages), selected_program)
-        raise SystemExit(1)
+        fail_engine_settings(
+            argument_preflight.engine_failures,
+            argument_preflight.engine_usage_failures,
+            usage_messages=[diag.message for diag in usage],
+            program=selected_program,
+        )
     executable = argument_preflight.executable
     program_symbol = executable.program_symbols[selected_program.node_id]
     engine_seeds = engine_seed_values(argument_preflight.engine)

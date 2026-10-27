@@ -316,6 +316,7 @@ class RegisteredProgramCommand(TyperCommand):
     def invoke(self, ctx: click.Context) -> None:
         from agnette.agm.cli_support.program_discovery import registered_command_for
         from agnette.agm.cli_support.program_options import (
+            CommandUsageError,
             ProgramHelpRequested,
             contains_help_flag,
             program_help_requested,
@@ -352,7 +353,7 @@ class RegisteredProgramCommand(TyperCommand):
             **cast(_RunOptionValues, ctx.params),
         )
         from agnette.agm.cli_support.warning_levels import command_warning_policy
-        from agnette.agm.commands.exec_program import RegisteredProgramUsageError, run_registered
+        from agnette.agm.commands.exec_program import run_registered
 
         # Registered commands take no ``--warning``: only ``[warnings]`` applies.
         warning_policy = command_warning_policy([self._path_name])
@@ -371,7 +372,7 @@ class RegisteredProgramCommand(TyperCommand):
             # request carries the very command it was parsing, so the help is
             # rendered from that rather than from a second build.
             print(self._help(program=exc.program, command=exc.command), end="")
-        except RegisteredProgramUsageError as exc:
+        except CommandUsageError as exc:
             self._usage_error(exc.message, exc.program, exc.command)
 
     def _usage_error(

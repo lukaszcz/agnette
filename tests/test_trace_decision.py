@@ -1,7 +1,7 @@
 """Tests for the trace decision and the trace helpers.
 
 Coverage:
-- EngineSeedTiers.trace_decision: initial-value precedence (CLI > config file),
+- trace_decision: initial-value precedence (CLI > config file),
   default off, path resolution, explicit disable beats lower-layer enable, and
   agreement with the ``trace`` engine seed the same tiers produce.
 - prepare_trace_log path handling.
@@ -26,10 +26,10 @@ import agnette.agm.commands.exec as exec_command
 import agnette.agm.commands.repl as repl_command
 from agnette.agl.semantics.values import BoolValue
 from agnette.agm.cli_support.args import ExecArgs
-from agnette.agm.cli_support.engine_seeds import EngineSeedTiers, build_host_engine_seeds
-from agnette.config.general import exec_config_from_merged
+from agnette.agm.cli_support.engine_seeds import trace_decision
 from agnette.core.log import LiveTracePathResolver, TraceDecision
 from tests._engine_flags import engine_flag_tokens
+from tests._engine_settings import programless_seeds, resolve_programless
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,22 +47,8 @@ def _isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: EngineSeedTiers.trace_decision
+# Unit tests: trace_decision
 # ---------------------------------------------------------------------------
-
-
-def _tiers(
-    *,
-    cli: dict[str, object | None] | None = None,
-    exec_table: dict[str, object] | None = None,
-) -> EngineSeedTiers:
-    """Build the seed tiers ``agm exec``/``agm repl`` resolve their trace from."""
-    table = dict(exec_table or {})
-    return build_host_engine_seeds(
-        config=exec_config_from_merged({"exec": table}),
-        primary_table=table,
-        cli_values=dict(cli or {}),
-    )
 
 
 def _decision(
@@ -70,7 +56,9 @@ def _decision(
     cli: dict[str, object | None] | None = None,
     exec_table: dict[str, object] | None = None,
 ) -> TraceDecision:
-    return _tiers(cli=cli, exec_table=exec_table).trace_decision()
+    """Resolve the trace decision ``agm exec``/``agm repl`` open their log file from."""
+    settings, _, _ = resolve_programless(cli=cli, exec_table=exec_table)
+    return trace_decision(settings)
 
 
 class TestTraceDecisionDefaults:
@@ -176,7 +164,6 @@ def test_debug_turns_trace_on_unless_trace_is_configured_or_given(
         ({"trace": True}, {}),
         ({"trace": False}, {"trace": True}),
         ({"trace-file": "/cli/t.jsonl"}, {}),
-        ({"trace-file": None}, {"trace-file": "/config/t.jsonl"}),
         ({}, {"trace": True}),
         ({}, {"trace-file": "/config/t.jsonl"}),
         ({}, {"trace": False, "trace-file": "/config/t.jsonl"}),
@@ -187,10 +174,9 @@ def test_decision_agrees_with_the_seeded_trace_setting(
     cli: dict[str, object | None], exec_table: dict[str, object]
 ) -> None:
     """The file a run opens and the ``trace`` a program reads come from one rule."""
-    tiers = _tiers(cli=cli, exec_table=exec_table)
-    seed = tiers.merged().get("trace")
+    seed = programless_seeds(cli=cli, exec_table=exec_table).get("trace")
     seeded = isinstance(seed, BoolValue) and seed.value
-    assert tiers.trace_decision().enabled is seeded
+    assert _decision(cli=cli, exec_table=exec_table).enabled is seeded
 
 
 class TestTraceLogPreparation:

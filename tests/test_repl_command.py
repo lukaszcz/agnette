@@ -26,7 +26,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 import pytest
 from click.testing import CliRunner, Result
@@ -907,27 +907,6 @@ class TestReplRun:
             "trace-file",
         }
 
-    def test_a_blank_exec_trace_file_keeps_debug_from_tracing(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-        fake_plain_console: list[dict[str, object]],
-    ) -> None:
-        home = _isolated_home(monkeypatch, tmp_path)
-        agm_dir = home / ".agm"
-        agm_dir.mkdir()
-        (agm_dir / "config.toml").write_text('[exec]\ndebug = true\ntrace-file = ""\n')
-        decisions: list[TraceDecision] = []
-
-        def record(decision: TraceDecision, **_: object) -> None:
-            decisions.append(decision)
-
-        monkeypatch.setattr(repl_command, "prepare_trace_log_from_decision", record)
-
-        repl_command.run(_args())
-
-        assert [(d.enabled, d.explicit_path) for d in decisions] == [(False, None)]
-
     def test_cli_false_strict_json_over_empty_exec_config_seeds_correctly(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1239,15 +1218,11 @@ class TestReplRun:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        _isolated_home(monkeypatch, tmp_path)
-
-        def boom(*_args: object, **_kwargs: object) -> object:
-            raise ValueError("bad config")
-
-        monkeypatch.setattr(repl_command, "exec_config_from_merged", boom)
-        args = ReplArgs(quiet=False)
+        home = _isolated_home(monkeypatch, tmp_path)
+        (home / ".agm").mkdir()
+        (home / ".agm" / "config.toml").write_text("[exec\n")
         with pytest.raises(SystemExit) as excinfo:
-            repl_command.run(args)
+            repl_command.run(ReplArgs(quiet=False))
         assert excinfo.value.code == 1
         assert fake_plain_console == []
 
@@ -1914,4 +1889,176 @@ class TestReplTrace:
         with pytest.raises(SystemExit) as excinfo:
             repl_command.run(_args(trace_file=str(trace_file)))
         assert excinfo.value.code == 1
+        assert fake_plain_console == []
+
+
+# ---------------------------------------------------------------------------
+# Engine settings resolve through the host-parameter resolver, as on ``agm exec``
+# ---------------------------------------------------------------------------
+
+
+class TestReplEngineSettings:
+    """``[exec]`` is the declaration route of the engine settings; CLI flags outrank it."""
+
+    @staticmethod
+    def _layers(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, home: str = "", cwd: str = ""
+    ) -> Path:
+        """Write the AgM home and invocation-directory config layers; return the directory."""
+        from agnette.config.context import ConfigContext
+
+        home_dir = tmp_path / "home"
+        work = tmp_path / "work"
+        for root, text in ((home_dir, home), (work, cwd)):
+            (root / ".agm").mkdir(parents=True)
+            (root / ".agm" / "config.toml").write_text(text)
+        monkeypatch.setattr(
+            repl_command,
+            "current_config_context",
+            lambda: ConfigContext(home=home_dir, proj_dir=None, cwd=work),
+        )
+        return work
+
+    @staticmethod
+    def _seed(console: list[dict[str, object]]) -> Mapping[str, object]:
+        session = console[0]["session"]
+        assert isinstance(session, ReplSession)
+        return session._engine_seed
+
+    def test_exec_sets_a_value_and_a_cli_flag_overrides_it(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        from agnette.agl.semantics.values import BoolValue
+
+        self._layers(monkeypatch, tmp_path, home="[exec]\nstrict-json = true\n")
+        repl_command.run(_args())
+        assert self._seed(fake_plain_console)["strict-json"] == BoolValue(True)
+
+        repl_command.run(_args(strict_json=False))
+        assert self._seed(fake_plain_console[1:])["strict-json"] == BoolValue(False)
+
+    @pytest.mark.parametrize("raw", ['""', "0", "-3"])
+    def test_a_blank_or_non_positive_exec_timeout_is_an_explicit_none(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+        raw: str,
+    ) -> None:
+        from agnette.agl.semantics.values import RecordValue
+
+        self._layers(monkeypatch, tmp_path, home=f"[exec]\ntimeout = {raw}\n")
+        repl_command.run(_args())
+
+        seed = self._seed(fake_plain_console)["timeout"]
+        assert isinstance(seed, RecordValue)
+        assert seed.fields == {}
+
+    def test_a_table_valued_exec_setting_is_replaced_wholesale_per_layer(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        from tests._agl_helpers import agent_value
+
+        self._layers(
+            monkeypatch,
+            tmp_path,
+            home='[exec.agent]\n"$case" = "AgentClaude"\nmodel = "opus"\n',
+            cwd='[exec.agent]\n"$case" = "AgentCommand"\ncommand = "worker"\n',
+        )
+        repl_command.run(_args())
+
+        assert self._seed(fake_plain_console)["agent"] == agent_value(
+            "AgentCommand", command="worker"
+        )
+
+    def test_a_relative_exec_trace_file_anchors_to_its_config_directory(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        work = self._layers(monkeypatch, tmp_path, home="[exec]\ntrace-file = 'layer.jsonl'\n")
+        anchored = tmp_path / "home" / ".agm" / "layer.jsonl"
+        anchored.touch()
+        (work / "layer.jsonl").touch()
+        decisions: list[TraceDecision] = []
+
+        def record(decision: TraceDecision, **_: object) -> None:
+            decisions.append(decision)
+
+        monkeypatch.setattr(repl_command, "prepare_trace_log_from_decision", record)
+        repl_command.run(_args())
+
+        assert [d.explicit_path for d in decisions] == [str(anchored)]
+
+    def test_a_blank_exec_trace_file_is_none_and_keeps_debug_from_tracing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        from agnette.agl.semantics.values import RecordValue
+
+        self._layers(monkeypatch, tmp_path, home='[exec]\ndebug = true\ntrace-file = ""\n')
+        decisions: list[TraceDecision] = []
+
+        def record(decision: TraceDecision, **_: object) -> None:
+            decisions.append(decision)
+
+        monkeypatch.setattr(repl_command, "prepare_trace_log_from_decision", record)
+        repl_command.run(_args())
+
+        assert [(d.enabled, d.explicit_path) for d in decisions] == [(False, None)]
+        seed = self._seed(fake_plain_console)["trace-file"]
+        assert isinstance(seed, RecordValue)
+        assert seed.fields == {}
+
+    @staticmethod
+    def _spy_usage_errors(monkeypatch: pytest.MonkeyPatch) -> list[Sequence[str]]:
+        """Record the command path of each usage error, still exiting 1."""
+        paths: list[Sequence[str]] = []
+
+        def exit_with_usage_error(command_path: Sequence[str], message: str) -> NoReturn:
+            paths.append(command_path)
+            raise SystemExit(1)
+
+        monkeypatch.setattr(repl_command, "exit_with_usage_error", exit_with_usage_error)
+        return paths
+
+    def test_an_invalid_cli_value_is_a_usage_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        self._layers(monkeypatch, tmp_path, home="[exec]\ntimeout = '5s'\n")
+        usage_errors = self._spy_usage_errors(monkeypatch)
+
+        with pytest.raises(SystemExit) as exc_info:
+            repl_command.run(_args(timeout="forever"))
+
+        assert exc_info.value.code == 1
+        assert usage_errors == [["repl"]]
+        assert fake_plain_console == []
+
+    def test_an_invalid_configured_value_is_an_error_not_a_usage_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        self._layers(monkeypatch, tmp_path, home="[exec]\ntimeout = 'forever'\n")
+        usage_errors = self._spy_usage_errors(monkeypatch)
+
+        with pytest.raises(SystemExit) as exc_info:
+            repl_command.run(_args())
+
+        assert exc_info.value.code == 1
+        assert usage_errors == []
         assert fake_plain_console == []

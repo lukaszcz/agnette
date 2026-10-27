@@ -11,9 +11,12 @@ from typing import TYPE_CHECKING
 
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.exec_target import is_installed_reference
-from agnette.agm.cli_support.program_options import ProgramHelpRequested, exec_program_help
+from agnette.agm.cli_support.program_options import (
+    CommandUsageError,
+    ProgramHelpRequested,
+    exec_program_help,
+)
 from agnette.agm.commands import exec_program
-from agnette.agm.commands.exec_program import RegisteredProgramUsageError
 from agnette.agm.parser import exit_with_usage_error
 
 if TYPE_CHECKING:
@@ -37,5 +40,5 @@ def run(args: ExecArgs, *, warning_policy: "WarningPolicy | None" = None) -> Non
             exec_program_help(exc.command, file=args.file, program=args.program),
             end="",
         )
-    except RegisteredProgramUsageError as exc:
+    except CommandUsageError as exc:
         exit_with_usage_error(["exec"], f"error: {exc.message}")

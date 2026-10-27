@@ -7,13 +7,22 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import NamedTuple, NoReturn
 
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.static_keys import (
     FunctionParamKey,
     HostParamKey,
+    StaticBindingKey,
     host_param_label,
 )
 from agnette.agl.modules.ids import ModuleId
-from agnette.agl.runtime.arguments import InheritedParamValue
+from agnette.agl.runtime.arguments import InheritedParamValue, ParamTier
+from agnette.agl.runtime.engine_config import (
+    EngineSettings,
+    EngineValueFailure,
+    engine_setting_params,
+    resolve_engine_settings,
+    split_engine_values,
+)
 from agnette.agl.runtime.types import (
     HostParamInfo,
     HostParamKind,
@@ -63,6 +72,7 @@ __all__ = [
     "report_undeclared_exec_keys",
     "resolve_declaration_route_values",
     "resolve_param_values",
+    "resolve_programless_engine_settings",
 ]
 
 
@@ -525,6 +535,25 @@ def resolve_declaration_route_values(
             continue
         values[param.key] = _native_value(param, configured[key])
     return values
+
+
+def resolve_programless_engine_settings(
+    config: "GeneralConfig", supplied: "Mapping[StaticBindingKey, object]"
+) -> tuple[EngineSettings, list[EngineValueFailure], list[EngineValueFailure]]:
+    """Rank *supplied* flag values over the ``[exec]`` declaration route; no program.
+
+    The resolution ``agm exec`` applies to a program's engine settings, without the
+    program-bound tiers; returns what
+    :func:`~agnette.agl.runtime.engine_config.resolve_engine_settings` does.
+    """
+    declared = split_engine_values(
+        resolve_declaration_route_values(config, engine_setting_params())
+    )[1]
+    return resolve_engine_settings(
+        {ParamTier.DECLARED: declared, ParamTier.SUPPLIED: supplied},
+        {},
+        nominals=NO_BUILTIN_DECLARATIONS,
+    )
 
 
 def _native_value(param: ProgramParamInfo | HostParamInfo, configured: ConfiguredValue) -> object:

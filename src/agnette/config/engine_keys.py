@@ -46,26 +46,23 @@ class EngineKeyConsumer(Enum):
 
 @dataclass(frozen=True)
 class EngineKeySpec:
-    """One engine key: its shape, config accessor, host default, and relations.
+    """One engine key: its shape, host default, and relations.
 
-    ``config_attr`` names the corresponding ``ExecConfig`` attribute without
-    making this pure data leaf import the config layer. ``has_default``
-    distinguishes an absent host default from an ``Option`` default whose value
-    is ``None``.
+    ``has_default`` distinguishes an absent host default from an ``Option`` default
+    whose value is ``None``.
 
     ``register`` names a host register several keys share: a write to any of
     them repoints the same store, and the register's own on/off switch is the
     key whose ``name`` is that register. ``enables_register`` marks a key whose
     ``Some`` value implies the switch is on. ``is_path`` marks a key whose
-    value is a filesystem path, so the config layer interpolates, expands and
-    anchors it like any other path-valued field. ``non_negative`` marks an
-    ``INT`` key whose negative value every surface rejects.
+    value is a filesystem path (``HostParamInfo.is_path``), so the declaration-route
+    resolver interpolates, expands and anchors it like any other path parameter.
+    ``non_negative`` marks an ``INT`` key whose negative value every surface rejects.
     """
 
     name: str
     kind: EngineKeyKind
     consumer: EngineKeyConsumer
-    config_attr: str
     default: object = None
     has_default: bool = True
     register: str | None = None
@@ -86,7 +83,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "trace",
         EngineKeyKind.BOOL,
         EngineKeyConsumer.HOST_CONSUMED,
-        config_attr="trace",
         default=False,
         register=TRACE_REGISTER,
         doc="Enable or disable trace logging.",
@@ -95,7 +91,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "strict-json",
         EngineKeyKind.BOOL,
         EngineKeyConsumer.RUNTIME_LIVE,
-        config_attr="strict_json",
         default=False,
         doc="Strict or lenient agent JSON parsing.",
     ),
@@ -103,7 +98,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "agent",
         EngineKeyKind.AGENT,
         EngineKeyConsumer.HOST_CONSUMED,
-        config_attr="agent",
         has_default=False,
         doc="Default agent (Agent value or command).",
         metavar="AGENT",
@@ -112,7 +106,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "sandbox",
         EngineKeyKind.AGENT_SANDBOX,
         EngineKeyConsumer.HOST_CONSUMED,
-        config_attr="sandbox",
         has_default=False,
         doc="Default agent sandbox (AgentSandbox).",
         metavar="SANDBOX",
@@ -121,7 +114,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "trace-file",
         EngineKeyKind.OPTION_TEXT,
         EngineKeyConsumer.HOST_CONSUMED,
-        config_attr="trace_file",
         default=None,
         register=TRACE_REGISTER,
         enables_register=True,
@@ -132,7 +124,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "timeout",
         EngineKeyKind.OPTION_TEXT,
         EngineKeyConsumer.RUNTIME_LIVE,
-        config_attr="timeout",
         default=None,
         doc="Shell-exec/agent idle timeout, or none.",
         metavar="DURATION",
@@ -141,7 +132,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "debug",
         EngineKeyKind.BOOL,
         EngineKeyConsumer.HOST_CONSUMED,
-        config_attr="debug",
         default=False,
         doc="Debug mode.",
     ),
@@ -149,7 +139,6 @@ ENGINE_KEYS: tuple[EngineKeySpec, ...] = (
         "parse-error-retries",
         EngineKeyKind.INT,
         EngineKeyConsumer.HOST_CONSUMED,
-        config_attr="parse_error_retries",
         default=4,
         non_negative=True,
         doc="Default parse-error-retries for ask.",
@@ -200,8 +189,6 @@ _TRACE_ENABLING_KEYS: frozenset[str] = frozenset(
 NON_NEGATIVE_ENGINE_KEYS: frozenset[str] = frozenset(
     spec.name for spec in ENGINE_KEYS if spec.non_negative
 )
-
-PATH_ENGINE_KEYS: tuple[str, ...] = tuple(spec.name for spec in ENGINE_KEYS if spec.is_path)
 
 
 def trace_write_implies_enabled(key: str, value_is_some: bool) -> bool:

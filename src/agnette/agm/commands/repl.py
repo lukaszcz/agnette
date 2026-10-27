@@ -1,10 +1,10 @@
 """Implementation of the ``agm repl`` command.
 
 Launches an interactive read-eval-print loop for the AgL workflow language.
-The REPL shares ``agm exec``'s ``[exec]`` configuration (agent,
-sandbox, and timeout) and its engine-setting flags, so an interactive
-session evaluates entries with the same agent dispatch backing a batch
-``agm exec`` run would use.
+The REPL shares ``agm exec``'s ``[exec]`` configuration and its engine-setting
+flags, resolved as host parameters through the same resolver (with no program),
+so an interactive session evaluates entries with the same agent dispatch backing
+a batch ``agm exec`` run would use.
 
 The command itself is thin: it resolves configuration the same way ``exec``
 does, builds a value-driven dispatcher, constructs a :class:`ReplSession`,
@@ -39,22 +39,25 @@ from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.repl import ReplSession
 from agnette.agl.repl.plain_console import plain_mode_engaged
 from agnette.agl.runtime.agents import value_driven_agent_factory
+from agnette.agl.runtime.engine_config import EngineSettings
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import HostParamInfo
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.agm.cli_support.engine_seeds import (
-    build_host_engine_seeds,
+    engine_seed_values,
+    fail_engine_settings,
     host_agent_spec_resolver,
     parse_engine_flags,
     resolve_strict_json,
     resolve_timeout,
+    trace_decision,
 )
+from agnette.agm.cli_support.program_options import CommandUsageError
+from agnette.agm.parser import exit_with_usage_error
 from agnette.config.context import current_config_context
 from agnette.config.general import (
-    EXEC_CONFIG_SECTION,
     GeneralConfig,
-    exec_config_from_merged,
     exec_options_from_merged,
     load_general_config,
     load_repl_config,
@@ -71,12 +74,12 @@ from agnette.config.qualified_keys import QualifiedConfigLookupError
 from agnette.core.cleanup import preserve_primary_error
 from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
 from agnette.core.process import terminating_signals_exit
-from agnette.core.toml import toml_dict
 from agnette.host_params.config import (
     colliding_declarations,
     declaration_route_tables,
     report_undeclared_exec_keys,
     resolve_declaration_route_values,
+    resolve_programless_engine_settings,
 )
 from agnette.packages.activation import select_package_roots
 from agnette.packages.development import discover_development_packages
@@ -103,13 +106,22 @@ def _resolve_param_seeds(
         raise AglError(str(exc)) from exc
 
 
-def _engine_cli_values(tokens: Sequence[str]) -> dict[str, object | None]:
-    """Parse *tokens* as engine-setting flags, exiting 1 on a malformed one."""
+def _resolve_engine_settings(
+    general_config: GeneralConfig, tokens: Sequence[str]
+) -> EngineSettings:
+    """Resolve the engine settings from *tokens* over ``[exec]``.
+
+    Raises :class:`CommandUsageError` for an invalid command-line value and exits 1 for
+    an invalid configured one.
+    """
     try:
-        return parse_engine_flags(tokens)
+        supplied = parse_engine_flags(tokens)
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise CommandUsageError(str(exc)) from exc
+    settings, configured, usage = resolve_programless_engine_settings(general_config, supplied)
+    if configured or usage:
+        fail_engine_settings(configured, usage)
+    return settings
 
 
 def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
@@ -118,7 +130,6 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     try:
         general_config = load_general_config(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
         merged_config = general_config.merged
-        config = exec_config_from_merged(merged_config)
         options = exec_options_from_merged(merged_config)
     except ValueError as exc:
         print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
@@ -135,26 +146,23 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
 
     # Seed only explicit CLI/config controls.  Trace-service fallbacks remain
     # absent so a ``builtin var`` initializer can provide the setting default.
-    # The raw timeout preserves its configured spelling.
-    cli_values = _engine_cli_values(args.tokens)
-    engine_tiers = build_host_engine_seeds(
-        config=config,
-        primary_table=toml_dict(merged_config.get(EXEC_CONFIG_SECTION)),
-        cli_values=cli_values,
-    )
-    engine_seeds = engine_tiers.merged()
+    try:
+        engine_settings = _resolve_engine_settings(general_config, args.tokens)
+    except CommandUsageError as exc:
+        exit_with_usage_error(["repl"], f"error: {exc.message}")
+    engine_seeds = engine_seed_values(engine_settings)
     timeout = resolve_timeout(engine_seeds)
     strict_json = resolve_strict_json(engine_seeds)
     echo_agent_output = options.echo if args.echo is None else args.echo
 
     # One resolution for both the readable ``trace`` seed and the trace file
     # prepared below, exactly as ``agm exec`` does.
-    trace_decision = engine_tiers.trace_decision()
+    decision = trace_decision(engine_settings)
 
     # Resolve and validate the trace log file up front so an unwritable
     # ``--trace-file`` exits 1 BEFORE the loop starts rather than crashing
     # mid-session.
-    trace_path = prepare_trace_log_from_decision(trace_decision, command_name="repl")
+    trace_path = prepare_trace_log_from_decision(decision, command_name="repl")
 
     # Built once and shared by every sandboxing consumer this session
     # dispatches through, so they all resolve sandbox configuration from the

@@ -1698,12 +1698,12 @@ def test_program_argument_parse_failure_raises_a_typed_usage_error(tmp_path: Pat
     registered-command dispatch) can render it appropriately. See
     ``agnette.agm.commands.exec`` and ``agnette.agm.cli_dispatch``."""
     import agnette.agm.commands.exec_program as exec_program
-    from agnette.agm.commands.exec_program import RegisteredProgramUsageError
+    from agnette.agm.commands.exec_program import CommandUsageError
 
     source = tmp_path / "main.agl"
     source.write_text("program def main(@arg-named level: text) -> unit = ()\n", encoding="utf-8")
 
-    with pytest.raises(RegisteredProgramUsageError) as exc_info:
+    with pytest.raises(CommandUsageError) as exc_info:
         exec_program.run(
             ExecArgs(file=str(source), argument_tokens=["--unknown"], no_stdlib=True),
         )

@@ -32,8 +32,8 @@ class TraceDecision:
     means use the auto-generated timestamped path inside ``.agent-files/logs/``.
 
     Resolved once per run by
-    :meth:`~agnette.agm.cli_support.engine_seeds.EngineSeedTiers.trace_decision`, from
-    the same tiers that seed the program's readable ``trace`` setting.
+    :func:`~agnette.agm.cli_support.engine_seeds.trace_decision`, from the same
+    engine settings that seed the readable ``trace`` setting.
     """
 
     enabled: bool

@@ -15,7 +15,7 @@ from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
 from agnette.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID, ModuleId
-from agnette.agl.runtime.arguments import OptionSome, decode_param_value
+from agnette.agl.runtime.arguments import OptionSome, decode_param_value, option_none_raw
 from agnette.agl.runtime.engine_config import (
     engine_setting_params,
     split_engine_values,
@@ -1994,8 +1994,8 @@ class TestEngineSettingFlags:
         return engine_command()
 
     @staticmethod
-    def _values(*tokens: str) -> dict[str, object | None]:
-        return parse_engine_flags(tokens)
+    def _values(*tokens: str) -> dict[str, object]:
+        return {key[2]: raw for key, raw in parse_engine_flags(tokens).items()}
 
     def test_no_reserved_flag_is_an_engine_setting_flag(self) -> None:
         """So no host with a program-less surface needs to reserve against them."""
@@ -2030,13 +2030,13 @@ class TestEngineSettingFlags:
         assert "--trace-file" in flags
         assert "--no-trace-file" not in flags
 
-    def test_values_are_unboxed_to_the_native_shape_config_values_take(self) -> None:
+    def test_values_are_the_raw_values_the_resolver_decodes(self) -> None:
         assert self._values("--timeout", "30s", "--debug", "--no-strict-json") == {
-            "timeout": "30s",
+            "timeout": OptionSome("30s"),
             "debug": True,
             "strict-json": False,
         }
-        assert self._values("--no-timeout") == {"timeout": None}
+        assert self._values("--no-timeout") == {"timeout": option_none_raw()}
         assert self._values("--parse-error-retries", "3") == {"parse-error-retries": "3"}
 
     def test_unsupplied_settings_are_absent(self) -> None:

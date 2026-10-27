@@ -186,7 +186,7 @@ class TestModuleParameterHostInputs:
         assert "--verbose" in output
         assert "logging.retries" not in output
 
-        with pytest.raises(exec_engine.RegisteredProgramUsageError):
+        with pytest.raises(exec_engine.CommandUsageError):
             exec_engine.run(
                 replace(
                     file_args(source),
@@ -264,7 +264,7 @@ class TestModuleParameterHostInputs:
         source, modules = self._program(tmp_path, additional_module=True)
         self._context(tmp_path, monkeypatch)
 
-        with pytest.raises(exec_engine.RegisteredProgramUsageError):
+        with pytest.raises(exec_engine.CommandUsageError):
             exec_engine.run(
                 replace(
                     file_args(source),
@@ -292,7 +292,7 @@ class TestModuleParameterHostInputs:
         source, modules = self._program(tmp_path)
         self._context(tmp_path, monkeypatch)
 
-        with pytest.raises(exec_engine.RegisteredProgramUsageError):
+        with pytest.raises(exec_engine.CommandUsageError):
             exec_engine.run(
                 replace(
                     file_args(source),
@@ -5209,7 +5209,7 @@ class TestExecDevelopmentPackages:
         ("file_config", "tokens", "error"),
         [
             ('[tools.review]\nlimit = "x"\n', [], SystemExit),
-            ("", ["--limit", "x"], exec_engine.RegisteredProgramUsageError),
+            ("", ["--limit", "x"], exec_engine.CommandUsageError),
         ],
         ids=["configured", "cli"],
     )
@@ -5306,9 +5306,9 @@ class TestExecDevelopmentPackages:
     @pytest.mark.parametrize(
         ("tokens", "file_config", "error"),
         [
-            (["--count", "x"], "", exec_engine.RegisteredProgramUsageError),
+            (["--count", "x"], "", exec_engine.CommandUsageError),
             ([], '[prog.main]\ncount = "x"\n', SystemExit),
-            (["--timeout", "x"], "", exec_engine.RegisteredProgramUsageError),
+            (["--timeout", "x"], "", exec_engine.CommandUsageError),
             ([], '[prog.main]\ntimeout = "x"\n', SystemExit),
         ],
         ids=["cli_param", "configured_param", "cli_engine", "configured_engine"],
@@ -5347,7 +5347,7 @@ class TestExecDevelopmentPackages:
             encoding="utf-8",
         )
 
-        with pytest.raises(exec_engine.RegisteredProgramUsageError) as exc_info:
+        with pytest.raises(exec_engine.CommandUsageError) as exc_info:
             exec_engine.run(_exec_args_no_trace(source, argument_tokens=["--supplied", "x"]))
 
         assert "supplied" in exc_info.value.message
