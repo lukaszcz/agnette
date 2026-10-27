@@ -24,7 +24,12 @@ from agnette.agl.ir.program import (
     SourceFile,
     SymbolDescriptor,
 )
-from agnette.agl.ir.static_keys import StaticBindingKey, static_binding_key
+from agnette.agl.ir.static_keys import (
+    FunctionParamKey,
+    HostParamKey,
+    StaticBindingKey,
+    static_binding_key,
+)
 from agnette.agl.ir.validate import validate_ir
 from agnette.agl.lower import module as module_cache
 from agnette.agl.lower.lowerer import (
@@ -184,16 +189,22 @@ def _program_signatures(
 def _param_tables(
     modules: Mapping[ModuleId, CheckedModule],
     decl_to_sym: Mapping[int, SymbolId],
+    fn_node_to_id: Mapping[int, FunctionId],
     type_table: TypeTable,
 ) -> tuple[
     dict[StaticBindingKey, SymbolId],
-    dict[StaticBindingKey, ParamDecoder],
-    dict[StaticBindingKey, SourceSpan],
+    dict[FunctionParamKey, tuple[FunctionId, int]],
+    dict[HostParamKey, ParamDecoder],
+    dict[HostParamKey, SourceSpan],
 ]:
-    """Build host seed identities, decoders, and spans for every ``@param`` binding."""
+    """Build host seed identities, decoders, and spans for every ``@param`` site.
+
+    A binding maps to its symbol, a ``def`` parameter to its function and index.
+    """
     bindings: dict[StaticBindingKey, SymbolId] = {}
-    decoders: dict[StaticBindingKey, ParamDecoder] = {}
-    spans: dict[StaticBindingKey, SourceSpan] = {}
+    function_bindings: dict[FunctionParamKey, tuple[FunctionId, int]] = {}
+    decoders: dict[HostParamKey, ParamDecoder] = {}
+    spans: dict[HostParamKey, SourceSpan] = {}
     for module_id, checked_module in modules.items():
         for binding in checked_module.resolved.param_bindings():
             name = static_binding_name(binding.item)
@@ -202,7 +213,21 @@ def _param_tables(
             binding_type = checked_module.type_env.binding_type_of(binding.node_id)
             decoders[key] = build_param_decoder(binding_type, type_table)
             spans[key] = binding.item.span
-    return bindings, decoders, spans
+        for function_binding in checked_module.resolved.function_param_bindings():
+            param_key = FunctionParamKey(
+                module_id,
+                function_binding.scope_path,
+                function_binding.function.name,
+                function_binding.param.name,
+            )
+            decl_node_id = function_binding.function.node_id
+            function_bindings[param_key] = (fn_node_to_id[decl_node_id], function_binding.index)
+            signature = checked_module.type_env.function_signature_of(decl_node_id)
+            decoders[param_key] = build_param_decoder(
+                signature.params[function_binding.index].type, type_table
+            )
+            spans[param_key] = function_binding.param.span
+    return bindings, function_bindings, decoders, spans
 
 
 def _live_functions_and_symbols(
@@ -493,8 +518,8 @@ def lower_program(
         item.node_id: link.fn_node_to_sym[item.node_id]
         for _mid, _cm, item in program_funcdefs(checked.modules)
     }
-    param_bindings, param_decoders, param_spans = _param_tables(
-        checked.modules, link.decl_to_sym, type_table
+    param_bindings, function_param_bindings, param_decoders, param_spans = _param_tables(
+        checked.modules, link.decl_to_sym, link.fn_node_to_id, type_table
     )
     program = ExecutableProgram(
         entry_module=checked.entry_id,
@@ -519,6 +544,7 @@ def lower_program(
         ),
         program_signatures=_program_signatures(checked.modules, link.fn_node_to_sym, type_table),
         param_bindings=param_bindings,
+        function_param_bindings=function_param_bindings,
         param_decoders=param_decoders,
         param_spans=param_spans,
         contracts=dict(link.contracts),

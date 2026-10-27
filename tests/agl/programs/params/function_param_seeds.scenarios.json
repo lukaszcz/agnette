@@ -1,0 +1,22 @@
+{
+  "scenarios": [
+    {
+      "name": "defaults_apply",
+      "expect": {
+        "stdout": "3\n103\n11\nr:4\n8\n2\n2\np:4\nq:4\n[2, 3]\n[2, 2]\n"
+      }
+    },
+    {
+      "name": "seeds_replace_defaults_at_every_call_form",
+      "function_params": {
+        "retries::count": 9,
+        "Counter::bump::by": 5,
+        "Review::refine::max-steps": 6,
+        "gather::items": [7, 8]
+      },
+      "expect": {
+        "stdout": "9\n109\n15\nr:6\n8\n3\n3\np:6\nq:6\n[6, 7]\n[3, 3]\n"
+      }
+    }
+  ]
+}

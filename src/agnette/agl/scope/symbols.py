@@ -51,6 +51,7 @@ from agnette.agl.syntax.nodes import (
     FuncDef,
     ImportItem,
     LetDecl,
+    Param,
     Program,
     RecordDef,
     TypeAlias,
@@ -1030,6 +1031,21 @@ class ParamBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class FunctionParamBinding:
+    """One ``@param``-marked ``def`` parameter, paired with its attribute payload.
+
+    Yielded by :meth:`ModuleResolution.function_param_bindings`. ``index`` counts the
+    declaration's AST parameters, a method's ``self`` included.
+    """
+
+    function: FuncDef
+    scope_path: ScopePath
+    index: int
+    param: Param
+    cli: ProgramOptionSpec
+
+
+@dataclass(frozen=True, slots=True)
 class CaseRegion:
     """Where a ``case`` is written: its named scope and the type parameters in scope there."""
 
@@ -1233,6 +1249,22 @@ class ModuleResolution:
                 scope_path=scope_names(item.scope_path),
                 cli=cli,
             )
+
+    def function_param_bindings(self) -> Iterator[FunctionParamBinding]:
+        """Yield every ``@param``-marked ``def`` parameter here, in source order."""
+        for item in static_items(self.program.body.items):
+            if not isinstance(item, FuncDef):
+                continue
+            for index, param in enumerate(item.params):
+                cli = self.attributes.params.get(param.node_id)
+                if cli is not None:
+                    yield FunctionParamBinding(
+                        function=item,
+                        scope_path=scope_names(item.scope_path),
+                        index=index,
+                        param=param,
+                        cli=cli,
+                    )
 
 
 # ---------------------------------------------------------------------------

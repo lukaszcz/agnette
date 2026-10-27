@@ -1,6 +1,6 @@
 # AgL Evaluator
 
-The evaluator interprets the linked program and imports no frontend module directly (the runtime's check-time contract path loads the checker transitively). `run()` initializes modules in link order, then invokes the host-selected entry symbol with pre-evaluated arguments under a pinned decimal context and a recursion boundary; it never selects an entry or decodes host values itself. Host seeds replace a static binding's initializer. Frames hold `let` and parameters directly and `var` bindings in shared cells. The evaluator trusts the IR: it performs no runtime shape checks against static invariants ([lowering.md](lowering.md#the-ir)).
+The evaluator interprets the linked program and imports no frontend module directly (the runtime's check-time contract path loads the checker transitively). `run()` initializes modules in link order, then invokes the host-selected entry symbol with pre-evaluated arguments under a pinned decimal context and a recursion boundary; it never selects an entry or decodes host values itself. Host seeds replace a static binding's initializer or a `@param` `def` parameter's default. Frames hold `let` and parameters directly and `var` bindings in shared cells. The evaluator trusts the IR: it performs no runtime shape checks against static invariants ([lowering.md](lowering.md#the-ir)).
 
 ## Values and Aliasing
 
@@ -11,7 +11,7 @@ The evaluator interprets the linked program and imports no frontend module direc
 
 ## Calls
 
-Direct, indirect, extern, and program-entry calls share parameter-order argument binding in `eval/ir_interpreter.py`. Supplied arguments run in the caller's frame; omitted defaults run with the callee's captures and earlier bound parameters.
+Direct, indirect, extern, and program-entry calls share parameter-order argument binding in `eval/ir_interpreter.py`. Supplied arguments run in the caller's frame; omitted defaults run with the callee's captures and earlier bound parameters. A host-seeded `(function, parameter index)` default is instead a fresh deep copy of its seed, so mutable defaults are never shared across calls; explicit arguments always win. This one default-resolution point serves every call form.
 
 ## Control Flow
 

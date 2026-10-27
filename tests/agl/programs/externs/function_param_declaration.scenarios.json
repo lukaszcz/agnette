@@ -8,6 +8,18 @@
       "expect": {
         "stdout": "8\n20\n"
       }
+    },
+    {
+      "name": "seeded_factor_replaces_the_default",
+      "params": {
+        "value": 4
+      },
+      "function_params": {
+        "scale::factor": 3
+      },
+      "expect": {
+        "stdout": "12\n20\n"
+      }
     }
   ]
 }

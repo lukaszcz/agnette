@@ -131,6 +131,8 @@ Inputs:
   ones, in order. JSON decimals load as `decimal.Decimal`.
 - `module_params` — `@param` seeds keyed by declaration path (`<entry>::name` or
   `module/path::name`); they outrank every other tier, `@config` included.
+- `function_params` — `@param` `def` parameter seeds keyed by `scope::function::param` in the
+  entry module (`name::param` at module root; a method's scope is its receiver type).
 - `process_environment` — the `std/env::environ` snapshot, replacing the real environment.
 - `module_roots` — library roots relative to `tests/agl/`, run through the module graph;
   `stdlib_root` replaces the standard library root; `no_stdlib` disables the prelude.

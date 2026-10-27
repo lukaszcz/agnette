@@ -62,7 +62,7 @@ if TYPE_CHECKING:
         SourceFile,
         ValueDescriptors,
     )
-    from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey
+    from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, StaticBindingKey
     from agnette.agl.matchcompile import MatchCompiledProgram
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import ModuleGraph
@@ -83,13 +83,6 @@ if TYPE_CHECKING:
     from agnette.sandbox.prepare import SandboxContext
 
 _ResultT = TypeVar("_ResultT")
-
-
-def _trace_binding_label(key: "StaticBindingKey") -> str:
-    """Return the stable qualified spelling of a host-seeded binding."""
-    module_id, scope_path, name = key
-    declaration_path = "::".join((*scope_path, name))
-    return f"{module_id.display()}::{declaration_path}"
 
 
 class ArtifactProvenanceError(Exception):
@@ -185,6 +178,10 @@ class ArgumentPreflight:
         Already folds in any ``@config`` entry targeting a ``@param``
         binding, at its rank between the module-route and program-route/CLI
         tiers (:meth:`PipelineDriver.preflight_arguments`).
+    ``function_param_seeds``
+        The decoded ``@param`` ``def``-parameter values, ready for ``run_prepared``:
+        every other function's parameters a host supplied, and *program*'s own bound
+        ``@param`` arguments, whose value so reaches every call that omits them.
     ``program_config``
         *program*'s own ``@config`` entries, evaluated to values: a target
         ``StaticBindingKey`` (an engine setting or a ``@param`` binding) ->
@@ -200,6 +197,7 @@ class ArgumentPreflight:
     executable: "ExecutableProgram"
     arguments: "tuple[Value | UseDefault, ...]"
     param_seeds: "Mapping[StaticBindingKey, Value]"
+    function_param_seeds: "Mapping[FunctionParamKey, Value]"
     program_config: "Mapping[StaticBindingKey, Value]"
 
 
@@ -240,6 +238,7 @@ class RunOptions:
     builtin_host_settings: "Mapping[str, Value] | None" = None
     builtin_var_seeds: "Mapping[BuiltinVarKey, Value] | None" = None
     param_seeds: "Mapping[StaticBindingKey, Value] | None" = None
+    function_param_seeds: "Mapping[FunctionParamKey, Value] | None" = None
     process_environment: "Mapping[str, str] | None" = None
     program_symbol: "SymbolId | None" = None
     select_default_program: bool = False
@@ -710,6 +709,7 @@ class PipelineDriver:
         if trace.path is not None:
             from agnette.agl.ir.builtin_vars import builtin_var_key
             from agnette.agl.ir.program import ValueDescriptors
+            from agnette.agl.ir.static_keys import host_param_label
             from agnette.agl.modules.ids import STD_CONFIG_ID
             from agnette.agl.runtime.serialize import value_to_trace_json_obj
 
@@ -724,18 +724,37 @@ class PipelineDriver:
                 for param, value in zip(signature, arguments)
                 if not isinstance(value, UseDefault)
             }
+            entry_function = (
+                executable.program_functions.get(program_symbol)
+                if program_symbol is not None
+                else None
+            )
+            # The entry's own `@param` arguments are listed under `arguments`.
+            own_arguments = {
+                key
+                for key, (function_id, _) in executable.function_param_bindings.items()
+                if function_id == entry_function
+            }
+            seeded: list[tuple[HostParamKey, Value]] = [
+                *(options.param_seeds or {}).items(),
+                *(
+                    (key, value)
+                    for key, value in (options.function_param_seeds or {}).items()
+                    if key not in own_arguments
+                ),
+            ]
             traced_parameters = {
-                _trace_binding_label(key): value_to_trace_json_obj(
+                host_param_label(key): value_to_trace_json_obj(
                     value, descriptors, executable.builtin_nominals
                 )
-                for key, value in (options.param_seeds or {}).items()
+                for key, value in seeded
             }
             normalized_settings = {
                 (builtin_var_key(STD_CONFIG_ID, (), key) if isinstance(key, str) else key): value
                 for key, value in interpreter_builtin_settings.items()
             }
             traced_config = {
-                _trace_binding_label(key): value_to_trace_json_obj(
+                host_param_label(key): value_to_trace_json_obj(
                     value, descriptors, executable.builtin_nominals
                 )
                 for key, value in normalized_settings.items()
@@ -770,6 +789,7 @@ class PipelineDriver:
                 host_reconfigurer=reconfigurer,
                 builtin_host_settings=interpreter_builtin_settings,
                 param_seeds=options.param_seeds,
+                function_param_seeds=options.function_param_seeds,
                 process_environment=options.process_environment,
             )
             entry_bindings = interp.run(program_symbol=program_symbol, arguments=arguments)
@@ -1183,6 +1203,7 @@ class PipelineDriver:
         builtin_host_settings: "Mapping[str, Value] | None" = None,
         builtin_var_seeds: "Mapping[BuiltinVarKey, Value] | None" = None,
         param_seeds: "Mapping[StaticBindingKey, Value] | None" = None,
+        function_param_seeds: "Mapping[FunctionParamKey, Value] | None" = None,
         process_environment: "Mapping[str, str] | None" = None,
         program_symbol: "SymbolId | None" = None,
         select_default_program: bool = False,
@@ -1246,6 +1267,7 @@ class PipelineDriver:
                 builtin_host_settings=builtin_host_settings,
                 builtin_var_seeds=builtin_var_seeds,
                 param_seeds=param_seeds,
+                function_param_seeds=function_param_seeds,
                 process_environment=process_environment,
                 program_symbol=program_symbol,
                 select_default_program=select_default_program,
@@ -1330,12 +1352,15 @@ class PipelineDriver:
         by :meth:`_evaluate_program_config`) and need no decoding. The tiers are
         the only channel of named program arguments: one is keyed by its
         program's :class:`~agnette.agl.ir.static_keys.FunctionParamKey`, the
-        other keys become the module seeds. A value for a positionally bound
-        argument must be left out by the caller. *supplied* names the keys the
-        command line or environment supplied: a decode failure of a value
-        among them (or a missing or unknown argument) is a usage diagnostic, any
-        other failure is a configuration one.
+        other keys become the module and function seeds. A value for a
+        positionally bound argument must be left out by the caller. A bound
+        ``@param`` argument of *program* is also a function seed, so its value
+        reaches every other call that omits it. *supplied* names the keys the
+        command line or environment supplied: a decode failure of a value among
+        them (or a missing or unknown argument) is a usage diagnostic, any other
+        failure is a configuration one.
         """
+        from agnette.agl.ir.static_keys import FunctionParamKey
         from agnette.agl.runtime.arguments import (
             ConfiguredArgumentDiagnostic,
             ProgramArguments,
@@ -1350,12 +1375,8 @@ class PipelineDriver:
 
         get_interp = lazy_interpreter(executable)
         default_resolver = resolver_over_interpreter(get_interp)
-        upper, upper_arguments, upper_foreign = split_program_arguments(param_values or {}, program)
-        lower_params, lower_arguments, lower_foreign = split_program_arguments(
-            param_values_lower or {}, program
-        )
-        # No host yet supplies another function's parameter.
-        assert not upper_foreign and not lower_foreign
+        upper, upper_arguments = split_program_arguments(param_values or {}, program)
+        lower_params, lower_arguments = split_program_arguments(param_values_lower or {}, program)
         named = {**lower_arguments, **upper_arguments}
         bound, bind_diagnostics = bind_program_arguments_for(
             executable,
@@ -1389,12 +1410,20 @@ class PipelineDriver:
             {key: value for key, value in upper.items() if key in supplied},
             default_resolver=default_resolver,
         )
+        seeds: dict[HostParamKey, Value] = {}
+        for tier in (decoded_lower, config_param_values, decoded_configured, decoded_supplied):
+            seeds.update(tier.items())
         param_seeds = {
-            **decoded_lower,
-            **config_param_values,
-            **decoded_configured,
-            **decoded_supplied,
+            key: value for key, value in seeds.items() if not isinstance(key, FunctionParamKey)
         }
+        function_param_seeds = {
+            key: value for key, value in seeds.items() if isinstance(key, FunctionParamKey)
+        }
+        if not bind_diagnostics:
+            for param, value in zip(program.parameters, bound, strict=True):
+                key = program.param_key(param.name)
+                if key in executable.function_param_bindings and not isinstance(value, UseDefault):
+                    function_param_seeds[key] = value
         usage_diagnostics = (*usage_diagnostics, *supplied_diagnostics)
         diagnostics = (
             *bind_diagnostics,
@@ -1417,6 +1446,7 @@ class PipelineDriver:
             executable=executable,
             arguments=bound,
             param_seeds=param_seeds,
+            function_param_seeds=function_param_seeds,
             program_config=program_config,
         )
 
@@ -1658,6 +1688,12 @@ def _select_program_inventory(
     """
     runtime_reachable = frozenset(_reachable_modules(program.module, graph.adjacency))
     params = program.reachable.params
+    function_bindings = {
+        key: slot
+        for key, slot in executable.function_param_bindings.items()
+        if (key.module, key.scope_path, key.function) in program.reachable.functions
+    }
+    keys = params | function_bindings.keys()
     return replace(
         executable,
         entry_module=program.module,
@@ -1667,10 +1703,11 @@ def _select_program_inventory(
         param_bindings={
             key: symbol for key, symbol in executable.param_bindings.items() if key in params
         },
+        function_param_bindings=function_bindings,
         param_decoders={
-            key: decoder for key, decoder in executable.param_decoders.items() if key in params
+            key: decoder for key, decoder in executable.param_decoders.items() if key in keys
         },
-        param_spans={key: span for key, span in executable.param_spans.items() if key in params},
+        param_spans={key: span for key, span in executable.param_spans.items() if key in keys},
     )
 
 

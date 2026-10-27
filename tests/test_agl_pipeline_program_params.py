@@ -796,7 +796,7 @@ class TestSplitProgramArguments:
         foreign = FunctionParamKey(program.module, (), "helper", "count")
         other_program = FunctionParamKey(program.module, (), "other", "count")
 
-        params, arguments, functions = split_program_arguments(
+        seeds, arguments = split_program_arguments(
             {
                 program.param_key("count"): 3,
                 program.param_key("undeclared"): 6,
@@ -806,6 +806,5 @@ class TestSplitProgramArguments:
             program,
         )
 
-        assert params == {}
         assert arguments == {"count": 3, "undeclared": 6}
-        assert functions == {foreign: 4, other_program: 5}
+        assert seeds == {foreign: 4, other_program: 5}

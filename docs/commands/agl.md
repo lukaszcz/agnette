@@ -127,8 +127,8 @@ a direct `agm repl` entry is a static error.
   default** (on under `debug`). `--trace` writes to an auto-timestamped path under
   `.agent-files/logs/`; `--trace-file` writes a JSONL trace to `PATH`; `--no-trace` disables it,
   overriding `[exec] trace = true`.
-  `run_start` records supplied program arguments, seeded module parameters, and host config
-  values. These options set the initial state; a `std/config::trace := true` write still enables
+  `run_start` records supplied program arguments, seeded module and function parameters
+  (the latter keyed `module::function::param`), and host config values. These options set the initial state; a `std/config::trace := true` write still enables
   tracing.
 - `--debug` / `--no-debug`: Debug mode, seeding `std/config::debug` (overrides `[exec] debug`;
   default off). Debug mode:

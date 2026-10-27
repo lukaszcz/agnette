@@ -68,6 +68,7 @@ from agnette.sandbox.request import Default, SandboxLimits
 from tests._agl_helpers import (
     REPO_STDLIB_ROOT,
     agl_roots,
+    function_param_values,
     module_param_values,
     prepare_inline_code,
     program_config_engine_seeds,
@@ -1048,6 +1049,7 @@ def _run_prepared_entry(
     *,
     param_values: dict[str, Any],
     module_params: dict[str, Any] | None = None,
+    function_params: dict[str, Any] | None = None,
     positional: list[Any] | None = None,
     process_environment: dict[str, str] | None = None,
     engine_seeds: dict[Any, Value] | None = None,
@@ -1071,7 +1073,7 @@ def _run_prepared_entry(
     assert len(entry_programs) == 1
     entry_program = entry_programs[0]
 
-    if not entry_program.parameters and module_params is None:
+    if not entry_program.parameters and module_params is None and function_params is None:
         assert not positional and not param_values, (
             "scenario supplied 'positional'/'params' but the entry program declares "
             "no value parameters to receive them - check the fixture's program "
@@ -1085,6 +1087,7 @@ def _run_prepared_entry(
         compiled=discovery.compiled,
         param_values={
             **module_param_values(discovery, entry_program, module_params),
+            **function_param_values(entry_program, function_params),
             **{
                 entry_program.param_key(name): value for name, value in (param_values or {}).items()
             },
@@ -1100,6 +1103,7 @@ def _run_prepared_entry(
         program_symbol=argument_preflight.executable.program_symbols[entry_program.node_id],
         arguments=argument_preflight.arguments,
         param_seeds=argument_preflight.param_seeds,
+        function_param_seeds=argument_preflight.function_param_seeds,
         builtin_var_seeds={
             **program_config_engine_seeds(argument_preflight),
             **(engine_seeds or {}),
@@ -1313,6 +1317,7 @@ def _run_program(
                 prepared,
                 param_values=scenario.get("params", {}),
                 module_params=scenario.get("module_params"),
+                function_params=scenario.get("function_params"),
                 positional=scenario.get("positional"),
                 process_environment=scenario.get("process_environment"),
                 engine_seeds=engine_seeds,

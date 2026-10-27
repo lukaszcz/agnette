@@ -2429,7 +2429,7 @@ class TestExecTimeoutAndLogFileFlags:
         from agnette.agl.ir.ids import SymbolId
         from agnette.agl.ir.nodes import UseDefault
         from agnette.agl.ir.program import ExecutableProgram
-        from agnette.agl.ir.static_keys import StaticBindingKey
+        from agnette.agl.ir.static_keys import FunctionParamKey, StaticBindingKey
         from agnette.agl.matchcompile import MatchCompiledProgram
         from agnette.agl.pipeline import PipelineDriver as RealRuntime
         from agnette.agl.pipeline import PreparedProgram, RunResult
@@ -2456,6 +2456,7 @@ class TestExecTimeoutAndLogFileFlags:
                 builtin_host_settings: Mapping[str, Value] | None = None,
                 process_environment: Mapping[str, str] | None = None,
                 param_seeds: Mapping[StaticBindingKey, Value] | None = None,
+                function_param_seeds: Mapping[FunctionParamKey, Value] | None = None,
                 program_symbol: SymbolId | None = None,
                 arguments: "tuple[Value | UseDefault, ...]" = (),
             ) -> RunResult:
@@ -2475,6 +2476,7 @@ class TestExecTimeoutAndLogFileFlags:
                     host_settings_policy=host_settings_policy,
                     builtin_host_settings=builtin_host_settings,
                     param_seeds=param_seeds,
+                    function_param_seeds=function_param_seeds,
                     process_environment=process_environment,
                     program_symbol=program_symbol,
                     arguments=arguments,

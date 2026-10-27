@@ -30,7 +30,7 @@ from agnette.agl.ir.contracts import (
 )
 from agnette.agl.ir.ids import ContractId, FunctionId, NominalId, SourceId, SymbolId
 from agnette.agl.ir.nodes import IrExpr, IrFunctionParam
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, StaticBindingKey
 from agnette.agl.modules.ids import ModuleId, spell_scope_path
 from agnette.agl.zones import ParamZone
 
@@ -420,9 +420,12 @@ class ExecutableProgram:
       ``param_bindings`` — static ``@param`` identities -> their pre-allocated
         binding symbols. The interpreter uses this table to apply host seeds
         while initializing modules without changing the executable IR.
-      ``param_decoders`` — static ``@param`` identities -> their host-value
-        decoders, compiled alongside program parameter signatures.
-      ``param_spans`` — static ``@param`` identities -> declaration spans,
+      ``function_param_bindings`` — ``@param`` ``def``-parameter identities -> the
+        function and AST parameter index (a method's ``self`` counts) whose omitted
+        argument a host seed replaces. A ``program def`` parameter is keyed alike.
+      ``param_decoders`` — every ``@param`` identity (binding or ``def`` parameter)
+        -> its host-value decoder, compiled alongside program parameter signatures.
+      ``param_spans`` — every ``@param`` identity -> declaration span,
         retained to anchor host-value decode diagnostics in their source file.
       ``contracts`` — ask/exec output contracts, keyed by ``ContractId``.
       ``target_contracts`` — type-directed extern target contracts, which
@@ -466,8 +469,11 @@ class ExecutableProgram:
     synthetic_main_symbol: SymbolId | None = None
     program_signatures: Mapping[SymbolId, tuple[IrProgramParam, ...]] = field(default_factory=dict)
     param_bindings: dict[StaticBindingKey, SymbolId] = field(default_factory=dict)
-    param_decoders: dict[StaticBindingKey, ParamDecoder] = field(default_factory=dict)
-    param_spans: Mapping[StaticBindingKey, object] = field(default_factory=dict)
+    function_param_bindings: dict[FunctionParamKey, tuple[FunctionId, int]] = field(
+        default_factory=dict
+    )
+    param_decoders: dict[HostParamKey, ParamDecoder] = field(default_factory=dict)
+    param_spans: Mapping[HostParamKey, object] = field(default_factory=dict)
     contracts: dict["ContractId", "ContractRequest"] = field(default_factory=dict)
     target_contracts: dict["ContractId", TargetContractRequest] = field(default_factory=dict)
     builtin_nominals: BuiltinNominals = NO_BUILTIN_DECLARATIONS

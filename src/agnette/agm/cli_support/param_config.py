@@ -7,7 +7,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NamedTuple, NoReturn
 
-from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, StaticBindingKey
+from agnette.agl.ir.static_keys import (
+    FunctionParamKey,
+    HostParamKey,
+    StaticBindingKey,
+    host_param_label,
+)
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
@@ -321,7 +326,7 @@ def _targets(program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]) -> 
     """Return the program arguments and surface parameters its own tables address."""
     arguments = tuple(
         _Target(
-            f"{program.module.display()}::{program.declaration_path}::{argument.name}",
+            host_param_label(program.param_key(argument.name)),
             program.param_key(argument.name),
             project_option(argument.cli.name, argument.type),
             (argument.cli.name,),

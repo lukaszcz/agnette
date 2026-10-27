@@ -38,6 +38,14 @@ def static_binding_key(
     return module_id, tuple(scope_path), name
 
 
+def host_param_label(key: HostParamKey) -> str:
+    """Return the stable qualified spelling of a host parameter."""
+    if isinstance(key, FunctionParamKey):
+        return "::".join((key.module.display(), *key.scope_path, key.function, key.param))
+    module_id, scope_path, name = key
+    return "::".join((module_id.display(), *scope_path, name))
+
+
 @dataclass(frozen=True, slots=True)
 class Reachable:
     """The functions and ``@param`` bindings transitively referenced from a root.

@@ -134,7 +134,7 @@ from agnette.agl.ir.program import (
     ValueDescriptors,
     nominal_conforms,
 )
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, StaticBindingKey
 from agnette.agl.modules.ids import STD_CONFIG_ID, STD_ENV_ID, ModuleId
 from agnette.agl.runtime.agents import AgentFn
 from agnette.agl.runtime.codec import ParseResult, parse_contract_output
@@ -404,6 +404,7 @@ class IrInterpreter:
         host_reconfigurer: "HostSettingsReconfigurer | None" = None,
         builtin_host_settings: Mapping[str | BuiltinVarKey, Value] | None = None,
         param_seeds: Mapping[StaticBindingKey, Value] | None = None,
+        function_param_seeds: Mapping[FunctionParamKey, Value] | None = None,
         process_environment: Mapping[str, str] | None = None,
         extern_runtime_state: ExternRuntimeState | None = None,
     ) -> None:
@@ -449,6 +450,11 @@ class IrInterpreter:
             symbol: value
             for key, value in (param_seeds or {}).items()
             if (symbol := self._program.param_bindings.get(key)) is not None
+        }
+        self._seeded_defaults: dict[tuple[FunctionId, int], Value] = {
+            slot: value
+            for key, value in (function_param_seeds or {}).items()
+            if (slot := self._program.function_param_bindings.get(key)) is not None
         }
         self._host_reconfigurer = host_reconfigurer
         # Bound once and handed to every extern call's `ActiveCall`, so
@@ -1064,17 +1070,22 @@ class IrInterpreter:
         """Bind in parameter order; defaults see captures and earlier bound parameters.
 
         Supplied arguments evaluate in the caller's unchanged frame and context;
-        defaults run in the callee's call context. Non-default operands have the
-        type accepted by *eval_arg*, guaranteed by each caller's signature.
+        defaults run in the callee's call context. A host-seeded default is a fresh
+        copy of its seed instead. Non-default operands have the type accepted by
+        *eval_arg*, guaranteed by each caller's signature.
         """
         bound_values: list[Value] = []
-        for param, arg in zip(desc.params, arguments, strict=True):
+        for index, (param, arg) in enumerate(zip(desc.params, arguments, strict=True)):
             if isinstance(arg, UseDefault):
-                previous_module = self._enter_call(desc.module_id, location)
-                try:
-                    val = self._eval_default_in_frame(param, frame)
-                finally:
-                    self._exit_call(previous_module)
+                seed = self._seeded_defaults.get((desc.function_id, index))
+                if seed is not None:
+                    val = deep_copy_value(seed)
+                else:
+                    previous_module = self._enter_call(desc.module_id, location)
+                    try:
+                        val = self._eval_default_in_frame(param, frame)
+                    finally:
+                        self._exit_call(previous_module)
             else:
                 val = eval_arg(cast(_ArgT, arg))
             frame[param.symbol] = val

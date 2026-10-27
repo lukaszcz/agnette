@@ -770,6 +770,7 @@ def run(
                 program_symbol=program_symbol,
                 arguments=argument_preflight.arguments,
                 param_seeds=argument_preflight.param_seeds,
+                function_param_seeds=argument_preflight.function_param_seeds,
             )
         except Exception as exc:
             exit_for_agl_exception(exc)

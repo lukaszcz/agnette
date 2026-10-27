@@ -24,7 +24,11 @@ from typing import TYPE_CHECKING, Literal, assert_never, cast
 
 from agnette.agl.diagnostics import Diagnostic, diagnostic_from_span
 from agnette.agl.ir.nodes import UseDefault
-from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, StaticBindingKey
+from agnette.agl.ir.static_keys import (
+    FunctionParamKey,
+    HostParamKey,
+    host_param_label,
+)
 from agnette.agl.semantics.arguments import (
     ArgumentBindingError,
     ArgumentBindingErrorKind,
@@ -384,13 +388,13 @@ def bind_program_arguments_for(
     )
 
 
-def bind_param_values(
+def bind_param_values[K: HostParamKey](
     executable: "ExecutableProgram",
-    raw: "Mapping[StaticBindingKey, object]",
+    raw: "Mapping[K, object]",
     *,
     default_resolver: "DefaultResolver | None" = None,
-) -> "tuple[Mapping[StaticBindingKey, Value], tuple[Diagnostic, ...]]":
-    """Decode supplied module-parameter values against *executable*'s tables.
+) -> "tuple[Mapping[K, Value], tuple[Diagnostic, ...]]":
+    """Decode supplied module- and function-parameter values against *executable*'s tables.
 
     Every supplied key is checked independently so an unknown parameter and
     all malformed values are returned together before the interpreter starts.
@@ -399,29 +403,20 @@ def bind_param_values(
     """
     from agnette.agl.runtime.convert import StrictJsonParseError
 
-    values: dict[StaticBindingKey, Value] = {}
+    values: dict[K, Value] = {}
     diagnostics: list[Diagnostic] = []
     for key, value in raw.items():
         decoder = executable.param_decoders.get(key)
         if decoder is None:
-            module_id, scope_path, name = key
-            declaration_path = "::".join((*scope_path, name))
             diagnostics.append(
-                Diagnostic(
-                    message=(
-                        f"Unknown module parameter: {module_id.display()}::{declaration_path}"
-                    ),
-                    line=1,
-                )
+                Diagnostic(message=f"Unknown parameter: {host_param_label(key)}", line=1)
             )
             continue
         try:
             values[key] = decode_param_value(decoder, value, default_resolver=default_resolver)
         except (StrictJsonParseError, ValueError) as exc:
-            module_id, scope_path, name = key
-            declaration_path = "::".join((*scope_path, name))
             message = (
-                f"Module parameter {module_id.display()}::{declaration_path}: "
+                f"Parameter {host_param_label(key)}: "
                 f"could not parse as {decoder.target_type_label}: {exc}"
             )
             span = cast("SourceSpan", executable.param_spans[key])
@@ -433,25 +428,25 @@ def bind_param_values(
 
 def split_program_arguments(
     values: "Mapping[HostParamKey, object]", program: "ProgramDeclInfo"
-) -> "tuple[dict[StaticBindingKey, object], dict[str, object], dict[FunctionParamKey, object]]":
-    """Split host parameter *values* by the kind of parameter their key identifies.
+) -> "tuple[dict[HostParamKey, object], dict[str, object]]":
+    """Split host parameter *values* into seeds and *program*'s own arguments.
 
-    Returns the module-parameter values, *program*'s own arguments by name
-    (whether or not it declares them, so the binder can reject an unknown
-    one), and the values of other functions' parameters.
+    Returns the seeds (module parameters and other functions' parameters) and
+    *program*'s own arguments by name (whether or not it declares them, so the
+    binder can reject an unknown one).
     """
-    params: dict[StaticBindingKey, object] = {}
+    seeds: dict[HostParamKey, object] = {}
     arguments: dict[str, object] = {}
-    functions: dict[FunctionParamKey, object] = {}
     function = (program.module, program.scope_path, program.name)
     for key, value in values.items():
-        if not isinstance(key, FunctionParamKey):
-            params[key] = value
-        elif (key.module, key.scope_path, key.function) == function:
+        if (
+            isinstance(key, FunctionParamKey)
+            and (key.module, key.scope_path, key.function) == function
+        ):
             arguments[key.param] = value
         else:
-            functions[key] = value
-    return params, arguments, functions
+            seeds[key] = value
+    return seeds, arguments
 
 
 def default_program_arguments(

@@ -87,7 +87,7 @@ from agnette.agl.ir.program import (
     VariantDescriptor,
 )
 from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
-from agnette.agl.ir.static_keys import Reachable, StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, Reachable, StaticBindingKey
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import ModuleGraph
 from agnette.agl.modules.roots import RootSet, assemble_roots
@@ -351,6 +351,7 @@ def run_inline_code(
     param_values = run_kwargs.pop("param_values", None)
     positional = run_kwargs.pop("positional", None)
     module_params = run_kwargs.pop("module_params", None)
+    function_params = run_kwargs.pop("function_params", None)
     discovery = runtime.discover_programs(prepared)
     if discovery.compiled is None:
         return runtime.run_prepared(prepared, **run_kwargs)
@@ -369,7 +370,7 @@ def run_inline_code(
             prepared, compiled=discovery.compiled, select_default_program=True, **run_kwargs
         )
 
-    if not entry_program.parameters and module_params is None:
+    if not entry_program.parameters and module_params is None and function_params is None:
         assert not param_values and not positional, (
             "scenario supplied 'param_values'/'positional' but the entry program "
             "declares no value parameters to receive them - check the fixture's "
@@ -386,6 +387,7 @@ def run_inline_code(
         compiled=discovery.compiled,
         param_values={
             **module_param_values(discovery, entry_program, module_params),
+            **function_param_values(entry_program, function_params),
             **{
                 entry_program.param_key(name): value for name, value in (param_values or {}).items()
             },
@@ -406,6 +408,7 @@ def run_inline_code(
         program_symbol=argument_preflight.executable.program_symbols[entry_program.node_id],
         arguments=argument_preflight.arguments,
         param_seeds=argument_preflight.param_seeds,
+        function_param_seeds=argument_preflight.function_param_seeds,
         builtin_var_seeds=engine_seeds or None,
         **run_kwargs,
     )
@@ -428,6 +431,18 @@ def module_param_values(
             f"scenario supplied unknown module parameter {declaration_path!r}; "
             "check the fixture declaration path"
         )
+        values[key] = value
+    return values
+
+
+def function_param_values(
+    program: ProgramDeclInfo, declaration_values: Mapping[str, object] | None
+) -> dict[FunctionParamKey, object]:
+    """Translate scenario ``scope::function::param`` paths into keys in *program*'s module."""
+    values: dict[FunctionParamKey, object] = {}
+    for path, value in (declaration_values or {}).items():
+        *declaration, param = path.split("::")
+        key = FunctionParamKey(program.module, tuple(declaration[:-1]), declaration[-1], param)
         values[key] = value
     return values
 

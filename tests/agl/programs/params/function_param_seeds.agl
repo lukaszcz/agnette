@@ -1,0 +1,38 @@
+# A host value for a `@param` def parameter replaces its default at every call that omits the
+# argument: direct, nested, method, partial-application, and leading-dot section calls. An
+# explicit argument always wins, and a seeded mutable default is copied afresh for each call.
+
+record Counter
+  start: int
+
+def Counter::bump(self, @param by: int = 1) -> int = self.start + by
+
+def retries(@param count: int = 3) -> int = count
+
+def nested() -> int = retries() + 100
+
+def gather(@param items: array[int] = [1]) -> int =
+  items.push(items.size() + 1)
+  items.size()
+
+def apply(f: (text) -> text, x: text) -> text = f(x)
+
+scope Review
+
+  def refine(@param max-steps: int = 4, label: text = "r") -> text = "%{label}:%{max-steps}"
+end Review
+
+program def main() -> unit =
+  print retries()
+  print nested()
+  print Counter(start = 10).bump()
+  print Review::refine()
+  print retries(8)
+  print gather()
+  print gather()
+  let refined = Review::refine(label = ?)
+  print refined("p")
+  print apply(Review::refine(label = ?), "q")
+  let counters = [Counter(start = 1), Counter(start = 2)]
+  print counters.map(.bump())
+  print [1, 2].map(fn n => gather())

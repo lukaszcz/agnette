@@ -513,8 +513,9 @@ order. `ts` is an ISO-8601 local timestamp with an offset; `file`, `line`, and
 `col` identify the source location when known and are `null` otherwise. Source
 columns are 1-based. `run_start` records the invoked `command` and selected
 `function` when known. It also includes `arguments` by program parameter name,
-`parameters` for host-seeded `@param` bindings, and `config` for other
-host-seeded values. Parameter and config keys use qualified binding names;
+`parameters` for host-seeded `@param` bindings and `def` parameters of other functions
+(keyed `module::function::param`, a scope path preceding the function name), and `config`
+for other host-seeded values. Parameter and config keys use qualified names;
 enum values retain their `$case` tag, and decimal values are exact text strings.
 A non-empty dict whose keys are not text is written as an array of
 `{"key": …, "value": …}` entries; text-keyed and empty dicts are objects. Trace

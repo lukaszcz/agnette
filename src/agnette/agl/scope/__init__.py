@@ -7,7 +7,8 @@ Public API
   module.
 - :class:`ModuleResolution` — frozen dataclass carrying one module's
   ``Program`` plus side tables keyed by ``node_id``; its
-  ``param_bindings()`` yields every ``@param``-marked static binding.
+  ``param_bindings()`` and ``function_param_bindings()`` yield every ``@param``-marked
+  static binding and ``def`` parameter.
 - :class:`BuiltinKind` — enum classifying contextual built-in Call nodes.
 - :func:`recognize_program_registration` — parse-only recognition of one
   ``program def``'s documentation and registered command, for callers that

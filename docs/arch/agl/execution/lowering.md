@@ -6,7 +6,7 @@ Lowering consumes the match-compiled program and emits one linked, typeless exec
 
 - **Type facts are read, never re-inferred.** Argument bindings, selected constructors and methods, cast kinds, and contract specs come from checker side tables; lowering compiles them into typeless recipes, schemas, and encode plans (`coercions.py`, `conversions.py`, `type_schema.py`), and type arguments are erased. Nominal identity survives as `NominalId`; shapes come from the shared `TypeTable`. Checker-guaranteed shapes are trusted, not re-checked.
 - **Modular reuse.** Imported modules lower in stable allocation namespaces, so their IR persists independently (`lower/module.py`); resource paths are revalidated on reuse. REPL linking keeps a session-owned allocation image ([../repl.md](../repl.md)).
-- **Host surface.** Each `program def` gets a host-facing parameter signature; `@param` bindings keep their binding symbols and decoders; `@config` entries lower to checked constant expressions ([../hosting.md](../hosting.md)).
+- **Host surface.** Each `program def` gets a host-facing parameter signature; `@param` bindings keep their binding symbols and decoders, `@param` `def` parameters their function and parameter index (`function_param_bindings`) with decoders and spans alongside; `@config` entries lower to checked constant expressions ([../hosting.md](../hosting.md)).
 
 Notable shapes:
 
