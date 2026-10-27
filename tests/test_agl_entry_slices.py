@@ -208,22 +208,6 @@ def test_slicing_a_file_reads_it_in_linear_work() -> None:
     assert large < 2.1 * small
 
 
-def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_it() -> None:
-    source = "let a = 1\ndef f() -> int =\n  let y = a\n  y + 1\n\nlet b = f()\n"
-    lexed, _ = _parsed(source)
-    ranges = [(0, 9), (10, 46), (48, 59)]
-
-    slices = entry_slices(lexed, ranges)
-
-    for (start, end), read in zip(ranges, slices):
-        assert read is not None
-        text = source[start:end]
-        with lex_replay(read):
-            from_slice = parse_program_seeded(text, start_id=0)
-        assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
-        assert "start" in read.parses
-
-
 _BLOCK_ENDINGS = {
     "bare": "def m(x: int) -> int =\n  case x of\n    | 1 =>\n      2\n    | 1 =>\n      3",
     "comment": (
@@ -258,3 +242,41 @@ def test_an_entry_ending_in_a_block_has_the_tokens_of_its_text_scanned(name: str
     for text, read in _block_entry_slices(name):
         scanned = lex_source(text).tokens
         assert [_position(t) for t in read.tokens] == [_position(t) for t in scanned]
+
+
+@pytest.mark.parametrize("name", sorted(_BLOCK_ENDINGS))
+def test_an_entry_ending_in_a_block_has_the_spans_of_its_text_parsed(name: str) -> None:
+    for text, read in _block_entry_slices(name):
+        with lex_replay(read):
+            from_slice = parse_program_seeded(text, start_id=0)
+        assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
+
+
+@pytest.mark.parametrize(
+    ("source", "ranges"),
+    [
+        (
+            "let a = 1\ndef f() -> int =\n  let y = a\n  y + 1\n\nlet b = f()\n",
+            [(0, 9), (10, 46), (48, 59)],
+        ),
+        (
+            "let a = 1\ndef f() -> int =\n  case a of\n    | 1 =>\n      2 # note\nlet b = f()\n",
+            [(0, 9), (10, 64), (65, 76)],
+        ),
+    ],
+    ids=["newline-after", "comment-last"],
+)
+def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_it(
+    source: str, ranges: list[tuple[int, int]]
+) -> None:
+    lexed, _ = _parsed(source)
+
+    slices = entry_slices(lexed, ranges)
+
+    for (start, end), read in zip(ranges, slices):
+        assert read is not None
+        text = source[start:end]
+        with lex_replay(read):
+            from_slice = parse_program_seeded(text, start_id=0)
+        assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
+        assert "start" in read.parses

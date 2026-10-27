@@ -42,7 +42,7 @@ from agnette.agl.lexer.errors import (
 )
 from agnette.agl.lexer.lexer import build_parser
 from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span, touched_ranges
-from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
+from agnette.agl.lexer.tokens import LAYOUT_TOKENS, VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import (
     MISPLACED_INNER_ATTRIBUTE_MESSAGE,
@@ -493,8 +493,9 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     scanning (:func:`~agnette.agl.lexer.lexed_slices`). When *lexed* also records the
     module's program parse, a slice holding the module's top-level items whole also carries
     their parse, so reading it parses nothing; the module's leading inner attributes belong
-    to the first entry. The whitespace after an item, which an indented block's closing layout
-    covers, is no part of it. ``None`` for an entry that is not a pass of its own: all of them
+    to the first entry. What follows an item's last token, which an indented block's closing
+    layout covers (whitespace, a comment), is no part of it: the slice's spans end there, as
+    parsing its text alone puts them. ``None`` for an entry that is not a pass of its own: all of them
     when *lexed* failed.
     """
     lines = LineIndex(lexed.text)
@@ -520,7 +521,9 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     for sliced, (start, end), entry in zip(slices, ranges, entries):
         if sliced is None or not entry:
             continue
-        sliced.parses[_PROGRAM_START] = _module_tree(entry, Rebase(lines, start, end))
+        code = next(t for t in reversed(sliced.tokens) if t.type not in LAYOUT_TOKENS)
+        rebase = Rebase(lines, start, (end, start + cast(int, code.end_pos)))
+        sliced.parses[_PROGRAM_START] = _module_tree(entry, rebase)
     return slices
 
 

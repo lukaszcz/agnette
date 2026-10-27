@@ -68,14 +68,15 @@ class Rebase:
     """Maps positions in a text to the positions they have in its tail starting at *start*.
 
     Positions are 1-based lines and columns and 0-based offsets, as tokens carry them. With
-    *end*, the tail stops there: a position past it, such as the newline a closing layout
-    token covers after the tail's last item, is read as *end*.
+    *bound* ``(end, clamp)``, the tail stops at *end*: a position past it, such as the newline
+    a closing layout token covers after the tail's last item, is read as *clamp*, where
+    scanning the tail alone puts it: the end of the tail's last token.
     """
 
-    def __init__(self, lines: LineIndex, start: int, end: int | None = None) -> None:
+    def __init__(self, lines: LineIndex, start: int, bound: tuple[int, int] | None = None) -> None:
         self._lines = lines
         self._start = start
-        self._end = end
+        self._bound = bound
         self._line = lines.line(start)
         self._first_column = start - lines.offset(self._line, 1)
 
@@ -90,8 +91,8 @@ class Rebase:
 
     def position(self, offset: int, line: int, column: int) -> tuple[int, int, int]:
         """The rebased ``(offset, line, column)`` of a position, bounded by the tail's end."""
-        if self._end is not None and offset > self._end:
-            offset = self._end
+        if self._bound is not None and offset > self._bound[0]:
+            offset = self._bound[1]
             line = self._lines.line(offset)
             column = offset - self._lines.offset(line, 1) + 1
         return self.offset(offset), self.line(line), self.column(line, column)

@@ -73,6 +73,7 @@ from agnette.agl.keywords import (
 NEWLINE = "_NEWLINE"
 INDENT = "_INDENT"
 DEDENT = "_DEDENT"
+LAYOUT_TOKENS = frozenset({NEWLINE, INDENT, DEDENT})
 
 # Recovery-only token; never passed to the parser.
 ERROR = "ERROR"

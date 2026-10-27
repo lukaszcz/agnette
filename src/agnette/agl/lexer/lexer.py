@@ -81,6 +81,7 @@ from agnette.agl.lexer.tokens import (
     IMPORT,
     INDENT,
     INDEX_LSQB,
+    LAYOUT_TOKENS,
     LBRACE,
     LPAR,
     LSQB,
@@ -275,9 +276,6 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
         yield
 
 
-_LAYOUT_TYPES = frozenset({NEWLINE, INDENT, DEDENT})
-
-
 def lexed_slices(
     lexed: LexedSource, ranges: Sequence[tuple[int, int]], lines: LineIndex
 ) -> list[LexedSource | None]:
@@ -307,7 +305,7 @@ def lexed_slices(
         if starts[index] <= start_pos and end_pos <= ranges[index][1]:
             rebased = rebases[index].token(token)
             tokens[index].append(rebased)
-            if token.type not in _LAYOUT_TYPES:
+            if token.type not in LAYOUT_TOKENS:
                 last_code[index] = rebased
         elif token.type == DEDENT and start_pos >= ranges[index][1] and anchor is not None:
             # A range ending in a block, short of the newline, is closed by dedents past its end;
