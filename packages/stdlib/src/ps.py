@@ -23,11 +23,6 @@ ProcessError = nominals.std.ps.ProcessError
 ProcessExitError = nominals.std.ps.ProcessExitError
 Process = nominals.std.ps.Process
 
-# The ``runtime.state`` key of the decoded outcomes, by process id. A waited-for process stays
-# retained: the host keeps its raw payload and this cache the decoded result for the host
-# session, and only `detach` releases them.
-_OUTCOMES_KEY = "std/ps/outcomes"
-
 
 class _Process(Protocol):
     """A ``Process`` handle."""
@@ -108,14 +103,14 @@ def _decode(process: _Process, outcome: object) -> object:
 
 def wait(p: _Process) -> object:
     """Wait for *p* and return its result or raise its exception; see `ps::wait`."""
+
+    def decode(outcome: object) -> object:
+        result = _decode(p, outcome)
+        runtime.trace("exit", {"child_pid": p.pid, "raised": isinstance(result, AglException)})
+        return result
+
     with _process_errors():
-        outcome = runtime.processes.outcome(p.id)
-        decoded: dict[str, object] = runtime.state(_OUTCOMES_KEY, dict)
-        if p.id not in decoded:
-            decoded[p.id] = _decode(p, outcome)
-            raised = isinstance(decoded[p.id], AglException)
-            runtime.trace("exit", {"child_pid": p.pid, "raised": raised})
-        result = decoded[p.id]
+        result = runtime.processes.decoded(p.id, decode)
     if isinstance(result, AglException):
         # A fresh carrier each time: the evaluator annotates the one it propagates.
         raise AglException(result.value, span=result.span)
@@ -150,7 +145,6 @@ def detach(p: _Process) -> None:
     """Release *p*; see `ps::detach`."""
     with _process_errors():
         runtime.processes.detach(p.id)
-    runtime.state(_OUTCOMES_KEY, dict).pop(p.id, None)
 
 
 __all__ = ["detach", "fork", "settle", "settle_any", "terminate", "terminate_all", "wait"]

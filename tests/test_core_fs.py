@@ -354,11 +354,12 @@ def test_fs_error_message_names_the_operation_and_path() -> None:
 def test_write_all_handles_partial_writes(monkeypatch: pytest.MonkeyPatch) -> None:
     writes: list[bytes] = []
 
-    def fake_write(_fd: int, data: memoryview) -> int:
-        writes.append(bytes(data))
+    def fake_write(_fd: int, chunks: list[memoryview]) -> int:
+        data = b"".join(chunks)
+        writes.append(data)
         return min(2, len(data))
 
-    monkeypatch.setattr(os, "write", fake_write)
+    monkeypatch.setattr(os, "writev", fake_write)
 
     fs.write_all(1, b"hello")
 
@@ -366,6 +367,20 @@ def test_write_all_handles_partial_writes(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_write_all_stops_if_write_makes_no_progress(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(os, "write", lambda _fd, _data: 0)
+    monkeypatch.setattr(os, "writev", lambda _fd, _data: 0)
 
     fs.write_all(1, b"hello")
+
+
+def test_write_all_resumes_across_chunk_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
+    writes: list[bytes] = []
+
+    def fake_writev(_fd: int, chunks: list[memoryview]) -> int:
+        data = b"".join(chunks)
+        writes.append(data)
+        return min(3, len(data))
+
+    monkeypatch.setattr(os, "writev", fake_writev)
+    fs.write_all(1, b"", b"ab", b"cdef", b"gh", b"")
+    fs.write_all(1)
+    assert writes == [b"abcdefgh", b"defgh", b"gh"]

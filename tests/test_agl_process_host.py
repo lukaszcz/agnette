@@ -2621,3 +2621,36 @@ def test_companion_runtime_processes_need_an_active_extern_call(tmp_path: Path) 
     companion = ExternRegistry().load_companion(ENTRY_ID, path)
 
     assert companion.probe()
+
+
+def _decoded_outcomes(workdir: Path) -> dict[str, Any]:
+    calls = []
+    reports = []
+    with _host(reporter=lambda info, problem: reports.append(problem)) as host:
+        process = host.fork(lambda: Delivered(b"payload", failure="failure"), ())
+
+        def decode(outcome: Outcome) -> object:
+            calls.append(outcome)
+            if len(calls) == 1:
+                raise ValueError("retry")
+            return None
+
+        with pytest.raises(ValueError):
+            host.decoded(process.id, decode)
+        assert host.decoded(process.id, decode) is None
+        assert host.decoded(process.id, decode) is None
+        host.settle(process.id)
+        assert host.settle_any([process.id]) == 0
+        host.terminate(process.id)
+        with pytest.raises(ProcessHostError):
+            host.outcome(process.id)
+        host.end(Disposition.SETTLE)
+        host.detach(process.id)
+        for id in (process.id, "unknown"):
+            with pytest.raises(ProcessHostError):
+                host.decoded(id, decode)
+    return {"calls": len(calls), "reports": reports}
+
+
+def test_decoded_outcomes_retry_failures_and_retain_only_the_decoded_value(tmp_path: Path) -> None:
+    assert run_callable(_decoded_outcomes, tmp_path).value == {"calls": 2, "reports": []}

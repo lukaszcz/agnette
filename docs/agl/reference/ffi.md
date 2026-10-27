@@ -212,6 +212,11 @@ pairs with `agl.transfer`:
   failure=summary)` instead of bytes: the payload is then a delivered failure
   (say, a carried exception) described by the one-line `summary`, which the
   host never interprets, and the child tears down as one that raised.
+- `decoded(id, decode)` blocks and consumes the outcome, then returns
+  `decode(outcome)`. The first successful decode replaces the raw outcome;
+  later calls return the stored value without calling `decode`. A decode that
+  raises can be retried. After a successful decode, `outcome(id)` raises
+  `ProcessHostError`; `detach(id)` releases the stored value.
 - `terminate(id)` sends SIGTERM to the process and its group, then drains and
   reaps until the process ends. If it outlives a 10 second grace period, or the
   call is interrupted, the process is killed at once (SIGKILL). A finished

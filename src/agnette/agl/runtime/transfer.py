@@ -297,7 +297,11 @@ class ImageTransfer:
                 raise TransferError(str(exc)) from exc
         root, table = _Flattener().flatten(value)
         envelope = (isinstance(obj, AglException), root, _span_fields(span), table)
-        return _MAGIC + self._token + pickle.dumps(envelope, protocol=pickle.HIGHEST_PROTOCOL)
+        stream = io.BytesIO()
+        stream.write(_MAGIC)
+        stream.write(self._token)
+        pickle.Pickler(stream, protocol=pickle.HIGHEST_PROTOCOL).dump(envelope)
+        return stream.getvalue()
 
     def loads(self, data: bytes) -> object:
         """Rebuild a payload of this image as a boundary value, or an ``AglException`` carrier.
@@ -308,7 +312,9 @@ class ImageTransfer:
             raise TransferError("agl.transfer.loads may run only during an extern call")
         if data[: len(_MAGIC)] != _MAGIC or data[len(_MAGIC) : _HEADER_SIZE] != self._token:
             raise TransferError("payload is not a transfer of this program image")
-        carrier, value, span = _read(data[_HEADER_SIZE:])
+        stream = io.BytesIO(data)
+        stream.seek(_HEADER_SIZE)
+        carrier, value, span = _read(stream)
         if carrier:
             return AglException(value, span=span)
         return encode_boundary_value(value, current_descriptors())
@@ -326,9 +332,8 @@ def _span_fields(span: Location | None) -> tuple[int, ...] | None:
     )
 
 
-def _read(body: bytes) -> tuple[bool, Value, Location | None]:
+def _read(stream: io.BytesIO) -> tuple[bool, Value, Location | None]:
     """Unpickle and rebuild one payload body: ``(is carrier, raw value, span)``."""
-    stream = io.BytesIO(body)
     try:
         envelope = cast("object", _Unpickler(stream).load())
         trailing = stream.read(1)

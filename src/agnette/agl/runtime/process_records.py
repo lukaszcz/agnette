@@ -72,17 +72,18 @@ class Ended:
 Outcome = Delivered | Failed | Ended
 
 
-def _frame(tag: bytes, body: bytes) -> bytes:
-    return tag + len(body).to_bytes(_LENGTH_SIZE, "big") + body
+def _frame(tag: bytes, *chunks: bytes) -> tuple[bytes, ...]:
+    return (tag + sum(map(len, chunks)).to_bytes(_LENGTH_SIZE, "big"), *chunks)
 
 
-def delivered_record(delivered: Delivered) -> bytes:
+def delivered_record(delivered: Delivered) -> tuple[bytes, ...]:
     """The record delivering *delivered*; a summary that is not valid Unicode is escaped."""
     if delivered.failure is None:
         return _frame(_DELIVERED, delivered.payload)
     summary = delivered.failure.encode("utf-8", errors="backslashreplace")
-    body = len(summary).to_bytes(_LENGTH_SIZE, "big") + summary + delivered.payload
-    return _frame(_DELIVERED_FAILURE, body)
+    return _frame(
+        _DELIVERED_FAILURE, len(summary).to_bytes(_LENGTH_SIZE, "big"), summary, delivered.payload
+    )
 
 
 def parse_record(data: bytes | bytearray) -> Delivered | Failed | None:
@@ -126,6 +127,6 @@ def _describe(exc: Exception) -> str:
         return type(exc).__qualname__
 
 
-def failed_record(exc: Exception) -> bytes:
+def failed_record(exc: Exception) -> tuple[bytes, ...]:
     """The record reporting *exc*; text that is not valid Unicode is escaped, not lost."""
     return _frame(_FAILED, _describe(exc).encode("utf-8", errors="backslashreplace"))

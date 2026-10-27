@@ -1421,7 +1421,8 @@ class TestTraceProcessAttribution:
         writes: list[bytes] = []
         opens: list[int] = []
 
-        def spy_write(fd: int, data: bytes) -> int:
+        def spy_write(fd: int, chunks: list[memoryview]) -> int:
+            data = b"".join(chunks)
             writes.append(bytes(data))
             return os.write(fd, data)
 
@@ -1431,7 +1432,7 @@ class TestTraceProcessAttribution:
 
         monkeypatch.setattr(
             "agnette.core.fs.os",
-            SimpleNamespace(**{**vars(os), "write": spy_write, "open": spy_open}),
+            SimpleNamespace(**{**vars(os), "writev": spy_write, "open": spy_open}),
         )
         path = tmp_path / "trace.jsonl"
         trace = TraceStore(path)
@@ -1450,14 +1451,15 @@ class TestTraceProcessAttribution:
 
         shorted: list[int] = []
 
-        def short_once(fd: int, data: bytes) -> int:
+        def short_once(fd: int, chunks: list[memoryview]) -> int:
+            data = b"".join(chunks)
             if shorted:
                 return os.write(fd, data)
             shorted.append(len(data))
             return os.write(fd, data[: len(data) // 2])
 
         monkeypatch.setattr(
-            "agnette.core.fs.os", SimpleNamespace(**{**vars(os), "write": short_once})
+            "agnette.core.fs.os", SimpleNamespace(**{**vars(os), "writev": short_once})
         )
         path = tmp_path / "trace.jsonl"
         trace = TraceStore(path)
@@ -1475,11 +1477,11 @@ class TestTraceProcessAttribution:
     ) -> None:
         from agnette.agl.runtime.trace import TraceStore
 
-        def failing_write(fd: int, data: bytes) -> int:
+        def failing_write(fd: int, chunks: list[memoryview]) -> int:
             raise OSError(errno.ENOSPC, "no space left on device")
 
         monkeypatch.setattr(
-            "agnette.core.fs.os", SimpleNamespace(**{**vars(os), "write": failing_write})
+            "agnette.core.fs.os", SimpleNamespace(**{**vars(os), "writev": failing_write})
         )
         trace = TraceStore(tmp_path / "trace.jsonl")
         trace.print_stmt(rendered="hello")

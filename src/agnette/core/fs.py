@@ -210,16 +210,17 @@ def append_text(path: Path, content: str) -> None:
         os.close(fd)
 
 
-def write_all(fd: int, data: bytes) -> None:
-    """Write all *data* to *fd*, resuming after short writes; stop if one makes no progress."""
-
-    # A memoryview keeps the unwritten tail a zero-copy slice of *data*.
-    remaining = memoryview(data)
+def write_all(fd: int, *chunks: bytes) -> None:
+    """Write all *chunks*, resuming across short writes; stop on no progress."""
+    remaining = [memoryview(chunk) for chunk in chunks if chunk]
     while remaining:
-        written = os.write(fd, remaining)
+        written = os.writev(fd, remaining)
         if written == 0:
             return
-        remaining = remaining[written:]
+        while remaining and written >= len(remaining[0]):
+            written -= len(remaining.pop(0))
+        if remaining and written:
+            remaining[0] = remaining[0][written:]
 
 
 def copy_file(source: Path, destination: Path) -> None:

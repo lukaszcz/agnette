@@ -204,6 +204,12 @@ class _Entry:
     buffer: bytearray = field(default_factory=bytearray)
     result: Outcome | None = None
     consumed: bool = False
+    decoded: object = None
+    has_decoded: bool = False
+
+    @property
+    def done(self) -> bool:
+        return self.result is not None or self.has_decoded
 
 
 def _signal(entry: _Entry, number: int = signal.SIGKILL) -> None:
@@ -450,7 +456,7 @@ class ProcessHost:
             for hooks in prepared:
                 hooks.child()
                 entered.append(hooks)
-        record: bytes | None
+        record: tuple[bytes, ...] | None
         try:
             returned = child()
             delivered = returned if isinstance(returned, Delivered) else Delivered(returned)
@@ -473,7 +479,7 @@ class ProcessHost:
         if record is not None:
             # A closed reader (a detached process) is not an error.
             with suppress(BrokenPipeError):
-                write_all(write_fd, record)
+                write_all(write_fd, *record)
         sys.stdout.flush()
         sys.stderr.flush()
         return end
@@ -527,19 +533,32 @@ class ProcessHost:
         if not ids:
             raise ProcessHostError("settle_any needs at least one process")
         entries = [self._entry(id) for id in ids]
-        self._pump(lambda: any(entry.result is not None for entry in entries))
-        return next(index for index, entry in enumerate(entries) if entry.result is not None)
+        self._pump(lambda: any(entry.done for entry in entries))
+        return next(index for index, entry in enumerate(entries) if entry.done)
 
     def outcome(self, id: str) -> Outcome:
         """Block until process *id* has finished, then return its outcome (idempotent).
 
-        Consumes the outcome: :meth:`end` does not report it.
+        Consumes the outcome: :meth:`end` does not report it. Raises
+        :class:`ProcessHostError` after :meth:`decoded` has replaced the raw outcome.
         """
         self.settle(id)
         entry = self._entries[id]
+        if entry.has_decoded:
+            raise ProcessHostError(f"process {id!r} outcome has been decoded")
         assert entry.result is not None
         entry.consumed = True
         return entry.result
+
+    def decoded(self, id: str, decode: Callable[[Outcome], object]) -> object:
+        """Decode once, replacing the raw outcome; a failed decode can be retried."""
+        entry = self._entry(id)
+        if not entry.has_decoded:
+            result = decode(self.outcome(id))
+            entry.decoded = result
+            entry.has_decoded = True
+            entry.result = None
+        return entry.decoded
 
     def detach(self, id: str) -> None:
         """Release process *id*: it is no longer awaited, and a later use of it is an error."""
@@ -547,7 +566,7 @@ class ProcessHost:
         entry = self._entry(id)
         # Held, so that an interrupt cannot leave the child or its pipe unreleased.
         with held_signals(_TERMINATING):
-            if entry.result is None:
+            if not entry.done:
                 self._detached.append(entry.pid)
             _close_pipe(entry)
             del self._entries[id]
@@ -623,7 +642,7 @@ class ProcessHost:
 
     @staticmethod
     def _all_done(entries: Sequence[_Entry]) -> Callable[[], bool]:
-        return lambda: all(entry.result is not None for entry in entries)
+        return lambda: all(entry.done for entry in entries)
 
     def _terminate(self, entries: Sequence[_Entry]) -> None:
         """Terminate those of *entries* that have not finished, under one shared deadline.
@@ -633,7 +652,7 @@ class ProcessHost:
         groups of the stragglers. Any exception meanwhile (an interrupt) skips the wait:
         the remaining ones are killed and reaped, and it propagates.
         """
-        targets = [entry for entry in entries if entry.result is None]
+        targets = [entry for entry in entries if not entry.done]
         done = self._all_done(targets)
         try:
             for entry in targets:
@@ -652,7 +671,7 @@ class ProcessHost:
         """
         with held_signals(_TERMINATING):
             for entry in targets:
-                if entry.result is None:
+                if not entry.done:
                     _signal(entry)
             self._pump(done)
 
@@ -673,12 +692,12 @@ class ProcessHost:
         """
         entries = list(self._entries.values())
         for entry in entries:
-            if entry.result is None and entry.fd < 0:
+            if not entry.done and entry.fd < 0:
                 # At EOF, but an interrupt cut its reaping short.
                 self._reap(entry)
         if done():
             return
-        running = {entry.fd: entry for entry in entries if entry.result is None}
+        running = {entry.fd: entry for entry in entries if not entry.done}
         poller = select.poll()
         for fd in running:
             poller.register(fd, select.POLLIN)
