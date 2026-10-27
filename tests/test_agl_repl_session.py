@@ -11546,3 +11546,32 @@ def test_a_tab_indented_first_line_reports_the_columns_a_later_line_does() -> No
     (first_error,), (later_error,) = first.diagnostics, later.diagnostics
     assert (first_error.line, first_error.column) == (1, 5)
     assert (later_error.line, later_error.column) == (2, 5)
+
+
+@pytest.mark.parametrize("indent", ["  ", "\t"], ids=("spaces", "tab"))
+def test_an_entry_indented_throughout_is_read_at_its_own_base_level(indent: str) -> None:
+    session = ReplSession()
+    session.open()
+
+    result = session.eval_entry(f"# note\n{indent}let q = 1\n{indent}q + 1\n")
+
+    assert result.ok
+    assert result.value == IntValue(2)
+
+
+def test_an_entry_indented_throughout_may_hold_blocks() -> None:
+    session = ReplSession()
+    session.open()
+
+    result = session.eval_entry("  def f() -> int =\n    1\n  f()")
+
+    assert result.ok
+    assert result.value == IntValue(1)
+
+
+def test_the_first_lines_indentation_is_a_top_level_indentation_beside_column_zero() -> None:
+    session = ReplSession()
+    session.open()
+
+    assert session.eval_entry("  let q = 1\nq").value == IntValue(1)
+    assert not session.eval_entry("    let r = 1\n  r").ok

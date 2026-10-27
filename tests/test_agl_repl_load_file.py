@@ -10,6 +10,7 @@ from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.repl.entry import EntryResult, FileOrigin, relocate
 from agnette.agl.repl.render import render_entry_result
 from agnette.agl.repl.session import ReplSession
+from agnette.agl.semantics.values import IntValue
 
 HOLE = "unquoted-exec-hole"
 UNUSED_MODULE_DOC = "unused-module-doc"
@@ -260,3 +261,15 @@ def _session_dump_after(tmp_path: Path, saved: Path) -> str:
     session = _session()
     session.load_file(saved)
     return session.dump_source()
+
+
+def test_a_file_indented_throughout_loads_at_its_own_base_level(tmp_path: Path) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text("  let q = 1\n  def f() -> int =\n    q + 1\n  f()\n")
+    session = ReplSession()
+    session.open()
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True] * 3
+    assert results[-1].value == IntValue(2)

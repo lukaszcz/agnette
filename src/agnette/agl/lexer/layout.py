@@ -6,7 +6,8 @@ rules.
 
 Key rules
 ---------
-- The indent stack starts at ``[0]``.
+- The indent stack starts at ``[0]``. The first code line's indentation (the *base*) is a
+  top-level level too: at the bottom of the stack a line indented by the base is at level 0.
 - Inside brackets/parens/braces (``paren_level > 0``) ``_NEWLINE`` tokens are
   suppressed (implicit line continuation).
 - On a ``_NEWLINE`` token: compare the carried indentation width against the
@@ -49,6 +50,7 @@ Key rules
 
 from __future__ import annotations
 
+from itertools import chain
 from typing import Iterator, cast
 
 from lark.lexer import Token
@@ -143,6 +145,11 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
     Token
         The augmented token stream with layout tokens injected.
     """
+    stream = iter(tokens)
+    first = next(stream, None)
+    if first is not None:
+        stream = chain([first], stream)
+    base = 0 if first is None else token_span(first).start_col - 1
     indent_stack: list[int] = [0]
     # Parallel stack aligned with indent_stack: each entry is either the
     # enclosing indent level (indent_stack top before the _INDENT push) when a
@@ -153,7 +160,6 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
 
     # One-token lookahead buffer for the branch/compound continuation rule.
     buffered: list[Token] = []
-    stream = iter(tokens)
 
     # Pending loop body flag: set True when a KW_DO token is seen, carried
     # across the bound bracket (if any), cleared on the first non-bound-bracket
@@ -284,6 +290,8 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
         # paren_level == 0 (bound is closed) or there was no bound.
         # The _INDENT will push the new level tagged with do_col.
         indent_width = int(str(tok))
+        if len(indent_stack) == 1 and indent_width == base:
+            indent_width = 0
 
         # Peek at the next two tokens: the first for the continuation rules, the
         # second for the operator-position test the leading one applies to it.
@@ -356,6 +364,8 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             # Dedent: pop levels and emit _DEDENT for each
             while len(indent_stack) > 1 and indent_stack[-1] > indent_width:
                 yield from _pop_level(tok, sig)
+            if len(indent_stack) == 1 and indent_width == base:
+                indent_width = 0
 
             if indent_stack[-1] != indent_width:
                 # Misaligned dedent — the new indentation is not on the stack.
