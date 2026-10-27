@@ -197,6 +197,10 @@ def _raise_value_error() -> bytes:
     raise ValueError("boom")
 
 
+def _raise_generator_exit() -> bytes:
+    raise GeneratorExit("stop")
+
+
 def _survive_interrupt(number: signal.Signals) -> Callable[[], bytes]:
     def child() -> bytes:
         try:
@@ -277,12 +281,17 @@ def _child_environment(workdir: Path) -> dict[str, Any]:
     reader, writer = os.pipe()
     os.write(writer, b"typed")
     os.dup2(reader, 0)
+    inherited_stdin = sys.stdin
+    sys.stdin = None
     sys.stdout.write("before-")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        with _host(StdioFlushParticipant()) as host:
-            info = host.fork(_describe_child, ())
-            outcome = host.outcome(info.id)
+        try:
+            with _host(StdioFlushParticipant()) as host:
+                info = host.fork(_describe_child, ())
+                outcome = host.outcome(info.id)
+        finally:
+            sys.stdin = inherited_stdin
     assert isinstance(outcome, Delivered)
     return {
         "info": [info.pid, info.id != ""],
@@ -304,6 +313,78 @@ def test_a_child_is_a_detached_group_leader_with_null_stdin_and_flushed_stdio(
     assert described["sigterm_raises"]
     assert result.value["warnings"] == []
     assert result.stdout == "before-"
+
+
+def _child_python_stdin(workdir: Path) -> dict[str, str]:
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"first\nsecond\n")
+    os.close(write_fd)
+    original_stdin = sys.stdin
+    saved_stdin_fd = os.dup(0)
+    os.dup2(read_fd, 0)
+    os.close(read_fd)
+    sys.stdin = os.fdopen(0, "r")
+    first = sys.stdin.readline()
+
+    def child() -> bytes:
+        return json.dumps(
+            {"python": sys.stdin.readline(), "descriptor": os.read(0, 16).decode()}
+        ).encode()
+
+    with _host() as host:
+        outcome = host.outcome(host.fork(child, ()).id)
+    assert isinstance(outcome, Delivered)
+    second = sys.stdin.readline()
+    sys.stdin.close()
+    os.dup2(saved_stdin_fd, 0)
+    os.close(saved_stdin_fd)
+    sys.stdin = original_stdin
+    return {"first": first, "second": second, **json.loads(outcome.payload)}
+
+
+def test_a_child_does_not_read_prefetched_python_stdin(tmp_path: Path) -> None:
+    result = run_callable(_child_python_stdin, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert result == {"first": "first\n", "second": "second\n", "python": "", "descriptor": ""}
+
+
+def _child_default_session_environment(workdir: Path) -> str:
+    from agnette.agl import PipelineDriver
+
+    environment = {"PATH": "/child/path", "TOKEN": "credential"}
+
+    def dispatch(request: Any) -> AgentResponse:
+        return AgentResponse(json.dumps(request.env, sort_keys=True), {})
+
+    runtime = PipelineDriver(
+        session_host=AgentDispatcherSessionHost(dispatch),
+        get_sandbox_context=None,
+        resolve_agent_spec=None,
+    )
+    source = (
+        "import std/config\n"
+        "import std/ps\n"
+        "program def main() -> unit =\n"
+        '  std/config::default-agent := AgentCommand("worker")\n'
+        '  let parent: text = ask("parent")\n'
+        '  print ps::wait(ps::fork(fn() => ask("child")))\n'
+        "  ()\n"
+    )
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        result = runtime.run(source, process_environment=environment)
+    assert result.ok, (result.diagnostics, result.error)
+    return output.getvalue().strip()
+
+
+def test_a_child_reopens_the_default_session_with_the_current_environment(
+    tmp_path: Path,
+) -> None:
+    environment = run_callable(
+        _child_default_session_environment, tmp_path, timeout=RUN_TIMEOUT
+    ).value
+
+    assert json.loads(environment) == {"PATH": "/child/path", "TOKEN": "credential"}
 
 
 def _child_stdout_is_flushed(workdir: Path) -> None:
@@ -566,6 +647,25 @@ def test_child_teardown_exits_the_entered_participants_and_keeps_the_first_failu
     # A failing `child_exit` keeps the error of an already failed callable.
     assert result["failed child"][0] == "F"
     assert "boom" in result["failed child"][1]
+
+
+def _base_exception_teardown(workdir: Path) -> dict[str, Any]:
+    log = workdir / "log"
+    with _host(_Recorder("a", log)) as host:
+        outcome = _show(host.outcome(host.fork(_raise_generator_exit, ()).id))
+    return {
+        "outcome": outcome,
+        "child": [line[2:] for line in _lines(log) if line.startswith("C ")],
+    }
+
+
+def test_child_exit_hooks_run_when_the_callable_raises_generator_exit(tmp_path: Path) -> None:
+    result = run_callable(_base_exception_teardown, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert result == {
+        "outcome": ["E", 70, None],
+        "child": ["child a:a", "exit TERMINATE:a"],
+    }
 
 
 class _UnprintableText:

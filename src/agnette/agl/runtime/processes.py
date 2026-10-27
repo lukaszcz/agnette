@@ -458,9 +458,14 @@ class ProcessHost:
         os.setpgid(0, 0)
         # Signals held since the fork now interrupt this guarded code.
         signal.pthread_sigmask(signal.SIG_SETMASK, unblocked)
+        inherited_stdin = sys.stdin
+        sys.stdin = open(os.devnull, "r")
+        if inherited_stdin is not None:
+            inherited_stdin.close()
         stdin = os.open(os.devnull, os.O_RDONLY)
-        os.dup2(stdin, 0)
-        os.close(stdin)
+        if stdin != 0:
+            os.dup2(stdin, 0)
+            os.close(stdin)
         entered: list[_Prepared] = []
         with cleanup_on_failure(
             functools.partial(_exit_hooks, entered, Disposition.TERMINATE), label="child_exit"
@@ -481,6 +486,10 @@ class ProcessHost:
         except (KeyboardInterrupt, SystemExit) as exc:
             record = None
             end, disposition = _interrupt_end(exc, self._received_signal), Disposition.TERMINATE
+        except BaseException:
+            traceback.print_exc()
+            record = None
+            end, disposition = _ChildEnd(_UNEXPECTED_EXIT, None), Disposition.TERMINATE
         # An interrupt the callable survived is over.
         self._received_signal = None
         try:

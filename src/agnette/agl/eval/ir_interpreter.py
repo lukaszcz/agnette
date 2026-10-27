@@ -19,6 +19,7 @@ NOT allowed: ``agnette.agl.syntax``, ``agnette.agl.scope``, ``agnette.agl.typech
 from __future__ import annotations
 
 import decimal
+import os
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, ContextManager, TypeVar, assert_never, cast
@@ -442,6 +443,7 @@ class IrInterpreter:
         # forever: skip evaluating and decoding ``environ`` on every later
         # free ask in this run, only doing so while creating it.
         self._default_session_opened = False
+        self._default_session_pid = os.getpid()
         # Bootstrap the setting fields so declared defaults can be evaluated by
         # the ordinary, typeless evaluator. Constant defaults cannot read a
         # setting or invoke a host operation, so this temporary state is never
@@ -1357,6 +1359,10 @@ class IrInterpreter:
         if isinstance(node, IrSessionOpen):
             return self._effects.eval_ir_session_open(node)
         if isinstance(node, IrSessionDefault):
+            pid = os.getpid()
+            if pid != self._default_session_pid:
+                self._default_session_opened = False
+                self._default_session_pid = pid
             default_env = None if self._default_session_opened else self._eval(node.env)
             result = self._effects.eval_ir_session_default(
                 self._load_builtin_setting("default-agent"),

@@ -1746,7 +1746,7 @@
   "tests/agl/rejections/type/ps_process_fallible_cast.agl": "4124a6d4442afe99c1dd811a0df92d49228f1299eeaa0dff305c3b4b2809255d",
   "tests/agl/rejections/type/ps_process_json_encode.agl": "585a8ac018f1ea42a4872d655ca498168936be339bc8a5b8356b1566adf0cb42",
   "tests/agl/rejections/type/ps_process_with_update.agl": "77005b25fa18d3cd1b870af4990376e46656bc7ffb224bd82888cc831e18a6ed",
-  "packages/stdlib/src/ps.agl": "d0aefba5e34c36ffad6fa4bc0c3ebcbe3f4ccdbc5ed61030cc47de14bf38b615",
+  "packages/stdlib/src/ps.agl": "2057454a5f7e8423fdc2c437ea779b01bc732ad1eb4210d10f7805540443b4f2",
   "tests/agl/programs/errors/bare_raise.agl": "5dbfbe32f3162caa34c108384b358cb856bafbf0e3872c7368d4846ff6dfcab1",
   "tests/agl/programs/externs/bare_raise.agl": "aa81cab2b6746261a75f87e19ce7c998ec68c2ea947fc9ad91e47b8a03a2623f",
   "tests/agl/rejections/scope/bare_raise_after.agl": "b919ab241123975916e18d4fea4ee8d9a81beb137dc62f55bea213d1a5975d18",
