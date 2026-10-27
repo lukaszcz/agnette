@@ -586,3 +586,61 @@ def test_a_transcript_pairs_each_entry_with_its_own_items(tmp_path: Path) -> Non
 
     assert [r.ok for r in results] == [True] * 3
     assert loaded.eval_entry("c").value == IntValue(20)
+
+
+class _HeaderBuilds:
+    """Counts the conversions to AST of a tree holding the file's first-line inner attribute."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.count = 0
+        real = AstBuilder.transform
+
+        def counting(builder: AstBuilder, tree: Tree) -> object:
+            if any(
+                t.data == "inner_attribute" and (t.meta.line, t.meta.column) == (1, 1)
+                for t in tree.iter_subtrees()
+            ):
+                self.count += 1
+            return real(builder, tree)
+
+        monkeypatch.setattr(AstBuilder, "transform", counting)
+
+
+_HEADER = '@!allow("tab-indentation")\n'
+# A bare type is first read as a program (an index expression), then, rejected, as a type entry:
+# two readings of the same text, each a tree of its own that carries the header.
+_HEADER_LOADS = {
+    "type-ok": (f"{_HEADER}{_TYPE}\nlet a = 1\t\n", 2),
+    "type-fails": (f"{_HEADER}{_TYPE}\t\nlet a = 1\n", 2),
+    "program-ok": (f"{_HEADER}let z = 1\nlet a = 1\t\n", 1),
+    "program-fails": (f"{_HEADER}let z = nope\nlet a = 1\t\n", 1),
+    "item-unconvertible": (f"{_HEADER}use a::{{}}\nlet a = 1\t\n", 1),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_HEADER_LOADS))
+def test_a_loaded_files_header_is_converted_to_ast_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    source, conversions = _HEADER_LOADS[name]
+    path = tmp_path / "t.agl"
+    path.write_text(source)
+    session = _denying_session()
+    builds = _HeaderBuilds(monkeypatch)
+
+    session.load_file(path)
+
+    assert builds.count == conversions
+
+
+def test_the_leading_allow_governs_the_advisories_after_a_type_entry_and_a_failing_entry(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text(f'{_HEADER}{_TYPE}\nlet b: int = "x"\nlet c = 1\t\n')
+
+    results = _denying_session().load_file(path)
+
+    assert [r.ok for r in results] == [True, False]
+    assert not any(w.warning_name == "tab-indentation" for r in results for w in r.warnings)
+    assert not any(d.warning_name == "tab-indentation" for r in results for d in r.diagnostics)

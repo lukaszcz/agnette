@@ -567,9 +567,13 @@ class ReplSession:
         self._pending_bootstrap_warnings: list[Diagnostic] = []
         # Warning names a loaded file's leading ``@!allow`` silences in every entry of it.
         self._inherited_allows: frozenset[str] = frozenset()
-        # While a file loads: the program of each entry parsed so far, and whether the
-        # first one's ``@!allow`` names are the file's (``_inherited_allows`` then follows).
+        # While a file loads: the program of each entry parsed so far; the program carrying the
+        # file's converted inner attributes (the first entry's, or its type probe) while the
+        # first entry runs and after; and whether the header's ``@!allow`` names are the
+        # file's (``_inherited_allows`` then follows).
         self._parsed_programs: list[Program] | None = None
+        self._header: Program | None = None
+        self._header_open = False
         self._header_allows = False
         # Each entry's own source label, with the file place its text starts at (``None``
         # for a typed entry): locations in any entry's source map back to that entry.
@@ -1072,6 +1076,7 @@ class ReplSession:
         probe, fresh_name, next_node_id = self._type_probe_program(
             type_expr, next_node_id, attributes
         )
+        self._note_header(probe)
         resolved = _static_verdict(
             lambda: self._entry_pipeline.resolve_program(
                 probe, next_node_id, source_text=text, spaced_qualifiers=spaced_qualifiers
@@ -2732,6 +2737,7 @@ class ReplSession:
         results: list[EntryResult] = []
         programs: list[Program] = []
         self._parsed_programs, self._header_allows = programs, allows is None
+        self._header, self._header_open = None, True
         try:
             for index, ((start, end), reading) in enumerate(zip(spans, readings)):
                 if allows is not None:
@@ -2742,10 +2748,11 @@ class ReplSession:
                     lexed=reading,
                 )
                 results.append(result)
-                if index == 0 and self._header_allows:
+                if index == 0:
+                    self._header_open = False
+                    if self._header_allows and result.ok:
+                        self._inherited_allows = self._allowed_names(self._header_of(tree))
                     self._header_allows = False
-                    if not programs and not isinstance(tree, AglError):
-                        self._inherited_allows = self._header_allowed_names(tree)
                 if not result.ok:
                     if index + 1 < len(spans):
                         self._report_advisories(
@@ -2754,30 +2761,45 @@ class ReplSession:
                     break
         finally:
             self._inherited_allows = frozenset()
-            self._parsed_programs, self._header_allows = None, False
+            self._parsed_programs, self._header, self._header_allows = None, None, False
+            self._header_open = False
         return results
 
-    def _header_allowed_names(self, tree: "ProgramTree") -> frozenset[str]:
-        """The ``@!allow`` names of the file *tree*'s inner attributes, converted from the tree."""
+    def _header_of(self, tree: "ProgramTree | AglError") -> "Program | None":
+        """The program carrying the loading file's converted inner attributes, if it has any.
+
+        The first entry converted them with itself, as a program or as its type probe; only
+        when it did not (its conversion failed) are they converted from the file *tree*, once.
+        """
+        if self._header is None and not isinstance(tree, AglError):
+            self._header = tree.module_from(None, attributes=True, start_id=self._next_node_id)
+        return self._header
+
+    @staticmethod
+    def _allowed_names(header: "Program | None") -> frozenset[str]:
+        """The ``@!allow`` names of *header*'s inner attributes."""
         from agnette.agl.scope.attributes import module_allowed_names
 
-        header = tree.module_from(None, attributes=True, start_id=self._next_node_id)
         return module_allowed_names(header) if header else frozenset()
 
     def _note_parsed(self, program: "Program") -> None:
-        """Record the *program* of an entry a file load has parsed.
-
-        The file's first entry heads it, so its ``@!allow`` names, when the load has no
-        saved ones, govern every entry of the file. An entry 0 that parsed no program takes
-        them from the tree instead (:meth:`_run_entries`).
-        """
-        from agnette.agl.scope.attributes import module_allowed_names
-
+        """Record the *program* of an entry a file load has parsed."""
         if self._parsed_programs is None:
             return
-        if self._header_allows and not self._parsed_programs:
-            self._inherited_allows = module_allowed_names(program)
+        self._note_header(program)
         self._parsed_programs.append(program)
+
+    def _note_header(self, program: "Program") -> None:
+        """Record *program*, if the file's first entry made it, as carrying the file's header.
+
+        The file's first entry heads it, so its ``@!allow`` names, when the load has no
+        saved ones, govern every entry of the file. An entry 0 that made no program takes
+        them from the tree instead (:meth:`_header_of`).
+        """
+        if self._header_open and self._header is None and self._parsed_programs is not None:
+            self._header = program
+            if self._header_allows:
+                self._inherited_allows = self._allowed_names(program)
 
     def _parse_file(
         self, normalized: str, lexed: "LexedSource"
@@ -2863,11 +2885,9 @@ class ReplSession:
         if result.scope_failed or isinstance(tree, AglError):
             return
         try:
-            # The first entry's program carries the file's inner attributes; if none parsed,
-            # they come from the tree.
-            rest = tree.module_from(resume, attributes=not programs, start_id=self._next_node_id)
+            rest = tree.module_from(resume, attributes=False, start_id=self._next_node_id)
             unrun = rest.body.items if rest else ()
-            head = programs[0] if programs else rest
+            head = self._header_of(tree) or rest
             if head is None:
                 return
             run = tuple(item for program in programs for item in program.body.items)
