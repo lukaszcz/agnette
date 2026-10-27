@@ -374,6 +374,22 @@ def fence_project_discovery_at_temp_root(
     monkeypatch.setattr(project_layout, "_project_dir_from_workspace", fenced_discover)
 
 
+@pytest.fixture(autouse=True)
+def start_outside_any_project(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Start every test in a private empty directory, never in the launching one.
+
+    Project discovery, configuration and package-store resolution default to the
+    process working directory. Launched from a checkout inside a real AgM
+    project, that would make every test that resolves a context read the host
+    project's configuration and package store. The directory lives outside the
+    test's own ``tmp_path`` so that a test listing that directory sees only its
+    own files.
+    """
+    monkeypatch.chdir(tempfile.mkdtemp(prefix="cwd-", dir=tmp_path_factory.getbasetemp()))
+
+
 _REPO_STDLIB_ROOT = Path(__file__).resolve().parent.parent / "packages" / "stdlib"
 
 

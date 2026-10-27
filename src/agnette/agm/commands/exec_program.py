@@ -130,7 +130,7 @@ from agnette.core.fs import read_text_arg
 from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
 from agnette.core.process import terminating_signals_exit
 from agnette.core.toml import TomlDict, toml_dict
-from agnette.packages.activation import load_activation_index
+from agnette.packages.activation import by_command_priority
 from agnette.packages.command_registry import command_registry
 from agnette.packages.manifest import (
     command_paths_for_program,
@@ -138,7 +138,6 @@ from agnette.packages.manifest import (
     program_reference,
 )
 from agnette.packages.model import PackageInfo, owning_package
-from agnette.packages.store import global_store
 from agnette.sandbox.prepare import lazy_sandbox_context
 
 if TYPE_CHECKING:
@@ -506,7 +505,10 @@ def run(
     from agnette.packages.source_commands import complete_packages
 
     packages = complete_packages(exec_roots.roots.packages)
-    registry = command_registry(packages)
+    # Command owners are ranked as dispatch ranks them, not in mount order.
+    registry = command_registry(
+        by_command_priority(packages, home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
+    )
     package_command_paths = frozenset(registry)
     command_paths: tuple[tuple[str, ...], ...] = ()
     owning_package_info: PackageInfo | None = None
@@ -863,8 +865,7 @@ def run_registered(
             # packages are its one live exception: their manifest is reread
             # above with the active package selection, so follow a changed
             # registration while immutable cached entries stay fail-closed.
-            active = load_activation_index(global_store(home=context.home)).packages.get(package)
-            if active is None or active.editable != target.package.root:
+            if target.package.installed:
                 _registered_command_mismatch(command_path)
             program = command.program
             target = _resolve_installed_reference_or_exit(

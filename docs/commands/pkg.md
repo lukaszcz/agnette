@@ -12,7 +12,7 @@ source.
 | `agm pkg install SRC [--project] [--editable] [--reinstall] [--shadow]` | Install and activate a directory or archive |
 | `agm pkg switch NAME@VERSION [--project]` | Switch the active version |
 | `agm pkg uninstall NAME[@VERSION] [--project]` | Remove the active package or an exact stored version |
-| `agm pkg list` | List installed versions and active editable packages |
+| `agm pkg list` | List installed versions and active editable packages (both stores in a project) |
 | `agm pkg info NAME` | Show an active package's metadata and dependency status |
 | `agm pkg sync [--project]` | Install the active packages' unsatisfied Python requirements |
 
@@ -300,9 +300,10 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   values win over all of them; `@opt-env` reaches a signature argument and a module or function
   parameter alike, but not an engine setting, which only a source `std/config` write outranks. See
   [Configuration](agl.md#configuration).
-- **Conflicts.** Two active packages cannot own the same command path; install the later one with
-  `--shadow` to make it the owner. Shadowing is recorded per store tree, so a rebuilt activation
-  index preserves it.
+- **Conflicts.** Two active packages of one store cannot own the same command path; install the
+  later one with `--shadow` to make it the owner. Shadowing is recorded per store tree, so a
+  rebuilt activation index preserves it. Inside a project, [project-store](#project-store)
+  commands rank above every global command with no `--shadow`.
 - **Editable packages** re-scan the module tree and re-read the manifest on every dispatch, so
   command edits — including a program's `@command` — apply without reinstalling. The scan is
   best-effort: a module that cannot be parsed, or a registration that conflicts with another in
@@ -371,13 +372,18 @@ stored version; when another version is active, activation stays unchanged. A ma
 editable package is deactivated. Python distributions are never removed.
 
 **`list`** shows every stored version as `active` or `installed`, and every active editable
-package.
+package. Inside a project both stores are listed, global first, each line ending in `global` or
+`project`; an active or editable global package whose name the project index selects too is marked
+`(shadowed)`.
 
 **`info`** shows metadata, command registrations with their prose, whether each direct
 dependency is active, unsatisfied, or missing, including the inferred `std` upper bound, and, as
 `requires python package SPEC: STATUS`, each `[python]` requirement's status in AgM's interpreter
 environment: `installed VERSION`, `installed VERSION (unsatisfied)`, `missing`, or
-`not applicable` (its marker does not hold).
+`not applicable` (its marker does not hold). Inside a project it looks the package up in the
+project index, then the global one, resolves dependency status against that layered selection,
+and prints a `store: global|project` line (a project package also names the global version it
+shadows).
 
 **`sync`** restores Python requirements for active packages in AgM's interpreter environment:
 when some `[python]` requirement of an active package (store or editable) is unsatisfied, the
@@ -411,9 +417,14 @@ project's own store, `<project>/packages` (`$PROJ_DIR/packages` for a split proj
   warns when the project's effective selection no longer validates (for example, a project
   package depending on the global package just removed).
 - `std` is global-only: `install --project` of it is rejected.
-- `list` and `info` show the global store only. Project packages mount their modules but register
-  no commands: run them with `agm exec NAME/MODULE::PROGRAM`. A project package replacing a global
-  one therefore hides that package's commands inside the project.
+- Project packages register commands like global ones, visible only inside the project: `agm
+  COMMAND`, help, and completion include them, and a project command shadows a same-path global
+  command without `--shadow`, and `install --project` reports the commands it shadows like
+  `--shadow` does (conflicts between two project packages still need it). A project
+  package replacing a global one of the same name replaces its commands too. Its manifest
+  [`[config]`](#config) applies only there, since the package is selected only there.
+- `list` and `info` show both stores with a store label and mark shadowed global packages (see
+  [Commands](#commands)).
 - `uninstall`, `switch`, and `sync` with `--project` do nothing, and create nothing, until a
   `--project` install has created the project store.
 - `sync --project` installs the Python requirements of the project store's active packages into

@@ -47,7 +47,7 @@ class PackageActivationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ActivePackage:
-    """One globally active package selection.
+    """One package selection of a store's activation index.
 
     ``editable`` names a live package root. Otherwise ``version`` identifies
     an immutable tree in the versioned package store. ``registration_order``
@@ -109,7 +109,7 @@ class CommandShadow:
 
 @dataclass(frozen=True, slots=True)
 class ActivationIndex:
-    """The global package selection and cached command registry."""
+    """One store's package selection and cached command registry."""
 
     packages: dict[str, ActivePackage] = field(default_factory=dict)
     commands: dict[str, CommandRegistration] = field(default_factory=dict)
@@ -140,14 +140,19 @@ def _read_activation_index(path: Path) -> ActivationIndex:
     return _parse_activation_index(raw)
 
 
-def is_active_package(store: PackageStore, package: PackageInfo) -> bool:
-    """Whether *store*'s activation index selects *package*: its name, at its root."""
+def activating_store(layers: StoreLayers, package: PackageInfo) -> PackageStore | None:
+    """The store whose activation index selects *package*: its name, at its root.
 
-    active = load_activation_index(store).packages.get(package.manifest.name)
-    if active is None:
-        return False
+    The layered selection decides (a project entry replaces a global one), so
+    a development checkout of an active editable package is found too.
+    """
+
+    selection = indexed_selections(layers).get(package.manifest.name)
+    if selection is None:
+        return None
+    store, active = selection
     root = active.editable or store.package_path(package.manifest.name, active.version)
-    return root.resolve() == package.root.resolve()
+    return store if root.resolve() == package.root.resolve() else None
 
 
 def write_activation_index(store: PackageStore, index: ActivationIndex) -> Path:
@@ -349,13 +354,9 @@ def select_active_packages(
     :func:`resolve_active_package`.
     """
 
-    packages = _selected_active_packages(
-        context_layers(home=home, proj_dir=proj_dir, env=env),
-        home=home,
-        proj_dir=proj_dir,
-        cwd=cwd,
-        excluded_names=set(),
-        env=env,
+    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
+    packages = _resolve_selections(
+        layers, _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     )
     _validate_requirements(packages)
     return packages
@@ -368,67 +369,88 @@ def effective_command_index(
     cwd: Path,
     env: Mapping[str, str] | None = None,
 ) -> ActivationIndex:
-    """Return selected-package commands with the project index and pins applied.
+    """Return the commands of the selected packages, project registrations above global ones.
 
-    The persistent activation index caches commands for the global selection.
-    A project index or pin changes that selection, so derive its command registry from
-    the selected manifests and the persisted registration priority of each
-    selected immutable version. A read of activation state: an editable
+    The persistent activation indexes cache commands per store. Pins and a
+    project's own selection change what is selected, so derive the registry
+    from the selected manifests and the persisted registration priority of
+    each selected immutable version. A read of activation state: an editable
     package whose source fails command discovery falls back to its manifest's
     own commands — see :func:`resolve_active_package`.
     """
 
     layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    store = layers.global_store
-    index = load_activation_index(store)
-    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
-    selected = _selected_active_packages(
-        layers,
-        home=home,
-        proj_dir=proj_dir,
-        cwd=cwd,
-        excluded_names=set(),
-        env=env,
-    )
+    chosen = _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    selected = _resolve_selections(layers, chosen)
     _validate_requirements(selected)
-    # The registry covers the global store's packages; a project package's
-    # commands are not registered.
-    packages = tuple(p for p in selected if p.store_scope is not StoreScope.PROJECT)
-    # Without pins the selection differs from the global index only by project
-    # packages replacing global ones, which ``packages`` already excludes. The
-    # index then describes it — unless an editable package's manifest may have
-    # changed its commands since the index was written.
-    if not pins and all(active.editable is None for active in index.packages.values()):
-        return _reconciled_commands(index, packages)
+    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    index, provenance = _command_priorities(layers, chosen, pins)
+    return _reconciled_commands(index, selected, provenance=provenance)
+
+
+def by_command_priority(
+    packages: Iterable[PackageInfo],
+    *,
+    home: Path,
+    proj_dir: Path | None,
+    cwd: Path,
+    env: Mapping[str, str] | None = None,
+) -> tuple[PackageInfo, ...]:
+    """Order *packages* highest command priority first, as :func:`effective_command_index` does.
+
+    A package ranks as the stores' selection of its name, so a development
+    checkout stands in for the package it replaces. One no store selects ranks
+    below all, keeping its place among its peers.
+    """
+
+    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
+    chosen = _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    priorities, _ = _command_priorities(layers, chosen, pins)
+    ranks = {
+        name: _command_rank(store.scope is StoreScope.PROJECT, priorities.packages[name], name)
+        for name, (store, _) in chosen.items()
+    }
+    return tuple(sorted(packages, key=partial(_package_rank, ranks), reverse=True))
+
+
+def _command_priorities(
+    layers: StoreLayers,
+    chosen: Mapping[str, tuple[PackageStore, ActivePackage]],
+    pins: Mapping[str, semver.Version],
+) -> tuple[ActivationIndex, dict[str, ActivePackage | PackageProvenance | None]]:
+    """Return the registration priorities of *chosen*: as an index, and as the raw metadata.
+
+    A package keeps the priority its own store's index records; a pinned one
+    takes its tree's provenance, else its store's index entry for the name.
+    """
+
     selections: dict[str, ActivePackage] = {}
     provenance: dict[str, ActivePackage | PackageProvenance | None] = {}
-    for package in packages:
-        name = package.manifest.name
-        previous = index.packages.get(name)
-        retains_global_selection = previous is not None and name not in pins
-        metadata: ActivePackage | PackageProvenance | None
-        if retains_global_selection:
-            metadata = previous
-        else:
-            metadata = load_package_provenance(store, name, package.manifest.version)
-            if metadata is None:
-                # Without a provenance sidecar, use the package's activation-index
-                # metadata as the registration-priority fallback.
+    for store in layers.stores:
+        index = load_activation_index(store)
+        for name, (owner, active) in chosen.items():
+            if owner != store:
+                continue
+            previous = index.packages.get(name)
+            retains_selection = previous is not None and name not in pins
+            metadata: ActivePackage | PackageProvenance | None
+            if retains_selection:
                 metadata = previous
-        provenance[name] = metadata
-        selections[name] = ActivePackage(
-            package.manifest.version,
-            editable=(
-                previous.editable if previous is not None and retains_global_selection else None
-            ),
-            shadow=metadata.shadow if metadata is not None else False,
-            registration_order=metadata.registration_order if metadata is not None else 0,
-        )
-    return _reconciled_commands(
-        ActivationIndex(selections),
-        packages,
-        provenance=provenance,
-    )
+            else:
+                metadata = load_package_provenance(store, name, active.version)
+                if metadata is None:
+                    # Without a provenance sidecar, use the package's activation-index
+                    # metadata as the registration-priority fallback.
+                    metadata = previous
+            provenance[name] = metadata
+            selections[name] = ActivePackage(
+                active.version,
+                editable=previous.editable if previous is not None and retains_selection else None,
+                shadow=metadata.shadow if metadata is not None else False,
+                registration_order=metadata.registration_order if metadata is not None else 0,
+            )
+    return ActivationIndex(selections), provenance
 
 
 def select_package_roots(
@@ -439,7 +461,10 @@ def select_package_roots(
     development_packages: Iterable[PackageInfo] = (),
     env: Mapping[str, str] | None = None,
 ) -> tuple[PackageInfo, ...]:
-    """Return development roots followed by non-conflicting active store roots.
+    """Return development roots followed by the active store roots, by command priority.
+
+    Store roots come highest command priority first (see :func:`effective_command_index`),
+    so the first package registering a command path owns it.
 
     Development names are excluded before active or pinned store selections
     are resolved, so a valid development root shadows stale store state.
@@ -464,46 +489,44 @@ def select_package_roots(
     # ``std`` is selected exclusively by ``select_stdlib_root`` so an
     # override or source-checkout fallback cannot also mount an active tree.
     excluded_names = {*development_names, STD_PACKAGE_NAME}
-    activated = _selected_active_packages(
-        context_layers(home=home, proj_dir=proj_dir, env=env),
-        home=home,
-        proj_dir=proj_dir,
-        cwd=cwd,
-        excluded_names=excluded_names,
-        env=env,
+    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
+    chosen = _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    for name in excluded_names:
+        chosen.pop(name, None)
+    activated = _resolve_selections(layers, chosen)
+    priorities, _ = _command_priorities(
+        layers, chosen, load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     )
     selected = (
         *development,
-        *(package for package in activated if package.manifest.name not in excluded_names),
+        *sorted(activated, key=partial(_command_registration_key, priorities), reverse=True),
     )
     _validate_requirements(selected)
     return selected
 
 
-def _selected_active_packages(
+def _chosen_selections(
     layers: StoreLayers,
     *,
     home: Path,
     proj_dir: Path | None,
     cwd: Path,
-    excluded_names: set[str],
     env: Mapping[str, str] | None,
-) -> tuple[PackageInfo, ...]:
-    """Layer the stores' selections, then pins, excluding development names before resolution.
+) -> dict[str, tuple[PackageStore, ActivePackage]]:
+    """Layer the stores' selections (see :func:`indexed_selections`), then replace them by pins."""
 
-    Global index entries come first, project entries replace same-named ones,
-    and a pin replaces both. The result is ordered by package name.
-    """
-
-    chosen: dict[str, tuple[PackageStore, ActivePackage]] = {}
-    for store in reversed(layers.stores):
-        for name, active in load_activation_index(store).packages.items():
-            chosen[name] = (store, active)
+    chosen = indexed_selections(layers)
     pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     for name, version in pins.items():
         chosen[name] = (_pin_store(layers, name, version), ActivePackage(version))
-    for name in excluded_names:
-        chosen.pop(name, None)
+    return chosen
+
+
+def _resolve_selections(
+    layers: StoreLayers, chosen: Mapping[str, tuple[PackageStore, ActivePackage]]
+) -> tuple[PackageInfo, ...]:
+    """Resolve *chosen* selections into packages, ordered by package name."""
+
     packages: list[PackageInfo] = []
     for store in layers.stores:
         selections = {name: active for name, (owner, active) in chosen.items() if owner == store}
@@ -513,6 +536,19 @@ def _selected_active_packages(
             )
         )
     return tuple(sorted(packages, key=_package_name))
+
+
+def indexed_selections(layers: StoreLayers) -> dict[str, tuple[PackageStore, ActivePackage]]:
+    """Map each package name to the activation entry of the store selecting it.
+
+    A project entry replaces a same-named global one; pins are not applied.
+    """
+
+    chosen: dict[str, tuple[PackageStore, ActivePackage]] = {}
+    for store in reversed(layers.stores):
+        for name, active in load_activation_index(store).packages.items():
+            chosen[name] = (store, active)
+    return chosen
 
 
 def _pin_store(layers: StoreLayers, name: str, version: semver.Version) -> PackageStore:
@@ -629,10 +665,27 @@ def _reconciled_commands(
 
 
 def command_shadow_diagnostics(
-    index: ActivationIndex, *, packages: tuple[PackageInfo, ...]
+    index: ActivationIndex,
+    *,
+    packages: tuple[PackageInfo, ...],
+    inherited: tuple[PackageInfo, ...] = (),
 ) -> dict[str, tuple[CommandShadow, ...]]:
-    """Return active winners and the owners each one shadows among resolved *packages*."""
+    """Return active winners and the owners each one shadows among resolved *packages*.
 
+    *inherited* is the selection of the layer beneath a project store: its
+    packages not replaced by name register beneath those of *packages*.
+    """
+
+    packages = layered_packages(inherited, packages)
+    index = ActivationIndex(
+        {
+            **{
+                package.manifest.name: ActivePackage(package.manifest.version)
+                for package in inherited
+            },
+            **index.packages,
+        }
+    )
     by_path = _command_owners(packages)
     diagnostics: dict[str, list[CommandShadow]] = {}
     for path_name, owners in by_path.items():
@@ -649,9 +702,26 @@ def command_shadow_diagnostics(
     }
 
 
-def _command_registration_key(index: ActivationIndex, package: PackageInfo) -> tuple[int, str]:
-    active = index.packages[package.manifest.name]
-    return active.registration_order, package.manifest.name
+def _command_registration_key(
+    index: ActivationIndex, package: PackageInfo
+) -> tuple[bool, int, str]:
+    """Rank a package's command registrations: project over global, then by registration order."""
+
+    name = package.manifest.name
+    return _command_rank(package.store_scope is StoreScope.PROJECT, index.packages[name], name)
+
+
+def _command_rank(project: bool, active: ActivePackage, name: str) -> tuple[bool, int, str]:
+    return (project, active.registration_order, name)
+
+
+_UNRANKED = (False, -1, "")
+
+
+def _package_rank(
+    ranks: Mapping[str, tuple[bool, int, str]], package: PackageInfo
+) -> tuple[bool, int, str]:
+    return ranks.get(package.manifest.name, _UNRANKED)
 
 
 def _command_shadow_path(shadow: CommandShadow) -> str:
@@ -694,24 +764,33 @@ def _validate_command_conflict_provenance(
     """Reject command collisions without a coherent shadow history."""
 
     for path_name, owners in _command_owners(packages).items():
-        if len(owners) < 2:
-            continue
-        registered_owners: list[tuple[str, ActivePackage | PackageProvenance]] = []
-        for owner in owners:
-            name = owner.manifest.name
-            metadata = provenance.get(name)
-            if metadata is None:
-                raise PackageActivationError(
-                    f"cannot reconcile command {path_name!r}: its package provenance is missing"
-                )
-            registered_owners.append((name, metadata))
-        registered_owners.sort(key=_command_provenance_order)
-        for name, metadata in registered_owners[1:]:
-            if not metadata.shadow:
-                raise PackageActivationError(
-                    f"cannot reconcile command {path_name!r}: later registration from "
-                    f"package {name!r} lacks shadow intent"
-                )
+        # Only registrations within one store conflict: a project's rank above global ones.
+        for same_store in _grouped_by_store(owners):
+            if len(same_store) < 2:
+                continue
+            registered_owners: list[tuple[str, ActivePackage | PackageProvenance]] = []
+            for owner in same_store:
+                name = owner.manifest.name
+                metadata = provenance.get(name)
+                if metadata is None:
+                    raise PackageActivationError(
+                        f"cannot reconcile command {path_name!r}: its package provenance is missing"
+                    )
+                registered_owners.append((name, metadata))
+            registered_owners.sort(key=_command_provenance_order)
+            for name, metadata in registered_owners[1:]:
+                if not metadata.shadow:
+                    raise PackageActivationError(
+                        f"cannot reconcile command {path_name!r}: later registration from "
+                        f"package {name!r} lacks shadow intent"
+                    )
+
+
+def _grouped_by_store(packages: Iterable[PackageInfo]) -> Iterable[list[PackageInfo]]:
+    groups: dict[StoreScope | None, list[PackageInfo]] = {}
+    for package in packages:
+        groups.setdefault(package.store_scope, []).append(package)
+    return groups.values()
 
 
 def _command_provenance_order(

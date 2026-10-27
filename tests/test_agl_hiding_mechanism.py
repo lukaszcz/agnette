@@ -592,6 +592,7 @@ def test_ambiguity_repair_ignores_a_hidden_owner_of_the_same_name(tmp_path: Path
     assert caught.value.repair == "Color::Red"
 
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 _BAD_HIDING_LIB = "record Box\n  n: int\n\ndef Box::k() -> int = 5\n\ntype HBox = Box\n"
 _TWO_BAD_ITEMS = {
     "lib": _BAD_HIDING_LIB,
@@ -620,7 +621,7 @@ def test_first_bad_hiding_item_is_reported_whatever_the_hash_seed(
     """Two bad ``hiding`` items, one through an export-withheld way: the first in source order."""
     result = subprocess.run(
         [sys.executable, "-c", _FIRST_BAD_ITEM_PROBE.format(modules=_TWO_BAD_ITEMS), str(tmp_path)],
-        env={**os.environ, "PYTHONHASHSEED": seed},
+        env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": str(_REPO_ROOT)},
         capture_output=True,
         text=True,
         check=True,

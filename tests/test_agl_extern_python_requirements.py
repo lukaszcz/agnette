@@ -17,16 +17,18 @@ from agnette.agl.pipeline import PipelineDriver, RunResult
 from agnette.agl.repl.entry import EntryResult
 from agnette.agl.repl.session import ReplSession
 from agnette.agl.semantics.values import IntValue
+from agnette.config.context import ConfigContext, current_config_context
 from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 from agnette.packages.manifest import load_manifest
 from agnette.packages.model import PackageInfo
-from agnette.packages.store import global_store
+from agnette.packages.store import global_store, project_store
 from tests._agl_helpers import REPO_STDLIB_ROOT, run_inline_code
 from tests.agl.ir_harness import write_companion_file, write_module_file
 
 _PACKAGE = Path(__file__).parent / "agl" / "packages" / "python_requirement"
 _REQUIREMENT = "agm-test-absent-distribution>=1.0"
 _SYNC = "agm pkg sync"
+_SYNC_PROJECT = "agm pkg sync --project"
 _INSTALL = "agm pkg install"
 
 
@@ -86,7 +88,7 @@ def _assert_requirement_diagnostic(result: RunResult | EntryResult, *, repair: s
     assert "python_requirement" in message
     assert _REQUIREMENT in message
     assert repair in message
-    assert ({_SYNC, _INSTALL} - {repair}).pop() not in message
+    assert (_SYNC if repair == _INSTALL else _INSTALL) not in message
 
 
 @pytest.mark.usefixtures("package_active")
@@ -132,6 +134,26 @@ def test_unsatisfied_requirement_of_the_active_store_package_suggests_syncing() 
     )
 
     _assert_requirement_diagnostic(result)
+
+
+def test_unsatisfied_requirement_of_the_active_project_package_suggests_a_project_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    context = ConfigContext(home=current_config_context().home, proj_dir=project, cwd=tmp_path)
+    monkeypatch.setattr("agnette.config.context.current_config_context", lambda: context)
+    store = project_store(project)
+    tree = store.package_path("python_requirement", _package().manifest.version)
+    shutil.copytree(_PACKAGE, tree)
+    active = ActivePackage(_package().manifest.version)
+    write_activation_index(store, ActivationIndex({"python_requirement": active}))
+
+    result = _run(
+        "import python_requirement/double\npython_requirement/double::double(2)", package=tree
+    )
+
+    _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
 
 
 @pytest.mark.usefixtures("package_active")

@@ -1222,9 +1222,11 @@ def _commit_install_activation(
         )
         command_shadows = (
             command_shadow_diagnostics(
-                reconciled, packages=_transaction_resolved_packages(state)
+                reconciled,
+                packages=_transaction_resolved_packages(state),
+                inherited=state.inherited,
             ).get(package.manifest.name, ())
-            if report_shadows
+            if report_shadows or state.inherited
             else ()
         )
         # Reconciling never changes the selection, so the resolved set is reconciled's.

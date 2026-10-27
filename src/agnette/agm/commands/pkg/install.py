@@ -50,10 +50,8 @@ def run(args: PkgInstallArgs) -> None:
     package = plan.package
     kind = "editable" if args.editable else "installed"
     print(f"{kind} {package.manifest.name} {package.manifest.version}")
-    if args.shadow:
-        if plan.command_shadows:
-            for shadow in plan.command_shadows:
-                owners = ", ".join(shadow.displaced_packages)
-                print(f"shadowed command {shadow.path_name} from {owners}")
-        else:
-            print("shadow requested; no active package commands were displaced")
+    for shadow in plan.command_shadows:
+        owners = ", ".join(shadow.displaced_packages)
+        print(f"shadowed command {shadow.path_name} from {owners}")
+    if args.shadow and not plan.command_shadows:
+        print("shadow requested; no active package commands were displaced")

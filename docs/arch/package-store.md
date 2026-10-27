@@ -25,7 +25,7 @@ The standard library ships as a managed store package whose version must exactly
 
 ## Effective Selection
 
-Inside a project the selection layers the stores: global index entries, then project index entries replacing same-named ones, then `[packages]` pins, each pin resolving in the project store first, then the global one; development packages precede all. Every selected `PackageInfo` records the `StoreScope` of the store that selected it. Project store trees are installed (warning-capped) unless editable. Development discovery treats trees of both stores as store entries, not checkouts. Resolutions are memoized per store root and selection stamp.
+Inside a project the selection layers the stores: global index entries, then project index entries replacing same-named ones, then `[packages]` pins, each pin resolving in the project store first, then the global one; development packages precede all. Every selected `PackageInfo` records the `StoreScope` of the store that selected it. Project store trees are installed (warning-capped) unless editable. Development discovery treats trees of both stores as store entries, not checkouts. Resolutions are memoized per store root and selection stamp. Command registrations are layered the same way ([packages.md](packages.md)); `pkg list` and `pkg info` show both stores' indexes with a store label and a shadow mark for global entries the project index replaces.
 
 ## Code Entry Points
 

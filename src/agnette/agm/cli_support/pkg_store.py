@@ -7,9 +7,9 @@ from dataclasses import dataclass
 
 from agnette.config.context import ConfigContext
 from agnette.core import dry_run
-from agnette.packages.activation import select_active_packages
+from agnette.packages.activation import effective_command_index
 from agnette.packages.errors import PackageInstallError
-from agnette.packages.store import PackageStore, context_layers
+from agnette.packages.store import PackageStore, StoreLayers, context_layers
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +34,12 @@ def pkg_target(context: ConfigContext, *, project: bool) -> PkgTarget:
     return PkgTarget(layers.project, layers.global_store)
 
 
+def pkg_layers(context: ConfigContext) -> StoreLayers:
+    """Return the stores a read-only ``pkg`` command in *context* shows: project over global."""
+
+    return context_layers(home=context.home, proj_dir=context.proj_dir)
+
+
 def pkg_resolution_target(context: ConfigContext) -> PkgTarget:
     """Return the target a dependency-resolving command checks against in *context*.
 
@@ -51,15 +57,16 @@ def warn_if_project_selection_broken(context: ConfigContext, *, project: bool) -
     """Warn when a global operation left the current project's effective selection invalid.
 
     Global operations never see project stores, so they succeed regardless;
-    only the layered selection can show that a project package lost a
-    dependency. Nothing changed in a dry run, and a ``--project`` operation
-    validates its own result.
+    only the layered view can show that a project package lost a dependency, or
+    that a pinned version now conflicts with a command registered since.
+    Nothing changed in a dry run, and a ``--project`` operation validates its
+    own result.
     """
 
     if project or context.proj_dir is None or dry_run.enabled():
         return
     try:
-        select_active_packages(home=context.home, proj_dir=context.proj_dir, cwd=context.cwd)
+        effective_command_index(home=context.home, proj_dir=context.proj_dir, cwd=context.cwd)
     except (OSError, ValueError) as exc:
         print(
             f"warning: the selection of the current project is no longer valid: {exc}",

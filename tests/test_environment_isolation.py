@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx2
 import pytest
 
+from agnette.agm.project.layout import discover_current_project_dir
 from agnette.config.context import current_config_context
 from agnette.config.home import agm_home_dir
 from agnette.packages.activation import load_activation_index
@@ -31,6 +32,11 @@ def test_the_suite_does_not_run_against_the_launching_home() -> None:
     assert launched_from is not None
     assert os.environ["HOME"] != launched_from
     assert Path.home() != Path(launched_from)
+
+
+def test_the_suite_does_not_start_inside_a_project() -> None:
+    assert current_config_context().proj_dir is None
+    assert discover_current_project_dir() is None
 
 
 def test_isolated_homes_are_fresh_private_and_do_not_scan_siblings(

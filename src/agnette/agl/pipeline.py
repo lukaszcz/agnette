@@ -2332,14 +2332,18 @@ def _package_requirements_hold(
 def _requirement_repair(package: "PackageInfo") -> str:
     """How to install *package*'s requirements: sync when active, else install it.
 
-    ``agm pkg sync`` covers only the activation index's selections.
+    ``agm pkg sync`` covers only the activation index selections of one store.
     """
     from agnette.config.context import current_config_context
-    from agnette.packages.activation import is_active_package
-    from agnette.packages.store import global_store
+    from agnette.packages.activation import activating_store
+    from agnette.packages.layout import StoreScope
+    from agnette.packages.store import context_layers
 
-    if is_active_package(global_store(home=current_config_context().home), package):
-        return "run `agm pkg sync` to install them"
+    context = current_config_context()
+    store = activating_store(context_layers(home=context.home, proj_dir=context.proj_dir), package)
+    if store is not None:
+        flag = " --project" if store.scope is StoreScope.PROJECT else ""
+        return f"run `agm pkg sync{flag}` to install them"
     return f"install the package with `agm pkg install [--editable] {package.root}`"
 
 

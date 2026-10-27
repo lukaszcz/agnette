@@ -23,6 +23,13 @@ from agnette.agl.pipeline import PipelineDriver, RunResult
 from tests._agl_helpers import run_inline_code
 
 
+def _isolated_cwd(root: Path) -> Path:
+    """An empty working directory, so a subprocess never resolves the launching project."""
+    cwd = root / "cwd"
+    cwd.mkdir(exist_ok=True)
+    return cwd
+
+
 def _run(root: Path, source: str) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
@@ -38,6 +45,7 @@ def _run(root: Path, source: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
         env={**os.environ, "XDG_CACHE_HOME": str(root / "cache")},
+        cwd=_isolated_cwd(root),
         capture_output=True,
         text=True,
         check=False,
@@ -60,6 +68,7 @@ def _check(root: Path, source: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
         env={**os.environ, "XDG_CACHE_HOME": str(root / "cache")},
+        cwd=_isolated_cwd(root),
         capture_output=True,
         text=True,
         check=False,

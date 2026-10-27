@@ -131,33 +131,29 @@ def test_command_index_loader_reads_the_active_index(tmp_path: Path) -> None:
     assert load_command_index(home=home, proj_dir=None, cwd=tmp_path).commands == {}
 
 
-def test_command_index_loader_uses_project_selected_package_commands(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    import agnette.packages.activation as activation
-
+def test_command_index_loader_uses_project_selected_package_commands(tmp_path: Path) -> None:
     home = tmp_path / "home"
-    pinned_package = PackageInfo(
-        tmp_path / "pinned",
-        PackageManifest(
-            "tools",
-            semver.Version.parse("2.0.0"),
-            commands={"new": CommandSpec("tools/new::main")},
-        ),
+    for version, command in (("2.0.0", "new"), ("1.0.0", "old")):
+        source = tmp_path / f"tools-{version}"
+        (source / MODULE_TREE_DIRNAME).mkdir(parents=True)
+        (source / "package.toml").write_text(
+            f'[package]\nname = "tools"\nversion = "{version}"\n\n'
+            f'[commands]\n{command} = {{ program = "tools/main::main" }}\n',
+            encoding="utf-8",
+        )
+        (source / MODULE_TREE_DIRNAME / "main.agl").write_text(
+            "program def main() -> unit = ()\n", encoding="utf-8"
+        )
+        install_directory(source, home=home)
+    project = tmp_path / "project"
+    (project / "config").mkdir(parents=True)
+    (project / "config" / "config.toml").write_text(
+        '[packages]\ntools = "2.0.0"\n', encoding="utf-8"
     )
-    monkeypatch.setattr(
-        activation,
-        "load_activation_index",
-        lambda *_, **__: ActivationIndex(
-            packages={"tools": ActivePackage(semver.Version.parse("1.0.0"))},
-            commands={"old": CommandRegistration("tools", "tools/old::main")},
-        ),
-    )
-    monkeypatch.setattr(activation, "_selected_active_packages", lambda *_, **__: (pinned_package,))
 
-    index = dispatch.load_command_index(home=home, proj_dir=tmp_path, cwd=tmp_path)
+    index = dispatch.load_command_index(home=home, proj_dir=project, cwd=project)
 
-    assert index.commands == {"new": CommandRegistration("tools", "tools/new::main")}
+    assert index.commands == {"new": CommandRegistration("tools", "tools/main::main")}
 
 
 def test_registered_command_dispatches_trailing_arguments(
@@ -1886,6 +1882,7 @@ def test_registered_dispatch_rejects_a_stale_cached_program(
             semver.Version.parse("1.0.0"),
             commands={"review": CommandSpec("tools/review::main")},
         ),
+        installed=True,
     )
     monkeypatch.setattr(
         exec_program,
@@ -1921,12 +1918,8 @@ def test_editable_registered_dispatch_uses_the_live_manifest(
         ),
     )
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
-    index = ActivationIndex(
-        packages={"tools": ActivePackage(semver.Version.parse("1.0.0"), editable=root)}
-    )
     monkeypatch.setattr(exec_program, "current_config_context", lambda: context)
     monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (package,))
-    monkeypatch.setattr(exec_program, "load_activation_index", lambda *_, **__: index)
     calls: list[tuple[ExecArgs, tuple[str, ...] | None]] = []
     monkeypatch.setattr(
         exec_program,
@@ -1970,12 +1963,8 @@ def test_editable_registered_dispatch_rejects_invalid_live_manifest_command(
         root, PackageManifest("tools", semver.Version.parse("1.0.0"), commands=commands)
     )
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
-    index = ActivationIndex(
-        packages={"tools": ActivePackage(semver.Version.parse("1.0.0"), editable=root)}
-    )
     monkeypatch.setattr(exec_program, "current_config_context", lambda: context)
     monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (package,))
-    monkeypatch.setattr(exec_program, "load_activation_index", lambda *_, **__: index)
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered(

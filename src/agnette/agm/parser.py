@@ -577,7 +577,10 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
     ("pkg", "list"): textwrap.dedent("""\
         agm pkg list
 
-        List installed versions and active editable packages.
+        List installed versions and active editable packages. Inside a
+        project, list both stores, global first, each line ending in its store
+        (global or project); a global package the project's own selection also
+        selects is marked (shadowed).
     """),
     ("pkg", "info"): textwrap.dedent("""\
         agm pkg info NAME
@@ -586,6 +589,11 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         dependencies, and [python] requirements, each installed VERSION,
         installed VERSION (unsatisfied), missing, or not applicable (marker
         false).
+
+        Inside a project, look NAME up in the project's store, then the global
+        one, check dependencies against that layered selection, and print a
+        "store: global|project" line, which names the global version a project
+        package shadows.
     """),
     ("pkg", "sync"): textwrap.dedent("""\
         agm pkg sync [--project] [--dry-run]

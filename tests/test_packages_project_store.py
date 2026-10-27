@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 import semver
 
+import agnette.agm.commands.pkg.info as info_command
+import agnette.agm.commands.pkg.list as list_command
+from agnette.agm.cli_support.args import PkgInfoArgs, PkgListArgs
 from agnette.agm.cli_support.pkg_store import (
     pkg_resolution_target,
     pkg_target,
@@ -19,6 +23,8 @@ from agnette.packages.activation import (
     ActivationIndex,
     ActivePackage,
     PackageActivationError,
+    activating_store,
+    by_command_priority,
     effective_command_index,
     load_activation_index,
     resolve_indexed_packages,
@@ -26,6 +32,7 @@ from agnette.packages.activation import (
     select_package_roots,
 )
 from agnette.packages.archive import write_archive
+from agnette.packages.command_registry import command_registry
 from agnette.packages.dependencies import DependencyError, validate_dependencies
 from agnette.packages.development import (
     containing_development_package,
@@ -49,6 +56,8 @@ from agnette.packages.store import (
     project_store,
 )
 from agnette.version import AGM_VERSION
+
+V1 = semver.Version.parse("1.0.0")
 
 
 def _source(
@@ -218,7 +227,48 @@ def test_package_roots_inside_a_project_mount_both_stores(world: _World) -> None
         home=world.home, proj_dir=world.project, cwd=world.project, env=world.env
     )
 
-    assert [package.manifest.name for package in packages] == ["alpha", "bravo"]
+    assert [package.manifest.name for package in packages] == ["bravo", "alpha"]
+
+
+def test_package_roots_follow_command_priority_so_the_first_registrant_owns_a_path(
+    world: _World,
+) -> None:
+    world.install_global(_go_source(world, "alpha"))
+    world.install_global(_go_source(world, "bravo"), shadow=True)
+    world.install_project(_go_source(world, "carol"))
+    world.install_project(_go_source(world, "delta"), shadow=True)
+
+    packages = select_package_roots(
+        home=world.home, proj_dir=world.project, cwd=world.project, env=world.env
+    )
+    registry = command_registry(packages)
+
+    assert [package.manifest.name for package in packages] == ["delta", "carol", "bravo", "alpha"]
+    assert registry[("go",)].package.manifest.name == "delta"
+
+
+def test_command_priority_ranks_development_checkouts_as_the_stores_do(world: _World) -> None:
+    world.install_global(_go_source(world, "alpha"))
+    world.install_global(_go_source(world, "bravo"), shadow=True)
+    world.install_project(_go_source(world, "carol", command="other"))
+    checkouts = [
+        PackageInfo.live_source(_go_source(world, name, "9.0.0")) for name in ("zulu", "alpha")
+    ]
+    mounted = (*checkouts, *world.select().values())
+
+    ranked = by_command_priority(
+        mounted, home=world.home, proj_dir=world.project, cwd=world.project, env=world.env
+    )
+
+    assert [(p.manifest.name, p.manifest.version.major) for p in ranked] == [
+        ("carol", 1),
+        ("bravo", 1),
+        ("alpha", 9),
+        ("alpha", 1),
+        ("zulu", 9),
+    ]
+    assert command_registry(ranked)[("go",)].package.manifest.name == "bravo"
+    assert command_registry(mounted)[("go",)].package.manifest.name == "zulu"
 
 
 def test_a_pin_resolves_the_project_store_before_the_global_one(world: _World) -> None:
@@ -254,28 +304,100 @@ def test_a_pin_naming_no_stored_version_is_an_error(world: _World) -> None:
         world.select()
 
 
-def test_command_registry_covers_global_packages_only(world: _World) -> None:
-    world.install_global(
-        _source(
-            world.tmp / "src-g",
-            "alpha",
-            dependencies='\n[commands]\ngo = { program = "alpha/main::main" }\n',
-        )
-    )
-    world.install_project(
-        _source(
-            world.tmp / "src-p",
-            "alpha",
-            "2.0.0",
-            dependencies='\n[commands]\ngo = { program = "alpha/main::main" }\n',
-        )
+def _go_source(world: _World, name: str, version: str = "1.0.0", *, command: str = "go") -> Path:
+    """A package registering *command*."""
+    return _source(
+        world.tmp / f"src-{name}-{version}",
+        name,
+        version,
+        dependencies=f'\n[commands]\n{command} = {{ program = "{name}/main::main" }}\n',
     )
 
+
+def _commands(world: _World) -> dict[str, str]:
     index = effective_command_index(
         home=world.home, proj_dir=world.project, cwd=world.project, env=world.env
     )
+    return {path: registration.package for path, registration in index.commands.items()}
 
-    assert index.commands == {}
+
+def test_project_registrations_rank_above_every_global_one_without_shadow(world: _World) -> None:
+    world.install_global(_go_source(world, "alpha"))
+    world.install_global(_go_source(world, "bravo"), shadow=True)
+    world.install_project(_go_source(world, "carol"))
+
+    assert _commands(world) == {"go": "carol"}
+
+
+def test_a_project_install_reports_the_global_commands_it_shadows(world: _World) -> None:
+    world.install_global(_go_source(world, "alpha"))
+    world.install_global(_go_source(world, "bravo", command="stay"))
+
+    plan = install_directory_with_plan(
+        world.project_store, _go_source(world, "carol"), fallback=world.global_store
+    )
+
+    assert [(shadow.path_name, shadow.displaced_packages) for shadow in plan.command_shadows] == [
+        ("go", ("alpha",))
+    ]
+
+
+def test_a_project_package_replacing_a_global_one_shadows_none_of_its_commands(
+    world: _World,
+) -> None:
+    world.install_global(_go_source(world, "alpha"))
+
+    plan = install_directory_with_plan(
+        world.project_store,
+        _go_source(world, "alpha", "2.0.0", command="went"),
+        fallback=world.global_store,
+    )
+
+    assert plan.command_shadows == ()
+
+
+def test_a_project_package_replacing_a_global_one_registers_its_commands(world: _World) -> None:
+    world.install_global(_go_source(world, "alpha"))
+    world.install_project(_go_source(world, "alpha", "2.0.0", command="went"))
+
+    assert _commands(world) == {"went": "alpha"}
+
+
+def test_registrations_conflicting_within_the_project_store_need_shadow(world: _World) -> None:
+    world.install_project(_go_source(world, "alpha"))
+    rival = _go_source(world, "bravo")
+
+    with pytest.raises(PackageInstallError):
+        world.install_project(rival)
+    world.install_project(rival, shadow=True)
+
+    assert _commands(world) == {"go": "bravo"}
+
+
+def test_a_pinned_project_package_keeps_its_priority_over_global_registrations(
+    world: _World,
+) -> None:
+    world.install_global(_go_source(world, "alpha"))
+    world.install_project(_go_source(world, "bravo"))
+    world.install_project(_go_source(world, "bravo", "2.0.0"))
+    world.pin(bravo="1.0.0")
+
+    assert _commands(world) == {"go": "bravo"}
+
+
+def test_the_activating_store_is_the_one_whose_layered_entry_selects_the_package(
+    world: _World,
+) -> None:
+    world.install_global(_source(world.tmp / "src-g", "alpha"))
+    world.install_global(_source(world.tmp / "src-h", "bravo"))
+    project_alpha = world.install_project(_source(world.tmp / "src-p", "alpha", "2.0.0"))
+    global_alpha = PackageInfo.live_source(world.global_store.package_path("alpha", V1))
+    layers = context_layers(home=world.home, proj_dir=world.project, env=world.env)
+
+    assert activating_store(layers, project_alpha) == world.project_store
+    assert activating_store(layers, world.select()["bravo"]) == world.global_store
+    assert activating_store(layers, global_alpha) is None
+    assert activating_store(layers, PackageInfo.live_source(world.tmp / "src-g")) is None
 
 
 def test_resolution_memo_distinguishes_stores_holding_the_same_names(world: _World) -> None:
@@ -524,6 +646,92 @@ def test_resolution_target_is_the_global_store_when_the_project_store_is(
     assert target.store == context_layers(home=tmp_path, proj_dir=tmp_path).global_store
 
 
+@pytest.fixture
+def shown(world: _World, monkeypatch: pytest.MonkeyPatch) -> ConfigContext:
+    """Both stores populated: a shadowed global and editable package, and a project dependent."""
+    monkeypatch.setenv("AGM_HOME", world.env["AGM_HOME"])
+    world.install_global(_source(world.tmp / "src-a", "alpha", "1.0.0"))
+    world.install_global(_source(world.tmp / "src-b", "bravo", "1.0.0"))
+    world.install_global(_source(world.tmp / "src-e", "echo", "1.0.0"), editable=True)
+    world.install_project(_source(world.tmp / "src-a2", "alpha", "2.0.0"))
+    world.install_project(_source(world.tmp / "src-e2", "echo", "2.0.0"), editable=True)
+    deps = '\n[dependencies]\nbravo = "1"\n'
+    world.install_project(_source(world.tmp / "src-c", "carol", dependencies=deps))
+    context = ConfigContext(home=world.home, proj_dir=world.project, cwd=world.project)
+    monkeypatch.setattr(list_command, "current_config_context", lambda: context)
+    monkeypatch.setattr(info_command, "current_config_context", lambda: context)
+    return context
+
+
+def test_list_inside_a_project_labels_both_stores_and_marks_shadowed_packages(
+    shown: ConfigContext, capsys: pytest.CaptureFixture[str]
+) -> None:
+    list_command.run(PkgListArgs())
+
+    assert capsys.readouterr().out.splitlines() == [
+        "alpha 1.0.0 active global (shadowed)",
+        "bravo 1.0.0 active global",
+        "echo 1.0.0 editable global (shadowed)",
+        "alpha 2.0.0 active project",
+        "carol 1.0.0 active project",
+        "echo 2.0.0 editable project",
+    ]
+
+
+def test_list_outside_a_project_shows_the_global_store_unlabelled(
+    shown: ConfigContext, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    outside = ConfigContext(home=shown.home, proj_dir=None, cwd=shown.cwd)
+    monkeypatch.setattr(list_command, "current_config_context", lambda: outside)
+
+    list_command.run(PkgListArgs())
+
+    assert capsys.readouterr().out.splitlines() == [
+        "alpha 1.0.0 active",
+        "bravo 1.0.0 active",
+        "echo 1.0.0 editable",
+    ]
+
+
+def test_info_inside_a_project_names_the_store_and_the_global_package_it_shadows(
+    shown: ConfigContext, capsys: pytest.CaptureFixture[str]
+) -> None:
+    info_command.run(PkgInfoArgs("alpha"))
+    info_command.run(PkgInfoArgs("bravo"))
+    info_command.run(PkgInfoArgs("carol"))
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "store: project (shadows global 1.0.0)" in lines
+    assert "store: global" in lines
+    assert "store: project" in lines
+    assert "requires bravo >= 1.0.0: active 1.0.0" in lines
+
+
+def test_info_of_a_project_package_tolerates_a_shadowed_editable_whose_source_is_gone(
+    shown: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shutil.rmtree(world.tmp / "src-e")
+
+    info_command.run(PkgInfoArgs("echo"))
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "echo 2.0.0"
+    assert any(line.startswith("store: project") and "shadows" in line for line in lines)
+
+
+def test_info_outside_a_project_ignores_project_packages(
+    shown: ConfigContext, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    outside = ConfigContext(home=shown.home, proj_dir=None, cwd=shown.cwd)
+    monkeypatch.setattr(info_command, "current_config_context", lambda: outside)
+
+    info_command.run(PkgInfoArgs("alpha"))
+    with pytest.raises(SystemExit):
+        info_command.run(PkgInfoArgs("carol"))
+
+    assert capsys.readouterr().out == "alpha 1.0.0\n"
+
+
 def test_operations_on_an_absent_store_create_nothing(world: _World) -> None:
     version = semver.Version.parse("1.0.0")
 
@@ -554,6 +762,24 @@ def test_a_broken_project_selection_is_warned_about(
     warn_if_project_selection_broken(broken_project, project=False)
 
     assert "base" in capsys.readouterr().err
+
+
+def test_a_global_install_conflicting_with_a_pinned_version_is_warned_about(
+    world: _World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pin selects a global version the global index lacks, so only the layered view conflicts."""
+    monkeypatch.setenv("AGM_HOME", world.env["AGM_HOME"])
+    world.install_global(_go_source(world, "alpha", "1.0.0", command="other"))
+    world.install_global(_go_source(world, "alpha", "2.0.0"))
+    activate_installed_package_with_plan(world.global_store, "alpha", V1)
+    world.pin(alpha="2.0.0")
+    world.install_global(_go_source(world, "bravo"))
+
+    warn_if_project_selection_broken(
+        ConfigContext(home=world.home, proj_dir=world.project, cwd=world.project), project=False
+    )
+
+    assert "go" in capsys.readouterr().err
 
 
 def test_no_warning_for_a_project_operation_a_dry_run_or_no_project(

@@ -7023,12 +7023,26 @@ class TestPackageInstall:
 
 
 def _write_marked_package(
-    root: Path, name: str, version: str, output: str, *, dependencies: str = ""
+    root: Path,
+    name: str,
+    version: str,
+    output: str,
+    *,
+    manifest_tail: str = "",
+    commands: tuple[str, ...] = (),
 ) -> Path:
-    """Write a package whose ``main`` program prints *output*."""
+    """Write a package whose ``main`` program prints *output*.
+
+    *commands* register that program under each path; *manifest_tail* is appended to the manifest.
+    """
     package = _write_store_test_package(root, name, version)
     manifest = package / "package.toml"
-    manifest.write_text(manifest.read_text(encoding="utf-8") + dependencies, encoding="utf-8")
+    registered = "\n[commands]\n" if commands else ""
+    for path in commands:
+        registered += f'{path} = {{ program = "{name}/main::main" }}\n'
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + manifest_tail + registered, encoding="utf-8"
+    )
     (package / "src" / "main.agl").write_text(
         f'program def main() -> unit = print("{output}")\n', encoding="utf-8"
     )
@@ -7210,7 +7224,7 @@ class TestProjectPackages:
             "papp",
             "1.0.0",
             "papp",
-            dependencies='\n[dependencies]\nbase = "1.0"\n',
+            manifest_tail='\n[dependencies]\nbase = "1.0"\n',
         )
         run_agm(["pkg", "install", str(base)], env=outside, cwd=project)
 
@@ -7231,7 +7245,7 @@ class TestProjectPackages:
             "gapp",
             "1.0.0",
             "gapp",
-            dependencies='\n[dependencies]\nbase = "1.0"\n',
+            manifest_tail='\n[dependencies]\nbase = "1.0"\n',
         )
         run_agm(["pkg", "install", "--project", str(base)], env=inside, cwd=project)
 
@@ -7277,7 +7291,7 @@ class TestProjectPackages:
             "papp",
             "1.0.0",
             "papp",
-            dependencies='\n[dependencies]\nbase = "1.0"\n',
+            manifest_tail='\n[dependencies]\nbase = "1.0"\n',
         )
         unrelated = _write_marked_package(tmp_path / "other", "other", "1.0.0", "other")
         run_agm(["pkg", "install", str(base)], env=outside, cwd=project)
@@ -7302,6 +7316,216 @@ class TestProjectPackages:
 
         assert result.returncode == 1
         assert not (project / "packages" / "std").exists()
+
+    def test_project_commands_are_visible_only_inside_the_project_and_shadow_global_ones(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        glob = _write_marked_package(
+            tmp_path / "glob", "glob", "1.0.0", "global launch", commands=("launch",)
+        )
+        proj = _write_marked_package(
+            tmp_path / "proj", "proj", "1.0.0", "project launch", commands=("launch", "only")
+        )
+        run_agm(["pkg", "install", str(glob)], env=outside, cwd=project)
+        installed = run_agm(["pkg", "install", "--project", str(proj)], env=inside, cwd=project)
+
+        shadowed = run_agm(["launch"], env=inside, cwd=project)
+        only = run_agm(["only"], env=inside, cwd=project)
+        global_view = run_agm(["launch"], env=outside, cwd=tmp_path)
+        hidden = run_agm(["only"], env=outside, cwd=tmp_path, check=False)
+
+        assert "shadowed command launch from glob" in installed.stdout
+        assert shadowed.stdout == "project launch\n"
+        assert only.stdout == "project launch\n"
+        assert global_view.stdout == "global launch\n"
+        assert hidden.returncode != 0
+
+    def test_a_project_package_replacing_a_global_one_registers_its_own_commands(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        old = _write_marked_package(
+            tmp_path / "old", "tools", "1.0.0", "global", commands=("alpha", "beta")
+        )
+        new = _write_marked_package(
+            tmp_path / "new", "tools", "2.0.0", "project", commands=("alpha",)
+        )
+        run_agm(["pkg", "install", str(old)], env=outside, cwd=project)
+        run_agm(["pkg", "install", "--project", str(new)], env=inside, cwd=project)
+
+        replaced = run_agm(["alpha"], env=inside, cwd=project)
+        dropped = run_agm(["beta"], env=inside, cwd=project, check=False)
+        global_alpha = run_agm(["alpha"], env=outside, cwd=tmp_path)
+        global_beta = run_agm(["beta"], env=outside, cwd=tmp_path)
+
+        assert replaced.stdout == "project\n"
+        assert dropped.returncode != 0
+        assert global_alpha.stdout == global_beta.stdout == "global\n"
+
+    def test_a_project_commands_manifest_config_applies_only_inside_the_project(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        for label, version, store in (
+            ("global", "1.0.0", []),
+            ("project", "2.0.0", ["--project"]),
+        ):
+            package = _write_marked_package(
+                tmp_path / f"{label}-tools",
+                "tools",
+                version,
+                "unused",
+                manifest_tail=f'\n[config]\nsubject = "{label}"\n',
+                commands=("say",),
+            )
+            (package / "src" / "main.agl").write_text(
+                'program def main(@arg-named subject: text = "none") -> unit = print(subject)\n',
+                encoding="utf-8",
+            )
+            run_agm(["pkg", "install", *store, str(package)], env=inside, cwd=project)
+
+        here = run_agm(["say"], env=inside, cwd=project)
+        elsewhere = run_agm(["say"], env=outside, cwd=tmp_path)
+
+        assert here.stdout == "project\n"
+        assert elsewhere.stdout == "global\n"
+
+    def test_an_editable_project_command_rereads_its_manifest_at_dispatch(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, _ = scene
+        live = _write_marked_package(tmp_path / "live", "live", "1.0.0", "old", commands=("go",))
+        (live / "src" / "updated.agl").write_text(
+            'program def main() -> unit = print("new")\n', encoding="utf-8"
+        )
+        run_agm(["pkg", "install", "--project", "--editable", str(live)], env=inside, cwd=project)
+        before = run_agm(["go"], env=inside, cwd=project)
+        manifest = live / "package.toml"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace("live/main::main", "live/updated::main"),
+            encoding="utf-8",
+        )
+
+        after = run_agm(["go"], env=inside, cwd=project)
+
+        assert before.stdout == "old\n"
+        assert after.stdout == "new\n"
+
+    def test_completion_lists_project_commands_only_inside_the_project(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        proj = _write_marked_package(tmp_path / "proj", "proj", "1.0.0", "x", commands=("zonly",))
+        run_agm(["pkg", "install", "--project", str(proj)], env=inside, cwd=project)
+
+        def complete(env: dict[str, str], cwd: Path) -> str:
+            request = {**env, "_AGM_COMPLETE": "complete_zsh", "COMP_WORDS": "agm zo"}
+            return run_agm([], env={**request, "COMP_CWORD": "1"}, cwd=cwd).stdout
+
+        assert '"zonly"' in complete(inside, project)
+        assert '"zonly"' not in complete(outside, tmp_path)
+
+    def test_inherit_resolves_a_command_registered_in_both_stores_to_the_project_one(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        for label, store in (("glob", []), ("proj", ["--project"])):
+            package = _write_marked_package(
+                tmp_path / label,
+                label,
+                "1.0.0",
+                "unused",
+                manifest_tail=f'\n[config]\nwho = "{label}"\n',
+                commands=("launch",),
+            )
+            (package / "src" / "main.agl").write_text(
+                'program def main(@arg-named who: text = "none") -> unit = print(who)\n',
+                encoding="utf-8",
+            )
+            run_agm(["pkg", "install", *store, str(package)], env=inside, cwd=project)
+        script = tmp_path / "script.agl"
+        script.write_text(
+            'program def main(@inherit("launch.who") who: text = "none") -> unit = print(who)\n',
+            encoding="utf-8",
+        )
+
+        here = run_agm(["exec", str(script)], env=inside, cwd=project)
+        elsewhere = run_agm(["exec", str(script)], env=outside, cwd=tmp_path)
+
+        assert here.stdout == "proj\n"
+        assert elsewhere.stdout == "glob\n"
+
+    def test_inherit_resolves_a_command_as_dispatch_does_inside_a_development_checkout(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, _ = scene
+        packages = {}
+        for label in ("glob", "dev"):
+            packages[label] = _write_marked_package(
+                tmp_path / label,
+                label,
+                "1.0.0",
+                "unused",
+                manifest_tail=f'\n[config]\nwho = "{label}"\n',
+                commands=("launch",),
+            )
+            (packages[label] / "src" / "main.agl").write_text(
+                'program def main(@arg-named who: text = "none") -> unit = print(who)\n',
+                encoding="utf-8",
+            )
+        run_agm(["pkg", "install", str(packages["glob"])], env=inside, cwd=project)
+        script = packages["dev"] / "src" / "script.agl"
+        script.write_text(
+            'program def main(@inherit("launch.who") who: text = "none") -> unit = print(who)\n',
+            encoding="utf-8",
+        )
+
+        dispatched = run_agm(["launch"], env=inside, cwd=packages["dev"])
+        inherited = run_agm(["exec", str(script)], env=inside, cwd=project)
+
+        assert dispatched.stdout == inherited.stdout == "glob\n"
+
+    def test_list_and_info_show_both_stores_and_mark_shadowed_packages(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        base = _write_marked_package(tmp_path / "base", "base", "1.0.0", "base")
+        old = _write_marked_package(tmp_path / "old", "tools", "1.0.0", "old")
+        new = _write_marked_package(
+            tmp_path / "new",
+            "tools",
+            "2.0.0",
+            "new",
+            manifest_tail='\n[dependencies]\nbase = "1.0"\n',
+        )
+        for source in (base, old):
+            run_agm(["pkg", "install", str(source)], env=outside, cwd=project)
+        only = _write_marked_package(tmp_path / "only", "only", "1.0.0", "only")
+        run_agm(["pkg", "install", "--project", str(new)], env=inside, cwd=project)
+        run_agm(["pkg", "install", "--project", str(only)], env=inside, cwd=project)
+
+        listed = run_agm(["pkg", "list"], env=inside, cwd=project).stdout.splitlines()
+        plain = run_agm(["pkg", "list"], env=outside, cwd=tmp_path).stdout
+        info = run_agm(["pkg", "info", "tools"], env=inside, cwd=project).stdout
+        global_info = run_agm(["pkg", "info", "base"], env=inside, cwd=project).stdout
+        plain_info = run_agm(["pkg", "info", "tools"], env=outside, cwd=tmp_path).stdout
+        absent = run_agm(["pkg", "info", "only"], env=outside, cwd=tmp_path, check=False)
+        store_line = next(line for line in info.splitlines() if line.startswith("store:"))
+
+        assert "base 1.0.0 active global" in listed
+        assert "tools 1.0.0 active global (shadowed)" in listed
+        assert "tools 2.0.0 active project" in listed
+        assert "tools 1.0.0 active" in plain.splitlines()
+        assert "global" not in plain
+        assert info.startswith("tools 2.0.0\n")
+        assert "store: project" in store_line
+        assert "1.0.0" in store_line
+        assert "requires base >= 1.0.0: active 1.0.0" in info
+        assert "store: global" in global_info
+        assert plain_info.startswith("tools 1.0.0\n")
+        assert "store:" not in plain_info
+        assert absent.returncode != 0
 
 
 # ── help system ────────────────────────────────────────────────────────────
