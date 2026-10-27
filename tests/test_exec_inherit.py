@@ -9,6 +9,7 @@ import pytest
 
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.commands.exec import run
+from agnette.core import fs
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._package_helpers import write_installed_package
 
@@ -577,3 +578,24 @@ class TestInlineSource:
         )
 
         assert capsys.readouterr() == ("4\n4\n", "")
+
+
+class TestRegistryCost:
+    def test_a_program_without_inherit_never_reads_another_checkouts_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        entry = _packages(tmp_path, '@command("alpha run")\nprogram def main() -> unit = print 1\n')
+        beta_source = (tmp_path / "beta" / MODULE_TREE_DIRNAME / "commands.agl").resolve()
+        read: list[Path] = []
+        read_text = fs.read_text
+
+        def recording_read_text(path: Path, *, encoding: str = "utf-8") -> str:
+            read.append(path.resolve())
+            return read_text(path, encoding=encoding)
+
+        monkeypatch.setattr(fs, "read_text", recording_read_text)
+
+        out, _err = _printed(capsys, entry)
+
+        assert out == "1\n"
+        assert beta_source not in read

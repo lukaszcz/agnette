@@ -5,8 +5,8 @@ incomplete until the commands its own programs register are merged in
 (:mod:`agnette.packages.source_commands`). Discovery loads manifests with
 ``commands_complete=False`` for that reason (:meth:`PackageInfo.live_source`);
 it mounts module roots and resolves dependencies, and never reads the command
-table. ``agm exec`` completes the mounted packages' tables once, after mounting,
-to build its command registry (``commands/exec_program.py``).
+table. ``agm exec`` completes the selected program's owning package's table, and
+the other mounted packages' only to resolve ``@inherit`` (``commands/exec_program.py``).
 """
 
 from __future__ import annotations

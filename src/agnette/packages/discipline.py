@@ -89,6 +89,8 @@ class PackageResolution:
     modules: Mapping[ModuleId, Path] = field(default_factory=dict)
     all_resolutions: _ModuleResolutions = field(default_factory=dict)
     adjacency: Mapping[ModuleId, tuple[ModuleId, ...]] = field(default_factory=dict)
+    # Source-authored edges only: a program's closure, as at run time.
+    source_adjacency: Mapping[ModuleId, tuple[ModuleId, ...]] = field(default_factory=dict)
     digests: Mapping[ModuleId, str] = field(default_factory=dict)
 
     @property
@@ -261,6 +263,7 @@ def _resolve_package_modules(
         modules=dict(modules),
         all_resolutions=resolved,
         adjacency=dict(graph.adjacency),
+        source_adjacency=dict(graph.source_adjacency),
         digests={module_id: _digest(graph.modules[module_id].source_text) for module_id in modules},
     )
 
@@ -569,7 +572,7 @@ def _validate_program_param_spellings(
         if command.program is None:
             continue
         entry = ModuleId(split_program_reference(command.program)[0])
-        closure = _import_closure(entry, package.adjacency)
+        closure = _import_closure(entry, package.source_adjacency)
         collision = full_spelling_collision(
             declaration
             for module_id in closure
@@ -582,7 +585,11 @@ def _validate_program_param_spellings(
 def _import_closure(
     entry: ModuleId, adjacency: Mapping[ModuleId, tuple[ModuleId, ...]]
 ) -> tuple[ModuleId, ...]:
-    """Return *entry* and every module it imports, transitively."""
+    """Return *entry* and every module it imports in source, transitively.
+
+    *adjacency* holds source-authored edges only (``ModuleGraph.source_adjacency``),
+    so the closure is the run-time one (``ModuleGraph.source_reachable_modules``).
+    """
     return reachable_nodes(entry, lambda module_id: adjacency.get(module_id, ()))
 
 
@@ -869,7 +876,7 @@ def _target_resolutions(
     dependency_packages: tuple[PackageInfo, ...],
     modules: set[ModuleId],
 ) -> tuple[_ModuleResolutions, Mapping[ModuleId, tuple[ModuleId, ...]]]:
-    """Return resolutions and import adjacency covering *modules* and their closures.
+    """Return resolutions and source import adjacency covering *modules* and their closures.
 
     The package's own graph covers its modules and what they import; a
     dependency module it never imports is loaded, with its closure, in one
@@ -878,7 +885,7 @@ def _target_resolutions(
     caches).
     """
     resolutions = dict(package.all_resolutions)
-    adjacency = dict(package.adjacency)
+    adjacency = dict(package.source_adjacency)
     missing: dict[str, list[tuple[str, ...]]] = {}
     for module in sorted((m for m in modules if m not in resolutions), key=str):
         missing.setdefault(module.segments[0], []).append(module.segments)
@@ -892,7 +899,7 @@ def _target_resolutions(
             subject=f"package {owner!r} (an @inherit target of {package.package.manifest.name!r})",
         )
         resolutions.update(loaded)
-        adjacency.update(graph.adjacency)
+        adjacency.update(graph.source_adjacency)
     return resolutions, adjacency
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 import semver
 
 import agnette.agm.commands.pkg.check as check_command
+import agnette.packages.discipline as discipline
 from agnette.agm.cli_support.args import PkgCheckArgs
 from agnette.config.context import ConfigContext
 from agnette.packages.discipline import (
@@ -26,6 +28,7 @@ from agnette.packages.manifest import (
 )
 from agnette.packages.model import PackageInfo, owning_package
 from agnette.packages.source_commands import package_with_source_commands
+from agnette.stdlib_locator import shipped_stdlib_root
 from tests._package_helpers import package_info
 from tests._timeouts import fail_if_slow
 
@@ -1580,6 +1583,26 @@ class TestInheritAddressDiscipline:
     ) -> None:
         with pytest.raises(DisciplineError):
             validate_package(self._own(tmp_path, address))
+
+    @pytest.mark.parametrize("leaf", ["knob", "std.knob.knob"], ids=["bare", "qualified"])
+    def test_rejects_a_param_only_the_injected_prelude_reaches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leaf: str
+    ) -> None:
+        # A run-time closure follows source imports only, so a std module the
+        # prelude exports declares no parameter of the target program.
+        stdlib = tmp_path / "stdlib"
+        shutil.copytree(shipped_stdlib_root(), stdlib)
+        modules = stdlib / MODULE_TREE_DIRNAME
+        (modules / "knob.agl").write_text("@param let knob: int = 1\n", encoding="utf-8")
+        prelude = modules / "prelude.agl"
+        prelude.write_text(
+            prelude.read_text(encoding="utf-8") + "export std/knob\n", encoding="utf-8"
+        )
+        monkeypatch.setattr(discipline, "shipped_stdlib_root", lambda: stdlib)
+        validate_package(self._own(tmp_path / "control", "tools.review.limit"))
+
+        with pytest.raises(DisciplineError):
+            validate_package(self._own(tmp_path, f"tools.review.{leaf}"))
 
     @pytest.mark.parametrize(
         "address",

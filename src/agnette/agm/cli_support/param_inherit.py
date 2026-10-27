@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from functools import cached_property
 from pathlib import Path
 from typing import NamedTuple
 
@@ -31,12 +31,20 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
 class InheritScope:
-    """The command registry ``@inherit`` addresses resolve in, and the invocation directory."""
+    """The command registry ``@inherit`` addresses resolve in, and the invocation directory.
 
-    registry: CommandRegistry
-    cwd: Path
+    The registry is built on first use: completing development checkouts' command
+    tables scans their source, which a program without ``@inherit`` never needs.
+    """
+
+    def __init__(self, build_registry: Callable[[], CommandRegistry], cwd: Path) -> None:
+        self._build_registry = build_registry
+        self.cwd = cwd
+
+    @cached_property
+    def registry(self) -> CommandRegistry:
+        return self._build_registry()
 
 
 class InheritRequest(NamedTuple):
@@ -99,6 +107,8 @@ def resolve_inherited_values(
     path in *scope*; one with no such prefix draws a warning and contributes
     nothing. Every unregistered address warns, though one already yielded a value.
     """
+    if not any(request.addresses for request in requests.values()):
+        return {}
     command_tables = frozenset(scope.registry)
     command_routes = known_route_tables((), command_tables)
     resolved: dict[HostParamKey, InheritedConfigValue] = {}

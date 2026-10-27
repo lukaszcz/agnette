@@ -55,6 +55,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, assert_never
 
@@ -131,7 +132,7 @@ from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decis
 from agnette.core.process import terminating_signals_exit
 from agnette.core.toml import TomlDict, toml_dict
 from agnette.packages.activation import by_command_priority
-from agnette.packages.command_registry import command_registry
+from agnette.packages.command_registry import CommandRegistry, command_registry
 from agnette.packages.manifest import (
     command_paths_for_program,
     expanded_commands,
@@ -281,6 +282,38 @@ class _PackageProgramRoute:
     command_paths: tuple[tuple[str, ...], ...]
 
 
+def _with_completed_owner(
+    packages: tuple[PackageInfo, ...], entry_path: Path | None
+) -> tuple[PackageInfo, ...]:
+    """Return *packages* with the entry's owning package's command table completed from source.
+
+    Only the owner's: its table routes the selected program's configuration. Other
+    development checkouts are completed only for ``@inherit`` (:func:`_inherit_registry`).
+    """
+    owner = None if entry_path is None else owning_package(entry_path, packages)
+    if owner is None or owner.commands_complete:
+        return packages
+    # Lazy: builds the AgL parser, which activation.py also keeps out of
+    # import-time paths.
+    from agnette.packages.source_commands import package_with_source_commands_or_declared
+
+    completed = package_with_source_commands_or_declared(owner)
+    return tuple(completed if package is owner else package for package in packages)
+
+
+def _inherit_registry(packages: tuple[PackageInfo, ...], ctx: ConfigContext) -> CommandRegistry:
+    """Return the registry ``@inherit`` resolves in: every mounted package's commands.
+
+    Command tables are completed from source, and owners are ranked as dispatch ranks them.
+    """
+    from agnette.packages.source_commands import complete_packages
+
+    ranked = by_command_priority(
+        complete_packages(packages), home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd
+    )
+    return command_registry(ranked)
+
+
 def _package_program_route(
     entry_path: Path,
     packages: tuple[PackageInfo, ...],
@@ -293,7 +326,7 @@ def _package_program_route(
     installed reference, or by file path — the owning package's manifest is
     the authority dispatch itself checks, so a program no package owns has no
     command table and no manifest defaults. *packages* are the mounted
-    packages with their command tables completed from source (see :func:`run`).
+    packages, the owner's command table completed (:func:`_with_completed_owner`).
     """
     package = owning_package(entry_path, packages)
     if package is None:
@@ -499,17 +532,10 @@ def run(
         requested=args.program,
         declaration_path=lambda item: "::".join((*scope_names(item.scope_path), item.name)),
     )
-    # Lazy: builds the AgL parser, which activation.py also keeps out of
-    # import-time paths. A development checkout's command table is completed
-    # from source once, here, for the owning package and the registry alike.
-    from agnette.packages.source_commands import complete_packages
-
-    packages = complete_packages(exec_roots.roots.packages)
-    # Command owners are ranked as dispatch ranks them, not in mount order.
-    registry = command_registry(
-        by_command_priority(packages, home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
+    packages = _with_completed_owner(exec_roots.roots.packages, entry_path)
+    package_command_paths = frozenset(
+        tuple(path.split()) for package in packages for path in expanded_commands(package.manifest)
     )
-    package_command_paths = frozenset(registry)
     command_paths: tuple[tuple[str, ...], ...] = ()
     owning_package_info: PackageInfo | None = None
     if entry_path is not None and selected_parsed_program is not None:
@@ -613,7 +639,7 @@ def run(
             if owning_package_info is not None
             else None
         ),
-        inherit_scope=InheritScope(registry, ctx.cwd),
+        inherit_scope=InheritScope(partial(_inherit_registry, packages, ctx), ctx.cwd),
     )
     module_tiers, engine_values = split_engine_tiers(param_tiers)
 
