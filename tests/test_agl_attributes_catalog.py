@@ -80,6 +80,7 @@ class TestZoneAttributes:
             {
                 AttributeTarget.PARAMETER,
                 AttributeTarget.PROGRAM_PARAMETER,
+                AttributeTarget.PARAM_PARAMETER,
                 AttributeTarget.FIELD,
                 AttributeTarget.FUNCTION,
                 AttributeTarget.PROGRAM,
@@ -107,7 +108,11 @@ class TestExternAndOptionAttributes:
     @pytest.mark.parametrize("name", OPTION_ATTRIBUTES)
     def test_option_attributes_sit_on_host_facing_parameters(self, name: str) -> None:
         assert BUILTIN_ATTRIBUTES[name].targets == frozenset(
-            {AttributeTarget.PROGRAM_PARAMETER, AttributeTarget.PARAM_BINDING}
+            {
+                AttributeTarget.PROGRAM_PARAMETER,
+                AttributeTarget.PARAM_BINDING,
+                AttributeTarget.PARAM_PARAMETER,
+            }
         )
 
     @pytest.mark.parametrize("name", ("opt-short", "opt-name", "opt-env", "opt-metavar"))
@@ -124,10 +129,12 @@ class TestExternAndOptionAttributes:
 
 
 class TestParamAttribute:
-    def test_param_is_a_bare_marker_on_bindings_only(self) -> None:
+    def test_param_is_a_bare_marker_on_bindings_and_def_parameters(self) -> None:
         spec = BUILTIN_ATTRIBUTES[PARAM_ATTRIBUTE]
 
-        assert spec.targets == frozenset({AttributeTarget.BINDING})
+        assert spec.targets == frozenset(
+            {AttributeTarget.PARAM_BINDING, AttributeTarget.PARAM_PARAMETER}
+        )
         assert spec.arguments is AttributeArguments.NONE
 
 

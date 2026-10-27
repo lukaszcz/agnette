@@ -1,0 +1,1 @@
+program def main(@param @arg-pos count: int = 1) -> unit = print count

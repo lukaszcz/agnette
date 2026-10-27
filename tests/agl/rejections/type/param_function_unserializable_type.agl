@@ -1,0 +1,3 @@
+def f(@param callbacks: array[(int) -> int] = []) -> int = 1
+
+program def main() -> unit = print f()

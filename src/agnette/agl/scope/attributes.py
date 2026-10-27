@@ -51,6 +51,7 @@ from agnette.agl.attributes import (
     OPTION_NAME_ATTRIBUTE,
     OPTION_SHORT_ATTRIBUTE,
     PARAM_ATTRIBUTE,
+    PARAM_RETARGETS,
     SHELL_QUOTED_ATTRIBUTE,
     ZONE_ATTRIBUTES,
     AttributeArguments,
@@ -63,6 +64,7 @@ from agnette.agl.attributes import (
     invalid_program_command_path,
 )
 from agnette.agl.modules.ids import spell_scope_path
+from agnette.agl.operator_names import is_operator_name
 from agnette.agl.scope.symbols import AglScopeError, AllowRegion, AttributeFacts
 from agnette.agl.semantics.external_names import ExternalName
 from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants
@@ -140,6 +142,10 @@ _ZONE_LABEL: Mapping[ParamZone, str] = {
     ParamZone.NAMED_ONLY: "named-only",
 }
 
+#: Why a builtin or operator-named ``def``'s parameters cannot be ``@param``.
+_BUILTIN_PARAM_REJECTION = "cannot be attached to a parameter of a builtin def"
+_OPERATOR_PARAM_REJECTION = "cannot be attached to a parameter of an operator-named def"
+
 #: How each target kind is named in a diagnostic.
 _TARGET_LABEL: Mapping[AttributeTarget, str] = {
     AttributeTarget.FUNCTION: "function declaration",
@@ -153,6 +159,7 @@ _TARGET_LABEL: Mapping[AttributeTarget, str] = {
     AttributeTarget.TYPE_ALIAS: "type alias",
     AttributeTarget.BINDING: "binding",
     AttributeTarget.PARAM_BINDING: "parameter binding",
+    AttributeTarget.PARAM_PARAMETER: "@param parameter",
     AttributeTarget.BUILTIN_VAR: "builtin var",
     AttributeTarget.PARAMETER: "parameter",
     AttributeTarget.LAMBDA_PARAMETER: "lambda parameter",
@@ -315,6 +322,7 @@ class _Recognizer:
                 form_default=(ParamZone.NAMED_ONLY if node.is_program else ParamZone.STANDARD),
                 has_receiver=self._declares_receiver(node),
                 owner_name=node.name,
+                param_rejection=_def_param_rejection(node),
             )
         elif isinstance(node, Lambda):
             for param in node.params:
@@ -344,7 +352,7 @@ class _Recognizer:
         node_id: int,
         span: SourceSpan,
         *,
-        param_allowed: bool = False,
+        param_rejection: str | None = None,
     ) -> _Recognized:
         """Validate the whole attribute prefix of the declaration *node_id* spanning *span*.
 
@@ -352,16 +360,15 @@ class _Recognizer:
         that need no builder of their own: ``@doc`` text, the ``@name`` and
         ``@json-name`` spellings, and the ``@allow``/``@exempts`` warning
         names. *span* covers the declaration, its attribute prefix included.
+        A ``@param`` on a binding or ``def`` parameter retargets the declaration
+        to its host-parameter target, unless *param_rejection* says why this site
+        cannot be one.
         """
         param = next((item for item in attributes if item.name == PARAM_ATTRIBUTE), None)
-        if target is AttributeTarget.BINDING and param is not None:
-            if not param_allowed:
-                raise AglScopeError(
-                    "Attribute '@param' can only be attached to a static binding at module "
-                    "root or in a scope region.",
-                    span=param.span,
-                )
-            target = AttributeTarget.PARAM_BINDING
+        if param is not None and target in PARAM_RETARGETS:
+            if param_rejection is not None:
+                raise AglScopeError(f"Attribute '@param' {param_rejection}.", span=param.span)
+            target = PARAM_RETARGETS[target]
         recognized = _validate_attribute_prefix(
             attributes, target, self._constants, self._scope_path
         )
@@ -421,7 +428,11 @@ class _Recognizer:
             AttributeTarget.BINDING,
             node.node_id,
             node.span,
-            param_allowed=is_static,
+            param_rejection=(
+                None
+                if is_static
+                else "can only be attached to a static binding at module root or in a scope region"
+            ),
         )
         marker = recognized.nodes.get(PARAM_ATTRIBUTE)
         if marker is None:
@@ -569,20 +580,34 @@ class _Recognizer:
         form_default: ParamZone = ParamZone.STANDARD,
         has_receiver: bool = False,
         owner_name: str | None = None,
+        param_rejection: str | None = None,
     ) -> None:
         """Validate and zone every entry of one parameter or field list.
 
         An entry's own ``@arg-*`` attribute wins; otherwise the owning
         declaration's sets the list default; otherwise *form_default* applies.
         A classified method's receiver is positional-only regardless. Entries
-        then have to run positional-only, standard, named-only.
+        then have to run positional-only, standard, named-only. A ``@param`` entry
+        is a host parameter: it needs a default, and *param_rejection* (or a
+        receiver position) can rule the site out.
         """
         list_default = form_default if owner_zone is None else owner_zone
         highest = _ZONE_SEQUENCE[0]
         for index, entry in enumerate(entries):
-            recognized = self._check(entry.attributes, target, entry.node_id, entry.span)
+            is_receiver = has_receiver and index == 0
+            recognized = self._check(
+                entry.attributes,
+                target,
+                entry.node_id,
+                entry.span,
+                param_rejection=(
+                    f"cannot be attached to receiver {entry.name!r}, which a host cannot set"
+                    if is_receiver
+                    else param_rejection
+                ),
+            )
             declared = _zone_attribute(recognized)
-            if has_receiver and index == 0:
+            if is_receiver:
                 if declared is not None:
                     raise AglScopeError(
                         f"Receiver '{entry.name}' of '{owner_name}' is positional-only and "
@@ -614,6 +639,29 @@ class _Recognizer:
                         and OPTION_SHORT_ATTRIBUTE not in recognized.nodes
                     ),
                 )
+            if PARAM_ATTRIBUTE in recognized.nodes:
+                self._function_param(entry, recognized)
+
+    # ------------------------------------------------------------------
+    # Fact builder: function host parameters
+    # ------------------------------------------------------------------
+
+    def _function_param(self, entry: Param, recognized: _Recognized) -> None:
+        """Record one ``@param`` ``def`` parameter's presentation.
+
+        The parameter needs a single name and a default.
+        """
+        if entry.name == "_":
+            raise AglScopeError(
+                "Attribute '@param' requires a parameter with a single name.",
+                span=recognized.nodes[PARAM_ATTRIBUTE].span,
+            )
+        if entry.default is None:
+            raise AglScopeError(
+                f"Attribute '@param' requires parameter {entry.name!r} to have a default.",
+                span=recognized.nodes[PARAM_ATTRIBUTE].span,
+            )
+        self.params[entry.node_id] = _option_spec(entry.name, recognized)
 
     # ------------------------------------------------------------------
     # Fact builder: program option presentation
@@ -634,7 +682,7 @@ class _Recognizer:
         catalog's patterns in ``_validate_attribute_prefix``.)
         """
         if zone is ParamZone.POSITIONAL_ONLY:
-            for name in NAME_ADDRESSED_OPTION_ATTRIBUTES:
+            for name in (PARAM_ATTRIBUTE, *NAME_ADDRESSED_OPTION_ATTRIBUTES):
                 attribute = recognized.nodes.get(name)
                 if attribute is not None:
                     raise AglScopeError(
@@ -650,6 +698,13 @@ class _Recognizer:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _def_param_rejection(node: FuncDef) -> str | None:
+    """Return why *node*'s parameters cannot be ``@param``, or None when they can."""
+    if node.is_builtin:
+        return _BUILTIN_PARAM_REJECTION
+    return _OPERATOR_PARAM_REJECTION if is_operator_name(node.name) else None
 
 
 def _validate_attribute_prefix(
@@ -673,12 +728,7 @@ def _validate_attribute_prefix(
         spec = BUILTIN_ATTRIBUTES.get(attribute.name)
         if spec is None:
             raise AglScopeError(f"Unknown attribute '{attribute.spelling}'.", span=attribute.span)
-        validation_target = (
-            AttributeTarget.BINDING
-            if target is AttributeTarget.PARAM_BINDING and attribute.name == PARAM_ATTRIBUTE
-            else target
-        )
-        if validation_target not in spec.targets:
+        if target not in spec.targets:
             raise AglScopeError(
                 f"Attribute '{attribute.spelling}' cannot be attached to a "
                 f"{_TARGET_LABEL[target]}.",

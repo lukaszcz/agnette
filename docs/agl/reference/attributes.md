@@ -109,12 +109,12 @@ that same binding in an expression reads whatever value the host bound.
 | `@arg-std` | none | same | Standard zone (positional or named). |
 | `@arg-named` | none | same | Named-only zone. |
 | `@extern-name("…")` | Python identifier | `extern def` | Names the companion function. |
-| `@param` | none | module-root or scope-region `let`/`var` binding | Exposes the binding as a host parameter. |
-| `@opt-name("…")` | flag word | `program def` parameter or `@param` binding | External spelling: flag, `--no-` negation, config key, completion. |
-| `@opt-short("c")` | one ASCII letter | `program def` parameter or `@param` binding | One-letter flag `-c`. |
-| `@opt-env("VAR")` | variable name | `program def` parameter or `@param` binding | Environment fallback when no CLI token supplies the value. |
-| `@opt-metavar("…")` | placeholder | `program def` parameter or `@param` binding | Value placeholder in usage and help. |
-| `@opt-hidden` | none | `program def` parameter or `@param` binding | Omits the flag from help and completion; the parameter still binds. |
+| `@param` | none | module-root or scope-region `let`/`var` binding; `def`, `extern def`, or `program def` parameter | Exposes the binding or parameter as a host parameter. |
+| `@opt-name("…")` | flag word | `program def` parameter, `@param` parameter, or `@param` binding | External spelling: flag, `--no-` negation, config key, completion. |
+| `@opt-short("c")` | one ASCII letter | `program def` parameter, `@param` parameter, or `@param` binding | One-letter flag `-c`. |
+| `@opt-env("VAR")` | variable name | `program def` parameter, `@param` parameter, or `@param` binding | Environment fallback when no CLI token supplies the value. |
+| `@opt-metavar("…")` | placeholder | `program def` parameter, `@param` parameter, or `@param` binding | Value placeholder in usage and help. |
+| `@opt-hidden` | none | `program def` parameter, `@param` parameter, or `@param` binding | Omits the flag from help and completion; the parameter still binds. |
 | `@name("…")` | AgL identifier | field, enum member, or record declaration | Alternative external name; default JSON name. |
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
@@ -297,6 +297,26 @@ scope debug
 end debug
 ```
 
+## Function parameters
+
+`@param` also marks a value parameter of a `def`, `extern def`, or `program def`
+declared at module root or in a scope region as a host parameter. The parameter
+must have a default and a name other than `_`. A lambda parameter, a parameter
+of a `builtin def` or of an operator-named `def`, a method's `self`, and a
+positional-only `program def` parameter cannot carry it. The
+parameter's type must be closed (a generic `T` is rejected) and decodable at
+the host parameter boundary, like a module parameter's.
+
+The [host parameter attributes](#host-parameter-attributes), `@doc`, and the
+[zone attributes](#zone-attributes) apply to the parameter; its external name is
+its `@opt-name`, else its declared name. The parameter stays an ordinary
+parameter of its function: an explicit argument at a call always supplies its
+value.
+
+```agl
+def refine(@param @doc("Round limit.") @opt-name("max-steps") steps: int = 4) -> int = steps
+```
+
 ## `@config`
 
 `@config` states, in source, the values a `program def` selects for module
@@ -359,7 +379,8 @@ and configuration files: [Precedence](host-environment.md#precedence).
 
 `@opt-name`, `@opt-short`, `@opt-env`, `@opt-metavar`, and `@opt-hidden`
 shape how a `program def` value parameter ([Program
-definitions](program-structure.md#program-definitions)) or a
+definitions](program-structure.md#program-definitions)), a
+[`@param`](#function-parameters) parameter, or a
 [`@param`](#module-parameters) binding is addressed by the host; their effects
 are in the [catalog](#catalog). Beyond it:
 

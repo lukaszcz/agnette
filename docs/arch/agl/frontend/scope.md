@@ -65,6 +65,8 @@ Inner attributes (`@!doc`, `@!allow`; `Attribute.inner`) on `Program` and `Scope
 
 Argument shapes are `NONE`, `ONE_TEXT`, `TEXT_LIST` (`@allow`, `@exempts`: positional constant texts, folded alike) and `KEYED_ENTRIES`. A `TEXT_LIST` spec declares its `known` and `admitted` element sets (the warning catalog, and its exemptable subset for `@exempts`); the shared prefix validator rejects repeated, unknown and non-admitted elements at the offending argument, so parse-only callers see the same errors.
 
+`@param` retargets its site (`PARAM_RETARGETS`) from a static binding, a `def` parameter, or a `program def` parameter to `PARAM_BINDING` / `PARAM_PARAMETER`, the host-parameter targets admitting `@opt-*`. `params` is keyed by the binding's or the `def` parameter's node id; `ModuleResolution.param_bindings()` scans the bindings. Placement (declared `def`, not builtin or operator-named, not a receiver, not positional-only `program def`; a single name and a default) is checked here, the parameter type's closure and decodability by the checker (`_validate_host_parameters`).
+
 `@command` writes no fact: scope only validates its path, and the package command scan reuses the recognizer without a scope pass ([packages.md](../../packages.md)).
 
 ## Code Entry Points

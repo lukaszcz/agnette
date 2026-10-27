@@ -1,0 +1,13 @@
+{
+  "scenarios": [
+    {
+      "name": "default_and_explicit_factor",
+      "params": {
+        "value": 4
+      },
+      "expect": {
+        "stdout": "8\n20\n"
+      }
+    }
+  ]
+}

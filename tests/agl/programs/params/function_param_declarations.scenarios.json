@@ -1,0 +1,20 @@
+{
+  "scenarios": [
+    {
+      "name": "defaults_apply",
+      "expect": {
+        "stdout": "3\n11\nr:4\n5\nx\n"
+      }
+    },
+    {
+      "name": "program_arguments_bind_at_the_entry",
+      "params": {
+        "limit": 9,
+        "name": "y"
+      },
+      "expect": {
+        "stdout": "3\n11\nr:4\n9\ny\n"
+      }
+    }
+  ]
+}

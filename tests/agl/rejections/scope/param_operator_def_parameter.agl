@@ -1,0 +1,5 @@
+infixl </> at 45
+
+def </>(a: int, @param b: int = 1) -> int = a + b
+
+program def main() -> unit = print (1 </> 2)

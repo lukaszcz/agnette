@@ -3353,6 +3353,26 @@ class TestProgramConfigAcrossEntries:
         assert not rejected.ok
 
 
+class TestFunctionParamDeclarations:
+    """A REPL entry may declare ``@param`` ``def`` parameters; the default applies."""
+
+    def test_an_entry_function_param_keeps_its_default(self) -> None:
+        session = open_session()
+
+        assert session.eval_entry("def f(@param n: int = 4) -> int = n").ok
+        result = session.eval_entry("f()")
+
+        assert result.ok, result.diagnostics
+        assert _int(result.value) == 4
+
+    def test_a_generic_function_param_is_rejected(self) -> None:
+        session = open_session()
+
+        rejected = session.eval_entry("def f[T](@param x: Option[T] = Option::None) -> int = 1")
+
+        assert not rejected.ok
+
+
 # ---------------------------------------------------------------------------
 # Module parameter seeds
 # ---------------------------------------------------------------------------

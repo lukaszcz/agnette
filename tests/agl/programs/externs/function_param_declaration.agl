@@ -1,0 +1,7 @@
+# `@param` is accepted on an `extern def` parameter; its default is passed when omitted.
+
+extern def scale(value: int, @param @doc("Multiplier.") factor: int = 2) -> int
+
+program def main(value: int) -> unit =
+  print scale(value)
+  print scale(value, 5)

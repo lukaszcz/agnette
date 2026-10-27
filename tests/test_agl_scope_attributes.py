@@ -488,6 +488,105 @@ class TestParamBindings:
         assert resolution.attributes.params == {}
 
 
+def _function_params(resolution: ModuleResolution, owner_name: str) -> dict[str, ProgramOptionSpec]:
+    """Return the host presentation of every ``@param`` parameter of the named declaration."""
+    return {
+        entry.name: resolution.attributes.params[entry.node_id]
+        for entry in _entries(resolution, owner_name)
+        if entry.node_id in resolution.attributes.params
+    }
+
+
+class TestFunctionParams:
+    """Host presentation facts for ``def`` parameters carrying ``@param``."""
+
+    def test_a_param_defaults_to_its_declared_name(self) -> None:
+        resolution = resolve_entry("def f(@param count: int = 1) -> int = count\n")
+
+        assert _function_params(resolution, "f") == {"count": ProgramOptionSpec(name="count")}
+
+    def test_every_presentation_attribute_reaches_the_spec(self) -> None:
+        resolution = resolve_entry(
+            "def f(\n"
+            '  @param @doc("how many") @opt-name("total") @opt-short("t") @opt-env("TOTAL")\n'
+            '  @opt-metavar("N") @opt-hidden runs: int = 0\n'
+            ") -> int = runs\n"
+        )
+
+        assert _function_params(resolution, "f") == {
+            "runs": ProgramOptionSpec(
+                name="total",
+                short="t",
+                env="TOTAL",
+                metavar="N",
+                hidden=True,
+                doc="how many",
+            )
+        }
+        entry = _entries(resolution, "f")[0]
+        assert resolution.attributes.docs[entry.node_id] == "how many"
+
+    def test_only_marked_parameters_have_a_fact(self) -> None:
+        resolution = resolve_entry(
+            "def f(a: int = 1, @param b: int = 2, @param c: int = 3) -> int = a + b + c\n"
+        )
+
+        assert list(_function_params(resolution, "f")) == ["b", "c"]
+
+    def test_a_scope_region_and_a_method_parameter_are_recognized(self) -> None:
+        resolution = resolve_entry(
+            "record Box\n  value: int\n\n"
+            "def Box::get(self, @param by: int = 1) -> int = self.value + by\n"
+            "scope Review\n"
+            "  def refine(@param steps: int = 4) -> int = steps\n"
+            "end Review\n"
+        )
+
+        assert list(_function_params(resolution, "get")) == ["by"]
+        assert list(_function_params(resolution, "refine")) == ["steps"]
+
+    def test_a_program_parameter_is_recorded_as_both_kinds(self) -> None:
+        resolution = resolve_entry(
+            'program def main(@param @opt-name("depth") limit: int = 5) -> unit = ()\n'
+        )
+
+        assert _function_params(resolution, "main") == {"limit": ProgramOptionSpec(name="depth")}
+        assert _option(resolution, "main", "limit").name == "depth"
+
+    def test_a_zone_attribute_combines_with_param(self) -> None:
+        resolution = resolve_entry("def f(@param @arg-named n: int = 1) -> int = n\n")
+
+        assert _zones(resolution, "f") == {"n": NAMED_ONLY}
+
+    def test_a_positional_only_ordinary_parameter_is_accepted(self) -> None:
+        resolution = resolve_entry("def f(@param @arg-pos n: int = 1) -> int = n\n")
+
+        assert list(_function_params(resolution, "f")) == ["n"]
+
+    def test_an_unmarked_parameter_has_no_param_fact(self) -> None:
+        resolution = resolve_entry("def f(n: int = 1) -> int = n\n")
+
+        assert resolution.attributes.params == {}
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "record Box\n  @param value: int\n",
+            "@param def f() -> int = 1\n",
+            "program def main(@param count: int) -> unit = ()\n",
+        ],
+        ids=["field", "function", "program-no-default"],
+    )
+    def test_a_misplaced_param_is_a_scope_error(self, source: str) -> None:
+        with pytest.raises(AglScopeError, match="param"):
+            resolve_entry(source)
+
+    @pytest.mark.parametrize("name", ["opt-name", "opt-short", "opt-env"])
+    def test_an_option_attribute_without_param_is_still_rejected(self, name: str) -> None:
+        with pytest.raises(AglScopeError, match=name):
+            resolve_entry(f'def f(@{name}("x") n: int = 1) -> int = n\n')
+
+
 class TestDocumentationTexts:
     """``@doc`` text, keyed by the declaration that carries it."""
 

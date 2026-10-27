@@ -1,0 +1,6 @@
+record Box
+  value: int
+
+def Box::get(@param self, by: int = 1) -> int = self.value + by
+
+program def main() -> unit = print 1

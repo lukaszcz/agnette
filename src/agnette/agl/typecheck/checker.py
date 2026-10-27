@@ -1120,8 +1120,7 @@ class _Checker:
             inferred_sig = self._env.get_function_signature_by_node_id(node.node_id)
             if inferred_sig is not None:
                 self._validate_program_signature(node, inferred_sig)
-                if node.is_program:
-                    self._validate_program_parameters(node, inferred_sig)
+                self._validate_host_parameters(node, inferred_sig)
             return
 
         sig, func_type, receiver = resolve_function_header(
@@ -1135,8 +1134,7 @@ class _Checker:
             self._validate_extern_signature(node, sig)
             self._env.register_extern_node_id(node.node_id)
         self._validate_program_signature(node, sig)
-        if node.is_program:
-            self._validate_program_parameters(node, sig)
+        self._validate_host_parameters(node, sig)
         self._register_funcdef_signature(
             node, sig, func_type, is_method=is_method, receiver=receiver
         )
@@ -1149,7 +1147,7 @@ class _Checker:
         builtin-name and signature rules therefore apply only to ordinary
         declarations; host-backed methods are rejected because they have no host
         dispatch contract. The receiver check precedes
-        ``_validate_program_parameters``, so ``program def Owner::main(self)``
+        ``_validate_host_parameters``, so ``program def Owner::main(self)``
         is reported as a method rather than as an undecodable program
         parameter.
         """
@@ -1181,15 +1179,15 @@ class _Checker:
         if node.is_program and not isinstance(sig.result, UnitType):
             raise AglTypeError(f"Program function '{node.name}' must return unit.", span=node.span)
 
-    def _validate_program_parameters(self, node: FuncDef, sig: FunctionSignature) -> None:
-        """Ensure a ``program def``'s parameters can cross the host boundary.
+    def _validate_host_parameters(self, node: FuncDef, sig: FunctionSignature) -> None:
+        """Ensure the host-settable parameters of *node* have closed, decodable types.
 
-        Every parameter's type must be finite-schema and JSON-wire-serializable
-        (text crosses verbatim; every other type round-trips through JSON),
-        since a host argument arrives that way.
+        Every ``program def`` parameter and every ``@param`` ``def`` parameter
+        receives a host value.
         """
         for param, spec in zip(node.params, sig.params, strict=True):
-            self._reject_undecodable_boundary_type(spec.type, param.span)
+            if node.is_program or param.node_id in self._resolved.attributes.params:
+                self._validate_host_parameter_type(spec.type, param.span)
 
     def _validate_extern_signature(self, node: FuncDef, sig: FunctionSignature) -> None:
         """Require finite, extern-keyable data shapes while allowing callback parameters.
@@ -1815,15 +1813,17 @@ class _Checker:
         """Require a static host parameter to have a closed, decodable type."""
         if stmt.node_id not in self._resolved.attributes.params:
             return
-        binding_type = self._env.binding_type_of(stmt.node_id)
-        variables = free_type_vars(binding_type)
+        self._validate_host_parameter_type(self._env.binding_type_of(stmt.node_id), stmt.span)
+
+    def _validate_host_parameter_type(self, typ: Type, span: SourceSpan) -> None:
+        """Require a host parameter's type to be closed and to cross the host boundary."""
+        variables = free_type_vars(typ)
         if variables:
             names = ", ".join(sorted(variables))
             raise AglTypeError(
-                f"Parameter type '{binding_type!r}' contains free type variables: {names}.",
-                span=stmt.span,
+                f"Parameter type '{typ!r}' contains free type variables: {names}.", span=span
             )
-        self._reject_undecodable_boundary_type(binding_type, stmt.span)
+        self._reject_undecodable_boundary_type(typ, span)
 
     def _check_named_binding(self, stmt: LetDecl | VarDecl) -> Type:
         """Check an intentionally single-name binding form."""

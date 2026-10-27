@@ -276,6 +276,26 @@ class TestCheckCommand:
         assert "error:" in captured.err
         assert "unit" in captured.err
 
+    def test_function_param_declarations_are_validated_without_values(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A ``@param`` ``def`` parameter checks cleanly, or reports its misplaced type."""
+        good = tmp_path / "good.agl"
+        good.write_text("def f(@param n: int = 1) -> int = n\nprogram def main() -> unit = ()\n")
+        bad = tmp_path / "bad.agl"
+        bad.write_text(
+            "def f(@param n: array[(int) -> int] = []) -> int = 1\n"
+            "program def main() -> unit = ()\n"
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            check_command.run(CheckArgs(files=[str(good), str(bad)]))
+
+        assert exc_info.value.code == 1
+        err = capsys.readouterr().err
+        assert "bad.agl" in err
+        assert "good.agl" not in err
+
     def test_error_inside_imported_module_reports_that_modules_path(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

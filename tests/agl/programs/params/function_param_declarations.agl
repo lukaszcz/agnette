@@ -1,0 +1,25 @@
+# `@param` on `def` parameters is accepted wherever a `def` is declared at module root or in
+# a scope region; without a host value the default applies.
+
+record Counter
+  start: int
+
+def Counter::bump(
+  self,
+  @param @doc("Step size.") @opt-name("bump-by") @opt-short("b") by: int = 1
+) -> int = self.start + by
+
+def retries(@param @opt-env("RETRIES") @opt-metavar("N") @opt-hidden count: int = 3) -> int = count
+
+scope Review
+
+  def refine(@param @doc("Round limit.") max-steps: int = 4, label: text = "r") -> text =
+    "%{label}:%{max-steps}"
+end Review
+
+program def main(@param @opt-name("depth") limit: int = 5, name: text = "x") -> unit =
+  print retries()
+  print Counter(start = 10).bump()
+  print Review::refine()
+  print limit
+  print name

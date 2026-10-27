@@ -52,6 +52,7 @@ __all__ = [
     "OPTION_NAME_ATTRIBUTE",
     "OPTION_SHORT_ATTRIBUTE",
     "PARAM_ATTRIBUTE",
+    "PARAM_RETARGETS",
     "SHELL_QUOTED_ATTRIBUTE",
     "ZONE_ATTRIBUTES",
     "AttributeArguments",
@@ -84,6 +85,7 @@ class AttributeTarget(enum.Enum):
     TYPE_ALIAS = "type_alias"
     BINDING = "binding"
     PARAM_BINDING = "param_binding"
+    PARAM_PARAMETER = "param_parameter"
     BUILTIN_VAR = "builtin_var"
     PARAMETER = "parameter"
     LAMBDA_PARAMETER = "lambda_parameter"
@@ -158,6 +160,7 @@ _DEF_TARGETS: frozenset[AttributeTarget] = frozenset(
 _ZONED_TARGETS: frozenset[AttributeTarget] = _DEF_TARGETS | {
     AttributeTarget.PARAMETER,
     AttributeTarget.PROGRAM_PARAMETER,
+    AttributeTarget.PARAM_PARAMETER,
     AttributeTarget.FIELD,
     AttributeTarget.RECORD,
     AttributeTarget.EXCEPTION,
@@ -212,7 +215,7 @@ OPTION_ENV_ATTRIBUTE = "opt-env"
 OPTION_METAVAR_ATTRIBUTE = "opt-metavar"
 OPTION_HIDDEN_ATTRIBUTE = "opt-hidden"
 
-#: The marker that exposes a static binding as a host-facing parameter.
+#: The marker that exposes a static binding or a ``def`` parameter as a host-facing parameter.
 PARAM_ATTRIBUTE = "param"
 
 
@@ -256,7 +259,21 @@ OPTION_SHORT_PATTERN = re.compile(r"[A-Za-z]")
 _OPTION_SHORT_EXPECTED = "takes exactly one ASCII letter, not"
 
 _HOST_PARAMETER_TARGETS: frozenset[AttributeTarget] = frozenset(
-    {AttributeTarget.PROGRAM_PARAMETER, AttributeTarget.PARAM_BINDING}
+    {
+        AttributeTarget.PROGRAM_PARAMETER,
+        AttributeTarget.PARAM_BINDING,
+        AttributeTarget.PARAM_PARAMETER,
+    }
+)
+
+#: The host-parameter target each ``@param`` site is retargeted to once it
+#: carries the marker; the host-parameter targets admit the ``@opt-*`` attributes.
+PARAM_RETARGETS: Mapping[AttributeTarget, AttributeTarget] = MappingProxyType(
+    {
+        AttributeTarget.BINDING: AttributeTarget.PARAM_BINDING,
+        AttributeTarget.PARAMETER: AttributeTarget.PARAM_PARAMETER,
+        AttributeTarget.PROGRAM_PARAMETER: AttributeTarget.PARAM_PARAMETER,
+    }
 )
 
 #: A field, an inline enum member, or a record declaration: the declarations
@@ -396,7 +413,7 @@ _SPECS: tuple[AttributeSpec, ...] = (
     ),
     AttributeSpec(
         name=PARAM_ATTRIBUTE,
-        targets=frozenset({AttributeTarget.BINDING}),
+        targets=frozenset(PARAM_RETARGETS.values()),
         arguments=AttributeArguments.NONE,
     ),
     _option_spec(

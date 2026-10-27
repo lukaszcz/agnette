@@ -964,9 +964,10 @@ class AttributeFacts:
         Every program parameter has an entry; the host builds a program's CLI
         from these rather than from declared names.
     ``params``
-        The host presentation of every static ``let`` or ``var`` marked
-        ``@param``, keyed by its binding node id. Bindings without the marker
-        have no entry.
+        The host presentation of every ``@param``-marked static ``let`` or
+        ``var`` (keyed by its binding node id) and ``def`` parameter (keyed by
+        ``Param.node_id``). A ``program def`` ``@param`` parameter has an entry
+        here and in ``program_options``. Unmarked sites have no entry.
     ``docs``
         The ``@doc`` text of every declaration carrying one, parameters and
         fields included, keyed by that declaration's node id.

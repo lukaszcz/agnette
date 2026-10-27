@@ -229,6 +229,9 @@ def h(x: int, y: int) -> int = x + y                             # both position
 Parameters are listed in zone order: positional-only, then standard, then
 named-only. A parameter that follows one from a later zone is a static error.
 
+A defaulted parameter of a `def`, `extern def`, or `program def` may carry
+[`@param`](attributes.md#function-parameters) to become a host parameter.
+
 **Defaults.** A parameter default is an `or_expr`, so `if`, `case`, `try`,
 loops, `raise`, and `fn` must be parenthesized in a default. No *required*
 positional-only or standard parameter may follow a *defaulted* one of those

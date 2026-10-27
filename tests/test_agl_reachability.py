@@ -135,6 +135,19 @@ def _entry_edges(checked: CheckedProgram, name: str) -> set[str]:
             set(),
             id="function-parameter-read",
         ),
+        pytest.param(
+            "def helper(@param n: int = 1) -> int = n\n"
+            "program def main() -> unit =\n  let _ = helper()\n",
+            "",
+            {"entry::helper"},
+            id="function-param-parameter-read-adds-no-param-edge",
+        ),
+        pytest.param(
+            "program def main(@param n: int = 1) -> unit =\n  let _ = n\n",
+            "",
+            set(),
+            id="program-param-parameter-read",
+        ),
     ],
 )
 def test_main_summary_lists_the_references_of_its_body(

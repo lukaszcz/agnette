@@ -1,0 +1,3 @@
+builtin def f(@param count: int = 1) -> int
+
+program def main() -> unit = print 1
