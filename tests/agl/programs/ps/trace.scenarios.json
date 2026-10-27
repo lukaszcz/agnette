@@ -1,0 +1,31 @@
+{
+  "scenarios": [
+    {
+      "name": "records_carry_the_pid_of_the_process_that_wrote_them",
+      "isolated": true,
+      "module_roots": ["program_modules/ps_support"],
+      "params": {"root": "$TEMP_ROOT"},
+      "filesystem": {},
+      "expect": {
+        "stdout": "parent\nchild\ngrandchild\n42\ncaught second\nterminated\n",
+        "stderr": "warning: process ${4} failed: Boom: failed unconsumed\n",
+        "trace": [
+          {"pid": "${root}", "kind": "print", "rendered": "parent"},
+          {"pid": "${root}", "kind": "fork", "child_pid": "${1}"},
+          {"pid": "${root}", "kind": "fork", "child_pid": "${2}"},
+          {"pid": "${root}", "kind": "exit", "child_pid": "${1}", "raised": false},
+          {"pid": "${root}", "kind": "exit", "child_pid": "${2}", "raised": true},
+          {"pid": "${root}", "kind": "fork", "child_pid": "${3}"},
+          {"pid": "${root}", "kind": "exit", "child_pid": "${3}", "raised": true},
+          {"pid": "${root}", "kind": "fork", "child_pid": "${4}"},
+          {"pid": "${root}", "kind": "process_unconsumed", "child_pid": "${4}", "problem": "failed: Boom: failed unconsumed"},
+          {"pid": "${1}", "kind": "print", "rendered": "child"},
+          {"pid": "${1}", "kind": "fork", "child_pid": "${1.1}"},
+          {"pid": "${1}", "kind": "exit", "child_pid": "${1.1}", "raised": false},
+          {"pid": "${1.1}", "kind": "print", "rendered": "grandchild"}
+        ],
+        "trace_absent": [{"kind": "exit", "child_pid": "${4}"}]
+      }
+    }
+  ]
+}

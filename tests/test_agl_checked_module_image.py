@@ -165,8 +165,22 @@ def shout-default-label() -> text = default-label
 program def bump-threshold() -> unit = ()
 """
 
+_OPAQUE_SRC = """\
+@opaque
+record Handle[T]
+  id: int
+
+@opaque
+record Token
+  serial: int
+
+record Plain
+  id: int
+"""
+
 _ENTRY_SRC = """\
 import lib_generics::*
+import lib_opaque::*
 import lib_alias::*
 import lib_enum::*
 import lib_scope::*
@@ -197,6 +211,7 @@ _MODULES = {
     "lib_scope": _SCOPE_SRC,
     "lib_extern": _EXTERN_SRC,
     "lib_methods": _METHODS_SRC,
+    "lib_opaque": _OPAQUE_SRC,
     "lib_candidate_callee": _CANDIDATE_CALLEE_SRC,
     "lib_candidate_consumer": _CANDIDATE_CONSUMER_SRC,
     "lib_static_let": _STATIC_LET_SRC,
@@ -253,6 +268,17 @@ def _non_entry_module_ids(compiled: _Compiled) -> list[ModuleId]:
     return [mid for mid in compiled.resolved.modules if mid in _FIXTURE_LIB_IDS]
 
 
+def _opaque_names(module: CheckedModule, mid: ModuleId) -> set[str]:
+    """Names of the module's declarations its table reports as opaque."""
+    table = module.type_env.type_table
+    opaque = table.opaque_declaration_ids()
+    return {
+        typedef.name
+        for typedef in table.entries()
+        if typedef.module_id == mid and typedef.decl_node_id in opaque
+    }
+
+
 class TestRehydrationParity:
     """Every declaration query a rehydrated module answers matches the original."""
 
@@ -294,6 +320,13 @@ class TestRehydrationParity:
             assert {name for name, signature in signatures.items() if signature.shell_quoted} == {
                 "quoted"
             }
+
+    def test_opaque_flag_survives_rehydration(
+        self, compiled: _Compiled, rehydrated: dict[ModuleId, CheckedModule]
+    ) -> None:
+        mid = ModuleId.from_path("lib_opaque")
+        for module in (compiled.checked.modules[mid], rehydrated[mid]):
+            assert _opaque_names(module, mid) == {"Handle", "Token"}
 
     def test_declared_type_template_queries_match(
         self, compiled: _Compiled, rehydrated: dict[ModuleId, CheckedModule]
@@ -381,6 +414,19 @@ class TestImageArtifactSerialization:
             restored = artifact_serialization.load(key, "test-checked-module-image-round-trip")
 
             assert restored == image
+
+    def test_opaque_flag_round_trips_through_artifact_serialization(
+        self, compiled: _Compiled
+    ) -> None:
+        image = compiled.checked.modules[ModuleId.from_path("lib_opaque")].image()
+        key = os.urandom(16)
+        artifact_serialization.save(key, "test-checked-module-image-opaque", image)
+        restored = artifact_serialization.load(key, "test-checked-module-image-opaque")
+        assert isinstance(restored, CheckedModuleImage)
+        assert {typedef.name for typedef in restored.interface.definitions if typedef.opaque} == {
+            "Handle",
+            "Token",
+        }
 
     def test_warning_signature_facts_round_trip_through_artifact_serialization(
         self, compiled: _Compiled

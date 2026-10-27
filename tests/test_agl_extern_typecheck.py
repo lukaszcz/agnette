@@ -316,10 +316,10 @@ class TestExternDictKeyability:
     def test_bad_key_nested_in_array_return_rejected(self) -> None:
         reject_extern("extern def f(x: int) -> array[dict[array[int], text]]\n0")
 
-    def test_host_minted_opaque_type_param_permitted(self) -> None:
+    def test_opaque_type_param_permitted(self) -> None:
         check_extern("extern def f(s: Session) -> int\n0")
 
-    def test_host_minted_opaque_type_nested_in_record_field_permitted(self) -> None:
+    def test_opaque_type_nested_in_record_field_permitted(self) -> None:
         source = "record Box\n  session: Session\nextern def f(b: Box) -> int\n0"
         check_extern(source)
 

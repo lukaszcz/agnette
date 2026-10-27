@@ -1,0 +1,113 @@
+# `agl.transfer` copies a value through bytes within one program image: records, enums,
+# containers, closures with their captures, shared and cyclic structure, `@opaque` handles,
+# and AgL exceptions (with their raise site) all survive, at any nesting depth, and the copy
+# is independent.
+@opaque
+record Handle
+  id: int
+
+record Point
+  x: int
+  y: int
+
+record Node
+  label: text
+  var peers: array[Node]
+
+enum Shape
+  | Circle(radius: int)
+  | Square(side: int)
+
+enum Chain
+  | End
+  | Link(value: int, rest: Chain)
+
+record Counter
+  bump: () -> unit
+  read: () -> int
+
+exception Problem extends Exception
+  detail: text
+
+@extern-name("copy")
+extern def via-bytes[T](value: T) -> T
+extern def mint(id: int) -> Handle
+@extern-name("copy_raise")
+extern def via-bytes-raise(f: () -> int) -> int
+
+def chain-of(length: int) -> Chain =
+  var chain: Chain = End
+  for value in 1 to length do
+    chain := Link(value = value, rest = chain)
+  done
+  chain
+
+def chain-sum(chain: Chain) -> int =
+  var total = 0
+  var cursor = chain
+  do
+    case cursor of
+      | End => break
+      | Link(value, rest) =>
+        total := total + value
+        cursor := rest
+  until false
+  total
+
+def fail() -> int =
+  raise Problem(message = "boom", detail = "kept")
+
+def make-counter(start: int) -> Counter =
+  var count = start
+  Counter(
+    bump = fn() => do count := count + 1 until true,
+    read = fn() => count,
+  )
+
+program def main(mode: text) -> unit =
+  if mode == "plain" =>
+    let shapes: array[Shape] = [Circle(radius = 2), Square(side = 3)]
+    let table = {"a": [Point(x = 1, y = 2)], "b": []}
+    print via-bytes(shapes)
+    print via-bytes(table)
+    print via-bytes({1: "one", 2: "two"})
+    print via-bytes(mint(7)).id
+    print via-bytes(1.50)
+
+  if mode == "independent" =>
+    let shared = [1]
+    let both = via-bytes([shared, shared])
+    both[0].push(2)
+    print both
+    print shared
+
+  if mode == "cycle" =>
+    let a = Node(label = "a", peers = [])
+    a.peers.push(a)
+    let b = via-bytes(a)
+    print b.peers[0].peers[0].label
+    b.peers[0].peers.push(b)
+    print a.peers.size()
+
+  if mode == "closure" =>
+    let counter = make-counter(10)
+    let copied = via-bytes(counter)
+    counter.bump()
+    counter.bump()
+    print counter.read()
+    print copied.read()
+    copied.bump()
+    print copied.read()
+    print counter.read()
+
+  if mode == "caught" =>
+    try
+      let _ = via-bytes-raise(fail)
+    catch Problem as p =>
+      print "%{p.message}:%{p.detail}"
+
+  if mode == "uncaught" =>
+    let _ = via-bytes-raise(fail)
+
+  if mode == "deep" =>
+    print chain-sum(via-bytes(chain-of(5000)))

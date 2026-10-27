@@ -1,0 +1,5 @@
+@opaque
+record Token
+  var serial: int
+
+program def main() -> unit = ()

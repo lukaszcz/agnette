@@ -1,0 +1,29 @@
+# Each forked process has boundaries of its own: agent sessions, shell and HTTP.
+import std/http
+import std/ps::{Process}
+import std/ps
+
+def writer() -> Agent = AgentPi("writer", "model", "high")
+
+def grandchild() -> text = writer().ask("grandchild question")
+
+def child() -> text =
+  let session = Session::open(writer())
+  let answer: text = session.ask("child question")
+  let echoed: text = exec "echo child-shell"
+  print http::get("https://x/child").status
+  let nested = ps::fork(grandchild)
+  let deeper = ps::wait(nested)
+  session.close()
+  answer ++ "/" ++ echoed ++ "/" ++ deeper
+
+def sibling() -> text = writer().ask("sibling question")
+
+program def main() -> unit =
+  let own: text = writer().ask("parent question")
+  let first = ps::fork(child)
+  let second = ps::fork(sibling)
+  let from-child = ps::wait(first)
+  print own
+  print from-child
+  print ps::wait(second)

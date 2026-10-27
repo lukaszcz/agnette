@@ -686,10 +686,10 @@ class IrIf:
 
 @dataclass(frozen=True, slots=True)
 class IrRaise:
-    """IR raise: evaluate ``exc`` (must yield ``ExceptionValue``) and propagate it."""
+    """IR raise: propagate ``exc``, or rethrow the handled carrier when absent."""
 
     location: Location
-    exc: "IrExpr"
+    exc: "IrExpr | None"
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,6 +9,7 @@ enum SessionTransport
   | Cli
   | Rpc
 
+@opaque
 builtin record Session
   id: text
   agent: Agent

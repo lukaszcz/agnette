@@ -2726,3 +2726,24 @@ class TestCallDepthBoundary:
             IrInterpreter(program, max_call_depth=4).run()
         assert exc.value.exc.nominal == NominalId(require_reserved_nominal_id("RecursionError"))
         assert exc.value.exc.fields["limit"] == IntValue(4)
+
+
+def test_rethrow_keeps_the_original_exception_and_location() -> None:
+    from agnette.agl.ir.nodes import IrCatchHandler, IrTry
+    from agnette.agl.semantics.exceptions import AglRaise
+
+    value = IrMakeException(_LOC, NominalId(4), ())
+    handler_location = dataclasses.replace(_LOC, start_line=2)
+    program = _make_program(
+        (
+            IrTry(
+                _LOC,
+                IrRaise(_LOC, value),
+                (IrCatchHandler(None, None, IrRaise(handler_location, None)),),
+            ),
+        )
+    )
+    with pytest.raises(AglRaise) as caught:
+        IrInterpreter(program).run()
+    assert caught.value.span == _LOC
+    assert caught.value.exc == ExceptionValue(NominalId(4), {})

@@ -1,0 +1,125 @@
+{
+  "scenarios": [
+    {
+      "name": "typed",
+      "params": {
+        "mode": "typed"
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Detailed",
+          "line": 6,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "suite",
+      "params": {
+        "mode": "suite"
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Detailed",
+          "line": 6,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "try",
+      "params": {
+        "mode": "try"
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Detailed",
+          "line": 6,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "inner",
+      "params": {
+        "mode": "inner"
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Abort",
+          "line": 19,
+          "fields": {
+            "message": "inner"
+          }
+        }
+      }
+    },
+    {
+      "name": "restore",
+      "params": {
+        "mode": "restore"
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Detailed",
+          "line": 6,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "explicit",
+      "params": {
+        "mode": "explicit"
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Detailed",
+          "line": 31,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "wildcard",
+      "params": {
+        "mode": "wildcard"
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Abort",
+          "line": 35,
+          "fields": {
+            "message": "wildcard"
+          }
+        }
+      }
+    },
+    {
+      "name": "value",
+      "params": {
+        "mode": "value"
+      },
+      "expect": {
+        "stdout": "7: original\n"
+      }
+    }
+  ]
+}

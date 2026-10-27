@@ -1,0 +1,7 @@
+@opaque
+record Token
+  serial: int
+
+program def main() -> unit =
+  let t = Token(serial = 1)
+  print(t.serial)

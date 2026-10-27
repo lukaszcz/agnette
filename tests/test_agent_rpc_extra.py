@@ -5,12 +5,15 @@ from __future__ import annotations
 import io
 import itertools
 import os
-import queue
+import resource
+import signal
 import subprocess
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
-from typing import IO, cast
+from typing import cast
+from unittest import mock
 
 import pytest
 
@@ -29,6 +32,9 @@ from tests._agl_helpers import (
     unavailable_sandbox_context,
     write_sandbox_home,
 )
+from tests._proc_helpers import open_fd_count
+from tests._signal_helpers import before_each_poll, signal_handler, trip_signal_off_thread
+from tests._timeouts import fail_if_slow
 from tests.test_agent_rpc import RpcStub, open_backend
 
 _PI = AgentPi(provider="provider", model="model", thinking="think")
@@ -543,11 +549,6 @@ def test_sandboxed_spawn_with_removed_working_directory_is_a_session_error(
 
 
 def test_rpc_private_protocol_edge_cases(monkeypatch: pytest.MonkeyPatch) -> None:
-    backend = rpc.PiRpcSessionBackend(
-        _child(object()),
-        BackendSettings(idle_timeout=None, get_sandbox_context=unavailable_sandbox_context, env={}),
-    )
-
     with pytest.raises(rpc._RpcProtocolError):
         rpc._validate_response({"id": "id", "command": "", "success": True})
     with pytest.raises(rpc._RpcProtocolError):
@@ -603,33 +604,6 @@ def test_rpc_private_protocol_edge_cases(monkeypatch: pytest.MonkeyPatch) -> Non
         "contextUsage": empty_context,
     }
     assert rpc._stats_from_response({"data": missing_percent}).context_percent == Decimal("0")
-
-    class RunningProcess:
-        stdin = cast(io.BufferedWriter, io.BytesIO())
-
-        def poll(self) -> None:
-            return None
-
-    child = _child(RunningProcess())
-    child.stdout.put(b"\r\n")
-    with pytest.raises(rpc._RpcProtocolError):
-        backend._next_line(child)
-    child.stdout.put(b"\xff\n")
-    with pytest.raises(rpc._RpcProtocolError):
-        backend._next_line(child)
-    backend._settings = replace(backend._settings, idle_timeout=0)
-    with pytest.raises(rpc._RpcIdleTimeout):
-        backend._next_line(child)
-
-    class FullQueue:
-        def put(self, value: bytes | None, timeout: float) -> None:
-            del value, timeout
-            full.stopped.set()
-            raise queue.Full
-
-    full = _child(RunningProcess())
-    full.stdout = cast(queue.Queue[bytes | None], FullQueue())
-    rpc._queue_stdout(full, b"blocked")
 
     def fail_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         raise OSError("unavailable")
@@ -719,90 +693,296 @@ def test_pi_output_helpers_handle_empty_and_closed_output_channels() -> None:
     assert child.stderr.data == b"diagnostic"
 
 
-class _StderrProcess:
-    def __init__(self, stderr: IO[bytes] | None) -> None:
-        self.stderr = stderr
+class _Pipe:
+    """A real non-blocking pipe whose read end is a child's stream."""
+
+    def __init__(self) -> None:
+        read_fd, self.write_fd = os.pipe()
+        os.set_blocking(read_fd, False)
+        self.stream = os.fdopen(read_fd, "rb", buffering=0)
+
+    def write(self, data: bytes) -> None:
+        os.write(self.write_fd, data)
+
+    def close_writer(self) -> None:
+        """Close the write end once; an fd number may be reused after it is closed."""
+        if self.write_fd >= 0:
+            os.close(self.write_fd)
+            self.write_fd = -1
+
+    def close(self) -> None:
+        self.stream.close()
+        self.close_writer()
 
 
-def test_finish_stderr_delivery_drains_pending_pipe_bytes() -> None:
-    read_fd, write_fd = os.pipe()
-    stream = os.fdopen(read_fd, "rb", buffering=0)
-    child = _child(_StderrProcess(stream))
+class _Idle:
+    stdin = cast(io.BufferedWriter, io.BytesIO())
+
+    def poll(self) -> None:
+        return None
+
+
+@pytest.fixture
+def stderr_pipe() -> Iterator[_Pipe]:
+    pipe = _Pipe()
+    yield pipe
+    pipe.close()
+
+
+@pytest.fixture
+def stdout_pipe() -> Iterator[_Pipe]:
+    pipe = _Pipe()
+    yield pipe
+    pipe.close()
+
+
+def _settings(idle_timeout: float | None = None) -> BackendSettings:
+    return BackendSettings(
+        idle_timeout=idle_timeout, get_sandbox_context=unavailable_sandbox_context, env={}
+    )
+
+
+def test_next_line_reads_records_and_rejects_malformed_ones(stdout_pipe: _Pipe) -> None:
+    child = _child(_Idle())
+    child.stdout_stream = stdout_pipe.stream
+    backend = rpc.PiRpcSessionBackend(child, _settings())
+
+    stdout_pipe.write(b"{}\r\n")
+    assert backend._next_line(child) == "{}"
+    stdout_pipe.write(b"\r\n")
+    with pytest.raises(rpc._RpcProtocolError):
+        backend._next_line(child)
+    stdout_pipe.write(b"\xff\n")
+    with pytest.raises(rpc._RpcProtocolError):
+        backend._next_line(child)
+
+
+def test_next_line_reassembles_a_record_split_across_reads(stdout_pipe: _Pipe) -> None:
+    child = _child(_Idle())
+    child.stdout_stream = stdout_pipe.stream
+    backend = rpc.PiRpcSessionBackend(child, _settings(idle_timeout=0.01))
+
+    stdout_pipe.write(b'{"a":')
+    with pytest.raises(rpc._RpcIdleTimeout):
+        backend._next_line(child)
+    stdout_pipe.write(b"1}\n")
+
+    assert backend._next_line(child) == '{"a":1}'
+
+
+def test_next_line_times_out_without_data(stdout_pipe: _Pipe, stderr_pipe: _Pipe) -> None:
+    child = _child(_Idle())
+    child.stdout_stream = stdout_pipe.stream
+    child.stderr_stream = stderr_pipe.stream
+    backend = rpc.PiRpcSessionBackend(child, _settings(idle_timeout=0.01))
+
+    with pytest.raises(rpc._RpcIdleTimeout):
+        backend._next_line(child)
+    backend._settings = replace(backend._settings, idle_timeout=0)
+    with pytest.raises(rpc._RpcIdleTimeout):
+        backend._next_line(child)
+
+
+def _waiting_backend(stdout_pipe: _Pipe, stderr_pipe: _Pipe) -> rpc.PiRpcSessionBackend:
+    child = _child(_Idle())
+    child.stdout_stream = stdout_pipe.stream
+    child.stderr_stream = stderr_pipe.stream
+    return rpc.PiRpcSessionBackend(child, _settings(idle_timeout=None))
+
+
+def test_a_signal_that_did_not_interrupt_the_poll_still_wakes_a_pump_without_deadline(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    backend = _waiting_backend(stdout_pipe, stderr_pipe)
+    seen: list[int] = []
+
+    def before(call: int) -> None:
+        # The first poll starts with a signal tripped but the system call not interrupted.
+        if call == 0:
+            trip_signal_off_thread(signal.SIGUSR1)
+        else:
+            stdout_pipe.write(b'{"a":1}\n')
+
+    with (
+        signal_handler(signal.SIGUSR1, lambda number, frame: seen.append(number)),
+        before_each_poll(before),
+        fail_if_slow("the pump slept through a signal", seconds=10),
+    ):
+        line = backend._next_line(backend._child)
+
+    assert (line, seen) == ('{"a":1}', [signal.SIGUSR1])
+
+
+def test_a_wait_installs_one_wakeup_however_many_times_it_polls(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    backend = _waiting_backend(stdout_pipe, stderr_pipe)
+    real = signal.set_wakeup_fd
+    installs: list[int] = []
+
+    def counting(fd: int, **kwargs: bool) -> int:
+        installs.append(fd)
+        return real(fd, **kwargs)
+
+    chunks = [b'{"a"', b":1", b"}\n"]
+    with (
+        mock.patch.object(signal, "set_wakeup_fd", counting),
+        before_each_poll(lambda call: stdout_pipe.write(chunks[call])),
+    ):
+        line = backend._next_line(backend._child)
+
+    assert line == '{"a":1}'
+    # One install, one restore.
+    assert len(installs) == 2
+
+
+def test_a_raising_signal_handler_interrupts_a_pump_and_leaves_no_wakeup_behind(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    backend = _waiting_backend(stdout_pipe, stderr_pipe)
+
+    def interrupt(number: int, frame: object) -> None:
+        raise KeyboardInterrupt
+
+    fds = open_fd_count()
+    with (
+        signal_handler(signal.SIGUSR1, interrupt),
+        before_each_poll(lambda call: trip_signal_off_thread(signal.SIGUSR1)),
+        fail_if_slow("the pump slept through a signal", seconds=10),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        backend._next_line(backend._child)
+
+    assert signal.set_wakeup_fd(-1) == -1
+    assert open_fd_count() == fds
+
+
+def test_next_line_reports_stdout_eof_after_delivering_complete_records(
+    stdout_pipe: _Pipe,
+) -> None:
+    child = _child(_Idle())
+    child.stdout_stream = stdout_pipe.stream
+    backend = rpc.PiRpcSessionBackend(child, _settings())
+    stdout_pipe.write(b"{}\npartial")
+    stdout_pipe.close_writer()
+
+    assert backend._next_line(child) == "{}"
+    with pytest.raises(rpc._RpcProcessExited):
+        backend._next_line(child)
+    assert child.stdout_stream is None
+
+
+def test_next_line_echoes_pending_stderr_ahead_of_stdout(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    child = _child(_Idle())
+    child.stdout_stream = stdout_pipe.stream
+    child.stderr_stream = stderr_pipe.stream
     output: list[tuple[str, str]] = []
     child.output_callback = lambda phase, text, **_metadata: output.append((phase, text))
-    os.write(write_fd, b"pending diagnostic")
-    os.close(write_fd)
+    backend = rpc.PiRpcSessionBackend(child, _settings())
+    stderr_pipe.write(b"diagnostic")
+    stdout_pipe.write(b"{}\n")
 
-    try:
-        rpc._finish_stderr_delivery(child)
-    finally:
-        stream.close()
+    assert backend._next_line(child) == "{}"
+    assert output == [("stderr", "diagnostic")]
+    assert child.stderr.data == b"diagnostic"
+
+
+def test_finish_stderr_delivery_drains_pending_pipe_bytes(stderr_pipe: _Pipe) -> None:
+    child = _child(object())
+    child.stderr_stream = stderr_pipe.stream
+    output: list[tuple[str, str]] = []
+    child.output_callback = lambda phase, text, **_metadata: output.append((phase, text))
+    stderr_pipe.write(b"pending diagnostic")
+
+    rpc._finish_stderr_delivery(child)
 
     assert output == [("stderr", "pending diagnostic")]
     assert child.stderr.data == b"pending diagnostic"
     assert child.output_callback is None
+    assert child.stderr_stream is stderr_pipe.stream
+
+
+def test_finish_stderr_delivery_does_not_block_on_an_open_empty_pipe(stderr_pipe: _Pipe) -> None:
+    child = _child(object())
+    child.stderr_stream = stderr_pipe.stream
+    child.output_callback = lambda _phase, _text, **_metadata: None
+
+    rpc._finish_stderr_delivery(child)
+
+    assert child.output_callback is None
+    assert child.stderr.data == b""
+
+
+def test_stderr_eof_closes_the_stream(stderr_pipe: _Pipe) -> None:
+    child = _child(object())
+    child.stderr_stream = stderr_pipe.stream
+    stderr_pipe.write(b"last words")
+    stderr_pipe.close_writer()
+
+    rpc._finish_stderr_delivery(child)
+
+    assert child.stderr.data == b"last words"
+    assert child.stderr_stream is None
+    assert stderr_pipe.stream.closed
 
 
 def test_finish_stderr_delivery_handles_missing_or_closed_streams() -> None:
     for stream in (None, io.BytesIO()):
-        child = _child(_StderrProcess(stream))
+        child = _child(object())
+        child.stderr_stream = stream
         child.output_callback = lambda _phase, _text, **_metadata: None
 
         rpc._finish_stderr_delivery(child)
 
         assert child.output_callback is None
+        assert child.stderr_stream is None
 
 
-@pytest.mark.parametrize("failure", [OSError("closed"), ValueError("closed")])
-def test_stderr_reader_stops_when_select_fails(
-    monkeypatch: pytest.MonkeyPatch, failure: OSError | ValueError
+def test_terminate_keeps_the_last_stderr_and_closes_both_streams(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
 ) -> None:
-    read_fd, write_fd = os.pipe()
-    stream = os.fdopen(read_fd, "rb", buffering=0)
-    child = _child(_StderrProcess(stream))
+    class Dead:
+        stdin = cast(io.BufferedWriter, io.BytesIO())
 
-    def fail_select(*_args: object) -> tuple[list[int], list[int], list[int]]:
-        raise failure
+        def poll(self) -> int:
+            return 0
 
-    monkeypatch.setattr(rpc.select, "select", fail_select)
-    reader = rpc._start_stderr_reader(child, stream)
-    reader.join(timeout=5)
-    os.close(write_fd)
+    child = _child(Dead())
+    child.stdout_stream = stdout_pipe.stream
+    child.stderr_stream = stderr_pipe.stream
+    stderr_pipe.write(b"final")
 
-    assert not reader.is_alive()
-    assert child.stderr_reader_done.is_set()
+    rpc._terminate(child)
 
-
-def test_stderr_reader_stops_when_pipe_read_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    read_fd, write_fd = os.pipe()
-    stream = os.fdopen(read_fd, "rb", buffering=0)
-    child = _child(_StderrProcess(stream))
-    os.write(write_fd, b"ready")
-
-    def fail_read(_descriptor: int, _size: int) -> bytes:
-        raise OSError("closed")
-
-    monkeypatch.setattr(rpc.os, "read", fail_read)
-    reader = rpc._start_stderr_reader(child, stream)
-    reader.join(timeout=5)
-    os.close(write_fd)
-
-    assert not reader.is_alive()
-    assert child.stderr_reader_done.is_set()
+    assert child.stderr.data == b"final"
+    assert child.stdout_stream is None and child.stderr_stream is None
+    assert stdout_pipe.stream.closed and stderr_pipe.stream.closed
 
 
-def test_stderr_reader_closes_a_stopped_child_stream() -> None:
-    read_fd, write_fd = os.pipe()
-    stream = os.fdopen(read_fd, "rb", buffering=0)
-    child = _child(_StderrProcess(stream))
-    child.stopped.set()
+def test_terminate_closes_the_streams_when_the_stderr_echo_is_interrupted(
+    stdout_pipe: _Pipe, stderr_pipe: _Pipe
+) -> None:
+    class Dead:
+        stdin = cast(io.BufferedWriter, io.BytesIO())
 
-    reader = rpc._start_stderr_reader(child, stream)
-    reader.join(timeout=5)
-    os.close(write_fd)
+        def poll(self) -> int:
+            return 0
 
-    assert not reader.is_alive()
-    assert child.stderr_reader_done.is_set()
+    def interrupted(_phase: str, _text: str, **_metadata: object) -> None:
+        raise KeyboardInterrupt
+
+    child = _child(Dead())
+    child.stdout_stream = stdout_pipe.stream
+    child.stderr_stream = stderr_pipe.stream
+    child.output_callback = interrupted
+    stderr_pipe.write(b"final")
+
+    with pytest.raises(KeyboardInterrupt):
+        rpc._terminate(child)
+
+    assert stdout_pipe.stream.closed and stderr_pipe.stream.closed
 
 
 def test_dead_child_is_cleared(killed_groups: list[int]) -> None:
@@ -1000,6 +1180,74 @@ def test_fork_replacement_readiness_failure_leaves_source_unchanged(
     backend.close()
 
 
+class _FakeProcess:
+    stdin = cast(io.BufferedWriter, io.BytesIO())
+
+    def poll(self) -> None:
+        return None
+
+    def wait(self, timeout: float | None = None) -> None:
+        del timeout
+
+
+def test_portable_rejects_a_temporary_process_that_did_not_resume_the_parent(
+    monkeypatch: pytest.MonkeyPatch, killed_groups: list[int]
+) -> None:
+    source = _child(_FakeProcess())
+    temporary = _child(_FakeProcess())
+    backend = rpc.PiRpcSessionBackend(
+        source,
+        BackendSettings(idle_timeout=None, get_sandbox_context=unavailable_sandbox_context, env={}),
+    )
+    commands: list[str] = []
+
+    def send(
+        self: rpc.PiRpcSessionBackend, operation: str, payload: dict[str, object], **kwargs: object
+    ) -> tuple[dict[str, object], list[str]]:
+        del payload, kwargs
+        commands.append(operation)
+        return {"data": {"sessionId": "parent" if self is backend else "wrong"}}, []
+
+    def spawn(agent: AgentPi, command: list[str], operation: str, *_args: object) -> rpc._RpcChild:
+        del agent, command, operation
+        return temporary
+
+    monkeypatch.setattr(rpc.PiRpcSessionBackend, "_send", send)
+    monkeypatch.setattr(rpc, "_spawn", spawn)
+    with pytest.raises(SessionHostError):
+        backend.portable()
+    assert commands == ["get_state", "get_state"]
+    assert backend._child is source
+    assert set(killed_groups) == {temporary.process.pid}
+    backend.close()
+
+
+def test_materialize_rejects_a_process_that_did_not_resume_the_snapshot(
+    monkeypatch: pytest.MonkeyPatch, killed_groups: list[int]
+) -> None:
+    resumed = _child(_FakeProcess())
+
+    def send(
+        self: rpc.PiRpcSessionBackend, operation: str, payload: dict[str, object], **kwargs: object
+    ) -> tuple[dict[str, object], list[str]]:
+        del self, operation, payload, kwargs
+        return {"data": {"sessionId": "wrong"}}, []
+
+    def spawn(agent: AgentPi, command: list[str], operation: str, *_args: object) -> rpc._RpcChild:
+        del agent, command, operation
+        return resumed
+
+    monkeypatch.setattr(rpc.PiRpcSessionBackend, "_send", send)
+    monkeypatch.setattr(rpc, "_spawn", spawn)
+    settings = BackendSettings(
+        idle_timeout=None, get_sandbox_context=unavailable_sandbox_context, env={}
+    )
+
+    with pytest.raises(SessionHostError):
+        rpc._PortablePiRpc(_PI, settings, "snapshot").materialize()
+    assert set(killed_groups) == {resumed.process.pid}
+
+
 def test_fork_rejects_a_child_with_the_parent_session_id(
     monkeypatch: pytest.MonkeyPatch, killed_groups: list[int]
 ) -> None:
@@ -1161,3 +1409,81 @@ def test_malformed_payload_is_reported_when_no_child_remains() -> None:
         backend._parse_operation_response({}, "get_session_stats", rpc._required_session_id)
 
     assert isinstance(raised.value.__cause__, rpc._RpcProtocolError)
+
+
+@pytest.fixture
+def high_fds() -> Iterator[Callable[[int], int]]:
+    """Move descriptors above ``FD_SETSIZE``, raising the soft limit as needed."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = 2048
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, min(target, hard)), hard))
+    moved: list[int] = []
+
+    def move(fd: int) -> int:
+        high = os.dup2(fd, target - 1 - len(moved))
+        os.close(fd)
+        moved.append(high)
+        return high
+
+    yield move
+    resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def test_pipes_on_descriptors_beyond_fd_setsize_work_in_both_directions(
+    high_fds: Callable[[int], int],
+) -> None:
+    out_read, out_write = os.pipe()
+    in_read, in_write = os.pipe()
+    out_read = high_fds(out_read)
+    in_write = high_fds(in_write)
+    os.set_blocking(out_read, False)
+    os.set_blocking(in_write, False)
+
+    class Process:
+        stdin = os.fdopen(in_write, "wb", buffering=0)
+
+        def poll(self) -> None:
+            return None
+
+    child = _child(Process())
+    child.stdout_stream = os.fdopen(out_read, "rb", buffering=0)
+    backend = rpc.PiRpcSessionBackend(child, _settings(idle_timeout=5))
+    try:
+        os.write(out_write, b"{}\n")
+        assert backend._next_line(child) == "{}"
+        rpc._write_command(child, {"a": 1}, 5)
+        assert os.read(in_read, 100) == b'{"a":1}\n'
+    finally:
+        child.stdout_stream.close()
+        child.stdin.close()
+        os.close(out_write)
+        os.close(in_read)
+
+
+def test_write_retries_after_a_spurious_writable_wakeup(monkeypatch: pytest.MonkeyPatch) -> None:
+    in_read, in_write = os.pipe()
+    os.set_blocking(in_write, False)
+
+    class Process:
+        stdin = os.fdopen(in_write, "wb", buffering=0)
+
+        def poll(self) -> None:
+            return None
+
+    write = os.write
+    refused: list[int] = []
+
+    def refuse_once(descriptor: int, data: bytes | memoryview) -> int:
+        if not refused:
+            refused.append(descriptor)
+            raise BlockingIOError
+        return write(descriptor, data)
+
+    monkeypatch.setattr(os, "write", refuse_once)
+    child = _child(Process())
+    try:
+        rpc._write_command(child, {"a": 1}, 5)
+        assert os.read(in_read, 100) == b'{"a":1}\n'
+    finally:
+        child.stdin.close()
+        os.close(in_read)

@@ -7,11 +7,14 @@ asserted.
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import unittest.mock
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
@@ -1356,6 +1359,143 @@ class TestAppendJsonl:
 
 
 # ---------------------------------------------------------------------------
+# Per-process attribution and whole-record appends
+# ---------------------------------------------------------------------------
+
+LARGE_TEXT = "x" * 200_000
+
+
+def _trace_from_forked_children(workdir: Path, children: int, records: int) -> dict[str, object]:
+    """Write through one inherited store from the parent and *children* forked processes."""
+    from agnette.agl.runtime.trace import TraceStore
+
+    path = workdir / "trace.jsonl"
+    trace = TraceStore(path)
+    trace.print_stmt(rendered=LARGE_TEXT)
+    pids = []
+    for _ in range(children):
+        pid = os.fork()
+        if pid == 0:
+            code = 1
+            try:
+                for _ in range(records):
+                    trace.print_stmt(rendered=LARGE_TEXT)
+                code = 0
+            finally:
+                os._exit(code)
+        pids.append(pid)
+    for pid in pids:
+        _, status = os.waitpid(pid, 0)
+        assert os.waitstatus_to_exitcode(status) == 0
+    return {"parent": os.getpid(), "children": pids}
+
+
+class TestTraceProcessAttribution:
+    def test_records_carry_the_writing_process_pid(self, tmp_path: Path) -> None:
+        from agnette.agl.runtime.trace import TraceStore
+
+        path = tmp_path / "trace.jsonl"
+        trace = TraceStore(path)
+        trace.run_start()
+        trace.print_stmt(rendered="hello")
+        trace.run_end(ok=True)
+
+        assert [record["pid"] for record in _load_jsonl(path)] == [os.getpid()] * 3
+
+    def test_forked_children_append_whole_records_under_their_own_pid(self, tmp_path: Path) -> None:
+        from tests.agl.isolated_runner import run_callable
+
+        result = run_callable(
+            _trace_from_forked_children, tmp_path, {"children": 3, "records": 5}
+        ).value
+
+        lines = (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+        records = [json.loads(line) for line in lines]
+        counts: dict[object, int] = {}
+        for record in records:
+            assert record["rendered"] == LARGE_TEXT
+            counts[record["pid"]] = counts.get(record["pid"], 0) + 1
+        assert counts == {result["parent"]: 1, **dict.fromkeys(result["children"], 5)}
+
+    def test_each_record_is_one_write_on_an_append_descriptor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.runtime.trace import TraceStore
+
+        writes: list[bytes] = []
+        opens: list[int] = []
+
+        def spy_write(fd: int, chunks: list[memoryview]) -> int:
+            data = b"".join(chunks)
+            writes.append(bytes(data))
+            return os.write(fd, data)
+
+        def spy_open(path: Path, flags: int, mode: int = 0o777) -> int:
+            opens.append(flags)
+            return os.open(path, flags, mode)
+
+        monkeypatch.setattr(
+            "agnette.core.fs.os",
+            SimpleNamespace(**{**vars(os), "writev": spy_write, "open": spy_open}),
+        )
+        path = tmp_path / "trace.jsonl"
+        trace = TraceStore(path)
+        trace.print_stmt(rendered=LARGE_TEXT)
+        trace.print_stmt(rendered="small")
+
+        assert len(writes) == 2
+        assert b"".join(writes) == path.read_bytes()
+        assert all(write.endswith(b"\n") and write.count(b"\n") == 1 for write in writes)
+        assert all(flags & os.O_APPEND for flags in opens)
+
+    def test_a_short_write_is_completed_into_one_whole_record(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.runtime.trace import TraceStore
+
+        shorted: list[int] = []
+
+        def short_once(fd: int, chunks: list[memoryview]) -> int:
+            data = b"".join(chunks)
+            if shorted:
+                return os.write(fd, data)
+            shorted.append(len(data))
+            return os.write(fd, data[: len(data) // 2])
+
+        monkeypatch.setattr(
+            "agnette.core.fs.os", SimpleNamespace(**{**vars(os), "writev": short_once})
+        )
+        path = tmp_path / "trace.jsonl"
+        trace = TraceStore(path)
+        trace.print_stmt(rendered=LARGE_TEXT)
+
+        assert shorted
+        assert not trace.disabled
+        assert _load_jsonl(path)[0]["rendered"] == LARGE_TEXT
+
+    def test_a_write_error_disables_tracing_with_a_single_warning(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from agnette.agl.runtime.trace import TraceStore
+
+        def failing_write(fd: int, chunks: list[memoryview]) -> int:
+            raise OSError(errno.ENOSPC, "no space left on device")
+
+        monkeypatch.setattr(
+            "agnette.core.fs.os", SimpleNamespace(**{**vars(os), "writev": failing_write})
+        )
+        trace = TraceStore(tmp_path / "trace.jsonl")
+        trace.print_stmt(rendered="hello")
+        trace.print_stmt(rendered="again")
+
+        assert trace.disabled
+        assert len([line for line in capsys.readouterr().err.splitlines() if line.strip()]) == 1
+
+
+# ---------------------------------------------------------------------------
 # 11. TraceStore properties and no-span branches
 # ---------------------------------------------------------------------------
 
@@ -1369,7 +1509,7 @@ class TestTraceStoreProperties:
         trace.print_stmt(rendered="hello", span=None)
 
         line = path.read_text(encoding="utf-8").strip()
-        assert list(json.loads(line)) == ["kind", "ts", "file", "line", "col", "rendered"]
+        assert list(json.loads(line)) == ["kind", "ts", "file", "line", "col", "pid", "rendered"]
 
     def test_trace_jsonl_orders_source_location_after_timestamp(self, tmp_path: Path) -> None:
         from agnette.agl.runtime.trace import TraceStore
@@ -1391,7 +1531,7 @@ class TestTraceStoreProperties:
         )
 
         record = _load_jsonl(path)[0]
-        assert list(record) == ["kind", "ts", "file", "line", "col", "rendered"]
+        assert list(record) == ["kind", "ts", "file", "line", "col", "pid", "rendered"]
         assert record["file"] == "example.agl"
         assert record["line"] == 3
         assert record["col"] == 4
@@ -2043,7 +2183,7 @@ class TestCompanionTraceHook:
 
         assert flag_path.read_text() == "False"
 
-    @pytest.mark.parametrize("key", ["kind", "file"])
+    @pytest.mark.parametrize("key", ["kind", "file", "pid"])
     def test_companion_trace_reserved_key_raises_a_value_error(
         self, tmp_path: Path, key: str
     ) -> None:

@@ -1,0 +1,5 @@
+import std/ps::Process
+
+program def main() -> unit =
+  let p = Process(id = "1", pid = 1)
+  print(p.pid)

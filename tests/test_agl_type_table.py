@@ -3330,18 +3330,47 @@ class TestSatisfiesEq:
         root = ExceptionType(name="Root", module_id=ENTRY_ID, decl_id=701003)
         assert satisfies(root, ConstraintKind.EQ, table, {}) is False
 
-    def test_host_minted_declaration_does_not_satisfy_eq(self) -> None:
+    def test_opaque_declaration_does_not_satisfy_eq(self) -> None:
         table = create_seeded_type_table()
         session = BUILTIN_PRELUDE_TYPES["Session"]
         assert satisfies(session, ConstraintKind.EQ, table, {}) is False
 
-    def test_host_minted_declaration_does_not_satisfy_eq_on_unseeded_table(self) -> None:
-        # A host-minted handle is flagged by declaration identity alone
-        # (TypeTable.host_minted_declaration_ids), independent of whether its
-        # TypeDef is registered in this particular table.
+    def test_opaque_generic_declaration_does_not_satisfy_eq_for_a_phantom_parameter(self) -> None:
         table = TypeTable()
+        table.register(
+            TypeDef(
+                kind="record",
+                name="Handle",
+                module_id=ENTRY_ID,
+                type_params=("T",),
+                fields=(("id", IntType()),),
+                opaque=True,
+                decl_node_id=701005,
+            )
+        )
+        handle = RecordType(
+            name="Handle", module_id=ENTRY_ID, decl_id=701005, type_args=(IntType(),)
+        )
+        assert table.opaque_declaration_ids() == {701005}
+        assert satisfies(handle, ConstraintKind.EQ, table, {}) is False
+
+    def test_opaque_ids_follow_later_registrations(self) -> None:
+        table = TypeTable()
+        assert table.opaque_declaration_ids() == frozenset()
+        table.register(
+            TypeDef(
+                kind="record", name="Token", module_id=ENTRY_ID, opaque=True, decl_node_id=701006
+            )
+        )
+        table.register(
+            TypeDef(kind="record", name="Plain", module_id=ENTRY_ID, decl_node_id=701007)
+        )
+        assert table.opaque_declaration_ids() == {701006}
+
+    def test_seeded_table_marks_only_session_opaque(self) -> None:
+        table = create_seeded_type_table()
         session = BUILTIN_PRELUDE_TYPES["Session"]
-        assert satisfies(session, ConstraintKind.EQ, table, {}) is False
+        assert table.opaque_declaration_ids() == {session.decl_id}
 
 
 class TestSatisfiesHashable:
@@ -3725,7 +3754,7 @@ class TestSatisfiesHashable:
         root = ExceptionType(name="Root", module_id=ENTRY_ID, decl_id=701007)
         assert satisfies(root, ConstraintKind.HASHABLE, table, {}) is False
 
-    def test_host_minted_declaration_does_not_satisfy_hashable(self) -> None:
+    def test_opaque_declaration_does_not_satisfy_hashable(self) -> None:
         table = create_seeded_type_table()
         session = BUILTIN_PRELUDE_TYPES["Session"]
         assert satisfies(session, ConstraintKind.HASHABLE, table, {}) is False
@@ -4224,7 +4253,7 @@ class TestParseClassification:
 
 
 class TestIsJsonConvertible:
-    def test_host_minted_session_does_not_convert(self) -> None:
+    def test_opaque_session_does_not_convert(self) -> None:
         session = BUILTIN_PRELUDE_TYPES["Session"]
         assert isinstance(session, RecordType)
 

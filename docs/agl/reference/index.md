@@ -83,7 +83,7 @@ program def main(spec: text) -> unit =
 | ------- | -------- |
 | [Lexical structure](lexical-structure.md) | Source text, comments, layout, keywords, qualifier-chain spelling, identifiers and operator names, literals, operator precedence, user-defined operators |
 | [Program structure](program-structure.md) | Modules, `program def` entry points and their parameters, declarations, block values and discarded values, inline forms |
-| [Types](types.md) | Built-in types, `record`/`enum`/`type` declarations, library types the language names, assignability, casts (`as`/`as?`), mutable fields and reference semantics, copying, parsing |
+| [Types](types.md) | Built-in types, `record`/`enum`/`type` declarations, opaque records, library types the language names, assignability, casts (`as`/`as?`), mutable fields and reference semantics, copying, parsing |
 | [Bindings and scope](bindings-and-scope.md) | `let`, `var`, `:=`, `builtin var`, `def`, lexical scoping, shadowing |
 | [Expressions](expressions.md) | Literals, constructors, calls, operators, `as`/`as?` cast operators, `render`, JSON parsing, `case`/`if` expressions, `unit`-typed forms, expected-type propagation |
 | [Strings and interpolation](strings-and-interpolation.md) | Templates, escapes, `%{…}`, `%!{…}`, `%${…}`, and `%!${…}` holes, `$` literals, uniform rendering rules |
@@ -94,7 +94,7 @@ program def main(spec: text) -> unit =
 | [Agent calls](agent-calls.md) | `ask`, agents as values, call options, output contracts, the JSON wire format, parse retries |
 | [Shell execution](shell-execution.md) | `exec`, the `ExecResult` structured form vs the parsed form, shell-quoted holes and their warnings, `ExecError` |
 | [Exceptions](exceptions.md) | The exception model, `try`/`catch`/`raise`, the built-in exception catalog |
-| [Attributes](attributes.md) | `@name` declaration attributes: placement, catalog, zones, `@doc`, `@allow`, `@exempts`, `@shell-quoted`, `@extern-name`, command registration, program parameter options |
+| [Attributes](attributes.md) | `@name` declaration attributes: placement, catalog, zones, `@doc`, `@allow`, `@exempts`, `@shell-quoted`, `@opaque`, `@extern-name`, command registration, program parameter options |
 | [Static warnings](warnings.md) | The warning catalog, levels, `@allow` regions, `@exempts`, host control |
 | [Modules](modules.md) | File-based module system: module identity, import forms, `use`, qualified access, re-exports and visibility, the prelude, cyclic imports, REPL imports |
 | [Named scopes](scopes.md) | Nestable declaration namespaces, qualifier paths, visibility, and `use` |

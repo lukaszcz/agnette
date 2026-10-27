@@ -118,6 +118,24 @@ A value created with `keep_in_debug=True` is instead left unclosed when the
 session ends with `std/config::debug` set, so a debugging artifact (`std/fs`
 temporary paths) survives for inspection.
 
+State is per process. A forked child starts with an empty state: the entries
+of its parent are inert in the child and are neither returned nor closed there,
+and a key first requested in the child calls its `factory` afresh. A value
+created with a `fork` callable is carried over: `fork(value)` runs in the parent
+just before the fork and returns the child's value, which is closed by the same
+`close` and keeps the same `keep_in_debug` and `fork`. If the fork does not
+happen, the values `fork` made are closed in the parent; a `fork` that raises
+fails the fork the same way. After a successful fork the parent drops its copy
+of each such value without calling `close`, so a `fork` value must not own a
+finalizer that acts on shared resources.
+
+```python
+def rng() -> random.Random:
+    return runtime.state(
+        "mylib/rng", random.Random, fork=lambda r: random.Random(r.getrandbits(128))
+    )
+```
+
 A `close` that raises never replaces a run already failing: it is attached as
 a note on that in-flight error, while on an otherwise clean exit it is itself
 raised as the run's error.
@@ -147,16 +165,16 @@ into one string.
 `runtime.tracing()` reports whether a record would be written, so a companion
 can skip building a payload that tracing, off by default, would discard.
 
-The record starts with `{kind, ts, file, line, col}`: `kind` is the hook's
-first argument, `ts` is its timestamp, and `file`/`line`/`col` identify the
-attributed source location. The location fields are `null` when the call has
-no source location to attribute. `origin` is the extern's own declaring
-module and never changes with the caller; `site` is the module owning the
-attributed location (a different module than `origin` whenever the call is
-attributed across a package boundary). `origin`, `site`, and every payload
-field sit at the top level after the location fields. A payload key of
-`kind`, `ts`, `file`, `line`, `col`, `origin`, or `site` collides with this
-envelope and raises `ValueError`.
+The record starts with `{kind, ts, file, line, col, pid}`: `kind` is the
+hook's first argument, `ts` its timestamp, `file`/`line`/`col` the attributed
+source location (`null` when the call has none), and `pid` the id of the
+process that wrote the record. `origin` is the extern's own declaring module
+and never changes with the caller; `site` is the module owning the attributed
+location (a different module than `origin` whenever the call is attributed
+across a package boundary). `origin`, `site`, and every payload field sit at
+the top level after `pid`. A payload key of `kind`, `ts`, `file`, `line`,
+`col`, `pid`, `origin`, or `site` collides with this envelope and raises
+`ValueError`.
 
 The attributed call site is the nearest one outside the extern's own mount
 (same leading module-path segment: a package name, `std`, or a loose module's
@@ -164,6 +182,77 @@ top-level directory), so calls through a package's own wrapper functions are
 attributed to the call the program author wrote. When the whole active call
 chain stays inside that mount (an entry point that is itself part of it), the
 immediate call is reported, and `site` is that call's own module.
+
+### Processes
+
+`runtime.processes` is the running program's process host, usable only inside
+an extern call (elsewhere it raises `agl.ProcessHostError`). It forks the
+program into child processes and carries their results back as `bytes`, so it
+pairs with `agl.transfer`:
+
+- `fork(child, sessions)` runs `child()` (returning `bytes`) in a forked
+  process and returns an object with `id` and `pid`. It raises
+  `agl.ProcessHostError` unless the process has a single Python thread, or if
+  the OS refuses; an interrupt during the fork aborts it, and no child remains.
+  `sessions` lists the ids of agent sessions (`Session.id`) to carry into the
+  child as snapshots of their conversations. If one is unknown, closed,
+  inherited, or its backend cannot fork, the call raises an exception and no
+  child is created. A companion should let it propagate: a broad
+  `except Exception` would turn it into `ExternError`. The extern call then
+  raises AgL `SessionError` with operation `fork`.
+- `settle(id)` blocks until the process has finished; `settle_any(ids)` until
+  one has, and returns the lowest index of a finished one.
+- `outcome(id)` blocks, then returns `Delivered(payload)` if `child`
+  returned, `Failed(message)` if it raised a Python `Exception` (also a
+  failing `close` of its companion state at exit), or `Ended(exit_code, signal)`
+  if it ended without a result, e.g. by `SystemExit` or a signal. These classes
+  are attributes of `runtime.processes` (`runtime.processes.Delivered`, ...). A
+  result delivered completely wins over the exit status. Repeating the call
+  returns the same outcome. A child may return `Delivered(payload,
+  failure=summary)` instead of bytes: the payload is then a delivered failure
+  (say, a carried exception) described by the one-line `summary`, which the
+  host never interprets, and the child tears down as one that raised.
+- `decoded(id, decode)` blocks and consumes the outcome, then returns
+  `decode(outcome)`. The first successful decode replaces the raw outcome;
+  later calls return the stored value without calling `decode`. A decode that
+  raises can be retried. After a successful decode, `outcome(id)` raises
+  `ProcessHostError`; `detach(id)` releases the stored value.
+- `terminate(id)` sends SIGTERM to the process and its group, then drains and
+  reaps until the process ends. If it outlives a 10 second grace period, or the
+  call is interrupted, the process is killed at once (SIGKILL). A finished
+  process is left alone. A process ended before it delivered reports `Ended`
+  with the signal. The outcome then counts as returned; a termination by
+  `scope` or `end` does not count.
+- `scope()` is a context manager: processes forked inside it belong to it
+  (scopes nest). Leaving it by an exception, interrupts included, terminates
+  the processes of the scope (nested scopes included) that are still attached;
+  leaving normally does nothing.
+- `end(disposition)` ends the attached processes. `Disposition.SETTLE` (an
+  attribute of `runtime.processes`) waits for all of them and warns on stderr,
+  one line each, about every outcome `outcome` has not returned that is not a
+  clean delivery (a `Failed`, an `Ended`, a `Delivered` with a `failure`);
+  `TERMINATE` terminates them without warning. A companion marks a delivered
+  payload as a failure with `failure`; that summary is what the warning shows.
+  When tracing is on, each warning is also written to the trace.
+- `detach(id)` releases the process: it is no longer awaited, terminated, or
+  warned about.
+
+The host ends the attached processes with the run (`SETTLE` at a normal end, else
+`TERMINATE`) and treats each REPL entry as a scope; see
+[Child processes](host-environment.md#child-processes).
+
+An id is valid only in the process that forked it and only while attached:
+unknown, detached, and inherited ids raise `agl.ProcessHostError`. Waiting
+drains the results of every attached child, so none stalls on an unread result.
+
+The child is a copy of the program at the fork. It runs in a process group of
+its own with `/dev/null` as stdin, shares stdout and stderr (buffered output is
+flushed before the fork), and treats SIGINT, SIGTERM, and SIGHUP as
+`KeyboardInterrupt`. Before it exits it ends its own processes the same way
+(`SETTLE` after a normal result, else `TERMINATE`), with half the grace period
+of its parent, so none outlives it. Its
+[companion state](#companion-state) is carried over as described there. The
+child never returns into the companion that forked it.
 
 ## Value mapping
 
@@ -285,6 +374,29 @@ example `Prompt(**{"ask-prompt": "continue"})` and
 Exception classes are plain Python objects, not `Exception` subclasses. They
 cross as values. To raise one from a companion, wrap it in `AglException`, as
 described in [Raising AgL exceptions](#raising-agl-exceptions).
+
+## Opaque values
+
+An [`@opaque`](attributes.md#opaque) record is the way a companion hands AgL a
+handle that source cannot build. The companion mints a value through the
+record's synthesized class like any other nominal value; source can only read
+its fields (read-only; a `var` field is a static error), store it, and pass it
+back to externs, which receive the same class. A generic opaque record is one class for every instantiation.
+
+```python
+from agl import Handle
+
+def open_handle(id, label):
+    return Handle(id=id, label=label)
+
+def id_of(handle):
+    return handle.id
+```
+
+Minting is trusted like every extern return: the companion supplies the
+declared fields, and it is responsible for the type arguments it claims.
+Whatever else the companion needs to associate with the handle belongs in
+[companion state](#companion-state), keyed by a field of the handle.
 
 ## Container views
 
@@ -416,6 +528,46 @@ value, including a record, enum, scalar, container, callable, or arbitrary
 object, raises a Python-side `TypeError`. `str()` of an `AglException` is the
 wrapped AgL exception's `message` field.
 
+## Value transfer
+
+`agl.transfer.dumps(obj)` serializes any boundary value, or an `AglException`
+carrier, to `bytes`; `agl.transfer.loads(data)` rebuilds it. The copy is deep:
+nested arrays, dicts, and records are new objects, internal sharing and
+reference cycles are preserved, and a function value carries copies of its
+captured variables (a `var` shared by two transferred closures stays shared
+between their copies). Every value kind transfers, opaque records included; a
+carrier keeps its exception value and its source span, so `loads` returns an
+`AglException` that re-raises as the original exception, with the original
+span.
+
+```python
+from agl import AglException, transfer
+
+
+def copy(value):
+    return transfer.loads(transfer.dumps(value))
+
+
+def reraise(f):
+    try:
+        return f()
+    except AglException as error:
+        raise transfer.loads(transfer.dumps(error)) from None
+```
+
+A payload is valid in the run that produced it and in every process forked
+within that run; any other run, including a REPL session after `:reset`,
+rejects it. Sharing is preserved only within one payload: two payloads each
+carry their own copy of a `var` captured by both. Module-level bindings are not
+captures, so a transferred function reads the receiving process's module-level
+`var`s. `loads` raises `agl.TransferError` for a payload from any other run, a
+truncated or corrupt payload, or one naming anything other than program values;
+`dumps` raises it for a Python value with no boundary representation. A payload
+that passes these checks is trusted to be the output of `dumps`; its content is
+otherwise the producing companion's responsibility. Like a callback, a function
+value exists only during an extern call, so `loads` may run only inside one;
+`dumps` has no such restriction.
+
 ## Generics and trust
 
 Type-variable positions receive their ordinary runtime representation; the
@@ -433,7 +585,9 @@ is accepted at the boundary, and the program is then free to fail later, at
 an unrelated point, with an error the program cannot catch. An unsupported
 Python value (such as a bare `list`) raises `ExternError`. Ordinary Python
 exceptions also become `ExternError`, whose `python-type` holds the original
-exception class name. A `BaseException` still propagates. A `decimal.Decimal`
+exception class name, except the failure of `runtime.processes.fork` to
+snapshot sessions ([Processes](#processes)), which becomes `SessionError`.
+A `BaseException` still propagates. A `decimal.Decimal`
 return value outside the fixed decimal context's range, or non-finite, raises
 `ExternError`
 ([Numbers: int and decimal](types.md#numbers-int-and-decimal)).

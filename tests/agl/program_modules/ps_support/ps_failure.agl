@@ -1,0 +1,6 @@
+# An AgL exception raised in a process, and the function that raises it.
+exception Boom extends Exception
+  tag: text
+
+def failing(tag: text) -> int =
+  raise Boom(tag, message = "failed %{tag}")

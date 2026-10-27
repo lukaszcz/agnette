@@ -7,6 +7,7 @@ and a complete agent workflow DSL:
   git worktrees, tmux sessions, setup scripts, and sandboxed commands.
 - **AgL (Agnette Language)** — the statically typed workflow DSL for orchestrating agents
   and shell commands, run with `agm exec` or interactively with `agm repl`.
+  Programs can run functions in parallel forked processes (`std/ps`).
 
 The Python package is `agnette`, the executable `agm`. Configuration uses `.agm` directories
 and `AGM_*` variables; AgL sources use `.agl`.

@@ -1030,6 +1030,8 @@ class AttributeFacts:
         validated, distinct, and all exemptable.
     ``shell_quoted``
         The ``FuncDef.node_id`` of every ``def`` carrying ``@shell-quoted``.
+    ``opaque``
+        The ``RecordDef.node_id`` of every record carrying ``@opaque``.
     ``module_doc``
         The module's ``@!doc`` text, or ``None``.
     ``region_docs``
@@ -1051,6 +1053,7 @@ class AttributeFacts:
     warning_allows: list[AllowRegion] = field(default_factory=list)
     warning_exemptions: dict[int, frozenset[str]] = field(default_factory=dict)
     shell_quoted: set[int] = field(default_factory=set)
+    opaque: set[int] = field(default_factory=set)
     module_doc: str | None = None
     region_docs: dict[tuple[str, ...], str] = field(default_factory=dict)
 

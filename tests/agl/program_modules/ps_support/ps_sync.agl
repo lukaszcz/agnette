@@ -1,0 +1,17 @@
+# File-flag synchronization between processes: nothing here depends on how fast they run.
+import std/fs
+import std/path::path
+import std/time
+
+# Blocks until `flag` exists.
+def await-file(flag: path) -> unit =
+  while not fs::exists(flag) do
+    time::sleep(0.005)
+  done
+
+def touch(flag: path) -> unit = fs::write(flag, "")
+
+# Announces on `ready` that the caller runs, then blocks until `release` exists.
+def hold(ready: path, release: path) -> unit =
+  touch(ready)
+  await-file(release)

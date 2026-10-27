@@ -89,8 +89,6 @@ from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.semantics.external_names import NO_EXTERNAL_NAME, ExternalName
 from agnette.agl.semantics.types import (
     EXCEPTION_BASE,
-    HOST_MINTED_PRELUDE_TYPE_IDS,
-    HOST_MINTED_PRELUDE_TYPE_NAMES,
     ArrayType,
     BoolType,
     BottomType,
@@ -399,6 +397,10 @@ class TypeDef:
     ``field_external_names`` — ``(field_name, ExternalName)`` pairs for the
                    OWN fields carrying ``@name``/``@json-name``, in
                    declaration order; unrenamed fields are absent.
+    ``opaque``     — ``True`` for a record declared ``@opaque``: its values are
+                   minted by a companion or the host, never built or updated in
+                   source, and are non-data in every analysis. Unused for enums
+                   and exceptions.
     ``doc``        — the declaration's recognized ``@doc`` prose, when present.
                    It is presentation metadata rather than part of the type's
                    semantic shape, so it is excluded from equality/hashing.
@@ -424,6 +426,7 @@ class TypeDef:
     is_inline_enum_member: bool = field(default=False, compare=False)
     external_name: ExternalName = NO_EXTERNAL_NAME
     field_external_names: tuple[tuple[str, ExternalName], ...] = ()
+    opaque: bool = False
     doc: str | None = field(default=None, compare=False)
     field_docs: tuple[tuple[str, str], ...] = field(default=(), compare=False)
 
@@ -626,7 +629,7 @@ class TypeTable:
         # Both answer questions about what the session declares as a whole, so
         # they are invalidated wholesale like the fixpoints below.
         self._standard_builtins: dict[str, TypeDef] | None = None
-        self._host_minted_ids: frozenset[DeclId] | None = None
+        self._opaque_ids: frozenset[DeclId] | None = None
         # Methods are independent plain declaration data, keyed by their
         # nominal owner's identity rather than by an import environment. Each
         # name preserves every declaration identity that contributes it.
@@ -732,7 +735,7 @@ class TypeTable:
                     if member.module_id == typedef.module_id and member.scope_path == member_path:
                         self.declare_inline_member(decl_id, typedef.type_params, member)
             self._standard_builtins = None
-            self._host_minted_ids = None
+            self._opaque_ids = None
             self._declaration_flags_cache = {}
             self._member_enum_owners = None
             self._finite_closure = None
@@ -1135,7 +1138,7 @@ class TypeTable:
         # single changed identity invalidates the whole cached result rather
         # than just this one.
         self._standard_builtins = None
-        self._host_minted_ids = None
+        self._opaque_ids = None
         self._declaration_flags_cache = {}
         self._member_enum_owners = None
         self._finite_closure = None
@@ -1766,17 +1769,12 @@ class TypeTable:
                 target[typedef.name] = typedef
         return {**standard, **overrides}
 
-    def host_minted_declaration_ids(self) -> frozenset[DeclId]:
-        """Return reserved and loaded-source identities for host-owned resources."""
-        cached = self._host_minted_ids
+    def opaque_declaration_ids(self) -> frozenset[DeclId]:
+        """Return the identities of every ``@opaque`` record declaration."""
+        cached = self._opaque_ids
         if cached is None:
-            identities = set(HOST_MINTED_PRELUDE_TYPE_IDS)
-            for name in HOST_MINTED_PRELUDE_TYPE_NAMES:
-                declaration = self.standard_builtin_declaration(name)
-                if declaration is not None:
-                    identities.add(declaration.decl_node_id)
-            cached = frozenset(identities)
-            self._host_minted_ids = cached
+            cached = frozenset(decl_id for decl_id, typedef in self._defs.items() if typedef.opaque)
+            self._opaque_ids = cached
         return cached
 
     def nominal_satisfies(
@@ -2625,8 +2623,6 @@ def is_json_convertible(t: Type, table: TypeTable) -> bool:
                 and is_json_convertible(t.key, table)
                 and is_json_convertible(t.value, table)
             )
-        case RecordType() if t.decl_id in HOST_MINTED_PRELUDE_TYPE_IDS:
-            return False
         case ExceptionType():
             return table.nominal_is_json_convertible(t)
         case RecordType() | EnumType():
@@ -3145,6 +3141,7 @@ _PRELUDE_SHAPES: Mapping[str, TypeDef] = {
             )
         ),
         field_kinds=_standard(_fields),
+        opaque=True,
     ),
     "SessionStats": TypeDef(
         kind="record",

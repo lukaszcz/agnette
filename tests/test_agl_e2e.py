@@ -35,98 +35,49 @@ RunResult surface asserted:
 
 from __future__ import annotations
 
-import json
 import re
 import unittest.mock
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
-from decimal import Decimal
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, get_args
+from typing import Any
 
 import pytest
 
 from agnette.agent.session.protocol import (
-    SessionAgentError,
     SessionHostError,
-    SessionOperation,
-    SessionOperations,
 )
-from agnette.agent.session.service import SessionService
-from agnette.agent.spec import PermissionMode
-from agnette.agl.diagnostics import Diagnostic
-from agnette.agl.ir.builtin_vars import builtin_var_key
-from agnette.agl.ir.contracts import JsonContractRequest
-from agnette.agl.modules.ids import STD_CONFIG_ID
-from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery
-from agnette.agl.semantics.values import IntValue, Value
-from agnette.agl.warning_policy import WarningPolicy
-from agnette.agl.warnings import WARNING_CATALOG, WarningLevel
 from agnette.packages.layout import MODULE_TREE_DIRNAME
-from agnette.sandbox.prepare import SandboxContext
-from agnette.sandbox.request import Default, SandboxLimits
 from tests._agl_helpers import (
     REPO_STDLIB_ROOT,
     agl_roots,
-    function_param_values,
     module_param_values,
-    prepare_inline_code,
-    program_config_engine_seeds,
     run_inline_code,
-    session_sandbox_context,
-    write_sandbox_home,
-    write_transparent_sandbox_shims,
 )
-from tests._http_helpers import fake_session
-from tests._jev_helpers import install_jev_transport, jev_roots
-from tests._package_helpers import package_info
 from tests._process_helpers import FakeShell
+from tests.agl.isolated_runner import run_scenario
+from tests.agl.scenario_harness import (
+    AGL_DIR,
+    EXTERNS_PROGRAMS_DIR,
+    PROGRAMS_DIR,
+    RESOURCE_PROGRAMS_DIR,
+    SESSION_STATIC_DECLARATIONS,
+    CompilationCache,
+    ScenarioSessionHost,
+    agent_from_spec,
+    assert_program_scenario,
+    assert_schema_paths,
+    assert_sessions,
+    fixture_roots,
+    load_json,
+    prepare_temp_filesystem,
+    run_source_entry,
+    spec_warning_policy,
+)
 
-AGL_DIR = Path(__file__).parent / "agl"
-PROGRAMS_DIR = AGL_DIR / "programs"
 REJECTIONS_DIR = AGL_DIR / "rejections"
+
+
 STDLIB_MODULES_DIR = REPO_STDLIB_ROOT / MODULE_TREE_DIRNAME
-EXTERNS_PROGRAMS_DIR = PROGRAMS_DIR / "externs"
-RESOURCE_PROGRAMS_DIR = PROGRAMS_DIR / "resources"
-_SESSION_STATIC_DECLARATIONS = """\
-builtin def Session::open(
-  agent: Agent,
-  transport: Option[SessionTransport] = None,
-  name: text = "",
-  sandbox: AgentSandbox = std/config::sandbox,
-  env: Environ = std/env::environ,
-) -> Session
-
-builtin def Session::default() -> Session
-"""
-
-
-def _contract_schema(contract: Any) -> Any:
-    """The JSON Schema an agent receives for *contract*, or ``None`` for a text target."""
-    if not isinstance(contract, JsonContractRequest):
-        return None
-    return json.loads(contract.json_schema)
-
-
-def _load_json(path: Path) -> Any:
-    # parse_float=Decimal: AgL has no binary floats; scenario
-    # params and expected exception fields must round-trip decimals exactly.
-    return json.loads(path.read_text(encoding="utf-8"), parse_float=Decimal)
-
-
-def _warning_policy(spec: dict[str, Any]) -> WarningPolicy:
-    """The warning levels a scenario or rejection sets, simulating ``--warning NAME=LEVEL``.
-
-    Raises ``ValueError`` for a name outside the catalog or a level that is not one.
-    """
-    levels = spec.get("warning_levels", {})
-    valid_levels = get_args(WarningLevel.__value__)
-    for name, level in levels.items():
-        if name not in WARNING_CATALOG:
-            raise ValueError(f"unknown warning {name!r} in warning_levels")
-        if level not in valid_levels:
-            raise ValueError(f"invalid level {level!r} for warning {name!r}")
-    return WarningPolicy(levels)
 
 
 @pytest.mark.parametrize(
@@ -134,997 +85,7 @@ def _warning_policy(spec: dict[str, Any]) -> WarningPolicy:
 )
 def test_invalid_warning_levels_are_rejected_in_fixtures(levels: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match="warning"):
-        _warning_policy({"warning_levels": levels})
-
-
-def _fixture_roots(spec: dict[str, Any]) -> Any | None:
-    """Build the module roots selected by one scenario or rejection fixture.
-
-    ``packages`` mount as development checkouts and ``installed_packages`` as store-installed
-    ones; ``stdlib_installed`` marks the ``stdlib_root`` as an installed standard library.
-    """
-    module_root_paths = [(AGL_DIR / str(root)).resolve() for root in spec.get("module_roots", [])]
-    packages = tuple(
-        replace(package_info(AGL_DIR / str(root)), installed=installed)
-        for key, installed in (("packages", False), ("installed_packages", True))
-        for root in spec.get(key, [])
-    )
-    if "stdlib_root" in spec or packages:
-        from agnette.agl.modules.roots import RootSet
-
-        stdlib_root = (
-            AGL_DIR / str(spec["stdlib_root"]) if "stdlib_root" in spec else REPO_STDLIB_ROOT
-        ).resolve()
-        return RootSet(
-            roots=frozenset(module_root_paths),
-            packages=packages,
-            stdlib_roots=frozenset({stdlib_root}),
-            stdlib_installed=bool(spec.get("stdlib_installed")),
-        )
-    if module_root_paths:
-        return agl_roots(*module_root_paths)
-    return None
-
-
-@dataclass
-class _ScriptedSession:
-    """One deterministic session observation owned by a scripted agent.
-
-    ``permission_mode``/``sandbox`` are the mode this session's backend was
-    opened under -- fixed then, for its whole lifetime, exactly like the
-    production host's own session entry.
-    """
-
-    tag: str
-    parent: str | None
-    transport: str = ""
-    single_prompt: bool = False
-    opened: bool = False
-    closed: bool = False
-    prompts: list[str] = field(default_factory=list)
-    operations: list[tuple[str, str | None, str]] = field(default_factory=list)
-    permission_mode: str | None = None
-    sandbox: SandboxLimits | None = None
-    backend: Any = field(init=False, repr=False)
-
-
-_SESSION_CAPABILITY_NAMES = frozenset(operation.value for operation in SessionOperation)
-
-
-def _outcome_name(outcome: Any) -> str:
-    return str(outcome.get("outcome", "success")) if isinstance(outcome, dict) else str(outcome)
-
-
-class _PromptEvent(NamedTuple):
-    """One recorded prompt observation: everything a scenario's ``prompts[]`` entry checks.
-
-    ``sandbox_mode``/``sandbox_limits`` are the decoded ``PermissionMode``
-    value and ``SandboxLimits`` an ``ask``/``ask-request``-style call's
-    request carried; a plain session ask (``Session::ask``, no such request in
-    hand) records both as ``None``. Recording every field of one observation
-    in a single tuple, appended exactly once per call, makes a schema/mode
-    mismatch between two separately indexed lists structurally impossible.
-    """
-
-    prompt: str
-    schema: Any
-    sandbox_mode: str | None
-    sandbox_limits: SandboxLimits | None
-
-
-@dataclass
-class ScriptedAgent:
-    """Replays scripted responses and records ordinary and session prompts.
-
-    ``schemas`` records, alongside each ordinary call's ``prompt``, the
-    structured JSON Schema from the output contract for that same call. It is
-    separate from ``prompts`` so existing literal-prompt assertions are
-    unaffected. Session observations use deterministic tags, letting
-    scenarios assert conversation identity without depending on host handles.
-    """
-
-    name: str
-    responses: list[str]
-    repeat_last: bool = False
-    session_capabilities: frozenset[str] = field(default_factory=lambda: _SESSION_CAPABILITY_NAMES)
-    session_operations: dict[str, list[Any]] = field(default_factory=dict)
-    session_ask_outcomes: list[Any] | None = None
-    prompts: list[str] = field(default_factory=list)
-    schemas: list[Any] = field(default_factory=list)
-    prompt_events: list[_PromptEvent] = field(default_factory=list)
-    sessions: list[_ScriptedSession] = field(default_factory=list)
-    overflowed: bool = False
-    session_operations_overflowed: bool = False
-    session_ask_outcomes_overflowed: bool = False
-    require_session_id: bool = False
-    _response_count: int = 0
-
-    def __post_init__(self) -> None:
-        if any(
-            _outcome_name(outcome) == "unsupported"
-            for outcome in self.session_operations.get("reset", [])
-        ):
-            raise ValueError("reset does not support an unsupported outcome")
-
-    def __call__(self, request: Any) -> str:
-        self.prompts.append(request.prompt)
-        contract = request.output_contract
-        schema = _contract_schema(contract)
-        self.schemas.append(schema)
-        self.prompt_events.append(
-            _PromptEvent(request.prompt, schema, request.permission_mode.value, request.sandbox)
-        )
-        return self._next_response()
-
-    def session_service(self) -> Any:
-        """Create an observable wrapper around the production session service."""
-        return _ScriptedSessionService(self)
-
-    def _new_session_backend(self, request: Any) -> Any:
-        """Open the same transport-specific backend production would select.
-
-        The request's agent is already the resolved host specification: the evaluator is
-        the sole seam that decodes an AgL ``Agent`` value, so no session-host
-        layer below it ever sees the value or has to decode it.
-        """
-        from agnette.agent.runner import command_targets_session_id
-        from agnette.agent.spec import AgentClaude, AgentCodex, AgentCommand, AgentPi
-        from agnette.util.interp import InterpolationError
-
-        spec = request.agent
-        transport = request.transport
-        backend_type: type[_ScriptedSessionBackend] = _ScriptedSessionBackend
-        continues_conversation = True
-        command_without_session_id = False
-        if transport == "scripted":
-            capabilities = frozenset(SessionOperation)
-            supports_name = True
-        elif transport == "rpc":
-            if not isinstance(spec, AgentPi):
-                raise SessionHostError("RPC transport is only supported by AgentPi", "open")
-            capabilities = frozenset(SessionOperation)
-            backend_type = _ScriptedPiRpcSessionBackend
-            supports_name = True
-        elif transport == "cli":
-            if isinstance(spec, AgentCommand):
-                try:
-                    continues_conversation = command_targets_session_id(spec.argv())
-                except (ValueError, InterpolationError) as error:
-                    raise SessionAgentError(str(error), "open") from error
-                command_without_session_id = self.require_session_id and not continues_conversation
-                capabilities = frozenset({SessionOperation.ASK})
-                supports_name = False
-            elif isinstance(spec, AgentClaude):
-                capabilities = frozenset(
-                    {SessionOperation.ASK, SessionOperation.COMPACT, SessionOperation.FORK}
-                )
-                supports_name = True
-            elif isinstance(spec, AgentCodex):
-                capabilities = frozenset({SessionOperation.ASK})
-                supports_name = False
-            elif isinstance(spec, AgentPi):
-                capabilities = frozenset({SessionOperation.ASK, SessionOperation.FORK})
-                supports_name = True
-            else:
-                raise SessionHostError("unsupported session agent", "open")
-        else:
-            raise SessionHostError(f"unsupported session transport {transport!r}", "open")
-        if command_without_session_id and not (request.single_prompt or request.ephemeral):
-            raise SessionHostError("command session requires a session placeholder", "open")
-        if request.name and not supports_name:
-            raise SessionHostError("scripted session does not support names", "set-name")
-        session = _ScriptedSession(
-            tag=f"session-{len(self.sessions) + 1}",
-            parent=None,
-            transport=transport,
-            single_prompt=request.single_prompt,
-            permission_mode=request.permission_mode.value,
-            sandbox=request.sandbox,
-            opened=True,
-        )
-        self.sessions.append(session)
-        return backend_type(
-            self,
-            session,
-            capabilities,
-            supports_name=supports_name,
-            continues_conversation=continues_conversation,
-            command_without_session_id=command_without_session_id,
-        )
-
-    def _fork_session(self, parent: _ScriptedSession) -> Any:
-        session = _ScriptedSession(
-            tag=f"session-{len(self.sessions) + 1}",
-            parent=parent.tag,
-            opened=True,
-            permission_mode=parent.permission_mode,
-            sandbox=parent.sandbox,
-        )
-        self.sessions.append(session)
-        backend = parent.backend
-        return type(backend)(
-            self,
-            session,
-            backend._native_capabilities,
-            supports_name=backend._supports_name,
-            continues_conversation=backend.continues_conversation,
-            command_without_session_id=backend._command_without_session_id,
-        )
-
-    def _next_response(self) -> str:
-        index = self._response_count
-        self._response_count += 1
-        if index < len(self.responses):
-            return self.responses[index]
-        if self.repeat_last and self.responses:
-            return self.responses[-1]
-        self.overflowed = True
-        return ""
-
-    def _next_session_ask_outcome(self) -> Any:
-        if self.session_ask_outcomes is None:
-            return "success"
-        if not self.session_ask_outcomes:
-            self.session_ask_outcomes_overflowed = True
-            return "success"
-        return self.session_ask_outcomes.pop(0)
-
-    def _next_operation(self, operation: str) -> Any:
-        script = self.session_operations.get(operation)
-        if script is None:
-            return "success"
-        if not script:
-            self.session_operations_overflowed = True
-            return "success"
-        return script.pop(0)
-
-    def _operation_outcome(self, operation: str) -> str:
-        script = self.session_operations.get(operation)
-        if not script:
-            return "success"
-        return _outcome_name(script[0])
-
-    def _supports_operation(self, operation: str) -> bool:
-        return (
-            operation in self.session_capabilities
-            and self._operation_outcome(operation) != "unsupported"
-        )
-
-    def _consume_capability_rejection(self, operation: str) -> None:
-        if self._operation_outcome(operation) == "unsupported":
-            self._next_operation(operation)
-
-
-class _ScriptedSessionService:
-    """Record test-only session attempts while delegating behavior to ``SessionService``."""
-
-    def __init__(self, agent: ScriptedAgent) -> None:
-        self._agent = agent
-        self._service = SessionService(self._backend_factory)
-        self._sessions: dict[str, _ScriptedSession] = {}
-        self._backends: dict[str, _ScriptedSessionBackend] = {}
-        self._ephemeral_handles: set[str] = set()
-
-    def _backend_factory(self, request: Any) -> Any:
-        return self._agent._new_session_backend(request)
-
-    def open(
-        self,
-        agent: object,
-        transport: str,
-        *,
-        name: str = "",
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> str:
-        handle = self._service.open(
-            agent,
-            transport,
-            name=name,
-            permission_mode=permission_mode,
-            sandbox=sandbox,
-            env=env,
-        )
-        self._sessions[handle] = self._agent.sessions[-1]
-        self._backends[handle] = self._agent.sessions[-1].backend
-        return handle
-
-    def open_ephemeral(
-        self,
-        agent: object,
-        transport: str,
-        *,
-        single_prompt: bool = False,
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> str:
-        handle = self._service.open(
-            agent,
-            transport,
-            ephemeral=True,
-            single_prompt=single_prompt,
-            permission_mode=permission_mode,
-            sandbox=sandbox,
-            env=env,
-        )
-        self._sessions[handle] = self._agent.sessions[-1]
-        self._backends[handle] = self._agent.sessions[-1].backend
-        self._ephemeral_handles.add(handle)
-        return handle
-
-    def with_ephemeral(
-        self,
-        agent: object,
-        transport: str,
-        action: Callable[[str], Any],
-        *,
-        on_closed: Callable[[str], None] | None = None,
-        single_prompt: bool = False,
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> Any:
-        def register(handle: str) -> Any:
-            self._sessions[handle] = self._agent.sessions[-1]
-            self._backends[handle] = self._agent.sessions[-1].backend
-            self._ephemeral_handles.add(handle)
-            return action(handle)
-
-        def retire(handle: str) -> None:
-            self._retire_ephemeral(handle)
-            if on_closed is not None:
-                on_closed(handle)
-
-        return self._service.with_ephemeral(
-            agent,
-            transport,
-            register,
-            on_closed=retire,
-            single_prompt=single_prompt,
-            permission_mode=permission_mode,
-            sandbox=sandbox,
-            env=env,
-        )
-
-    def default(
-        self,
-        agent: object,
-        transport: str,
-        *,
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> str:
-        handle = self._service.default(
-            agent,
-            transport,
-            permission_mode=permission_mode,
-            sandbox=sandbox,
-            env=env,
-        )
-        if handle not in self._sessions:
-            self._sessions[handle] = self._agent.sessions[-1]
-            self._backends[handle] = self._agent.sessions[-1].backend
-        return handle
-
-    def ask(self, handle: str, request: Any) -> Any:
-        return self._service.ask(handle, request)
-
-    def compact(self, handle: str, instructions: str = "") -> None:
-        self._attempt(
-            handle, "compact", instructions, lambda: self._service.compact(handle, instructions)
-        )
-
-    def reset(self, handle: str) -> None:
-        self._attempt(handle, "reset", None, lambda: self._service.reset(handle))
-
-    def fork(self, handle: str) -> str:
-        forked = self._attempt(handle, "fork", None, lambda: self._service.fork(handle))
-        self._sessions[forked] = self._agent.sessions[-1]
-        self._backends[forked] = self._agent.sessions[-1].backend
-        return forked
-
-    def set_name(self, handle: str, name: str) -> None:
-        self._attempt(handle, "set-name", name, lambda: self._service.set_name(handle, name))
-
-    def stats(self, handle: str) -> Any:
-        return self._attempt(handle, "stats", None, lambda: self._service.stats(handle))
-
-    def continues_conversation(self, handle: str) -> bool:
-        return self._service.continues_conversation(handle)
-
-    def close(self, handle: str) -> None:
-        self._service.close(handle)
-        self._retire_ephemeral(handle)
-
-    def close_all(self) -> None:
-        try:
-            self._service.close_all()
-        finally:
-            for handle in tuple(self._ephemeral_handles):
-                if not self._service.is_known(handle):
-                    self._retire_ephemeral(handle)
-
-    def _retire_ephemeral(self, handle: str) -> None:
-        if handle in self._ephemeral_handles:
-            self._ephemeral_handles.remove(handle)
-            del self._sessions[handle]
-            del self._backends[handle]
-
-    def _attempt(
-        self,
-        handle: str,
-        operation: str,
-        arg: str | None,
-        action: Callable[[], Any],
-    ) -> Any:
-        session = self._sessions.get(handle)
-        backend = self._backends.get(handle)
-        rejected = (
-            session is not None
-            and backend is not None
-            and operation != "reset"
-            and not backend.supports(operation)
-        )
-        if rejected:
-            session.operations.append((operation, arg, "unsupported"))
-        try:
-            return action()
-        except SessionHostError as error:
-            if rejected and error.operation == operation:
-                self._agent._consume_capability_rejection(operation)
-            raise
-
-
-class _ScenarioSessionHost:
-    """Route session requests to the scripted agent selected by an AgL value."""
-
-    def __init__(self, agents: dict[str, ScriptedAgent]) -> None:
-        self._services = {name: agent.session_service() for name, agent in agents.items()}
-        self._handles: dict[str, _ScriptedSessionService] = {}
-        self._snapshots: dict[
-            str, tuple[Any, str, PermissionMode, SandboxLimits | None, dict[str, str], bool]
-        ] = {}
-        self._default_handle: str | None = None
-
-    def open(
-        self,
-        agent: Any,
-        transport: str,
-        *,
-        name: str = "",
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> str:
-        service = self._service_for(agent)
-        try:
-            handle = service.open(
-                agent,
-                transport.lower(),
-                name=name,
-                permission_mode=permission_mode,
-                sandbox=sandbox,
-                env=env,
-            )
-        except SessionHostError as error:
-            self._raise_host_error(error)
-        self._handles[handle] = service
-        self._snapshots[handle] = (
-            agent,
-            transport,
-            permission_mode,
-            sandbox,
-            env or {},
-            service.continues_conversation(handle),
-        )
-        return handle
-
-    def open_ephemeral(
-        self,
-        agent: Any,
-        transport: str,
-        *,
-        single_prompt: bool = False,
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> str:
-        service = self._service_for(agent)
-        try:
-            handle = service.open_ephemeral(
-                agent,
-                transport.lower(),
-                single_prompt=single_prompt,
-                permission_mode=permission_mode,
-                sandbox=sandbox,
-                env=env,
-            )
-        except SessionHostError as error:
-            self._raise_host_error(error)
-        self._handles[handle] = service
-        self._snapshots[handle] = (
-            agent,
-            transport,
-            permission_mode,
-            sandbox,
-            env or {},
-            service.continues_conversation(handle),
-        )
-        return handle
-
-    def with_ephemeral(
-        self,
-        agent: Any,
-        transport: str,
-        action: Callable[[str], Any],
-        *,
-        single_prompt: bool = False,
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> Any:
-        service = self._service_for(agent)
-
-        def register(handle: str) -> Any:
-            self._handles[handle] = service
-            self._snapshots[handle] = (
-                agent,
-                transport,
-                permission_mode,
-                sandbox,
-                env or {},
-                service.continues_conversation(handle),
-            )
-            return action(handle)
-
-        def retire(handle: str) -> None:
-            del self._handles[handle]
-            del self._snapshots[handle]
-
-        try:
-            return service.with_ephemeral(
-                agent,
-                transport.lower(),
-                register,
-                on_closed=retire,
-                single_prompt=single_prompt,
-                permission_mode=permission_mode,
-                sandbox=sandbox,
-                env=env,
-            )
-        except SessionHostError as error:
-            self._raise_host_error(error)
-
-    def default(
-        self,
-        agent: Any,
-        transport: str,
-        *,
-        permission_mode: PermissionMode = PermissionMode.NONE,
-        sandbox: SandboxLimits | None = None,
-        env: dict[str, str] | None = None,
-    ) -> str:
-        if self._default_handle is not None:
-            return self._default_handle
-        service = self._service_for(agent)
-        try:
-            handle = service.default(
-                agent,
-                transport.lower(),
-                permission_mode=permission_mode,
-                sandbox=sandbox,
-                env=env,
-            )
-        except SessionHostError as error:
-            self._raise_host_error(error)
-        self._handles[handle] = service
-        self._snapshots[handle] = (
-            agent,
-            transport,
-            permission_mode,
-            sandbox,
-            env or {},
-            service.continues_conversation(handle),
-        )
-        self._default_handle = handle
-        return handle
-
-    def ask(self, handle: str, prompt: str) -> str:
-        from agnette.agent.session.protocol import SessionAskRequest
-        from agnette.agl.runtime.sessions import SessionAskError as AglSessionAskError
-
-        try:
-            return (
-                self._service_for_handle(handle, "ask")
-                .ask(handle, SessionAskRequest(prompt))
-                .content
-            )
-        except SessionHostError as error:
-            self._raise_host_error(error)
-        except Exception as error:
-            if hasattr(error, "cause"):
-                raise AglSessionAskError(
-                    cause=error.cause,
-                    exit_code=error.exit_code,
-                    stderr_tail=error.stderr_tail,
-                    elapsed=error.elapsed,
-                    call_info=None,
-                ) from error
-            raise
-
-    def ask_request(self, handle: str, request: Any) -> Any:
-        from agnette.agl.runtime.request import AgentResponse
-
-        content = self.ask(handle, request.prompt)
-        service = self._service_for_handle(handle, "ask")
-        schema = _contract_schema(request.output_contract)
-        # The underlying session ask (above) recorded a bare prompt event with
-        # no schema/sandbox in hand; this call's full AgentRequest carries
-        # both, so replace that entry with the complete observation in one
-        # write rather than appending to a second, separately indexed list.
-        service._agent.prompt_events[-1] = _PromptEvent(
-            request.prompt, schema, request.permission_mode.value, request.sandbox
-        )
-        return AgentResponse(content)
-
-    def compact(self, handle: str, instructions: str = "") -> None:
-        self._operation(handle, "compact", instructions)
-
-    def reset(self, handle: str) -> None:
-        self._operation(handle, "reset")
-
-    def fork(self, handle: str) -> str:
-        service = self._service_for_handle(handle, "fork")
-        try:
-            forked = service.fork(handle)
-        except SessionHostError as error:
-            self._raise_host_error(error)
-        self._handles[forked] = service
-        self._snapshots[forked] = self._snapshots[handle]
-        return forked
-
-    def set_name(self, handle: str, name: str) -> None:
-        self._operation(handle, "set_name", name)
-
-    def stats(self, handle: str) -> Any:
-        try:
-            return self._service_for_handle(handle, "stats").stats(handle)
-        except SessionHostError as error:
-            self._raise_host_error(error)
-
-    def snapshot(self, handle: str) -> Any:
-        from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
-        from agnette.agl.runtime.sessions import SessionSnapshot
-
-        try:
-            agent, transport, permission_mode, sandbox, env, continues = self._snapshots[handle]
-        except KeyError:
-            raise AglSessionHostError("unknown session", "snapshot") from None
-        return SessionSnapshot(
-            agent,
-            transport,
-            permission_mode,
-            sandbox,
-            env=env,
-            continues_conversation=continues,
-        )
-
-    def close(self, handle: str) -> None:
-        service = self._service_for_handle(handle, "close")
-        try:
-            service.close(handle)
-        except SessionHostError as error:
-            self._raise_host_error(error)
-        if handle not in service._sessions:
-            del self._handles[handle]
-            del self._snapshots[handle]
-
-    def close_all(self) -> None:
-        failures: list[Exception] = []
-        for service in self._services.values():
-            try:
-                service.close_all()
-            except ExceptionGroup as error:
-                failures.extend(error.exceptions)
-        if failures:
-            raise ExceptionGroup("failed to close one or more scripted sessions", failures)
-
-    def _operation(self, handle: str, name: str, arg: str = "") -> None:
-        service = self._service_for_handle(handle, name.replace("_", "-"))
-        try:
-            if name == "compact":
-                service.compact(handle, arg)
-            elif name == "set_name":
-                service.set_name(handle, arg)
-            else:
-                service.reset(handle)
-        except SessionHostError as error:
-            self._raise_host_error(error)
-
-    def _service_for(self, agent: Any) -> _ScriptedSessionService:
-        from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
-
-        try:
-            return self._services[_scripted_agent_name(agent)]
-        except KeyError:
-            raise AglSessionHostError("unknown scripted agent", "open") from None
-
-    def _service_for_handle(self, handle: str, operation: str) -> _ScriptedSessionService:
-        try:
-            return self._handles[handle]
-        except KeyError:
-            from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
-
-            raise AglSessionHostError("unknown session", operation) from None
-
-    @staticmethod
-    def _raise_host_error(error: SessionHostError) -> None:
-        from agnette.agl.runtime.sessions import SessionAgentError as AglSessionAgentError
-        from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
-
-        if isinstance(error, SessionAgentError):
-            raise AglSessionAgentError(error.message, error.operation) from error
-        raise AglSessionHostError(error.message, error.operation) from error
-
-
-class _ScriptedSessionBackend:
-    """In-memory backend constrained to one production transport's surface.
-
-    ``command_without_session_id`` mirrors a command without a session placeholder:
-    it opens only for a single-prompt or ephemeral session.
-    """
-
-    def __init__(
-        self,
-        agent: ScriptedAgent,
-        session: _ScriptedSession,
-        native_capabilities: frozenset[SessionOperation],
-        *,
-        supports_name: bool,
-        continues_conversation: bool,
-        command_without_session_id: bool = False,
-    ) -> None:
-        self.continues_conversation = continues_conversation
-        self._command_without_session_id = command_without_session_id
-        self._agent = agent
-        self._session = session
-        self._native_capabilities = native_capabilities
-        self._supports_name = supports_name
-        session.backend = self
-
-    @property
-    def operations(self) -> SessionOperations:
-        def native(operation: SessionOperation, method: Any) -> Any:
-            return method if self.supports(operation.value) else None
-
-        return SessionOperations(
-            compact=native(SessionOperation.COMPACT, self.compact),
-            fork=native(SessionOperation.FORK, self.fork),
-            set_name=native(SessionOperation.SET_NAME, self.set_name),
-            stats=native(SessionOperation.STATS, self.stats),
-        )
-
-    def supports(self, operation: str) -> bool:
-        return SessionOperation(
-            operation
-        ) in self._native_capabilities and self._agent._supports_operation(operation)
-
-    def ask(self, request: Any) -> Any:
-        from agnette.agent.session.protocol import SessionAskError, SessionAskResponse
-        from agnette.agent.transport import AgentCallInfo
-
-        self._session.prompts.append(request.prompt)
-        self._agent.prompt_events.append(
-            _PromptEvent(request.prompt, None, self._session.permission_mode, self._session.sandbox)
-        )
-        outcome = self._agent._next_session_ask_outcome()
-        if isinstance(outcome, dict):
-            elapsed = float(outcome.get("elapsed", 0.0))
-            exit_code = outcome.get("exit_code")
-            if not isinstance(exit_code, int | None):
-                raise ValueError("session ask outcome exit_code must be an integer or null")
-            raise SessionAskError(
-                cause=outcome.get("cause", "timeout"),
-                exit_code=exit_code,
-                stderr_tail=str(outcome.get("stderr_tail", "")),
-                elapsed=elapsed,
-                call_info=AgentCallInfo(
-                    argv=[],
-                    prompt_via_stdin=False,
-                    elapsed=elapsed,
-                    exit_code=exit_code,
-                    sandboxed=False,
-                    permission_mode="none",
-                ),
-            )
-        if outcome != "success":
-            raise ValueError("session ask outcome must be 'success' or a transport failure")
-        return SessionAskResponse(content=self._agent._next_response())
-
-    def compact(self, instructions: str) -> None:
-        self._apply_operation("compact", instructions)
-
-    def reset(self) -> None:
-        self._apply_operation("reset", None)
-
-    def fork(self) -> Any:
-        self._apply_operation("fork", None)
-        return self._agent._fork_session(self._session)
-
-    def set_name(self, name: str) -> None:
-        self._apply_operation("set-name", name)
-
-    def stats(self) -> Any:
-        from agnette.agent.session.protocol import SessionStats
-
-        outcome = self._apply_operation("stats", None)
-        if not isinstance(outcome, dict):
-            return SessionStats(0, 0, Decimal("0"), Decimal("0"))
-        return SessionStats(
-            input_tokens=int(outcome.get("input_tokens", 0)),
-            output_tokens=int(outcome.get("output_tokens", 0)),
-            cost=Decimal(str(outcome.get("cost", "0"))),
-            context_percent=Decimal(str(outcome.get("context_percent", "0"))),
-        )
-
-    def close(self) -> None:
-        self._session.closed = True
-
-    def _apply_operation(self, operation: str, arg: str | None) -> Any:
-        outcome = self._agent._next_operation(operation)
-        outcome_name = _outcome_name(outcome)
-        self._session.operations.append((operation, arg, outcome_name))
-        if outcome_name == "unsupported":
-            from agnette.agent.session.protocol import SessionHostError
-
-            raise SessionHostError(f"scripted session does not support {operation}", operation)
-        return outcome
-
-
-class _ScriptedPiRpcSessionBackend(_ScriptedSessionBackend):
-    """Native Pi RPC mock used by lifecycle scenarios without a real agent."""
-
-
-def _scripted_agent_name(agent: Any) -> str:
-    """Map an agent specification onto one scenario's scripted service."""
-    import shlex
-
-    from agnette.agent.spec import AgentCommand, AgentPi
-
-    if isinstance(agent, AgentCommand):
-        try:
-            return shlex.split(agent.command)[0]
-        except ValueError:
-            return agent.command
-    if isinstance(agent, AgentPi) and agent.provider:
-        return agent.provider
-    return "ask"
-
-
-def _agent_from_spec(name: str, spec: Any) -> ScriptedAgent:
-    if isinstance(spec, list):
-        return ScriptedAgent(name=name, responses=[str(r) for r in spec])
-    session = spec.get("session", {})
-    capability_spec = session.get("capabilities")
-    capabilities = (
-        _SESSION_CAPABILITY_NAMES
-        if capability_spec is None
-        else frozenset(str(operation) for operation in capability_spec)
-    )
-    unknown_capabilities = capabilities - _SESSION_CAPABILITY_NAMES
-    if unknown_capabilities:
-        raise ValueError(f"unknown session capabilities: {sorted(unknown_capabilities)}")
-    operations = {
-        str(operation): list(outcomes)
-        for operation, outcomes in session.get("operations", {}).items()
-    }
-    ask_outcomes = session.get("ask")
-    if ask_outcomes is not None and not isinstance(ask_outcomes, list):
-        raise ValueError("session ask outcomes must be a list")
-    if capability_spec is not None:
-        for operation, outcomes in operations.items():
-            if any(_outcome_name(outcome) == "unsupported" for outcome in outcomes):
-                raise ValueError(
-                    "unsupported outcomes must be expressed through session capabilities"
-                )
-    return ScriptedAgent(
-        name=name,
-        responses=[str(r) for r in spec["responses"]],
-        repeat_last=bool(spec.get("repeat_last", False)),
-        session_capabilities=capabilities,
-        session_operations=operations,
-        session_ask_outcomes=None if ask_outcomes is None else list(ask_outcomes),
-    )
-
-
-type CompilationCache = dict[tuple[bool, bool], list[tuple[PreparedProgram, ProgramDiscovery]]]
-
-
-def _run_prepared_entry(
-    runtime: Any,
-    prepared: Any,
-    *,
-    param_values: dict[str, Any],
-    module_params: dict[str, Any] | None = None,
-    function_params: dict[str, Any] | None = None,
-    positional: list[Any] | None = None,
-    process_environment: dict[str, str] | None = None,
-    engine_seeds: dict[Any, Value] | None = None,
-    discovery: ProgramDiscovery | None = None,
-) -> Any:
-    """Run the sole selected file-style entry through the public pipeline seams.
-
-    Always routes through :meth:`PipelineDriver.preflight_arguments` (binding
-    *positional*/*param_values* as the entry program's own value arguments),
-    so a parameterless entry's own ``@config`` — module parameter or engine
-    setting — is evaluated and seeded exactly like one that declares
-    parameters or receives module parameters.
-    """
-    if discovery is None:
-        discovery = runtime.discover_programs(prepared)
-    if discovery.compiled is None:
-        return runtime.run_prepared(
-            prepared, builtin_var_seeds=engine_seeds, process_environment=process_environment
-        )
-    entry_programs = [item for item in discovery.programs if item.module.is_entry]
-    assert len(entry_programs) == 1
-    entry_program = entry_programs[0]
-
-    if not entry_program.parameters and module_params is None and function_params is None:
-        assert not positional and not param_values, (
-            "scenario supplied 'positional'/'params' but the entry program declares "
-            "no value parameters to receive them - check the fixture's program "
-            "signature"
-        )
-
-    argument_preflight = runtime.preflight_arguments(
-        prepared,
-        entry_program,
-        positional=tuple(positional) if positional else (),
-        compiled=discovery.compiled,
-        param_values={
-            **module_param_values(discovery, entry_program, module_params),
-            **function_param_values(entry_program, function_params),
-            **{
-                entry_program.param_key(name): value for name, value in (param_values or {}).items()
-            },
-        },
-    )
-    if not argument_preflight.result.ok:
-        return argument_preflight.result
-    assert argument_preflight.executable is not None
-    return runtime.run_prepared(
-        prepared,
-        compiled=discovery.compiled,
-        executable=argument_preflight.executable,
-        program_symbol=argument_preflight.executable.program_symbols[entry_program.node_id],
-        arguments=argument_preflight.arguments,
-        param_seeds=argument_preflight.param_seeds,
-        function_param_seeds=argument_preflight.function_param_seeds,
-        builtin_var_seeds={
-            **program_config_engine_seeds(argument_preflight),
-            **(engine_seeds or {}),
-        }
-        or None,
-        process_environment=process_environment,
-    )
-
-
-def _run_source_entry(
-    runtime: Any,
-    source: str,
-    *,
-    roots: Any | None = None,
-    default_stdlib: bool = True,
-) -> Any:
-    """Prepare and invoke a sole explicit entry for focused file-style tests."""
-    from agnette.agl import PipelineDriver
-
-    prepared = PipelineDriver.prepare_program(source, roots=roots, default_stdlib=default_stdlib)
-    return _run_prepared_entry(runtime, prepared, param_values={})
+        spec_warning_policy({"warning_levels": levels})
 
 
 def test_module_param_paths_must_exist_in_selected_program_closure() -> None:
@@ -1172,283 +133,6 @@ def test_inline_entry_with_its_own_program_def_follows_relaxed_binding_order(
     assert capsys.readouterr().out == "42\n"
 
 
-def _apply_sandbox_home(
-    scenario: dict[str, Any], tmp_path: Path
-) -> tuple[dict[str, Any], Callable[[], SandboxContext] | None]:
-    """Materialize a scenario's ``sandbox_home`` fixture, when present.
-
-    Writes a real ``[home]/.agm/sandbox`` settings tree and, unless
-    ``unavailable`` is set, real (transparent, never-invoked) ``systemd-run``/
-    ``srt`` shims onto a ``PATH`` fed to the program's ``std/env::environ``
-    default -- so a sandboxed ``exec`` resolves backend availability and
-    settings through the real sandbox library, exactly as production does,
-    while ``run_capture_result`` stays mocked (the scripted ``shell`` sees the
-    wrapped argv; no shim ever actually runs). ``unavailable`` points at an
-    empty ``PATH`` instead, for a preparation-failure scenario. Returns the
-    scenario with ``process_environment``/``params`` filled in (a literal
-    ``$SANDBOX_SETTINGS_FILE`` param value becomes the real explicit-settings
-    path, mirroring `_prepare_temp_filesystem`'s ``$TEMP_ROOT``) and the
-    ``get_sandbox_context`` callable to thread into the runtime -- ``None``
-    when the scenario has no ``sandbox_home``, so an ordinary scenario never
-    builds one. ``proj_dir: true`` gives the context a real project directory
-    -- needed for a scenario to observe ``patch``, which ``SrtBackend`` only
-    consults when a project directory is present.
-    """
-    spec = scenario.get("sandbox_home")
-    if spec is None:
-        return scenario, None
-    home = tmp_path / "sandbox-home"
-    write_sandbox_home(
-        home,
-        run_toml=spec.get("run_toml", ""),
-        extra_settings_files=tuple(spec.get("extra_settings_files", ())),
-    )
-    proj_dir = tmp_path / "proj" if spec.get("proj_dir") else None
-    explicit_settings = home / "explicit-settings.json"
-    explicit_settings.write_text("{}", encoding="utf-8")
-    process_environment = dict(scenario.get("process_environment") or {})
-    if spec.get("unavailable"):
-        process_environment.setdefault("PATH", str(tmp_path / "no-sandbox-binaries"))
-    else:
-        shim_dir = tmp_path / "sandbox-shims"
-        write_transparent_sandbox_shims(shim_dir, log_dir=tmp_path / "sandbox-shim-log")
-        process_environment.setdefault("PATH", str(shim_dir))
-    scenario = _substitute_params(scenario, {"$SANDBOX_SETTINGS_FILE": str(explicit_settings)})
-    scenario = {**scenario, "process_environment": process_environment}
-    return scenario, session_sandbox_context(home, proj_dir=proj_dir)
-
-
-class _Script(Protocol):
-    def assert_complete(self) -> None: ...
-
-
-def _run_program(
-    source: str,
-    scenario: dict[str, Any],
-    program: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    get_sandbox_context: Callable[[], SandboxContext] | None,
-    compilations: CompilationCache | None = None,
-) -> tuple[Any, dict[str, ScriptedAgent], FakeShell, list[_Script], tuple[Diagnostic, ...]]:
-    from agnette.agl import PipelineDriver
-    from agnette.agl.runtime.externs import ExternRegistry
-
-    agents = {
-        name: _agent_from_spec(name, spec) for name, spec in scenario.get("agents", {}).items()
-    }
-    shell = FakeShell(scenario.get("shell", []))
-    http_session, http_adapter = fake_session(scenario.get("http", []))
-    runtime_options: dict[str, Any] = {}
-    runtime_config = scenario.get("runtime", {})
-    if runtime_config.get("enforce_command_sessions") is True:
-        for agent in agents.values():
-            agent.require_session_id = True
-    if "default_call_depth_limit" in runtime_config:
-        runtime_options["default_call_depth_limit"] = runtime_config["default_call_depth_limit"]
-    if "default_strict_json" in runtime_config:
-        runtime_options["default_strict_json"] = runtime_config["default_strict_json"]
-    engine_seeds: dict[Any, Value] = {}
-    if "parse_error_retries" in runtime_config:
-        engine_seeds[builtin_var_key(STD_CONFIG_ID, (), "parse-error-retries")] = IntValue(
-            runtime_config["parse_error_retries"]
-        )
-
-    def dispatch_agent(request: Any) -> str:
-        return agents[_scripted_agent_name(request.agent)](request)
-
-    if agents:
-        runtime_options["agent_dispatcher"] = dispatch_agent
-    if agents:
-        runtime_options["session_host"] = _ScenarioSessionHost(agents)
-    runtime_options["get_sandbox_context"] = get_sandbox_context
-    registry = ExternRegistry()
-    runtime = PipelineDriver(
-        extern_registry=registry,
-        resolve_agent_spec=None,
-        warning_policy=_warning_policy(scenario),
-        **runtime_options,
-    )
-    scripts: list[_Script] = [shell, http_adapter]
-    default_stdlib = not scenario.get("no_stdlib", False)
-    entry_path: Path | None = None
-    roots = _fixture_roots(scenario)
-    if "jev" in scenario:
-        if "module_roots" in scenario:
-            pytest.fail("a scenario sets both `jev` and `module_roots`")
-        scripts.append(install_jev_transport(monkeypatch, runtime, registry, scenario["jev"]))
-        roots = jev_roots()
-    if roots is None and (
-        program.is_relative_to(EXTERNS_PROGRAMS_DIR)
-        or program.is_relative_to(RESOURCE_PROGRAMS_DIR)
-    ):
-        entry_path = program
-        roots = agl_roots(program.parent.resolve())
-    # `inline_entry` sources carry no `program def`: they run through the same
-    # synthetic-entry transform as `agm exec -c`.
-    prepare = (
-        prepare_inline_code if scenario.get("inline_entry") else PipelineDriver.prepare_program
-    )
-    with (
-        unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell),
-        unittest.mock.patch("agnette.core.http.open_session", lambda: http_session),
-    ):
-        key = (default_stdlib, bool(scenario.get("inline_entry")))
-        cached = next(
-            (
-                (prepared, discovery)
-                for prepared, discovery in (compilations or {}).get(key, [])
-                if discovery.compiled is not None
-            ),
-            None,
-        )
-        if cached is None:
-            prepared = prepare(
-                source, entry_path=entry_path, roots=roots, default_stdlib=default_stdlib
-            )
-            discovery = runtime.discover_programs(prepared)
-            if compilations is not None and discovery.compiled is not None:
-                compilations.setdefault(key, []).append((prepared, discovery))
-        else:
-            prepared, discovery = cached
-
-        try:
-            result = _run_prepared_entry(
-                runtime,
-                prepared,
-                param_values=scenario.get("params", {}),
-                module_params=scenario.get("module_params"),
-                function_params=scenario.get("function_params"),
-                positional=scenario.get("positional"),
-                process_environment=scenario.get("process_environment"),
-                engine_seeds=engine_seeds,
-                discovery=discovery,
-            )
-        except SystemExit as exc:
-            result = exc
-    # A terminated run reports no result; discovery holds the static warnings.
-    warnings = discovery.warnings if isinstance(result, SystemExit) else tuple(result.warnings)
-    return result, agents, shell, scripts, warnings
-
-
-def _assert_host_error(result: Any, agents: dict[str, ScriptedAgent], spec: dict[str, Any]) -> None:
-    assert not result.ok, "expected the run to fail param validation"
-    assert result.error is None, "param validation failure is not an AgL exception"
-    messages = " | ".join(d.message for d in result.diagnostics)
-    for needle in spec.get("message_contains", []):
-        assert needle.lower() in messages.lower(), (
-            f"no diagnostic mentions {needle!r}; diagnostics: {messages!r}"
-        )
-    for agent in agents.values():
-        assert agent.prompts == [], (
-            f"agent {agent.name!r} was called despite param validation failing"
-        )
-        assert agent.sessions == [], (
-            f"agent {agent.name!r} opened a session despite param validation failing"
-        )
-
-
-def _fields_match(actual: Any, expected: Any) -> bool:
-    """``expected`` matches ``actual``, recursing into nested dicts as a subset.
-
-    A dict-shaped expected value is an exact-match subset of the matching
-    actual dict's keys (e.g. asserting only a nested exception field's
-    ``status``/``body`` while ignoring its nondeterministic ``elapsed``);
-    every other value compares with ``==``, exactly as ``expect.raises.fields``
-    already does at the top level.
-    """
-    if isinstance(expected, dict):
-        return isinstance(actual, dict) and all(
-            key in actual and _fields_match(actual[key], value) for key, value in expected.items()
-        )
-    return bool(actual == expected)
-
-
-def _assert_outcome(result: Any, expect: dict[str, Any]) -> None:
-    diags = " | ".join(d.message for d in result.diagnostics)
-    assert list(result.diagnostics) == [], f"unexpected static diagnostics: {diags}"
-    if "raises" in expect:
-        spec = expect["raises"]
-        assert result.error is not None, f"expected uncaught {spec['type']}, got none"
-        assert result.error.type_name == spec["type"]
-        if "line" in spec:
-            assert result.error.line == spec["line"]
-        if "source_contains" in spec:
-            assert result.error.source is not None
-            assert spec["source_contains"] in result.error.source
-        for key, value in spec.get("fields", {}).items():
-            actual = result.error.fields[key]
-            assert _fields_match(actual, value), (
-                f"{spec['type']}.{key}: expected {value!r}, got {actual!r}"
-            )
-        message = str(result.error.fields.get("message", ""))
-        for needle in spec.get("message_contains", []):
-            assert needle in message, f"{needle!r} not in message {message!r}"
-        assert not result.ok
-    else:
-        if result.error is not None:
-            raise AssertionError(
-                f"unexpected uncaught {result.error.type_name}: {result.error.fields!r}"
-            )
-        assert result.ok
-
-
-def _source_ref(label: str | None) -> str | None:
-    """Name a diagnostic's source: a path under ``tests/agl/`` when it is one, else its label."""
-    if label is None:
-        return None
-    path = Path(label)
-    return path.relative_to(AGL_DIR).as_posix() if path.is_relative_to(AGL_DIR) else label
-
-
-def _assert_warnings(warnings: tuple[Diagnostic, ...], expect: dict[str, Any]) -> None:
-    """Match the static warnings exactly against ``expect.warnings`` (default: none).
-
-    An expected entry's optional ``column`` and ``source`` are checked too; entries without
-    one match any column or source.
-    """
-    expected = expect.get("warnings", [])
-    actual = [
-        {"name": warning.warning_name, "line": warning.line}
-        | ({"column": warning.column} if "column" in want else {})
-        | ({"source": _source_ref(warning.source_label)} if "source" in want else {})
-        for warning, want in zip(warnings, expected, strict=False)
-    ]
-    assert len(warnings) == len(expected) and actual == expected, f"static warnings: {warnings!r}"
-
-
-def _assert_output(out: str, expect: dict[str, Any]) -> None:
-    if "stdout" in expect:
-        assert out == expect["stdout"]
-    for needle in expect.get("stdout_contains", []):
-        assert needle in out, f"{needle!r} not in stdout {out!r}"
-    for needle in expect.get("stdout_not_contains", []):
-        assert needle not in out, f"{needle!r} unexpectedly in stdout {out!r}"
-
-
-def _schema_contains(schema: Any, needle: str) -> bool:
-    if isinstance(schema, dict):
-        return any(
-            str(key) == needle or _schema_contains(value, needle) for key, value in schema.items()
-        )
-    if isinstance(schema, list):
-        return any(_schema_contains(item, needle) for item in schema)
-    return schema == needle
-
-
-def _assert_schema_paths(schema: Any, assertions: list[dict[str, Any]]) -> None:
-    """Assert exact JSON Schema values at dictionary-key paths."""
-    for assertion in assertions:
-        actual = schema
-        path = assertion["path"]
-        for key in path:
-            assert isinstance(actual, dict), f"{path!r} is not a dictionary path in {schema!r}"
-            assert key in actual, f"{path!r} is absent from schema {schema!r}"
-            actual = actual[key]
-        assert actual == assertion["equals"], (
-            f"schema at {path!r}: expected {assertion['equals']!r}, got {actual!r}"
-        )
-
-
 def test_schema_paths_assert_exact_nested_values() -> None:
     schema = {
         "$ref": "#/$defs/Workflow_Task",
@@ -1459,7 +143,7 @@ def test_schema_paths_assert_exact_nested_values() -> None:
         },
     }
 
-    _assert_schema_paths(
+    assert_schema_paths(
         schema,
         [
             {"path": ["$ref"], "equals": "#/$defs/Workflow_Task"},
@@ -1478,137 +162,6 @@ def test_schema_paths_assert_exact_nested_values() -> None:
     )
 
 
-def _assert_prompt_text(prompt: str, spec: dict[str, Any]) -> None:
-    if "equals" in spec:
-        assert prompt == spec["equals"]
-    if "starts_with" in spec:
-        assert prompt.startswith(spec["starts_with"])
-    for needle in spec.get("contains", []):
-        assert needle in prompt, f"{needle!r} not in prompt {prompt!r}"
-    for needle in spec.get("not_contains", []):
-        assert needle not in prompt, f"{needle!r} unexpectedly in prompt {prompt!r}"
-
-
-def _assert_calls(agents: dict[str, ScriptedAgent], expect: dict[str, Any]) -> None:
-    for name, agent in agents.items():
-        assert not agent.overflowed, f"agent {name!r} was called more times than scripted"
-    expected_calls = expect.get("calls", {})
-    assert set(expected_calls) == set(agents), (
-        "every scripted agent must have an exact call-count assertion; "
-        f"expected entries for {sorted(agents)}, got {sorted(expected_calls)}"
-    )
-    for name, agent in agents.items():
-        count = expected_calls[name]
-        actual = len(agent.prompt_events) if "session_prompts" not in expect else len(agent.prompts)
-        assert actual == count, f"agent {name!r}: expected {count} calls, got {actual}"
-    for spec in expect.get("prompts", []):
-        agent_spec = spec["agent"]
-        if isinstance(agent_spec, dict):
-            name = agent_spec.get("command", "ask")
-        else:
-            name = agent_spec
-        assert isinstance(name, str)
-        prompt_events = agents[name].prompt_events
-        prompts = [event.prompt for event in prompt_events]
-        call = spec["call"]
-        assert call < len(prompts), (
-            f"agent {spec['agent']!r} made only {len(prompts)} calls, no call {call}"
-        )
-        _assert_prompt_text(prompts[call], spec)
-        event = prompt_events[call]
-        for needle in spec.get("schema_contains", []):
-            assert _schema_contains(event.schema, needle), (
-                f"{needle!r} not in schema {event.schema!r}"
-            )
-        _assert_schema_paths(event.schema, spec.get("schema_paths", []))
-        if "sandbox" in spec:
-            _assert_sandbox_expectation(
-                event.sandbox_mode,
-                event.sandbox_limits,
-                spec["sandbox"],
-                context=f"agent {name!r} call {call}",
-            )
-
-
-def _assert_sandbox_expectation(
-    mode: str | None, limits: SandboxLimits | None, expected: Any, *, context: str
-) -> None:
-    """Check one recorded ``(permission_mode, limits)`` pair against a scenario's expectation.
-
-    *expected* is either the bare permission-mode string (as decoded by
-    ``agent.spec.PermissionMode``), or an object whose ``mode`` key checks the
-    same thing and whose remaining keys (``memory``/``swap``/``patch``/
-    ``settings``) check the decoded ``SandboxLimits`` field by field --
-    ``Default`` compares equal to the JSON string ``"default"``, an absent
-    ``settings_file`` to ``None``, and a present one to its ``str()``. Shared
-    by a ``prompts[]`` entry's per-call check and a ``sessions[]`` entry's
-    open-time check -- one recorded pair, one expectation shape, either way.
-    """
-    if isinstance(expected, str):
-        assert mode == expected, f"{context}: expected permission mode {expected!r}, got {mode!r}"
-        return
-    if "mode" in expected:
-        assert mode == expected["mode"], (
-            f"{context}: expected permission mode {expected['mode']!r}, got {mode!r}"
-        )
-    limit_fields = {"memory", "swap", "patch"}.intersection(expected)
-    if limit_fields or "settings" in expected:
-        assert limits is not None, f"{context}: expected decoded sandbox limits, got none"
-        for field_name in limit_fields:
-            actual = getattr(limits, field_name)
-            actual = "default" if actual is Default else actual
-            assert actual == expected[field_name], (
-                f"{context}: expected sandbox {field_name} {expected[field_name]!r}, got {actual!r}"
-            )
-        if "settings" in expected:
-            actual_settings = None if limits.settings_file is None else str(limits.settings_file)
-            assert actual_settings == expected["settings"], (
-                f"{context}: expected sandbox settings {expected['settings']!r}, "
-                f"got {actual_settings!r}"
-            )
-
-
-def _substitute_params(scenario: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
-    """Replace each ``scenario["params"]`` value found in *mapping* with its real path.
-
-    Shared by every fixture that hands a scenario a real filesystem path
-    through a literal sentinel value (``$TEMP_ROOT``, ``$SANDBOX_SETTINGS_FILE``),
-    so the substitution logic exists once.
-    """
-    params = {
-        name: mapping.get(value, value) if isinstance(value, str) else value
-        for name, value in scenario.get("params", {}).items()
-    }
-    return {**scenario, "params": params}
-
-
-def _prepare_temp_filesystem(scenario: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
-    """Create a scenario's isolated filesystem fixture and bind its root parameter."""
-    fixture = scenario.get("filesystem")
-    if fixture is None:
-        return scenario
-
-    root = tmp_path / "filesystem"
-    root.mkdir()
-    for directory in fixture.get("directories", []):
-        (root / directory).mkdir(parents=True)
-    for relative_path, content in fixture.get("text_files", {}).items():
-        path = root / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-    for relative_path, content in fixture.get("hex_files", {}).items():
-        path = root / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(bytes.fromhex(content))
-    for relative_path, target in fixture.get("directory_symlinks", {}).items():
-        try:
-            (root / relative_path).symlink_to(root / target, target_is_directory=True)
-        except OSError:
-            pytest.skip("symbolic links are unavailable")
-
-    return _substitute_params(scenario, {"$TEMP_ROOT": str(root)})
-
-
 def test_filesystem_fixture_skips_symlink_scenarios_when_symlinks_are_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1620,7 +173,7 @@ def test_filesystem_fixture_skips_symlink_scenarios_when_symlinks_are_unavailabl
     monkeypatch.setattr(Path, "symlink_to", unavailable_symlink)
 
     with pytest.raises(pytest.skip.Exception):
-        _prepare_temp_filesystem(
+        prepare_temp_filesystem(
             {
                 "filesystem": {
                     "directories": ["target"],
@@ -1631,148 +184,10 @@ def test_filesystem_fixture_skips_symlink_scenarios_when_symlinks_are_unavailabl
         )
 
 
-def _assert_sessions(agents: dict[str, ScriptedAgent], expect: dict[str, Any]) -> None:
-    for name, agent in agents.items():
-        assert not agent.session_operations_overflowed, (
-            f"session operation script for agent {name!r} was used more times than scripted"
-        )
-        assert not agent.session_ask_outcomes_overflowed, (
-            f"session ask script for agent {name!r} was used more times than scripted"
-        )
-        assert not agent.session_ask_outcomes, (
-            f"session ask script for agent {name!r} was not fully consumed"
-        )
-        unconsumed = {
-            operation: len(outcomes)
-            for operation, outcomes in agent.session_operations.items()
-            if outcomes
-        }
-        assert not unconsumed, (
-            f"session operation script for agent {name!r} was not fully consumed: {unconsumed}"
-        )
-
-    def session_for(spec: dict[str, Any]) -> _ScriptedSession:
-        agent_name = spec["agent"]
-        tag = spec.get("session", spec.get("tag"))
-        assert isinstance(agent_name, str)
-        assert isinstance(tag, str)
-        matches = [session for session in agents[agent_name].sessions if session.tag == tag]
-        assert len(matches) == 1, f"no unique session {tag!r} for agent {agent_name!r}"
-        return matches[0]
-
-    if "sessions" in expect:
-        expected_sessions = {
-            (spec["agent"], spec.get("session", spec.get("tag"))) for spec in expect["sessions"]
-        }
-        observed_sessions = {
-            (agent_name, session.tag)
-            for agent_name, agent in agents.items()
-            for session in agent.sessions
-        }
-        assert expected_sessions == observed_sessions, (
-            f"session set: expected {sorted(expected_sessions)}, got {sorted(observed_sessions)}"
-        )
-
-    for spec in expect.get("sessions", []):
-        session = session_for(spec)
-        for key in ("opened", "closed", "parent", "transport", "single_prompt"):
-            if key in spec:
-                assert getattr(session, key) == spec[key], (
-                    f"session {session.tag!r} {key}: expected {spec[key]!r}, "
-                    f"got {getattr(session, key)!r}"
-                )
-        if "sandbox" in spec:
-            _assert_sandbox_expectation(
-                session.permission_mode,
-                session.sandbox,
-                spec["sandbox"],
-                context=f"session {session.tag!r}",
-            )
-
-    prompt_specs: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for spec in expect.get("session_prompts", []):
-        agent_name = spec["agent"]
-        tag = spec.get("session", spec.get("tag"))
-        assert isinstance(agent_name, str)
-        assert isinstance(tag, str)
-        prompt_specs.setdefault((agent_name, tag), []).append(spec)
-
-    if "sessions" in expect or "session_prompts" in expect:
-        for agent_name, agent in agents.items():
-            for session in agent.sessions:
-                specs = prompt_specs.get((agent_name, session.tag), [])
-                assert len(specs) == len(session.prompts), (
-                    f"session {session.tag!r} prompt count: expected {len(specs)}, "
-                    f"got {len(session.prompts)}"
-                )
-                calls = sorted(spec["call"] for spec in specs)
-                assert calls == list(range(len(session.prompts))), (
-                    f"session {session.tag!r} prompt calls must cover each prompt exactly once"
-                )
-
-    for spec in expect.get("session_prompts", []):
-        session = session_for(spec)
-        call = spec["call"]
-        assert isinstance(call, int)
-        if "follow_up" in spec:
-            assert call > 0, "a follow-up must be later than the first session prompt"
-            follow_up = spec["follow_up"]
-            assert isinstance(follow_up, dict)
-            _assert_prompt_text(session.prompts[call], follow_up)
-        else:
-            _assert_prompt_text(session.prompts[call], spec)
-
-    if "session_operations" not in expect:
-        return
-
-    operation_specs: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for spec in expect["session_operations"]:
-        agent_name = spec["agent"]
-        tag = spec.get("session", spec.get("tag"))
-        operation = spec["operation"]
-        call = spec.get("call", 0)
-        assert isinstance(agent_name, str)
-        assert isinstance(tag, str)
-        assert isinstance(operation, str)
-        assert isinstance(call, int)
-        operation_specs.setdefault((agent_name, tag), []).append(spec)
-
-    for agent_name, agent in agents.items():
-        for session in agent.sessions:
-            specs = operation_specs.get((agent_name, session.tag), [])
-            assert len(specs) == len(session.operations), (
-                f"session {session.tag!r} operation count: expected {len(specs)}, "
-                f"got {len(session.operations)}"
-            )
-            operation_names = {operation for operation, _, _ in session.operations}
-            operation_names.update(spec["operation"] for spec in specs)
-            for operation in operation_names:
-                calls = [call for call in session.operations if call[0] == operation]
-                expected_calls = sorted(
-                    spec.get("call", 0) for spec in specs if spec["operation"] == operation
-                )
-                assert expected_calls == list(range(len(calls))), (
-                    f"session {session.tag!r} {operation!r} operation calls must cover each "
-                    "operation exactly once"
-                )
-
-    for spec in expect["session_operations"]:
-        session = session_for(spec)
-        operation = spec["operation"]
-        call = spec.get("call", 0)
-        assert isinstance(call, int)
-        calls = [recorded for recorded in session.operations if recorded[0] == operation]
-        _, arg, outcome = calls[call]
-        if "arg" in spec:
-            assert arg == spec["arg"]
-        if "outcome" in spec:
-            assert outcome == spec["outcome"]
-
-
 def test_scripted_sessions_observe_identity_operations_and_lifecycle() -> None:
-    from agnette.agent.session.protocol import SessionAskRequest, SessionHostError
+    from agnette.agent.session.protocol import SessionAskRequest
 
-    agent = _agent_from_spec(
+    agent = agent_from_spec(
         "writer",
         {
             "responses": ["answer"],
@@ -1812,7 +227,7 @@ def test_scripted_sessions_observe_identity_operations_and_lifecycle() -> None:
 
     assert stats.input_tokens == 3
     assert raised.value.operation == "set-name"
-    _assert_sessions(
+    assert_sessions(
         {"writer": agent},
         {
             "sessions": [
@@ -1873,9 +288,8 @@ def test_scripted_sessions_observe_identity_operations_and_lifecycle() -> None:
 
 
 def test_scripted_sessions_record_capability_rejections_without_outcomes() -> None:
-    from agnette.agent.session.protocol import SessionHostError
 
-    agent = _agent_from_spec(
+    agent = agent_from_spec(
         "writer",
         {
             "responses": [],
@@ -1889,7 +303,7 @@ def test_scripted_sessions_record_capability_rejections_without_outcomes() -> No
         service.set_name(handle, "renamed")
 
     assert raised.value.operation == "set-name"
-    _assert_sessions(
+    assert_sessions(
         {"writer": agent},
         {
             "session_operations": [
@@ -1906,7 +320,7 @@ def test_scripted_sessions_record_capability_rejections_without_outcomes() -> No
 
 
 def test_scripted_sessions_reconcile_ordered_operation_outcomes() -> None:
-    agent = _agent_from_spec(
+    agent = agent_from_spec(
         "writer",
         {
             "responses": [],
@@ -1918,10 +332,10 @@ def test_scripted_sessions_reconcile_ordered_operation_outcomes() -> None:
 
     service.compact(handle, "first")
     with pytest.raises(AssertionError, match="not fully consumed"):
-        _assert_sessions({"writer": agent}, {})
+        assert_sessions({"writer": agent}, {})
 
     service.compact(handle, "second")
-    _assert_sessions(
+    assert_sessions(
         {"writer": agent},
         {
             "session_operations": [
@@ -1947,13 +361,13 @@ def test_scripted_sessions_reconcile_ordered_operation_outcomes() -> None:
 
 
 def test_session_expectations_reject_unlisted_empty_sessions() -> None:
-    agent = _agent_from_spec("writer", {"responses": []})
+    agent = agent_from_spec("writer", {"responses": []})
     service = agent.session_service()
     service.open(object(), "scripted")
     service.open(object(), "scripted")
 
     with pytest.raises(AssertionError, match="session set"):
-        _assert_sessions(
+        assert_sessions(
             {"writer": agent},
             {
                 "sessions": [
@@ -1966,7 +380,7 @@ def test_session_expectations_reject_unlisted_empty_sessions() -> None:
 def test_scenario_host_reports_unknown_handles_by_attempted_operation() -> None:
     from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 
-    host = _ScenarioSessionHost({})
+    host = ScenarioSessionHost({})
     operations: tuple[tuple[str, Callable[[], object]], ...] = (
         ("ask", lambda: host.ask("unknown", "prompt")),
         ("compact", lambda: host.compact("unknown")),
@@ -1985,9 +399,8 @@ def test_scenario_host_reports_unknown_handles_by_attempted_operation() -> None:
 
 
 def test_scripted_sessions_reject_extra_capability_rejection_operation() -> None:
-    from agnette.agent.session.protocol import SessionHostError
 
-    agent = _agent_from_spec(
+    agent = agent_from_spec(
         "writer",
         {
             "responses": [],
@@ -1997,12 +410,12 @@ def test_scripted_sessions_reject_extra_capability_rejection_operation() -> None
     service = agent.session_service()
     handle = service.open(object(), "scripted")
     service.compact(handle, "summarize")
-    _assert_sessions({"writer": agent}, {})
+    assert_sessions({"writer": agent}, {})
     with pytest.raises(SessionHostError):
         service.set_name(handle, "renamed")
 
     with pytest.raises(AssertionError, match="operation count"):
-        _assert_sessions(
+        assert_sessions(
             {"writer": agent},
             {
                 "session_operations": [
@@ -2020,7 +433,7 @@ def test_scripted_sessions_reject_extra_capability_rejection_operation() -> None
 
 def test_scripted_sessions_reject_unsupported_reset_outcomes() -> None:
     with pytest.raises(ValueError, match="reset"):
-        _agent_from_spec(
+        agent_from_spec(
             "writer",
             {"responses": [], "session": {"operations": {"reset": ["unsupported"]}}},
         )
@@ -2029,14 +442,14 @@ def test_scripted_sessions_reject_unsupported_reset_outcomes() -> None:
 def test_scripted_sessions_detect_an_extra_retry_prompt() -> None:
     from agnette.agent.session.protocol import SessionAskRequest
 
-    agent = _agent_from_spec("writer", {"responses": ["answer"], "repeat_last": True})
+    agent = agent_from_spec("writer", {"responses": ["answer"], "repeat_last": True})
     service = agent.session_service()
     handle = service.open(object(), "scripted")
     service.ask(handle, SessionAskRequest("first"))
     service.ask(handle, SessionAskRequest("retry"))
 
     with pytest.raises(AssertionError, match="prompt count"):
-        _assert_sessions(
+        assert_sessions(
             {"writer": agent},
             {
                 "session_prompts": [
@@ -2049,7 +462,7 @@ def test_scripted_sessions_detect_an_extra_retry_prompt() -> None:
 def test_scripted_session_ask_closes_an_ephemeral_session() -> None:
     from agnette.agent.session.protocol import SessionAskRequest
 
-    agent = _agent_from_spec("writer", ["answer"])
+    agent = agent_from_spec("writer", ["answer"])
     service = agent.session_service()
     response = service.with_ephemeral(
         object(),
@@ -2059,7 +472,7 @@ def test_scripted_session_ask_closes_an_ephemeral_session() -> None:
     )
 
     assert response.content == "answer"
-    _assert_sessions(
+    assert_sessions(
         {"writer": agent},
         {
             "sessions": [{"agent": "writer", "tag": "session-1", "opened": True, "closed": True}],
@@ -2077,7 +490,7 @@ def _scenario_params() -> list[Any]:
         rel = program.relative_to(PROGRAMS_DIR).with_suffix("")
         groups: list[tuple[dict[str, Any], ...]] = []
         batch: list[dict[str, Any]] = []
-        for scenario in _load_json(sidecar)["scenarios"]:
+        for scenario in load_json(sidecar)["scenarios"]:
             shareable = not (
                 program.is_relative_to(EXTERNS_PROGRAMS_DIR)
                 or program.is_relative_to(RESOURCE_PROGRAMS_DIR)
@@ -2090,6 +503,7 @@ def _scenario_params() -> list[Any]:
                     "stdlib_root",
                     "jev",
                     "warning_levels",
+                    "isolated",
                 }
                 & scenario.keys()
             )
@@ -2111,6 +525,14 @@ def _scenario_params() -> list[Any]:
     return params
 
 
+def test_function_param_scenario_runs_isolated(tmp_path: Path) -> None:
+    run_scenario(
+        PROGRAMS_DIR / "params" / "function_param_seeds.agl",
+        "seeds_replace_defaults_at_every_call_form",
+        tmp_path,
+    )
+
+
 def _rejection_params() -> list[Any]:
     return [
         pytest.param(program, id=str(program.relative_to(REJECTIONS_DIR).with_suffix("")))
@@ -2125,72 +547,37 @@ def test_program_scenarios(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    """Share immutable compilation only; every scenario gets fresh runtime and patches."""
+    """Share immutable compilation only; every scenario gets fresh runtime and patches.
+
+    An ``isolated`` scenario runs in a fresh single-threaded subprocess instead.
+    """
     compilations: CompilationCache | None = {} if len(scenarios) > 1 else None
     for scenario in scenarios:
+        if scenario.get("isolated"):
+            run_scenario(program, scenario["name"], tmp_path)
+            continue
         with pytest.MonkeyPatch.context() as patch:
-            _assert_program_scenario(program, scenario, capsys, tmp_path, patch, compilations)
-
-
-def _assert_program_scenario(
-    program: Path,
-    scenario: dict[str, Any],
-    capsys: pytest.CaptureFixture[str],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    compilations: CompilationCache | None,
-) -> None:
-    # Pinned so a sandboxed exec's ``cwd or Path.cwd()`` fallback never picks
-    # up the real process cwd -- a checkout with a real ``.sandbox/`` would
-    # otherwise merge in extra settings candidates non-hermetically.
-    monkeypatch.chdir(tmp_path)
-    # Explicit order: the filesystem fixture's ``$TEMP_ROOT`` and the sandbox
-    # home's ``$SANDBOX_SETTINGS_FILE`` are independent sentinel substitutions
-    # over the same scenario, so either order is safe -- but making it
-    # explicit here (rather than one nested inside `_run_program`) means a
-    # scenario using both never depends on incidental call order.
-    scenario = _prepare_temp_filesystem(scenario, tmp_path)
-    scenario, get_sandbox_context = _apply_sandbox_home(scenario, tmp_path)
-    result, agents, shell, scripts, warnings = _run_program(
-        program.read_text(encoding="utf-8"),
-        scenario,
-        program,
-        monkeypatch,
-        get_sandbox_context,
-        compilations,
-    )
-    out = capsys.readouterr().out
-    expect = scenario["expect"]
-    if expect.get("shell_sandbox_units_distinct"):
-        units = [argv[argv.index("--unit") + 1] for argv in shell.argvs]
-        assert len(set(units)) == len(units), f"expected distinct scope names, got {units}"
-    if "host_error" in expect:
-        _assert_host_error(result, agents, expect["host_error"])
-        expect = {"stdout": "", "calls": dict.fromkeys(agents, 0), **expect}
-    elif "exit_code" in expect:
-        assert isinstance(result, SystemExit)
-        assert result.code == expect["exit_code"]
-    else:
-        _assert_outcome(result, expect)
-    _assert_warnings(warnings, expect)
-    _assert_output(out, expect)
-    _assert_calls(agents, expect)
-    _assert_sessions(agents, expect)
-    for script in scripts:
-        script.assert_complete()
+            assert_program_scenario(
+                program,
+                scenario,
+                lambda: capsys.readouterr().out,
+                tmp_path,
+                patch,
+                compilations,
+            )
 
 
 @pytest.mark.parametrize("program", _rejection_params())
 def test_static_rejection(program: Path) -> None:
     from agnette.agl import PipelineDriver
 
-    spec = _load_json(program.with_name(program.stem + ".expect.json"))
+    spec = load_json(program.with_name(program.stem + ".expect.json"))
     expect = spec["diagnostic"]
-    roots = _fixture_roots(spec)
+    roots = fixture_roots(spec)
     prepared = PipelineDriver.prepare_program(program.read_text(encoding="utf-8"), roots=roots)
     # Invalid programs need neither discovery nor argument preflight: compile once.
     result = PipelineDriver(
-        resolve_agent_spec=None, get_sandbox_context=None, warning_policy=_warning_policy(spec)
+        resolve_agent_spec=None, get_sandbox_context=None, warning_policy=spec_warning_policy(spec)
     ).run_prepared(prepared)
     assert not result.ok, "expected the program to be rejected statically"
     assert result.error is None, "static rejection must happen before execution"
@@ -2261,7 +648,7 @@ def test_direct_std_option_import_runs_without_the_automatic_prelude(
     from agnette.agl import PipelineDriver
 
     roots = agl_roots()
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
         "import std/prelude::print\n"
         "import std/option::Option\n"
@@ -2284,7 +671,7 @@ def test_std_core_option_reexport_preserves_nominal_identity(
     from agnette.agl import PipelineDriver
 
     roots = agl_roots()
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
         "import std/prelude::{Option as CoreOption, print}\n"
         "import std/option::Option\n"
@@ -2308,7 +695,7 @@ def test_qualified_std_prelude_print_still_works(capsys: pytest.CaptureFixture[s
     from agnette.agl import PipelineDriver
 
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-    result = _run_source_entry(runtime, 'program def main() -> unit = std/prelude::print("hi")\n')
+    result = run_source_entry(runtime, 'program def main() -> unit = std/prelude::print("hi")\n')
 
     assert list(result.diagnostics) == [], (
         f"unexpected static diagnostics: {' | '.join(d.message for d in result.diagnostics)}"
@@ -2394,7 +781,7 @@ def _scoped_stdlib_root(tmp_path: Path) -> Path:
             "parse-error-retries: int = 0",
         )
         if name == "session":
-            source = source.replace(_SESSION_STATIC_DECLARATIONS, "")
+            source = source.replace(SESSION_STATIC_DECLARATIONS, "")
         if name == "agent":
             source = (
                 source.replace(
@@ -2451,7 +838,7 @@ def test_legacy_exec_signature_rejects_extended_options_with_a_diagnostic(tmp_pa
     from agnette.agl.modules.roots import RootSet
 
     scoped_stdlib_root = _scoped_stdlib_root(tmp_path)
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
         'program def main() -> unit = Std::exec("echo hi", env = ())\n',
         roots=RootSet(roots=frozenset(), stdlib_roots=frozenset({scoped_stdlib_root})),
@@ -2486,7 +873,7 @@ def test_scoped_stdlib_arrangement_runs_end_to_end(
     shell = FakeShell([{"command": "echo hi", "stdout": "hi"}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
-        result = _run_source_entry(
+        result = run_source_entry(
             runtime,
             program,
             roots=RootSet(roots=frozenset(), stdlib_roots=frozenset({scoped_stdlib_root})),
@@ -2525,7 +912,7 @@ def test_scoped_stdlib_arrangement_structured_exec_result_is_the_scoped_nominal(
     shell = FakeShell([{"command": "echo hi", "stdout": "hi"}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
-        result = _run_source_entry(
+        result = run_source_entry(
             runtime,
             program,
             roots=RootSet(roots=frozenset(), stdlib_roots=frozenset({scoped_stdlib_root})),
@@ -2560,7 +947,7 @@ def test_scoped_stdlib_arrangement_uncaught_host_raised_exec_error_reports_scope
     shell = FakeShell([{"command": "false", "returncode": 1}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
-        result = _run_source_entry(
+        result = run_source_entry(
             runtime,
             program,
             roots=RootSet(roots=frozenset(), stdlib_roots=frozenset({scoped_stdlib_root})),
@@ -2590,13 +977,13 @@ def test_scoped_stdlib_arrangement_bare_print_is_undefined_but_qualified_works(
     roots = RootSet(roots=frozenset(), stdlib_roots=frozenset({scoped_stdlib_root}))
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
 
-    bare_result = _run_source_entry(
+    bare_result = run_source_entry(
         runtime, 'program def main() -> unit = print("hi")\n', roots=roots
     )
     assert not bare_result.ok, "expected the bare 'print' call to be statically rejected"
     assert bare_result.diagnostics, "expected at least one diagnostic"
 
-    qualified_result = _run_source_entry(
+    qualified_result = run_source_entry(
         runtime, 'program def main() -> unit = Std::print("hi")\n', roots=roots
     )
     assert list(qualified_result.diagnostics) == [], (
@@ -2664,7 +1051,7 @@ def test_scoped_builtin_hierarchy_declared_in_the_entry_module_catches_a_host_ra
     shell = FakeShell([{"command": "false", "returncode": 1}])
     runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
-        result = _run_source_entry(runtime, program, default_stdlib=False)
+        result = run_source_entry(runtime, program, default_stdlib=False)
     shell.assert_complete()
 
     assert list(result.diagnostics) == [], (
@@ -2685,7 +1072,7 @@ def test_builtin_print_can_be_passed_as_a_function_value(
         'program def main() -> unit = apply(print, "hello")\n'
     )
 
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None), source
     )
 
@@ -2707,7 +1094,7 @@ def test_scoped_builtin_reference_can_be_called_through_a_value(
         "  print(show(7))\n"
     )
 
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None), source
     )
 
@@ -2728,7 +1115,7 @@ def test_render_and_copy_builtins_can_be_called_through_values(
         "  print(show(clone-level(clone([7]))[0]))\n"
     )
 
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None), source
     )
 
@@ -2747,7 +1134,7 @@ def test_ask_request_builtin_value_uses_its_default_text_contract(
         '  print(make-request("Review this").prompt)\n'
     )
 
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None), source
     )
 
@@ -2768,7 +1155,7 @@ def test_builtin_exec_value_uses_ambient_defaults(
     shell = FakeShell([{"command": "answer", "stdout": "42"}])
 
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
-        result = _run_source_entry(
+        result = run_source_entry(
             PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None), source
         )
 
@@ -2791,7 +1178,7 @@ def test_effect_builtin_values_accept_explicit_output_specialization(
     shell = FakeShell([{"command": "second", "stdout": "1\n"}])
 
     with unittest.mock.patch("agnette.core.process.run_capture_result", side_effect=shell):
-        result = _run_source_entry(
+        result = run_source_entry(
             PipelineDriver(
                 resolve_agent_spec=None,
                 agent_dispatcher=lambda _request: "41",
@@ -2812,7 +1199,7 @@ def test_unconstrained_builtin_ask_value_defaults_to_text(
 
     source = 'program def main() -> unit =\n  let query = ask\n  print(query("Question"))\n'
 
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(
             resolve_agent_spec=None,
             agent_dispatcher=lambda _request: "answer",
@@ -2842,7 +1229,7 @@ def test_builtin_ask_can_be_passed_as_a_contextually_typed_function_value(
         'program def main() -> unit = print(apply(ask, "How many?"))\n'
     )
 
-    result = _run_source_entry(
+    result = run_source_entry(
         PipelineDriver(resolve_agent_spec=None, agent_dispatcher=answer, get_sandbox_context=None),
         source,
     )

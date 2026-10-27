@@ -1,5 +1,5 @@
-"""Host-side agent session protocols and lifecycle management."""
+"""Host-side agent session protocols and lifecycle management.
 
-from agnette.agent.session.service import create_agl_session_host
-
-__all__ = ["create_agl_session_host"]
+Empty, so the AgL runtime can use the protocol leaf (``agnette.agent.session.protocol``)
+without loading the session service (``agnette.agent.session.service``).
+"""

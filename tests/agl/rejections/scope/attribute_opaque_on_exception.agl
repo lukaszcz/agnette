@@ -1,0 +1,4 @@
+@opaque
+exception Failed extends Exception
+
+program def main() -> unit = ()

@@ -15,13 +15,13 @@ Direct, indirect, extern, and program-entry calls share parameter-order argument
 
 ## Control Flow
 
-`break`, `continue`, and `return` are internal signals caught only by their owning construct, so they unwind through `try`/`catch`, which catches only AgL raises. A specific `catch` matches by nominal conformance along the `base` chain. Recursion is bounded by `max_call_depth`, raising a catchable `RecursionError` before Python's limit. A span-less raise takes the location of the innermost IR node it unwinds through.
+`break`, `continue`, and `return` are internal signals caught only by their owning construct, so they unwind through `try`/`catch`, which catches only AgL raises. Matched handlers push their carrier on a stack for bare `raise`, restoring it on exit. A specific `catch` matches by nominal conformance along the `base` chain. Recursion is bounded by `max_call_depth`, raising a catchable `RecursionError` before Python's limit. A span-less raise takes the location of the innermost IR node it unwinds through.
 
 ## Host-Backed Operations
 
 Effects dispatch through `eval/effects.py`, which composes prompts and records requests and responses for tracing:
 
-- **Agents.** An explicit-agent `ask` opens an ephemeral session spanning its parse-retry loop; a free `ask` uses the default session; session nodes drive persistent handles ([runtime.md](runtime.md)).
+- **Agents.** An explicit-agent `ask` opens an ephemeral session spanning its parse-retry loop; a free `ask` uses the default session, whose environment is fixed on first use in each process; session nodes drive persistent handles ([runtime.md](runtime.md)).
 - **Shell.** `exec` returns `ExecResult` for any exit code or decodes stdout per its contract; spawn failures, timeouts, sandbox-preparation failures and, for other targets, non-zero exits and exhausted parse retries raise `ExecError`. A `sandbox` operand routes through the shared sandbox library ([../../sandbox.md](../../sandbox.md)).
 - **Conversions.** Casts and value parsing execute pre-resolved recipes and parse strictly, raising `CastError`/`ValueParseError`; agent and `exec` output use the configurable strict/lenient codec. Casts and `is` share one nominal conformance check.
 - **Host-minted values** (built-in exceptions, `ExecResult`, `AgentRequest`, `Option` members) take identity from the program's builtin nominal table, so they behave like source-constructed values.

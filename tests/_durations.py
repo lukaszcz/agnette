@@ -49,8 +49,8 @@ _external: float = 0.0
 def charge_external_cpu_seconds(seconds: float) -> None:
     """Charge the running test with CPU burned by a process another parent reaped.
 
-    The preforking launcher in :mod:`tests._agm_zygote` has the zygote reap the
-    ``agm`` children, which takes their cost out of this worker's ``os.times``.
+    The preforking launchers (:mod:`tests._zygote`) have the zygote reap their
+    children, which takes their cost out of this worker's ``os.times``.
     Reporting it here keeps a test's measured cost the same whichever way its
     invocations were launched.
     """

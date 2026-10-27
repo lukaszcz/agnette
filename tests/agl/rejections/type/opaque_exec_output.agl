@@ -1,0 +1,7 @@
+@opaque
+record Token
+  serial: int
+
+program def main() -> unit =
+  let t = exec::[Token]("true")
+  print(t.serial)

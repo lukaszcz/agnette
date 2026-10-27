@@ -46,6 +46,7 @@ from agnette.agl.attributes import (
     JSON_NAME_ATTRIBUTE,
     NAME_ADDRESSED_OPTION_ATTRIBUTES,
     NAME_ATTRIBUTE,
+    OPAQUE_ATTRIBUTE,
     OPTION_ENV_ATTRIBUTE,
     OPTION_HIDDEN_ATTRIBUTE,
     OPTION_METAVAR_ATTRIBUTE,
@@ -236,6 +237,7 @@ def recognize_attributes(
         warning_allows=recognizer.warning_allows,
         warning_exemptions=recognizer.warning_exemptions,
         shell_quoted=recognizer.shell_quoted,
+        opaque=recognizer.opaque,
     )
 
 
@@ -319,6 +321,7 @@ class _Recognizer:
         self.warning_allows: list[AllowRegion] = []
         self.warning_exemptions: dict[int, frozenset[str]] = {}
         self.shell_quoted: set[int] = set()
+        self.opaque: set[int] = set()
         self.module_doc: str | None = None
         self.region_docs: dict[tuple[str, ...], str] = {}
         self._companion_owners: dict[str, str] = {}
@@ -396,11 +399,11 @@ class _Recognizer:
 
         Delegates to :func:`_validate_attribute_prefix`, then files the facts
         that need no builder of their own: ``@doc`` text, the ``@name`` and
-        ``@json-name`` spellings, and the ``@allow``/``@exempts`` warning
-        names. *span* covers the declaration, its attribute prefix included.
-        A ``@param`` on a binding or ``def`` parameter retargets the declaration
-        to its host-parameter target, unless *param_rejection* says why this site
-        cannot be one.
+        ``@json-name`` spellings, the ``@opaque`` marker, and the
+        ``@allow``/``@exempts`` warning names. *span* covers the declaration, its
+        attribute prefix included. A ``@param`` on a binding or ``def`` parameter
+        retargets the declaration to its host-parameter target, unless
+        *param_rejection* says why this site cannot be one.
         """
         param = next((item for item in attributes if item.name == PARAM_ATTRIBUTE), None)
         if param is not None and target in PARAM_RETARGETS:
@@ -414,6 +417,8 @@ class _Recognizer:
         if documentation is not None:
             self.docs[node_id] = documentation
         self._external_name(node_id, recognized)
+        if OPAQUE_ATTRIBUTE in recognized.nodes:
+            self.opaque.add(node_id)
         self._warning_names(node_id, span, recognized)
         inherited = recognized.lists.get(INHERIT_ATTRIBUTE)
         if inherited is not None:

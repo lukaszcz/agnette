@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID
 
 import pytest
 
-from agnette.agent.session import create_agl_session_host
 from agnette.agent.session.protocol import (
+    PortableBackend,
+    PortableSession,
+    PortableSet,
     SessionAskError,
     SessionAskRequest,
     SessionAskResponse,
@@ -19,8 +22,9 @@ from agnette.agent.session.protocol import (
     SessionOperation,
     SessionOperations,
     SessionStats,
+    unsupported_operation,
 )
-from agnette.agent.session.service import AglSessionHost, SessionService
+from agnette.agent.session.service import AglSessionHost, SessionService, create_agl_session_host
 from agnette.agent.spec import AgentCommand, AgentPi, PermissionMode, SessionTransport
 from agnette.agent.transport import AgentCallInfo, AgentOutputPhase
 from agnette.agl.runtime.request import AgentRequest
@@ -43,6 +47,9 @@ class FakeBackend:
     )
     ask_error: Exception | None = None
     fork_result: SessionBackend | None = None
+    portable_result: PortableSession | None = None
+    portable_error: Exception | None = None
+    portable_calls: int = 0
     open_requests: list[SessionOpenRequest] = field(default_factory=list)
     ask_requests: list[SessionAskRequest] = field(default_factory=list)
     compact_requests: list[str] = field(default_factory=list)
@@ -50,6 +57,7 @@ class FakeBackend:
     names: list[str] = field(default_factory=list)
     close_calls: int = 0
     close_error: Exception | None = None
+    release_calls: int = 0
 
     @property
     def operations(self) -> SessionOperations:
@@ -80,6 +88,14 @@ class FakeBackend:
             raise AssertionError("test backend must be given a fork result")
         return self.fork_result
 
+    def portable(self) -> PortableSession:
+        self.portable_calls += 1
+        if SessionOperation.FORK not in self.supported:
+            raise unsupported_operation(SessionOperation.FORK)
+        if self.portable_error is not None:
+            raise self.portable_error
+        return self.portable_result or PortableBackend(FakeBackend(self.supported))
+
     def set_name(self, name: str) -> None:
         self.names.append(name)
 
@@ -95,6 +111,9 @@ class FakeBackend:
         self.close_calls += 1
         if self.close_error is not None:
             raise self.close_error
+
+    def release_inherited(self) -> None:
+        self.release_calls += 1
 
 
 class FakeBackendFactory:
@@ -747,3 +766,278 @@ def test_supported_operations_dispatch_to_the_backend() -> None:
     assert factory.backends[0].compact_requests == [""]
     assert factory.backends[0].names == ["renamed"]
     assert stats.output_tokens == 5
+
+
+def test_forked_child_inherited_sessions_are_inert_and_never_closed() -> None:
+    service, factory = _service()
+    default = service.default(AgentCommand("worker"), SessionTransport.CLI, env={})
+    explicit = service.open(AgentCommand("other"), SessionTransport.CLI, env={})
+    closed = service.open(AgentCommand("done"), SessionTransport.CLI, env={})
+    service.close(closed)
+
+    service.enter_forked_child(PortableSet())
+
+    for handle in (default, explicit, closed):
+        with pytest.raises(SessionHostError):
+            service.ask(handle, SessionAskRequest("question"))
+        with pytest.raises(SessionHostError):
+            service.reset(handle)
+        with pytest.raises(SessionHostError):
+            service.close(handle)
+    service.close_all()
+    service.reset_all()
+    assert [backend.release_calls for backend in factory.backends] == [1, 1, 0]
+    assert [backend.close_calls for backend in factory.backends] == [0, 0, 1]
+
+
+def test_forked_child_reopens_the_default_session_fresh() -> None:
+    service, factory = _service()
+    inherited = service.default(AgentCommand("worker"), SessionTransport.CLI, env={})
+
+    service.enter_forked_child(PortableSet())
+    fresh = service.default(AgentCommand("worker"), SessionTransport.CLI, env={})
+
+    assert fresh != inherited
+    assert service.ask(fresh, SessionAskRequest("question")).content == "answer"
+    with pytest.raises(SessionHostError):
+        service.ask(inherited, SessionAskRequest("question"))
+    service.close_all()
+    assert [backend.close_calls for backend in factory.backends] == [0, 1]
+
+
+def test_agl_host_forked_child_rejects_inherited_handles_and_reopens_the_default() -> None:
+    service, _factory = _service()
+    host = AglSessionHost(service)
+    agent = AgentCommand("worker")
+    default = host.default(agent, "Cli", env={})
+    explicit = host.open(agent, "Cli", env={})
+
+    host.enter_forked_child(PortableSet())
+
+    for handle in (default, explicit):
+        with pytest.raises(AglSessionHostError):
+            host.ask(handle, "question")
+        with pytest.raises(AglSessionHostError):
+            host.close(handle)
+        assert host.snapshot(handle).agent == agent
+    fresh = host.default(agent, "Cli", env={})
+    assert fresh != default
+    assert host.ask(fresh, "question") == "answer"
+    host.close_all()
+
+
+@dataclass
+class FakePortable:
+    """A snapshot that counts how often its backend is opened."""
+
+    backend: FakeBackend = field(default_factory=FakeBackend)
+    materialized: int = 0
+    error: Exception | None = None
+
+    def materialize(self) -> SessionBackend:
+        if self.error is not None:
+            raise self.error
+        self.materialized += 1
+        return self.backend
+
+
+def _snapshotting_service(
+    handles: int = 1,
+) -> tuple[SessionService, list[str], list[FakePortable], FakeBackendFactory]:
+    """A service with *handles* explicit sessions, each of which snapshots as a FakePortable."""
+    service, factory = _service()
+    opened = [
+        service.open(AgentCommand("worker"), SessionTransport.CLI, env={}) for _ in range(handles)
+    ]
+    portables = [FakePortable() for _ in opened]
+    for backend, portable in zip(factory.backends, portables, strict=True):
+        backend.portable_result = portable
+    return service, opened, portables, factory
+
+
+def test_portable_snapshots_each_listed_handle_once_and_marks_a_listed_default() -> None:
+    service, (first, second), portables, factory = _snapshotting_service(2)
+    default = service.default(AgentCommand("worker"), SessionTransport.CLI, env={})
+
+    unlisted = service.portable([first, second, first])
+    listed = service.portable([default, first])
+
+    assert unlisted.sessions == {first: portables[0], second: portables[1]}
+    assert unlisted.default is None
+    assert set(listed.sessions) == {default, first}
+    assert listed.default == default
+    assert [backend.portable_calls for backend in factory.backends] == [2, 1, 1]
+
+
+def test_portable_rejects_unknown_closed_and_foreign_handles() -> None:
+    service, (live, closed), _portables, _factory = _snapshotting_service(2)
+    service.close(closed)
+    foreign = service.open(AgentCommand("worker"), SessionTransport.CLI, env={})
+    service.enter_forked_child(PortableSet())
+
+    for handle in ("unknown", closed, foreign):
+        _assert_error("fork", lambda handle=handle: service.portable([live, handle]))
+
+
+def test_portable_reports_unsupported_backends_and_failed_snapshots_as_fork_errors() -> None:
+    factory = FakeBackendFactory(ALL_OPERATIONS - {SessionOperation.FORK})
+    service = SessionService(factory)
+    unsupported = service.open(AgentCommand("worker"), SessionTransport.CLI, env={})
+    _assert_error("fork", lambda: service.portable([unsupported]))
+
+    supported, backends = _service()
+    handle = supported.open(AgentCommand("worker"), SessionTransport.CLI, env={})
+    backends.backends[0].portable_error = SessionAskError(
+        cause="nonzero_exit", exit_code=1, stderr_tail="boom", elapsed=0.1, call_info=None
+    )
+    _assert_error("fork", lambda: supported.portable([handle]))
+
+
+def test_a_materialization_failure_while_snapshotting_is_a_fork_error() -> None:
+    service, (handle,), (snapshot,), _factory = _snapshotting_service()
+    service.enter_forked_child(service.portable([handle]))
+    snapshot.error = SessionHostError("pi did not start", "open")
+
+    _assert_error("fork", lambda: service.portable([handle]))
+
+
+def test_a_forked_child_resolves_listed_handles_to_lazily_materialized_snapshots() -> None:
+    service, (listed, unlisted), (snapshot, _other), factory = _snapshotting_service(2)
+    portables = service.portable([listed])
+
+    service.enter_forked_child(portables)
+
+    assert snapshot.materialized == 0
+    assert service.ask(listed, SessionAskRequest("q")).content == "answer"
+    service.ask(listed, SessionAskRequest("again"))
+    assert snapshot.materialized == 1
+    assert [request.prompt for request in snapshot.backend.ask_requests] == ["q", "again"]
+    with pytest.raises(SessionHostError):
+        service.ask(unlisted, SessionAskRequest("q"))
+    service.close_all()
+    # Inherited backends are released, never closed; the snapshot's own backend is closed.
+    assert [backend.release_calls for backend in factory.backends] == [1, 1]
+    assert [backend.close_calls for backend in factory.backends] == [0, 0]
+    assert snapshot.backend.close_calls == 1
+
+
+def test_a_forked_child_keeps_a_listed_default_and_reopens_an_unlisted_one() -> None:
+    service, factory = _service()
+    agent = AgentCommand("worker")
+    default = service.default(agent, SessionTransport.CLI, env={})
+    snapshot = FakePortable()
+    factory.backends[0].portable_result = snapshot
+
+    service.enter_forked_child(service.portable([default]))
+    assert service.default(agent, SessionTransport.CLI, env={}) == default
+    assert len(factory.backends) == 1
+    service.ask(default, SessionAskRequest("q"))
+    assert snapshot.materialized == 1
+
+    service.enter_forked_child(PortableSet())
+    fresh = service.default(agent, SessionTransport.CLI, env={})
+    assert fresh != default
+    assert len(factory.backends) == 2
+
+
+def test_an_unused_snapshot_materializes_nothing_when_swept() -> None:
+    service, (handle,), (snapshot,), _factory = _snapshotting_service()
+    service.enter_forked_child(service.portable([handle]))
+
+    service.enter_forked_child(PortableSet())
+    service.close_all()
+    service.reset_all()
+
+    assert snapshot.materialized == 0
+
+
+def test_passing_a_snapshot_on_gives_each_descendant_an_independent_snapshot() -> None:
+    service, (handle,), (snapshot,), _factory = _snapshotting_service()
+    service.enter_forked_child(service.portable([handle]))
+
+    first = service.portable([handle]).sessions[handle]
+    second = service.portable([handle]).sessions[handle]
+
+    assert first is not snapshot
+    assert second is not snapshot
+    assert first is not second
+    assert snapshot.materialized == 1
+    assert snapshot.backend.portable_calls == 2
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        lambda service, handle: service.stats(handle),
+        lambda service, handle: service.reset(handle),
+        lambda service, handle: service.compact(handle, ""),
+        lambda service, handle: service.fork(handle),
+        lambda service, handle: service.set_name(handle, "name"),
+        lambda service, handle: service.continues_conversation(handle),
+    ],
+)
+def test_the_first_use_of_an_unmaterialized_handle_materializes_it(
+    use: Callable[[SessionService, str], object],
+) -> None:
+    service, (handle,), (snapshot,), _factory = _snapshotting_service()
+    snapshot.backend.fork_result = FakeBackend()
+    service.enter_forked_child(service.portable([handle]))
+    assert snapshot.materialized == 0
+
+    use(service, handle)
+    use(service, handle)
+
+    assert snapshot.materialized == 1
+
+
+def test_a_failed_materialization_is_retried_by_the_next_use() -> None:
+    service, (handle,), (snapshot,), _factory = _snapshotting_service()
+    service.enter_forked_child(service.portable([handle]))
+    snapshot.error = SessionHostError("spawn failed", "open")
+
+    _assert_error("open", lambda: service.ask(handle, SessionAskRequest("q")))
+    assert snapshot.materialized == 0
+    snapshot.error = None
+
+    assert service.ask(handle, SessionAskRequest("q")).content == "answer"
+    assert snapshot.materialized == 1
+
+
+def test_a_closed_unused_snapshot_is_closed_without_materializing() -> None:
+    service, (handle,), (snapshot,), _factory = _snapshotting_service()
+    service.enter_forked_child(service.portable([handle]))
+
+    service.close(handle)
+
+    assert snapshot.materialized == 0
+    with pytest.raises(SessionHostError):
+        service.ask(handle, SessionAskRequest("q"))
+
+
+def test_agl_host_snapshots_handles_and_the_child_uses_them() -> None:
+    service, factory = _service()
+    host = AglSessionHost(service)
+    agent = AgentCommand("worker")
+    listed = host.open(agent, "Cli", env={})
+    unlisted = host.open(agent, "Cli", env={})
+    snapshot = FakePortable()
+    factory.backends[0].portable_result = snapshot
+
+    host.enter_forked_child(host.portable([listed]))
+
+    assert host.ask(listed, "question") == "answer"
+    assert snapshot.materialized == 1
+    with pytest.raises(AglSessionHostError):
+        host.ask(unlisted, "question")
+    assert host.snapshot(listed).agent == agent
+
+
+def test_agl_host_portable_maps_failures_to_session_errors() -> None:
+    host = AglSessionHost(_service()[0])
+    unsupported = SessionService(FakeBackendFactory(ALL_OPERATIONS - {SessionOperation.FORK}))
+    handle = AglSessionHost(unsupported).open(AgentCommand("worker"), "Cli", env={})
+
+    for failing, handles in ((host, ["unknown"]), (AglSessionHost(unsupported), [handle])):
+        with pytest.raises(AglSessionHostError) as raised:
+            failing.portable(handles)
+        assert raised.value.operation == "fork"

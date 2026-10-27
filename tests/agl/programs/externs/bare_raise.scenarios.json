@@ -1,0 +1,38 @@
+{
+  "scenarios": [
+    {
+      "name": "callback_span",
+      "params": {
+        "callback": true
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Problem",
+          "line": 11,
+          "fields": {
+            "detail": "callback",
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "companion_span",
+      "params": {
+        "callback": false
+      },
+      "expect": {
+        "stdout": "",
+        "raises": {
+          "type": "Problem",
+          "line": 13,
+          "fields": {
+            "detail": "companion",
+            "message": "original"
+          }
+        }
+      }
+    }
+  ]
+}

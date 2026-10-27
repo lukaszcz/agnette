@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from agnette.agent.session.protocol import PortableSet
 from agnette.agent.spec import (
     AgentClaude,
     AgentCodex,
@@ -49,6 +51,7 @@ class _Host:
     prompts: dict[str, list[str]] = field(default_factory=dict)
     operations: list[tuple[str, str, str]] = field(default_factory=list)
     closed: set[str] = field(default_factory=set)
+    inherited: set[str] = field(default_factory=set)
     default_handle: str | None = None
 
     def open(
@@ -138,6 +141,8 @@ class _Host:
         return SessionStats(3, 5, Decimal("0.12"), Decimal("4.5"))
 
     def snapshot(self, handle: str) -> SessionSnapshot:
+        if handle not in self.handles:
+            raise SessionHostError("unknown session", "snapshot")
         agent, transport = self.handles[handle]
         permission_mode, sandbox = self.sandboxing[handle]
         return SessionSnapshot(
@@ -150,16 +155,30 @@ class _Host:
         )
 
     def close(self, handle: str) -> None:
-        if handle not in self.handles:
-            raise SessionHostError("unknown session", "close")
+        self._live(handle, "close", allow_closed=True)
         self.closed.add(handle)
 
     def close_all(self) -> None:
-        self.closed.update(self.handles)
+        self.closed.update(handle for handle in self.handles if handle not in self.inherited)
 
-    def _live(self, handle: str, operation: str) -> tuple[AgentSpec, str]:
+    def portable(self, handles: Sequence[str]) -> PortableSet:
+        for handle in handles:
+            self._live(handle, "fork")
+        return PortableSet()
+
+    def enter_forked_child(self, portables: PortableSet) -> None:
+        self.inherited.update(self.handles)
+        self.default_handle = None
+
+    def _live(
+        self, handle: str, operation: str, *, allow_closed: bool = False
+    ) -> tuple[AgentSpec, str]:
         if handle not in self.handles:
             raise SessionHostError("unknown session", operation)
+        if handle in self.inherited:
+            raise SessionHostError("session belongs to another process", operation)
+        if allow_closed:
+            return self.handles[handle]
         if handle in self.closed:
             raise SessionHostError("closed session", operation)
         return self.handles[handle]
@@ -1196,3 +1215,115 @@ def test_production_session_host_carries_the_stream_decode_offset(
     assert result.error.type_name == "AgentCallError"
     assert result.error.fields["cause"] == "protocol_failure"
     assert "byte 3" in str(result.error.fields["message"])
+
+
+def test_dispatcher_session_host_forked_child_rejects_inherited_handles() -> None:
+    host = AgentDispatcherSessionHost(lambda _request: AgentResponse("answer", {}))
+    agent = AgentCommand(command="worker")
+    default = host.default(agent, "Cli", env={})
+    ephemeral = host.open_ephemeral(agent, "Cli", env={})
+
+    host.enter_forked_child(PortableSet())
+
+    for handle in (default, ephemeral):
+        with pytest.raises(SessionHostError):
+            host.ask(handle, "question")
+        with pytest.raises(SessionHostError):
+            host.close(handle)
+        assert host.snapshot(handle).agent == agent
+    fresh = host.default(agent, "Cli", env={})
+    assert fresh != default
+    assert host.ask(fresh, "question") == "answer"
+    host.close_all()
+    with pytest.raises(SessionHostError):
+        host.ask(default, "question")
+
+
+def test_dispatcher_session_host_handles_are_unique_across_hosts() -> None:
+    agent = AgentCommand(command="worker")
+    handles = {
+        AgentDispatcherSessionHost(None).open_ephemeral(agent, "Cli", env={}) for _ in range(3)
+    }
+
+    assert len(handles) == 3
+
+
+class _InheritedHost(_Host):
+    """A host whose every opened session belongs to another process, as in a forked child."""
+
+    def open(
+        self,
+        agent: AgentSpec,
+        transport: str,
+        *,
+        name: str = "",
+        permission_mode: PermissionMode = PermissionMode.NONE,
+        sandbox: SandboxLimits | None = None,
+        env: dict[str, str],
+    ) -> str:
+        handle = super().open(
+            agent, transport, name=name, permission_mode=permission_mode, sandbox=sandbox, env=env
+        )
+        self.enter_forked_child(PortableSet())
+        return handle
+
+
+class _ForgetfulHost(_Host):
+    """A host that no longer knows the handles it hands out."""
+
+    def open(
+        self,
+        agent: AgentSpec,
+        transport: str,
+        *,
+        name: str = "",
+        permission_mode: PermissionMode = PermissionMode.NONE,
+        sandbox: SandboxLimits | None = None,
+        env: dict[str, str],
+    ) -> str:
+        handle = super().open(
+            agent, transport, name=name, permission_mode=permission_mode, sandbox=sandbox, env=env
+        )
+        del self.handles[handle]
+        return handle
+
+
+_CATCHING_USE = (
+    "program def main() -> unit =\n"
+    "  let session = {session}\n"
+    "  try\n"
+    "    session.{use}\n"
+    "  catch SessionError =>\n"
+    "    ()\n"
+)
+
+
+@pytest.mark.parametrize("use", ('ask("question")', "close()"))
+@pytest.mark.parametrize(
+    ("session", "host_type"),
+    (
+        ('Session::open(AgentCommand("worker"))', _InheritedHost),
+        ("Session::default()", _InheritedHost),
+        ('Session::open(AgentCommand("worker"))', _ForgetfulHost),
+    ),
+    ids=("inherited-explicit", "inherited-default", "unknown"),
+)
+def test_using_an_inherited_or_unknown_session_is_a_catchable_session_error(
+    session: str, host_type: type[_Host], use: str
+) -> None:
+    host = host_type()
+
+    result = _run(_CATCHING_USE.format(session=session, use=use), host)
+
+    assert result.ok
+    assert not any(host.prompts.values())
+    assert not host.closed
+
+
+def test_dispatcher_session_host_snapshots_no_sessions() -> None:
+    host = AgentDispatcherSessionHost(lambda _request: AgentResponse("answer", {}))
+    default = host.default(AgentCommand(command="worker"), "Cli", env={})
+
+    assert host.portable([]) == PortableSet()
+    with pytest.raises(SessionHostError):
+        host.portable([default])

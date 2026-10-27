@@ -1,6 +1,7 @@
 # AgL end-to-end test corpus
 
-Data files for `tests/test_agl_e2e.py`, the AgL specification suite.
+Data files for `tests/test_agl_e2e.py`, the AgL specification suite. `scenario_harness.py`
+runs a program under a scenario and asserts its expectations.
 
 - `programs/**/*.agl` — valid programs, each declaring a `program def` (or marked
   `inline_entry`) with a sidecar `<name>.scenarios.json`. Every program runs under
@@ -8,8 +9,9 @@ Data files for `tests/test_agl_e2e.py`, the AgL specification suite.
   scripted shell results, each driving a different path to its own expected outcome.
 - `rejections/**/*.agl` — invalid programs the static pipeline must reject before running
   anything, each with a sidecar `<name>.expect.json`.
-- `program_modules/` — library roots for `module_roots`/`stdlib_root`; `multi_file/` and
-  `packages/` — fixtures for the module and package tests.
+- `program_modules/` — library roots for `module_roots`/`stdlib_root` (`ps_support/` serves the
+  `ps/` programs: file-flag synchronization and a companion failing at process exit);
+  `multi_file/` and `packages/` — fixtures for the module and package tests.
 
 ## Program categories
 
@@ -33,6 +35,7 @@ Data files for `tests/test_agl_e2e.py`, the AgL specification suite.
 | `packages/` | Repository packages mounted as installed, e.g. `sysone/jev` |
 | `params/` | Program and `@param` module parameters |
 | `partial/` | Partial application placeholders |
+| `ps/` | `std/ps` process parallelism and lifetime: values, waiting, handles, per-process state, sessions, run ends, trace attribution (isolated scenarios with `forks`) |
 | `rendering/` | Console and value rendering |
 | `resources/` | Package resources and filesystem paths |
 | `return/` | `return` |
@@ -81,12 +84,16 @@ Data files for `tests/test_agl_e2e.py`, the AgL specification suite.
                                                               "instructions": "Urgent?"}}}},
                "json": {"model": "jev-1", "answers": {"question": {"type": "noul", "noul": 0.9}},
                         "usage": {"input_tokens": 12}}}],
-      "runtime": {"default_call_depth_limit": 20, "default_strict_json": true},
       "filesystem": {"directories": ["work"]},
       "expect": {
         "stdout": "exact full stdout",
         "stdout_contains": ["fragment"],
         "stdout_not_contains": ["fragment"],
+        "stderr": "exact full stderr, ${1} being the pid of the first fork",
+        "stderr_contains": ["fragment"],
+        "stderr_not_contains": ["fragment"],
+        "trace": [{"pid": "${root}", "kind": "fork", "child_pid": "${1}"}],
+        "trace_absent": [{"kind": "process_unconsumed"}],
         "calls": {"reviewer": 2},
         "prompts": [
           {"agent": "reviewer", "call": 0,
@@ -145,6 +152,29 @@ Inputs:
   `--warning NAME=LEVEL`; unlisted warnings keep their catalog level.
 - `runtime` — `PipelineDriver` overrides (`default_call_depth_limit`,
   `default_strict_json`) and the `parse_error_retries` engine seed.
+- `isolated` — `true` runs the scenario in a single-threaded process of its own
+  (`isolated_runner.py`: a forked child of the worker's warm zygote, which shares its imports,
+  compile caches and hash seed, or else a cold subprocess) instead of the pytest process, so
+  companions may `os.fork`; `stdout` is captured at fd level and includes children's output.
+  The process and its children are measured by `tests/isolated_coverage.toml` when coverage is
+  active.
+- `forks` — scripts for forked processes (use with `isolated`): a map from fork path to a
+  section. A path names the n-th fork of a process: `"1"`, `"2"` are the root's first and
+  second forks, `"1.1"` the first fork of the first one. A section holds the child's own
+  `agents`, `shell` and `http` scripts (same format as the scenario's) and an `expect` with
+  its `calls`, `prompts`, `sessions`, `session_prompts` and `session_operations`, and `ends`:
+  how the child's teardown ends its own processes, `"settle"` after it delivered a result and
+  `"terminate"` after an AgL exception, `std/os::exit` or a signal. The child starts from
+  these alone, not from the parent's scripts; a process without a section gets empty scripts,
+  which allow no calls. As it exits, each child checks that its scripts were consumed and its
+  expectations hold, and writes a report. The scenario fails unless every scripted path
+  reports (a forked one is waited for up to a bounded deadline: a scripted child may be
+  detached and still running, and one killed before it reports fails the scenario; a path that
+  was never forked fails at once) and every report that exists passes. Unscripted forked
+  processes need not report (one terminated right after the fork never does), but one that
+  made a call fails when it reports. A scripted child must have ended (waited for, settled, or
+  terminated) by the end of the run. Children's stdout joins the scenario's `stdout`, and
+  their stderr its `stderr`.
 - `filesystem` — a fixture in a temporary root: `directories`, UTF-8 `text_files`,
   `hex_files`, `directory_symlinks`; a `"$TEMP_ROOT"` parameter value becomes that root.
 
@@ -186,6 +216,15 @@ Expectations:
 
 - `stdout` (exact), `stdout_contains`, `stdout_not_contains` — pin exact output only where
   rendering is fixed by design; use fragments for pretty JSON and boundary-marked prompts.
+- `stderr` (exact), `stderr_contains`, `stderr_not_contains` — everything the process and its
+  children wrote to stderr during the run (isolated scenarios only). Pids are not known in
+  advance: `${root}` stands for the pid of the running process and `${<fork path>}` (`${1}`,
+  `${1.1}`) for that of a forked one, in `stderr*` strings and in whole `trace` values. A
+  placeholder naming a process that was never forked fails the scenario.
+- `trace` — trace records as field subsets, each naming its writer's `pid`. An entry must be
+  found after the previous entry of the same pid: a process's records are ordered, those of
+  different processes are not. `trace_absent` lists subsets that match no record. A scenario
+  with either runs with a trace file.
 - `calls` — exact ordinary (non-session) call count per agent, retries included.
 - `prompts` — checks on an agent's 0-based `call`: the rendered prompt (`equals`,
   `starts_with`, `contains`, `not_contains`), its output-contract JSON Schema

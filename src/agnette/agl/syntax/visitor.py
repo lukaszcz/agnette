@@ -624,7 +624,8 @@ def _walk_try(node: Try, callback: Callback) -> None:
 
 
 def _walk_raise(node: Raise, callback: Callback) -> None:
-    walk(node.exc, callback)
+    if node.exc is not None:
+        walk(node.exc, callback)
 
 
 def _walk_return(node: Return, callback: Callback) -> None:

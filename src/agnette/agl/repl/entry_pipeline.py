@@ -739,11 +739,8 @@ class EntryPipeline:
         try:
             interp = IrInterpreter(
                 lowered.program,
-                agent_dispatcher=host_env.agent_dispatcher,
-                session_host=host_env.session_host,
                 get_sandbox_context=host_env.get_sandbox_context,
                 resolve_agent_spec=host_env.resolve_agent_spec,
-                close_sessions=False,
                 strict_json=self._ctx._default_strict_json,
                 max_call_depth=self._ctx._default_call_depth_limit,
                 shell_exec_timeout=(
@@ -763,7 +760,7 @@ class EntryPipeline:
                 param_seeds=param_seeds,
                 function_param_seeds=function_param_seeds,
                 process_environment=self._ctx._process_environment,
-                extern_runtime_state=self._ctx._extern_runtime_state,
+                host=self._ctx._host,
             )
         except AglRaise as exc:
             error = exception_value_to_run_error(
@@ -953,7 +950,9 @@ class EntryPipeline:
             )
 
         try:
-            interp.run()
+            # An interrupt or an uncaught raise terminates the processes this entry forked.
+            with self._ctx._host.processes.scope():
+                interp.run()
         except SystemExit as exc:
             trace.run_end(ok=exc.code is None or exc.code == 0)
             raise

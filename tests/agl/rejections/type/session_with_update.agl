@@ -1,0 +1,3 @@
+def rename(s: Session) -> Session = s with id = "x"
+
+program def main() -> unit = ()

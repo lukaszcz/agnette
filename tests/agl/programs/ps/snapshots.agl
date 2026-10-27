@@ -1,0 +1,86 @@
+# `fork` carries the sessions it lists into the child as snapshots of their conversations: the
+# child continues them under the same handles, independently of the parent. The child's default
+# session is the snapshot only when the default session is listed; otherwise it opens fresh.
+# Sessions that are not listed stay unusable in the child, and a session that cannot be
+# snapshotted makes `fork` raise `SessionError` before any child exists.
+import std/config
+import std/ps
+
+def writer() -> Agent = AgentPi("writer", "model", "high")
+
+def plain() -> Agent = AgentPi("plain", "model", "high")
+
+def child-default(explicit: Session) -> text =
+  let default: text = ask("child default prompt")
+  let kept: text = explicit.ask("child explicit prompt")
+  "%{default}/%{kept}"
+
+def child-mixed(listed: Session, unlisted: Session) -> text =
+  let fresh: text = ask("child fresh prompt")
+  let kept: text = listed.ask("child snapshot prompt")
+  try
+    let _: text = unlisted.ask("child unlisted prompt")
+    "%{fresh}/%{kept}/usable"
+  catch SessionError as e =>
+    "%{fresh}/%{kept}/session error in %{e.operation}"
+
+def grandchild(session: Session) -> text = session.ask("grandchild prompt")
+
+def child-nested(session: Session) -> text =
+  let deeper = ps::fork(fn() => grandchild(session), sessions = [session])
+  let own: text = session.ask("child prompt")
+  "%{own}/%{ps::wait(deeper)}"
+
+def child-ran() -> text =
+  print "child ran"
+  "unexpected"
+
+def try-fork(sessions: array[Session]) -> unit =
+  try
+    let _ = ps::fork(child-ran, sessions = sessions)
+    print "forked"
+  catch SessionError as e =>
+    print "session error in %{e.operation}"
+
+program def main(mode: text) -> unit =
+  std/config::agent := writer()
+  if
+    | mode == "default" =>
+      let explicit = Session::open(writer())
+      let first: text = ask("parent prompt")
+      let second: text = explicit.ask("parent explicit prompt")
+      let child = ps::fork(fn() => child-default(explicit), sessions = [Session::default(), explicit])
+      print ps::wait(child)
+      let later: text = ask("parent again prompt")
+      let explicit-later: text = explicit.ask("parent explicit again prompt")
+      print "%{later}/%{explicit-later}"
+      explicit.close()
+    | mode == "mixed" =>
+      let listed = Session::open(writer())
+      let unlisted = Session::open(writer())
+      let _: text = ask("parent default prompt")
+      let a: text = listed.ask("parent listed prompt")
+      let b: text = unlisted.ask("parent unlisted prompt")
+      let child = ps::fork(fn() => child-mixed(listed, unlisted), sessions = [listed, listed])
+      print ps::wait(child)
+      let later: text = listed.ask("parent listed again prompt")
+      print later
+      listed.close()
+      unlisted.close()
+    | mode == "nested" =>
+      let session = Session::open(writer())
+      let first: text = session.ask("parent prompt")
+      print ps::wait(ps::fork(fn() => child-nested(session), sessions = [session]))
+      session.close()
+    | else =>
+      let capable = Session::open(writer())
+      let fork-less = Session::open(plain())
+      let closed = Session::open(writer())
+      closed.close()
+      try-fork([fork-less])
+      try-fork([capable, fork-less])
+      try-fork([closed])
+      let answer: text = capable.ask("parent prompt")
+      print answer
+      capable.close()
+      fork-less.close()

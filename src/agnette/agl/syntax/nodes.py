@@ -729,13 +729,13 @@ class Try:
 
 @dataclass(frozen=True, slots=True)
 class Raise:
-    """``raise expr`` — throw an AgL exception.
+    """``raise [expr]`` — throw an exception or rethrow the handled carrier.
 
     Has the bottom type: it is assignable to any expected type because it
     never produces a value.
     """
 
-    exc: Expr
+    exc: Expr | None
     span: SourceSpan = dc_field(compare=False)
     node_id: int = dc_field(compare=False)
 

@@ -58,7 +58,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, assert_never
 
-from agnette.agent.session import create_agl_session_host
+from agnette.agent.session.service import create_agl_session_host
 from agnette.agl import ArgumentPreflightFailure, PipelineDriver
 from agnette.agl.diagnostics import format_diagnostic
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS

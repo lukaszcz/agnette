@@ -161,6 +161,7 @@ _MODULES: dict[str, str] = {
         "  | Cli\n"
         "  | Rpc\n"
         "\n"
+        "@opaque\n"
         "builtin record Session\n"
         "  id: text\n"
         "  agent: Agent\n"

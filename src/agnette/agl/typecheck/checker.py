@@ -1706,7 +1706,7 @@ class _Checker:
                 and self._wire_type_is_serializable(schema_type.value, seen=seen, memo=memo)
             )
         if isinstance(schema_type, RecordType):
-            if schema_type.decl_id in self._env.type_table.host_minted_declaration_ids():
+            if schema_type.decl_id in self._env.type_table.opaque_declaration_ids():
                 return False
             if schema_type in seen:
                 return True
@@ -2422,11 +2422,13 @@ class _Checker:
 
         An applied owner ``Owner[A]::Member`` selects the member at those
         arguments. A constructor spelled through an alias records the
-        declaration it constructs for lowering.
+        declaration it constructs for lowering. An ``@opaque`` record's
+        constructor is rejected here, for value and call uses alike.
         """
         selected, sig = selected_constructor_signature(
             self._env, ref, ctor_ref, span, type_vars=self._current_type_vars
         )
+        self._constructors.reject_opaque_constructor(sig.result_template, span)
         if sig.result_template.decl_id != ctor_ref.owner_decl_node_id:
             self._record_selected_constructor_ref(
                 ref.node_id, ConstructorRef.for_nominal(sig.result_template)
@@ -4715,6 +4717,8 @@ class _Checker:
     # --- raise ---
 
     def _infer_raise(self, node: Raise) -> BottomType:
+        if node.exc is None:
+            return BottomType()
         exc_type = self._check_expr(node.exc, expected=None)
         if not isinstance(exc_type, ExceptionType):
             error = AglTypeError(
@@ -5718,10 +5722,9 @@ class _Checker:
                 fields = self._env.type_table.exception_fields(obj_type)
                 kind_label = "Exception type"
             elif isinstance(obj_type, RecordType):
-                if obj_type.decl_id in self._env.type_table.host_minted_declaration_ids():
+                if obj_type.decl_id in self._env.type_table.opaque_declaration_ids():
                     raise AglTypeError(
-                        f"'{obj_type.name}' values are created by the host and cannot be "
-                        "updated in source.",
+                        f"'{obj_type.name}' is an opaque record and cannot be updated with `with`.",
                         span=node.span,
                     )
                 fields = self._env.type_table.record_fields(obj_type)

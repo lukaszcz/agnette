@@ -665,6 +665,8 @@ class _Lowerer:
         self._current_function: FunctionId | None = None
         self._references: ModuleBindingReferences | None = None
         self._substituting_constants = False
+        # ``_free_bindings`` by function node id: each enclosing function rescans nested lambdas.
+        self._free_bindings_by_node: dict[int, dict[int, BindingRef]] = {}
 
     @contextmanager
     def _return_context(self, expected: Type) -> Iterator[None]:
@@ -908,6 +910,15 @@ class _Lowerer:
         ):
             captured[ref.decl_node_id] = ref
 
+    def _scan_nested_lambda(
+        self, node: Lambda, local_ids: set[int], captured: dict[int, BindingRef]
+    ) -> None:
+        """Propagate the free variables of a nested lambda to the enclosing function."""
+        inner = self._free_bindings(node.body, node.params, node.node_id)
+        for decl_id, ref in inner.items():
+            if decl_id not in local_ids:
+                captured[decl_id] = ref
+
     def _scan_captures(
         self, node: Item, local_ids: set[int], captured: dict[int, BindingRef]
     ) -> None:
@@ -916,7 +927,8 @@ class _Lowerer:
         Registers every in-body binder (let/var/pattern/catch) into ``local_ids``
         BEFORE descending the scope it governs, and records in ``captured`` every
         reference that resolves to a CAPTURABLE binding declared OUTSIDE the body.
-        Stops at nested FuncDef/Lambda boundaries (they analyze their own free vars).
+        A nested Lambda is a boundary whose own free variables (those not bound inside it)
+        are captures here too, since its closure is built in this function's frame.
         A shared monotonically-growing ``local_ids`` set is safe: a reference can
         only resolve to a binder already in scope (declared earlier), so out-of-scope
         leakage into sibling branches can never produce a false local/false capture.
@@ -924,22 +936,8 @@ class _Lowerer:
         match node:
             case VarRef():
                 self._record_capture(node.node_id, local_ids, captured)
-            # Boundaries + declarations introduce no value captures for THIS function:
-            case (
-                Lambda()
-                | FuncDef()
-                | RecordDef()
-                | EnumDef()
-                | ExceptionDef()
-                | TypeAlias()
-                | ScopeRegion()
-                | BuiltinVarDecl()
-                | ImportDecl()
-                | ExportDecl()
-                | UseDecl()
-                | InfixDecl()
-            ):
-                return
+            case Lambda():
+                self._scan_nested_lambda(node, local_ids, captured)
             case LetDecl():
                 local_ids.add(node.node_id)
                 self._scan_captures(node.value, local_ids, captured)
@@ -1029,40 +1027,62 @@ class _Lowerer:
                     if isinstance(seg, InterpSegment):
                         self._scan_captures(seg.expr, local_ids, captured)
             case Raise():
-                self._scan_captures(node.exc, local_ids, captured)
+                if node.exc is not None:
+                    self._scan_captures(node.exc, local_ids, captured)
             case Return():
                 if node.value is not None:
                     self._scan_captures(node.value, local_ids, captured)
-            case Break() | Continue() | OperatorRef():
+            case (
+                Break()
+                | Continue()
+                | OperatorRef()
+                # Declarations bind no values, so they capture nothing.
+                | FuncDef()
+                | RecordDef()
+                | EnumDef()
+                | ExceptionDef()
+                | TypeAlias()
+                | ScopeRegion()
+                | BuiltinVarDecl()
+                | ImportDecl()
+                | ExportDecl()
+                | UseDecl()
+                | InfixDecl()
+            ):
                 pass  # leaf — no captures
             case UnitLit() | IntLit() | DecimalLit() | BoolLit() | NullLit() | StringLit():
                 pass
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
 
-    def _compute_captures_for(
-        self,
-        body: Expr,
-        params: "tuple[Param, ...]",
-        self_node_id: int,
-        param_decl_ids: set[int],
-    ) -> "tuple[IrCapture, ...]":
-        """Compute the captures for a function body (FuncDef or Lambda).
+    def _free_bindings(
+        self, body: Expr, params: "tuple[Param, ...]", self_node_id: int
+    ) -> dict[int, BindingRef]:
+        """The capturable bindings a function (FuncDef or Lambda) uses from outside itself.
 
-        Scans *body* and each *params[i].default* for free-variable references
-        that resolve to capturable bindings outside *param_decl_ids*.
-        *self_node_id* is added to local_ids to prevent the function/lambda itself
-        from being treated as a capture of itself.
+        Scans *body* and each parameter default for references to bindings declared
+        outside the function. Its parameters and *self_node_id* (so that it does not
+        capture itself) are local.
         """
-        local_ids: set[int] = set(param_decl_ids)
+        cached = self._free_bindings_by_node.get(self_node_id)
+        if cached is not None:
+            return cached
+        local_ids = {param.node_id for param in params}
         local_ids.add(self_node_id)
         captured: dict[int, BindingRef] = {}
         self._scan_captures(body, local_ids, captured)
         for param in params:
             if param.default is not None:
                 self._scan_captures(param.default, local_ids, captured)
+        self._free_bindings_by_node[self_node_id] = captured
+        return captured
+
+    def _compute_captures_for(
+        self, body: Expr, params: "tuple[Param, ...]", self_node_id: int
+    ) -> "tuple[IrCapture, ...]":
+        """Compute the captures for a function body (FuncDef or Lambda)."""
         captures: list[IrCapture] = []
-        for decl_id, ref in captured.items():
+        for decl_id, ref in self._free_bindings(body, params, self_node_id).items():
             sym = self._link.decl_to_sym[decl_id]
             # A static module binding lives in frames[0] for the whole run and is
             # resolved dynamically there. Capturing it would snapshot module lets
@@ -1076,17 +1096,9 @@ class _Lowerer:
             captures.append(IrCapture(symbol=sym, by_cell=ref.mutable))
         return tuple(captures)
 
-    def _compute_captures(
-        self, funcdef: "FuncDef", param_decl_ids: "set[int]"
-    ) -> "tuple[IrCapture, ...]":
-        """Compute the captures for a FuncDef body using the single boundary-aware pass."""
-        return self._compute_captures_for(
-            cast(Expr, funcdef.body), funcdef.params, funcdef.node_id, param_decl_ids
-        )
-
     def _lower_declared_params(
         self, funcdef: "FuncDef", fn_id: FunctionId
-    ) -> "tuple[tuple[IrFunctionParam, ...], FunctionSignature, set[int], tuple[str, ...], str]":
+    ) -> "tuple[tuple[IrFunctionParam, ...], FunctionSignature, tuple[str, ...], str]":
         """Allocate parameter symbols and lower them for a top-level FuncDef.
 
         Shared by ordinary and extern FuncDef lowering: allocates one SymbolId per
@@ -1094,16 +1106,11 @@ class _Lowerer:
         (coerced to the parameter's checked type), and fetches the checker's
         FunctionSignature for *funcdef*.
 
-        Returns ``(ir_params, sig, param_decl_ids, param_labels, result_label)``,
-        where ``param_decl_ids`` is the set of parameter declaration node ids
-        (used by ordinary defs to bound capture scanning) and ``param_labels`` /
-        ``result_label`` are the descriptor's display-label fields derived from
-        *sig*.
+        Returns ``(ir_params, sig, param_labels, result_label)``, where ``param_labels`` /
+        ``result_label`` are the descriptor's display-label fields derived from *sig*.
         """
-        param_decl_ids: set[int] = set()
         param_syms: list[SymbolId] = []
         for param in funcdef.params:
-            param_decl_ids.add(param.node_id)
             psym = self._alloc_sym(
                 param.node_id,
                 name=param.name,
@@ -1128,7 +1135,7 @@ class _Lowerer:
         param_labels = tuple(repr(p.type) for p in sig.params)
         result_label = repr(sig.result)
 
-        return tuple(ir_params), sig, param_decl_ids, param_labels, result_label
+        return tuple(ir_params), sig, param_labels, result_label
 
     def _lower_funcdef(self, funcdef: "FuncDef") -> IrExpr:
         """Lower a FuncDef to IrBind(sym, IrMakeClosure(fn_id, captures)).
@@ -1140,11 +1147,9 @@ class _Lowerer:
         fn_id = self._link.fn_node_to_id[funcdef.node_id]
         fn_sym = self._link.fn_node_to_sym[funcdef.node_id]
 
-        ir_params, sig, param_decl_ids, param_labels, result_label = self._lower_declared_params(
-            funcdef, fn_id
-        )
-        captures = self._compute_captures(funcdef, param_decl_ids)
+        ir_params, sig, param_labels, result_label = self._lower_declared_params(funcdef, fn_id)
         body = cast(Expr, funcdef.body)
+        captures = self._compute_captures_for(body, funcdef.params, funcdef.node_id)
         with (
             self._return_context(sig.result),
             self._function_body(fn_id),
@@ -1185,8 +1190,8 @@ class _Lowerer:
         fn_id = self._link.fn_node_to_id[funcdef.node_id]
         fn_sym = self._link.fn_node_to_sym[funcdef.node_id]
 
-        ir_params, signature, _param_decl_ids, param_labels, result_label = (
-            self._lower_declared_params(funcdef, fn_id)
+        ir_params, signature, param_labels, result_label = self._lower_declared_params(
+            funcdef, fn_id
         )
 
         desc = FunctionDescriptor(
@@ -1222,10 +1227,10 @@ class _Lowerer:
         allocated to satisfy the FunctionDescriptor + validator.
 
         Captures are computed relative to the lambda's own params (which become local
-        to the lambda's frame) and body.  Capture-through (a lambda inside a def that
-        captures the def's params) works automatically because IrMakeClosure is
-        evaluated in the ENCLOSING frame (the def's call_frame at the time of the
-        IrMakeClosure eval).
+        to the lambda's frame) and body.  IrMakeClosure is evaluated in the ENCLOSING
+        frame, so a lambda nested in a def or another lambda reads captured bindings from
+        that frame; the enclosing function captures what the nested lambda needs from
+        outside it (see ``_scan_nested_lambda``).
         """
         fn_id = self._alloc_fn()
 
@@ -1241,10 +1246,8 @@ class _Lowerer:
             owner=fn_id,
         )
 
-        param_decl_ids: set[int] = set()
         param_syms: list[SymbolId] = []
         for param in params:
-            param_decl_ids.add(param.node_id)
             psym = self._alloc_sym(
                 param.node_id,
                 name=param.name,
@@ -1254,7 +1257,7 @@ class _Lowerer:
             )
             param_syms.append(psym)
 
-        captures = self._compute_captures_for(body_expr, params, node_id, param_decl_ids)
+        captures = self._compute_captures_for(body_expr, params, node_id)
 
         fn_type = cast(FunctionType, self._node_type(node_id))
 
@@ -1588,7 +1591,7 @@ class _Lowerer:
             case Raise(exc=exc_expr, span=span):
                 return IrRaise(
                     location=self._loc(span),
-                    exc=self.lower_expr(exc_expr),
+                    exc=self.lower_expr(exc_expr) if exc_expr is not None else None,
                 )
 
             case Return(value=value_expr, span=span):

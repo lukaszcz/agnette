@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, NoReturn, TypeVar
 from uuid import uuid4
@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
 from agnette.agent.session.protocol import (
     BackendSettings,
+    PortableSession,
+    PortableSet,
     SessionAskError,
     SessionAskRequest,
     SessionAskResponse,
@@ -26,6 +28,7 @@ from agnette.agent.session.protocol import (
     SessionOperation,
     SessionOperations,
     SessionStats,
+    unsupported_operation,
 )
 from agnette.agent.session.protocol import (
     SessionAgentError as AgentSessionAgentError,
@@ -324,6 +327,12 @@ class AglSessionHost:
         if session is not None and session.ephemeral:
             del self._sessions[handle]
 
+    def portable(self, handles: Sequence[str]) -> PortableSet:
+        return self._call_host(lambda: self._service.portable(handles))
+
+    def enter_forked_child(self, portables: PortableSet) -> None:
+        self._service.enter_forked_child(portables)
+
     def _session_for(self, handle: str, operation: str) -> _HostSession:
         from agnette.agl.runtime.sessions import SessionHostError as AglSessionHostError
 
@@ -400,13 +409,41 @@ def create_agl_session_host(
     return AglSessionHost(SessionService(backend_for))
 
 
+@dataclass(frozen=True, slots=True)
+class _Unmaterialized:
+    """A snapshot whose backend is opened on first use."""
+
+    portable: PortableSession
+
+
 @dataclass(slots=True)
 class _SessionEntry:
     """The host state associated with one opaque session handle."""
 
-    backend: SessionBackend
+    source: SessionBackend | _Unmaterialized
     ephemeral: bool
     closed: bool = False
+    inherited: bool = False
+    """Opened by another process; this one holds no live resources for it."""
+
+    def live_backend(self) -> SessionBackend:
+        """The live backend, materializing a snapshot on first use.
+
+        A failed materialization leaves the snapshot in place for the next use to retry.
+        """
+        if isinstance(self.source, _Unmaterialized):
+            self.source = self.source.portable.materialize()
+        return self.source
+
+    def close_backend(self) -> None:
+        """Close the backend; a snapshot never materialized holds nothing to close."""
+        if not isinstance(self.source, _Unmaterialized):
+            self.source.close()
+
+    def release_backend(self) -> None:
+        """Drop an inherited backend's descriptor copies, if one was ever materialized."""
+        if not isinstance(self.source, _Unmaterialized):
+            self.source.release_inherited()
 
 
 class SessionService:
@@ -448,7 +485,7 @@ class SessionService:
             )
         )
         handle = str(uuid4())
-        self._entries[handle] = _SessionEntry(backend=backend, ephemeral=ephemeral)
+        self._entries[handle] = _SessionEntry(backend, ephemeral)
         return handle
 
     def default(
@@ -472,7 +509,7 @@ class SessionService:
         return self._default_handle
 
     def ask(self, handle: str, request: SessionAskRequest) -> SessionAskResponse:
-        return self._entry_for(handle, SessionOperation.ASK).backend.ask(request)
+        return self._entry_for(handle, SessionOperation.ASK).live_backend().ask(request)
 
     def compact(self, handle: str, instructions: str = "") -> None:
         """Compact a live session when its backend supports compaction."""
@@ -484,7 +521,7 @@ class SessionService:
     def reset(self, handle: str) -> None:
         """Reset a live session while retaining its handle, agent, and transport."""
         entry = self._entry_for(handle, "reset")
-        self._run_lifecycle("reset", entry.backend.reset)
+        self._run_lifecycle("reset", entry.live_backend().reset)
 
     def fork(self, handle: str) -> str:
         """Fork a live session, returning a distinct host handle for the child."""
@@ -493,7 +530,7 @@ class SessionService:
         )
         forked_backend = self._run_lifecycle(SessionOperation.FORK, fork)
         forked_handle = str(uuid4())
-        self._entries[forked_handle] = _SessionEntry(backend=forked_backend, ephemeral=False)
+        self._entries[forked_handle] = _SessionEntry(forked_backend, ephemeral=False)
         return forked_handle
 
     def set_name(self, handle: str, name: str) -> None:
@@ -510,20 +547,72 @@ class SessionService:
 
     def close(self, handle: str) -> None:
         """Close a live session; closing an already closed known handle is a no-op."""
-        entry = self._entries.get(handle)
-        if entry is None:
-            raise self._unknown_handle_error(handle, "close")
-        if entry.closed:
-            return
-        self._run_lifecycle("close", entry.backend.close)
+        entry = self._owned_entry(handle, "close")
+        if not entry.closed:
+            self._close_entry(handle, entry)
+
+    def portable(self, handles: Sequence[str]) -> PortableSet:
+        """Snapshot the conversations of live *handles* (once each) for a forked child.
+
+        A snapshot holds no process or descriptor, so an aborted fork has nothing to undo;
+        a Pi clone's session file stays on disk, as after ``fork`` plus ``close``. An
+        unmaterialized handle is materialized first, so every snapshot is independent.
+        Raises :class:`SessionHostError` for an unknown, closed or foreign handle and for a
+        backend that cannot fork or whose source fails to materialize.
+        """
+        sessions: dict[str, PortableSession] = {}
+        for handle in handles:
+            if handle not in sessions:
+                sessions[handle] = self._snapshot(handle)
+        default = self._default_handle
+        return PortableSet(
+            sessions, default if default is not None and default in sessions else None
+        )
+
+    def _snapshot(self, handle: str) -> PortableSession:
+        """Snapshot from a live backend, so every snapshot is independent of its source.
+
+        A failure to materialize the source first is reported as a failed ``fork``.
+        """
+        entry = self._entry_for(handle, SessionOperation.FORK)
+
+        def snapshot() -> PortableSession:
+            try:
+                backend = entry.live_backend()
+            except SessionHostError as error:
+                raise SessionHostError(error.message, SessionOperation.FORK) from error
+            return backend.portable()
+
+        return self._run_lifecycle(SessionOperation.FORK, snapshot)
+
+    def _close_entry(self, handle: str, entry: _SessionEntry) -> None:
+        self._run_lifecycle("close", entry.close_backend)
         if entry.ephemeral:
             del self._entries[handle]
         else:
             entry.closed = True
 
+    def enter_forked_child(self, portables: PortableSet) -> None:
+        """Make every session opened so far inert, as this process is a forked child.
+
+        As ``SessionHost.enter_forked_child``; each inherited backend also drops its
+        descriptor copies (``release_inherited``).
+        """
+        self._default_handle = portables.default
+        entries = [entry for entry in self._entries.values() if not entry.inherited]
+        for entry in entries:
+            entry.inherited = True
+        for entry in entries:
+            if not entry.closed:
+                entry.release_backend()
+        for handle, portable in portables.sessions.items():
+            self._entries[handle] = _SessionEntry(_Unmaterialized(portable), ephemeral=False)
+
     def continues_conversation(self, handle: str) -> bool:
         """Whether a later prompt to *handle* continues the earlier ones."""
-        return self._entry_for(handle, "continues_conversation").backend.continues_conversation
+        return (
+            self._entry_for(handle, "continues_conversation").live_backend().continues_conversation
+        )
 
     def is_known(self, handle: str) -> bool:
         return handle in self._entries
@@ -553,9 +642,9 @@ class SessionService:
         """Close every open entry, reporting all failures once the sweep finishes."""
         failures: list[Exception] = []
         for handle, entry in tuple(self._entries.items()):
-            if not entry.closed:
+            if not entry.closed and not entry.inherited:
                 try:
-                    self.close(handle)
+                    self._close_entry(handle, entry)
                 except Exception as error:
                     failures.append(error)
                     continue
@@ -606,10 +695,19 @@ class SessionService:
                 operation,
             ) from error
 
-    def _entry_for(self, handle: str, operation: str) -> _SessionEntry:
+    def _owned_entry(self, handle: str, operation: str) -> _SessionEntry:
+        """The entry *handle* names, unless it is unknown or another process's."""
         entry = self._entries.get(handle)
         if entry is None:
             raise self._unknown_handle_error(handle, operation)
+        if entry.inherited:
+            raise SessionHostError(
+                f"session handle {handle!r} belongs to another process", operation
+            )
+        return entry
+
+    def _entry_for(self, handle: str, operation: str) -> _SessionEntry:
+        entry = self._owned_entry(handle, operation)
         if entry.closed:
             raise SessionHostError(f"session handle {handle!r} is closed", operation)
         return entry
@@ -622,9 +720,9 @@ class SessionService:
     ) -> tuple[_SessionEntry, T]:
         """Return the live entry *handle* names and its native *operation*, or raise unsupported."""
         entry = self._entry_for(handle, operation)
-        native = select(entry.backend.operations)
+        native = select(entry.live_backend().operations)
         if native is None:
-            raise SessionHostError(f"session backend does not support {operation}", operation)
+            raise unsupported_operation(operation)
         return entry, native
 
     @staticmethod

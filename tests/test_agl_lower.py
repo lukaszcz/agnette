@@ -456,7 +456,7 @@ def test_capture_scan_captures_enclosing_field_assignment_receiver() -> None:
             receiver_binding.decl_node_id, name="box", mutable=False, public=False
         )
     assert lowerer._compute_captures_for(
-        update.value.body, update.value.params, update.value.node_id, set()
+        update.value.body, update.value.params, update.value.node_id
     ) == (IrCapture(box_symbol, by_cell=False),)
 
 

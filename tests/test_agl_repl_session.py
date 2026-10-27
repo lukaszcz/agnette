@@ -3656,6 +3656,49 @@ class TestModuleParameterSeeds:
         assert {key[0] for key in session._param_seed_values} == {ModuleId(("first",))}
 
 
+class TestOpaqueRecordsAcrossEntries:
+    """An ``@opaque`` record declared in one entry stays opaque in later entries."""
+
+    def test_construction_and_update_stay_rejected_after_the_declaring_entry(self) -> None:
+        s = open_session(default_stdlib=False)
+        declared = s.eval_entry("@opaque\nrecord Handle[T]\n  id: int\n")
+        assert declared.ok, declared.diagnostics
+
+        constructed = s.eval_entry("Handle::[int](id = 1)")
+        updated = s.eval_entry("def bump(h: Handle[int]) -> Handle[int] = h with id = 2")
+
+        assert not constructed.ok
+        assert not updated.ok
+
+    def test_an_imported_opaque_record_stays_rejected_in_later_entries(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lib.agl").write_text(
+            "@opaque\nrecord Token\n  serial: int\n", encoding="utf-8"
+        )
+        session = ReplSession(cwd=tmp_path)
+        assert not session.open()
+        assert session.eval_entry("import lib::*").ok
+        assert session.eval_entry("def serial-of(t: Token) -> int = t.serial").ok
+
+        constructed = session.eval_entry("Token(serial = 1)")
+        updated = session.eval_entry("def bump(t: Token) -> Token = t with serial = 2")
+
+        assert not constructed.ok
+        assert not updated.ok
+
+    def test_redeclaring_without_the_attribute_makes_the_record_constructible(self) -> None:
+        s = open_session(default_stdlib=False)
+        assert s.eval_entry("@opaque\nrecord Token\n  serial: int\n").ok
+        assert not s.eval_entry("Token(serial = 1)").ok
+
+        assert s.eval_entry("record Token\n  serial: int\n").ok
+        constructed = s.eval_entry("Token(serial = 1).serial")
+
+        assert constructed.ok, constructed.diagnostics
+        assert _int(constructed.value) == 1
+
+
 class TestBuiltinIdentityAcrossEntries:
     """A REPL session's shared ``TypeTable`` accumulates ``builtin`` declarations
     across entries even though each entry re-checks only its own text. Both the
@@ -10120,6 +10163,37 @@ class TestExternRepl:
         r2 = s.eval_entry("import extlib::*\nadd_one(1)")
         assert r2.ok, r2.diagnostics
         assert _int(r2.value) == 2
+
+    def test_transfer_payload_is_rejected_after_reset(self, tmp_path: Path) -> None:
+        self._write_extern_lib(
+            tmp_path,
+            "xfer_reset",
+            "extern def dump(x: int) -> text\nextern def load(data: text) -> int\n",
+            (
+                "from agl import transfer\n"
+                "def dump(x):\n    return transfer.dumps(x).hex()\n"
+                "def load(data):\n    return transfer.loads(bytes.fromhex(data))\n"
+            ),
+        )
+        s = repl_session_with_root(tmp_path)
+        roots = s._roots
+        assert s.eval_entry("import xfer_reset::*").ok
+        dumped = s.eval_entry("dump(5)")
+        assert dumped.ok, dumped.diagnostics
+        assert isinstance(dumped.value, TextValue)
+        load = f'load("{dumped.value.value}")'
+        same_session = s.eval_entry(load)
+        assert same_session.ok, same_session.diagnostics
+        assert _int(same_session.value) == 5
+
+        s.reset()
+        s._roots = roots  # :reset clears roots too; a real host re-supplies them
+        assert s.eval_entry("import xfer_reset::*").ok
+        after_reset = s.eval_entry(load)
+
+        assert not after_reset.ok
+        assert after_reset.error is not None
+        assert after_reset.error.type_name == "ExternError"
 
     # -- Extern failures surface as ExternError; the session stays usable ----
 

@@ -3204,6 +3204,11 @@ class TestTryExpr:
 
 
 class TestRaiseExpr:
+    def test_bare_raise(self) -> None:
+        e = first(parse("raise"))
+        assert isinstance(e, Raise)
+        assert e.exc is None
+
     def test_raise_simple(self) -> None:
         e = first(parse("raise x"))
         assert isinstance(e, Raise)

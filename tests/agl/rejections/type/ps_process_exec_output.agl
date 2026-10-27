@@ -1,0 +1,5 @@
+import std/ps::Process
+
+program def main() -> unit =
+  let p = exec::[Process[int]]("true")
+  print(p.pid)

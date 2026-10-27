@@ -1,0 +1,24 @@
+{
+  "scenarios": [
+    {
+      "name": "random_streams_are_distinct_per_process_and_fixed_by_the_seed",
+      "isolated": true,
+      "params": {"mode": "random", "root": "$TEMP_ROOT"},
+      "module_roots": ["program_modules/ps_support"],
+      "filesystem": {},
+      "expect": {
+        "stdout": "distinct: true\ndeterministic: true\nseed matters: true\nparent advances per fork: true\nused stream: true\nnever-used stream: true\n"
+      }
+    },
+    {
+      "name": "temporary_files_are_removed_by_the_process_that_created_them",
+      "isolated": true,
+      "params": {"mode": "temporary", "root": "$TEMP_ROOT"},
+      "module_roots": ["program_modules/ps_support"],
+      "filesystem": {},
+      "expect": {
+        "stdout": "child saw the parent's file: true\nchild's paths left after it ended: 0\nparent's file kept: true\nterminated child's file exists while it runs: true\nterminated child's file removed: true\n"
+      }
+    }
+  ]
+}

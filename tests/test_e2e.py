@@ -24,6 +24,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tomllib
@@ -434,7 +435,9 @@ def _agm_install(
     if os.environ.get(_agm_zygote.DISABLE_ENV):
         yield
         return
-    _AGM_LAUNCHER = _agm_zygote.start(repo_root / "src")
+    _AGM_LAUNCHER = _agm_zygote.start(
+        repo_root / "src", tmp_path_factory.mktemp("agm-zygote-log") / "stderr.txt"
+    )
     try:
         yield
     finally:
@@ -514,15 +517,18 @@ def run_agm(
     argv = _agm_argv(args) if executable is None else [str(executable), *args]
     full_env = _agm_env(env)
     if _AGM_LAUNCHER is None:
-        return subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            env=full_env,
-            cwd=cwd,
-            check=check,
-            input=input,
-        )
+        # Output goes to files, as with the launcher: pipes would also wait for any process
+        # the command leaves behind, which holds their write ends.
+        with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+            status = subprocess.run(
+                argv, stdout=out, stderr=err, text=True, env=full_env, cwd=cwd, input=input
+            ).returncode
+            out.seek(0)
+            err.seek(0)
+            completed = subprocess.CompletedProcess(argv, status, out.read(), err.read())
+        if check:
+            completed.check_returncode()
+        return completed
     working_dir = str(cwd) if cwd is not None else os.getcwd()
     completed = _AGM_LAUNCHER.run(argv, full_env, working_dir, input)
     if check:
@@ -612,12 +618,11 @@ _wait_for_path = wait_for_path
 
 
 def _assert_pid_gone(pid: int) -> None:
-    # Process killing is asynchronous: even after the parent has exited and
-    # called kill_process_group, the kernel may need a moment to reap the
-    # child.  Retry for up to 5 seconds before declaring failure — under
-    # heavy parallel test load, process group signal delivery and reaping
-    # can be slow.
-    for _ in range(200):
+    # Process killing is asynchronous: the kernel may need a moment to reap the child, and
+    # signal delivery and reaping can be slow under heavy parallel test load. The poll
+    # returns as soon as the process is gone, so the deadline only bounds a real leak.
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -8515,6 +8520,102 @@ def _install_transparent_sandbox_shims(
     env["PATH"] = f"{directory}:{env['PATH']}"
 
 
+# ── forked processes (std/ps) under exec and repl ──────────────────────────
+
+_PS_IMPORTS = ("import std/fs", "import std/ps", "import std/time")
+
+
+def _ps_defs(root: Path) -> tuple[str, ...]:
+    """AgL definitions of processes that hold until terminated, with files kept in *root*.
+
+    A holder steps in short sleeps, so that no signal can land before a blocking call, and
+    ends by itself well past any test deadline, so that a leaked one cannot outlive the run.
+    It announces itself with ``<name>.ready``, and the parent records its pid in ``<name>.pid``.
+    """
+    return (
+        f'def scratch(name: text) -> text = "{root}/" ++ name\n',
+        """\
+def await-file(path: text) -> unit =
+  while not fs::exists(path) do
+    time::sleep(0.01)
+  done
+""",
+        """\
+def hold(ready: text) -> unit =
+  fs::write(ready, "")
+  for _ in 1 to 12000 do
+    time::sleep(0.01)
+  done
+""",
+        """\
+def launch(name: text) -> ps::Process[unit] =
+  let p = ps::fork(fn() => hold(scratch(name ++ ".ready")))
+  fs::write(scratch(name ++ ".pid"), "%{p.pid}\\n")
+  p
+""",
+        """\
+def spawn(name: text) -> unit =
+  let _ = launch(name)
+  ()
+""",
+        "def spawn-detached(name: text) -> unit = ps::detach(launch(name))\n",
+        "def spawn-and-wait(name: text) -> unit = ps::wait(launch(name))\n",
+    )
+
+
+def _ps_program(root: Path, main: str, *definitions: str) -> str:
+    """An exec program with the holders, *definitions* and a ``main`` whose body is *main*."""
+    body = "".join(f"  {line}\n" for line in main.splitlines())
+    return "\n".join(
+        (*_PS_IMPORTS, *_ps_defs(root), *definitions, f"program def main() -> unit =\n{body}")
+    )
+
+
+def _wait_for_text(path: Path, text: str) -> None:
+    """Wait until the file *path* contains *text*."""
+    deadline = time.monotonic() + 30
+    while text not in (path.read_text() if path.exists() else ""):
+        assert time.monotonic() < deadline, f"{text!r} never appeared in {path}"
+        time.sleep(0.02)
+
+
+def _holder_pids(root: Path, names: list[str]) -> dict[str, int]:
+    """Wait until holders *names* run and their pids are recorded, and return the pids."""
+    pids: dict[str, int] = {}
+    for name in names:
+        _wait_for_path(root / f"{name}.ready")
+        pid_file = root / f"{name}.pid"
+        deadline = time.monotonic() + 30
+        # The pid is complete once its line is.
+        while not (pid_file.exists() and pid_file.read_text().endswith("\n")):
+            assert time.monotonic() < deadline, f"no pid recorded for {name}"
+            time.sleep(0.01)
+        pids[name] = int(pid_file.read_text())
+    return pids
+
+
+def _kill_holders(root: Path, names: list[str]) -> None:
+    """Kill the recorded holders *names*, which are expected to still run (never reaped ones)."""
+    for name in names:
+        try:
+            os.kill(int((root / f"{name}.pid").read_text()), signal.SIGKILL)
+        except (FileNotFoundError, ProcessLookupError, ValueError):
+            pass
+
+
+def _assert_pid_alive(pid: int) -> None:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        pytest.fail(f"Process {pid} is gone")
+
+
+def _stop_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is None:
+        process.kill()
+    process.wait(timeout=60)
+
+
 class TestExecCommand:
     """agm exec: run an AgL workflow program through the checkout CLI."""
 
@@ -9077,6 +9178,76 @@ class TestExecCommand:
         assert "Abort" in result.stderr
         assert "stop now" in result.stderr
 
+    def test_exec_interrupt_terminates_attached_children_and_spares_detached_ones(
+        self, tmp_path: Path, env: dict[str, str], default_sigint: None
+    ) -> None:
+        root = tmp_path / "ps"
+        root.mkdir()
+        program = tmp_path / "main.agl"
+        program.write_text(
+            _ps_program(root, 'spawn("a")\nspawn-detached("d")\nspawn-and-wait("b")')
+        )
+        with (tmp_path / "out").open("w") as out:
+            process = subprocess.Popen(
+                _agm_argv(["exec", "--no-trace", str(program)]),
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=_agm_env(env),
+                cwd=tmp_path,
+            )
+        try:
+            pids = _holder_pids(root, ["a", "b", "d"])
+            process.send_signal(signal.SIGINT)
+            process.wait(timeout=60)
+            assert process.returncode == 130
+            _assert_pid_gone(pids["a"])
+            _assert_pid_gone(pids["b"])
+            _assert_pid_alive(pids["d"])
+        finally:
+            _stop_process(process)
+            _kill_holders(root, ["d"])
+        assert "Traceback" not in (tmp_path / "out").read_text()
+
+    def test_exec_error_terminates_children(self, tmp_path: Path, env: dict[str, str]) -> None:
+        root = tmp_path / "ps"
+        root.mkdir()
+        program = tmp_path / "main.agl"
+        program.write_text(
+            _ps_program(
+                root, 'spawn("a")\nawait-file(scratch("a.ready"))\nraise Abort(message = "stop")'
+            )
+        )
+        result = run_agm(["exec", "--no-trace", str(program)], env=env, check=False)
+        assert result.returncode == 2
+        _assert_pid_gone(_holder_pids(root, ["a"])["a"])
+
+    def test_exec_waits_for_children_at_a_normal_end_and_warns_of_unconsumed_failures(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        root = tmp_path / "ps"
+        root.mkdir()
+        program = tmp_path / "main.agl"
+        program.write_text(
+            _ps_program(
+                root,
+                "let _ = ps::fork(finish)\nlet failed = ps::fork(fail)\n"
+                'fs::write(scratch("failed.pid"), "%{failed.pid}\\n")\n'
+                'fs::write(scratch("release"), "")\nprint "parent done"',
+                "def finish() -> unit =\n"
+                '  await-file(scratch("release"))\n'
+                "  time::sleep(0.1)\n"
+                '  fs::write(scratch("marker"), "done")\n',
+                'def fail() -> unit = raise Abort(message = "child failure")\n',
+            )
+        )
+        result = run_agm(["exec", "--no-trace", str(program)], env=env)
+        assert result.stdout == "parent done\n"
+        # The run ended only after the slow child did.
+        assert (root / "marker").read_text() == "done"
+        failed_pid = (root / "failed.pid").read_text().strip()
+        assert f"process {failed_pid} " in result.stderr
+
 
 class TestCheckCommand:
     """agm check: static AgL diagnostics without executing anything."""
@@ -9317,6 +9488,54 @@ class TestReplCommand:
         )
         assert result.returncode == 0
         assert any(line.split()[-1:] == ["42"] for line in result.stdout.splitlines())
+
+    @pytest.mark.parametrize("ending", [":quit\n", ""], ids=["quit", "eof"])
+    def test_repl_interrupt_terminates_only_the_entrys_children_and_exit_the_rest(
+        self, tmp_path: Path, env: dict[str, str], default_sigint: None, ending: str
+    ) -> None:
+        root = tmp_path / "ps"
+        root.mkdir()
+        entries = [
+            *_PS_IMPORTS,
+            *(f"{definition}\n" for definition in _ps_defs(root)),
+            'spawn("earlier")',
+            'spawn-detached("detached")',
+            'spawn-and-wait("interrupted")',
+        ]
+        with (tmp_path / "out").open("w") as out:
+            process = subprocess.Popen(
+                _agm_argv(["repl", "--plain", "--no-trace"]),
+                stdin=subprocess.PIPE,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=_agm_env(env),
+                cwd=tmp_path,
+            )
+        assert process.stdin is not None
+        try:
+            process.stdin.write("\n".join(entries) + "\n")
+            process.stdin.flush()
+            pids = _holder_pids(root, ["earlier", "detached", "interrupted"])
+            process.send_signal(signal.SIGINT)
+            # The next entry runs only once the interrupt has cancelled its entry and
+            # terminated that entry's children.
+            process.stdin.write('print "still here"\n')
+            process.stdin.flush()
+            _wait_for_text(tmp_path / "out", "still here")
+            _assert_pid_gone(pids["interrupted"])
+            # The interrupt cancels the entry only: the session lives on with its other children.
+            _assert_pid_alive(pids["earlier"])
+            _assert_pid_alive(pids["detached"])
+            process.stdin.write(ending)
+            process.stdin.close()
+            process.wait(timeout=60)
+            assert process.returncode == 0
+            _assert_pid_gone(pids["earlier"])
+            _assert_pid_alive(pids["detached"])
+        finally:
+            _stop_process(process)
+            _kill_holders(root, ["detached"])
 
 
 class TestWarningLevels:

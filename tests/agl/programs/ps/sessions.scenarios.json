@@ -1,0 +1,54 @@
+{
+  "scenarios": [
+    {
+      "name": "a_child_free_ask_opens_a_default_session_of_its_own",
+      "isolated": true,
+      "params": {"inherit": false},
+      "agents": {"writer": {"responses": ["parent answer", "later answer"], "session": {}}},
+      "forks": {
+        "1": {
+          "agents": {"writer": {"responses": ["child answer"], "session": {}}},
+          "expect": {
+            "calls": {"writer": 0},
+            "sessions": [{"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null}],
+            "session_prompts": [{"agent": "writer", "session": "session-1", "call": 0, "equals": "child prompt"}]
+          }
+        }
+      },
+      "expect": {
+        "calls": {"writer": 0},
+        "stdout": "child answer\nlater answer\n",
+        "sessions": [{"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null}],
+        "session_prompts": [
+          {"agent": "writer", "session": "session-1", "call": 0, "equals": "parent prompt"},
+          {"agent": "writer", "session": "session-1", "call": 1, "follow_up": {"equals": "parent again prompt"}}
+        ]
+      }
+    },
+    {
+      "name": "an_inherited_session_raises_a_session_error_in_the_child",
+      "isolated": true,
+      "params": {"inherit": true},
+      "agents": {
+        "writer": {"responses": ["parent answer", "explicit answer", "later answer"], "session": {}}
+      },
+      "forks": {
+        "1": {"expect": {"sessions": []}},
+        "2": {"expect": {"sessions": []}}
+      },
+      "expect": {
+        "calls": {"writer": 0},
+        "stdout": "session error in ask\nsession error in ask\nexplicit answer later answer\n",
+        "sessions": [
+          {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null},
+          {"agent": "writer", "tag": "session-2", "opened": true, "closed": true, "parent": null}
+        ],
+        "session_prompts": [
+          {"agent": "writer", "session": "session-1", "call": 0, "equals": "parent prompt"},
+          {"agent": "writer", "session": "session-1", "call": 1, "follow_up": {"equals": "parent again prompt"}},
+          {"agent": "writer", "session": "session-2", "call": 0, "equals": "explicit prompt"}
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+import std/ps::Process
+
+program def main() -> unit =
+  let j: json = {}
+  let p = j as? Process[int]
+  print(p)

@@ -1,0 +1,5 @@
+import std/ps::Process
+
+program def main() -> unit =
+  let p = ask::[Process[int]]("Q")
+  print(p.pid)

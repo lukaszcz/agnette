@@ -1,0 +1,20 @@
+{
+  "scenarios": [
+    {
+      "name": "scalars_closures_and_exceptions_are_copied_back",
+      "isolated": true,
+      "params": {"part": "closures"},
+      "expect": {
+        "stdout": "int: ok\ntext: ok\ndecimal: ok\nbool: ok\nunit: child ran\nclosure: ok\ncell: ok\nexception: ok\n"
+      }
+    },
+    {
+      "name": "collections_records_sharing_and_cycles_are_copied_back",
+      "isolated": true,
+      "params": {"part": "structures"},
+      "expect": {
+        "stdout": "record: ok\nenums: ok\ndict: ok\nsharing: ok\ncycle: ok\ncopy: ok\nidempotent: ok\n"
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+@opaque
+record Handle[T]
+  var serial: int
+
+program def main() -> unit = ()

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -474,3 +476,15 @@ def test_prelude_module_identity_is_used_only_for_prelude_injection() -> None:
     )
 
     assert violations == []
+
+
+def test_the_agl_runtime_loads_no_session_service() -> None:
+    """The runtime uses the session protocol leaf; the AgM session service stays unloaded."""
+    probe = (
+        "import sys, agnette.agl.runtime.sessions, agnette.agl.runtime.fork_participants; "
+        "assert 'agnette.agent.session.protocol' in sys.modules; "
+        "assert 'agnette.agent.session.service' not in sys.modules"
+    )
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, check=False)
+
+    assert result.returncode == 0

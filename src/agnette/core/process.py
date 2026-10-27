@@ -57,12 +57,19 @@ def terminate_process(process: subprocess.Popen[bytes]) -> None:
         process.wait()
 
 
+def kill_group(pgid: int, number: int = signal.SIGKILL) -> bool:
+    """Send *number* to process group *pgid*; whether the group still existed."""
+    try:
+        os.killpg(pgid, number)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 def kill_process_group(process: subprocess.Popen[bytes]) -> None:
     """Tear down *process* and every other member of its process group."""
     group = process.pid
-    try:
-        os.killpg(group, signal.SIGTERM)
-    except ProcessLookupError:
+    if not kill_group(group, signal.SIGTERM):
         return
 
     if process.poll() is not None:
@@ -70,29 +77,20 @@ def kill_process_group(process: subprocess.Popen[bytes]) -> None:
         # group may still be alive.  Give them a brief moment to tear down
         # after the SIGTERM we just sent, then SIGKILL any stragglers.
         _wait_for_process_group_exit(group, grace=0.2)
-        try:
-            os.killpg(group, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        kill_group(group)
         return
 
     try:
         process.wait(timeout=1)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(group, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        kill_group(group)
         process.wait()
         return
 
     # The main process exited promptly.  Give remaining group members a
     # brief moment to exit as well, then SIGKILL any stragglers.
     _wait_for_process_group_exit(group, grace=0.2)
-    try:
-        os.killpg(group, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    kill_group(group)
 
 
 def _wait_for_process_group_exit(pgid: int, *, grace: float) -> None:

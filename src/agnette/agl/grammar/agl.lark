@@ -599,7 +599,7 @@ inline_assign: postfix ASSIGN or_expr
 
 ?letvar_decl: let_decl | var_decl
 
-raise_expr: "raise" or_expr
+raise_expr: "raise" or_expr?
 return_expr: "return" or_expr?
 
 // with_expr: functional update — ``target with field = value, ...``.

@@ -1,0 +1,19 @@
+{
+  "scenarios": [
+    {
+      "name": "mint_read_and_pass",
+      "expect": {
+        "stdout": "1\nalpha\nbeta\nalphabeta\n100\n2\n[100, 300]\n10\n11\nheld\n"
+      }
+    },
+    {
+      "name": "unrepresentable_mint_raises_extern_error",
+      "params": {
+        "bogus": true
+      },
+      "expect": {
+        "stdout": "mint-bogus\n0\n"
+      }
+    }
+  ]
+}

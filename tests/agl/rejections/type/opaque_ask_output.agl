@@ -1,0 +1,7 @@
+@opaque
+record Token
+  serial: int
+
+program def main() -> unit =
+  let t = ask::[Token]("Q")
+  print(t.serial)

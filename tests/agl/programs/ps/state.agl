@@ -1,0 +1,76 @@
+# Companion state belongs to a process. `std/random` gives each child a stream of its own,
+# derived from the parent's, so a seed fixes every process's draws; temporary files are removed
+# by the process that created them when it ends, and a child leaves the parent's alone.
+import std/fs
+import std/path
+import std/path::path
+import std/ps
+import std/random
+import ps_sync
+
+def draw() -> int = random::below(1000000000000)
+
+def nested() -> array[int] =
+  let grandchild = ps::fork(draw)
+  [draw(), ps::wait(grandchild)]
+
+# Seeds the stream, then collects a draw of the parent, two children and a child with a child.
+def draws(seed: int) -> array[int] =
+  random::seed(seed)
+  let children = [ps::fork(draw), ps::fork(draw)]
+  let deep = ps::fork(nested)
+  [draw()].concat(children.map(fn(p) => ps::wait(p))).concat(ps::wait(deep))
+
+# Forks two children before drawing anything itself, in a process whose stream nothing touched.
+def untouched() -> array[int] =
+  let pair = [ps::fork(draw), ps::fork(draw)]
+  pair.map(fn(p) => ps::wait(p))
+
+def distinct(values: array[int]) -> bool =
+  values.all(fn(x) => values.count(fn(y) => y == x) == 1)
+
+def streams() -> unit =
+  let first = draws(7)
+  print "distinct: %{distinct(first)}"
+  print "deterministic: %{first == draws(7)}"
+  print "seed matters: %{first != draws(8)}"
+  random::seed(7)
+  print "parent advances per fork: %{first[0] != draw()}"
+  # Children differ whether the parent's stream was used before the fork or not.
+  let used = [ps::fork(draw), ps::fork(draw)]
+  print "used stream: %{distinct(used.map(fn(p) => ps::wait(p)))}"
+  print "never-used stream: %{distinct(ps::wait(ps::fork(untouched)))}"
+
+# Creates a temporary file and a temporary directory holding a file; returns their paths.
+def temporaries() -> array[path] =
+  let file = fs::temp-file(".child")
+  let dir = fs::temp-dir()
+  fs::write(path::join([dir, "inner"]), "x")
+  [file, dir]
+
+def survivors(paths: array[path]) -> int = paths.count(fn(p) => fs::exists(p))
+
+# Creates a temporary file, publishes its path, then runs until terminated.
+def hold-temporary(root: path) -> unit =
+  fs::write(root ++ "/temporary", fs::temp-file())
+  ps_sync::hold(root ++ "/ready", root ++ "/never")
+
+def temporary-files(root: path) -> unit =
+  let mine = fs::temp-file()
+  let seen = ps::fork(fn() => fs::exists(mine))
+  let theirs = ps::wait(ps::fork(temporaries))
+  print "child saw the parent's file: %{ps::wait(seen)}"
+  print "child's paths left after it ended: %{survivors(theirs)}"
+  print "parent's file kept: %{fs::exists(mine)}"
+  let held = ps::fork(fn() => hold-temporary(root))
+  ps_sync::await-file(root ++ "/ready")
+  let published: path = fs::read(root ++ "/temporary")
+  print "terminated child's file exists while it runs: %{fs::exists(published)}"
+  ps::terminate(held)
+  print "terminated child's file removed: %{not fs::exists(published)}"
+
+program def main(mode: text, root: path) -> unit =
+  if mode == "random" =>
+    streams()
+  else =>
+    temporary-files(root)

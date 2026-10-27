@@ -1572,3 +1572,79 @@ def test_sandboxed_codex_disables_the_daemon_on_creation_resume_and_reset(
         _sandbox_wrapped_argv_prefix(argv, home)
         assert argv[argv.index("codex") + 1] == "--no-daemon"
         assert argv.count("--no-daemon") == 1
+
+
+def test_releasing_an_inherited_cli_backend_runs_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = CaptureTransport([])
+    transport.install(monkeypatch)
+    backend = _open(AgentCodex("m", "t"), single_prompt=True)
+
+    backend.release_inherited()
+
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize(
+    ("agent", "fork_stdout"),
+    [(AgentClaude("m", "t"), '{"session_id": "child"}'), (AgentPi("p", "m", "t"), "forked")],
+)
+def test_native_fork_backends_snapshot_a_started_transcript_as_their_fork(
+    monkeypatch: pytest.MonkeyPatch, agent: AgentClaude | AgentPi, fork_stdout: str
+) -> None:
+    transport = CaptureTransport(
+        [
+            CaptureOutcome("start"),
+            CaptureOutcome(fork_stdout),
+            CaptureOutcome("c"),
+            CaptureOutcome("p"),
+        ]
+    )
+    transport.install(monkeypatch)
+    parent = _open(agent)
+    parent.ask(SessionAskRequest("start"))
+
+    snapshot = parent.portable()
+    assert len(transport.calls) == 2  # the native fork ran; materializing runs nothing
+    child = snapshot.materialize()
+    assert len(transport.calls) == 2
+    child.ask(SessionAskRequest("child"))
+    parent.ask(SessionAskRequest("parent"))
+
+    assert child is not parent
+    parent_argv, child_argv = transport.calls[3][0], transport.calls[2][0]
+    parent_id = transport.calls[0][0][3]
+    fork_argv = transport.calls[1][0]
+    forked_id = (
+        "child"
+        if isinstance(agent, AgentClaude)
+        else fork_argv[fork_argv.index("--session-id") + 1]
+    )
+    assert parent_id in parent_argv
+    assert forked_id in child_argv
+    assert parent_id not in child_argv
+
+
+@pytest.mark.parametrize("agent", [AgentClaude("m", "t"), AgentPi("p", "m", "t")])
+def test_native_fork_backends_snapshot_an_unstarted_session_without_running_anything(
+    monkeypatch: pytest.MonkeyPatch, agent: AgentClaude | AgentPi
+) -> None:
+    transport = CaptureTransport([CaptureOutcome("c"), CaptureOutcome("p")])
+    transport.install(monkeypatch)
+    parent = _open(agent)
+
+    child = parent.portable().materialize()
+    assert not transport.calls
+    child.ask(SessionAskRequest("child"))
+    parent.ask(SessionAskRequest("parent"))
+
+    assert transport.calls[0][0][3] != transport.calls[1][0][3]
+
+
+@pytest.mark.parametrize(
+    "agent", [AgentCodex("", ""), AgentCommand("runner --session %{SESSION_ID}")]
+)
+def test_backends_without_a_native_fork_cannot_be_snapshotted(agent: AgentSpec) -> None:
+    with pytest.raises(SessionHostError) as raised:
+        _open(agent).portable()
+
+    assert raised.value.operation == SessionOperation.FORK

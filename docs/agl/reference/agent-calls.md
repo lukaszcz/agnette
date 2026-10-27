@@ -196,6 +196,29 @@ continuation) or `Rpc` (a persistent RPC process). When omitted or `None`,
 uses the same default. `Rpc` is supported only for `AgentPi`; selecting it
 for another agent raises `SessionError` at open.
 
+A session belongs to the process that opened it. In a process created by
+`std/ps::fork`, the parent's sessions raise `SessionError` when used, and the
+default session is a fresh one. The `sessions` argument of `fork` lists the
+sessions to carry into the child instead: each resolves there to a snapshot of
+its conversation at the time of the call, which the child continues under the
+same handle, independently of the parent. The child's default session is a
+snapshot only if `Session::default()` is listed. A listed session that is
+closed, inherited or whose backend does not support `fork` makes `fork` raise
+`SessionError` before any child exists.
+
+```agl
+import std/ps
+
+def risks(review: Session) -> text = review.ask("List the release risks.")
+
+program def main() -> unit =
+  let review = Session::open(AgentClaude("sonnet", "medium"))
+  let _: text = review.ask("Read CHANGELOG.md and summarize it.")
+  let child = ps::fork(fn() => risks(review), sessions = [review])
+  print(ps::wait(child))
+  review.close()
+```
+
 ## Target types: types as contracts
 
 Every `ask` call has a **target type**, determined from context as expected

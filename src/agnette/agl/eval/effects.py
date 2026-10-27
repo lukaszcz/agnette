@@ -44,7 +44,8 @@ from agnette.agl.runtime.agents import (
 )
 from agnette.agl.runtime.agents import agent_value as encode_agent_value
 from agnette.agl.runtime.codec import ParseResult
-from agnette.agl.runtime.externs import ActiveCall, ExternRegistry, ExternRuntimeState
+from agnette.agl.runtime.externs import ActiveCall, ExternRegistry
+from agnette.agl.runtime.host_session import HostSession
 from agnette.agl.runtime.option import none_value, option_text, some_value
 from agnette.agl.runtime.render import render_value
 from agnette.agl.runtime.request import (
@@ -70,10 +71,10 @@ from agnette.agl.runtime.serialize import value_to_trace_json_obj
 from agnette.agl.runtime.sessions import (
     SessionAgentError,
     SessionAskError,
-    SessionHost,
     SessionHostError,
     SessionRequestHost,
     default_session_transport,
+    session_error_value,
     with_ephemeral_session,
 )
 from agnette.agl.runtime.trace import TraceStore
@@ -119,12 +120,12 @@ class EffectCtx(Protocol):
     _descriptors: ValueDescriptors
     _trace: TraceStore
     _echo_agent_output: bool
-    _session_host: SessionHost
+    _host: HostSession
     _get_sandbox_context: "Callable[[], SandboxContext] | None"
     _resolve_agent_spec: "AgentSpecResolver | None"
     _strict_json: bool
     _extern_registry: ExternRegistry
-    _extern_runtime_state: ExternRuntimeState
+
     _extern_span_resolver: Callable[
         [ModuleId, "Location | None"], "tuple[Location | None, ModuleId | None]"
     ]
@@ -252,7 +253,8 @@ class EffectHandlers:
                 descriptors=self._descriptors(),
                 function_encoder=self._ctx._make_extern_callable_proxy,
                 active_call=ActiveCall(
-                    state=self._ctx._extern_runtime_state,
+                    state=self._ctx._host.state,
+                    processes=self._ctx._host.processes,
                     trace_store=self._ctx._trace,
                     module_id=module_id,
                     location=location,
@@ -479,16 +481,7 @@ class EffectHandlers:
 
     def _session_error(self, error: SessionHostError) -> NoReturn:
         """Map a host lifecycle failure to the catchable SessionError shape."""
-        raise AglRaise(
-            _make_exc_value(
-                "SessionError",
-                error.message,
-                nominals=self._ctx._program.builtin_nominals,
-                fields={
-                    "operation": TextValue(error.operation),
-                },
-            )
-        ) from error
+        raise AglRaise(session_error_value(error, self._ctx._program.builtin_nominals)) from error
 
     def _invalid_agent_error(self, agent: RecordValue, error: SessionAgentError) -> NoReturn:
         """Preserve agent-value failures across the session-opening boundary."""
@@ -594,7 +587,7 @@ class EffectHandlers:
         try:
             spec = self._decode_agent_spec(agent)
             transport = self._resolve_session_transport(spec, transport_value)
-            handle = self._ctx._session_host.open(
+            handle = self._ctx._host.sessions.open(
                 spec,
                 transport,
                 name=name,
@@ -631,7 +624,7 @@ class EffectHandlers:
         try:
             spec = self._decode_agent_spec(agent)
             transport = self._resolve_session_transport(spec, None)
-            host = self._ctx._session_host
+            host = self._ctx._host.sessions
             handle = host.default(
                 spec, transport, permission_mode=permission_mode, sandbox=sandbox, env=env
             )
@@ -678,7 +671,7 @@ class EffectHandlers:
         metadata: dict[str, object] = {}
         call_info: dict[str, object] | None = None
         try:
-            host = self._ctx._session_host
+            host = self._ctx._host.sessions
             if isinstance(host, SessionRequestHost):
                 response = host.ask_request(handle, request)
                 raw = response.content
@@ -782,7 +775,7 @@ class EffectHandlers:
 
         try:
             return with_ephemeral_session(
-                self._ctx._session_host,
+                self._ctx._host.sessions,
                 spec,
                 transport,
                 ask_in_session,
@@ -860,7 +853,10 @@ class EffectHandlers:
         transport, and environment: a session has no per-ask override.
         """
         contract = self._ctx._program.contracts[contract_id]
-        snapshot = self._ctx._session_host.snapshot(handle)
+        try:
+            snapshot = self._ctx._host.sessions.snapshot(handle)
+        except SessionHostError as error:
+            self._session_error(error)
         effective_strict = (
             contract.strict_json if contract.strict_json is not None else self._ctx._strict_json
         )
@@ -926,7 +922,7 @@ class EffectHandlers:
         """Dispatch one lifecycle operation through the session host."""
         handle, agent, transport, sandbox = self._session_parts(self._ctx._eval(node.session))
         argument = self._text_of(self._ctx._eval(node.arg)) if node.arg is not None else ""
-        host = self._ctx._session_host
+        host = self._ctx._host.sessions
         try:
             match node.op:
                 case IrSessionOpKind.COMPACT:

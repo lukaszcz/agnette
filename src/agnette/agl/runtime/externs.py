@@ -49,6 +49,9 @@ from agnette.agl.runtime.boundary import (
     store_dict_entry,
     synthesize_nominal_classes,
 )
+from agnette.agl.runtime.processes import ProcessHost, ProcessHostError
+from agnette.agl.runtime.sessions import SessionHostError, session_error_value
+from agnette.agl.runtime.transfer import ImageTransfer, TransferError
 from agnette.agl.runtime.type_contracts import TypeContract, build_type_contract
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.semantics.cycles import AglCyclicValue, cyclic_value_raise
@@ -62,7 +65,7 @@ from agnette.agl.semantics.values import (
     Value,
 )
 from agnette.core import fs
-from agnette.core.cleanup import run_cleanup_steps
+from agnette.core.cleanup import cleanup_on_failure, run_cleanup_steps
 from agnette.util.scoping import ScopedVar
 from agnette.util.unicode import visible_text
 
@@ -74,6 +77,8 @@ if TYPE_CHECKING:
 _COMPANION_API_NAMES = frozenset(
     {
         "AglException",
+        "ProcessHostError",
+        "TransferError",
         "TypeContract",
         "array",
         "dict",
@@ -83,30 +88,69 @@ _COMPANION_API_NAMES = frozenset(
         "option_none",
         "option_some",
         "runtime",
+        "transfer",
     }
 )
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class _StateEntry:
-    """One companion state value, its optional closer, and whether debug mode keeps it."""
+    """One companion state value with its closer, debug retention, and fork hook."""
 
     value: object
     close: Callable[[object], None] | None
     keep_in_debug: bool
+    fork: Callable[[object], object] | None
+
+
+def _close_entries(entries: Iterable[_StateEntry], *, debug: bool = False) -> None:
+    """Close *entries* in reverse order, skipping closer-less and debug-kept ones."""
+    run_cleanup_steps(
+        [
+            functools.partial(entry.close, entry.value)
+            for entry in reversed(list(entries))
+            if entry.close is not None and not (debug and entry.keep_in_debug)
+        ]
+    )
+
+
+class ForkedEntries:
+    """The child's state entries made by the fork hooks, owned by the parent until consumed.
+
+    :meth:`ExternRuntimeState.enter_forked_child` hands them to the child;
+    :meth:`abort` closes them in the parent when the fork does not happen.
+    After a parent's successful fork it simply drops them unclosed.
+    """
+
+    __slots__ = ("_entries",)
+
+    def __init__(self, entries: dict[str, _StateEntry]) -> None:
+        self._entries = entries
+
+    def _take(self) -> dict[str, _StateEntry]:
+        """Release the entries to a new owner; later :meth:`abort` calls close nothing."""
+        entries, self._entries = self._entries, {}
+        return entries
+
+    def abort(self) -> None:
+        """Close the entries that no child took."""
+        _close_entries(self._take().values())
 
 
 class ExternRuntimeState:
     """Mutable companion state belonging to one host session.
 
-    An interpreter creates and closes its own unless its host supplies one
-    that outlives it (the REPL, across entries).
+    The host session creates and closes it, across entries in the REPL. State is per process:
+    a forked child keeps only the entries its fork hooks made, and the entries it
+    inherited stay inert (see :meth:`enter_forked_child`).
     """
 
-    __slots__ = ("_entries",)
+    __slots__ = ("_entries", "_inherited")
 
     def __init__(self) -> None:
         self._entries: dict[str, _StateEntry] = {}
+        # Entries of ancestor processes: referenced until exit, never closed or returned.
+        self._inherited: list[dict[str, _StateEntry]] = []
 
     def get_or_create[T](
         self,
@@ -115,16 +159,22 @@ class ExternRuntimeState:
         close: Callable[[T], None] | None = None,
         *,
         keep_in_debug: bool = False,
+        fork: Callable[[T], T] | None = None,
     ) -> T:
         """Return this state's value for *key*, creating it (with its closer) once when absent.
 
         *close*, when given, is recorded beside the value on this creating
         call and later invoked with that same value by :meth:`close_all`,
-        except under ``debug`` when *keep_in_debug* is set.
+        except under ``debug`` when *keep_in_debug* is set. *fork*, when
+        given, makes the value a forked child starts with
+        (see :meth:`prepare_fork`).
         """
         if key not in self._entries:
             self._entries[key] = _StateEntry(
-                factory(), cast("Callable[[object], None] | None", close), keep_in_debug
+                factory(),
+                cast("Callable[[object], None] | None", close),
+                keep_in_debug,
+                cast("Callable[[object], object] | None", fork),
             )
         return cast("T", self._entries[key].value)
 
@@ -134,24 +184,46 @@ class ExternRuntimeState:
         Each closer receives the value it was registered for. A second call
         is a no-op. A value registered with no closer, or with
         ``keep_in_debug`` while *debug* is set, is simply dropped.
+        Entries inherited from a parent process are not touched.
         """
         entries = list(self._entries.values())
         self._entries.clear()
-        steps: list[Callable[[], None]] = [
-            functools.partial(entry.close, entry.value)
-            for entry in reversed(entries)
-            if entry.close is not None and not (debug and entry.keep_in_debug)
-        ]
-        run_cleanup_steps(steps)
+        _close_entries(entries, debug=debug)
+
+    def prepare_fork(self) -> ForkedEntries:
+        """Run every fork hook in the parent, producing the child's entries.
+
+        Each carries its source's closer, debug retention, and hook. A hook
+        failure closes the values already produced and propagates. No existing
+        entry is changed.
+        """
+        produced: dict[str, _StateEntry] = {}
+        with cleanup_on_failure(
+            lambda: _close_entries(produced.values()), label="fork hook rollback"
+        ):
+            # A snapshot: a hook may create state.
+            for key, entry in list(self._entries.items()):
+                if entry.fork is not None:
+                    produced[key] = dataclasses.replace(entry, value=entry.fork(entry.value))
+        return ForkedEntries(produced)
+
+    def enter_forked_child(self, forked: ForkedEntries) -> None:
+        """Become the forked child's state: current entries turn inert, *forked*'s are installed.
+
+        Inherited entries are never closed or returned, so a key created in
+        the child calls its factory afresh unless a hook made its entry.
+        """
+        self._inherited.append(self._entries)
+        self._entries = forked._take()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ActiveCall:
-    """One extern call's active companion state, trace destination, module, and site.
+    """One extern call's active companion state, process host, trace destination, module, and site.
 
     Bundled into a single context variable so :meth:`ExternRegistry.invoke`
-    activates one object for the call rather than two, and ``runtime.state``
-    and ``runtime.trace`` both read it.
+    activates one object for the call rather than several, and ``runtime.state``,
+    ``runtime.processes`` and ``runtime.trace`` all read it.
 
     *location* is this call's own site (plain data, not yet resolved).
     *resolve_span* maps it to the attributed (span, owning module) a trace
@@ -162,6 +234,7 @@ class ActiveCall:
     """
 
     state: ExternRuntimeState
+    processes: ProcessHost
     trace_store: "TraceStore"
     module_id: ModuleId
     location: "Location | None"
@@ -195,6 +268,7 @@ class _CompanionRuntime:
         close: Callable[[T], None] | None = None,
         *,
         keep_in_debug: bool = False,
+        fork: Callable[[T], T] | None = None,
     ) -> T:
         """Get companion-local state scoped to the active interpreter's host session.
 
@@ -202,10 +276,26 @@ class _CompanionRuntime:
         host session ends (or, for a detached call, when
         :func:`close_detached_state` is called) -- unless *keep_in_debug* is
         set and the session ends with ``std/config::debug`` on.
+
+        State is per process. A forked child starts empty except for the
+        values *fork* made in the parent just before the fork
+        (``fork(value) -> child_value``, closed by the same *close*);
+        without *fork*, the child creates its own value on first use.
         """
         active = self._active_call.get()
         state = active.state if active is not None else self._detached_state
-        return state.get_or_create(key, factory, close, keep_in_debug=keep_in_debug)
+        return state.get_or_create(key, factory, close, keep_in_debug=keep_in_debug, fork=fork)
+
+    @property
+    def processes(self) -> ProcessHost:
+        """The active interpreter's process host.
+
+        Raises :class:`ProcessHostError` outside an extern call: there is no host to fork from.
+        """
+        active = self._active_call.get()
+        if active is None:
+            raise ProcessHostError("runtime.processes is available only during an extern call")
+        return active.processes
 
     def tracing(self) -> bool:
         """Whether :meth:`trace` would record: an active call whose store is writing.
@@ -521,6 +611,8 @@ class ExternRegistry:
         self._exception_field_encodes: dict[NominalId, tuple[ExceptionFieldEncode, ...]] = {}
         # Keyed by request identity; the entry pins its request so the id stays unique.
         self._type_contracts: dict[int, tuple[TargetContractRequest, TypeContract]] = {}
+        # One token per registry, i.e. per host session: a forked child shares it.
+        self._transfer = ImageTransfer()
 
     def set_nominals(
         self,
@@ -615,6 +707,9 @@ class ExternRegistry:
         setattr(module, "json", AglJson)
         setattr(module, "AglException", AglException)
         setattr(module, "TypeContract", TypeContract)
+        setattr(module, "TransferError", TransferError)
+        setattr(module, "ProcessHostError", ProcessHostError)
+        setattr(module, "transfer", self._transfer)
         setattr(module, "runtime", _COMPANION_RUNTIME)
         nominals = ModuleType("agl.nominals")
         setattr(module, "nominals", nominals)
@@ -780,11 +875,14 @@ class ExternRegistry:
         exception class. A companion repr'ing a cyclic view -- while *fn*
         runs, or while this builds an ``ExternError`` message from an
         exception *fn* raised -- raises ``AglCyclicValue``, which becomes
-        ``CyclicValueError`` instead. Retained views remain live after the
-        call, except for reads of a function-valued field or element, which
-        need the encoder this call publishes.
+        ``CyclicValueError`` instead. A :class:`SessionHostError` escaping
+        *fn* becomes the catchable ``SessionError`` that the evaluator raises
+        for the same host failure. Retained views remain live after the call,
+        except for reads of a function-valued field or element, which need the
+        encoder this call publishes.
 
-        *nominals* resolves the ``ExternError``/``CyclicValueError`` nominal.
+        *nominals* resolves the ``ExternError``/``CyclicValueError``/
+        ``SessionError`` nominal.
         *descriptors* resolves the nominal/function spellings this call's
         arguments render with -- an unknown-nominal message, or a view's own
         ``repr`` -- and is published for the call's extent so a companion's
@@ -836,6 +934,8 @@ class ExternRegistry:
                     result = fn(*encoded_args)
             except AglException as exc:
                 raise AglRaise(exc.value, span=exc.span) from exc
+            except SessionHostError as exc:
+                raise AglRaise(session_error_value(exc, nominals)) from exc
             except AglCyclicValue as exc:
                 raise cyclic_value_raise(nominals=nominals) from exc
             except Exception as exc:

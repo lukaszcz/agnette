@@ -1,0 +1,4 @@
+# A fault of the host in the process that calls this: its companion state fails to close when the
+# process ends, after the program's own work succeeded.
+@extern-name("fail_at_exit")
+extern def fail-at-exit() -> int

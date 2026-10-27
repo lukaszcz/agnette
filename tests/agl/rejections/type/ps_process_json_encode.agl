@@ -1,0 +1,5 @@
+import std/ps::Process
+
+def encode(p: Process[int]) -> json = p as json
+
+program def main() -> unit = ()

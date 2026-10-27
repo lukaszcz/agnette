@@ -1,0 +1,178 @@
+import std/option::Option
+
+@doc("""
+  A handle to a forked process that computes a `T`.
+
+  `fork` runs a function in a copy of the running program, a child process of its own. The handle
+  is valid only in the process that forked it, and only until it is detached: using one from
+  another process (a child, or a handle that came back from a grandchild) or after `detach` raises
+  `ProcessError`. Its fields identify the process; the process is controlled with the functions of
+  this module only.
+""")
+@opaque
+record Process[T]
+  @doc("The host's identifier of this process.")
+  id: text
+
+  @doc("The operating system's process identifier.")
+  pid: int
+
+@doc("""
+  Misuse of a process handle, or a failure to fork.
+
+  Raised for a handle that is detached, unknown, or foreign to the calling process; for `settle-any`
+  of an empty array; and for a child that cannot be created, including a program that has other
+  threads.
+""")
+exception ProcessError extends Exception
+
+@doc("""
+  A process ended without delivering an outcome.
+
+  The child was killed or terminated by a signal, left the program with `std/os::exit`, or failed
+  in the host: a fault outside the program's own exceptions, such as a result that cannot be
+  transferred.
+""")
+exception ProcessExitError extends ProcessError
+  @doc("The operating system's process identifier of the child.")
+  pid: int
+
+  @doc("The child's exit status; `None` if a signal ended it or it failed in the host.")
+  exit-code: Option[int]
+
+  @doc("The signal that ended the child; `None` if it exited or failed in the host.")
+  signal: Option[int]
+
+@doc("What `wait-all` does when a process fails.")
+enum OnFailure
+  | @doc("Wait for every process, then raise the failure of the lowest index, if any.")
+    SettleAll
+  | @doc("Raise the first failure to occur, leaving the other processes running and attached.")
+    RaiseFirst
+  | @doc("Raise the first failure to occur, after terminating the other processes.")
+    TerminateRest
+
+@doc("""
+  Run `f` in a forked child process and return its handle at once.
+
+  The child is a copy of the running program at the point of the call: it continues with a
+  private copy of every value, so nothing it changes is visible to the parent, and nothing the
+  parent changes afterwards is visible to it. Its result, whatever its type (closures, cyclic and
+  shared values included), is copied back to the parent by `wait`. Resources of the host
+  session stay with the process that created them: a child opens its own agent sessions, files,
+  connections and random stream; the parent's agent sessions raise `SessionError` in it unless
+  listed in `sessions`. Standard input of the child is empty; its standard output and error are
+  shared with the parent.
+
+  Each session listed in `sessions` resolves in the child to a snapshot of its conversation at
+  the time of the call: the child continues it under the same handle, and neither side sees the
+  other's later prompts. The child's default session is such a snapshot if `Session::default()`
+  is listed, and a fresh session otherwise. Listing a handle more than once snapshots it once. A
+  child may list the sessions it received for its own children.
+
+  An exception that escapes `f` is raised again by `wait`, unchanged. A child that delivers no
+  outcome makes `wait` raise `ProcessExitError`. Each child leads a process group of its own, so
+  an interrupt of the terminal reaches the parent only: the parent then terminates its children.
+
+  Children that nobody waited for are awaited when a program run ends normally, and their results
+  are discarded; a failure nobody consumed is reported as a warning. After an uncaught exception,
+  an interrupt or `std/os::exit`, the children are terminated. In the REPL, children outlive the
+  entry that forked them until `:quit` or `:reset` terminates them; an entry that fails
+  terminates its own children. Surviving members of attached children's process groups are
+  terminated at run or session end, even if their leaders have already finished.
+
+  Raises `ProcessError` if the process cannot fork, for instance because the program has other
+  threads, and `SessionError`, before any child exists, if a listed session is closed or cannot be
+  snapshotted.
+""")
+extern def fork[T](f: () -> T, sessions: array[Session] = []) -> Process[T]
+
+@doc("""
+  Wait for the process to finish and return its result.
+
+  Raises again the exception that escaped the child's function, unchanged: its type, fields and
+  source location are the child's. Raises `ProcessExitError` if the child ended without an
+  outcome, and `ProcessError` for a detached, unknown or foreign handle. Waiting is idempotent:
+  every call returns the same value, or raises the same exception.
+""")
+extern def wait[T](p: Process[T]) -> T
+
+@doc("""
+  Wait for the process to finish, without consuming its outcome.
+
+  Never raises the child's failure: use `wait` to obtain the outcome. Raises `ProcessError` for a
+  detached, unknown or foreign handle.
+""")
+extern def settle[T](p: Process[T]) -> unit
+
+@extern-name("settle_any")
+@doc("""
+  Wait until at least one of the processes has finished and return its index.
+
+  Returns the lowest index among the processes that have finished. Outcomes are not consumed and
+  failures are not raised. Raises `ProcessError` for an empty array, and for a handle that is
+  detached, unknown or foreign.
+""")
+extern def settle-any[T](ps: array[Process[T]]) -> int
+
+@doc("""
+  Terminate the process and wait until it has ended.
+
+  The child receives SIGTERM, unwinds and releases what it owns (its own children, sessions and
+  subprocesses); after a grace period it and surviving members of its process group receive
+  SIGKILL. Group members are terminated even if the child has already finished; its outcome is
+  preserved. A process terminated before it delivered its outcome makes `wait` raise
+  `ProcessExitError` with its `signal`. Raises `ProcessError` for a detached, unknown or foreign
+  handle.
+""")
+extern def terminate[T](p: Process[T]) -> unit
+
+@doc("""
+  Release the process for good.
+
+  A detached process is no longer awaited at the end of the run, terminated, or reached by an
+  interrupt, and its outcome is lost. Every later use of the handle raises `ProcessError`.
+""")
+extern def detach[T](p: Process[T]) -> unit
+
+scope WaitInternals
+  @extern-name("terminate_all")
+  @doc("""
+    Terminate the processes under one shared grace period and wait until they have ended.
+
+    Like `terminate`, for several processes at once.
+  """)
+  extern def terminate-all[T](ps: array[Process[T]]) -> unit
+
+  @doc("""
+    Wait for the processes in order of completion, so that the first failure raises at once.
+
+    Rethrows the failure with its source location; with `terminate-rest`, the processes still
+    running are terminated first.
+  """)
+  def wait-completed[T](ps: array[Process[T]], terminate-rest: bool) -> unit =
+    let pending = shallow-copy ps
+    while pending.size() > 0 do
+      let p = pending.remove-at(settle-any(pending))
+      try
+        let _ = wait(p)
+      catch _ =>
+        if terminate-rest => terminate-all(pending)
+        raise
+    done
+end WaitInternals
+
+@doc("""
+  Wait for the processes of one array and return their results in order.
+
+  `on-failure` selects what happens when a process fails, by raising its exception or
+  `ProcessExitError`: the default `SettleAll` lets every process finish and raises the failure of
+  the lowest index; `RaiseFirst` and `TerminateRest` raise the first failure in order of completion,
+  the latter after terminating the processes still running.
+""")
+def wait-all[T](ps: array[Process[T]], on-failure: OnFailure = SettleAll) -> array[T] =
+  case on-failure of
+    | SettleAll => ps.each(settle)
+    | RaiseFirst => WaitInternals::wait-completed(ps, false)
+    | TerminateRest => WaitInternals::wait-completed(ps, true)
+  ps.map(wait)

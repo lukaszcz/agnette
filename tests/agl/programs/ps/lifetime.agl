@@ -1,0 +1,65 @@
+# A run that ends normally awaits the processes nobody waited for and warns about the failures
+# nobody consumed. A run that ends by an uncaught exception or `std/os::exit` terminates them.
+# Children synchronize through flag files; only `finish-after` relies on a short pause.
+import std/ps
+import std/os
+import std/path::path
+import std/time
+import ps_sync
+import ps_host_fault
+import ps_failure::{Boom, failing}
+
+def leave(code: int) -> int =
+  os::exit(code)
+  0
+
+# Finishes only once `release` exists, and a moment later: the run is over by then, unless it
+# awaits the process.
+def finish-after(release: path, value: int) -> int =
+  ps_sync::await-file(release)
+  time::sleep(0.1)
+  print "child done"
+  value
+
+# Unwaited children: the failures are reported in fork order, the successes and the failure
+# that `wait` consumed are not.
+def unconsumed(root: path) -> unit =
+  let _ = ps::fork(fn() => failing("raised"))
+  let _ = ps::fork(ps_host_fault::fail-at-exit)
+  let _ = ps::fork(fn() => leave(3))
+  let _ = ps::fork(fn() => 4)
+  let consumed = ps::fork(fn() => failing("consumed"))
+  try
+    let _ = ps::wait(consumed)
+  catch Boom as b =>
+    print "caught %{b.tag}"
+
+# The parent is done before its child is released: the run end waits for the child.
+def settles(root: path) -> unit =
+  let release = root ++ "/release"
+  let _ = ps::fork(fn() => finish-after(release, 1))
+  print "parent done"
+  ps_sync::touch(release)
+
+# A child that forks a grandchild, and another child; all of them run when the parent ends.
+def nested-hold(root: path) -> int =
+  let _ = ps::fork(fn() => ps_sync::hold(root ++ "/ready-1.1", root ++ "/never"))
+  ps_sync::hold(root ++ "/ready-1", root ++ "/never")
+  1
+
+def abandon(root: path, how: text) -> unit =
+  let _ = ps::fork(fn() => nested-hold(root))
+  let _ = ps::fork(fn() => ps_sync::hold(root ++ "/ready-2", root ++ "/never"))
+  for name in ["ready-1", "ready-1.1", "ready-2"] do
+    ps_sync::await-file(root ++ "/" ++ name)
+  done
+  if how == "raise" =>
+    raise Boom("parent", message = "parent failed")
+  else =>
+    os::exit(3)
+
+program def main(mode: text, root: path) -> unit =
+  case mode of
+    | "unconsumed" => unconsumed(root)
+    | "settles" => settles(root)
+    | _ => abandon(root, mode)

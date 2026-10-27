@@ -13,6 +13,8 @@ import tty
 from collections.abc import Sequence
 from types import FrameType
 
+from agnette.core.fs import write_all
+
 
 def copy_terminal_size(source_fd: int, target_fd: int) -> None:
     """Copy terminal dimensions when *source_fd* provides them."""
@@ -22,18 +24,6 @@ def copy_terminal_size(source_fd: int, target_fd: int) -> None:
         fcntl.ioctl(target_fd, termios.TIOCSWINSZ, dimensions)
     except OSError:
         pass
-
-
-def write_all(fd: int, data: bytes) -> None:
-    """Write all *data* to *fd*."""
-
-    # A memoryview keeps the unwritten tail a zero-copy slice of *data*.
-    remaining = memoryview(data)
-    while remaining:
-        written = os.write(fd, remaining)
-        if written == 0:
-            return
-        remaining = remaining[written:]
 
 
 def _relay(master_fd: int) -> None:

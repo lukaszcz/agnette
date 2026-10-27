@@ -40,7 +40,8 @@ from agnette.agl.repl.entry import (
 from agnette.agl.repl.entry_pipeline import EntryPipeline, unused_module_doc_warnings
 from agnette.agl.repl.info_docs import format_doc_attribute, module_regions
 from agnette.agl.repl.info_sections import SectionLabel, sourced_label
-from agnette.agl.runtime.externs import ExternRuntimeState
+from agnette.agl.runtime.host_session import HostSession
+from agnette.agl.runtime.processes import Disposition
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.syntax import NULLARY_BUILTIN_TYPE_NAMES
@@ -52,7 +53,6 @@ from agnette.agl.warning_policy import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
     from pathlib import Path
 
     from agnette.agent.spec_defaults import AgentSpecResolver
@@ -506,10 +506,8 @@ class ReplSession:
             if session_host is not None
             else AgentDispatcherSessionHost(agent_dispatcher)
         )
-        self._session_host = effective_session_host
-        # Companion state (``std/fs`` temporary paths, ...) lives for the whole
-        # session: every entry's interpreter shares this bag; :meth:`close` ends it.
-        self._extern_runtime_state = ExternRuntimeState()
+        # Host services persist across entries and close together.
+        self._host = self._new_host(effective_session_host)
         self._runtime = PipelineDriver(
             default_call_depth_limit=default_call_depth_limit,
             agent_dispatcher=agent_dispatcher,
@@ -2571,22 +2569,35 @@ class ReplSession:
             name for name, _, _, _ in owned_constructors(ENTRY_ID, self._session_type_paths)
         )
 
-    def close(self) -> None:
-        """Close the session's companion state, honoring the current ``debug`` setting."""
-        debug = self._current.get("debug")
-        self._extern_runtime_state.close_all(
-            debug=debug is not None and cast("BoolValue", debug).value
+    def _new_host(self, sessions: "SessionHost") -> HostSession:
+        return HostSession(
+            sessions,
+            fallback_debug=lambda: (
+                (debug := self._current.get("debug")) is not None and cast("BoolValue", debug).value
+            ),
         )
+
+    def close(self) -> None:
+        """Terminate the host session, honoring the persisted debug setting."""
+        self._host.close(Disposition.TERMINATE)
 
     def reset(self) -> None:
         """Clear ALL session state (symbols, types, values, source, ids).
 
-        Closes the session's companion state first (see :meth:`close`).
+        Closes the session first (see :meth:`close`), however that ends, and replaces its
+        host session, so no handle survives.
         Restores the live engine settings (strict-json/timeout)
         to their values at session construction, undoing any effect-at-binding
         from ``std/config`` writes entered during the session.
         """
-        self.close()
+        try:
+            self.close()
+        finally:
+            self._clear()
+
+    def _clear(self) -> None:
+        """Forget all session state; see :meth:`reset`."""
+        self._host = self._new_host(self._host.sessions)
         from agnette.agl.lower import LinkImage
         from agnette.agl.scope.symbols import ScopeNode
         from agnette.agl.typecheck.env import TypeEnvironment
@@ -2636,7 +2647,7 @@ class ReplSession:
         # session-scoped binding: a companion resolves and imports again on
         # its next use, as though the session were new.
         self._runtime.reset_extern_registry()
-        self._session_host.reset_all()
+        self._host.sessions.reset_all()
 
     def load_file(self, path: "Path") -> list[EntryResult]:
         """Evaluate the contents of *path* incrementally.

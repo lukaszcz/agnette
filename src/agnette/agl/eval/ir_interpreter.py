@@ -19,7 +19,9 @@ NOT allowed: ``agnette.agl.syntax``, ``agnette.agl.scope``, ``agnette.agl.typech
 from __future__ import annotations
 
 import decimal
+import os
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, ContextManager, TypeVar, assert_never, cast
 
 from agnette.agl.eval.arith import (
@@ -149,10 +151,11 @@ from agnette.agl.runtime.externs import (
     AglCallableProxy,
     ExternCallWindow,
     ExternRegistry,
-    ExternRuntimeState,
     active_call_span,
 )
+from agnette.agl.runtime.host_session import HostSession
 from agnette.agl.runtime.option import none_value, option_text, some_value
+from agnette.agl.runtime.processes import ProcessInfo
 from agnette.agl.runtime.render import render_key_value_syntax, render_value
 from agnette.agl.runtime.serialize import AglNonDataValue, encode_scalar
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
@@ -193,7 +196,6 @@ from agnette.config.engine_keys import (
     TRACE_ENGINE_KEYS,
     trace_write_implies_enabled,
 )
-from agnette.core.cleanup import preserve_primary_error
 from agnette.core.parse import format_timeout as _format_timeout
 from agnette.core.parse import parse_timeout as _parse_timeout
 from agnette.util.decimal import AGL_DECIMAL_CONTEXT, integral_to_int
@@ -305,10 +307,6 @@ _BASE_RECURSION_HEADROOM = 4000
 _MAX_PYTHON_RECURSION_LIMIT = 1_000_000
 
 
-def _noop() -> None:
-    """Provide an inert cleanup action when this interpreter owns no sessions."""
-
-
 # ---------------------------------------------------------------------------
 # Internal loop-control signals (not AglRaise — bypass IrTry catch handlers)
 # ---------------------------------------------------------------------------
@@ -381,6 +379,9 @@ class IrInterpreter:
     ``run()`` executes every module's initializers in link order and returns
     the entry module's public non-function bindings. When explicitly invoked, a
     synthetic inline ``main`` also contributes its direct public bindings.
+
+    A supplied *host* shares services across runs and stays with its owner.
+    Otherwise this interpreter builds and closes its own host session.
     """
 
     DEFAULT_MAX_CALL_DEPTH: int = 256
@@ -395,7 +396,6 @@ class IrInterpreter:
         session_host: "SessionHost | None" = None,
         get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
         resolve_agent_spec: "AgentSpecResolver | None" = None,
-        close_sessions: bool = True,
         strict_json: bool = False,
         echo_agent_output: bool = False,
         shell_exec_timeout: float | None = None,
@@ -406,8 +406,9 @@ class IrInterpreter:
         param_seeds: Mapping[StaticBindingKey, Value] | None = None,
         function_param_seeds: Mapping[FunctionParamKey, Value] | None = None,
         process_environment: Mapping[str, str] | None = None,
-        extern_runtime_state: ExternRuntimeState | None = None,
+        host: HostSession | None = None,
     ) -> None:
+        self._handled: list[AglRaise] = []
         self._program = program
         self._descriptors = ValueDescriptors.from_program(program)
         self._frames: list[Frame] = [base_frame if base_frame is not None else {}]
@@ -425,18 +426,25 @@ class IrInterpreter:
         self._trace: TraceStore = trace if trace is not None else noop_trace()
         self._echo_agent_output = echo_agent_output
         self._max_call_depth: int = max_call_depth
-        self._session_host: SessionHost = (
-            session_host
-            if session_host is not None
-            else AgentDispatcherSessionHost(agent_dispatcher)
+        assert host is None or session_host is None
+        self._owns_host = host is None
+        self._host = (
+            host
+            if host is not None
+            else HostSession(
+                session_host
+                if session_host is not None
+                else AgentDispatcherSessionHost(agent_dispatcher),
+                fallback_debug=lambda: self.debug,
+            )
         )
         self._get_sandbox_context = get_sandbox_context
         self._resolve_agent_spec = resolve_agent_spec
-        self._close_sessions = close_sessions
         # Once the free-ask default session exists, its environment is fixed
         # forever: skip evaluating and decoding ``environ`` on every later
         # free ask in this run, only doing so while creating it.
         self._default_session_opened = False
+        self._default_session_pid = os.getpid()
         # Bootstrap the setting fields so declared defaults can be evaluated by
         # the ordinary, typeless evaluator. Constant defaults cannot read a
         # setting or invoke a host operation, so this temporary state is never
@@ -567,11 +575,6 @@ class IrInterpreter:
             extern_registry if extern_registry is not None else ExternRegistry()
         )
         self._extern_call_window_guard = ExternCallWindow()
-        # A host-supplied state bag outlives this interpreter; its host closes it.
-        self._owns_extern_runtime_state = extern_runtime_state is None
-        self._extern_runtime_state = (
-            extern_runtime_state if extern_runtime_state is not None else ExternRuntimeState()
-        )
         self._effects = EffectHandlers(self)
 
     def _parse_host_output(
@@ -588,6 +591,10 @@ class IrInterpreter:
             effective_strict=effective_strict,
             default_resolver=self.default_for_field,
         )
+
+    def report_unconsumed(self, info: ProcessInfo, problem: str) -> None:
+        """Trace a forked child's failure that nobody consumed (a process host's reporter)."""
+        self._trace.process_unconsumed(child_pid=info.pid, problem=problem)
 
     @property
     def _frame(self) -> Frame:
@@ -1285,48 +1292,40 @@ class IrInterpreter:
         ``RecursionError`` that still escapes (its limit is capped) is converted
         to a catchable AgL ``RecursionError`` rather than crashing the host.
 
-        Companion state this interpreter owns is closed on every exit, honoring
-        the final ``debug`` setting; session cleanup stays gated by
-        ``close_sessions``.
+        An owned host session ends processes, agent sessions, then companion state,
+        honoring the final debug setting. A supplied host stays with its owner.
         """
         needed = _BASE_RECURSION_HEADROOM + self._max_call_depth * _PYTHON_FRAMES_PER_AGL_CALL
         target = min(needed, _MAX_PYTHON_RECURSION_LIMIT)
-        session_cleanup = self._session_host.close_all if self._close_sessions else _noop
-        state_cleanup = (
-            self._close_extern_runtime_state if self._owns_extern_runtime_state else _noop
-        )
-
-        with raised_recursion_limit(target):
+        with raised_recursion_limit(target), self._host.serving(self):
             try:
-                with preserve_primary_error(state_cleanup, label="companion state cleanup"):
-                    with preserve_primary_error(session_cleanup, label="agent session cleanup"):
-                        with decimal.localcontext(AGL_DECIMAL_CONTEXT):
-                            self._install_function_closures()
-                            for mod in self._program.modules.values():
-                                # Restored, not left at the last module visited:
-                                # module order is a lowering detail, not a call
-                                # chain, so this is a plain save/restore rather
-                                # than `_enter_call` (no call site to record).
-                                previous_module = self._current_module
-                                self._current_module = mod.module_id
-                                try:
-                                    for node in mod.initializers:
-                                        self._eval_and_record_initializer(mod.module_id, node)
-                                finally:
-                                    self._current_module = previous_module
-                            if program_symbol is not None:
-                                try:
-                                    self._invoke_program(program_symbol, arguments)
-                                except RecursionError:
-                                    error = self._recursion_error()
-                                    error.span = self._program_entry_location(program_symbol)
-                                    raise error from None
+                with (
+                    self._host.owned() if self._owns_host else nullcontext(),
+                    decimal.localcontext(AGL_DECIMAL_CONTEXT),
+                ):
+                    self._install_function_closures()
+                    for mod in self._program.modules.values():
+                        # Restored, not left at the last module visited:
+                        # module order is a lowering detail, not a call
+                        # chain, so this is a plain save/restore rather
+                        # than `_enter_call` (no call site to record).
+                        previous_module = self._current_module
+                        self._current_module = mod.module_id
+                        try:
+                            for node in mod.initializers:
+                                self._eval_and_record_initializer(mod.module_id, node)
+                        finally:
+                            self._current_module = previous_module
+                    if program_symbol is not None:
+                        try:
+                            self._invoke_program(program_symbol, arguments)
+                        except RecursionError:
+                            error = self._recursion_error()
+                            error.span = self._program_entry_location(program_symbol)
+                            raise error from None
                 return self._collect_results()
             except RecursionError:
                 raise self._recursion_error() from None
-
-    def _close_extern_runtime_state(self) -> None:
-        self._extern_runtime_state.close_all(debug=self.debug)
 
     def _eval_and_record_initializer(self, module_id: ModuleId, node: IrExpr) -> None:
         """Evaluate one initializer, retaining its result for result collection.
@@ -1371,6 +1370,10 @@ class IrInterpreter:
         if isinstance(node, IrSessionOpen):
             return self._effects.eval_ir_session_open(node)
         if isinstance(node, IrSessionDefault):
+            pid = os.getpid()
+            if pid != self._default_session_pid:
+                self._default_session_opened = False
+                self._default_session_pid = pid
             environ_setting = None if self._default_session_opened else self._eval(node.env)
             result = self._effects.eval_ir_session_default(
                 self._load_builtin_setting("agent"),
@@ -1707,6 +1710,8 @@ class IrInterpreter:
                     return UNIT_VALUE
 
                 case IrRaise(exc=exc_expr):
+                    if exc_expr is None:
+                        raise self._handled[-1]
                     exc_val = cast(ExceptionValue, self._eval(exc_expr))
                     raise AglRaise(exc_val, span=node.location)
 
@@ -1733,7 +1738,11 @@ class IrInterpreter:
                         ):
                             if handler.symbol is not None:
                                 self._frame[handler.symbol] = pending.exc
-                            return self._eval(handler.body)
+                            self._handled.append(pending)
+                            try:
+                                return self._eval(handler.body)
+                            finally:
+                                self._handled.pop()
                     raise pending
 
                 case IrCase(subject=subject_expr, arms=arms, default=default):

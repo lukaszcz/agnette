@@ -1,0 +1,14 @@
+exception Problem
+  detail: text
+
+extern def relay(f: () -> unit) -> unit
+extern def originate() -> unit
+
+program def main(callback: bool) -> unit =
+  try
+    if callback =>
+      relay(fn() =>
+        raise Problem("callback", message = "original")
+      )
+    else => originate()
+  catch _ => raise

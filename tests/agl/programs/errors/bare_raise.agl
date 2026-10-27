@@ -1,0 +1,36 @@
+exception Detailed
+  code: int
+
+program def main(mode: text) -> unit =
+  try
+    raise Detailed(7, message = "original")
+  catch Detailed as e =>
+    if
+      | mode == "typed" => raise
+      | mode == "suite" =>
+          if e.code == 7 =>
+            raise
+      | mode == "try" =>
+          try
+            raise
+          catch Abort => ()
+      | mode == "inner" =>
+          try
+            raise Abort(message = "inner")
+          catch _ => raise
+      | mode == "restore" =>
+          try
+            raise Abort(message = "inner")
+          catch _ => ()
+          raise
+      | mode == "value" =>
+          try
+            raise
+          catch Detailed as again =>
+            print "%{again.code}: %{again.message}"
+      | mode == "explicit" => raise e
+      | else => ()
+  if mode == "wildcard" =>
+    try
+      raise Abort(message = "wildcard")
+    catch _ => raise

@@ -349,3 +349,38 @@ def test_write_bytes_atomic_keeps_in_progress_contents_private(tmp_path: Path) -
 
 def test_fs_error_message_names_the_operation_and_path() -> None:
     assert fs.fs_error_message("write", "/tmp/x") == "Could not write /tmp/x."
+
+
+def test_write_all_handles_partial_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    writes: list[bytes] = []
+
+    def fake_write(_fd: int, chunks: list[memoryview]) -> int:
+        data = b"".join(chunks)
+        writes.append(data)
+        return min(2, len(data))
+
+    monkeypatch.setattr(os, "writev", fake_write)
+
+    fs.write_all(1, b"hello")
+
+    assert writes == [b"hello", b"llo", b"o"]
+
+
+def test_write_all_stops_if_write_makes_no_progress(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "writev", lambda _fd, _data: 0)
+
+    fs.write_all(1, b"hello")
+
+
+def test_write_all_resumes_across_chunk_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
+    writes: list[bytes] = []
+
+    def fake_writev(_fd: int, chunks: list[memoryview]) -> int:
+        data = b"".join(chunks)
+        writes.append(data)
+        return min(3, len(data))
+
+    monkeypatch.setattr(os, "writev", fake_writev)
+    fs.write_all(1, b"", b"ab", b"cdef", b"gh", b"")
+    fs.write_all(1)
+    assert writes == [b"abcdefgh", b"defgh", b"gh"]

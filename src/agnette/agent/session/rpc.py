@@ -5,20 +5,20 @@ from __future__ import annotations
 import codecs
 import json
 import os
-import queue
 import select
 import subprocess
-import threading
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import IO, Literal, Protocol, Self, TypeVar, cast
+from typing import IO, Literal, Self, TypeVar, cast
 from uuid import uuid4
 
 from agnette.agent.session.protocol import (
     BackendSettings,
+    PortableSession,
     SandboxFixture,
     SessionAskError,
     SessionAskRequest,
@@ -37,6 +37,7 @@ from agnette.agent.transport import (
     stderr_tail,
 )
 from agnette.core.process import CapturedOutput, stop_process
+from agnette.core.signals import SignalWakeup
 from agnette.sandbox.backend import SandboxSettingsError, SandboxUnavailableError
 from agnette.sandbox.prepare import sandbox_run_for
 from agnette.sandbox.profile import profile_name
@@ -54,9 +55,10 @@ _RpcOperation = Literal[
     "get_state",
 ]
 
-_MAX_STDOUT_CHUNKS = 64
+_READ_SIZE = 65_536
 _MAX_STDERR_BYTES = 16_384
 _MAX_PROMPT_CHARS = 4_194_304
+_NOTHING = memoryview(b"")
 _CONTEXT_PERCENT_UNAVAILABLE = Decimal("0")
 _T = TypeVar("_T")
 
@@ -85,35 +87,34 @@ class _BoundedText:
         return CapturedOutput(data=self.data, truncated=False, head_truncated=self.truncated)
 
 
-class _Lock(Protocol):
-    """The lock interface used to synchronize stderr delivery."""
-
-    def acquire(self) -> bool: ...
-
-    def release(self) -> None: ...
-
-
 @dataclass(slots=True)
 class _RpcChild:
-    """The process and asynchronously drained streams for one Pi session."""
+    """The process and non-blocking pipes for one Pi session.
+
+    All pipe I/O runs on the calling thread (:func:`_pump`).  An output
+    stream is ``None`` once it reached EOF or was closed.
+    """
 
     process: subprocess.Popen[bytes]
     agent: AgentPi
     command: list[str]
     prepared: PreparedSandboxCommand | None = None
+    stdout_stream: IO[bytes] | None = None
+    stderr_stream: IO[bytes] | None = None
     stdout_buffer: bytearray = field(default_factory=bytearray)
-    stdout: queue.Queue[bytes | None] = field(
-        default_factory=lambda: queue.Queue(maxsize=_MAX_STDOUT_CHUNKS)
-    )
     stderr: _BoundedText = field(default_factory=_BoundedText)
     stderr_decoder: codecs.IncrementalDecoder = field(
         default_factory=lambda: codecs.getincrementaldecoder("utf-8")("replace")
     )
-    stderr_lock: _Lock = field(default_factory=threading.Lock)
-    stderr_reader_done: threading.Event = field(default_factory=threading.Event)
     output_callback: AgentOutputCallback | None = None
-    readers: list[threading.Thread] = field(default_factory=list)
-    stopped: threading.Event = field(default_factory=threading.Event)
+
+    def close_stdout(self) -> None:
+        self.stdout_stream, stream = None, self.stdout_stream
+        _close(stream)
+
+    def close_stderr(self) -> None:
+        self.stderr_stream, stream = None, self.stderr_stream
+        _close(stream)
 
     @property
     def stdin(self) -> IO[bytes]:
@@ -153,6 +154,32 @@ class PiRpcSessionBackend(SandboxFixture):
         )
         return cls(child, settings)
 
+    @classmethod
+    def _resume(
+        cls, agent: AgentPi, settings: BackendSettings, session_id: str, operation: str
+    ) -> Self:
+        """Start Pi resuming *session_id* and verify that it did; a mismatch closes it."""
+        backend = cls(
+            _spawn(
+                agent,
+                agent.rpc_argv(session_id=session_id, permission_mode=settings.permission_mode),
+                operation,
+                settings,
+            ),
+            settings,
+        )
+        try:
+            state, _ = backend._send("get_state", {})
+            backend._parse_operation_response(
+                state,
+                "get_state",
+                lambda state, operation: _resumed_session_id(state, operation, session_id),
+            )
+        except BaseException:
+            backend.close()
+            raise
+        return backend
+
     continues_conversation = True
 
     @property
@@ -177,7 +204,7 @@ class PiRpcSessionBackend(SandboxFixture):
                 output_callback=request.output_callback,
             )
         finally:
-            _finish_stderr_delivery(child, drain=False)
+            _finish_stderr_delivery(child)
         elapsed = time.monotonic() - started
         return SessionAskResponse(
             content="".join(text),
@@ -204,48 +231,39 @@ class PiRpcSessionBackend(SandboxFixture):
         response, _ = self._send("new_session", {})
         self._parse_operation_response(response, "new_session", _require_not_cancelled)
 
+    def portable(self) -> PortableSession:
+        """Clone the active branch in a temporary process, keeping only the clone's session id.
+
+        The parent's process is untouched and the snapshot holds no process: the process
+        that uses it spawns its own Pi.
+        """
+        parent_id = self._active_session_id()
+        agent = self._live_child("clone").agent
+        temporary = self._resume(agent, self._settings, parent_id, SessionOperation.FORK.value)
+        try:
+            temporary._send_clone()
+            clone_id = temporary._cloned_session_id(parent_id)
+        finally:
+            temporary.close()
+        return _PortablePiRpc(agent, self._settings, clone_id)
+
     def fork(self) -> SessionBackend:
-        """Clone the active branch and atomically hand each process to one backend.
+        """Clone the active branch into a second live backend, handing each process to one.
 
         Pi's ``fork`` command only accepts a previous user-message entry.  ``clone``
         is the RPC operation that snapshots the current active branch, regardless of
         whether its leaf is a user message or an assistant message.
         """
-        parent_state, _ = self._send("get_state", {})
-        parent_id = self._parse_operation_response(parent_state, "get_state", _required_session_id)
+        parent_id = self._active_session_id()
         source = self._live_child("clone")
-        parent_command = source.agent.rpc_argv(
-            session_id=parent_id, permission_mode=self._settings.permission_mode
-        )
-        replacement = _spawn(
-            source.agent,
-            parent_command,
-            SessionOperation.FORK.value,
-            self._settings,
-        )
-        replacement_backend = PiRpcSessionBackend(replacement, self._settings)
-        try:
-            replacement_state, _ = replacement_backend._send("get_state", {})
-            replacement_backend._parse_operation_response(
-                replacement_state,
-                "get_state",
-                lambda state, operation: _replacement_session_id(state, operation, parent_id),
-            )
-        except BaseException:
-            replacement_backend.close()
-            raise
-
+        replacement = self._resume(
+            source.agent, self._settings, parent_id, SessionOperation.FORK.value
+        )._live_child("clone")
         cloned = False
         try:
-            response, _ = self._send("clone", {})
-            self._parse_operation_response(response, "clone", _require_not_cancelled)
+            self._send_clone()
             cloned = True
-            child_state, _ = self._send("get_state", {})
-            self._parse_operation_response(
-                child_state,
-                "get_state",
-                lambda state, operation: _forked_session_id(state, operation, parent_id),
-            )
+            self._cloned_session_id(parent_id)
         except BaseException:
             if cloned:
                 # The source now owns the clone, so retain the independently opened
@@ -253,11 +271,28 @@ class PiRpcSessionBackend(SandboxFixture):
                 self._child = replacement
                 _terminate(source)
             else:
-                replacement_backend.close()
+                _terminate(replacement)
             raise
 
         self._child = replacement
         return PiRpcSessionBackend(source, self._settings)
+
+    def _active_session_id(self) -> str:
+        state, _ = self._send("get_state", {})
+        return self._parse_operation_response(state, "get_state", _required_session_id)
+
+    def _send_clone(self) -> None:
+        response, _ = self._send("clone", {})
+        self._parse_operation_response(response, "clone", _require_not_cancelled)
+
+    def _cloned_session_id(self, parent_id: str) -> str:
+        """The id of the clone this process now runs, which must differ from the parent's."""
+        state, _ = self._send("get_state", {})
+        return self._parse_operation_response(
+            state,
+            "get_state",
+            lambda state, operation: _forked_session_id(state, operation, parent_id),
+        )
 
     def set_name(self, name: str) -> None:
         self._send("set_session_name", {"name": name})
@@ -275,6 +310,18 @@ class PiRpcSessionBackend(SandboxFixture):
         self._child = None
         if child is not None:
             _terminate(child)
+
+    def release_inherited(self) -> None:
+        """Close this process's pipe copies of a process that another process owns.
+
+        ``returncode`` is set so that ``Popen`` never polls, signals, waits on or warns
+        about a pid this process does not own.
+        """
+        child = self._child
+        self._child = None
+        if child is not None:
+            child.process.returncode = 0
+            _close_pipes(child)
 
     def _write(
         self,
@@ -310,6 +357,8 @@ class PiRpcSessionBackend(SandboxFixture):
         request_id = str(uuid4())
         command = {"id": request_id, "type": operation, **payload}
         started = time.monotonic()
+        # Diagnostics produced while idle belong to the tail, not to this ask's echo.
+        _drain_stderr(child)
         child.output_callback = output_callback
         self._write(child, command, operation, started)
 
@@ -469,39 +518,34 @@ class PiRpcSessionBackend(SandboxFixture):
         return event
 
     def _next_line(self, child: _RpcChild) -> str:
-        """Read an uncapped LF-delimited record; Pi events can include images and transcripts."""
+        """Read an uncapped LF-delimited record; Pi events can include images and transcripts.
+
+        Pumps the child's pipes until a record is complete.  The idle deadline is
+        fixed on entry: stderr traffic does not extend it.
+        """
         deadline = (
             None
             if self._settings.idle_timeout is None
             else time.monotonic() + self._settings.idle_timeout
         )
-        while True:
-            buffer = child.stdout_buffer
-            newline = buffer.find(b"\n")
-            if newline >= 0:
-                line = bytes(buffer[:newline])
-                del buffer[: newline + 1]
-                if line.endswith(b"\r"):
-                    line = line[:-1]
-                if not line:
-                    raise _RpcProtocolError("Pi RPC returned an empty JSONL record")
-                try:
-                    return line.decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise _RpcProtocolError("Pi RPC returned non-UTF-8 JSONL") from exc
-            try:
-                if deadline is None:
-                    chunk = child.stdout.get()
-                else:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise _RpcIdleTimeout
-                    chunk = child.stdout.get(timeout=remaining)
-            except queue.Empty as exc:
-                raise _RpcIdleTimeout from exc
-            if chunk is None:
-                raise _RpcProcessExited
-            child.stdout_buffer.extend(chunk)
+        buffer = child.stdout_buffer
+        if (newline := buffer.find(b"\n")) < 0:
+            # Entered only to wait: most records are already buffered.
+            with SignalWakeup() as wakeup:
+                while (newline := buffer.find(b"\n")) < 0:
+                    if child.stdout_stream is None:
+                        raise _RpcProcessExited
+                    _pump(child, deadline, _NOTHING, wakeup)
+        line = bytes(buffer[:newline])
+        del buffer[: newline + 1]
+        if line.endswith(b"\r"):
+            line = line[:-1]
+        if not line:
+            raise _RpcProtocolError("Pi RPC returned an empty JSONL record")
+        try:
+            return line.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise _RpcProtocolError("Pi RPC returned non-UTF-8 JSONL") from exc
 
     def _raise_transport_or_host(
         self,
@@ -547,8 +591,21 @@ class PiRpcSessionBackend(SandboxFixture):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _PortablePiRpc:
+    """A cloned Pi session, identified by its id; no process is held until it is materialized."""
+
+    agent: AgentPi
+    settings: BackendSettings
+    session_id: str
+
+    def materialize(self) -> SessionBackend:
+        """Spawn a Pi RPC process, owned by the calling process, resuming the cloned session."""
+        return PiRpcSessionBackend._resume(self.agent, self.settings, self.session_id, "open")
+
+
 class _RpcIdleTimeout(Exception):
-    """No complete JSONL event arrived before the configured deadline."""
+    """The idle deadline passed before a complete event arrived or a command was written."""
 
 
 class _RpcProcessExited(Exception):
@@ -559,103 +616,103 @@ class _RpcProtocolError(Exception):
     """Pi emitted data that does not satisfy its JSONL protocol."""
 
 
-def _start_reader(
-    stream: IO[bytes],
-    consume: Callable[[bytes], None],
-    finish: Callable[[], None],
-    stopped: threading.Event,
-) -> threading.Thread:
-    def read() -> None:
+def _close(stream: IO[bytes] | None) -> None:
+    """Close *stream* unless it is already gone."""
+    if stream is not None:
+        stream.close()
+
+
+def _read_chunk(stream: IO[bytes]) -> bytes | None:
+    """One non-blocking read: empty if nothing is pending, ``None`` at EOF or on a dead pipe."""
+    try:
+        chunk = os.read(stream.fileno(), _READ_SIZE)
+    except BlockingIOError:
+        return b""
+    except (OSError, ValueError):
+        return None
+    return chunk or None
+
+
+def _read_stdout(child: _RpcChild, stream: IO[bytes]) -> None:
+    """Move one chunk of stdout into the line buffer."""
+    chunk = _read_chunk(stream)
+    if chunk is None:
+        child.close_stdout()
+    else:
+        child.stdout_buffer.extend(chunk)
+
+
+def _read_stderr(child: _RpcChild, stream: IO[bytes]) -> bool:
+    """Move one chunk of stderr into the tail (and echo); false if none was pending."""
+    chunk = _read_chunk(stream)
+    if chunk is None:
+        child.close_stderr()
+    elif chunk:
+        _capture_stderr(child, chunk)
+    return bool(chunk)
+
+
+def _drain_stderr(child: _RpcChild) -> None:
+    """Move all pending stderr into the tail (and echo) without blocking."""
+    while (stream := child.stderr_stream) is not None and _read_stderr(child, stream):
+        pass
+
+
+def _pump(
+    child: _RpcChild, deadline: float | None, pending: memoryview, wakeup: SignalWakeup
+) -> memoryview:
+    """Service the child's pipes once, on the calling thread; return unwritten *pending*.
+
+    Waits until stdout or stderr is readable or, while *pending* stdin data
+    remains, stdin is writable, and handles only the ready pipes.  Reading
+    output while writing keeps a child that blocks on a full output pipe from
+    ever stalling its own stdin read.  Raises :class:`_RpcIdleTimeout` once
+    *deadline* (monotonic, ``None`` for none) has passed.  A signal wakes the
+    poll through *wakeup* (entered by the caller for its whole wait); a
+    non-raising handler leaves the caller to pump again.
+    """
+    poller = select.poll()
+    stdout, stderr = child.stdout_stream, child.stderr_stream
+    stdin_fd = child.stdin.fileno() if pending else None
+    descriptors = [
+        (stream.fileno(), select.POLLIN) for stream in (stdout, stderr) if stream is not None
+    ]
+    if stdin_fd is not None:
+        descriptors.append((stdin_fd, select.POLLOUT))
+    for descriptor, events in descriptors:
+        poller.register(descriptor, events)
+    polled = wakeup.poll(poller, deadline)
+    if polled is None:
+        raise _RpcIdleTimeout
+    ready = set(polled)
+    # Any event, hangup and error included, is resolved by the read or write itself.
+    if stderr is not None and stderr.fileno() in ready:
+        _read_stderr(child, stderr)
+    if stdout is not None and stdout.fileno() in ready:
+        _read_stdout(child, stdout)
+    if pending and stdin_fd in ready:
         try:
-            while not stopped.is_set() and (chunk := os.read(stream.fileno(), 4096)):
-                consume(chunk)
-        finally:
-            stream.close()
-            finish()
-
-    reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    return reader
-
-
-def _start_stderr_reader(child: _RpcChild, stream: IO[bytes]) -> threading.Thread:
-    """Drain stderr while holding the delivery lock through each read and callback."""
-    descriptor = stream.fileno()
-    os.set_blocking(descriptor, False)
-
-    def read() -> None:
-        try:
-            while not child.stopped.is_set():
-                try:
-                    readable = select.select([descriptor], [], [], 0.05)[0]
-                except (OSError, ValueError):
-                    break
-                if not readable:
-                    continue
-                lock = child.stderr_lock
-                lock.acquire()
-                try:
-                    if child.stopped.is_set():
-                        break
-                    try:
-                        chunk = os.read(descriptor, 4096)
-                    except OSError:
-                        break
-                    if not chunk:
-                        break
-                    _capture_stderr(child, chunk)
-                finally:
-                    lock.release()
-        finally:
-            lock = child.stderr_lock
-            lock.acquire()
-            try:
-                stream.close()
-                child.stderr_reader_done.set()
-            finally:
-                lock.release()
-
-    reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    return reader
-
-
-def _queue_stdout(child: _RpcChild, chunk: bytes | None) -> None:
-    while not child.stopped.is_set():
-        try:
-            child.stdout.put(chunk, timeout=0.1)
-            return
-        except queue.Full:
+            pending = pending[os.write(stdin_fd, pending) :]
+        except BlockingIOError:
             pass
+    return pending
 
 
 def _write_command(
     child: _RpcChild, command: dict[str, object], idle_timeout: float | None = None
 ) -> None:
-    stdin = child.stdin
+    """Write one JSONL command, pumping the child's output until it is all accepted."""
     data = (
         json.dumps(command, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
             "utf-8"
         )
         + b"\n"
     )
-    if idle_timeout is None:
-        stdin.write(data)
-        stdin.flush()
-        return
-
-    descriptor = stdin.fileno()
-    deadline = time.monotonic() + idle_timeout
-    view = memoryview(data)
-    os.set_blocking(descriptor, False)
-    try:
-        while view:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([], [descriptor], [], remaining)[1]:
-                raise _RpcIdleTimeout
-            view = view[os.write(descriptor, view) :]
-    finally:
-        os.set_blocking(descriptor, True)
+    deadline = None if idle_timeout is None else time.monotonic() + idle_timeout
+    pending = memoryview(data)
+    with SignalWakeup() as wakeup:
+        while pending:
+            pending = _pump(child, deadline, pending, wakeup)
 
 
 def _spawn(
@@ -691,27 +748,25 @@ def _spawn(
         if prepared is not None:
             prepared.close()
         raise SessionHostError(f"could not start Pi RPC session: {exc}", operation) from exc
-    child = _RpcChild(process, agent, argv, prepared=prepared)
-    child.readers.extend(
-        (
-            _start_reader(
-                cast(IO[bytes], process.stdout),
-                lambda chunk: _queue_stdout(child, chunk),
-                lambda: _queue_stdout(child, None),
-                child.stopped,
-            ),
-            _start_stderr_reader(child, cast(IO[bytes], process.stderr)),
-        )
+    stdout = cast(IO[bytes], process.stdout)
+    stderr = cast(IO[bytes], process.stderr)
+    for pipe in (process.stdin, stdout, stderr):
+        os.set_blocking(cast(IO[bytes], pipe).fileno(), False)
+    return _RpcChild(
+        process, agent, argv, prepared=prepared, stdout_stream=stdout, stderr_stream=stderr
     )
-    return child
+
+
+def _close_pipes(child: _RpcChild) -> None:
+    """Close all of *child*'s pipes, ignoring those already broken."""
+    for close in (child.stdin.close, child.close_stderr, child.close_stdout):
+        with suppress(OSError):
+            close()
 
 
 def _terminate(child: _RpcChild) -> None:
-    child.stopped.set()
-    try:
+    with suppress(OSError):
         child.stdin.close()
-    except OSError:
-        pass
     prepared = child.prepared
     try:
         stop_process(
@@ -723,15 +778,15 @@ def _terminate(child: _RpcChild) -> None:
         )
     finally:
         # ``stop_process`` can itself raise (e.g. a cleanup command whose
-        # binary is missing); the sandbox's tracked artifacts and reader
-        # threads must still be released rather than leaked.
+        # binary is missing); the sandbox's tracked artifacts and pipes
+        # must still be released rather than leaked.
         if prepared is not None:
             prepared.close()
-        for reader in child.readers:
-            reader.join(timeout=1)
-        # The reader callbacks close over ``child``; dropping them breaks that
-        # cycle so the process, queued stdout, and stderr tail are freed at once.
-        child.readers.clear()
+        try:
+            # The process is dead: keep its last diagnostics for the error report.
+            _drain_stderr(child)
+        finally:
+            _close_pipes(child)
 
 
 def _validate_response(event: dict[str, object]) -> None:
@@ -811,26 +866,10 @@ def _capture_stderr(child: _RpcChild, chunk: bytes) -> None:
             pass
 
 
-def _finish_stderr_delivery(child: _RpcChild, *, drain: bool = True) -> None:
+def _finish_stderr_delivery(child: _RpcChild) -> None:
     """Deliver pending diagnostics before disabling the active ask callback."""
-    lock = child.stderr_lock
-    lock.acquire()
-    try:
-        if drain and not child.stderr_reader_done.is_set():
-            stream = child.process.stderr
-            if stream is not None:
-                try:
-                    descriptor = stream.fileno()
-                    while select.select([descriptor], [], [], 0)[0]:
-                        chunk = os.read(descriptor, 4096)
-                        if not chunk:
-                            break
-                        _capture_stderr(child, chunk)
-                except (OSError, ValueError):
-                    pass
-        child.output_callback = None
-    finally:
-        lock.release()
+    _drain_stderr(child)
+    child.output_callback = None
 
 
 def _emit_pi_progress(
@@ -978,10 +1017,10 @@ def _required_session_id(response: dict[str, object], operation: str) -> str:
     return session_id
 
 
-def _replacement_session_id(response: dict[str, object], operation: str, parent_id: str) -> str:
+def _resumed_session_id(response: dict[str, object], operation: str, expected_id: str) -> str:
     session_id = _required_session_id(response, operation)
-    if session_id != parent_id:
-        raise _RpcProtocolError("Pi RPC replacement session id did not match its parent")
+    if session_id != expected_id:
+        raise _RpcProtocolError("Pi RPC did not resume the requested session")
     return session_id
 
 

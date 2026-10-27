@@ -949,12 +949,12 @@ class TestInlineSourceDiagnostics:
 
         records = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
         start = next(record for record in records if record["kind"] == "run_start")
-        assert list(start)[:5] == ["kind", "ts", "file", "line", "col"]
+        assert list(start)[:6] == ["kind", "ts", "file", "line", "col", "pid"]
         assert start["file"] == str(entry.resolve())
         assert start["command"] == "exec"
         assert start["function"] == "main"
         printed = next(record for record in records if record["kind"] == "print")
-        assert list(printed)[:5] == ["kind", "ts", "file", "line", "col"]
+        assert list(printed)[:6] == ["kind", "ts", "file", "line", "col", "pid"]
         assert printed["file"] == str(entry.resolve())
 
     def test_file_bare_expression_at_module_root_keeps_the_plain_message(

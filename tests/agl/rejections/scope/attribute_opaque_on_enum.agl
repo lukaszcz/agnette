@@ -1,0 +1,6 @@
+@opaque
+enum Color
+  | red
+  | blue
+
+program def main() -> unit = ()

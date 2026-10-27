@@ -164,7 +164,7 @@ program def main(artifact: text) -> unit =
     print "verdict: %{review.verdict}"
   catch AgentParseError as e =>
     print "invalid review after %{e.attempts} attempts:\n%{e.raw}"
-    raise e
+    raise
   catch _ as e =>
     print "unexpected: %{e.message}"
 ```
@@ -227,6 +227,13 @@ program def main(code: int) -> unit =
 `try`, a loop, another `raise`, or a lambda must be parenthesized. The operand
 must be an exception value (statically checked). `raise` **diverges**: its
 type is the bottom type, assignable to any expected type.
+
+Bare `raise` rethrows the exception handled by the innermost enclosing `catch`,
+preserving its value, original source location, and notes. It is legal only inside
+that handler's body in the same function: a nested `def` or lambda cannot rethrow
+its enclosing handler's exception. A `try` body nested inside a handler may use
+bare `raise` to rethrow that handler's exception. `raise e` creates a new raise
+location at the explicit `raise e` expression.
 
 ```agl
 program def main(ready: bool) -> unit =

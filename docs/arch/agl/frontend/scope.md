@@ -58,6 +58,7 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `warning_allows` | `@allow`, `@!allow` | the warning policy ([hosting.md](../hosting.md)) |
 | `warning_exemptions` | `@exempts` | function headers (`FunctionSignature.exempts`) → `exec` hole analysis ([types.md](types.md)) |
 | `shell_quoted` | `@shell-quoted` | function headers (`FunctionSignature.shell_quoted`) → `exec` hole analysis ([types.md](types.md)) |
+| `opaque` | `@opaque` | type building (`TypeDef.opaque`, [types.md](types.md#opaque-records)) |
 
 Inner attributes (`@!doc`, `@!allow`; `Attribute.inner`) on `Program` and `ScopeRegion` go through the same catalog check under the `MODULE` / `SCOPE_REGION` targets; `region_docs` is keyed by full scope path, and neither doc enters `docs`.
 

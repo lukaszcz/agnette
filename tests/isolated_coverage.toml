@@ -1,0 +1,11 @@
+# Coverage for the isolated runner's subprocess and the children it forks
+# (`COVERAGE_PROCESS_START`). Source paths mirror the suite's `--cov` options.
+# `patch = ["_exit"]` saves a child's data when it leaves through `os._exit`;
+# the `fork` patch would lose lines run in the forking frame. Data files get
+# per-process suffixes and are combined into the suite's `.coverage` by pytest-cov.
+[tool.coverage.run]
+branch = true
+parallel = true
+patch = ["_exit"]
+source = ["agnette", "packages/stdlib/src"]
+data_file = "${AGM_ISOLATED_COVERAGE_DATA}"

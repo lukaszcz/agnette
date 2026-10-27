@@ -1,0 +1,7 @@
+@opaque
+record Token
+  serial: int
+
+def encode(t: Token) -> json = t as json
+
+program def main() -> unit = ()

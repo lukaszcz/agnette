@@ -1,0 +1,4 @@
+program def main() -> unit =
+  try
+    raise
+  catch _ => ()

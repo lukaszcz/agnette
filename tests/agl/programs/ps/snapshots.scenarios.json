@@ -1,0 +1,161 @@
+{
+  "scenarios": [
+    {
+      "name": "listed_default_and_explicit_sessions_continue_in_the_child",
+      "isolated": true,
+      "params": {"mode": "default"},
+      "agents": {
+        "writer": {
+          "responses": ["parent answer", "explicit answer", "later answer", "explicit later"],
+          "session": {}
+        }
+      },
+      "forks": {
+        "1": {
+          "agents": {"writer": {"responses": ["child default answer", "child explicit answer"], "session": {}}},
+          "expect": {
+            "calls": {"writer": 0},
+            "sessions": [
+              {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": "session-2"},
+              {"agent": "writer", "tag": "session-2", "opened": true, "closed": true, "parent": "session-1"}
+            ],
+            "session_prompts": [
+              {"agent": "writer", "session": "session-1", "call": 0, "equals": "child default prompt"},
+              {"agent": "writer", "session": "session-2", "call": 0, "equals": "child explicit prompt"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "calls": {"writer": 0},
+        "stdout": "child default answer/child explicit answer\nlater answer/explicit later\n",
+        "sessions": [
+          {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null},
+          {"agent": "writer", "tag": "session-2", "opened": true, "closed": true, "parent": null}
+        ],
+        "session_prompts": [
+          {"agent": "writer", "session": "session-1", "call": 0, "equals": "parent explicit prompt"},
+          {"agent": "writer", "session": "session-1", "call": 1, "follow_up": {"equals": "parent explicit again prompt"}},
+          {"agent": "writer", "session": "session-2", "call": 0, "equals": "parent prompt"},
+          {"agent": "writer", "session": "session-2", "call": 1, "follow_up": {"equals": "parent again prompt"}}
+        ],
+        "session_operations": [
+          {"agent": "writer", "session": "session-1", "operation": "fork", "outcome": "success"},
+          {"agent": "writer", "session": "session-2", "operation": "fork", "outcome": "success"}
+        ]
+      }
+    },
+    {
+      "name": "an_unlisted_default_opens_fresh_and_an_unlisted_session_stays_unusable",
+      "isolated": true,
+      "params": {"mode": "mixed"},
+      "agents": {
+        "writer": {
+          "responses": ["default answer", "listed answer", "unlisted answer", "later answer"],
+          "session": {}
+        }
+      },
+      "forks": {
+        "1": {
+          "agents": {"writer": {"responses": ["fresh answer", "snapshot answer"], "session": {}}},
+          "expect": {
+            "calls": {"writer": 0},
+            "sessions": [
+              {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null},
+              {"agent": "writer", "tag": "session-2", "opened": true, "closed": true, "parent": "session-1"}
+            ],
+            "session_prompts": [
+              {"agent": "writer", "session": "session-1", "call": 0, "equals": "child fresh prompt"},
+              {"agent": "writer", "session": "session-2", "call": 0, "equals": "child snapshot prompt"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "calls": {"writer": 0},
+        "stdout": "fresh answer/snapshot answer/session error in ask\nlater answer\n",
+        "sessions": [
+          {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null},
+          {"agent": "writer", "tag": "session-2", "opened": true, "closed": true, "parent": null},
+          {"agent": "writer", "tag": "session-3", "opened": true, "closed": true, "parent": null}
+        ],
+        "session_prompts": [
+          {"agent": "writer", "session": "session-3", "call": 0, "equals": "parent default prompt"},
+          {"agent": "writer", "session": "session-1", "call": 0, "equals": "parent listed prompt"},
+          {"agent": "writer", "session": "session-1", "call": 1, "follow_up": {"equals": "parent listed again prompt"}},
+          {"agent": "writer", "session": "session-2", "call": 0, "equals": "parent unlisted prompt"}
+        ],
+        "session_operations": [
+          {"agent": "writer", "session": "session-1", "operation": "fork", "outcome": "success"}
+        ]
+      }
+    },
+    {
+      "name": "a_child_snapshots_a_session_it_has_not_used_for_its_own_child",
+      "isolated": true,
+      "params": {"mode": "nested"},
+      "agents": {"writer": {"responses": ["parent answer"], "session": {}}},
+      "forks": {
+        "1": {
+          "agents": {"writer": {"responses": ["child answer"], "session": {}}},
+          "expect": {
+            "calls": {"writer": 0},
+            "sessions": [
+              {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": "session-1"}
+            ],
+            "session_prompts": [
+              {"agent": "writer", "session": "session-1", "call": 0, "equals": "child prompt"}
+            ],
+            "session_operations": [
+              {"agent": "writer", "session": "session-1", "operation": "fork", "outcome": "success"}
+            ]
+          }
+        },
+        "1.1": {
+          "agents": {"writer": {"responses": ["grandchild answer"], "session": {}}},
+          "expect": {
+            "calls": {"writer": 0},
+            "sessions": [
+              {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": "session-1"}
+            ],
+            "session_prompts": [
+              {"agent": "writer", "session": "session-1", "call": 0, "equals": "grandchild prompt"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "calls": {"writer": 0},
+        "stdout": "child answer/grandchild answer\n",
+        "sessions": [{"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null}],
+        "session_prompts": [{"agent": "writer", "session": "session-1", "call": 0, "equals": "parent prompt"}],
+        "session_operations": [{"agent": "writer", "session": "session-1", "operation": "fork", "outcome": "success"}]
+      }
+    },
+    {
+      "name": "a_session_that_cannot_be_snapshotted_makes_fork_raise_before_any_child_exists",
+      "isolated": true,
+      "params": {"mode": "rejected"},
+      "agents": {
+        "writer": {"responses": ["parent answer"], "session": {}},
+        "plain": {"responses": [], "session": {"capabilities": ["ask"]}}
+      },
+      "expect": {
+        "calls": {"writer": 0, "plain": 0},
+        "stdout": "session error in fork\nsession error in fork\nsession error in fork\nparent answer\n",
+        "sessions": [
+          {"agent": "writer", "tag": "session-1", "opened": true, "closed": true, "parent": null},
+          {"agent": "writer", "tag": "session-2", "opened": true, "closed": true, "parent": null},
+          {"agent": "plain", "tag": "session-1", "opened": true, "closed": true, "parent": null}
+        ],
+        "session_prompts": [{"agent": "writer", "session": "session-1", "call": 0, "equals": "parent prompt"}],
+        "session_operations": [
+          {"agent": "writer", "session": "session-1", "operation": "fork", "outcome": "success"},
+          {"agent": "plain", "session": "session-1", "operation": "fork", "call": 0, "outcome": "unsupported"},
+          {"agent": "plain", "session": "session-1", "operation": "fork", "call": 1, "outcome": "unsupported"}
+        ],
+        "trace_absent": [{"kind": "fork"}]
+      }
+    }
+  ]
+}

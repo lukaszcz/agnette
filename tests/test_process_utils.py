@@ -25,6 +25,7 @@ from agnette.core.process import (
     _wait_for_process_group_exit,
     _write_stream,
     exit_with_output,
+    kill_group,
     kill_process_group,
     require_capture,
     require_success,
@@ -36,6 +37,7 @@ from agnette.core.process import (
     terminating_signals_exit,
     terminating_signals_raise_interrupt,
 )
+from tests._proc_helpers import SLEEP_UNTIL_SIGNALLED_SNIPPET
 
 
 def _process_alive(pid: int) -> bool:
@@ -260,7 +262,8 @@ class TestTerminateProcess:
     def test_handles_process_that_exits_quickly_after_sigterm(self) -> None:
         # A process that responds quickly to SIGTERM
         sigterm_script = (
-            "import signal, time; signal.signal(signal.SIGTERM, lambda *a: exit(0)); time.sleep(30)"
+            "import signal, time\n"
+            "signal.signal(signal.SIGTERM, lambda *a: exit(0))\n" + SLEEP_UNTIL_SIGNALLED_SNIPPET
         )
         proc = subprocess.Popen(
             [sys.executable, "-c", sigterm_script],
@@ -352,6 +355,13 @@ class TestWaitForProcessGroupExit:
 # ---------------------------------------------------------------------------
 # kill_process_group
 # ---------------------------------------------------------------------------
+
+
+def test_kill_group_signals_a_group_by_id_and_reports_whether_it_existed() -> None:
+    proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    assert kill_group(proc.pid)
+    proc.wait(timeout=5)
+    assert not kill_group(proc.pid)
 
 
 class TestKillProcessGroup:
@@ -521,8 +531,7 @@ class TestKillProcessGroup:
             "    time.sleep(0.005)\n"
             "open(sys.argv[3], 'w').write(str(child.pid))\n"
             "signal.signal(signal.SIGTERM, lambda *_a: (time.sleep(0.05), os._exit(0)))\n"
-            "open(sys.argv[4], 'w').close()\n"
-            "time.sleep(60)\n"
+            "open(sys.argv[4], 'w').close()\n" + SLEEP_UNTIL_SIGNALLED_SNIPPET
         )
 
         proc = subprocess.Popen(

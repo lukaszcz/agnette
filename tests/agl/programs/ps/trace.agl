@@ -1,0 +1,38 @@
+# Trace records name the process that wrote them. The `std/ps` records tie parent and child:
+# `fork` and `exit` carry the child's pid, `process_unconsumed` the pid of a child whose failure
+# nobody consumed, and the records of each child carry its own pid.
+import std/ps
+import std/ps::{ProcessExitError}
+import std/path::path
+import ps_sync
+import ps_failure::{Boom, failing}
+
+def grandchild() -> int =
+  print "grandchild"
+  21
+
+def child() -> int =
+  print "child"
+  ps::wait(ps::fork(grandchild)) * 2
+
+def hold(root: path) -> int =
+  ps_sync::hold(root ++ "/ready", root ++ "/never")
+  0
+
+program def main(root: path) -> unit =
+  print "parent"
+  let first = ps::fork(child)
+  let second = ps::fork(fn() => failing("second"))
+  print ps::wait(first)
+  try
+    let _ = ps::wait(second)
+  catch Boom as b =>
+    print "caught %{b.tag}"
+  let stuck = ps::fork(fn() => hold(root))
+  ps_sync::await-file(root ++ "/ready")
+  ps::terminate(stuck)
+  try
+    let _ = ps::wait(stuck)
+  catch ProcessExitError as e =>
+    print "terminated"
+  let _ = ps::fork(fn() => failing("unconsumed"))
