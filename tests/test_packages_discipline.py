@@ -953,6 +953,87 @@ class TestManifestConfigDiscipline:
 
         validate_package(package)
 
+    @pytest.mark.parametrize(
+        "leaf",
+        ["steps", "main.refine.steps", "custom.main.refine.steps"],
+        ids=["bare", "module_suffix", "full"],
+    )
+    def test_accepts_a_function_param_spelling(self, tmp_path: Path, leaf: str) -> None:
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            f'[config]\n"{leaf}" = 3\n',
+            "def refine(@param steps: int = 1) -> int = steps\nprogram def main() -> unit = ()\n",
+        )
+
+        validate_package(package)
+
+    def test_accepts_a_scoped_function_param_spelling(self, tmp_path: Path) -> None:
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            '[config]\n"main.Sc.deep.depth" = 3\n',
+            "scope Sc\n  def deep(@param depth: int = 1) -> int = depth\nend Sc\n\n"
+            "program def main() -> unit = ()\n",
+        )
+
+        validate_package(package)
+
+    def test_accepts_every_parameter_kind_in_one_config(self, tmp_path: Path) -> None:
+        """Program argument, module and function ``@param``, and engine names all validate."""
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands."launch it"]\nprogram = "custom/main::main"\n\n'
+            '[config.launch.it]\ntarget = "x"\n\n'
+            '[config]\nverbose = true\nsteps = 2\ntimeout = "1h"\n',
+            "@param let verbose: bool = false\n"
+            "def refine(@param steps: int = 1) -> int = steps\n"
+            'program def main(target: text = "") -> unit = ()\n',
+        )
+
+        validate_package(package)
+
+    def test_rejects_an_unknown_leaf_beside_function_params(self, tmp_path: Path) -> None:
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            '[config]\n"refine.bogus" = 3\n',
+            "def refine(@param steps: int = 1) -> int = steps\nprogram def main() -> unit = ()\n",
+        )
+
+        with pytest.raises(DisciplineError):
+            validate_package(package)
+
+    def test_rejects_the_function_name_alone_as_a_qualifier(self, tmp_path: Path) -> None:
+        """``refine.steps`` is no spelling: the module path precedes the function path."""
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            '[config]\n"refine.steps" = 3\n',
+            "def refine(@param steps: int = 1) -> int = steps\nprogram def main() -> unit = ()\n",
+        )
+
+        with pytest.raises(DisciplineError):
+            validate_package(package)
+
+    def test_rejects_a_function_route_table(self, tmp_path: Path) -> None:
+        """A function route is not a registered command, so it is no nested table."""
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            "[config.refine]\nsteps = 3\n",
+            "def refine(@param steps: int = 1) -> int = steps\nprogram def main() -> unit = ()\n",
+        )
+
+        with pytest.raises(DisciplineError):
+            validate_package(package)
+
     def test_accepts_the_documented_config_example(self, tmp_path: Path) -> None:
         """The ``[config]`` example in ``docs/commands/pkg.md`` validates as written."""
         package = self._write(
@@ -1405,6 +1486,28 @@ class TestManifestConfigCheckCommand:
         )
         (root / MODULE_TREE_DIRNAME / "main.agl").write_text(
             "program def main() -> unit = ()\n", encoding="utf-8"
+        )
+        self._use_temp_home(monkeypatch, tmp_path)
+
+        check_command.run(PkgCheckArgs(directory=str(root)))
+
+    def test_accepts_config_leaves_of_every_parameter_kind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = tmp_path / "package"
+        (root / MODULE_TREE_DIRNAME).mkdir(parents=True)
+        (root / "package.toml").write_text(
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nlaunch = { program = "custom/main::main" }\n\n'
+            '[config]\ntrace = true\nverbose = false\nsteps = 2\n"main.refine.steps" = 3\n'
+            '\n[config.launch]\ntarget = "x"\n',
+            encoding="utf-8",
+        )
+        (root / MODULE_TREE_DIRNAME / "main.agl").write_text(
+            "@param let verbose: bool = false\n"
+            "def refine(@param steps: int = 1) -> int = steps\n"
+            'program def main(target: text = "") -> unit = ()\n',
+            encoding="utf-8",
         )
         self._use_temp_home(monkeypatch, tmp_path)
 

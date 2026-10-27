@@ -532,21 +532,22 @@ Module parameters use their declaring module's **module route**. For `A/logging`
 `[A.logging]`; bindings in `scope debug` use `[A.logging.debug]`, or the exact module anchor
 `["A/logging".debug]`. A function parameter's route is its function's qualified table: `refine`
 in `devel/review` reads `[devel.review.refine]` (or the shorter `[review.refine]`), and a method
-includes its receiver, `[review.Agent.review]`. Leaves use `@opt-name` when present. An entry module no package owns (a loose
-file or `-c` source) has no module route: a loose `prog.agl`'s own `@param let own` is set through
-its program route, `[prog.main] own = 11`, never `[prog] own = 11`. The selected program's table is
-the **program route**: it overrides a module or function parameter through any resolving spelling — the bare
+includes its receiver, `[review.Agent.review]`. Leaves use `@opt-name` when present. These are
+the parameters' **declaration routes**. An entry module no package owns (a loose file or `-c`
+source) has none: a loose `prog.agl`'s own `@param let own` is set through its program route,
+`[prog.main] own = 11`, never `[prog] own = 11`. The selected program's table is the **program
+route**: it overrides a module or function parameter through any resolving spelling — the bare
 external name, or a dotted qualified spelling as a quoted key such as `"A.logging.verbose"`, which
 reaches a parameter whose bare name a nearer declaration claims — and wins over the program's own
 [`@config`](../agl/reference/attributes.md#config) entries, which set module parameters,
 function parameters and the program's own signature arguments (`main::x`). Below `@config`, a
 package-owned program's [manifest `[config]`](pkg.md#config) table supplies further defaults,
 signature arguments included — its own command table, then an inherited group table, then the
-manifest root — still above the module route; CLI and
+manifest root — still above the declaration route; CLI and
 `@opt-env` still win over all of these. An inline entry has no config-file route or manifest, but
 its `@config` entries still apply to its module parameters, function parameters and own
 signature arguments, so they resolve as CLI > `@opt-env` > `@config` > initializer (an
-argument's default); its imported modules retain their module routes and
+argument's default); its imported modules retain their declaration routes and
 may still be seeded by `@config`.
 
 A [registered command](pkg.md#registered-commands)'s program route also inherits from its
@@ -692,7 +693,8 @@ failure; a clean `FILE` prints nothing.
 No `program def` is required, so `agm check` can check library modules directly. `agm exec`
 requires an entry `program def`. A `program def` is validated with its module, including that each value parameter's
 type can cross the host/JSON boundary (`text` verbatim, or a finite, JSON-decodable data type;
-a function type is rejected). `check` never selects, configures, or runs an entry: no argument
+a function type is rejected), and that the file's import closure declares no parameters sharing a
+full spelling (as for `agm exec`). `check` never selects, configures, or runs an entry: no argument
 projection, no `-p`.
 
 [`agm pkg check`](pkg.md) is different: it validates a package's manifest and module-tree
@@ -812,10 +814,12 @@ into entries never changes what a name selects. Retained imports and `use` decla
 which later ones replace them, are described under
 [Modules: REPL](../agl/reference/modules.md#repl).
 
-When the REPL first loads a module with `@param` bindings, it seeds them from that module's
-module route. It does not read program routes and offers no module-parameter flags. A seeded
-`var` keeps later writes for the session; `:reset` restores the configured initial value when
-the module is loaded again.
+When the REPL first loads a module with `@param` bindings or `@param` function parameters, it
+seeds them from their declaration routes: the module's route for bindings, the function's for its
+parameters. It does not read program routes and offers no parameter flags. Loaded modules whose
+parameters share a full spelling are rejected, as under `agm exec`. A seeded `var` keeps later
+writes for the session; `:reset` restores the configured initial value when the module is loaded
+again.
 
 An imported module's `extern def` companion ([Python FFI](../agl/reference/ffi.md)) is imported
 once per session, so its module globals last for the session; `:reset` discards the cached

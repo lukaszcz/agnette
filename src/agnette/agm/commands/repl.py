@@ -35,8 +35,7 @@ from functools import partial
 
 from agnette.agent.session import create_agl_session_host
 from agnette.agl.diagnostics import AglError, format_diagnostic
-from agnette.agl.ir.static_keys import StaticBindingKey
-from agnette.agl.modules.ids import ModuleId
+from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.repl import ReplSession
 from agnette.agl.repl.plain_console import plain_mode_engaged
 from agnette.agl.runtime.agents import value_driven_agent_factory
@@ -52,8 +51,10 @@ from agnette.agm.cli_support.engine_seeds import (
     resolve_timeout,
 )
 from agnette.agm.cli_support.param_config import (
+    colliding_declarations,
+    declaration_route_tables,
     report_undeclared_exec_keys,
-    resolve_module_param_values,
+    resolve_declaration_route_values,
 )
 from agnette.config.context import current_config_context
 from agnette.config.general import (
@@ -82,11 +83,20 @@ from agnette.sandbox.prepare import lazy_sandbox_context
 
 
 def _resolve_param_seeds(
-    config: GeneralConfig, _module: ModuleId, params: Sequence[HostParamInfo]
-) -> Mapping[StaticBindingKey, object]:
-    """Resolve module-parameter seeds, reporting an ambiguous config key as an ``AglError``."""
+    config: GeneralConfig,
+    new: Sequence[HostParamInfo],
+    loaded: Sequence[HostParamInfo],
+) -> Mapping[HostParamKey, object]:
+    """Resolve the *new* parameters' declaration-route seeds, as ``agm exec`` does.
+
+    A spelling shared with any *loaded* parameter, an ambiguous config key, or
+    a malformed value is an ``AglError``; *loaded* routes are nested routes.
+    """
+    collision = colliding_declarations((*loaded, *new))
+    if collision is not None:
+        raise AglError(collision)
     try:
-        return resolve_module_param_values(config, params)
+        return resolve_declaration_route_values(config, new, declaration_route_tables(loaded))
     except QualifiedConfigLookupError as exc:
         raise AglError(str(exc)) from exc
 

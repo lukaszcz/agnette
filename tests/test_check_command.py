@@ -296,6 +296,44 @@ class TestCheckCommand:
         assert "bad.agl" in err
         assert "good.agl" not in err
 
+    @pytest.mark.parametrize(
+        "route",
+        [
+            pytest.param("def refine(@param x: int = 1) -> int = x\n", id="function"),
+            pytest.param("scope refine\n  @param let x: int = 1\nend refine\n", id="scope"),
+        ],
+    )
+    def test_import_closure_parameters_sharing_a_spelling_are_rejected(
+        self, route: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A declaration route colliding with a module route is static, as for ``agm exec``."""
+        lib_dir = tmp_path / "lib"
+        (lib_dir / "a").mkdir(parents=True)
+        (lib_dir / "a.agl").write_text(route)
+        (lib_dir / "a" / "refine.agl").write_text("@param let x: int = 2\n")
+        entry = tmp_path / "entry.agl"
+        entry.write_text("import a\nimport a/refine\n")
+
+        with pytest.raises(SystemExit) as exc_info:
+            check_command.run(CheckArgs(files=[str(entry)], module_paths=[str(lib_dir)]))
+
+        assert exc_info.value.code == 1
+        assert capsys.readouterr().err
+
+    def test_parameters_with_distinct_spellings_are_accepted(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        lib_dir = tmp_path / "lib"
+        (lib_dir / "a").mkdir(parents=True)
+        (lib_dir / "a.agl").write_text("def tune(@param x: int = 1) -> int = x\n")
+        (lib_dir / "a" / "refine.agl").write_text("@param let x: int = 2\n")
+        entry = tmp_path / "entry.agl"
+        entry.write_text("import a\nimport a/refine\n")
+
+        check_command.run(CheckArgs(files=[str(entry)], module_paths=[str(lib_dir)]))
+
+        assert capsys.readouterr().err == ""
+
     def test_error_inside_imported_module_reports_that_modules_path(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

@@ -91,7 +91,7 @@ from agnette.agm.cli_support.exec_target import (
 )
 from agnette.agm.cli_support.param_config import (
     ParamValueTiers,
-    colliding_declarations,
+    report_colliding_declarations,
     report_undeclared_exec_keys,
     resolve_param_values,
 )
@@ -200,9 +200,7 @@ def _bind_host_inputs(
     values already folded in above it — beneath the selected program's own
     ``@config`` values, which are only known once the program is lowered.
     """
-    collision = colliding_declarations(declared_params)
-    if collision is not None:
-        print(f"Error: {collision}.", file=sys.stderr)
+    if report_colliding_declarations(declared_params):
         raise SystemExit(1)
     command_result = build_program_command(program, reserved_flags, params)
     if not isinstance(command_result, ProgramCommand):

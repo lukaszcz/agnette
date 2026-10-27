@@ -25,7 +25,7 @@ from agnette.agl.diagnostics import (
     ReferencedMemberError,
     type_name_not_a_value,
 )
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.matchcompile.diagnostics import NonExhaustiveMatchError
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.parser import AglSyntaxError
@@ -3386,9 +3386,9 @@ class TestModuleParameterSeeds:
         calls: list[tuple[str, tuple[str, ...]]] = []
 
         def resolve(
-            module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
-            calls.append((module.display(), tuple(param.name for param in params)))
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
+            calls.append((params[0].module.display(), tuple(param.name for param in params)))
             return {params[0].key: 7}
 
         session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
@@ -3402,13 +3402,32 @@ class TestModuleParameterSeeds:
         assert _int(second.value) == 7
         assert calls == [("settings", ("value",))]
 
+    def test_resolver_receives_the_parameters_of_already_loaded_modules(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "first.agl").write_text("@param let one: int = 1\n", encoding="utf-8")
+        (tmp_path / "second.agl").write_text("@param let two: int = 2\n", encoding="utf-8")
+        calls: list[tuple[list[str], list[str]]] = []
+
+        def resolve(
+            params: tuple[HostParamInfo, ...], loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
+            calls.append(([param.name for param in params], [param.name for param in loaded]))
+            return {}
+
+        session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
+
+        assert session.eval_entry("import first").ok
+        assert session.eval_entry("import second").ok
+        assert calls == [(["one"], []), (["two"], ["one"])]
+
     def test_resolver_receives_the_owner_of_each_parameter(self, tmp_path: Path) -> None:
         (tmp_path / "settings.agl").write_text("@param let value: int = 1\n", encoding="utf-8")
         owners: list[Path | None] = []
 
         def resolve(
-            _module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             owners.extend(param.owner for param in params)
             return {}
 
@@ -3421,8 +3440,8 @@ class TestModuleParameterSeeds:
         (tmp_path / "plain.agl").write_text("let value: int = 1\n", encoding="utf-8")
 
         def resolve(
-            _module: ModuleId, _params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            _params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             pytest.fail("resolver must not be called for an empty parameter inventory")
 
         session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
@@ -3435,8 +3454,8 @@ class TestModuleParameterSeeds:
         (tmp_path / "settings.agl").write_text("@param let value: int = 1\n", encoding="utf-8")
 
         def resolve(
-            _module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             return {params[0].key: 9}
 
         session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
@@ -3456,8 +3475,8 @@ class TestModuleParameterSeeds:
         )
 
         def resolve(
-            _module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             return {params[0].key: 4}
 
         session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
@@ -3472,8 +3491,8 @@ class TestModuleParameterSeeds:
         (tmp_path / "settings.agl").write_text("@param let value: int = 3\n", encoding="utf-8")
 
         def resolve(
-            _module: ModuleId, _params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            _params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             return {}
 
         session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
@@ -3488,8 +3507,8 @@ class TestModuleParameterSeeds:
         calls = 0
 
         def resolve(
-            _module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             nonlocal calls
             calls += 1
             return {params[0].key: "bad" if calls == 1 else 8}
@@ -3519,8 +3538,8 @@ class TestModuleParameterSeeds:
         values = iter((2, 5))
 
         def resolve(
-            _module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             return {params[0].key: next(values)}
 
         session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
@@ -3546,9 +3565,9 @@ class TestModuleParameterSeeds:
         calls: list[ModuleId] = []
 
         def resolve(
-            module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
-            calls.append(module)
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
+            calls.append(params[0].module)
             return {params[0].key: 12}
 
         session = ReplSession(
@@ -3587,9 +3606,9 @@ class TestModuleParameterSeeds:
         calls: list[ModuleId] = []
 
         def resolve(
-            module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
-            calls.append(module)
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
+            calls.append(params[0].module)
             return {params[0].key: 12}
 
         session = ReplSession(
@@ -3621,8 +3640,8 @@ class TestModuleParameterSeeds:
         )
 
         def resolve(
-            _module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             return {param.key: 10 for param in params}
 
         session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
@@ -7235,8 +7254,8 @@ class TestEntryResultFailure:
         (tmp_path / "settings.agl").write_text("@param let value: int = 1\n", encoding="utf-8")
 
         def resolve(
-            _module: ModuleId, params: tuple[HostParamInfo, ...]
-        ) -> Mapping[StaticBindingKey, object]:
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
             return {params[0].key: "oops"}
 
         s = repl_session_with_root(tmp_path, param_seed_resolver=resolve)

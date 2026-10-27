@@ -546,30 +546,37 @@ def _import_closure(
     return tuple(seen)
 
 
-def _param_declarations(
+def _resolution_params(
     module_id: ModuleId, resolution: ModuleResolution
-) -> Iterator[tuple[str, str]]:
-    """Yield ``(full spelling, label)`` for each host parameter *resolution* declares."""
+) -> Iterator[tuple[tuple[str, ...], str, StaticBindingKey | FunctionParamKey]]:
+    """Yield ``(declaration route, name, key)`` for each host parameter *resolution* declares.
 
-    def declaration(
-        route: tuple[str, ...], name: str, key: StaticBindingKey | FunctionParamKey
-    ) -> tuple[str, str]:
-        spelling = param_spellings_for(module_id.segments, route, name, is_entry=False)[-1]
-        return spelling, host_param_label(key)
-
+    A function parameter's route is its function's qualified route.
+    """
     for binding in resolution.param_bindings():
         name = binding.cli.name
-        yield declaration(
-            binding.scope_path, name, static_binding_key(module_id, binding.scope_path, name)
+        yield (
+            binding.scope_path,
+            name,
+            static_binding_key(module_id, binding.scope_path, name),
         )
     for function_binding in resolution.function_param_bindings():
         function = function_binding.function.name
         name = function_binding.cli.name
-        yield declaration(
+        yield (
             (*function_binding.scope_path, function),
             name,
             FunctionParamKey(module_id, function_binding.scope_path, function, name),
         )
+
+
+def _param_declarations(
+    module_id: ModuleId, resolution: ModuleResolution
+) -> Iterator[tuple[str, str]]:
+    """Yield ``(full spelling, label)`` for each host parameter *resolution* declares."""
+    for route, name, key in _resolution_params(module_id, resolution):
+        spelling = param_spellings_for(module_id.segments, route, name, is_entry=False)[-1]
+        yield spelling, host_param_label(key)
 
 
 def _program_declarations(resolution: ModuleResolution) -> dict[tuple[str, ...], FuncDef]:
@@ -626,9 +633,10 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
 
     A nested table's key names a registered command, group, or alias path
     (*manifest*'s own, ``@command`` merged in); every other leaf spells an
-    engine setting, a ``@param`` binding in the package's resolved dependency
-    closure (*resolutions*: package, dependencies, and ``std``) or, at a level a
-    command's program is reached from, one of that program's arguments.
+    engine setting, a ``@param`` binding or ``@param`` function parameter in the
+    package's resolved dependency closure (*resolutions*: package, dependencies,
+    and ``std``) or, at a level a command's program is reached from, one of that
+    program's arguments.
     Per-program reachability, precedence and cross-route ambiguity are a run-time
     concern: a leaf the selected program does not consume is warned about there.
     """
@@ -719,16 +727,12 @@ def _validate_config_level(
 
 
 def _closure_param_spellings(resolutions: _ModuleResolutions) -> frozenset[str]:
-    """Return every bare or dotted spelling of a ``@param`` binding across *resolutions*."""
-    spellings: set[str] = set()
-    for module_id, resolution in resolutions.items():
-        for binding in resolution.param_bindings():
-            spellings.update(
-                param_spellings_for(
-                    module_id.segments,
-                    binding.scope_path,
-                    binding.cli.name,
-                    is_entry=module_id.is_entry,
-                )
-            )
-    return frozenset(spellings)
+    """Return every bare or dotted spelling of a module or function ``@param`` in *resolutions*."""
+    return frozenset(
+        spelling
+        for module_id, resolution in resolutions.items()
+        for route, name, _key in _resolution_params(module_id, resolution)
+        for spelling in param_spellings_for(
+            module_id.segments, route, name, is_entry=module_id.is_entry
+        )
+    )

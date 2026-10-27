@@ -1947,3 +1947,86 @@ def test_an_undeclared_key_of_a_declaration_route_is_not_called_a_program_argume
     reported = capsys.readouterr().err
     assert "'bogus'" in reported
     assert "program argument" not in reported
+
+
+class TestUndeclaredKeyReports:
+    """A configured leaf draws a warning unless a parameter of its route declares it."""
+
+    def test_an_undeclared_function_route_key_warns_and_a_declared_one_does_not(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        refine = _function_binding("devel/review", "refine", "steps", IntType())
+        program = _program(closure=(ModuleId.from_path("app/main"), refine.module))
+
+        values = _resolve(
+            _config({"devel": {"review": {"refine": {"steps": 3, "bogus": 1}}}}),
+            program,
+            (refine,),
+        )
+
+        err = capsys.readouterr().err
+        assert values == {refine.key: 3}
+        assert "'bogus'" in err
+        assert "'steps'" not in err
+
+    def test_an_unreached_function_parameter_is_declared_by_its_route(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        refine = _function_binding("devel/review", "refine", "steps", IntType())
+        program = _program(closure=(ModuleId.from_path("app/main"), refine.module))
+
+        resolve_param_values(
+            _config({"devel": {"review": {"refine": {"steps": 3}}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, ()),
+            declared_params=(refine,),
+        )
+
+        assert capsys.readouterr().err == ""
+
+    def test_a_program_route_accepts_every_spelling_of_every_parameter_kind(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        module_param = _binding("devel/review", "verbose")
+        function_param = _function_binding("devel/review", "refine", "steps", IntType())
+        unreached = _function_binding("devel/review", "spare", "limit", IntType())
+        program = _program(
+            closure=(ModuleId.from_path("app/main"), module_param.module),
+            parameters=(_argument("target", type_=TextType()),),
+        )
+        table = {
+            "target": "x",
+            "verbose": True,
+            "devel.review.refine.steps": 4,
+            "limit": 5,
+            "trace": True,
+            "std.config.timeout": "1h",
+        }
+
+        resolve_param_values(
+            _config({"workflow": {"run": table}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, (module_param, function_param)),
+            declared_params=(module_param, function_param, unreached),
+        )
+
+        assert capsys.readouterr().err == ""
+
+    def test_a_module_route_rejects_a_function_parameter_leaf_of_another_route(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        module_param = _binding("devel/review", "verbose")
+        function_param = _function_binding("devel/review", "refine", "steps", IntType())
+        program = _program(closure=(ModuleId.from_path("app/main"), module_param.module))
+
+        _resolve(
+            _config({"devel": {"review": {"steps": 3}}}), program, (module_param, function_param)
+        )
+
+        assert "'steps'" in capsys.readouterr().err

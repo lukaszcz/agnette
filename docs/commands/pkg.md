@@ -174,7 +174,7 @@ rev = "devel review"
 
 `agm devel`, `agm devel --help`, and `agm help devel` show the group's guidance and a generated
 subcommand listing. Leaf commands generate usage and option help from their program signatures and
-reached module parameters, so authored help is optional. Missing program arguments, and values
+reached module and function parameters, so authored help is optional. Missing program arguments, and values
 from the command line or the environment that do not parse, show that command's usage; a
 configured value that does not parse is a configuration error.
 
@@ -202,12 +202,12 @@ descendants: the example supports both `agm dv review` and `agm rev`. Aliases pa
 activation conflicts, project pins, help, and completion like commands.
 
 Config tables use dots between path words: `[rev]`, `[dv.review]`, and `[devel.review]` all
-address the same program route (signature arguments, engine settings, and resolving module
-parameters, bare or dotted-qualified), even via `agm exec`. Different keys in these tables
-combine; setting the same key
-through multiple spellings in one layer is an ambiguity error, and a later config layer overrides
-an earlier one. CLI flags still take precedence. Unused-key diagnostics validate a registered
-command table against that command's program route, not a module route with the same dotted path.
+address the same program route (signature arguments, engine settings, and resolving module and
+function parameters, bare or dotted-qualified), even via `agm exec`. Different keys in these
+tables combine; setting the same key through multiple spellings in one layer is an ambiguity error,
+and a later config layer overrides an earlier one. CLI flags still take precedence. Unused-key
+diagnostics validate a registered command table against that command's program route, not a
+declaration route with the same dotted path.
 
 A group table also supplies defaults to every command beneath it: `[devel]` and, through the
 `dv = "devel"` alias, `[dv]` both feed `devel review`, however it is invoked. Its own command's
@@ -224,7 +224,7 @@ command may be the one that consumes it.
 ```toml
 [config]                          # root leaves: defaults for every program the package owns
 trace = true
-"std.http.http-timeout" = "30s"   # module parameter, bare or dotted spelling
+"std.http.http-timeout" = "30s"   # module or function parameter, bare or dotted spelling
 
 [config.devel]                    # a registered command, group, or alias path: `devel`
 timeout = "1h"
@@ -235,19 +235,20 @@ agent = "claude/opus"
 
 Package-author defaults: root leaves apply to every program the package owns, and each nested
 table names one of the package's own registered command, group, or alias paths
-(`@command`-registered paths included). A leaf is an engine setting, a `@param` binding's bare or
-dotted spelling, or the external name of a name-addressable signature argument of a program
-registered under that table's command (or one beneath it; at the root, any command's), and must
-be reachable from the package's own import graph: a dependency or `std` module the package never
-imports contributes no spelling. A bare leaf names a `@param` binding of the closure or a
-signature argument that shadows the engine setting's name (the parameter wins, as for flags); the
-engine setting is then addressed as `"std.config.NAME"`. `pkg check`/`create`/`install` reject an
+(`@command`-registered paths included). A leaf is an engine setting, the bare or dotted spelling of
+a `@param` binding or `@param` function parameter (`"devel.review.refine.max-steps"`), or the
+external name of a name-addressable signature argument of a program registered under that table's
+command (or one beneath it; at the root, any command's), and must be reachable from the package's
+own import graph: a dependency or `std` module the package never imports contributes no spelling.
+A bare leaf names a `@param` binding or `@param` function parameter of the closure, or a signature
+argument that shadows the engine setting's name (the parameter wins, as for flags); the engine
+setting is then addressed as `"std.config.NAME"`. `pkg check`/`create`/`install` reject an
 unregistered nested table, an unknown leaf, an engine value that fails to decode, and a word that
 is ambiguously both a registered subcommand and a setting spelling. At run time, whenever the
 selected program is owned by the package (run as a registered command, an installed reference, or
 a file path), its command table beats an inherited group table beats the root, ranking below
-config-file program, command, and group tables and `@config`, and above `[exec]` and a module's
-own module route (see the Configuration bullet below); a program argument it sets is beaten by
+config-file program, command, and group tables and `@config`, and above `[exec]` and a parameter's
+declaration route (see the Configuration bullet below); a program argument it sets is beaten by
 its CLI value, `@opt-env` and those tables. A relative path-valued setting, such as `trace-file`
 or a `path` parameter, resolves against the package root, else the current working directory
 when that path does not exist there. Validation checks spellings against the whole closure; a leaf in

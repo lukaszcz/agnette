@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TypeAlias
 
@@ -36,6 +36,25 @@ def static_binding_key(
     module_id: ModuleId, scope_path: Iterable[str], name: str
 ) -> StaticBindingKey:
     return module_id, tuple(scope_path), name
+
+
+def host_param_module(key: HostParamKey) -> ModuleId:
+    """Return the module declaring the host parameter *key*."""
+    return key.module if isinstance(key, FunctionParamKey) else key[0]
+
+
+def split_host_param_values[V](
+    values: Mapping[HostParamKey, V],
+) -> tuple[dict[StaticBindingKey, V], dict[FunctionParamKey, V]]:
+    """Split host parameter *values* into binding-keyed and function-parameter-keyed ones."""
+    bindings: dict[StaticBindingKey, V] = {}
+    functions: dict[FunctionParamKey, V] = {}
+    for key, value in values.items():
+        if isinstance(key, FunctionParamKey):
+            functions[key] = value
+        else:
+            bindings[key] = value
+    return bindings, functions
 
 
 def host_param_label(key: HostParamKey) -> str:

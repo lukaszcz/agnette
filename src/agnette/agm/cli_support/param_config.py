@@ -10,7 +10,6 @@ from typing import NamedTuple, NoReturn
 from agnette.agl.ir.static_keys import (
     FunctionParamKey,
     HostParamKey,
-    StaticBindingKey,
     host_param_label,
 )
 from agnette.agl.modules.ids import ModuleId
@@ -50,8 +49,10 @@ from agnette.core.toml import TomlDict
 __all__ = [
     "ParamValueTiers",
     "colliding_declarations",
+    "declaration_route_tables",
+    "report_colliding_declarations",
     "report_undeclared_exec_keys",
-    "resolve_module_param_values",
+    "resolve_declaration_route_values",
     "resolve_param_values",
 ]
 
@@ -324,7 +325,7 @@ def resolve_param_values(
         _reject_configured_ambiguous_program_leaves(
             program_tables, command_paths, surface, package_command_paths, package_config
         )
-    module_values = _resolve_declaration_route_values(config, module_params, nested_routes)
+    module_values = resolve_declaration_route_values(config, module_params, nested_routes)
     program_values = resolve_qualified_values(
         config, tuple(key for _target, key in program_routes), nested_routes
     )
@@ -367,6 +368,14 @@ def colliding_declarations(params: Iterable[HostParamInfo]) -> str | None:
         for param in _declaration_routed(params)
         if not param.module.is_entry
     )
+
+
+def report_colliding_declarations(params: Iterable[HostParamInfo]) -> bool:
+    """Print the error for *params* sharing a full spelling; return whether they do."""
+    collision = colliding_declarations(params)
+    if collision is not None:
+        print(f"Error: {collision}.", file=sys.stderr)
+    return collision is not None
 
 
 def _declaration_routed(params: Iterable[HostParamInfo]) -> tuple[HostParamInfo, ...]:
@@ -474,25 +483,23 @@ def _reject_configured_ambiguity(
             )
 
 
-def resolve_module_param_values(
-    config: GeneralConfig, params: Sequence[HostParamInfo]
-) -> dict[StaticBindingKey, object]:
-    """Resolve module parameter values from their declaration routes only.
-
-    This is the config surface used by incremental hosts, which initialize
-    modules without selecting a program, so they have no program route and
-    inventory no function parameters: *params* must be module parameters.
-    """
-    values = _resolve_declaration_route_values(config, params, frozenset())
-    return {key: value for key, value in values.items() if isinstance(key, tuple)}
+def declaration_route_tables(params: Iterable[HostParamInfo]) -> frozenset[tuple[str, ...]]:
+    """Return the config table paths that are declaration routes of *params*."""
+    return known_route_tables(key for _param, key in _declaration_routes(tuple(params)))
 
 
-def _resolve_declaration_route_values(
+def resolve_declaration_route_values(
     config: GeneralConfig,
     params: Sequence[HostParamInfo],
-    nested_routes: frozenset[tuple[str, ...]],
+    nested_routes: frozenset[tuple[str, ...]] = frozenset(),
 ) -> dict[HostParamKey, object]:
-    """Resolve *params* from their declaration routes, treating *nested_routes* as routes."""
+    """Resolve module and function parameter values from their declaration routes only.
+
+    This is the config surface used by incremental hosts, which initialize
+    modules without selecting a program, so they have no program route. A table
+    at a leaf position is a nested route when it is a route of *params* or in
+    *nested_routes* (other declarations the host knows), else a native value.
+    """
     routes = _declaration_routes(params)
     configured = resolve_qualified_values(
         config, tuple(key for _param, key in routes), nested_routes

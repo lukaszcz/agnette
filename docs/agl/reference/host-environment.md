@@ -347,7 +347,7 @@ with a root `@param n` keeps `--tools.n` even when the entry declares a scope or
 function `tools` with its own `n`. Parameters of named modules that a program
 reaches may not share a most qualified spelling (colliding routes, such as the
 module `a/refine` and the function `refine` of module `a`): the program is
-rejected.
+rejected, as is a file by `agm check` and a module loaded by the REPL.
 
 Two config routes reach a module or function parameter:
 
@@ -418,8 +418,9 @@ verbose = false                   # wins over [A.logging]
 ```
 
 `agm check` validates parameter declarations but supplies no values. The REPL
-has no selected program, program route, or parameter flags: every module
-parameter reads only its module route when the REPL first loads it.
+has no selected program, program route, or parameter flags: every module and
+function parameter reads only its declaration route (its module's or its
+function's table) when the REPL first loads its module.
 
 ### Engine settings
 

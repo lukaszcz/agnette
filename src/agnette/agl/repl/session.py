@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from agnette.agl.ir.builtin_vars import BuiltinVarKey
     from agnette.agl.ir.ids import SymbolId
     from agnette.agl.ir.program import ValueDescriptors
-    from agnette.agl.ir.static_keys import StaticBindingKey
+    from agnette.agl.ir.static_keys import HostParamKey
     from agnette.agl.matchcompile import MatchCompiledProgram
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import LoadedModule
@@ -357,8 +357,8 @@ class ReplSession:
         engine_base: "Mapping[str, Value] | None" = None,
         builtin_var_seeds: "Mapping[BuiltinVarKey, Value] | None" = None,
         param_seed_resolver: (
-            "Callable[[ModuleId, tuple[HostParamInfo, ...]], Mapping[StaticBindingKey, object]]"
-            " | None"
+            "Callable[[tuple[HostParamInfo, ...], tuple[HostParamInfo, ...]],"
+            " Mapping[HostParamKey, object]] | None"
         ) = None,
         process_environment: "Mapping[str, str] | None" = None,
         host_settings_policy: "HostSettingsPolicy | None" = None,
@@ -386,17 +386,18 @@ class ReplSession:
         )
         self._builtin_var_seed: dict[BuiltinVarKey, Value] = {}
         self._builtin_var_values: dict[BuiltinVarKey, Value] = {}
-        # Called with the first new module declaring parameters and all new parameters;
-        # the host reports a configuration failure as an ``AglError``.
+        # Called once per entry with the module and function parameters of every newly
+        # loaded module, then those of every already loaded one; the host reports a
+        # configuration failure or a spelling collision as an ``AglError``.
         self._param_seed_resolver = param_seed_resolver
         # Decoded parameter values survive in the session alongside host-backed
         # builtin values. They are passed to each fresh interpreter, which only
         # consumes a seed while its static initializer first runs.
-        self._param_seed_values: dict[StaticBindingKey, Value] = {}
+        self._param_seed_values: dict[HostParamKey, Value] = {}
         # ``open()`` checks modules before an entry lowers them. Keep its raw
         # resolver output until the first executable that initializes those
         # modules can decode it with its own parameter decoder table.
-        self._pending_param_raw_values: dict[StaticBindingKey, object] = {}
+        self._pending_param_raw_values: dict[HostParamKey, object] = {}
         # ``strict-json`` is the one engine key whose host argument cannot be
         # folded into the seed map below: it is a plain ``bool`` with no way to
         # spell "the host did not specify a value", so an unseeded ``False``

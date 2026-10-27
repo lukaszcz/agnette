@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from agnette.agl.eval.ir_interpreter import IrInterpreter
     from agnette.agl.ir.builtin_vars import BuiltinVarKey
-    from agnette.agl.ir.static_keys import StaticBindingKey
+    from agnette.agl.ir.static_keys import HostParamKey
     from agnette.agl.matchcompile import MatchCompiledProgram
     from agnette.agl.modules.loader import LoadedModule, ModuleGraph
     from agnette.agl.modules.roots import RootSet
@@ -52,7 +52,7 @@ class LoadedCheckedProgram:
     new_next_id: int
     entry_imports: "tuple[ImportDecl, ...]"
     entry_uses: "tuple[ImportDecl | ScopeRegion, ...]"
-    raw_param_values: "dict[StaticBindingKey, object]"
+    raw_param_values: "dict[HostParamKey, object]"
     retired_member_scopes: "frozenset[ScopePath]"
 
 
@@ -186,23 +186,30 @@ class EntryPipeline:
         checked_program: "CheckedProgram",
         graph: "ModuleGraph",
         new_modules: Mapping[ModuleId, "LoadedModule"],
-    ) -> dict["StaticBindingKey", object]:
-        """Ask the host once for all parameters declared by newly loaded modules.
+    ) -> dict["HostParamKey", object]:
+        """Ask the host once for the module and function parameters of newly loaded modules.
 
         A session has no selected program to reach them from: any later entry may
         reference any loaded module's parameters, so declaration, not
-        reachability, decides.
+        reachability, decides. The already loaded modules' parameters go along, as
+        the host checks the new ones against them.
         """
         resolver = self._ctx._param_seed_resolver
         if resolver is None:
             return {}
-        from agnette.agl.pipeline import _module_param_infos
+        from agnette.agl.pipeline import declared_param_infos
 
-        module_params = _module_param_infos(checked_program, graph)
-        params = tuple(param for module_id in new_modules for param in module_params[module_id])
-        if not params:
+        module_params = declared_param_infos(checked_program, graph)
+        new = tuple(param for module_id in new_modules for param in module_params[module_id])
+        if not new:
             return {}
-        return dict(resolver(params[0].module, params))
+        loaded = tuple(
+            param
+            for module_id, params in module_params.items()
+            if module_id not in new_modules
+            for param in params
+        )
+        return dict(resolver(new, loaded))
 
     def eval_entry(
         self,
@@ -603,7 +610,7 @@ class EntryPipeline:
         module_adjacency: dict[ModuleId, tuple[ModuleId, ...]],
         entry_imports: tuple[ImportDecl, ...],
         entry_uses: tuple[ImportDecl | ScopeRegion, ...],
-        raw_param_values: Mapping["StaticBindingKey", object],
+        raw_param_values: Mapping["HostParamKey", object],
         retired_member_scopes: "frozenset[ScopePath]",
     ) -> EntryResult:
         """Lower and execute one program entry in the persistent IR image."""
@@ -662,12 +669,13 @@ class EntryPipeline:
                 else Diagnostic(message=str(exc), line=1)
             )
             return self._ctx._fail([diagnostic], warnings)
+        from agnette.agl.ir.static_keys import host_param_module, split_host_param_values
         from agnette.agl.runtime.arguments import bind_param_values, diagnose_process_environment
 
         pending_raw_param_values = {
             key: value
             for key, value in self._ctx._pending_param_raw_values.items()
-            if key[0] in lowered.program.modules
+            if host_param_module(key) in lowered.program.modules
         }
         pending_raw_param_values.update(raw_param_values)
         decoded_param_seeds, param_diagnostics = bind_param_values(
@@ -685,9 +693,9 @@ class EntryPipeline:
         if environment_diagnostic is not None:
             self._ctx._link_image.restore_state(link_snapshot)
             return self._ctx._fail([environment_diagnostic], warnings)
-        decoded_param_seeds_by_module: dict[ModuleId, dict[StaticBindingKey, Value]] = {}
+        decoded_param_seeds_by_module: dict[ModuleId, dict[HostParamKey, Value]] = {}
         for key, seed in decoded_param_seeds.items():
-            decoded_param_seeds_by_module.setdefault(key[0], {})[key] = seed
+            decoded_param_seeds_by_module.setdefault(host_param_module(key), {})[key] = seed
         extern_diagnostics = _wire_extern_registry(
             checked=checked_program,
             registry=host_env.extern_registry,
@@ -718,6 +726,9 @@ class EntryPipeline:
             )
         else:
             reconfigurer = None
+        param_seeds, function_param_seeds = split_host_param_values(
+            {**self._ctx._param_seed_values, **decoded_param_seeds}
+        )
         try:
             interp = IrInterpreter(
                 lowered.program,
@@ -742,7 +753,8 @@ class EntryPipeline:
                 # this interpreter should learn its own ``std/config`` declared
                 # default for, rather than have imposed on it.
                 builtin_host_settings=self._builtin_host_settings(),
-                param_seeds={**self._ctx._param_seed_values, **decoded_param_seeds},
+                param_seeds=param_seeds,
+                function_param_seeds=function_param_seeds,
                 process_environment=self._ctx._process_environment,
                 extern_runtime_state=self._ctx._extern_runtime_state,
             )

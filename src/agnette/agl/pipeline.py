@@ -35,7 +35,7 @@ from agnette.agl.eval.ir_interpreter import (
     resolver_over_interpreter,
 )
 from agnette.agl.ir.nodes import UseDefault
-from agnette.agl.ir.static_keys import FunctionParamKey
+from agnette.agl.ir.static_keys import FunctionParamKey, split_host_param_values
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.runtime.agents import AgentFn
 from agnette.agl.runtime.engine_config import engine_setting_params
@@ -145,6 +145,15 @@ class ProgramDiscovery:
         accept a key whether or not the program references the parameter.
         """
         return self._params(program, include_closure=True)
+
+    def all_params(self) -> tuple[HostParamInfo, ...]:
+        """Return every checked module's module and function parameters."""
+        return tuple(
+            param
+            for inventory in (self.module_params, self.function_params)
+            for params in inventory.values()
+            for param in params
+        )
 
     def declared_programs_for(self, program: ProgramDeclInfo) -> tuple[ProgramDeclInfo, ...]:
         """Return the other programs declared by *program*'s closure modules."""
@@ -1313,15 +1322,19 @@ class PipelineDriver:
         )
         return result
 
-    def check_prepared(self, prepared: PreparedProgram) -> RunResult:
+    def check_prepared(
+        self, prepared: PreparedProgram, *, compiled: "MatchCompiledProgram | None" = None
+    ) -> RunResult:
         """Run the full static pipeline over *prepared*, with no execution.
+
+        *compiled* is the match-compiled program of a prior :meth:`discover_programs`.
 
         An intent-revealing façade over ``run_prepared(..., check_only=True)``:
         drives typecheck, match compilation, and lowering, reporting every
         static failure lowering catches (an invalid ``resource``/``resource-dir``
         path), with no execution.
         """
-        return self.run_prepared(prepared, check_only=True)
+        return self.run_prepared(prepared, check_only=True, compiled=compiled)
 
     @staticmethod
     def typecheck_resolved(resolved: "ResolvedProgram") -> "CheckedProgram | None":
@@ -1457,12 +1470,7 @@ class PipelineDriver:
         seeds: dict[HostParamKey, Value] = {}
         for tier in (decoded_lower, config_param_values, decoded_configured, decoded_supplied):
             seeds.update(tier.items())
-        param_seeds = {
-            key: value for key, value in seeds.items() if not isinstance(key, FunctionParamKey)
-        }
-        function_param_seeds = {
-            key: value for key, value in seeds.items() if isinstance(key, FunctionParamKey)
-        }
+        param_seeds, function_param_seeds = split_host_param_values(seeds)
         if not bind_diagnostics:
             for param, value in zip(program.parameters, bound, strict=True):
                 key = program.param_key(param.name)
@@ -1908,6 +1916,16 @@ def _function_param_infos(
             )
 
     return _per_module_param_infos(checked, graph, aliases, collect)
+
+
+def declared_param_infos(
+    checked: "CheckedProgram", graph: "ModuleGraph"
+) -> dict["ModuleId", tuple[HostParamInfo, ...]]:
+    """Return each checked module's module then function parameters, with no reachability filter."""
+    aliases = _TypeAliasIndex(checked)
+    modules = _module_param_infos(checked, graph, aliases)
+    functions = _function_param_infos(checked, graph, aliases)
+    return {module_id: (*params, *functions[module_id]) for module_id, params in modules.items()}
 
 
 def _program_param_infos(

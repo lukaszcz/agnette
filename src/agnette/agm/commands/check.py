@@ -12,7 +12,9 @@ failed; exit code is 1 iff any file produced an error-severity diagnostic,
 was unreadable/missing, or had an invalid module-root configuration.
 
 Module resolution, file reading (via ``core.fs``) and diagnostic rendering are shared with
-``agm exec``; ``check`` skips ``exec``'s program discovery/selection/preflight.
+``agm exec``; ``check`` skips ``exec``'s program selection/preflight. Parameters of
+the file's import closure that share a full spelling are rejected, as under
+``agm exec``: that depends only on declarations.
 Lowering (rather than stopping at match compilation, as the REPL's internal
 check-only entry path does) is required here because some static errors — an invalid
 ``resource``/``resource-dir`` path — surface only during lowering, not
@@ -40,6 +42,7 @@ from typing import TYPE_CHECKING
 
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.cli_support.exec_roots import prepare_entry_file
+from agnette.agm.cli_support.param_config import report_colliding_declarations
 from agnette.core.fs import read_text_arg_or_none
 
 if TYPE_CHECKING:
@@ -77,7 +80,11 @@ def run(args: CheckArgs, *, warning_policy: "WarningPolicy | None" = None) -> No
             # "Error: invalid module roots configuration ..." message.
             had_error = True
             continue
-        result = runtime.check_prepared(prepared)
+        discovery = runtime.discover_programs(prepared)
+        if report_colliding_declarations(discovery.all_params()):
+            had_error = True
+            continue
+        result = runtime.check_prepared(prepared, compiled=discovery.compiled)
 
         for diag in result.warnings:
             print(format_diagnostic(diag, source_name=file), file=sys.stderr)

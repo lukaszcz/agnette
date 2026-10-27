@@ -24,7 +24,7 @@ predicate) so they do not depend on whether the test runner has a tty either.
 from __future__ import annotations
 
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -35,7 +35,7 @@ from typer.main import get_command
 import agnette.agm.cli as cli
 import agnette.agm.commands.repl as repl_command
 from agnette.agent.spec import AgentPi, AgentSpec, PermissionMode
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.repl import ReplSession
 from agnette.agl.runtime.sessions import SessionSnapshot
 from agnette.agl.runtime.types import HostParamInfo
@@ -1403,7 +1403,12 @@ class TestReplModuleParameterConfig:
         *,
         config: str,
         module_source: str,
+        modules: Mapping[str, str] | None = None,
     ) -> ReplSession:
+        """Open a session over library module ``A/logging`` and the extra *modules*.
+
+        *modules* maps a path below ``A/`` (without ``.agl``) to its source.
+        """
         _isolated_home(monkeypatch, tmp_path / "home")
         project = tmp_path / "project"
         config_dir = project / "config"
@@ -1411,6 +1416,10 @@ class TestReplModuleParameterConfig:
         config_dir.mkdir(parents=True)
         (library / "A").mkdir(parents=True)
         (library / "A" / "logging.agl").write_text(module_source, encoding="utf-8")
+        for name, source in (modules or {}).items():
+            path = library / "A" / f"{name}.agl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source, encoding="utf-8")
         (config_dir / "config.toml").write_text(
             '[modules]\nroots = ["../../library"]\n\n' + config,
             encoding="utf-8",
@@ -1512,16 +1521,18 @@ class TestReplModuleParameterConfig:
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        calls: list[tuple[StaticBindingKey, ...]] = []
-        resolve = repl_command.resolve_module_param_values
+        calls: list[tuple[HostParamKey, ...]] = []
+        resolve = repl_command.resolve_declaration_route_values
 
         def record_resolver(
-            config: GeneralConfig, params: Sequence[HostParamInfo]
-        ) -> dict[StaticBindingKey, object]:
+            config: GeneralConfig,
+            params: Sequence[HostParamInfo],
+            nested_routes: frozenset[tuple[str, ...]],
+        ) -> dict[HostParamKey, object]:
             calls.append(tuple(param.key for param in params))
-            return resolve(config, params)
+            return resolve(config, params, nested_routes)
 
-        monkeypatch.setattr(repl_command, "resolve_module_param_values", record_resolver)
+        monkeypatch.setattr(repl_command, "resolve_declaration_route_values", record_resolver)
         session = self._open_session(
             monkeypatch,
             tmp_path,
@@ -1539,6 +1550,263 @@ class TestReplModuleParameterConfig:
         assert second.value is not None
         assert second.value.value == 7
         assert len(calls) == 1
+
+    def test_function_route_seeds_an_imported_function_parameter(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging.refine]\nsteps = 7\n",
+            module_source="def refine(@param steps: int = 1) -> int = steps\n",
+        )
+
+        result = session.eval_entry("import A/logging\nA/logging::refine()")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 7
+
+    def test_an_explicit_argument_beats_a_function_route_seed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging.refine]\nsteps = 7\n",
+            module_source="def refine(@param steps: int = 1) -> int = steps\n",
+        )
+
+        result = session.eval_entry("import A/logging\nA/logging::refine(2)")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 2
+
+    def test_a_function_seed_persists_into_later_entries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging.refine]\nsteps = 7\n",
+            module_source="def refine(@param steps: int = 1) -> int = steps\n",
+        )
+
+        assert session.eval_entry("import A/logging").ok
+        result = session.eval_entry("A/logging::refine()")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 7
+
+    def test_a_function_parameter_keeps_its_default_without_a_function_table(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging]\nsteps = 9\n",
+            module_source="def refine(@param steps: int = 1) -> int = steps\n",
+        )
+
+        result = session.eval_entry("import A/logging\nA/logging::refine()")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 1
+
+    def test_a_malformed_function_route_value_fails_the_entry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config='[A.logging.refine]\nsteps = "many"\n',
+            module_source="def refine(@param steps: int = 1) -> int = steps\n",
+        )
+
+        result = session.eval_entry("import A/logging\nA/logging::refine()")
+
+        assert not result.ok
+
+    def test_a_scoped_function_route_seeds_an_imported_function_parameter(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging.Sc.deep]\ndepth = 7\n",
+            module_source="scope Sc\n  def deep(@param depth: int = 1) -> int = depth\nend Sc\n",
+        )
+
+        result = session.eval_entry("import A/logging\nA/logging::Sc::deep()")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 7
+
+    def test_a_method_route_seeds_an_imported_method_parameter(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging.Counter.bump]\nby = 7\n",
+            module_source=(
+                "record Counter\n  start: int\n\n"
+                "def Counter::bump(self, @param by: int = 1) -> int = self.start + by\n"
+            ),
+        )
+
+        result = session.eval_entry("import A/logging\nA/logging::Counter(start = 10).bump()")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 17
+
+    @pytest.mark.parametrize(
+        ("function_module", "sibling", "sibling_module", "config", "entries"),
+        [
+            pytest.param(
+                "def refine(@param steps: int = 1) -> int = steps\n",
+                "refine",
+                "@param let steps: int = 0\n",
+                "[A.logging.refine]\nsteps = 7\n",
+                ["import A/logging", "import A/logging/refine"],
+                id="function-route-later",
+            ),
+            pytest.param(
+                "def refine(@param steps: int = 1) -> int = steps\n",
+                "refine",
+                "@param let steps: int = 0\n",
+                "[A.logging.refine]\nsteps = 7\n",
+                ["import A/logging/refine", "import A/logging"],
+                id="function-route-earlier",
+            ),
+            pytest.param(
+                "def refine(@param steps: int = 1) -> int = steps\n",
+                "refine",
+                "@param let steps: int = 0\n",
+                "[A.logging.refine]\nsteps = 7\n",
+                ["import A/logging\nimport A/logging/refine"],
+                id="function-route-same-entry",
+            ),
+            pytest.param(
+                "def refine(@param steps: int = 1) -> int = steps\n",
+                "refine",
+                "@param let steps: int = 0\n",
+                "",
+                ["import A/logging", "import A/logging/refine"],
+                id="function-route-without-config",
+            ),
+            pytest.param(
+                "scope debug\n  @param let trace: bool = false\nend debug\n",
+                "debug",
+                "@param let trace: bool = false\n",
+                "[A.logging.debug]\ntrace = true\n",
+                ["import A/logging", "import A/logging/debug"],
+                id="scope-route",
+            ),
+        ],
+    )
+    def test_colliding_declaration_routes_fail_the_entry(
+        self,
+        function_module: str,
+        sibling: str,
+        sibling_module: str,
+        config: str,
+        entries: list[str],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config=config,
+            module_source=function_module,
+            modules={f"logging/{sibling}": sibling_module},
+        )
+
+        results = [session.eval_entry(entry) for entry in entries]
+
+        assert [result.ok for result in results] == [True] * (len(entries) - 1) + [False]
+
+    def test_a_failed_collision_entry_leaves_the_session_usable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging.refine]\nsteps = 7\n",
+            module_source="def refine(@param steps: int = 1) -> int = steps\n",
+            modules={"logging/refine": "@param let steps: int = 0\n"},
+        )
+        assert session.eval_entry("import A/logging").ok
+        assert not session.eval_entry("import A/logging/refine").ok
+
+        result = session.eval_entry("A/logging::refine()")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 7
+
+    def test_a_route_table_of_an_earlier_module_is_no_value_of_a_later_one(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        """``[A.logging.steps]`` is the route of module ``A/logging/steps``, not a value."""
+        session = self._open_session(
+            monkeypatch,
+            tmp_path,
+            fake_plain_console,
+            config="[A.logging.steps]\nfoo = 5\n",
+            module_source="@param let steps: int = 1\n",
+            modules={"logging/steps": "@param let foo: int = 0\n"},
+        )
+        assert session.eval_entry("import A/logging/steps").ok
+
+        result = session.eval_entry("import A/logging\nA/logging::steps")
+
+        assert result.ok, result.diagnostics
+        assert result.value is not None
+        assert result.value.value == 1
 
     def test_initializer_applies_without_a_module_table(
         self,

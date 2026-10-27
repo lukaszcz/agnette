@@ -87,7 +87,12 @@ from agnette.agl.ir.program import (
     VariantDescriptor,
 )
 from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
-from agnette.agl.ir.static_keys import FunctionParamKey, Reachable, StaticBindingKey
+from agnette.agl.ir.static_keys import (
+    FunctionParamKey,
+    HostParamKey,
+    Reachable,
+    StaticBindingKey,
+)
 from agnette.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID, ModuleId
 from agnette.agl.modules.loader import ModuleGraph
 from agnette.agl.modules.roots import RootSet, assemble_roots
@@ -883,7 +888,10 @@ def repl_session_with_root(
     root: Path,
     *,
     param_seed_resolver: (
-        Callable[[ModuleId, tuple[HostParamInfo, ...]], Mapping[StaticBindingKey, object]] | None
+        Callable[
+            [tuple[HostParamInfo, ...], tuple[HostParamInfo, ...]], Mapping[HostParamKey, object]
+        ]
+        | None
     ) = None,
     warning_policy: WarningPolicy | None = None,
 ) -> ReplSession:
