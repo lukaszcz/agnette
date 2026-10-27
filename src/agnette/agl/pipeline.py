@@ -2340,18 +2340,26 @@ def _package_requirements_hold(
 
 
 def _requirement_repair(package: "PackageInfo") -> str:
-    """How to install *package*'s requirements: sync when active, else install it.
+    """How to install *package*'s requirements: sync when a sync covers it, else pin or install.
 
-    ``agm pkg sync`` covers only the activation index selections of one store.
+    A package outside the store's sync (see ``sync_covers``) gets a hint to bring it in.
     """
     from agnette.packages.layout import StoreScope
-    from agnette.packages.python_deps import requirement_store
+    from agnette.packages.python_deps import requirement_store, sync_covers
 
     store = requirement_store(package)
-    if store is not None:
-        flag = " --project" if store.scope is StoreScope.PROJECT else ""
-        return f"run `agm pkg sync{flag}` to install them"
-    return f"install the package with `agm pkg install [--editable] {package.root}`"
+    if store is None:
+        return f"install the package with `agm pkg install [--editable] {package.root}`"
+    project = store.scope is StoreScope.PROJECT
+    flag = " --project" if project else ""
+    sync = f"`agm pkg sync{flag}`"
+    if sync_covers(store, package):
+        return f"run {sync} to install them"
+    config = "the project config" if project else "the AgM home config"
+    return (
+        f"pin the package under [packages] in {config} then run {sync}, "
+        f"or select it with `agm pkg switch{flag}`"
+    )
 
 
 def exception_value_to_run_error(

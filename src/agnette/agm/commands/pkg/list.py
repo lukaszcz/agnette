@@ -1,20 +1,24 @@
-"""List active AgM packages."""
+"""List installed AgM packages and the active editable ones."""
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Container
+from collections.abc import Mapping
 
 from agnette.agm.cli_support.args import PkgListArgs
-from agnette.agm.cli_support.pkg_store import pkg_layers
+from agnette.agm.cli_support.pkg_store import (
+    pkg_selections,
+    replaced_entries,
+    replaced_version,
+)
 from agnette.config.context import current_config_context
 from agnette.packages.activation import (
+    ActivePackage,
     PackageActivationError,
     active_package_version,
-    load_activation_index,
+    resolve_selections,
 )
 from agnette.packages.errors import PackageInstallError
-from agnette.packages.layout import StoreScope
 from agnette.packages.manifest import ManifestError
 from agnette.packages.model import canonical_package_identity
 from agnette.packages.store import PackageStore, installed_packages
@@ -23,24 +27,23 @@ from agnette.packages.store import PackageStore, installed_packages
 def run(args: PkgListArgs) -> None:
     """Print every installed package version and every active editable package.
 
-    Inside a project both stores are listed, each line ending in its store; a
-    global package the project's own selection replaces is marked shadowed.
+    The effective selection (the indexes with ``[packages]`` pins applied, as a
+    run selects it, development checkouts aside) is listed as active or
+    editable. Inside a project both stores are listed, each line ending in its
+    store. An index selection that the effective selection replaces (by a pin,
+    or by the other store's) stays listed with its index status, marked shadowed.
+    A selection with no stored tree, such as a pin to an uninstalled version,
+    fails as it does at run time.
     """
 
     del args
-    layers = pkg_layers(current_config_context())
-    shadowing: frozenset[str] = frozenset()
     try:
-        if layers.project is not None:
-            shadowing = frozenset(load_activation_index(layers.project).packages)
+        layers, chosen = pkg_selections(current_config_context())
+        resolve_selections(layers, chosen)
         lines = [
             line
             for store in reversed(layers.stores)
-            for line in _store_lines(
-                store,
-                labelled=layers.project is not None,
-                shadowed=shadowing if store.scope is StoreScope.GLOBAL else (),
-            )
+            for line in _store_lines(store, chosen, labelled=layers.project is not None)
         ]
     except (ManifestError, PackageActivationError, PackageInstallError) as exc:
         print(f"pkg list: {exc}", file=sys.stderr)
@@ -49,32 +52,56 @@ def run(args: PkgListArgs) -> None:
         print(line)
 
 
-def _store_lines(store: PackageStore, *, labelled: bool, shadowed: Container[str]) -> list[str]:
-    """The listing lines of one store: its stored versions, then its active editables."""
+def _store_lines(
+    store: PackageStore,
+    chosen: Mapping[str, tuple[PackageStore, ActivePackage]],
+    *,
+    labelled: bool,
+) -> list[str]:
+    """The listing lines of one store: its stored versions, then its active editables.
 
-    index = load_activation_index(store)
-    active_identities = {
-        canonical_package_identity(name, active.version)
-        for name, active in index.packages.items()
-        if active.editable is None
+    A store's selections are the *chosen* ones it owns, then its index entries
+    that *chosen* replaces (shadowed).
+    """
+
+    selections: list[tuple[str, ActivePackage, bool]] = [
+        (name, entry, False) for name, (owner, entry) in chosen.items() if owner == store
+    ]
+    selections.extend((name, entry, True) for name, entry in replaced_entries(store, chosen))
+    stored = {
+        canonical_package_identity(name, entry.version): shadowed
+        for name, entry, shadowed in selections
+        if entry.editable is None
     }
     entries = []
     for package in installed_packages(store):
         name, version = package.manifest.name, package.manifest.version
-        identity = canonical_package_identity(name, version)
-        entries.append((name, version, "active" if identity in active_identities else "installed"))
+        shadowed = stored.get(canonical_package_identity(name, version))
+        entries.append((name, version, "installed" if shadowed is None else "active", shadowed))
     entries.extend(
-        (name, active_package_version(active), "editable")
-        for name, active in sorted(index.packages.items())
-        if active.editable is not None
+        (
+            name,
+            replaced_version(entry) if shadowed else active_package_version(entry),
+            "editable",
+            shadowed,
+        )
+        for name, entry, shadowed in sorted(selections, key=_selection_order)
+        if entry.editable is not None
     )
     return [
         " ".join(
             (
                 f"{name} {version} {kind}",
                 *((store.scope.value,) if labelled else ()),
-                *(("(shadowed)",) if kind != "installed" and name in shadowed else ()),
+                *(("(shadowed)",) if shadowed else ()),
             )
         )
-        for name, version, kind in entries
+        for name, version, kind, shadowed in entries
     ]
+
+
+def _selection_order(selection: tuple[str, ActivePackage, bool]) -> tuple[str, bool]:
+    """Order selections by name, the effective one before the entry it replaced."""
+
+    name, _, shadowed = selection
+    return name, shadowed

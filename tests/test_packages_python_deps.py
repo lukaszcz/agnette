@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,7 @@ from agnette.packages.install import (
     uninstall_package,
 )
 from agnette.packages.python_deps import python_dependencies, sync_python_dependencies
-from agnette.packages.store import global_store, installed_packages
+from agnette.packages.store import global_store, installed_packages, project_store
 from tests._package_helpers import (
     InstalledPackageSnapshot,
     PythonInstaller,
@@ -366,6 +367,94 @@ def test_active_sync_installs_the_whole_active_union_and_reports_the_unsatisfied
         _ABSENT_B,
     )
     assert python_installer.specs == [[_PRESENT, _ABSENT_A, _ABSENT_B]]
+
+
+def _install_two_alphas(tmp_path: Path, home: Path) -> None:
+    """Install alpha 1.0.0 (requiring A), then alpha 2.0.0 (requiring B) as the active one."""
+    install_directory(write_python_package(tmp_path / "one", "alpha", _ABSENT_A), home=home, env={})
+    two = write_python_package(tmp_path / "two", "alpha", _ABSENT_B)
+    manifest = two / "package.toml"
+    manifest.write_text(manifest.read_text().replace("1.0.0", "2.0.0"), encoding="utf-8")
+    install_directory(two, home=home, env={})
+
+
+def test_active_sync_adds_the_requirements_of_a_home_pinned_version(
+    tmp_path: Path, python_installer: PythonInstaller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = python_installer.home
+    monkeypatch.setenv("AGM_HOME", str(home / ".agm"))
+    _install_two_alphas(tmp_path, home)
+    (home / ".agm" / "config.toml").write_text('[packages]\nalpha = "1.0.0"\n', encoding="utf-8")
+    python_installer.runs.clear()
+
+    assert sync_active_python_dependencies(global_store(home=home, env={})) == (
+        _ABSENT_B,
+        _ABSENT_A,
+    )
+    assert python_installer.specs == [[_ABSENT_B, _ABSENT_A]]
+
+
+def test_active_sync_inside_a_project_covers_a_home_pin_to_a_version_both_stores_hold(
+    tmp_path: Path, python_installer: PythonInstaller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = python_installer.home
+    monkeypatch.setenv("AGM_HOME", str(home / ".agm"))
+    _install_two_alphas(tmp_path, home)
+    project = tmp_path / "project"
+    project.mkdir()
+    own = write_python_package(tmp_path / "own", "alpha", "agm-test-absent-c")
+    install_directory_with_plan(project_store(project), own)
+    (home / ".agm" / "config.toml").write_text('[packages]\nalpha = "1.0.0"\n', encoding="utf-8")
+    monkeypatch.setenv("PROJ_DIR", str(project))
+    monkeypatch.chdir(project)
+    python_installer.runs.clear()
+
+    assert sync_active_python_dependencies(global_store(home=home, env={})) == (
+        _ABSENT_B,
+        _ABSENT_A,
+    )
+
+
+def test_active_sync_covers_a_pin_of_the_install_prefix_layer(
+    tmp_path: Path,
+    python_installer: PythonInstaller,
+    monkeypatch: pytest.MonkeyPatch,
+    installed_agm_prefix: Callable[[Path], None],
+) -> None:
+    home = python_installer.home
+    monkeypatch.setenv("AGM_HOME", str(home / ".agm"))
+    _install_two_alphas(tmp_path, home)
+    prefix = tmp_path / "prefix"
+    (prefix / ".agm").mkdir(parents=True)
+    (prefix / ".agm" / "config.toml").write_text('[packages]\nalpha = "1.0.0"\n', encoding="utf-8")
+    installed_agm_prefix(prefix)
+    python_installer.runs.clear()
+
+    assert sync_active_python_dependencies(global_store(home=home, env={})) == (
+        _ABSENT_B,
+        _ABSENT_A,
+    )
+
+
+def test_active_sync_ignores_pins_of_the_project_and_invocation_directory_layers(
+    tmp_path: Path, python_installer: PythonInstaller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = python_installer.home
+    monkeypatch.setenv("AGM_HOME", str(home / ".agm"))
+    _install_two_alphas(tmp_path, home)
+    project = tmp_path / "project"
+    (project / "config").mkdir(parents=True)
+    (project / "config" / "config.toml").write_text(
+        '[packages]\nalpha = "1.0.0"\n', encoding="utf-8"
+    )
+    (project / ".agm").mkdir()
+    (project / ".agm" / "config.toml").write_text('[packages]\nalpha = "1.0.0"\n', encoding="utf-8")
+    monkeypatch.setenv("PROJ_DIR", str(project))
+    monkeypatch.chdir(project)
+    python_installer.runs.clear()
+
+    assert sync_active_python_dependencies(global_store(home=home, env={})) == (_ABSENT_B,)
+    assert python_installer.specs == [[_ABSENT_B]]
 
 
 def test_active_sync_of_an_unreadable_activation_index_is_a_package_install_error(

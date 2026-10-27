@@ -239,6 +239,88 @@ def test_a_requirement_missing_from_the_project_overlay_suggests_a_project_sync(
     _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
 
 
+_PIN_REPAIR = "[packages]"
+
+
+def _unselect(overlay: Path) -> None:
+    """Drop the fixture package from the project index, leaving its tree in the store."""
+    write_activation_index(project_store(overlay.parent.parent), ActivationIndex({}))
+
+
+def _pin(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    version = _package().manifest.version
+    path.write_text(f'[packages]\npython_requirement = "{version}"\n', encoding="utf-8")
+
+
+def test_a_project_package_outside_the_overlay_suggests_pinning_it_before_a_project_sync(
+    project_package: Path,
+) -> None:
+    _unselect(project_package)
+
+    result = _run_project_package(project_package)
+
+    _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
+    assert _PIN_REPAIR in result.diagnostics[0].message
+
+
+def test_a_project_pin_brings_a_package_into_the_overlay_so_a_project_sync_repairs_it(
+    project_package: Path,
+) -> None:
+    _unselect(project_package)
+    _pin(project_package.parent.parent / "config" / "config.toml")
+
+    result = _run_project_package(project_package)
+
+    _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
+    assert _PIN_REPAIR not in result.diagnostics[0].message
+
+
+def test_an_invocation_directory_pin_does_not_cover_a_project_package(
+    project_package: Path, tmp_path: Path
+) -> None:
+    _unselect(project_package)
+    _pin(tmp_path / ".agm" / "config.toml")
+
+    result = _run_project_package(project_package)
+
+    _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
+    assert _PIN_REPAIR in result.diagnostics[0].message
+
+
+def _store_global_package() -> Path:
+    """Copy the fixture package into the global store, unselected; return its tree."""
+    store = global_store(home=Path.home())
+    tree = store.package_path("python_requirement", _package().manifest.version)
+    shutil.copytree(_PACKAGE, tree)
+    return tree
+
+
+def _run_global_package(tree: Path) -> RunResult:
+    return _run(
+        "import python_requirement/double\nlet r = python_requirement/double::double(21)",
+        package=tree,
+        scope=StoreScope.GLOBAL,
+    )
+
+
+def test_a_global_package_outside_a_global_sync_suggests_pinning_or_switching_it() -> None:
+    result = _run_global_package(_store_global_package())
+
+    _assert_requirement_diagnostic(result, repair=_SYNC)
+    assert _PIN_REPAIR in result.diagnostics[0].message
+
+
+def test_a_home_pin_brings_a_global_package_into_a_global_sync() -> None:
+    tree = _store_global_package()
+    _pin(Path.home() / ".agm" / "config.toml")
+
+    result = _run_global_package(tree)
+
+    _assert_requirement_diagnostic(result, repair=_SYNC)
+    assert _PIN_REPAIR not in result.diagnostics[0].message
+
+
 def test_a_stale_project_overlay_fails_the_check_and_stays_off_sys_path(
     project_package: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

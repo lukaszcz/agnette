@@ -25,7 +25,6 @@ from agnette.packages.activation import (
     load_activation_index,
     load_package_provenance,
     merge_package_commands,
-    pinned_store_packages,
     reconcile_package_commands,
     resolve_indexed_packages,
     store_selection,
@@ -71,6 +70,7 @@ from agnette.packages.python_deps import (
     python_dependencies,
     rebuilt_python_overlay,
     sync_python_dependencies,
+    synced_packages,
 )
 from agnette.packages.record import (
     RECORD_NAME,
@@ -143,10 +143,7 @@ def sync_active_python_dependencies(store: PackageStore) -> tuple[str, ...]:
         return ()
     with _package_operation_lock(store):
         try:
-            packages = resolve_indexed_packages(
-                store, load_activation_index(store), fallback_to_manifest_commands=True
-            )
-            with _python_requirements(store, packages, force=True) as installed:
+            with _python_requirements(store, store_selection(store), force=True) as installed:
                 return installed
         except PackageActivationError as exc:
             raise PackageInstallError(f"cannot load package activation: {exc}") from exc
@@ -158,21 +155,22 @@ def _python_requirements(
 ) -> Iterator[tuple[str, ...]]:
     """Bring *store*'s Python environment in line with *packages*; yield what was installed.
 
+    The requirements are those of *packages* and, added to them, of the packages
+    the pins select from the store (:func:`~agnette.packages.python_deps.synced_packages`).
     A project store's overlay is built first and switched to when the body, which
     publishes the activation, completes (see :func:`rebuilt_python_overlay`;
-    *force* rebuilds even an up-to-date one). It holds the requirements of
-    *packages* and, added to them, of the packages the project's pins select
-    from the store; the pins are those of the home and project config layers
-    alone, so the overlay does not depend on the invocation directory.
+    *force* rebuilds even an up-to-date one).
     """
 
     try:
+        covered = synced_packages(
+            store, packages, home=config_context.current_config_context().home
+        )
         if store.scope is StoreScope.PROJECT:
-            pinned = pinned_store_packages(store, home=config_context.current_config_context().home)
-            with rebuilt_python_overlay(store, (*packages, *pinned), force=force) as installed:
+            with rebuilt_python_overlay(store, covered, force=force) as installed:
                 yield installed
         else:
-            yield sync_python_dependencies(python_dependencies(packages))
+            yield sync_python_dependencies(python_dependencies(covered))
     except RequirementInstallError as exc:
         raise PackageInstallError(f"cannot install Python requirements: {exc}") from exc
 

@@ -14,7 +14,7 @@ source.
 | `agm pkg uninstall NAME[@VERSION] [--project]` | Remove the active package or an exact stored version |
 | `agm pkg list` | List installed versions and active editable packages (both stores in a project) |
 | `agm pkg info NAME` | Show an active package's metadata and dependency status |
-| `agm pkg sync [--project]` | Install the active packages' unsatisfied Python requirements |
+| `agm pkg sync [--project]` | Install the store's unsatisfied Python requirements |
 
 `DIR` defaults to the current directory. `install`, `uninstall`, `switch`, and `sync` act on the
 global store unless given `--project` (see [Project store](#project-store)). `--dry-run` is
@@ -125,14 +125,14 @@ Requirements are stored verbatim, as declared, and are part of the package's con
 [`install`](#commands) and [`sync`](#commands) install unsatisfied requirements into that
 environment; a [project](#project-store) package's requirements go to the project's Python overlay
 instead, which a run consults before AgM's environment. [`check`](#commands) and
-[`info`](#commands) only report them. The activation index is the source of truth: `sync`
-installs only the requirements of active packages. A program whose run imports one of the
-package's companions while a requirement is unsatisfied fails before running, with an error naming
-the package and the requirement. It suggests `agm pkg sync` when the package is the active one
-(same name and root), and `agm pkg sync --project` when it is a project package (selected by the
-project index or a pin); otherwise it suggests installing it with
-`agm pkg install [--editable] <root>`, as for a development checkout that is not active or a
-pinned global version.
+[`info`](#commands) only report them. `sync` installs the requirements of the store's index
+selection and of the packages its [sync-layer pins](#version-pins) select. A program whose run
+imports one of the package's companions while a requirement is unsatisfied fails before running,
+with an error naming the package and the requirement. For a package that the sync covers it
+suggests `agm pkg sync` (`agm pkg sync --project` for a project package). For another store
+package it suggests pinning it under `[packages]` in the AgM home config (the project config, for
+a project package) then running that sync, or selecting it with `agm pkg switch` (`--project`).
+A package in no store, such as a development checkout, gets `agm pkg install [--editable] <root>`.
 
 ### `[commands]`
 
@@ -371,9 +371,11 @@ editable package is deactivated. A global uninstall never removes Python distrib
 `--project` one rebuilds the [overlay](#project-store) without them.
 
 **`list`** shows every stored version as `active` or `installed`, and every active editable
-package. Inside a project both stores are listed, global first, each line ending in `global` or
-`project`; an active or editable global package whose name the project index selects too is marked
-`(shadowed)`.
+package. Active means the store selection a run uses (development checkouts aside): the indexes
+with [`[packages]` pins](#version-pins) applied. A pin to a version that is not installed is an
+error, as at run time. Inside a project both stores are listed, global first, each line ending in
+`global` or `project`. An index selection that the effective selection replaces (by a pin, or by
+the other store's selection) stays listed as `active` or `editable` and is marked `(shadowed)`.
 
 **`info`** shows metadata, command registrations with their prose, whether each direct
 dependency is active, unsatisfied, or missing, including the inferred `std` upper bound, and, as
@@ -381,24 +383,28 @@ dependency is active, unsatisfied, or missing, including the inferred `std` uppe
 environment (a project package's overlay first): `installed VERSION`,
 `installed VERSION (unsatisfied)`, `missing`, `stale overlay`, or `not applicable` (its marker
 does not hold).
-Inside a project it looks the package up in the project index, then the global one, resolves
-dependency status against that layered selection, and prints a `store: global|project` line (a
-project package also names the global version it shadows).
+It looks the package up in the same effective selection as `list` (indexes, then pins; inside a
+project the project's over the global one), resolves dependency status against it, and prints a
+`store: global|project` line naming the index selections it shadows (always inside a project,
+else only when it shadows one).
 
-**`sync`** restores Python requirements for active packages in AgM's interpreter environment:
-when some `[python]` requirement of an active package (store or editable) is unsatisfied, the
-union of every active package's requirements is installed exactly as `install` does, and each
-requirement needing installation is listed; otherwise it reports that all are satisfied and runs
-no installer. An installer failure exits non-zero. `--dry-run` prints the installer command
-instead of running it. `sync --project` rebuilds the project's [Python overlay](#project-store)
-and lists every requirement installed into it.
+**`sync`** restores Python requirements in AgM's interpreter environment. It covers the global
+index's selection (store or editable packages) and the global-store packages that `[packages]`
+pins from the install-prefix and AgM home config layers select. When some `[python]` requirement
+of a covered package is unsatisfied, the union of every covered package's requirements is
+installed exactly as `install` does, and each requirement needing installation is listed;
+otherwise it reports that all are satisfied and runs no installer. An installer failure exits
+non-zero. `--dry-run` prints the installer command instead of running it. `sync --project`
+rebuilds the project's [Python overlay](#project-store) and lists every requirement installed
+into it.
 
 ## Project store
 
 Inside an AgM project, `--project` makes `install`, `uninstall`, `switch`, and `sync` act on the
 project's own store, `<project>/packages` (`$PROJ_DIR/packages` for a split project,
 `<repo>/.agm/packages` for an embedded one). The first `--project` install creates the directory;
-`agm init` does not. Outside a project, `--project` is an error.
+`agm init` does not. `--project` is an error outside a project, and in one whose store is the
+global store (the AgM home is the project).
 
 - The store is self-contained: its own activation index, lock, provenance, and `RECORD`s, and the
   same directory, archive, `--editable`, and `--reinstall` installs. Its trees are installed
@@ -424,20 +430,23 @@ project's own store, `<project>/packages` (`$PROJ_DIR/packages` for a split proj
   `--shadow` does (conflicts between two project packages still need it). A project
   package replacing a global one of the same name replaces its commands too. Its manifest
   [`[config]`](#config) applies only there, since the package is selected only there.
-- `list` and `info` show both stores with a store label and mark shadowed global packages (see
+- `list` and `info` show both stores with a store label and mark shadowed selections (see
   [Commands](#commands)).
 - `uninstall`, `switch`, and `sync` with `--project` do nothing, and create nothing, until a
   `--project` install has created the project store.
 - **Python overlay.** The `[python]` requirements of the project index's active packages (editable
   ones included), plus those of the project-store packages that `[packages]` pins select, are
   installed jointly into `<project store>/.python`, a link to a generation directory beside it,
-  never into AgM's own environment. Pins come from the home and project config layers only (not
-  from `.agm/config.toml` of another invocation directory), and add to the index's requirements
-  rather than replace them; a run whose pin selects a package the overlay lacks reports its
-  requirements as missing. Every `--project` `install`, `uninstall`, and `switch` that changes the
-  selection rebuilds it from scratch, unless the requirements and the interpreter's pins are as
-  the current overlay was built under; `sync --project` always rebuilds and lists every
-  requirement installed (pins edited since are picked up then). The installer
+  never into AgM's own environment. Pins come from the install-prefix, home, and project config
+  layers only (not from an invocation directory's `.agm/config.toml`), and add to the index's
+  requirements rather than replace them. A project package selected only by another layer's pin
+  is outside the overlay: a run reports its requirements as missing, and the repair hint says to
+  pin it in the project config then run `sync --project`, or select it with `switch --project`.
+  Every
+  `--project` `install`, `uninstall`, and `switch` that changes the selection rebuilds it from
+  scratch, unless the requirements and the interpreter's pins are as the current overlay was
+  built under; `sync --project` always rebuilds and lists every requirement installed (pins
+  edited since are picked up then). The installer
   (`uv pip install --target`, else `python -m pip install --target`) runs first, so a failure or
   interruption leaves the previous overlay and the activation untouched; once the activation is
   published, one atomic rename switches the overlay. Since `uninstall` and `switch` can rerun the
@@ -470,9 +479,10 @@ Pins live in any layered `config.toml` (install prefix, AgM home, project `confi
 then `.agm/config.toml`), merge by name with later layers winning, and select an exact identity that
 must already be a valid stored version of the project store or, failing that, the global one. A pin
 affects module roots, command dispatch, help, and completion for the invocation only; it never
-installs or fetches. The `list` and `info` commands
-report the active package set. A development checkout of the same name discovered from the
-execution root still takes precedence.
+installs or fetches. The `list` and `info` commands report the effective set, pins included. A
+development checkout of the same name discovered from the execution root still takes precedence.
+`std` cannot be pinned, and a pin of it is an error. Global `sync` reads the install-prefix and
+home layers, and `--project` also the project layer; the invocation directory is never read.
 
 ## The `std` package
 

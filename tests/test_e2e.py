@@ -7049,6 +7049,7 @@ class TestPackageInstall:
         listing = run_agm(["pkg", "list"], env=env, cwd=tmp_path)
         env["PROJ_DIR"] = str(project)
         pinned = run_agm(["exec", str(program)], env=env, cwd=project)
+        pinned_listing = run_agm(["pkg", "list"], env=env, cwd=project)
         del env["PROJ_DIR"]
         unpinned = run_agm(["exec", str(program)], env=env, cwd=tmp_path, check=False)
 
@@ -7057,6 +7058,10 @@ class TestPackageInstall:
         assert (store / "2.0.0").is_dir()
         assert "1.0.0" in listing.stdout
         assert "2.0.0" in listing.stdout
+        assert pinned_listing.stdout.splitlines() == [
+            "alpha 1.0.0 active global",
+            "alpha 2.0.0 active global (shadowed)",
+        ]
         assert pinned.returncode == 0
         assert unpinned.returncode == 1
 

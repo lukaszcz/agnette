@@ -38,7 +38,12 @@ from pathlib import Path
 
 from agnette.config import context as config_context
 from agnette.core import dry_run, fs, pyenv
-from agnette.packages.activation import activating_store
+from agnette.packages.activation import (
+    activating_store,
+    is_package_tree,
+    pinned_store_packages,
+    store_selection,
+)
 from agnette.packages.layout import StoreScope
 from agnette.packages.model import PackageInfo
 from agnette.packages.store import PackageStore, context_layers, global_store, project_store
@@ -118,6 +123,27 @@ def requirement_store(package: PackageInfo) -> PackageStore | None:
     if package.store_scope is StoreScope.GLOBAL:
         return global_store(home=context.home)
     return activating_store(context_layers(home=context.home, proj_dir=context.proj_dir), package)
+
+
+def synced_packages(
+    store: PackageStore, selected: Iterable[PackageInfo], *, home: Path
+) -> tuple[PackageInfo, ...]:
+    """The packages whose requirements syncing *store* installs.
+
+    The *selected* packages (the store's activation index) plus those the pins
+    of the layers a sync of *store* reads select from it
+    (see :func:`~agnette.packages.activation.pinned_store_packages`).
+    """
+
+    return (*selected, *pinned_store_packages(store, home=home))
+
+
+def sync_covers(store: PackageStore, package: PackageInfo) -> bool:
+    """Whether syncing *store* installs *package*'s requirements."""
+
+    home = config_context.current_config_context().home
+    covered = synced_packages(store, store_selection(store), home=home)
+    return any(is_package_tree(package, other.root) for other in covered)
 
 
 def overlay_for(package: PackageInfo) -> Path | None:

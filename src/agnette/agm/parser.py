@@ -188,7 +188,7 @@ _HELP_TEXTS: dict[str, str] = {
           uninstall  Remove an installed version
           list       List installed packages
           info       Describe an active package
-          sync       Install the active packages' Python requirements
+          sync       Install the store's Python requirements
 
         package.toml [commands] tables form multi-word command paths; an entry
         names a program (documented by its @doc) or, without one, a group with
@@ -537,9 +537,9 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
 
         Install a package directory or .agmpkg archive into the store and
         activate it. URL dependencies are fetched and verified against their
-        SHA-256. If any [python] requirement of the active packages is
-        unsatisfied, all of them are installed together into AgM's interpreter
-        (uv, else pip); a failure fails the install.
+        SHA-256. If any [python] requirement of the packages a sync covers (see
+        sync) is unsatisfied, all of them are installed together into AgM's
+        interpreter (uv, else pip); a failure fails the install.
 
         With --project the package goes into the current project's store, which
         is visible only inside the project and whose packages replace
@@ -581,10 +581,11 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
     ("pkg", "list"): textwrap.dedent("""\
         agm pkg list
 
-        List installed versions and active editable packages. Inside a
-        project, list both stores, global first, each line ending in its store
-        (global or project); a global package the project's own selection also
-        selects is marked (shadowed).
+        List installed versions and active editable packages; active means the
+        store selection a run uses (development checkouts aside), [packages]
+        pins included. Inside a project, list both stores, global first, each
+        line ending in its store (global or project). An index selection the
+        effective selection replaces stays listed, marked (shadowed).
     """),
     ("pkg", "info"): textwrap.dedent("""\
         agm pkg info NAME
@@ -594,23 +595,25 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         installed VERSION (unsatisfied), missing, stale overlay, or not
         applicable (marker false).
 
-        Inside a project, look NAME up in the project's store, then the global
-        one, check dependencies against that layered selection, and print a
-        "store: global|project" line, which names the global version a project
-        package shadows.
+        Look NAME up in the effective selection (as for list), check
+        dependencies against it, and print a "store: global|project" line
+        naming the index selections it shadows (always inside a project, else
+        only when it shadows one).
     """),
     ("pkg", "sync"): textwrap.dedent("""\
         agm pkg sync [--project] [--dry-run]
 
-        If any [python] requirement of the active packages is unsatisfied,
-        install all of them together into AgM's interpreter (uv, else pip) and
-        list the unsatisfied ones. Nothing is uninstalled.
+        If any [python] requirement of the global index selection (and of the
+        global packages pinned in the install-prefix or AgM home config) is
+        unsatisfied, install all of them together into AgM's interpreter (uv,
+        else pip) and list the unsatisfied ones. Nothing is uninstalled.
 
         Options:
           --project  Instead rebuild the Python overlay of the current project
-                     store's packages (and of the project packages pinned in
-                     [packages]) and list every requirement installed into it.
-                     Always rebuilds, which also cures a stale overlay.
+                     store's index selection (and of the project packages pinned
+                     in the install-prefix, home or project config) and list
+                     every requirement installed into it. Always rebuilds,
+                     which also cures a stale overlay.
     """),
     ("tmux", "open"): textwrap.dedent("""\
         agm tmux open [-d] [-n PANES] [--dry-run] [SESSION]

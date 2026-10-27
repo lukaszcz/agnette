@@ -30,6 +30,7 @@ from agnette.packages.activation import (
     resolve_indexed_packages,
     select_active_packages,
     select_package_roots,
+    write_activation_index,
 )
 from agnette.packages.archive import write_archive
 from agnette.packages.command_registry import command_registry
@@ -623,6 +624,19 @@ def test_pkg_target_selects_the_project_store_only_on_request(world: _World) -> 
         pkg_target(outside, project=True)
 
 
+def test_pkg_target_rejects_project_when_the_home_is_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGM_HOME", str(tmp_path))
+    home_is_project = ConfigContext(home=tmp_path, proj_dir=tmp_path, cwd=tmp_path)
+    no_project = ConfigContext(home=tmp_path, proj_dir=None, cwd=tmp_path)
+
+    with pytest.raises(PackageInstallError):
+        pkg_target(home_is_project, project=True)
+    with pytest.raises(PackageInstallError):
+        pkg_target(no_project, project=True)
+
+
 def test_resolution_target_layers_the_project_store_over_the_global_one(world: _World) -> None:
     inside = ConfigContext(home=world.home, proj_dir=world.project, cwd=world.project)
     outside = ConfigContext(home=world.home, proj_dir=None, cwd=world.tmp)
@@ -715,8 +729,7 @@ def test_info_of_a_project_package_tolerates_a_shadowed_editable_whose_source_is
     info_command.run(PkgInfoArgs("echo"))
 
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0] == "echo 2.0.0"
-    assert any(line.startswith("store: project") and "shadows" in line for line in lines)
+    assert lines[:2] == ["echo 2.0.0", "store: project (shadows global 1.0.0)"]
 
 
 def test_info_outside_a_project_ignores_project_packages(
@@ -730,6 +743,139 @@ def test_info_outside_a_project_ignores_project_packages(
         info_command.run(PkgInfoArgs("carol"))
 
     assert capsys.readouterr().out == "alpha 1.0.0\n"
+
+
+@pytest.fixture
+def pin_context(world: _World, monkeypatch: pytest.MonkeyPatch) -> ConfigContext:
+    """Global alpha 1.0.0 active; project alpha 2.0.0 stored, not in the project index."""
+    monkeypatch.setenv("AGM_HOME", world.env["AGM_HOME"])
+    world.install_global(_source(world.tmp / "src-a", "alpha", "1.0.0"))
+    world.install_project(_source(world.tmp / "src-a2", "alpha", "2.0.0"))
+    write_activation_index(world.project_store, ActivationIndex({}))
+    context = ConfigContext(home=world.home, proj_dir=world.project, cwd=world.project)
+    monkeypatch.setattr(list_command, "current_config_context", lambda: context)
+    monkeypatch.setattr(info_command, "current_config_context", lambda: context)
+    return context
+
+
+def test_list_shows_a_project_pin_selecting_a_project_package_as_shadowing_the_global_one(
+    pin_context: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.pin(alpha="2.0.0")
+
+    list_command.run(PkgListArgs())
+
+    assert capsys.readouterr().out.splitlines() == [
+        "alpha 1.0.0 active global (shadowed)",
+        "alpha 2.0.0 active project",
+    ]
+
+
+def test_list_keeps_an_editable_entry_a_same_store_pin_replaces_as_shadowed(
+    pin_context: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.install_project(_source(world.tmp / "src-a3", "alpha", "3.0.0"), editable=True)
+    world.pin(alpha="2.0.0")
+
+    list_command.run(PkgListArgs())
+
+    assert capsys.readouterr().out.splitlines() == [
+        "alpha 1.0.0 active global (shadowed)",
+        "alpha 2.0.0 active project",
+        "alpha 3.0.0 editable project (shadowed)",
+    ]
+
+
+def test_list_marks_a_project_entry_a_pin_to_a_global_version_replaces_as_shadowed(
+    pin_context: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.install_global(_source(world.tmp / "src-g2", "alpha", "4.0.0"))
+    world.install_project(_source(world.tmp / "src-a3", "alpha", "3.0.0"))
+    world.pin(alpha="1.0.0")
+
+    list_command.run(PkgListArgs())
+
+    assert capsys.readouterr().out.splitlines() == [
+        "alpha 1.0.0 active global",
+        "alpha 4.0.0 active global (shadowed)",
+        "alpha 2.0.0 installed project",
+        "alpha 3.0.0 active project (shadowed)",
+    ]
+
+
+def test_list_and_info_accept_a_replaced_editable_entry_whose_source_is_gone(
+    pin_context: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.install_project(_source(world.tmp / "src-a3", "alpha", "3.0.0"), editable=True)
+    world.pin(alpha="2.0.0")
+    shutil.rmtree(world.tmp / "src-a3")
+
+    list_command.run(PkgListArgs())
+    info_command.run(PkgInfoArgs("alpha"))
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[:3] == [
+        "alpha 1.0.0 active global (shadowed)",
+        "alpha 2.0.0 active project",
+        "alpha 3.0.0 editable project (shadowed)",
+    ]
+    assert "store: project (shadows project 3.0.0, global 1.0.0)" in out
+
+
+def test_info_names_every_index_selection_a_pin_replaces(
+    pin_context: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.install_global(_source(world.tmp / "src-g2", "alpha", "4.0.0"))
+    world.install_project(_source(world.tmp / "src-a3", "alpha", "3.0.0"))
+    world.pin(alpha="1.0.0")
+
+    info_command.run(PkgInfoArgs("alpha"))
+
+    assert "store: global (shadows project 3.0.0, global 4.0.0)" in capsys.readouterr().out
+
+
+def test_list_fails_on_a_pin_to_a_version_that_is_not_installed(
+    pin_context: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.pin(alpha="9.0.0")
+
+    with pytest.raises(SystemExit):
+        list_command.run(PkgListArgs())
+
+    assert capsys.readouterr().out == ""
+
+
+def test_info_reports_the_project_package_a_project_pin_selects(
+    pin_context: ConfigContext, world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.pin(alpha="2.0.0")
+
+    info_command.run(PkgInfoArgs("alpha"))
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "alpha 2.0.0"
+    assert "store: project (shadows global 1.0.0)" in lines
+
+
+def test_list_and_info_follow_a_global_pin_selecting_a_version_the_index_does_not(
+    world: _World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("AGM_HOME", world.env["AGM_HOME"])
+    world.install_global(_source(world.tmp / "src-a", "alpha", "1.0.0"))
+    world.install_global(_source(world.tmp / "src-a2", "alpha", "2.0.0"))
+    (world.home / ".agm" / "config.toml").write_text(
+        '[packages]\nalpha = "1.0.0"\n', encoding="utf-8"
+    )
+    outside = ConfigContext(home=world.home, proj_dir=None, cwd=world.project)
+    monkeypatch.setattr(list_command, "current_config_context", lambda: outside)
+    monkeypatch.setattr(info_command, "current_config_context", lambda: outside)
+
+    list_command.run(PkgListArgs())
+    info_command.run(PkgInfoArgs("alpha"))
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[:2] == ["alpha 1.0.0 active", "alpha 2.0.0 active (shadowed)"]
+    assert out[2:4] == ["alpha 1.0.0", "store: global (shadows global 2.0.0)"]
 
 
 def test_operations_on_an_absent_store_create_nothing(world: _World) -> None:

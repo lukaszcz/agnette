@@ -152,7 +152,13 @@ def activating_store(layers: StoreLayers, package: PackageInfo) -> PackageStore 
         return None
     store, active = selection
     root = active.editable or store.package_path(package.manifest.name, active.version)
-    return store if root.resolve() == package.root.resolve() else None
+    return store if is_package_tree(package, root) else None
+
+
+def is_package_tree(package: PackageInfo, root: Path) -> bool:
+    """Whether *package* is the tree at *root*, links resolved."""
+
+    return package.root == root.resolve()
 
 
 def write_activation_index(store: PackageStore, index: ActivationIndex) -> Path:
@@ -288,10 +294,13 @@ def load_package_pins(
     *,
     home: Path,
     proj_dir: Path | None,
-    cwd: Path,
+    cwd: Path | None,
     env: Mapping[str, str] | None = None,
 ) -> dict[str, semver.Version]:
     """Read exact project package-version pins from the merged config layers.
+
+    The layers are those of :func:`~agnette.config.general.config_file_candidates`:
+    no *proj_dir* omits the project layer and no *cwd* the invocation-directory one.
 
     Only the ``[packages]`` section is interpreted here.  Other sections stay
     deliberately lenient during general configuration loading.
@@ -314,7 +323,7 @@ def _read_package_pins(
     *,
     home: Path,
     proj_dir: Path | None,
-    cwd: Path,
+    cwd: Path | None,
     env: Mapping[str, str] | None,
 ) -> dict[str, semver.Version]:
     merged = load_merged_config(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
@@ -327,6 +336,10 @@ def _read_package_pins(
     pins: dict[str, semver.Version] = {}
     for name, value in toml_dict(raw_pins).items():
         _validate_package_name(name)
+        if is_std_package_name(name):
+            raise PackageActivationError(
+                f"package {name!r} is managed with AgM and cannot be pinned"
+            )
         if not isinstance(value, str):
             raise PackageActivationError(f"package pin {name!r} must be a semantic version string")
         try:
@@ -344,22 +357,20 @@ def pinned_store_packages(
     home: Path,
     env: Mapping[str, str] | None = None,
 ) -> tuple[PackageInfo, ...]:
-    """Resolve the packages the owning project's ``[packages]`` pins select from project *store*.
+    """Resolve the packages that pins select from *store*, whether or not its index does.
 
-    A pin resolves in the project store first (see :func:`select_active_packages`),
-    so these are the pinned packages that run from that store whether or not
-    its index selects them. Only the home and project config layers are read
-    (the project directory stands for the invocation directory), so the result
-    does not depend on where the caller runs.
+    Only the layers a sync of *store* covers are read: the install-prefix and
+    AgM home layers, and for a project store the project's config too. The
+    invocation directory is never read, so the result does not depend on where
+    the caller runs. A pin naming a version *store* lacks selects nothing here.
     """
 
-    proj_dir = store.project_dir
-    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=proj_dir, env=env)
+    proj_dir = store.project_dir if store.scope is StoreScope.PROJECT else None
+    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=None, env=env)
     selections = {
         name: ActivePackage(version)
         for name, version in pins.items()
-        if _pin_store(layers, name, version) == store
+        if store.package_path(name, version).is_dir()
     }
     return resolve_indexed_packages(
         store, ActivationIndex(selections), fallback_to_manifest_commands=True
@@ -383,8 +394,8 @@ def select_active_packages(
     """
 
     layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    packages = _resolve_selections(
-        layers, _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    packages = resolve_selections(
+        layers, effective_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     )
     _validate_requirements(packages)
     return packages
@@ -408,8 +419,8 @@ def effective_command_index(
     """
 
     layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    chosen = _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
-    selected = _resolve_selections(layers, chosen)
+    chosen = effective_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    selected = resolve_selections(layers, chosen)
     _validate_requirements(selected)
     pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     index, provenance = _command_priorities(layers, chosen, pins)
@@ -432,7 +443,7 @@ def by_command_priority(
     """
 
     layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    chosen = _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    chosen = effective_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     priorities, _ = _command_priorities(layers, chosen, pins)
     ranks = {
@@ -518,10 +529,10 @@ def select_package_roots(
     # override or source-checkout fallback cannot also mount an active tree.
     excluded_names = {*development_names, STD_PACKAGE_NAME}
     layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    chosen = _chosen_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    chosen = effective_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     for name in excluded_names:
         chosen.pop(name, None)
-    activated = _resolve_selections(layers, chosen)
+    activated = resolve_selections(layers, chosen)
     priorities, _ = _command_priorities(
         layers, chosen, load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     )
@@ -533,15 +544,20 @@ def select_package_roots(
     return selected
 
 
-def _chosen_selections(
+def effective_selections(
     layers: StoreLayers,
     *,
     home: Path,
     proj_dir: Path | None,
     cwd: Path,
-    env: Mapping[str, str] | None,
+    env: Mapping[str, str] | None = None,
 ) -> dict[str, tuple[PackageStore, ActivePackage]]:
-    """Layer the stores' selections (see :func:`indexed_selections`), then replace them by pins."""
+    """Map each package name to the store and activation entry that win in the current layering.
+
+    The stores' selections (see :func:`indexed_selections`) replaced by pins: the
+    store selection a run uses (development checkouts aside), and what ``pkg list``
+    and ``pkg info`` show.
+    """
 
     chosen = indexed_selections(layers)
     pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
@@ -550,10 +566,14 @@ def _chosen_selections(
     return chosen
 
 
-def _resolve_selections(
+def resolve_selections(
     layers: StoreLayers, chosen: Mapping[str, tuple[PackageStore, ActivePackage]]
 ) -> tuple[PackageInfo, ...]:
-    """Resolve *chosen* selections into packages, ordered by package name."""
+    """Resolve *chosen* selections into packages, ordered by package name.
+
+    Raises :class:`PackageActivationError` for a selection with no stored tree,
+    such as a pin to a version that is not installed.
+    """
 
     packages: list[PackageInfo] = []
     for store in layers.stores:

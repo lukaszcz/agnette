@@ -1101,6 +1101,15 @@ def test_package_pins_are_empty_when_the_section_is_absent(tmp_path: Path) -> No
     assert load_package_pins(home=tmp_path / "home", proj_dir=None, cwd=tmp_path, env={}) == {}
 
 
+def test_a_pin_of_the_managed_std_package_is_invalid(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    (project / "config").mkdir(parents=True)
+    (project / "config" / "config.toml").write_text('[packages]\nstd = "1.0.0"\n', encoding="utf-8")
+
+    with pytest.raises(PackageActivationError):
+        load_package_pins(home=tmp_path / "home", proj_dir=project, cwd=project, env={})
+
+
 def test_non_editable_package_cannot_escape_the_canonical_store_root(tmp_path: Path) -> None:
     home = tmp_path / "agm-home"
     external_root = tmp_path / "external"

@@ -100,13 +100,18 @@ def config_file_candidates(
     *,
     home: Path,
     proj_dir: Path | None,
-    cwd: Path,
+    cwd: Path | None,
     env: Mapping[str, str] | None = None,
 ) -> list[Path]:
+    """Config files from least to most specific: install prefix, AgM home, project, *cwd*.
+
+    A *cwd* of ``None`` omits the invocation-directory layer.
+    """
     candidates = agm_path_candidates(home=home, relative_path=Path("config.toml"), env=env)
     if proj_dir is not None:
         candidates.append(project_config_dir(proj_dir) / "config.toml")
-    candidates.append(cwd / ".agm" / "config.toml")
+    if cwd is not None:
+        candidates.append(cwd / ".agm" / "config.toml")
     return candidates
 
 
@@ -216,18 +221,23 @@ def load_general_config(
     *,
     home: Path,
     proj_dir: Path | None,
-    cwd: Path,
+    cwd: Path | None,
     env: Mapping[str, str] | None = None,
 ) -> GeneralConfig:
-    """Load path-normalized config layers and their conventional merged view."""
+    """Load path-normalized config layers and their conventional merged view.
+
+    Without a *cwd* (see :func:`config_file_candidates`) a relative path resolves
+    against its own config directory alone.
+    """
 
     layers: list[TomlDict] = []
     anchors: list[PathAnchor | None] = []
     for path in config_file_candidates(home=home, proj_dir=proj_dir, cwd=cwd, env=env):
         if path.is_file():
             raw = load_toml_file(path)
-            layers.append(_resolve_config_file_paths(raw, config_dir=path.parent, cwd=cwd))
-            anchors.append(PathAnchor(path.parent, cwd))
+            anchor = PathAnchor(path.parent, path.parent if cwd is None else cwd)
+            layers.append(_resolve_config_file_paths(raw, anchor.config_dir, anchor.cwd))
+            anchors.append(anchor)
     return GeneralConfig.from_layers(layers, anchors)
 
 
@@ -235,7 +245,7 @@ def load_merged_config(
     *,
     home: Path,
     proj_dir: Path | None,
-    cwd: Path,
+    cwd: Path | None,
     env: Mapping[str, str] | None = None,
 ) -> TomlDict:
     """Load the conventional merged config view.

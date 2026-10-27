@@ -24,7 +24,7 @@ See [highlighting](highlighting.md) for components and
 
 ## Layering and Precedence
 
-General configuration merges from least to most specific: install prefix, AgM home, project config directory, then the invocation directory's `.agm/config.toml`. Tables merge by key. Path-valued settings resolve relative to their defining file (else the invocation directory when that path does not exist) and interpolate `%{VAR}` *leniently* — an unresolved hole stays verbatim, so an irrelevant section never prevents loading.
+General configuration merges from least to most specific: install prefix, AgM home, project config directory, then the invocation directory's `.agm/config.toml`; the loaders accept `cwd=None` to drop that last layer for cwd-independent reads (sync coverage), and relative paths then anchor only to their config file's directory. Tables merge by key. Path-valued settings resolve relative to their defining file (else the invocation directory when that path does not exist) and interpolate `%{VAR}` *leniently* — an unresolved hole stays verbatim, so an irrelevant section never prevents loading.
 
 Sections are consumed by specific features: `[run]`, `[exec]`, `[repl]`, `[agent]` ([agents.md](agents.md)), `[modules]`, `[packages]` (exact package-version pins), `[deps]` (workspace dependency branches), `[warnings]` (static-warning levels by name, merged by key). The `agm config` group copies project config into a workspace, prints its environment, and creates missing files.
 

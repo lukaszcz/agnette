@@ -6,15 +6,17 @@ import sys
 import textwrap
 
 from agnette.agm.cli_support.args import PkgInfoArgs
-from agnette.agm.cli_support.pkg_store import pkg_layers
+from agnette.agm.cli_support.pkg_store import (
+    pkg_selections,
+    replaced_entries,
+    replaced_version,
+)
 from agnette.config.context import current_config_context
 from agnette.core.env import help_width
 from agnette.packages.activation import (
     ActivePackage,
     PackageActivationError,
     active_package_version,
-    indexed_selections,
-    load_activation_index,
     resolve_active_package,
 )
 from agnette.packages.layout import StoreScope
@@ -32,9 +34,8 @@ from agnette.version import AGM_VERSION
 def run(args: PkgInfoArgs) -> None:
     """Print manifest metadata and dependency status for one active package."""
 
-    layers = pkg_layers(current_config_context())
     try:
-        selections = indexed_selections(layers)
+        layers, selections = pkg_selections(current_config_context())
         if args.name not in selections:
             raise PackageActivationError(f"package {args.name!r} is not installed")
         store, active = selections[args.name]
@@ -45,16 +46,17 @@ def run(args: PkgInfoArgs) -> None:
             for name in manifest.dependencies
             if name in selections
         }
-        replaced = (
-            load_activation_index(layers.global_store).packages.get(args.name)
-            if store.scope is StoreScope.PROJECT
-            else None
-        )
+        replaced = [
+            (owner.scope, entry)
+            for owner in layers.stores
+            for name, entry in replaced_entries(owner, selections)
+            if name == args.name
+        ]
     except (ManifestError, PackageActivationError) as exc:
         print(f"pkg info: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
     print(f"{manifest.name} {manifest.version}")
-    if layers.project is not None:
+    if layers.project is not None or replaced:
         print(f"store: {store.scope.value}{_shadow_note(replaced)}")
     if manifest.description is not None:
         print(manifest.description)
@@ -106,16 +108,18 @@ def run(args: PkgInfoArgs) -> None:
         print(f"requires python package {spec}: {requirement_status(spec, overlay).describe()}")
 
 
-def _shadow_note(replaced: ActivePackage | None) -> str:
-    """The ``store:`` suffix naming the global selection a project package replaces.
+def _shadow_note(replaced: list[tuple[StoreScope, ActivePackage]]) -> str:
+    """The ``store:`` suffix naming the index selections the effective one replaces.
 
-    The replaced entry is displayed only; an editable one whose source is gone
-    just goes without its version.
+    The replaced entries are displayed only (see :func:`replaced_version`).
     """
 
-    if replaced is None:
-        return ""
-    try:
-        return f" (shadows global {active_package_version(replaced)})"
-    except ManifestError:
-        return " (shadows global)"
+    return (
+        f" (shadows {', '.join(_describe_replaced(*entry) for entry in replaced)})"
+        if replaced
+        else ""
+    )
+
+
+def _describe_replaced(scope: StoreScope, entry: ActivePackage) -> str:
+    return f"{scope.value} {replaced_version(entry)}"
