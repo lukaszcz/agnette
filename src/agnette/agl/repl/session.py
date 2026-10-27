@@ -2871,7 +2871,7 @@ class ReplSession:
         A plain file (no *allows*) is governed by the ``@allow`` regions of its inner
         attributes, converted with its first entry, and of the items of its parse *tree* from
         the first unrun entry on, converted here: the earlier items are in the *programs* of
-        the entries run. They are withheld too when the first entry made no header.
+        the entries run.
         A transcript entry is governed by its own *allows* marks and by the regions of its own
         inner attributes and items; an entry that does not convert reports none.
         """
@@ -2883,8 +2883,7 @@ class ReplSession:
             self._report_entry_advisories(result, label, normalized, lexed, tree, unrun, allows)
             return
         head = self._header
-        if head is None:
-            return
+        assert head is not None  # the first entry of a file that resolved made its header
         resume = unrun[0][0]
         try:
             rest = tree.items_from(resume, start_id=self._next_node_id)
