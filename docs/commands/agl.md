@@ -842,7 +842,7 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
 | `:bindings` / `:env` | List current bindings as `name : Type = value` |
 | `:set echo on\|off` | Toggle result echoing |
 | `:set echo-unit on\|off` | Toggle echoing `unit`-typed entries too (off by default) |
-| `:load FILE` | Load a saved transcript by its original entries, or an ordinary `.agl` file one item per entry |
+| `:load FILE` | Load a saved transcript by its original entries (each read exactly as typed, whatever its indentation), or an ordinary `.agl` file one item per entry |
 | `:save FILE` | Write the accumulated session source and entry boundaries to a transcript |
 | `:theme [dark\|light\|auto]` | Show or switch the syntax-highlighting theme; saves to `~/.agm/config.toml` |
 

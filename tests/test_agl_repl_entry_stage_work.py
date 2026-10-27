@@ -348,8 +348,11 @@ _TRANSCRIPTS = {
 }
 
 
+_TRANSCRIPT_WORK = {"complete": (4, 4), "halted": (4, 3), "halted-in-last": (2, 2)}
+
+
 @pytest.mark.parametrize("name", sorted(_TRANSCRIPTS))
-def test_a_loaded_transcript_is_lexed_and_parsed_once(
+def test_each_entry_of_a_loaded_transcript_is_lexed_and_parsed_once(
     tmp_path: Path, scans: _Scans, parses: _Parses, name: str
 ) -> None:
     session = _session()
@@ -359,7 +362,8 @@ def test_a_loaded_transcript_is_lexed_and_parsed_once(
 
     session.load_file(path)
 
-    assert (scans.count, parses.count) == (1, 1)
+    # Each entry is lexed; one that never ran is parsed only if it has an advisory.
+    assert (scans.count, parses.count) == _TRANSCRIPT_WORK[name]
 
 
 def test_a_halted_load_recognizes_attributes_of_the_unrun_items_only(
@@ -446,7 +450,7 @@ def test_a_loaded_transcript_is_converted_to_ast_once(
     assert builds.items == converted
 
 
-def test_a_transcript_of_multi_item_entries_is_lexed_and_parsed_once(
+def test_a_transcript_of_multi_item_entries_lexes_and_parses_each_entry_once(
     tmp_path: Path, scans: _Scans, parses: _Parses
 ) -> None:
     session = _session()
@@ -457,10 +461,10 @@ def test_a_transcript_of_multi_item_entries_is_lexed_and_parsed_once(
     results = session.load_file(path)
 
     assert [r.ok for r in results] == [True] * 3
-    assert (scans.count, parses.count) == (1, 1)
+    assert (scans.count, parses.count) == (3, 3)
 
 
-def test_a_transcript_that_does_not_parse_is_lexed_once_and_each_entry_parsed_once(
+def test_a_transcript_entry_that_does_not_parse_fails_alone_after_one_lex_and_parse(
     tmp_path: Path, scans: _Scans, parses: _Parses
 ) -> None:
     session = _session()
@@ -471,8 +475,7 @@ def test_a_transcript_that_does_not_parse_is_lexed_once_and_each_entry_parsed_on
     results = session.load_file(path)
 
     assert [r.ok for r in results] == [True, False]
-    # The whole parse that failed, then each entry's own.
-    assert (scans.count, parses.count) == (1, 3)
+    assert (scans.count, parses.count) == (2, 2)
 
 
 _DEEP = "(" * 1500 + "1" + ")" * 1500
@@ -561,7 +564,7 @@ _BLOCK_ENTRIES = {
 
 
 @pytest.mark.parametrize("name", sorted(_BLOCK_ENTRIES))
-def test_a_transcript_of_block_entries_is_lexed_and_parsed_once(
+def test_a_transcript_of_block_entries_lexes_and_parses_each_entry_once(
     tmp_path: Path, scans: _Scans, parses: _Parses, name: str
 ) -> None:
     session = _session()
@@ -571,8 +574,9 @@ def test_a_transcript_of_block_entries_is_lexed_and_parsed_once(
 
     results = session.load_file(path)
 
-    assert [r.ok for r in results] == [True] * len(_BLOCK_ENTRIES[name])
-    assert (scans.count, parses.count) == (1, 1)
+    entries = len(_BLOCK_ENTRIES[name])
+    assert [r.ok for r in results] == [True] * entries
+    assert (scans.count, parses.count) == (entries, entries)
 
 
 def test_a_transcript_pairs_each_entry_with_its_own_items(tmp_path: Path) -> None:

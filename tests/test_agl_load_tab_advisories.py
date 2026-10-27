@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Callable
 from pathlib import Path
+from types import FrameType
 
 import pytest
 
@@ -198,17 +201,25 @@ def test_a_transcript_halting_at_a_failing_entry_reports_the_later_advisories(
     assert (advisory.source_label, advisory.line, advisory.column) == (str(path), 5, 10)
 
 
-def test_a_transcript_that_is_no_program_as_a_whole_withholds_the_later_advisories(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "later",
+    [
+        '@!doc("m")\nlet b = 1\t',
+        "  let b = 2\t",
+        "def t() -> int =\n\t1",
+        "# \tc\n  let b = 2",
+    ],
+    ids=("late-attribute", "indented", "tab-block", "indented-after-comment"),
+)
+def test_a_halted_transcript_reports_the_later_advisories_though_it_is_no_program_as_a_whole(
+    tmp_path: Path, later: str
 ) -> None:
-    source = (
-        '# agm:repl-transcript:v1\n# agm:entry:16\nlet a: int = "x"\n'
-        '# agm:entry:21\n@!doc("m")\nlet b = 1\t\n'
-    )
-    _, results = _load(tmp_path, source)
+    entries = [('let z: int = "x"', ""), (later, "")]
+    path, results = _load(tmp_path, _transcript(*entries))
 
     assert [r.ok for r in results] == [False]
-    assert _tab_diagnostics(results, denied=False) == []
+    assert len(_tab_diagnostics(results, denied=False)) == 1
+    assert {label for label, _ in _tab_diagnostics(results, denied=False)} == {str(path)}
 
 
 _METHODS_WITH_POSITIONAL_PARAMETER = {
@@ -371,3 +382,45 @@ def test_the_first_entry_of_a_file_that_does_not_convert_withholds_the_later_adv
 
     assert [r.ok for r in results] == [False]
     assert _tab_diagnostics(results, denied=False) == []
+
+
+type _Tracer = Callable[[FrameType, str, object], _Tracer | None]
+_REPORTING_SOURCES = ("lexer/positions.py", "parser/parser.py", "repl/session.py")
+
+
+def _reporting_work(tmp_path: Path, unrun: int) -> int:
+    """The lines of position, parser and session code a halted transcript's load runs."""
+    entries = [('let z: int = "x"', "")] + [
+        (f"def f{i}() -> int =\n\t{i}", "") for i in range(unrun)
+    ]
+    path = tmp_path / f"t{unrun}.agl"
+    path.write_text(_transcript(*entries))
+    session = ReplSession()
+    session.open()
+    lines = 0
+
+    def count_lines(frame: FrameType, event: str, arg: object) -> _Tracer | None:
+        nonlocal lines
+        if event == "line":
+            lines += 1
+        return count_lines
+
+    def trace(frame: FrameType, event: str, arg: object) -> _Tracer | None:
+        return count_lines if frame.f_code.co_filename.endswith(_REPORTING_SOURCES) else None
+
+    previous = sys.gettrace()
+    sys.settrace(trace)
+    try:
+        results = session.load_file(path)
+    finally:
+        sys.settrace(previous)
+    assert len(_tab_diagnostics(results, denied=False)) == unrun
+    return lines
+
+
+def test_a_halted_transcript_reports_the_later_advisories_in_linear_work(tmp_path: Path) -> None:
+    small, medium, large = (_reporting_work(tmp_path, n) for n in (40, 80, 160))
+
+    # Linear work doubles with the transcript, up to a constant; a quadratic share grows the excess.
+    assert medium - 2 * small < small // 50
+    assert large - 2 * medium < small // 50

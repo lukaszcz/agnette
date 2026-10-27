@@ -119,6 +119,28 @@ REPL_LABEL = "<repl>"
 """The source label users see for text typed at the prompt."""
 
 
+def relocate_diagnostic(
+    diagnostic: Diagnostic, place: Callable[[Placement], Placement]
+) -> Diagnostic:
+    """Return *diagnostic* with its location and its notes' moved by *place*."""
+
+    def moved[D: (Diagnostic, RelatedDiagnostic)](located: D) -> D:
+        label, line, column = place((located.source_label, located.line, located.column))
+        end_line, end_column = located.end_line, located.end_column
+        if end_line is not None:
+            _, end_line, end_column = place((located.source_label, end_line, end_column))
+        return replace(
+            located,
+            line=line,
+            column=column,
+            end_line=end_line,
+            end_column=end_column,
+            source_label=label,
+        )
+
+    return replace(moved(diagnostic), related=tuple(moved(note) for note in diagnostic.related))
+
+
 def relocate(
     result: EntryResult,
     place: Callable[[Placement], Placement],
@@ -130,32 +152,14 @@ def relocate(
     *place* maps a location to its final one; a location it returns unchanged stays put.
     A runtime error *place* leaves without a file is labelled *unplaced*.
     """
-
-    def moved[D: (Diagnostic, RelatedDiagnostic)](diagnostic: D) -> D:
-        label, line, column = place((diagnostic.source_label, diagnostic.line, diagnostic.column))
-        end_line, end_column = diagnostic.end_line, diagnostic.end_column
-        if end_line is not None:
-            _, end_line, end_column = place((diagnostic.source_label, end_line, end_column))
-        return replace(
-            diagnostic,
-            line=line,
-            column=column,
-            end_line=end_line,
-            end_column=end_column,
-            source_label=label,
-        )
-
-    def moved_diagnostic(diagnostic: Diagnostic) -> Diagnostic:
-        return replace(moved(diagnostic), related=tuple(moved(note) for note in diagnostic.related))
-
     error = result.error
     if error is not None and error.line is not None:
         label, line, column = place((error.source, error.line, error.col))
         error = replace(error, source=unplaced if label is None else label, line=line, col=column)
     return replace(
         result,
-        diagnostics=[moved_diagnostic(d) for d in result.diagnostics],
-        warnings=[moved_diagnostic(w) for w in result.warnings],
+        diagnostics=[relocate_diagnostic(d, place) for d in result.diagnostics],
+        warnings=[relocate_diagnostic(w, place) for w in result.warnings],
         error=error,
     )
 

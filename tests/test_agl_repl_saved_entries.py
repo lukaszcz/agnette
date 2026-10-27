@@ -103,3 +103,24 @@ def test_a_mismatch_in_an_entry_ending_in_a_newline_spans_the_same_when_loaded(
 
     assert not typed[0]
     assert loaded == typed
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        ["def f() -> int =\n  1", "    f()"],
+        ["def g() -> int =\n  if true =>\n    1\n  else =>\n    2", "      g()"],
+        ["let a = 1\n", "  let b = 2", "b"],
+        ["let v0 = 1 # t\n", "\t1\n  # deep\n"],
+        ["let a = 1", "if true =>\n  let b = 2\n  ()\n", "    a"],
+        ["# c\n", "\t\t1"],
+    ],
+    ids=("deeper-than-block", "deeper-than-nested-block", "newline", "comment", "block", "tabs"),
+)
+def test_an_entry_indented_unlike_the_previous_one_reloads_as_typed(
+    tmp_path: Path, entries: list[str]
+) -> None:
+    typed, loaded = _typed_and_reloaded(tmp_path, entries)
+
+    assert all(ok for ok, _ in typed)
+    assert [ok for ok, _ in loaded] == [True] * len(entries)
