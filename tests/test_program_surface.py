@@ -61,6 +61,25 @@ def _param(
     )
 
 
+def _function_param(
+    module: str,
+    function: str,
+    name: str,
+    *,
+    scope: tuple[str, ...] = (),
+    owner: str | None = None,
+) -> HostParamInfo:
+    return HostParamInfo.function_param(
+        ModuleId.from_path(module),
+        scope,
+        function,
+        name,
+        IntType(),
+        _option(name),
+        owner=None if owner is None else Path(owner),
+    )
+
+
 def _signature(
     name: str,
     *,
@@ -304,6 +323,93 @@ def test_anonymous_entry_param_has_only_its_cli_bare_spelling() -> None:
     assert entry.section == "<entry>"
 
 
+def _anonymous(param: HostParamInfo) -> HostParamInfo:
+    return replace(param, module=ENTRY_ID)
+
+
+def test_anonymous_entry_scoped_params_also_spell_their_scope_route() -> None:
+    root = _anonymous(_param("app/main", "n", IntType()))
+    scoped = _anonymous(_param("app/main", "m", IntType(), scope=("S",)))
+    function = _anonymous(_function_param("app/main", "bump", "by", scope=("Counter",)))
+    surface = build_param_surface(frozenset(), _program(), (root, scoped, function))
+
+    assert _entry(surface, root).spellings == ("n",)
+    assert _entry(surface, scoped).spellings == ("m", "S.m")
+    assert _entry(surface, function).spellings == ("by", "Counter.bump.by")
+
+
+def test_anonymous_entry_functions_sharing_a_name_stay_addressable_by_route() -> None:
+    first = _anonymous(_function_param("app/main", "f", "n"))
+    second = _anonymous(_function_param("app/main", "g", "n"))
+    surface = build_param_surface(frozenset(), _program(), (first, second))
+
+    assert set(surface.ambiguous["n"]) == {first, second}
+    assert _entry(surface, first).spellings == ("f.n",)
+    assert _entry(surface, first).option_spellings == ("--f.n",)
+    assert _entry(surface, second).option_spellings == ("--g.n",)
+
+
+def test_a_full_spelling_beats_a_bare_name_claim_of_any_level() -> None:
+    root = _anonymous(_param("app/main", "n", IntType()))
+    function = _anonymous(_function_param("app/main", "f", "n"))
+    surface = build_param_surface(frozenset(), _program(), (function, root))
+
+    assert "n" not in surface.ambiguous
+    assert _entry(surface, root).option_spellings == ("--n",)
+    assert _entry(surface, function).option_spellings == ("--f.n",)
+
+
+def test_a_signature_parameter_still_beats_a_full_spelling() -> None:
+    root = _anonymous(_param("app/main", "n", IntType()))
+    surface = build_param_surface(frozenset(), _program(_signature("n")), (root,))
+
+    assert _entry(surface, root).spellings == ()
+
+
+def test_entry_parameters_sharing_a_full_spelling_are_ambiguous_on_both_surfaces() -> None:
+    scoped = _anonymous(_param("app/main", "n", IntType(), scope=("S",)))
+    function = _anonymous(_function_param("app/main", "S", "n"))
+    surface = build_param_surface(frozenset(), _program(), (scoped, function))
+
+    assert set(surface.ambiguous["S.n"]) == {scoped, function}
+    assert set(surface.ambiguous_options["--S.n"]) == {scoped, function}
+
+
+def test_parameters_of_different_levels_sharing_a_full_spelling_are_ambiguous_everywhere() -> None:
+    function = _function_param("pk/a", "refine", "x")
+    module = _param("pk/a/refine", "x", IntType())
+    program = replace(_program(), module=ModuleId.from_path("pk/a"))
+    surface = build_param_surface(frozenset(), program, (function, module))
+
+    assert set(surface.ambiguous["pk.a.refine.x"]) == {function, module}
+    assert set(surface.ambiguous_options["--pk.a.refine.x"]) == {function, module}
+
+
+def test_an_anonymous_entry_never_takes_an_imported_modules_full_spelling() -> None:
+    imported = _param("tools", "n", IntType())
+    scoped = _anonymous(_param("app/main", "n", IntType(), scope=("tools",)))
+    function = _anonymous(_function_param("app/main", "tools", "n"))
+    surface = build_param_surface(frozenset(), _program(), (scoped, function, imported))
+
+    assert "tools.n" not in surface.ambiguous
+    assert "--tools.n" not in surface.ambiguous_options
+    assert "tools.n" in _entry(surface, imported).spellings
+    assert "--tools.n" in _entry(surface, imported).option_spellings
+    for entry in (scoped, function):
+        assert "tools.n" not in _entry(surface, entry).spellings
+        assert "--tools.n" not in _entry(surface, entry).option_spellings
+
+
+def test_a_bare_only_surface_leaves_the_bare_name_to_the_nearest_level() -> None:
+    own = _param("app/main", "n", IntType())
+    other = _param("elsewhere/lib", "n", IntType())
+    surface = build_param_surface(frozenset(), _program(), (other, own), bare_only=True)
+
+    assert "n" not in surface.ambiguous
+    assert _entry(surface, own).spellings == ("n",)
+    assert _entry(surface, other).spellings == ()
+
+
 def test_signature_short_and_positional_parameters_claim_only_their_valid_flags() -> None:
     param = _param("app/main", "verbose", short="v")
     positional = _param("app/main", "positional")
@@ -402,3 +508,48 @@ def test_engine_settings_without_a_program_take_only_their_bare_spelling() -> No
     assert entry.spellings == ("timeout",)
     assert entry.positive_option_spellings == ("--timeout",)
     assert entry.negative_option_spellings == ("--no-timeout",)
+
+
+def test_a_function_parameter_spells_its_qualified_function_route() -> None:
+    refine = _function_param("devel/review", "refine", "max-steps")
+    method = _function_param("devel/review", "review", "aspects", scope=("Agent",))
+    surface = build_param_surface(frozenset(), _program(), (refine, method))
+
+    assert refine.kind is HostParamKind.FUNCTION
+    assert refine.route_path == ("refine",)
+    assert _entry(surface, refine).spellings == (
+        "max-steps",
+        "review.refine.max-steps",
+        "devel.review.refine.max-steps",
+    )
+    assert _entry(surface, method).spellings == (
+        "aspects",
+        "review.Agent.review.aspects",
+        "devel.review.Agent.review.aspects",
+    )
+    assert refine.declaration_path == "devel/review::refine::max-steps"
+
+
+def test_a_function_parameter_is_shadowed_by_a_signature_parameter_and_a_nearer_module() -> None:
+    far = _function_param("lib/helper", "refine", "steps", owner="/pkgs/lib")
+    near = _param("app/main", "steps", IntType())
+    surface = build_param_surface(
+        frozenset(), _program(_signature("limit"), owner="/pkgs/app"), (far, near)
+    )
+    shadowed = build_param_surface(
+        frozenset(), _program(_signature("steps"), owner="/pkgs/app"), (far,)
+    )
+
+    assert _entry(surface, near).spellings[0] == "steps"
+    assert _entry(surface, far).spellings == ("helper.refine.steps", "lib.helper.refine.steps")
+    assert "steps" not in _entry(shadowed, far).spellings
+    assert "helper.refine.steps" in _entry(shadowed, far).spellings
+
+
+def test_function_parameters_of_one_owner_are_ambiguous_peers_on_the_bare_name() -> None:
+    first = _function_param("lib/a", "go", "depth", owner="/pkgs/lib")
+    second = _function_param("lib/b", "go", "depth", owner="/pkgs/lib")
+    surface = build_param_surface(frozenset(), _program(), (first, second))
+
+    assert set(surface.ambiguous["depth"]) == {first, second}
+    assert "a.go.depth" in _entry(surface, first).spellings

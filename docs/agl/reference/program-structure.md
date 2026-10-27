@@ -80,10 +80,10 @@ exception key) are rejected. A name-addressable parameter cannot spell an
 one flag and config namespace. Full resolution and help rules:
 [Host environment](host-environment.md#program-arguments).
 
-An `@param` static binding is a separate host input owned by its declaring
-module, not a value parameter of a `program def`. A selected program exposes
-the marked bindings it reaches alongside its own
-parameters; see [Module parameters](host-environment.md#module-parameters).
+An `@param` static binding or `def` parameter is a separate host input owned by
+its declaring module, not a value parameter of the selected `program def`. A
+selected program exposes the marked bindings and function parameters it reaches
+alongside its own parameters; see [Host parameters](host-environment.md#host-parameters).
 
 ### Program-selected configuration
 

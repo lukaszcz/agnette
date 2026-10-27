@@ -18,6 +18,7 @@ from agnette.agl.pipeline import (
     PreparedProgram,
     ProgramDiscovery,
 )
+from agnette.agl.runtime.types import HostParamInfo, HostParamKind
 from agnette.agl.semantics.values import IntValue, TextValue
 from tests._agl_helpers import agl_roots
 
@@ -167,6 +168,35 @@ class TestScopeEnumeration:
             binding.param is binding.function.params[binding.index]
             for binding in resolved.function_param_bindings()
         )
+
+
+def _hosted(params: tuple[HostParamInfo, ...]) -> list[HostParamInfo]:
+    return [param for param in params if param.kind is not HostParamKind.ENGINE]
+
+
+class TestHostParameterInventory:
+    def test_a_program_hosts_its_reached_function_parameters_not_its_own(
+        self, tmp_path: Path
+    ) -> None:
+        _runtime_, _prepared, discovery = _setup(_TWO_PROGRAMS, tmp_path, library=None)
+        inner, outer = discovery.programs
+
+        assert _hosted(discovery.params_for(inner)) == []
+        (limit,) = _hosted(discovery.params_for(outer))
+        assert limit.kind is HostParamKind.FUNCTION
+        assert limit.key == _key(discovery, (), "inner", "limit")
+
+    def test_declaration_diagnostics_also_see_unreached_function_parameters(
+        self, tmp_path: Path
+    ) -> None:
+        source = "import library\nprogram def main() -> unit = ()\n"
+        _runtime_, _prepared, discovery = _setup(source, tmp_path)
+        main = discovery.programs[0]
+
+        assert _hosted(discovery.params_for(main)) == []
+        assert [param.key for param in discovery.declared_params_for(main)] == [
+            _library_key("tries", "count")
+        ]
 
 
 class TestLoweredTables:

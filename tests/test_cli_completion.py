@@ -1995,6 +1995,28 @@ class TestExecCommandShellComplete:
         assert "--unreferenced" not in result
         assert "--A.logging.unreferenced" not in result
 
+    def test_file_program_offers_reached_function_parameter_flags(self, tmp_path: Path) -> None:
+        modules = tmp_path / "modules"
+        logging = modules / "A" / "logging.agl"
+        logging.parent.mkdir(parents=True)
+        logging.write_text(
+            "def level(@param severity: int = 1) -> int = severity\n"
+            "def spare(@param unreached: int = 1) -> int = unreached\n",
+            encoding="utf-8",
+        )
+        source = tmp_path / "prog.agl"
+        source.write_text(
+            "import A/logging\nprogram def main() -> unit = print A/logging::level()\n",
+            encoding="utf-8",
+        )
+
+        result = self._complete(["exec", "-I", str(modules), str(source)], "--")
+
+        assert {"--severity", "--A.logging.level.severity", "--logging.level.severity"} <= set(
+            result
+        )
+        assert "--unreached" not in result
+
     def test_nonexistent_file_degrades_to_base_completion(self) -> None:
         """Unreadable file degrades to standard exec option completion (no crash)."""
         result = self._complete(["exec", "/nonexistent/prog.agl"], "--")

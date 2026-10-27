@@ -607,3 +607,23 @@ if os.environ.get("AGM_TEST_NEUTRAL_TMP_PATH") == "1":
     def tmp_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
         """Temp directory whose name cannot leak the test name into assertions."""
         return tmp_path_factory.mktemp("t")
+
+
+@pytest.fixture
+def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
+    """Return a setter for the isolated home config file's contents, as ``agm exec`` reads it."""
+    from agnette.agm.commands import exec_program
+    from agnette.config.context import ConfigContext
+
+    home = tmp_path / "home"
+    (home / ".agm").mkdir(parents=True)
+    monkeypatch.setattr(
+        exec_program,
+        "current_config_context",
+        lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
+    )
+
+    def write(contents: str) -> None:
+        (home / ".agm" / "config.toml").write_text(contents)
+
+    return write

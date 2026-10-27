@@ -8,9 +8,7 @@ from pathlib import Path
 import pytest
 
 from agnette.agm.cli_support.args import ExecArgs
-from agnette.agm.commands import exec_program as exec_engine
 from agnette.agm.commands.exec import run
-from agnette.config.context import ConfigContext
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from tests._help_helpers import assert_lists_engine_settings, print_exec_help
 
@@ -33,23 +31,6 @@ def _package(
     for module, source in modules.items():
         (package / MODULE_TREE_DIRNAME / f"{module}.agl").write_text(source)
     return package / MODULE_TREE_DIRNAME / "main.agl"
-
-
-@pytest.fixture
-def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
-    """Return a setter for the isolated home config file's contents."""
-    home = tmp_path / "home"
-    (home / ".agm").mkdir(parents=True)
-    monkeypatch.setattr(
-        exec_engine,
-        "current_config_context",
-        lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
-    )
-
-    def write(contents: str) -> None:
-        (home / ".agm" / "config.toml").write_text(contents)
-
-    return write
 
 
 def _exec(entry: Path, *tokens: str, module_paths: tuple[Path, ...] = ()) -> None:

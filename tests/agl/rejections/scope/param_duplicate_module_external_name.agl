@@ -1,0 +1,4 @@
+@param let a: int = 1
+@param @opt-name("a") let b: int = 2
+
+program def main() -> unit = print a

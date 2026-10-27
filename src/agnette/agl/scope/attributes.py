@@ -288,6 +288,7 @@ class _Recognizer:
         self.module_doc: str | None = None
         self.region_docs: dict[tuple[str, ...], str] = {}
         self._companion_owners: dict[str, str] = {}
+        self._module_param_names: dict[tuple[str, ...], dict[str, str]] = {}
 
     def visit(self, node: object) -> None:
         """Recognize the attributes of *node*, if it is a defining declaration.
@@ -444,7 +445,10 @@ class _Recognizer:
                 span=marker.span,
             )
         binding_node_id = static_binding_node_id(node)
-        self.params[binding_node_id] = _option_spec(name, recognized)
+        spec = _option_spec(name, recognized)
+        claimed = self._module_param_names.setdefault(self._scope_path, {})
+        _claim_param_name(claimed, name, spec, marker.span)
+        self.params[binding_node_id] = spec
 
     # ------------------------------------------------------------------
     # Fact builder: field/member/record external spellings
@@ -589,8 +593,10 @@ class _Recognizer:
         A classified method's receiver is positional-only regardless. Entries
         then have to run positional-only, standard, named-only. A ``@param`` entry
         is a host parameter: it needs a default, and *param_rejection* (or a
-        receiver position) can rule the site out.
+        receiver position) can rule the site out. The ``@param`` entries of one list
+        need distinct external names.
         """
+        claimed: dict[str, str] = {}
         list_default = form_default if owner_zone is None else owner_zone
         highest = _ZONE_SEQUENCE[0]
         for index, entry in enumerate(entries):
@@ -640,16 +646,19 @@ class _Recognizer:
                     ),
                 )
             if PARAM_ATTRIBUTE in recognized.nodes:
-                self._function_param(entry, recognized)
+                self._function_param(entry, recognized, claimed)
 
     # ------------------------------------------------------------------
     # Fact builder: function host parameters
     # ------------------------------------------------------------------
 
-    def _function_param(self, entry: Param, recognized: _Recognized) -> None:
+    def _function_param(
+        self, entry: Param, recognized: _Recognized, claimed: dict[str, str]
+    ) -> None:
         """Record one ``@param`` ``def`` parameter's presentation.
 
-        The parameter needs a single name and a default.
+        The parameter needs a single name and a default, and an external name
+        no earlier ``@param`` of its function (*claimed*) has.
         """
         if entry.name == "_":
             raise AglScopeError(
@@ -661,7 +670,9 @@ class _Recognizer:
                 f"Attribute '@param' requires parameter {entry.name!r} to have a default.",
                 span=recognized.nodes[PARAM_ATTRIBUTE].span,
             )
-        self.params[entry.node_id] = _option_spec(entry.name, recognized)
+        spec = _option_spec(entry.name, recognized)
+        _claim_param_name(claimed, entry.name, spec, recognized.nodes[PARAM_ATTRIBUTE].span)
+        self.params[entry.node_id] = spec
 
     # ------------------------------------------------------------------
     # Fact builder: program option presentation
@@ -766,6 +777,23 @@ def _option_spec(
         doc=recognized.text_of(DOC_ATTRIBUTE),
         cli_positional=cli_positional,
     )
+
+
+def _claim_param_name(
+    claimed: dict[str, str], declared: str, spec: ProgramOptionSpec, span: SourceSpan
+) -> None:
+    """Record *declared* as the owner of its external name in *claimed*, or reject a clash.
+
+    *claimed* maps the external names of one declaration route to the
+    parameters declared under them; two could never be told apart by a host.
+    """
+    owner = claimed.setdefault(spec.name, declared)
+    if owner != declared:
+        raise AglScopeError(
+            f"Attribute '@param' parameter {declared!r} has external name {spec.name!r}, "
+            f"which parameter {owner!r} of the same declaration route already has.",
+            span=span,
+        )
 
 
 def _program_command_path(recognized: _Recognized) -> str | None:

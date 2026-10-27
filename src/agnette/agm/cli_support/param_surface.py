@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from types import MappingProxyType
+from typing import NamedTuple
 
 from agnette.agl.runtime.types import (
     HostParamInfo,
@@ -92,6 +93,12 @@ class _ParamRoutes:
             projections=tuple(self.projections[index] for index in kept),
         )
 
+    def full(self) -> "_ParamRoutes":
+        """Keep only the most qualified long name, which no abbreviation may take."""
+        return _ParamRoutes(
+            param=self.param, spellings=self.spellings[-1:], projections=self.projections[-1:]
+        )
+
 
 _Claimant = HostParamInfo | None
 _Claims = dict[str, tuple[_Claimant, ...]]
@@ -162,11 +169,13 @@ def _param_long_claims(routes: Iterable[_ParamRoutes]) -> _Claims:
     return _freeze_claims(claims)
 
 
-def _param_option_claims(routes: Iterable[_ParamRoutes]) -> _Claims:
+def _param_option_claims(contenders: Iterable[_ParamRoutes], *, shorts: bool) -> _Claims:
+    """Claim the flags of *contenders*, and (with *shorts*) their short spellings."""
     claims: dict[str, list[_Claimant]] = {}
-    for route in routes:
+    for route in contenders:
         for spelling in param_spellings(route.param, *route.projections):
-            _append_claim(claims, spelling, route.param)
+            if shorts or spelling.startswith("--"):
+                _append_claim(claims, spelling, route.param)
     return _freeze_claims(claims)
 
 
@@ -215,6 +224,41 @@ def _param_level(param: HostParamInfo, program: ProgramDeclInfo | None) -> Param
     return ParamLevel.OTHER
 
 
+class _Level(NamedTuple):
+    """The routes one parameter claim level claims; *shorts*: whether its short flags count."""
+
+    routes: Sequence[_ParamRoutes]
+    shorts: bool
+
+
+def _claim_levels(
+    routes: Sequence[_ParamRoutes],
+    tiers: Sequence[Sequence[_ParamRoutes]],
+    *,
+    bare_only: bool,
+) -> tuple[_Level, ...]:
+    """Return the parameter claim levels, in precedence order.
+
+    Long names and option flags both resolve over these levels. First every
+    parameter's most qualified spelling, so each stays addressable (no short
+    flag is claimed there): those of named modules, then those of the
+    anonymous entry, so an entry never takes an imported module's spelling.
+    Then the ownership *tiers*. With *bare_only* no spelling is qualified, so
+    only the tiers remain.
+    """
+    full = (
+        []
+        if bare_only
+        else [
+            _Level(
+                [route.full() for route in routes if route.param.module.is_entry is entry], False
+            )
+            for entry in (False, True)
+        ]
+    )
+    return (*full, *(_Level(tier, True) for tier in tiers))
+
+
 def build_param_surface(
     reserved_flags: Collection[str],
     program: ProgramDeclInfo | None,
@@ -225,11 +269,11 @@ def build_param_surface(
     """Build the resolving parameter spellings for *program* (``None``: a host with no program).
 
     Claim levels, first claimant wins a spelling: the host's reserved flags,
-    the program signature, parameters declared in the program's module,
-    parameters of the program's owner, parameters of other owners, engine
-    settings.  Several parameters claiming one spelling on a level make it
-    ambiguous, but only where it is used.  With *bare_only* a parameter claims
-    just its bare name.
+    the program signature, the most qualified spellings (:func:`_claim_levels`),
+    parameters declared in the program's module, parameters of the program's
+    owner, parameters of other owners, engine settings.  Several parameters
+    claiming one spelling on a level make it ambiguous, but only where it is
+    used.  With *bare_only* a parameter claims just its bare name.
     """
     signature = () if program is None else program.parameters
     routes = tuple(_param_routes(param, bare_only=bare_only) for param in params)
@@ -237,23 +281,28 @@ def build_param_surface(
     for route in routes:
         tiers[_param_level(route.param, program)].append(route)
 
+    levels = _claim_levels(routes, tiers, bare_only=bare_only)
     long_winners, ambiguous = _resolve_claims(
         (
             _host_long_claims(reserved_flags),
             _signature_long_claims(signature),
-            *(_param_long_claims(tier) for tier in tiers),
+            *(_param_long_claims(level.routes) for level in levels),
         )
     )
     # Option flags derive from long names, so only a long name's winner (or,
     # to report it, a peer claimant) contends for the flags of that name.
     contenders = [
-        [route.claimed(long_winners, ambiguous, only_won=False) for route in tier] for tier in tiers
+        [route.claimed(long_winners, ambiguous, only_won=False) for route in level.routes]
+        for level in levels
     ]
     option_winners, ambiguous_options = _resolve_claims(
         (
             _host_option_claims(reserved_flags),
             _signature_option_claims(signature),
-            *(_param_option_claims(tier) for tier in contenders),
+            *(
+                _param_option_claims(level_contenders, shorts=level.shorts)
+                for level, level_contenders in zip(levels, contenders, strict=True)
+            ),
         )
     )
     entries = tuple(

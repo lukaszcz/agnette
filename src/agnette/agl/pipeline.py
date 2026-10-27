@@ -13,9 +13,9 @@ types).  This module is the top-of-stack host façade that depends on both
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, TypedDict, TypeVar, cast
 
 from agnette.agl.artifact_cache import (
     retain_match_sites,
@@ -35,6 +35,7 @@ from agnette.agl.eval.ir_interpreter import (
     resolver_over_interpreter,
 )
 from agnette.agl.ir.nodes import UseDefault
+from agnette.agl.ir.static_keys import FunctionParamKey
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.runtime.agents import AgentFn
 from agnette.agl.runtime.engine_config import engine_setting_params
@@ -62,7 +63,7 @@ if TYPE_CHECKING:
         SourceFile,
         ValueDescriptors,
     )
-    from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, StaticBindingKey
+    from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey
     from agnette.agl.matchcompile import MatchCompiledProgram
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import ModuleGraph
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
     from agnette.agl.syntax.nodes import FuncDef, Program, TypeAlias
     from agnette.agl.syntax.spans import SourceSpan
     from agnette.agl.syntax.types import TypeExpr
+    from agnette.agl.typecheck.env import CheckedModule
     from agnette.agl.typecheck.program import CheckedProgram
     from agnette.packages.model import PackageInfo
     from agnette.sandbox.prepare import SandboxContext
@@ -126,37 +128,68 @@ class ProgramDiscovery:
     diagnostics: tuple[Diagnostic, ...]
     warnings: tuple[Diagnostic, ...]
     module_params: Mapping["ModuleId", tuple[HostParamInfo, ...]] = field(default_factory=dict)
+    function_params: Mapping["ModuleId", tuple[HostParamInfo, ...]] = field(default_factory=dict)
 
     def params_for(self, program: ProgramDeclInfo) -> tuple[HostParamInfo, ...]:
-        """Return the host parameters of *program*: reached module parameters, then engine settings.
+        """Return the host parameters of *program*.
 
-        Module parameters come closure modules first.
+        Its reached module and function parameters (closure modules first), then
+        the engine settings. *program*'s own parameters are program arguments.
         """
         return (*self._params(program, include_closure=False), *engine_setting_params())
 
     def declared_params_for(self, program: ProgramDeclInfo) -> tuple[HostParamInfo, ...]:
-        """Return the module parameters declared by *program*'s closure or reached by it.
+        """Return the module and function parameters *program*'s closure declares or reaches.
 
         A superset of :meth:`params_for` for declaration-route diagnostics, which
         accept a key whether or not the program references the parameter.
         """
         return self._params(program, include_closure=True)
 
+    def declared_programs_for(self, program: ProgramDeclInfo) -> tuple[ProgramDeclInfo, ...]:
+        """Return the other programs declared by *program*'s closure modules."""
+        closure = frozenset(program.closure)
+        return tuple(
+            other for other in self.programs if other is not program and other.module in closure
+        )
+
     def _params(
         self, program: ProgramDeclInfo, *, include_closure: bool
     ) -> tuple[HostParamInfo, ...]:
         """Select inventory entries the program reaches, or also every closure module declares.
 
-        Closure modules come first, in order, then the others.
+        Closure modules come first, in order, then the others (the two inventories
+        cover the same modules); a module's parameters precede its functions'.
+        *program*'s own function parameters are skipped.
         """
         closure = frozenset(program.closure)
-        modules = (*program.closure, *(m for m in self.module_params if m not in closure))
-        return tuple(
-            param
-            for module_id in modules
-            for param in self.module_params.get(module_id, ())
-            if param.key in program.reachable.params or (include_closure and module_id in closure)
-        )
+        own = (program.module, program.scope_path, program.name)
+        reachable = program.reachable
+        selected: list[HostParamInfo] = []
+        for module_id in (*program.closure, *(m for m in self.module_params if m not in closure)):
+            declared = include_closure and module_id in closure
+            for param in (
+                *self.module_params.get(module_id, ()),
+                *self.function_params.get(module_id, ()),
+            ):
+                function = _function_of(param)
+                if function == own:
+                    continue
+                if function is None:
+                    reached = param.key in reachable.params
+                else:
+                    reached = function in reachable.functions
+                if declared or reached:
+                    selected.append(param)
+        return tuple(selected)
+
+
+def _function_of(param: HostParamInfo) -> "tuple[ModuleId, tuple[str, ...], str] | None":
+    """Return the declaration key of the function *param* is a parameter of, if it is one."""
+    key = param.key
+    if isinstance(key, FunctionParamKey):
+        return key.module, key.scope_path, key.function
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1157,6 +1190,7 @@ class PipelineDriver:
             static,
             programs=_program_decl_infos(checked, resolved.graph, aliases),
             module_params=_module_param_infos(checked, resolved.graph, aliases),
+            function_params=_function_param_infos(checked, resolved.graph, aliases),
         )
 
     def _wire_externs_or_fail(
@@ -1360,7 +1394,6 @@ class PipelineDriver:
         them (or a missing or unknown argument) is a usage diagnostic, any other
         failure is a configuration one.
         """
-        from agnette.agl.ir.static_keys import FunctionParamKey
         from agnette.agl.runtime.arguments import (
             ConfiguredArgumentDiagnostic,
             ProgramArguments,
@@ -1757,6 +1790,58 @@ def _program_decl_infos(
     return tuple(program_infos)
 
 
+class _HostParamPresentation(TypedDict):
+    """The checked-type presentation fields every :class:`HostParamInfo` factory takes."""
+
+    is_path: bool
+    enum_values: tuple[str, ...]
+    owner: "Path | None"
+
+
+class _ModulePresenter:
+    """Presents the host parameters of one checked module (path-ness, enum spellings, owner)."""
+
+    __slots__ = ("_aliases", "_checked", "_module_id", "_owner", "_type_table")
+
+    def __init__(
+        self,
+        checked: "CheckedProgram",
+        graph: "ModuleGraph",
+        module_id: "ModuleId",
+        aliases: "_TypeAliasIndex",
+    ) -> None:
+        self._checked = checked
+        self._module_id = module_id
+        self._aliases = aliases
+        self._type_table = checked.modules[module_id].type_env.type_table
+        self._owner = graph.owner_of(module_id)
+
+    def __call__(self, annotation: "TypeExpr | None", type_: "Type") -> _HostParamPresentation:
+        """Return the presentation of a parameter annotated *annotation*, checked as *type_*."""
+        return _HostParamPresentation(
+            is_path=_annotates_path(
+                self._checked, self._module_id, annotation, type_, self._aliases
+            ),
+            enum_values=_enum_completion_values(type_, self._type_table),
+            owner=self._owner,
+        )
+
+
+def _per_module_param_infos(
+    checked: "CheckedProgram",
+    graph: "ModuleGraph",
+    aliases: "_TypeAliasIndex",
+    collect: "Callable[[ModuleId, CheckedModule, _ModulePresenter], Iterable[HostParamInfo]]",
+) -> dict["ModuleId", tuple[HostParamInfo, ...]]:
+    """Return each checked module's host parameters, as *collect* yields them in source order."""
+    return {
+        module_id: tuple(
+            collect(module_id, checked_module, _ModulePresenter(checked, graph, module_id, aliases))
+        )
+        for module_id, checked_module in checked.modules.items()
+    }
+
+
 def _module_param_infos(
     checked: "CheckedProgram",
     graph: "ModuleGraph",
@@ -1770,31 +1855,48 @@ def _module_param_infos(
     """
     from agnette.agl.syntax.nodes import static_binding_name
 
-    alias_index = _TypeAliasIndex(checked) if aliases is None else aliases
-    module_params: dict[ModuleId, tuple[HostParamInfo, ...]] = {}
-    for module_id, checked_module in checked.modules.items():
-        type_table = checked_module.type_env.type_table
-        owner = graph.owner_of(module_id)
-        params: list[HostParamInfo] = []
+    def collect(
+        module_id: "ModuleId", checked_module: "CheckedModule", present: "_ModulePresenter"
+    ) -> Iterator[HostParamInfo]:
         for binding in checked_module.resolved.param_bindings():
-            name = static_binding_name(binding.item)
             binding_type = checked_module.type_env.binding_type_of(binding.node_id)
-            params.append(
-                HostParamInfo.module_param(
-                    module_id,
-                    binding.scope_path,
-                    name,
-                    binding_type,
-                    binding.cli,
-                    is_path=_annotates_path(
-                        checked, module_id, binding.item.type_ann, binding_type, alias_index
-                    ),
-                    enum_values=_enum_completion_values(binding_type, type_table),
-                    owner=owner,
-                )
+            yield HostParamInfo.module_param(
+                module_id,
+                binding.scope_path,
+                static_binding_name(binding.item),
+                binding_type,
+                binding.cli,
+                **present(binding.item.type_ann, binding_type),
             )
-        module_params[module_id] = tuple(params)
-    return module_params
+
+    alias_index = _TypeAliasIndex(checked) if aliases is None else aliases
+    return _per_module_param_infos(checked, graph, alias_index, collect)
+
+
+def _function_param_infos(
+    checked: "CheckedProgram",
+    graph: "ModuleGraph",
+    aliases: "_TypeAliasIndex",
+) -> dict["ModuleId", tuple[HostParamInfo, ...]]:
+    """Return each checked module's ``@param`` ``def`` parameters in source order."""
+
+    def collect(
+        module_id: "ModuleId", checked_module: "CheckedModule", present: "_ModulePresenter"
+    ) -> Iterator[HostParamInfo]:
+        for binding in checked_module.resolved.function_param_bindings():
+            signature = checked_module.type_env.function_signature_of(binding.function.node_id)
+            param_type = signature.params[binding.index].type
+            yield HostParamInfo.function_param(
+                module_id,
+                binding.scope_path,
+                binding.function.name,
+                binding.param.name,
+                param_type,
+                binding.cli,
+                **present(binding.param.type_expr, param_type),
+            )
+
+    return _per_module_param_infos(checked, graph, aliases, collect)
 
 
 def _program_param_infos(

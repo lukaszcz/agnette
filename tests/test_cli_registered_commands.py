@@ -2368,6 +2368,57 @@ def test_registered_command_binds_module_parameters_from_its_command_table(
     assert "--retries" in help_result.output
 
 
+def test_registered_command_binds_function_parameters_through_every_tier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reached ``def`` parameter takes the command table, environment, flag and help."""
+    import agnette.agm.commands.exec_program as exec_program
+
+    home = tmp_path / "home"
+    source = "import tools/logging\nprogram def main() -> unit =\n  print tools/logging::level()\n"
+    module = write_installed_package(
+        home,
+        "tools",
+        source=source,
+        commands={"dv review": "tools/main::main"},
+    )
+    (module.parent / "logging.agl").write_text(
+        'def level(@param @opt-env("AGM_REGISTERED_LEVEL") severity: text = "default") -> text ='
+        " severity\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        exec_program,
+        "current_config_context",
+        lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
+    )
+    monkeypatch.setenv("HOME", str(home))
+    config = home / ".agm" / "config.toml"
+
+    assert invoke(CliRunner(), ["dv", "review"]).output == "default\n"
+
+    config.write_text('[tools.logging.level]\nseverity = "route"\n', encoding="utf-8")
+    assert invoke(CliRunner(), ["dv", "review"]).output == "route\n"
+
+    config.write_text(
+        '[tools.logging.level]\nseverity = "route"\n\n[dv.review]\nseverity = "command"\n',
+        encoding="utf-8",
+    )
+    assert invoke(CliRunner(), ["dv", "review"]).output == "command\n"
+
+    monkeypatch.setenv("AGM_REGISTERED_LEVEL", "env")
+    assert invoke(CliRunner(), ["dv", "review"]).output == "env\n"
+
+    flagged = invoke(CliRunner(), ["dv", "review", "--logging.level.severity", "flag"])
+    assert flagged.output == "flag\n"
+
+    help_result = invoke(CliRunner(), ["dv", "review", "--help"])
+    assert help_result.exit_code == 0
+    assert "Parameters of tools/logging" in help_result.output
+    assert "--severity" in help_result.output
+
+
 def test_registered_command_reports_an_ambiguous_module_parameter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3166,3 +3217,140 @@ def test_exec_by_reference_of_a_registered_program_uses_its_manifest_command_tab
     )
     assert file_result.exit_code == 0
     assert file_result.stdout.splitlines()[0] == "true"
+
+
+_ROUTES_SOURCE = """\
+def refine(@param max-steps: int = 4) -> text = "refine:%{max-steps}"
+
+def go() -> text = refine()
+
+program def review(refine: int = 1, other: int = 2) -> unit =
+  print "review %{refine} %{other}"
+  print go()
+
+program def other() -> unit = review()
+
+program def rr(max-steps: int = 1) -> unit =
+  print "rr:%{max-steps}"
+  print go()
+"""
+
+
+def _write_routes_package(root: Path) -> None:
+    """Write package ``devel`` whose module ``devel/review`` declares commands and a ``@param``
+    function ``refine`` that share names with the program arguments and command tables."""
+    (root / MODULE_TREE_DIRNAME).mkdir(parents=True)
+    (root / "package.toml").write_text(
+        '[package]\nname = "devel"\nversion = "1.0.0"\n\n[commands]\n'
+        '"devel review" = { program = "devel/review::review" }\n'
+        '"devel other" = { program = "devel/review::other" }\n'
+        '"review refine" = { program = "devel/review::rr" }\n',
+        encoding="utf-8",
+    )
+    (root / MODULE_TREE_DIRNAME / "review.agl").write_text(_ROUTES_SOURCE, encoding="utf-8")
+
+
+def _run_routes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: str,
+    command: list[str],
+) -> Result:
+    home = tmp_path / "home"
+    root = tmp_path / "devel"
+    _write_routes_package(root)
+    install_directory(root, home=home)
+    monkeypatch.setenv("HOME", str(home))
+    (home / ".agm" / "config.toml").write_text(config, encoding="utf-8")
+    return invoke(CliRunner(), command)
+
+
+def test_a_function_route_table_is_not_read_as_a_program_argument_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _run_routes(
+        tmp_path, monkeypatch, "[devel.review.refine]\nmax-steps = 6\n", ["devel", "review"]
+    )
+
+    assert result.exit_code == 0
+    assert result.output == "review 1 2\nrefine:6\n"
+
+
+def test_a_registered_command_table_is_not_read_as_a_group_leaf_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _run_routes(tmp_path, monkeypatch, '[devel.other]\nagent = "x"\n', ["devel", "review"])
+
+    assert result.exit_code == 0
+    assert result.output == "review 1 2\nrefine:4\n"
+
+
+def test_a_reached_programs_declaration_route_accepts_its_argument_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _run_routes(
+        tmp_path, monkeypatch, "[devel.review.review]\nother = 5\n", ["devel", "other"]
+    )
+
+    assert result.exit_code == 0
+    assert "warning" not in result.output
+
+
+def test_a_reached_programs_declaration_route_still_warns_for_an_unknown_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _run_routes(
+        tmp_path, monkeypatch, "[devel.review.review]\nbogus = 5\n", ["devel", "other"]
+    )
+
+    assert "'bogus'" in result.output
+
+
+def test_a_group_leaf_consumed_by_the_command_draws_no_module_route_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _run_routes(tmp_path, monkeypatch, "[review]\nmax-steps = 6\n", ["review", "refine"])
+
+    assert result.exit_code == 0
+    assert result.output == "rr:6\nrefine:4\n"
+
+
+def _write_command_package(root: Path, name: str, command: str, source: str) -> None:
+    """Write package *name* registering *command* for the ``program def`` of *source*."""
+    (root / MODULE_TREE_DIRNAME).mkdir(parents=True)
+    (root / "package.toml").write_text(
+        f'[package]\nname = "{name}"\nversion = "1.0.0"\n\n[commands]\n'
+        f'"{command}" = {{ program = "{name}/main::main" }}\n',
+        encoding="utf-8",
+    )
+    (root / MODULE_TREE_DIRNAME / "main.agl").write_text(source, encoding="utf-8")
+
+
+def test_another_packages_command_table_is_not_read_as_a_leaf_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``devel review opts`` of one package must not turn ``[devel.review.opts]`` into the
+    ``opts`` argument value of another package's ``devel review``."""
+    home = tmp_path / "home"
+    _write_command_package(
+        tmp_path / "devel",
+        "devel",
+        "devel review",
+        'program def main(opts: dict[text, int] = {}) -> unit = print "opts:%{opts.size()}"\n',
+    )
+    _write_command_package(
+        tmp_path / "xpkg",
+        "xpkg",
+        "devel review opts",
+        'program def main(foo: text = "d") -> unit = print "foo:%{foo}"\n',
+    )
+    install_directory(tmp_path / "devel", home=home)
+    install_directory(tmp_path / "xpkg", home=home)
+    monkeypatch.setenv("HOME", str(home))
+    (home / ".agm" / "config.toml").write_text('[devel.review.opts]\nfoo = "bar"\n')
+
+    review = invoke(CliRunner(), ["devel", "review"])
+    opts = invoke(CliRunner(), ["devel", "review", "opts"])
+
+    assert (review.exit_code, review.output) == (0, "opts:0\n")
+    assert (opts.exit_code, opts.output) == (0, "foo:bar\n")

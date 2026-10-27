@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from agnette.agent.spec_defaults import AgentSpecResolver
     from agnette.agl.attributes import ProgramOptionSpec
-    from agnette.agl.ir.static_keys import FunctionParamKey, Reachable, StaticBindingKey
+    from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, Reachable
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.runtime.agents import AgentFn
     from agnette.agl.runtime.externs import ExternRegistry
@@ -101,18 +101,21 @@ class HostParamKind(Enum):
     """The kind of declaration a :class:`HostParamInfo` is a host parameter of."""
 
     MODULE = "module"
+    FUNCTION = "function"
     ENGINE = "engine"
 
 
 @dataclass(frozen=True, slots=True)
 class HostParamInfo:
-    """Static summary of one host-configurable parameter (not a program argument).
+    """Static summary of one host-configurable parameter (not a program's own argument).
 
     ``key``          — the parameter's structured identity.
     ``kind``         — what declares it.
     ``module``       — the declaring module.
     ``route_path``   — the declaration route below ``module``: the scope path of
-                        a module parameter; empty for an engine setting.
+                        a module parameter; the function's qualified path (scope
+                        path, receiver of a method included, then its name) for a
+                        function parameter; empty for an engine setting.
     ``cli``          — its CLI presentation (external name, ``@opt-*``).
     ``is_path``      — whether its annotation spells the builtin ``path`` alias
                         (including ``Option[path]``), for filesystem completion.
@@ -126,7 +129,7 @@ class HostParamInfo:
     identity fields; a new kind adds its own factory.
     """
 
-    key: "StaticBindingKey"
+    key: "HostParamKey"
     kind: HostParamKind
     module: "ModuleId"
     route_path: tuple[str, ...]
@@ -158,6 +161,36 @@ class HostParamInfo:
             kind=HostParamKind.MODULE,
             module=module,
             route_path=scope_path,
+            name=name,
+            type=type,
+            cli=cli,
+            is_path=is_path,
+            enum_values=enum_values,
+            owner=owner,
+        )
+
+    @classmethod
+    def function_param(
+        cls,
+        module: "ModuleId",
+        scope_path: tuple[str, ...],
+        function: str,
+        name: str,
+        type: "AglType",
+        cli: "ProgramOptionSpec",
+        *,
+        is_path: bool = False,
+        enum_values: tuple[str, ...] = (),
+        owner: "Path | None" = None,
+    ) -> "HostParamInfo":
+        """Build the info of a ``@param`` parameter of the ``def`` *function* in *scope_path*."""
+        from agnette.agl.ir.static_keys import FunctionParamKey
+
+        return cls(
+            key=FunctionParamKey(module, scope_path, function, name),
+            kind=HostParamKind.FUNCTION,
+            module=module,
+            route_path=(*scope_path, function),
             name=name,
             type=type,
             cli=cli,

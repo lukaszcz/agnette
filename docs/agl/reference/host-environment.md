@@ -20,8 +20,8 @@ A conforming host processes a program in this order:
    case arm aborts here. Independent advisory diagnostics are collected
    separately.
 4. **Host-input validation** — externally provided values are checked against
-   the selected `program def`'s own value parameters and every module
-   parameter it reaches.
+   the selected `program def`'s own value parameters and every module and
+   function parameter it reaches.
 5. **Contract materialization** — every agent-call and `exec` site's output
    contract (codec, schema, format instructions) is built.
 6. **Execution.**
@@ -241,8 +241,8 @@ accepts.
 ### Presentation attributes
 
 `@opt-name`, `@opt-short`, `@opt-env`, `@opt-metavar`, `@opt-hidden`, and
-`@doc` shape how a value parameter or module parameter is addressed and
-described; see [Attributes](attributes.md#host-parameter-attributes).
+`@doc` shape how a value parameter, function parameter or module parameter is
+addressed and described; see [Attributes](attributes.md#host-parameter-attributes).
 
 ### Help
 
@@ -250,9 +250,9 @@ A host is expected to describe the selected program on request. What it shows
 is drawn entirely from declarations: the `program def`'s `@doc` describes the
 program, each positional slot is named after its parameter, and each
 name-addressable parameter is listed with its long flag, its `@opt-short`
-spelling if any, its value placeholder, and its own `@doc`. Module parameters
-follow, one section per module declaring a visible reached parameter, titled by
-its module path, each parameter under its shortest resolving spelling; a
+spelling if any, its value placeholder, and its own `@doc`. Module and function
+parameters follow, one section per module declaring a visible reached parameter,
+titled by its module path, each parameter under its shortest resolving spelling; a
 parameter with no resolving spelling is omitted.
 
 Help rewraps each prose paragraph to the terminal width, after removing the
@@ -261,65 +261,116 @@ a list, a table — keeps its line breaks and indentation.
 
 ## Host-configurable settings
 
-### Module parameters
+### Host parameters
 
-A static `let` or `var` marked [`@param`](attributes.md#module-parameters) is
-a **module parameter**. Its host surface belongs to every selected program
-that **reaches** it, not to every program that merely imports its module. A
-program reaches a parameter when the parameter is read or assigned:
+A **host parameter** is a value the host may supply in place of a default.
+There are four kinds:
+
+- a value parameter of the selected `program def` — a *program argument*
+  (see [Program arguments](#program-arguments));
+- a [`@param`](attributes.md#function-parameters) parameter of a `def` — a
+  *function parameter*: the host value replaces the default at every call that
+  omits the argument, so it reaches nested calls, method calls, and partial
+  applications alike, and an explicit argument always wins. A seeded mutable
+  default (an array, say) is copied afresh for each call;
+- a static `let` or `var` marked [`@param`](attributes.md#module-parameters) —
+  a *module parameter*: the host value is bound during static initialization
+  instead of evaluating the initializer;
+- an [engine setting](#engine-settings).
+
+A module or function parameter belongs to every selected program that
+**reaches** it, not to every program that merely imports its module. A program
+reaches a declaration when it is read, assigned or called:
 
 - by the program's body or the default of one of its parameters;
 - by the body or a parameter default of any function the program reaches, by
   name, as a function value, or as a method;
 - by the initializer of any static binding the program reaches.
 
-Module parameters are listed with the selected program's own module first. A
-supplied value is bound during static initialization instead of evaluating the
-initializer. A parameter the program does not reach has no host surface: it has
-no flag, appears in no help, and takes no configured value.
+A function parameter is reached when its function is. Host parameters are
+listed with the selected program's own module first. A parameter the program
+does not reach has no host surface: it has no flag, appears in no help, and
+takes no configured value.
+
+A `@param` parameter of the selected `program def` is that program's argument,
+the one parameter of that command: it is bound at the entry call, and its value
+is also the default of every other call to the program that omits it. For any
+other command that reaches the program, the same parameter is a function
+parameter. A program argument without `@param` is bound at the entry call
+only.
 
 The parameter's **external name** is its `@opt-name`, or its declared name;
-it is used in flags, config leaves, help, and completion. A root parameter
-`verbose` in `A/logging` has a bare `--verbose` spelling when it resolves,
-plus dotted qualified spellings `--logging.verbose` and `--A.logging.verbose`;
-one in `scope debug` adds the scope path: `--logging.debug.trace`,
-`--A.logging.debug.trace`. Module and scope paths are dotted in flags and TOML,
-never `::`. `bool`, `Option[T]`, and `Optional[T]` parameters also take
-`--no-...`; other types take a value read as for [program
-arguments](#program-arguments).
+it is used in flags, config leaves, help, and completion. A root module
+parameter `verbose` in `A/logging` has a bare `--verbose` spelling when it
+resolves, plus dotted qualified spellings `--logging.verbose` and
+`--A.logging.verbose`; one in `scope debug` adds the scope path:
+`--logging.debug.trace`, `--A.logging.debug.trace`. A function parameter adds
+its function's qualified path: `max-steps` of `refine` in `devel/review` is
+`--review.refine.max-steps` and `--devel.review.refine.max-steps`, and of a
+method `review` on `Agent`, `--review.Agent.review.max-steps` — the receiver
+qualifier is part of the path. `--refine.max-steps` is no spelling. An
+anonymous entry (a loose file or `-c` source) has no module prefix: its
+parameters are spelled bare plus their scope path alone, so `n` of function `f`
+is `--n` and `--f.n`, `by` of method `bump` on `Counter` is `--by` and
+`--Counter.bump.by`, and a root module parameter `n` only `--n`. Module,
+scope and function paths are dotted in flags and TOML, never `::`. `bool`,
+`Option[T]`, and `Optional[T]` parameters also take `--no-...`; other types
+take a value read as for [program arguments](#program-arguments).
 
-A bare spelling (long or short) is claimed by the first of these **claim
-levels** that has a claimant:
+A long spelling is claimed by the first of these **claim levels** that has a
+claimant (a short spelling by the same levels, without level 3):
 
 1. host flags;
 2. the selected program's own value parameters;
-3. parameters of the program's own module;
-4. parameters of modules with the program's **owner**;
-5. parameters of modules with any other owner;
-6. the [engine settings](#engine-settings).
+3. every parameter's most qualified spelling, which no abbreviation can take, so
+   each parameter stays addressable: those of named modules first, then those of
+   an anonymous entry, so an entry never takes an imported module's spelling;
+4. parameters of the program's own module;
+5. parameters of modules with the program's **owner**;
+6. parameters of modules with any other owner;
+7. the [engine settings](#engine-settings).
 
-A module's owner is the package mounting it, or else the loose module root it
-was found through; an inline `-c` program belongs to the working directory's
-root, as a file there does. A parameter in a helper module of the program's own
-package thus shadows a same-named parameter of a dependency, and parameters of
-modules in the loose root holding the program's file shadow those of other
-roots. A shadowed parameter keeps its qualified spellings and is listed in help
-under those alone. Several parameters at one level make a spelling ambiguous
-only when it is used; the diagnostic names their declaration paths.
+A parameter's module is the one declaring it (the function's, for a function
+parameter). A module's owner is the package mounting it, or else the loose
+module root it was found through; an inline `-c` program belongs to the working
+directory's root, as a file there does. A parameter in a helper module of the
+program's own package thus shadows a same-named parameter of a dependency, and
+parameters of modules in the loose root holding the program's file shadow those
+of other roots. A shadowed parameter keeps its qualified spellings and is listed
+in help under those alone. Several parameters at one level make a spelling
+ambiguous only when it is used; the diagnostic names their declaration paths
+and the spellings each keeps. In an anonymous entry, a root `@param n` thus
+keeps `--n` while the `n` parameters of functions `f` and `g` are `--f.n` and
+`--g.n`; with only `f` and `g`, `--n` is ambiguous. An imported module `tools`
+with a root `@param n` keeps `--tools.n` even when the entry declares a scope or
+function `tools` with its own `n`. Parameters of named modules that a program
+reaches may not share a most qualified spelling (colliding routes, such as the
+module `a/refine` and the function `refine` of module `a`): the program is
+rejected.
 
-Two config routes reach a module parameter:
+Two config routes reach a module or function parameter:
 
-- The **module route** is its declaring module's table, by any unambiguous
-  module suffix: `[A.logging]` for root bindings, `[A.logging.debug]` for
-  `scope debug`, or the exact quoted `["A/logging".debug]`.
+- The **declaration route** is the parameter's own table. A module parameter's
+  is its declaring module's table, by any unambiguous module suffix:
+  `[A.logging]` for root bindings, `[A.logging.debug]` for `scope debug`, or
+  the exact quoted `["A/logging".debug]`. A function parameter's is its
+  function's qualified table, by the same module suffixes: `[review.refine]` or
+  `[devel.review.refine]` for `refine`, `[review.Agent.review]` for a method.
+  The leaf is the parameter's external name.
 - The **program route** is the selected program's own table (see
   [Config-file schema](#config-file-schema)). It addresses a parameter through
   any resolving spelling, the dotted ones as quoted keys, so a parameter whose
   bare name a nearer declaration claims is still configurable per program.
 
-An entry module no package owns (a loose file or `-c` source) has no module
-route; a loose file's own parameters are configured through its program
-route.
+The declaration route of a `program def` is its qualified table
+(`[A.logging.inner]`). It sets a `@param` parameter (`limit` of `inner`) both
+when `inner` is the selected program and when another command reaches it; in the
+second case only this table is read, not the command-path table of `inner`. It
+also accepts every name-addressable argument of the program without a warning.
+
+An entry module no package owns (a loose file or `-c` source) has no
+declaration route; a loose file's own parameters are configured through its
+program route.
 
 A configured key naming a parameter that a module in the program's import
 closure declares, but the program does not reach, is not an undeclared key: it
@@ -328,8 +379,8 @@ draws no warning and has no effect.
 Setting two spellings of one parameter in one layer is an error, as is a
 spelling several parameters claim.
 
-One leaf addresses one parameter. A table may be a parameter's module route
-and a table of the selected program at once: `[dv.review]` is the program
+One leaf addresses one parameter. A table may be a parameter's declaration
+route and a table of the selected program at once: `[dv.review]` is the program
 route of `agm dv review` and the module route of `dv/review`. A leaf set in
 such a table that would reach a different parameter through each route (a
 program argument `agent` and a module parameter `agent` of `dv/review`) is an
@@ -339,7 +390,15 @@ stays configurable through its module-suffix program table (`[main.review-main]`
 for `review-main` in `dv/main`) or `@opt-name`, which also gives either
 parameter a distinct key.
 
-For a program `main` in `tool.agl` that imports `A/logging`:
+A table at a leaf position is a nested route, never a value, when its path is a
+table of a command registered by any package (or a group of one) or a
+declaration or program route table: a scope region, a function, a command. `[devel.other]` is not the
+value of an `other` leaf of `[devel]`, and `[devel.review.refine]` is not the
+value of a `refine` argument of `[devel.review]`. Any other table is a native
+value of a table-typed parameter. A table-typed parameter named like a route
+table must therefore be set as a string or in a table where its name is no route.
+
+For a program `main` in `tool.agl` that imports `A/logging` and `devel/review`:
 
 ```toml
 [A.logging]
@@ -348,14 +407,18 @@ verbose = true
 [A.logging.debug]
 trace = true
 
+[devel.review.refine]
+max-steps = 6                     # default of every call of refine
+
 [tool.main]
 verbose = false                   # wins over [A.logging]
 "A.logging.debug.trace" = false   # wins over [A.logging.debug]
+"review.refine.max-steps" = 8     # wins over [devel.review.refine]
 ```
 
-`agm check` validates module parameter declarations but supplies no values.
-The REPL has no selected program, program route, or parameter flags: every
-parameter of a module reads only its module route when the REPL first loads it.
+`agm check` validates parameter declarations but supplies no values. The REPL
+has no selected program, program route, or parameter flags: every module
+parameter reads only its module route when the REPL first loads it.
 
 ### Engine settings
 
@@ -423,17 +486,19 @@ supplied by the host are pre-execution errors.
 
 ### Precedence
 
-Every host parameter — program argument, module parameter or engine setting —
-takes the first value supplied, left to right:
+Every host parameter — program argument, function parameter, module parameter
+or engine setting — takes the first value supplied, left to right:
 
 ```
 CLI  >  @opt-env  >  program route  >  @config  >  manifest [config]  >  declaration route  >  default
 ```
 
-A program argument has no declaration route, and its default is its declared
-default (else a missing required argument is an error). A module parameter's
-declaration route is its module route and its default its initializer. An
-engine setting has no `@opt-env`; its declaration route is `[exec]`.
+A program argument has no declaration route beyond its program route, and its
+default is its declared default (else a missing required argument is an error).
+A module parameter's declaration route is its module route and its default its
+initializer; a function parameter's is its function's table and its default the
+declared default. An engine setting has no `@opt-env`; its declaration route is
+`[exec]`.
 
 - **Program route** — the selected program's own tables (its qualified
   table and, for a registered command, its command-path table), then inherited
@@ -443,9 +508,9 @@ engine setting has no `@opt-env`; its declaration route is `[exec]`.
 - **Manifest `[config]`** — for a package-owned program only, its package
   manifest's [`[config]`](../../commands/pkg.md#config) table: command table,
   then inherited group table, then manifest root. It supplies program
-  arguments, module parameters and engine settings alike.
-- **Module route** — the declaring module's table; **`[exec]`** — global
-  engine defaults.
+  arguments, module and function parameters, and engine settings alike.
+- **Declaration route** — the parameter's own table (a module's or a
+  function's); **`[exec]`** — global engine defaults.
 
 A program-route leaf with the bare name of an engine setting sets a same-named
 parameter instead when one claims that spelling; the setting is then addressed

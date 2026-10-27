@@ -3789,7 +3789,7 @@ class TestProgramValueArguments:
 
         entry naming it can never reach the argument binder: it falls back to
         the signature default and is reported with a distinct positional-only
-        warning, never the generic "not a declared program argument" one —
+        warning, never the generic undeclared-parameter one —
         the parameter *is* declared, it is just not name-addressable. A
         genuinely misspelled key in the same table still gets the generic
         undeclared warning.
@@ -3818,7 +3818,7 @@ class TestProgramValueArguments:
         undeclared_warning = next(line for line in reported if "'bogus'" in line)
         assert "positional-only" in positional_warning
         assert "is not a declared" not in positional_warning
-        assert "is not a declared program argument" in undeclared_warning
+        assert "is not a declared parameter" in undeclared_warning
 
     def test_option_type_argument_from_config_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

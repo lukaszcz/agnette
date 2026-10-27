@@ -1,0 +1,21 @@
+# Different declaration routes may reuse an external name: only one route's own `@param`s must
+# be distinct.
+
+@param let n: int = 1
+
+def f(@param n: int = 2) -> int = n
+
+def g(@param n: int = 3) -> int = n
+
+scope Review
+  @param let n: int = 4
+
+  def h(@param n: int = 5) -> int = n
+end Review
+
+program def main() -> unit =
+  print n
+  print f()
+  print g()
+  print Review::n
+  print Review::h()

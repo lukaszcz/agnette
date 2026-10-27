@@ -1,0 +1,6 @@
+scope Review
+  @param let steps: int = 1
+  @param @opt-name("steps") let rounds: int = 2
+end Review
+
+program def main() -> unit = print Review::steps

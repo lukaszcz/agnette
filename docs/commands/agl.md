@@ -97,9 +97,9 @@ a direct `agm repl` entry is a static error.
   different levels, is a usage error (exit 1).
 - **Engine settings**: `--strict-json`, `--agent`, `--sandbox`, `--timeout`,
   `--trace`, `--trace-file`, `--debug`, and `--parse-error-retries`, with their `--no-...`
-  forms, are the `std/config` engine settings' own [parameters](#module-parameters), at the
-  last claim level. The program's value parameters and every module parameter it reaches claim
-  a name first, so a parameter named `timeout` shadows `--timeout`; every engine setting
+  forms, are the `std/config` engine settings' own [parameters](#host-parameters), at the
+  last claim level. The program's value parameters and every module and function parameter it
+  reaches claim a name first, so a parameter named `timeout` shadows `--timeout`; every engine setting
   stays addressable as `--std.config.NAME` (`--std.config.timeout 30s`, `--no-std.config.timeout`)
   and, in a program table, as the quoted key `"std.config.timeout"`. A flag given on the command
   line outranks every config layer. A program with an `agent: Agent` argument (as `devel review`
@@ -251,19 +251,33 @@ An **empty `@opt-env` variable counts as unset** (`VAR= agm exec FILE` falls thr
 config table, then the default), so it cannot deliver an empty `text`; use a `""` default or
 `--x=""`.
 
-### Module parameters
+### Host parameters
 
-An `@param let` or `@param var` that the selected program reaches (reads or assigns, directly or
-through the functions and static bindings it uses) becomes a host option; one that is merely
-imported has no option, help entry, or configured value, and a config key naming it draws no
-warning. The declaring module's external parameter name is used for a bare flag when it
+A `@param let`, `@param var` or `@param` parameter of a `def` (a *function parameter*) that the
+selected program reaches (reads, assigns or calls, directly or through the functions and static
+bindings it uses) becomes a host option; one that is merely imported has no option, help entry, or
+configured value, and a config key naming it draws no warning. A function parameter's host value
+replaces its default at every call that omits the argument, whatever the call form; an explicit
+argument wins. The declaring module's external parameter name is used for a bare flag when it
 resolves, and for dotted qualified flags in all cases: an `A/logging` parameter `verbose` can
 be `--verbose`, `--logging.verbose`, or `--A.logging.verbose`; a `scope debug` parameter is
-`--logging.debug.trace` or `--A.logging.debug.trace`. `bool`, `Option[T]`, and `Optional[T]` also have the
-corresponding `--no-...` form, and `@opt-short("v")` adds `-v`. Module and scope paths are dotted
-in flags; `::` is only for declaration paths in AgL source.
+`--logging.debug.trace` or `--A.logging.debug.trace`. A loose or inline entry has no module prefix: its function
+parameter `n` of `f` is `--n` or `--f.n`, and a root module parameter `n` just `--n`. A function parameter's qualified flags add
+its function's path, a method's receiver included: `max-steps` of `refine` in `devel/review` is
+`--review.refine.max-steps` or `--devel.review.refine.max-steps` (never `--refine.max-steps`),
+and `aspects` of `Agent::review` is `--review.Agent.review.aspects`. `bool`, `Option[T]`, and
+`Optional[T]` also have the
+corresponding `--no-...` form, and `@opt-short("v")` adds `-v`. Module, scope and function paths
+are dotted in flags; `::` is only for declaration paths in AgL source.
 
-Bare names are claimed by the host, the selected program's value parameters, parameters of its
+A `@param` parameter of the selected `program def` is that program's own argument (one option,
+settable by the program's table and manifest like any other); the same parameter is a
+function parameter of every other command that reaches the program.
+
+Bare names are claimed by the host, the selected program's value parameters, every parameter's
+most qualified spelling (so each stays addressable: in a loose file a root `@param n` keeps
+`--n`, while `n` of functions `f` and `g` are `--f.n` and `--g.n`; named modules' first, so a loose
+file never takes an imported module's spelling), parameters of its
 own module, parameters of modules with the program's owner (the package mounting a module, else
 the loose module root it was found through), parameters of other owners, then the engine settings,
 in that order; a same-package helper
@@ -271,17 +285,17 @@ therefore shadows a dependency's parameter of the same name, and any parameter s
 setting's bare name. A shadowed parameter keeps its
 qualified flags. Several parameters in one level can make a bare flag ambiguous; declaring them
 is valid, but using that flag (or the config key of that spelling) is an error that names the
-declarations. `@opt-name` supplies the
+declarations and their spellings. `@opt-name` supplies the
 external name in flags and config; `@opt-env` is the fallback after CLI flags; `@opt-hidden`
 removes the entry from help and completion without disabling it.
 
 Selected-program help shows its usual options first, then one `Parameters of MODULE` section for
-each module declaring a reached parameter, then an `Engine settings` section, then the shared
-execution options. Each visible module
+each module declaring a reached module or function parameter, then an `Engine settings` section,
+then the shared execution options. Each visible
 parameter appears under its shortest resolving spelling, so a shadowed one shows only qualified
 spellings; one with no resolving spelling is omitted.
-For module parameter precedence and configuration routes, see
-[Module parameters](../agl/reference/host-environment.md#module-parameters).
+For parameter precedence and configuration routes, see
+[Host parameters](../agl/reference/host-environment.md#host-parameters).
 
 ### Host Agent syntax
 
@@ -516,10 +530,12 @@ their parameters resolve as CLI value > `@opt-env` > signature default.
 
 Module parameters use their declaring module's **module route**. For `A/logging`, root bindings use
 `[A.logging]`; bindings in `scope debug` use `[A.logging.debug]`, or the exact module anchor
-`["A/logging".debug]`. Leaves use `@opt-name` when present. An entry module no package owns (a loose
+`["A/logging".debug]`. A function parameter's route is its function's qualified table: `refine`
+in `devel/review` reads `[devel.review.refine]` (or the shorter `[review.refine]`), and a method
+includes its receiver, `[review.Agent.review]`. Leaves use `@opt-name` when present. An entry module no package owns (a loose
 file or `-c` source) has no module route: a loose `prog.agl`'s own `@param let own` is set through
 its program route, `[prog.main] own = 11`, never `[prog] own = 11`. The selected program's table is
-the **program route**: it overrides a module parameter through any resolving spelling — the bare
+the **program route**: it overrides a module or function parameter through any resolving spelling — the bare
 external name, or a dotted qualified spelling as a quoted key such as `"A.logging.verbose"`, which
 reaches a parameter whose bare name a nearer declaration claims — and wins over the program's own
 [`@config`](../agl/reference/attributes.md#config) entries. Below `@config`, a package-owned

@@ -66,7 +66,7 @@ for binders inside a `scope` region.
 
 A module-root or scope-region binding may be marked `@param` to admit a
 host-supplied initial value. It is an ordinary `let` or `var` in all language
-semantics; see [Module parameters](host-environment.md#module-parameters).
+semantics; see [Host parameters](host-environment.md#host-parameters).
 
 ## `var` — mutable binding
 

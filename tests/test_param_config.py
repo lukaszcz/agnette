@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.runtime.engine_config import engine_setting_params
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
-from agnette.agl.semantics.types import BoolType, IntType, TextType, Type
+from agnette.agl.semantics.types import BoolType, DictType, IntType, TextType, Type
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.engine_seeds import split_engine_tiers
@@ -49,6 +50,19 @@ def _binding(
         type_,
         _option(name if external is None else external),
         is_path=is_path,
+    )
+
+
+def _function_binding(
+    module: str,
+    function: str,
+    name: str,
+    type_: Type = BoolType(),
+    *,
+    scope_path: tuple[str, ...] = (),
+) -> HostParamInfo:
+    return HostParamInfo.function_param(
+        ModuleId.from_path(module), scope_path, function, name, type_, _option(name)
     )
 
 
@@ -228,28 +242,6 @@ def test_rejects_an_ambiguous_program_table_leaf_when_configured() -> None:
 
     assert first.declaration_path in str(exc_info.value)
     assert second.declaration_path in str(exc_info.value)
-
-
-def test_rejects_a_configured_duplicate_external_name_in_one_module_route() -> None:
-    first = _binding("A/logging", "verbose", external="level")
-    second = _binding("A/logging", "detail", external="level")
-    program = _program(closure=(ModuleId.from_path("app/main"), first.module))
-
-    with pytest.raises(QualifiedConfigLookupError) as exc_info:
-        _resolve(_config({"A": {"logging": {"level": True}}}), program, (first, second))
-
-    assert first.declaration_path in str(exc_info.value)
-    assert second.declaration_path in str(exc_info.value)
-
-
-def test_an_inactive_duplicate_external_name_in_one_module_route_does_not_error() -> None:
-    first = _binding("A/logging", "verbose", external="level")
-    second = _binding("A/logging", "detail", external="level")
-    program = _program(closure=(ModuleId.from_path("app/main"), first.module))
-
-    values = _resolve(_config(), program, (first, second))
-
-    assert values == {}
 
 
 def test_duplicate_external_names_at_distinct_module_scopes_remain_independent() -> None:
@@ -1018,13 +1010,14 @@ def _resolve_argument_routes(
     bindings: tuple[HostParamInfo, ...],
     *,
     kind: ParamZone = ParamZone.NAMED_ONLY,
+    argument_type: Type = BoolType(),
     command_paths: tuple[tuple[str, ...], ...] = (("devel", "review"),),
     package_config: TomlDict | None = None,
 ) -> ParamValueTiers:
     """Resolve a program with one named argument over *bindings*' declaration routes."""
     program = _program(
         closure=(ModuleId.from_path("app/main"), *(b.module for b in bindings)),
-        parameters=(_argument(argument, kind),),
+        parameters=(_argument(argument, kind, argument_type),),
     )
     return resolve_param_values(
         config,
@@ -1058,6 +1051,29 @@ class TestProgramArgumentsAgainstDeclarationRoutes:
             _resolve_argument_routes(_config(table), "agent", (binding,))
 
         assert binding.declaration_path in str(exc_info.value)
+
+    def test_rejects_a_leaf_feeding_a_program_argument_and_a_function_parameter(self) -> None:
+        """``[devel.review.refine]`` is both a function route and a command table."""
+        binding = _function_binding("devel/review", "refine", "agent")
+
+        with pytest.raises(QualifiedConfigLookupError) as exc_info:
+            _resolve_argument_routes(
+                _config({"devel": {"review": {"refine": {"agent": True}}}}),
+                "agent",
+                (binding,),
+                command_paths=(("devel", "review", "refine"),),
+            )
+
+        assert binding.declaration_path in str(exc_info.value)
+
+    def test_a_function_route_leaf_supplies_only_the_function_parameter(self) -> None:
+        binding = _function_binding("devel/review", "refine", "steps", IntType())
+
+        tiers = _resolve_argument_routes(
+            _config({"review": {"refine": {"steps": 3}}}), "agent", (binding,)
+        )
+
+        assert tiers.lower == {binding.key: 3}
 
     def test_rejects_the_dual_feed_set_in_several_layers(self) -> None:
         binding = _binding("devel/review", "agent")
@@ -1713,3 +1729,221 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
         )
 
         assert tiers.upper == {program.param_key("data"): "data.txt"}
+
+
+class TestOverlappingRoutesWarnOnce:
+    """A leaf one route consumes draws no warning from another route reading the same table."""
+
+    def test_a_program_argument_leaf_in_another_programs_function_route_is_declared(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        agent = _function_binding("devel/review", "review", "agent")
+        reached = _program(
+            module="devel/review",
+            name="review",
+            parameters=(_argument("agent"), _argument("other", type_=IntType())),
+        )
+        program = _program(closure=(ModuleId.from_path("app/main"), agent.module))
+
+        resolve_param_values(
+            _config({"devel": {"review": {"review": {"other": 5, "bogus": 1}}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "other"),),
+            surface=_surface(program, ()),
+            declared_params=(agent,),
+            declared_programs=(reached,),
+        )
+
+        err = capsys.readouterr().err
+        assert "bogus" in err
+        assert "'other'" not in err
+
+    def test_a_module_route_leaf_is_not_warned_by_a_function_route_on_the_same_table(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        module_param = _binding("q/rv/refine", "other", IntType())
+        function_param = _function_binding("q/rv", "refine", "steps", IntType())
+        program = _program(closure=(ModuleId.from_path("app/main"),))
+
+        tiers = _resolve_tiers(
+            _config({"q": {"rv": {"refine": {"other": 6, "steps": 2, "bogus": 1}}}}),
+            program,
+            (module_param, function_param),
+        )
+
+        err = capsys.readouterr().err
+        assert tiers.lower == {module_param.key: 6, function_param.key: 2}
+        assert "bogus" in err
+        assert "'other'" not in err
+        assert "'steps'" not in err
+
+    def test_a_command_group_leaf_consumed_by_the_program_is_not_warned_by_a_module_route(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        refine = _function_binding("devel/review", "refine", "steps", IntType())
+        program = _program(
+            closure=(ModuleId.from_path("app/main"), refine.module),
+            parameters=(_argument("steps", type_=IntType()),),
+        )
+
+        tiers = resolve_param_values(
+            _config({"review": {"steps": 6, "bogus": 1}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("review", "refine"),),
+            surface=_surface(program, (refine,)),
+            package_command_paths=frozenset({("review", "refine")}),
+        )
+
+        err = capsys.readouterr().err
+        assert tiers.upper == {program.param_key("steps"): 6}
+        assert "bogus" in err
+        assert "'steps'" not in err
+
+
+class TestNestedRouteTablesAreNotLeafValues:
+    """A table at a leaf position that is a known route table is a route, never a value."""
+
+    _COMMANDS = frozenset({("devel", "review"), ("devel", "other")})
+
+    def test_a_command_table_is_not_a_group_table_leaf_value(self) -> None:
+        program = _program(parameters=(_argument("other", type_=IntType()),))
+
+        tiers = resolve_param_values(
+            _config({"devel": {"other": {"agent": "x"}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            package_command_paths=self._COMMANDS,
+        )
+
+        assert tiers.upper == {}
+
+    def test_a_command_table_is_not_a_manifest_group_table_leaf_value(self) -> None:
+        program = _program(parameters=(_argument("other", type_=IntType()),))
+
+        tiers = resolve_param_values(
+            _config(),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            package_command_paths=self._COMMANDS,
+            package_config={"devel": {"other": {"agent": "x"}}},
+        )
+
+        assert tiers.lower == {}
+
+    def test_a_function_route_table_is_not_a_program_argument_value(self) -> None:
+        refine = _function_binding("devel/review", "refine", "steps", IntType())
+        program = _program(
+            closure=(ModuleId.from_path("app/main"), refine.module),
+            parameters=(_argument("refine", type_=IntType()),),
+        )
+
+        tiers = resolve_param_values(
+            _config({"devel": {"review": {"refine": {"steps": 6}}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, (refine,)),
+            package_command_paths=self._COMMANDS,
+        )
+
+        assert tiers.upper == {}
+        assert tiers.lower == {refine.key: 6}
+
+    def test_a_scope_region_table_is_not_a_module_parameter_value(self) -> None:
+        outer = _binding("A/logging", "cfg", IntType())
+        inner = _binding("A/logging", "x", IntType(), scope_path=("cfg",))
+        program = _program(closure=(ModuleId.from_path("app/main"), outer.module))
+
+        values = _resolve(_config({"A": {"logging": {"cfg": {"x": 1}}}}), program, (outer, inner))
+
+        assert values == {inner.key: 1}
+
+    def test_an_unrelated_table_stays_a_leaf_value(self) -> None:
+        program = _program(parameters=(_argument("cfg", type_=TextType()),))
+
+        tiers = resolve_param_values(
+            _config({"devel": {"cfg": {"a": 1}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, ()),
+            package_command_paths=self._COMMANDS,
+            package_config={"devel": {"cfg": {"b": 2}}},
+        )
+
+        assert tiers.upper == {program.param_key("cfg"): {"a": 1}}
+
+
+class TestOneLeafRoutePredicate:
+    """Candidate scans, warnings and value resolution agree on which tables are routes."""
+
+    _OPTS = DictType(TextType(), IntType())
+
+    def test_a_table_valued_leaf_feeding_an_argument_and_a_module_parameter_is_rejected(
+        self,
+    ) -> None:
+        binding = _binding("devel/review", "opts", self._OPTS)
+
+        with pytest.raises(QualifiedConfigLookupError):
+            _resolve_argument_routes(
+                _config({"devel": {"review": {"opts": {"a": 1}}}}),
+                "opts",
+                (binding,),
+                argument_type=self._OPTS,
+            )
+
+    def test_an_undeclared_table_valued_leaf_draws_a_warning(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        program = _program(parameters=(_argument("opts", type_=self._OPTS),))
+
+        _resolve(_config({"workflow": {"run": {"bogus": {"a": 1}}}}), program, ())
+
+        assert "bogus" in capsys.readouterr().err
+
+    def test_an_entry_function_name_table_is_an_undeclared_leaf_not_a_route(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        parameter = replace(_function_binding("app/main", "f", "n", IntType()), module=ENTRY_ID)
+        program = _program(module=ENTRY_ID)
+
+        values = _resolve(_config({"workflow": {"run": {"f": {"n": 7}}}}), program, (parameter,))
+
+        assert values == {}
+        assert "'f'" in capsys.readouterr().err
+
+    def test_an_entry_function_qualified_leaf_applies(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        parameter = replace(_function_binding("app/main", "f", "n", IntType()), module=ENTRY_ID)
+        program = _program(module=ENTRY_ID)
+
+        values = _resolve(_config({"workflow": {"run": {"f.n": 7}}}), program, (parameter,))
+
+        assert values == {parameter.key: 7}
+        assert capsys.readouterr().err == ""
+
+
+def test_an_undeclared_key_of_a_declaration_route_is_not_called_a_program_argument(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    refine = _function_binding("devel/review", "refine", "steps", IntType())
+    program = _program(closure=(ModuleId.from_path("app/main"), refine.module))
+
+    _resolve(_config({"devel": {"review": {"refine": {"bogus": 1}}}}), program, (refine,))
+
+    reported = capsys.readouterr().err
+    assert "'bogus'" in reported
+    assert "program argument" not in reported

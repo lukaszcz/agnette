@@ -263,12 +263,12 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
 
 - **Host parameters.** Signature value parameters project onto the command's CLI as for `agm exec`:
   positional-capable parameters fill trailing words in order, name-addressable ones take
-  `--name VALUE` (`--name`/`--no-name` for `bool`). Every `@param` binding the selected
-  program reaches is a module parameter too: its external name supplies a
+  `--name VALUE` (`--name`/`--no-name` for `bool`). Every `@param` binding and `def` parameter
+  the selected program reaches is a module or function parameter too: its external name supplies a
   resolving bare flag and dotted qualified flags, including `--no-...` where its type permits.
-  Help groups visible module parameters by declaring module, and completion offers their resolving
-  spellings. See [Program arguments](agl.md#program-arguments) and
-  [Module parameters](agl.md#module-parameters). A registered command reserves `--echo`/`--no-echo`,
+  Help groups visible module and function parameters by declaring module, and completion offers
+  their resolving spellings. See [Program arguments](agl.md#program-arguments) and
+  [Host parameters](agl.md#host-parameters). A registered command reserves `--echo`/`--no-echo`,
   `--max-call-depth`, and `-h`/`--help`; its parameters may reuse other spellings `agm exec`
   reserves, such as `--module-path` or `-p`, which `agm exec` still rejects.
 - **Run-time options.** `--echo`/`--no-echo` and `--max-call-depth` work as for
@@ -286,14 +286,15 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   a proper prefix of a command path, such as `[dv]` for `dv review` (see
   [Aliases](#aliases)) — supplies further defaults. The program's own
   [`@config`](../agl/reference/attributes.md#config) entries rank below the program route: an
-  engine setting falls through to `@config` before `[exec]`, and a module parameter falls
-  through to `@config` before its declaring module's module route. Below `@config`, the owning
+  engine setting falls through to `@config` before `[exec]`, and a module or function parameter
+  falls through to `@config` before its declaration route. Below `@config`, the owning
   package's manifest [`[config]`](#config) supplies further defaults — its own command table,
-  then an inherited group table, then the root — still above `[exec]` and a module's own module
-  route; signature arguments read the manifest tier too. A resolving program-route leaf — its
-  bare external name, or a dotted qualified spelling as a quoted key — still overrides both. CLI
-  values win over all of them; `@opt-env` reaches a signature argument and a module parameter
-  alike, but not an engine setting, which only a source `std/config` write outranks. See
+  then an inherited group table, then the root — still above `[exec]` and a parameter's
+  declaration route; signature arguments read the manifest tier too. A resolving program-route
+  leaf — its bare external name, or a dotted qualified spelling as a quoted key — still overrides
+  both. CLI
+  values win over all of them; `@opt-env` reaches a signature argument and a module or function
+  parameter alike, but not an engine setting, which only a source `std/config` write outranks. See
   [Configuration](agl.md#configuration).
 - **Conflicts.** Two active packages cannot own the same command path; install the later one with
   `--shadow` to make it the owner. Shadowing is recorded per store tree, so a rebuilt activation
@@ -315,7 +316,8 @@ exists; refuses a directory that already holds a manifest.
 
 **`check`** scans the module tree for `@command`-registered programs, merges them with
 `[commands]`, then validates the manifest, the `src/` module tree, command program references,
-literal `resource` targets, import visibility, and dependency satisfiability without modifying
+literal `resource` targets, import visibility, `@param` spellings (no two parameters a registered
+program reaches may share a fully qualified spelling), and dependency satisfiability without modifying
 anything — the same diagnostics `install` reports. The `std` floor is checked against the running
 AgM; other dependencies resolve from the store, then a `path`; a `url` counts as satisfiable and
 is not fetched. Each `[python]` requirement AgM's interpreter environment does not satisfy is

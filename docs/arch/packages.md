@@ -14,7 +14,7 @@ A package is a portable, versioned AgL module collection: a `package.toml` manif
 
 ## Discipline Validation
 
-`agm pkg check` validates a development package without modifying it; `pkg create` and `pkg install` run the same validation once. Source-free manifest and tree checks come first, then the module graph is loaded and name-resolved with runtime visibility, rejecting unresolved modules, imports outside the closure, invalid command programs, missing resources, and invalid `[config]` keys. Unknown manifest keys are rejected when validating but tolerated when loading, so stored packages stay manageable. A distribution is validated against the source tree it ships from, with exclusion-specific checks and a digest proving the staged copy matches; a `.agmpkg` archive is materialized and resolved once.
+`agm pkg check` validates a development package without modifying it; `pkg create` and `pkg install` run the same validation once. Source-free manifest and tree checks come first, then the module graph is loaded and name-resolved with runtime visibility, rejecting unresolved modules, imports outside the closure, invalid command programs, missing resources, `@param` spellings shared within a registered program's closure, and invalid `[config]` keys. Unknown manifest keys are rejected when validating but tolerated when loading, so stored packages stay manageable. A distribution is validated against the source tree it ships from, with exclusion-specific checks and a digest proving the staged copy matches; a `.agmpkg` archive is materialized and resolved once.
 
 ## Registered Commands
 

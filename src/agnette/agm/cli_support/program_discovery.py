@@ -228,7 +228,7 @@ class ExecProgramDiscovery:
     def params_for(
         self, file: str | None, program: "ProgramDeclInfo | None"
     ) -> "tuple[HostParamInfo, ...]":
-        """Return the module parameters *program* reaches, from *file*'s discovered artifacts."""
+        """Return the module and function parameters *program* reaches, from *file*'s artifacts."""
         artifacts = self.cached_artifacts(file)
         if artifacts is None or program is None:
             return ()
@@ -257,7 +257,7 @@ def registered_command_for(
 
     :meth:`ExecProgramDiscovery.command_for_file`'s counterpart for the
     registered-command side: the one place that pairs a declaration with the
-    module parameters of the discovery that produced it, so a registered
+    host parameters of the discovery that produced it, so a registered
     command's parsing, help and completion surfaces never project different
     flags. ``None`` when there is no declaration or its flags collide.
     """

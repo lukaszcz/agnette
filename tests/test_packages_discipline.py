@@ -1311,6 +1311,76 @@ class TestManifestConfigDiscipline:
             )
 
 
+class TestParamSpellingCollisions:
+    """Named-module ``@param``s of one registered program's closure share no full spelling."""
+
+    _MANIFEST = (
+        '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+        '[commands]\nstart = { program = "custom/main::main" }\n'
+    )
+
+    @classmethod
+    def _write(cls, root: Path, main: str, a: str) -> PackageInfo:
+        modules = {"main": main, "a": a, "a/refine": "@param let x: int = 2\n"}
+        (root / MODULE_TREE_DIRNAME).mkdir(parents=True)
+        (root / "package.toml").write_text(cls._MANIFEST, encoding="utf-8")
+        for module, source in modules.items():
+            path = root / MODULE_TREE_DIRNAME / f"{module}.agl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source, encoding="utf-8")
+        return package_info(root)
+
+    @pytest.mark.parametrize(
+        "colliding",
+        [
+            "def refine(@param x: int = 1) -> int = x\n",
+            "scope refine\n  @param let x: int = 1\nend refine\n",
+        ],
+        ids=["function", "scope"],
+    )
+    def test_rejects_colliding_routes_reached_by_a_registered_program(
+        self, tmp_path: Path, colliding: str
+    ) -> None:
+        package = self._write(
+            tmp_path / "package",
+            "import custom/a\nimport custom/a/refine\nprogram def main() -> unit = ()\n",
+            colliding,
+        )
+
+        with pytest.raises(DisciplineError):
+            validate_package(package)
+
+    def test_accepts_colliding_routes_no_registered_program_reaches_together(
+        self, tmp_path: Path
+    ) -> None:
+        package = self._write(
+            tmp_path / "package",
+            "import custom/a\nprogram def main() -> unit = ()\n",
+            "def refine(@param x: int = 1) -> int = x\n",
+        )
+
+        validate_package(package)
+
+    def test_archive_validation_rejects_colliding_routes(self) -> None:
+        modules = {
+            f"{MODULE_TREE_DIRNAME}/main.agl": (
+                "import custom/a\nimport custom/a/refine\nprogram def main() -> unit = ()\n"
+            ),
+            f"{MODULE_TREE_DIRNAME}/a.agl": "def refine(@param x: int = 1) -> int = x\n",
+            f"{MODULE_TREE_DIRNAME}/a/refine.agl": "@param let x: int = 2\n",
+        }
+        manifest = PackageManifest(
+            "custom",
+            semver.Version.parse("1.0.0"),
+            commands={"start": CommandSpec("custom/main::main")},
+        )
+
+        with pytest.raises(DisciplineError):
+            validate_archive_package(
+                manifest, archive_paths=modules, read_module=modules.__getitem__
+            )
+
+
 class TestManifestConfigCheckCommand:
     """``agm pkg check`` applies ``[config]`` discipline end to end."""
 

@@ -1,0 +1,7 @@
+record Counter
+  start: int
+
+def Counter::bump(self, @param by: int = 1, @param @opt-name("by") step: int = 1) -> int =
+  self.start + by + step
+
+program def main() -> unit = print Counter(start = 1).bump()

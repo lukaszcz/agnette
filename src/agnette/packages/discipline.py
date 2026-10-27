@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, TypeVar
 
 from agnette.agl.diagnostics import AglError
+from agnette.agl.ir.static_keys import (
+    FunctionParamKey,
+    StaticBindingKey,
+    host_param_label,
+    static_binding_key,
+)
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.modules.loader import build_repl_graph
 from agnette.agl.modules.roots import RootSet
@@ -28,7 +34,11 @@ from agnette.agl.syntax.types import UnitT
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES
 from agnette.command_catalog import RESERVED_CONFIG_SECTION_NAMES, invalid_command_path
-from agnette.config.qualified_keys import display_table_path, param_spellings_for
+from agnette.config.qualified_keys import (
+    display_table_path,
+    full_spelling_collision,
+    param_spellings_for,
+)
 from agnette.core import fs
 from agnette.core.toml import TomlDict
 from agnette.packages.distribution import MANIFEST_NAME, distribution_files
@@ -93,6 +103,7 @@ def validate_package(
         package, modules, dependency_packages=tuple(dependency_packages)
     )
     _validate_command_programs(package.manifest, resolution.resolutions)
+    _validate_program_param_spellings(package.manifest, resolution)
     _validate_manifest_config(package.manifest, resolution.all_resolutions)
     _validate_resources(
         modules,
@@ -339,6 +350,7 @@ def _validate_archive_content(
     except (OSError, UnicodeDecodeError) as exc:
         raise DisciplineError(f"cannot load archive package {manifest.name!r}: {exc}") from exc
     _validate_command_programs(manifest, resolution.resolutions)
+    _validate_program_param_spellings(manifest, resolution)
     _validate_manifest_config(manifest, resolution.all_resolutions)
     _validate_resources(
         modules,
@@ -494,6 +506,69 @@ def _validate_program_reference(
     ):
         raise DisciplineError(
             f"registered program {reference!r} must declare no type parameters and a unit result"
+        )
+
+
+def _validate_program_param_spellings(
+    manifest: PackageManifest, package: PackageResolution
+) -> None:
+    """Reject a registered program whose closure has parameters sharing a full spelling.
+
+    The closure is the program's module and the modules it imports, transitively
+    (those, not the whole package, are what a host addresses together). Only
+    named modules are checked, as at run time (``colliding_declarations``).
+    """
+    for command in manifest.commands.values():
+        if command.program is None:
+            continue
+        entry = ModuleId.from_path(command.program.partition("::")[0])
+        closure = _import_closure(entry, package.adjacency)
+        collision = full_spelling_collision(
+            declaration
+            for module_id in closure
+            for declaration in _param_declarations(module_id, package.all_resolutions[module_id])
+        )
+        if collision is not None:
+            raise DisciplineError(f"program {command.program!r}: {collision}")
+
+
+def _import_closure(
+    entry: ModuleId, adjacency: Mapping[ModuleId, tuple[ModuleId, ...]]
+) -> tuple[ModuleId, ...]:
+    """Return *entry* and every module it imports, transitively, in discovery order."""
+    seen: dict[ModuleId, None] = {entry: None}
+    pending = [entry]
+    while pending:
+        for target in adjacency.get(pending.pop(), ()):
+            if target not in seen:
+                seen[target] = None
+                pending.append(target)
+    return tuple(seen)
+
+
+def _param_declarations(
+    module_id: ModuleId, resolution: ModuleResolution
+) -> Iterator[tuple[str, str]]:
+    """Yield ``(full spelling, label)`` for each host parameter *resolution* declares."""
+
+    def declaration(
+        route: tuple[str, ...], name: str, key: StaticBindingKey | FunctionParamKey
+    ) -> tuple[str, str]:
+        spelling = param_spellings_for(module_id.segments, route, name, is_entry=False)[-1]
+        return spelling, host_param_label(key)
+
+    for binding in resolution.param_bindings():
+        name = binding.cli.name
+        yield declaration(
+            binding.scope_path, name, static_binding_key(module_id, binding.scope_path, name)
+        )
+    for function_binding in resolution.function_param_bindings():
+        function = function_binding.function.name
+        name = function_binding.cli.name
+        yield declaration(
+            (*function_binding.scope_path, function),
+            name,
+            FunctionParamKey(module_id, function_binding.scope_path, function, name),
         )
 
 

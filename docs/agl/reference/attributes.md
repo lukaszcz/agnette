@@ -276,10 +276,12 @@ def shell-option(name: text, value: text) -> text = "--%{name}=" ++ shell-quote(
 parameter. The binding must be at module root or directly in a scope region
 (never in a function, block, or lambda), must bind a name rather than `_`, and
 must have an initializer; it cannot be a `builtin var`. Its annotated or
-inferred type must be closed and decodable at the host parameter boundary.
+inferred type must be closed and decodable at the host parameter boundary. The
+module parameters of the module root, and of each scope region, need distinct
+external names; different routes may reuse one.
 
-How a host value takes the initializer's place: [Module
-parameters](host-environment.md#module-parameters). A `var` stays mutable
+How a host value takes the initializer's place: [Host
+parameters](host-environment.md#host-parameters). A `var` stays mutable
 after a host value is bound; when exported (see
 [Modules](modules.md#re-exports-and-visibility)), an importer may also write
 it.
@@ -287,7 +289,7 @@ it.
 The [host parameter attributes](#host-parameter-attributes) and `@doc` apply to
 the binding; its external name is its `@opt-name`, else its declared name.
 Flags, configuration routes, precedence, help, and REPL behavior:
-[Module parameters](host-environment.md#module-parameters).
+[Host parameters](host-environment.md#host-parameters).
 
 ```agl
 @param @doc("Log level") @opt-short("l") var level: int = 1
@@ -305,13 +307,18 @@ must have a default and a name other than `_`. A lambda parameter, a parameter
 of a `builtin def` or of an operator-named `def`, a method's `self`, and a
 positional-only `program def` parameter cannot carry it. The
 parameter's type must be closed (a generic `T` is rejected) and decodable at
-the host parameter boundary, like a module parameter's.
+the host parameter boundary, like a module parameter's. The `@param` parameters
+of one function need distinct external names.
 
 The [host parameter attributes](#host-parameter-attributes), `@doc`, and the
 [zone attributes](#zone-attributes) apply to the parameter; its external name is
 its `@opt-name`, else its declared name. The parameter stays an ordinary
 parameter of its function: an explicit argument at a call always supplies its
-value.
+value, and a host value replaces only the default, for every call of any
+program that reaches the function. Flags, configuration routes, precedence, and
+help: [Host parameters](host-environment.md#host-parameters). On a `program
+def`, the parameter is also a program argument, bound at the entry call; its
+host value then defaults every other call that omits it.
 
 ```agl
 def refine(@param @doc("Round limit.") @opt-name("max-steps") steps: int = 4) -> int = steps

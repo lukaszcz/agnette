@@ -14,6 +14,7 @@ from agnette.config.qualified_keys import (
     QualifiedConfigLookupError,
     configured_leaf_table_candidates,
     configured_leaf_tables,
+    manifest_leaf_tables,
     resolve_manifest_values,
     resolve_qualified_values,
     route_table_paths,
@@ -308,7 +309,37 @@ class TestQualifiedConfigKeys:
     def test_configured_leaf_tables_exclude_nested_tables(self) -> None:
         config = _config({"workflow": {"msg": "hi", "main": {"strict-json": True}}})
 
-        assert configured_leaf_tables(config, ("workflow",)) == {"msg": ("workflow",)}
+        assert configured_leaf_tables(
+            config, ("workflow",), nested_routes=frozenset({("workflow", "main")})
+        ) == {"msg": ("workflow",)}
+
+    def test_configured_leaf_tables_report_an_unknown_table_as_a_native_value(self) -> None:
+        config = _config({"workflow": {"msg": "hi", "main": {"strict-json": True}}})
+
+        assert configured_leaf_tables(config, ("workflow",)) == {
+            "msg": ("workflow",),
+            "main": ("workflow",),
+        }
+
+    def test_leaf_table_candidates_treat_only_known_route_tables_as_routes(self) -> None:
+        config = _config({"devel": {"opts": {"a": 1}, "other": {"b": 2}, "strict": True}})
+        scan = (("tools", "review"), ("main",), (("devel", "review"),))
+
+        assert set(configured_leaf_table_candidates(config, *scan)) == {"opts", "other", "strict"}
+        assert set(
+            configured_leaf_table_candidates(
+                config, *scan, nested_routes=frozenset({("devel", "other")})
+            )
+        ) == {"opts", "strict"}
+
+    def test_manifest_leaf_tables_treat_only_command_tables_as_routes(self) -> None:
+        manifest = {"devel": {"review": {"strict": True}, "opts": {"a": 1}}}
+        commands = (("devel", "review"),)
+
+        assert set(manifest_leaf_tables(manifest, commands)) == {"strict", "opts"}
+        assert set(manifest_leaf_tables(manifest, commands, frozenset({("devel", "opts")}))) == {
+            "strict"
+        }
 
     def test_configured_leaf_tables_skip_reserved_sections(self) -> None:
         config = _config({"exec": {"strict-json": True}})

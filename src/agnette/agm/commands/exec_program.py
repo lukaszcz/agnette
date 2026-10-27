@@ -91,6 +91,7 @@ from agnette.agm.cli_support.exec_target import (
 )
 from agnette.agm.cli_support.param_config import (
     ParamValueTiers,
+    colliding_declarations,
     report_undeclared_exec_keys,
     resolve_param_values,
 )
@@ -134,7 +135,7 @@ from agnette.packages.model import PackageInfo, owning_package
 from agnette.sandbox.prepare import lazy_sandbox_context
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
     from agnette.agl.runtime.types import HostParamInfo
     from agnette.config.general import ExecConfig, GeneralConfig
@@ -170,6 +171,7 @@ def _bind_host_inputs(
     program: ProgramDeclInfo,
     params: "Sequence[HostParamInfo]",
     declared_params: "Sequence[HostParamInfo]",
+    declared_programs: "Sequence[ProgramDeclInfo]",
     reserved_flags: frozenset[str],
     config: "GeneralConfig",
     entry_segments: tuple[str, ...],
@@ -181,9 +183,9 @@ def _bind_host_inputs(
     """Bind one selected program's CLI, environment, and config host inputs.
 
     *params* are the host parameters the program reaches, engine settings
-    included; *declared_params* additionally holds the module parameters its
-    closure merely declares, which only exempt their config keys from the
-    undeclared-key warnings.
+    included; *declared_params* and *declared_programs* additionally hold the
+    module and function parameters and the other programs its closure merely
+    declares, which only exempt their config keys from the undeclared-key warnings.
 
     This is the only execution-host path that combines the signature and
     host-parameter surfaces.  Registered commands reach it through
@@ -198,6 +200,10 @@ def _bind_host_inputs(
     values already folded in above it — beneath the selected program's own
     ``@config`` values, which are only known once the program is lowered.
     """
+    collision = colliding_declarations(declared_params)
+    if collision is not None:
+        print(f"Error: {collision}.", file=sys.stderr)
+        raise SystemExit(1)
     command_result = build_program_command(program, reserved_flags, params)
     if not isinstance(command_result, ProgramCommand):
         print(f"Error: {_program_option_error_message(command_result)}", file=sys.stderr)
@@ -226,6 +232,7 @@ def _bind_host_inputs(
             package_config=package_config,
             manifest_anchor=manifest_anchor,
             declared_params=declared_params,
+            declared_programs=declared_programs,
             positional=frozenset(
                 program.param_key(name) for name in parsed_tail.positionally_filled
             ),
@@ -259,11 +266,12 @@ class _PackageProgramRoute:
     """One program's owning package, if any, plus its registered command-path metadata.
 
     ``command_paths`` is this program's own registration, one more spelling
-    of its configuration table; ``package_command_paths`` is every path the
-    package registers at all (aliases expanded), used to exempt a command's
-    own table from undeclared-key warnings when a leaf is really a
-    descendant command's inherited default. ``package`` is the owner itself,
-    whose manifest ``[config]`` supplies this program's defaults.
+    of its configuration table; ``package_command_paths`` is every path any
+    mounted package registers (aliases expanded), whose tables are command
+    tables rather than leaf values and whose own table is exempt from
+    undeclared-key warnings when a leaf is really a descendant command's
+    inherited default. ``package`` is the owner itself, whose manifest
+    ``[config]`` supplies this program's defaults.
     """
 
     package: PackageInfo | None
@@ -289,7 +297,7 @@ def _package_program_route(
     """
     package = owning_package(entry_path, roots.packages)
     if package is None:
-        return _PackageProgramRoute(None, (), frozenset())
+        return _PackageProgramRoute(None, (), _registered_command_paths(roots.packages))
     if not package.commands_complete:
         # Lazy: builds the AgL parser, which activation.py also keeps out of
         # import-time paths.
@@ -298,10 +306,17 @@ def _package_program_route(
         package = package_with_source_commands_or_declared(package)
     reference = "::".join(("/".join(module_segments), *program_path))
     command_paths = command_paths_for_program(package.manifest, reference)
-    package_command_paths = frozenset(
-        tuple(path.split()) for path in expanded_commands(package.manifest)
+    others = (other for other in roots.packages if other.root != package.root)
+    return _PackageProgramRoute(
+        package, command_paths, _registered_command_paths((package, *others))
     )
-    return _PackageProgramRoute(package, command_paths, package_command_paths)
+
+
+def _registered_command_paths(packages: "Iterable[PackageInfo]") -> frozenset[tuple[str, ...]]:
+    """Return every command path *packages* register, aliases expanded."""
+    return frozenset(
+        tuple(path.split()) for package in packages for path in expanded_commands(package.manifest)
+    )
 
 
 def _exec_config(
@@ -502,7 +517,7 @@ def run(
         declaration_path=lambda item: "::".join((*scope_names(item.scope_path), item.name)),
     )
     command_paths: tuple[tuple[str, ...], ...] = ()
-    package_command_paths: frozenset[tuple[str, ...]] = frozenset()
+    package_command_paths = _registered_command_paths(exec_roots.roots.packages)
     owning_package_info: PackageInfo | None = None
     if entry_path is not None and selected_parsed_program is not None:
         package_route = _package_program_route(
@@ -592,6 +607,7 @@ def run(
         program=selected_program,
         params=discovery.params_for(selected_program),
         declared_params=discovery.declared_params_for(selected_program),
+        declared_programs=discovery.declared_programs_for(selected_program),
         reserved_flags=reserved_flags,
         config=config_view,
         entry_segments=config_entry_segments,

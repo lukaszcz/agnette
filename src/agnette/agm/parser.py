@@ -303,9 +303,10 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
               verbatim; Agent: host Agent syntax; others: JSON or AgL value syntax.
               An omitted argument falls back to its @opt-env variable (empty is
               unset), the program's config table (named only), then its default.
-              `@param` bindings reached by the program add bare and
+              Reached `@param` bindings and `def` parameters add bare and
               dotted flags (--A.logging.verbose), falling back to @opt-env, the
-              program's table, the declaring module's table, then the initializer.
+              program's table, the declaration route (the module's or function's
+              table), then the initializer or default.
               A bare flag matching several bindings errors when used.
 
             With a single program or -p, `agm exec FILE -h` shows the program's
