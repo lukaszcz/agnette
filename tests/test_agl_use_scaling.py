@@ -8,12 +8,14 @@ from typing import Any
 
 import pytest
 
+from agnette.agl.pipeline import PipelineDriver
 from agnette.agl.scope.lookup import Candidate, LookupKind
 from agnette.agl.scope.symbols import ScopePath
 from agnette.agl.scope.uses import UseReader
 from agnette.agl.syntax.nodes import UseDecl
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.commands import check as check_command
+from tests._agl_helpers import agl_roots, repl_session_with_root, run_inline_code
 
 
 def _write_program(root: Path, uses: int, form: str, callee: str) -> Path:
@@ -107,3 +109,79 @@ def test_reading_many_glob_uses_does_not_multiply_the_work_per_extra_glob(
     # Quadratic work at most: doubling the globs multiplies it by under 2^2.5.
     for key in reads:
         assert large[key] < 5.6 * small[key], key
+
+
+def _glob_program(root: Path, globs: int, lets: int) -> str:
+    """A script importing and globbing *globs* modules, binding *lets* values, then calling one."""
+    for i in range(globs):
+        (root / f"m{i}.agl").write_text(f"def f{i}() -> int = {i}\n", encoding="utf-8")
+    return (
+        "".join(f"import m{i}\n" for i in range(globs))
+        + "".join(f"use m{i}::*\n" for i in range(globs))
+        + "".join(f"let v{j} = f{j % globs}()\n" for j in range(lets))
+        + f"f{globs - 1}()\n"
+    )
+
+
+@pytest.mark.parametrize("lets", [0, 5], ids=("plain", "binding"))
+@pytest.mark.parametrize("host", ["script", "repl"])
+def test_reading_glob_uses_of_a_script_or_repl_entry_does_not_cube_the_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str, lets: int
+) -> None:
+    reads = 0
+    original = UseReader._use_path_reached
+
+    def counting(self: UseReader, *args: Any, **kwargs: Any) -> Any:
+        nonlocal reads
+        reads += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(UseReader, "_use_path_reached", counting)
+
+    def work(globs: int) -> int:
+        nonlocal reads
+        root = tmp_path / f"{host}{lets}x{globs}"
+        root.mkdir()
+        text = _glob_program(root, globs, lets)
+        reads = 0
+        if host == "script":
+            result = run_inline_code(
+                PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None),
+                text,
+                roots=agl_roots(root),
+                entry_path=root / "main.agl",
+            )
+            assert result.ok
+        else:
+            assert repl_session_with_root(root).eval_entry(text).ok
+        return reads
+
+    work(2)
+    small, large = work(10), work(20)
+    # Quadratic work at most: doubling the globs multiplies it by under 2^2.5.
+    assert large < 5.6 * small
+
+
+@pytest.mark.parametrize("host", ["script", "repl"])
+def test_a_glob_use_reads_a_scoped_binding_only_from_where_the_walk_binds_it(
+    tmp_path: Path, host: str
+) -> None:
+    (tmp_path / "m.agl").write_text("def g() -> int = 1\n", encoding="utf-8")
+
+    def ok(last: str) -> bool:
+        text = (
+            "import m\nuse m::*\nscope S\n  use T::*\n  let a = g()\n"
+            f"  scope T\n    let g = 7\n  end T\n{last}end S\n"
+        )
+        if host == "repl":
+            return repl_session_with_root(tmp_path).eval_entry(text).ok
+        return run_inline_code(
+            PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None),
+            text,
+            roots=agl_roots(tmp_path),
+            entry_path=tmp_path / "main.agl",
+        ).ok
+
+    # ``g`` is ``m::g`` above the scope ``T``'s binding and ``T::g``, an int, below it.
+    assert ok("")
+    assert not ok("  let b = g()\n")

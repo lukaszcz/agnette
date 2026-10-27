@@ -911,9 +911,7 @@ class _Resolver(ModuleSources):
         self._define_static_builtin_var_bindings()
         # Define constructor bindings in root scope.
         self._define_constructor_bindings()
-        # A static root binds every declaration up front: its walk changes no path read.
-        if self._is_static_root_module:
-            self._keep_readings()
+        self._keep_readings()
 
     def resolve(self) -> ModuleResolution:
         """Resolve the collected program's bodies; the third phase."""
@@ -2096,6 +2094,7 @@ class _Resolver(ModuleSources):
             # The pre-pass already claimed this key for this exact binder
             # (see the docstring); install the member it pre-claimed.
             scope.register_member(name, replace(ref, scope_path=scope.scope_path))
+            self._installed(scope)
             return
         existing = scope.bindings.get(name)
         if existing is not None and existing.decl_node_id == ref.decl_node_id:
@@ -2103,6 +2102,7 @@ class _Resolver(ModuleSources):
             # a static-root module already defined via
             # ``_define_static_binding_bindings``.
             scope.define(name, ref)
+            self._installed(scope)
             return
         if existing is not None and (
             existing.kind is not BinderKind.constructor_binding
@@ -2110,6 +2110,15 @@ class _Resolver(ModuleSources):
         ):
             raise DuplicateDeclarationError(name, span=ref.decl_span)
         scope.define(name, ref)
+        self._installed(scope)
+
+    def _installed(self, scope: ScopeNode) -> None:
+        """Note that the walk bound a value in *scope*; only a root or named scope is read by paths.
+
+        A static-root module bound it up front.
+        """
+        if not self._is_static_root_module and (scope.scope_path or scope is self._root_scope):
+            self._bound_own_value()
 
     def _check_not_reserved(self, name: str, span: SourceSpan) -> None:
         """Raise if lexical binder name *name* is a built-in contextual name; else record it."""

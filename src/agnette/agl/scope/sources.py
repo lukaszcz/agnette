@@ -571,15 +571,26 @@ class ModuleSources(SourcesHost):
     def _keep_readings(self) -> None:
         """Keep what each full path's contributions and own types read from now on.
 
-        The resolver calls this once the tables it collects are complete, its
-        own types are resolved, and its walk binds nothing a path read sees.
-        A type's resolution reads only its declaring module, so no read from
-        now on presumes a type being resolved. A read made while a use's own
-        read is in progress, which sees only the uses written before it, is
-        kept for that use.
+        The resolver calls this once the tables it collects are complete and
+        its own types are resolved. A type's resolution reads only its
+        declaring module, so no read from now on presumes a type being
+        resolved. A read made while a use's own read is in progress, which
+        sees only the uses written before it, is kept for that use. A walk
+        that binds an own value a path read sees discards the contributions
+        kept so far (:meth:`_bound_own_value`).
         """
         self._keeping_readings = True
         self._uses.share_reads()
+
+    def _bound_own_value(self) -> None:
+        """Discard what was kept about contributions: the walk bound an own value they may read.
+
+        A static-root module binds every value up front; any other installs a
+        root or scoped let/var only where its walk reaches it.
+        """
+        if self._keeping_readings and self._kept_contributions:
+            self._kept_contributions.clear()
+            self._uses.share_reads()
 
     def _kept[K, V](self, kept: dict[tuple[int | None, K], V], key: K, read: Callable[[], V]) -> V:
         """Return what *read* reads, kept in *kept* under *key* and the uses it sees when final."""
