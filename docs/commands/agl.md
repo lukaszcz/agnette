@@ -907,7 +907,11 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   head its first entry (which draws the `unused-module-doc` warning, once), and its
   `@!allow` names govern the warnings of every entry loaded from it, but not warnings from imported library
   modules. A saved transcript records the `@!allow` names an entry ran under, so replaying it
-  raises the same warnings. A loaded file's (or transcript's) diagnostics, runtime errors and trace
+  raises the same warnings. Each entry reports its TAB-indentation advisories, governed by the
+  file's `@allow` regions; after a failing entry halts the load, the later entries' advisories are
+  still reported unless it failed to resolve. `agm check` differs: an entry sees no later
+  declaration here, and `agm check` rejects REPL-only constructs (bare expressions, bare type
+  entries, redefinitions, imports after declarations) without reporting advisories. A loaded file's (or transcript's) diagnostics, runtime errors and trace
   records name the file and use file-relative lines and columns (text typed at the prompt is
   `<repl>`); a file that is not UTF-8 text reports an error.
 - **Engine settings**: import `std/config` and write a qualified target
