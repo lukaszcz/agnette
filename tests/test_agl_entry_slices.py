@@ -55,10 +55,65 @@ def test_an_entry_read_off_the_file_is_the_entry_scanned_and_parsed(name: str) -
         assert repr(from_slice) == repr(parse_program_seeded(text, start_id=5))
 
 
-def test_no_entry_is_read_off_a_file_without_a_program_parse() -> None:
-    lexed = lex_source("let a = 1\nlet b = 2\n")
+def test_an_entry_of_a_file_without_a_program_parse_is_read_off_its_lex_alone() -> None:
+    source = "let a = 1\nlet b = 2\n"
+    lexed = lex_source(source)
 
-    assert entry_slices(lexed, [(0, 9), (10, 19)]) == [None, None]
+    slices = entry_slices(lexed, [(0, 9), (10, 19)])
+
+    assert [s and s.text for s in slices] == ["let a = 1", "let b = 2"]
+    assert all(s and "start" not in s.parses for s in slices)
+    assert [s and s.tokens for s in slices] == [lex_source(s.text).tokens for s in slices if s]
+
+
+def test_no_entry_is_read_off_a_failed_lex() -> None:
+    lexed = lex_source('let a = "unterminated\nlet b = 2\n')
+
+    assert lexed.failure is not None
+    assert entry_slices(lexed, [(0, 21), (22, 31)]) == [None, None]
+
+
+def test_an_entry_of_several_items_carries_their_parse() -> None:
+    source = "let a = 1; let b = a\nlet c = 3\n"
+    lexed, _ = _parsed(source)
+    ranges = [(0, 20), (21, 30)]
+
+    slices = entry_slices(lexed, ranges)
+
+    for (start, end), read in zip(ranges, slices):
+        assert read is not None
+        text = source[start:end]
+        with lex_replay(read):
+            from_slice = parse_program_seeded(text, start_id=0)
+        assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
+        assert "start" in read.parses
+
+
+def test_an_entry_of_no_items_is_read_off_its_lex_alone() -> None:
+    source = "let a = 1\n# alone\nlet b = 2\n"
+    lexed, _ = _parsed(source)
+
+    slices = entry_slices(lexed, [(0, 9), (10, 17), (18, 27)])
+
+    assert [s and "start" in s.parses for s in slices] == [True, False, True]
+
+
+def test_the_entries_an_item_crosses_are_no_pass_of_their_own() -> None:
+    source = "let a = 1\ndef f() -> int =\n  2\nlet b = 3\n"
+    lexed, _ = _parsed(source)
+
+    slices = entry_slices(lexed, [(0, 9), (10, 26), (27, 30), (31, 40)])
+
+    assert [s is None for s in slices] == [False, True, True, False]
+
+
+def test_the_entries_a_token_crosses_are_no_pass_of_their_own() -> None:
+    source = "let a = 1 + 22\nlet b = 3\n"
+    lexed = lex_source(source)
+
+    slices = entry_slices(lexed, [(0, 13), (13, 14), (15, 24)])
+
+    assert [s is None for s in slices] == [True, True, False]
 
 
 class _Counted[T](tuple[T, ...]):
@@ -113,10 +168,3 @@ def test_slicing_a_file_reads_it_in_linear_work() -> None:
     small, large = _slicing_work(100), _slicing_work(200)
 
     assert large < 2.5 * small
-
-
-def test_no_entry_is_read_off_a_file_for_other_ranges_than_its_entries() -> None:
-    source = "let a = 1\nlet b = 2\n"
-    lexed, spans = _parsed(source)
-
-    assert entry_slices(lexed, spans[:1]) == [None]

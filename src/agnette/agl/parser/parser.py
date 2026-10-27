@@ -16,6 +16,7 @@ and ``LexError``s are wrapped into ``AglSyntaxError``.
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace as dc_replace
@@ -482,29 +483,36 @@ def _module_tree(children: Sequence[Tree], rebase: Rebase) -> Tree:
 
 
 def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[LexedSource | None]:
-    """Read each of *ranges* of ``lexed.text``, a module's top-level entries, off its program parse.
+    """Read each of *ranges* of ``lexed.text``, a module's top-level entries, off its one pass.
 
-    The module items are *ranges* in order, the first also holding the module's leading
-    inner attributes, which alone make the one entry of a module without items. Each slice
-    is the pass over its entry's text with the parse of that text already made, so reading
-    the entry scans and parses nothing. ``None`` for all of them when *lexed* holds no
-    program parse of as many entries.
+    Each slice is the pass over its entry's text, read off the tokens of *lexed* without
+    scanning (:func:`~agnette.agl.lexer.lexed_slices`). When *lexed* also records the
+    module's program parse, a slice holding the module's top-level items whole also carries
+    their parse, so reading it parses nothing; the module's leading inner attributes belong
+    to the first entry. ``None`` for an entry that is not a pass of its own: all of them
+    when *lexed* failed.
     """
+    lines = LineIndex(lexed.text)
+    slices = lexed_slices(lexed, ranges, lines)
     whole = lexed.parses.get(_PROGRAM_START)
     if not isinstance(whole, Tree):
-        return [None] * len(ranges)
-    children = ProgramTree(whole, lexed.text).children()
-    attributes = [c for c in children if c.data == "inner_attribute"]
-    entries = [[c] for c in children if c.data != "inner_attribute"]
-    if attributes:
-        entries[:1] = [[*attributes, *(entries[0] if entries else [])]]
-    if len(entries) != len(ranges):
-        return [None] * len(ranges)
-    lines = LineIndex(lexed.text)
-    slices: list[LexedSource | None] = []
-    for sliced, (start, _), entry in zip(lexed_slices(lexed, ranges, lines), ranges, entries):
+        return slices
+    entries: list[list[Tree]] = [[] for _ in ranges]
+    starts = [start for start, _ in ranges]
+    for child in ProgramTree(whole, lexed.text).children():
+        begin, end = child.meta.start_pos, child.meta.end_pos
+        first = max(bisect_right(starts, begin) - 1, 0)
+        if starts[first] <= begin and end <= ranges[first][1]:
+            entries[first].append(child)
+            continue
+        # An item crossing an entry's boundary leaves every entry it touches no parse of its own.
+        for index in range(first, len(ranges)):
+            if starts[index] < end and ranges[index][1] > begin:
+                slices[index] = None
+    for index, (sliced, (start, _), entry) in enumerate(zip(slices, ranges, entries)):
+        if sliced is None or not entry:
+            continue
         sliced.parses[_PROGRAM_START] = _module_tree(entry, Rebase(lines, start))
-        slices.append(sliced)
     return slices
 
 

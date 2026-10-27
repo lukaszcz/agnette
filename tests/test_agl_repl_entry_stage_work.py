@@ -444,6 +444,35 @@ def test_a_loaded_transcript_is_converted_to_ast_once(
     assert builds.items == converted
 
 
+def test_a_transcript_of_multi_item_entries_is_lexed_and_parsed_once(
+    tmp_path: Path, scans: _Scans, parses: _Parses
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(_MULTI_ITEM)
+    scans.count = parses.count = 0
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True] * 3
+    assert (scans.count, parses.count) == (1, 1)
+
+
+def test_a_transcript_that_does_not_parse_is_lexed_once_and_each_entry_parsed_once(
+    tmp_path: Path, scans: _Scans, parses: _Parses
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(_transcript("let a = 1", "let b = = 1", "let c = 2"))
+    scans.count = parses.count = 0
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True, False]
+    # The whole parse that failed, then each entry's own.
+    assert (scans.count, parses.count) == (1, 3)
+
+
 _DEEP = "(" * 1500 + "1" + ")" * 1500
 
 

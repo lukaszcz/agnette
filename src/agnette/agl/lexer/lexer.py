@@ -278,15 +278,18 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
 
 def lexed_slices(
     lexed: LexedSource, ranges: Sequence[tuple[int, int]], lines: LineIndex
-) -> list[LexedSource]:
+) -> list[LexedSource | None]:
     """Return the pass over each of *ranges* of ``lexed.text``, read off *lexed*, not scanned.
 
     *ranges* are disjoint and in order, and *lines* indexes the text. A slice's tokens are
-    those of *lexed*, a pass that did not fail, within its range, rebased to it. Each spaced
-    qualifier and TAB advisory of *lexed* goes to the one slice whose range starts last
-    at or before it, the first slice taking those before it, keeping the whole pass's message
-    with only its positions rebased. One walk over each of *lexed*'s sequences.
+    those of *lexed* within its range, rebased to it. Each spaced qualifier and TAB advisory
+    of *lexed* goes to the one slice whose range starts last at or before it, the first
+    slice taking those before it, keeping the whole pass's message with only its positions
+    rebased. One walk over each of *lexed*'s sequences. A range is no pass of its own, and
+    reads ``None``, when a token crosses its boundary; all of them are when *lexed* failed.
     """
+    if lexed.failure is not None:
+        return [None] * len(ranges)
     starts = [start for start, _ in ranges]
     rebases = [Rebase(lines, start) for start in starts]
 
@@ -295,11 +298,18 @@ def lexed_slices(
         return max(bisect_right(starts, offset) - 1, 0)
 
     tokens: list[list[Token]] = [[] for _ in ranges]
+    crossed: set[int] = set()
     for token in lexed.tokens:
         start_pos, end_pos = cast(int, token.start_pos), cast(int, token.end_pos)
         index = slice_at(start_pos)
         if starts[index] <= start_pos and end_pos <= ranges[index][1]:
             tokens[index].append(rebases[index].token(token))
+        else:
+            crossed.update(
+                i
+                for i in range(index, len(ranges))
+                if starts[i] < end_pos and ranges[i][1] > start_pos
+            )
     spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
     for qualifier in lexed.spaced_qualifiers:
         offset = qualifier.run_start_offset
@@ -317,8 +327,12 @@ def lexed_slices(
         index = slice_at(lines.offset(advisory.line, cast(int, advisory.column)))
         tabs[index].append(rebases[index].advisory(advisory))
     return [
-        LexedSource(lexed.text[start:end], tuple(entry), tuple(qualifiers), tuple(warnings))
-        for (start, end), entry, qualifiers, warnings in zip(ranges, tokens, spaced, tabs)
+        None
+        if index in crossed
+        else LexedSource(lexed.text[start:end], tuple(entry), tuple(qualifiers), tuple(warnings))
+        for index, ((start, end), entry, qualifiers, warnings) in enumerate(
+            zip(ranges, tokens, spaced, tabs)
+        )
     ]
 
 
