@@ -1552,6 +1552,23 @@ class TestHidingAndRenamesOfLaterScopedBindings:
         assert isinstance(failure, HiddenMemberError)
         assert failure.span.start_line == 13
 
+    @pytest.mark.parametrize("graph_kind", ("inline", "file", "repl"))
+    def test_a_hiding_through_a_renamed_scope_hides_a_later_binding(
+        self, tmp_path: Path, graph_kind: str
+    ) -> None:
+        source = "use S as M\nuse M::* hiding v\n\nscope S\n  let v = 10\nend S\n\nlet b = v"
+        failure = _placement_failure(tmp_path, graph_kind, source, HiddenMemberError)
+        assert isinstance(failure, HiddenMemberError)
+        assert failure.span.start_line == 8
+
+    @pytest.mark.parametrize("item", ("use M::v as mv", "use M::{v as mv}"))
+    def test_a_rename_through_a_renamed_scope_reads_a_later_binding(
+        self, tmp_path: Path, item: str
+    ) -> None:
+        source = f"use S as M\n{item}\n\nscope S\n  let v = 10\nend S\n\nlet seen = mv"
+        result = evaluate_ir_graph(source, {}, tmp_path)
+        assert result["seen"] == IntValue(10)
+
 
 # ---------------------------------------------------------------------------
 # Test: import and export as region header items

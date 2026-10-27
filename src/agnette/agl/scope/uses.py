@@ -32,7 +32,6 @@ from agnette.agl.scope.lookup import (
     QualifiedTarget,
     lookup_hidden,
     lookup_reached,
-    lookup_steps,
     spelled_origins,
 )
 from agnette.agl.scope.read_memo import KeptRead, ReadMemo, ValueReads
@@ -50,6 +49,7 @@ from agnette.agl.scope.symbols import (
     contribution_origin,
     import_item_spellings,
     reject_unreadable_binding_name,
+    to_bare_path,
 )
 from agnette.agl.scope.symbols import declaration_qname as _key_qname
 from agnette.agl.scope.symbols import import_item_path as _item_path
@@ -530,18 +530,18 @@ class UseReader:
         """Whether *names*, as *decl* in region *site* spells them, is an own member not yet bound.
 
         A non-static module installs a scoped let/var only where the walk
-        reaches it.
+        reaches it. The scopes holding it are those *names* but the last
+        spell, seen through renames, so this never depends on what is bound.
         """
-        if decl.current_module:
-            bases: Iterable[ScopePath] = ((),)
-        elif decl.anchored:
+        if len(names) < 2:
             return False
-        else:
-            bases = lookup_steps(site)
         return any(
-            self._scope_entity_kinds.get((self._module_id, (*base, *names[:-1]), names[-1]))
+            origin.qname[0] == self._module_id
+            and self._scope_entity_kinds.get(
+                (self._module_id, to_bare_path(origin.qname[1]), names[-1])
+            )
             == "ordinary"
-            for base in bases
+            for origin in self._use_path_origins(site, decl, names[:-1])
         )
 
     def _reaches_beneath_target(self, site: ScopePath, decl: UseDecl, name: str) -> bool:
