@@ -702,11 +702,8 @@ class EntryPipeline:
         try:
             interp = IrInterpreter(
                 lowered.program,
-                agent_dispatcher=host_env.agent_dispatcher,
-                session_host=host_env.session_host,
                 get_sandbox_context=host_env.get_sandbox_context,
                 resolve_agent_spec=host_env.resolve_agent_spec,
-                close_sessions=False,
                 strict_json=self._ctx._default_strict_json,
                 max_call_depth=self._ctx._default_call_depth_limit,
                 shell_exec_timeout=(
@@ -725,8 +722,7 @@ class EntryPipeline:
                 builtin_host_settings=self._builtin_host_settings(),
                 param_seeds={**self._ctx._param_seed_values, **decoded_param_seeds},
                 process_environment=self._ctx._process_environment,
-                extern_runtime_state=self._ctx._extern_runtime_state,
-                process_host=self._ctx._process_host,
+                host=self._ctx._host,
             )
         except AglRaise as exc:
             error = exception_value_to_run_error(
@@ -916,9 +912,8 @@ class EntryPipeline:
             )
 
         try:
-            self._ctx._active_interpreter = interp
             # An interrupt or an uncaught raise terminates the processes this entry forked.
-            with self._ctx._process_host.scope():
+            with self._ctx._host.processes.scope():
                 interp.run()
         except SystemExit as exc:
             trace.run_end(ok=exc.code is None or exc.code == 0)
@@ -952,8 +947,6 @@ class EntryPipeline:
             return partial_failure(
                 diagnostics=[Diagnostic(message=cancellation_message, line=1)], error=None
             )
-        finally:
-            self._ctx._active_interpreter = None
         trace.run_end(ok=True)
         # Setting writes are ordinary non-transactional mutations: persist all
         # effects that completed, on success or before a later runtime failure.

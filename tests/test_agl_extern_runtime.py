@@ -525,14 +525,10 @@ def test_runtime_state_closer_runs_once_when_process_exit_raises_system_exit(
     assert closed_log.read_text().count("\n") == 1
 
 
-def test_runtime_state_failing_closer_becomes_a_note_naming_companion_state_not_sessions(
+def test_runtime_state_failing_closer_preserves_the_primary_error_and_notes_the_failure(
     tmp_path: Path,
 ) -> None:
-    """The interpreter's two cleanup managers keep their own labels.
-
-    Only the companion-state closer fails here, so its note must name
-    "companion state cleanup" and never the unrelated session label.
-    """
+    """A failing companion closer preserves the primary AgL exception and reports its failure."""
     source = 'extern def register() -> unit\nlet _ = register()\nraise Abort(message = "primary")\n'
     companion = (
         "from agl import runtime\n"
@@ -553,8 +549,8 @@ def test_runtime_state_failing_closer_becomes_a_note_naming_companion_state_not_
         )
 
     notes = getattr(excinfo.value, "__notes__", [])
-    assert any("companion state cleanup" in note and "cleanup failed" in note for note in notes)
-    assert not any("agent session cleanup" in note for note in notes)
+    assert excinfo.value.exc.fields["message"] == TextValue("primary")
+    assert any("cleanup failed" in note for note in notes)
 
 
 def test_pipeline_run_surfaces_a_failing_companion_closer_as_a_run_error_note(
@@ -583,7 +579,9 @@ def test_pipeline_run_surfaces_a_failing_companion_closer_as_a_run_error_note(
 
     assert result.ok is False
     assert result.error is not None
-    assert any("companion state cleanup" in note for note in result.error.notes)
+    assert result.error.type_name == "Abort"
+    assert result.error.fields["message"] == "primary"
+    assert any("cleanup failed" in note for note in result.error.notes)
 
 
 def test_runtime_state_failing_closer_is_raised_on_a_clean_exit(tmp_path: Path) -> None:

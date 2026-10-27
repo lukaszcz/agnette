@@ -32,11 +32,11 @@ from agnette.agent.session.protocol import (
 from agnette.agent.session.service import SessionService
 from agnette.agent.spec import PermissionMode
 from agnette.agl.diagnostics import Diagnostic
-from agnette.agl.eval import ir_interpreter
 from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import JsonContractRequest
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.pipeline import PreparedProgram, ProgramDiscovery
+from agnette.agl.runtime import host_session
 from agnette.agl.runtime.fork_participants import register_built_ins
 from agnette.agl.runtime.processes import (
     Disposition,
@@ -1541,7 +1541,7 @@ def _run_program(
         register_built_ins(host, **built_ins)
         return host
 
-    monkeypatch.setattr(ir_interpreter, "build_process_host", build_scripted_host)
+    monkeypatch.setattr(host_session, "build_process_host", build_scripted_host)
     registry = ExternRegistry()
     runtime = PipelineDriver(
         extern_registry=registry,

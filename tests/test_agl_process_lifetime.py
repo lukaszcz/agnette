@@ -446,7 +446,9 @@ def _drive_repl(
                 # The reset forgets the root the helper installed.
                 session._roots = roots
             elif step == "!interrupted-reset":
-                with mock.patch.object(session._process_host, "end", side_effect=KeyboardInterrupt):
+                with mock.patch.object(
+                    session._host.processes, "end", side_effect=KeyboardInterrupt
+                ):
                     try:
                         session.reset()
                         outcomes.append(False)
@@ -456,11 +458,11 @@ def _drive_repl(
             elif step.startswith("!mark "):
                 os.write(1, f"--{step.removeprefix('!mark ')}--\n".encode())
             elif step == "!fork-handle":
-                handle = session._process_host.fork(lambda: b"", ()).id
-                session._process_host.settle(handle)
+                handle = session._host.processes.fork(lambda: b"", ()).id
+                session._host.processes.settle(handle)
             elif step == "!handle-known":
                 try:
-                    session._process_host.settle(handle)
+                    session._host.processes.settle(handle)
                     outcomes.append(True)
                 except ProcessHostError:
                     outcomes.append(False)

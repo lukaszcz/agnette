@@ -140,9 +140,8 @@ class ForkedEntries:
 class ExternRuntimeState:
     """Mutable companion state belonging to one host session.
 
-    An interpreter creates and closes its own unless its host supplies one
-    that outlives it (the REPL, across entries). State is per process: a forked
-    child keeps only the entries its fork hooks made, and the entries it
+    The host session creates and closes it, across entries in the REPL. State is per process:
+    a forked child keeps only the entries its fork hooks made, and the entries it
     inherited stay inert (see :meth:`enter_forked_child`).
     """
 

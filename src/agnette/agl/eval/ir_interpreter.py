@@ -19,9 +19,8 @@ NOT allowed: ``agnette.agl.syntax``, ``agnette.agl.scope``, ``agnette.agl.typech
 from __future__ import annotations
 
 import decimal
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
-from functools import partial
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, ContextManager, TypeVar, assert_never, cast
 
 from agnette.agl.eval.arith import (
@@ -151,12 +150,11 @@ from agnette.agl.runtime.externs import (
     AglCallableProxy,
     ExternCallWindow,
     ExternRegistry,
-    ExternRuntimeState,
     active_call_span,
 )
-from agnette.agl.runtime.fork_participants import build_process_host
+from agnette.agl.runtime.host_session import HostSession
 from agnette.agl.runtime.option import none_value, option_text, some_value
-from agnette.agl.runtime.processes import Disposition, ProcessHost, ProcessInfo
+from agnette.agl.runtime.processes import ProcessInfo
 from agnette.agl.runtime.render import render_key_value_syntax, render_value
 from agnette.agl.runtime.serialize import AglNonDataValue, encode_scalar
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
@@ -197,7 +195,6 @@ from agnette.config.engine_keys import (
     TRACE_ENGINE_KEYS,
     trace_write_implies_enabled,
 )
-from agnette.core.cleanup import cleanup_on_failure, preserve_primary_error
 from agnette.core.parse import format_timeout as _format_timeout
 from agnette.core.parse import parse_timeout as _parse_timeout
 from agnette.util.decimal import AGL_DECIMAL_CONTEXT, integral_to_int
@@ -309,10 +306,6 @@ _BASE_RECURSION_HEADROOM = 4000
 _MAX_PYTHON_RECURSION_LIMIT = 1_000_000
 
 
-def _noop() -> None:
-    """Provide an inert cleanup action when this interpreter owns no sessions."""
-
-
 # ---------------------------------------------------------------------------
 # Internal loop-control signals (not AglRaise — bypass IrTry catch handlers)
 # ---------------------------------------------------------------------------
@@ -386,11 +379,8 @@ class IrInterpreter:
     the entry module's public non-function bindings. When explicitly invoked, a
     synthetic inline ``main`` also contributes its direct public bindings.
 
-    *process_host*, if supplied, serves the forked children of every interpreter its
-    owner runs: it must have been built with this interpreter's companion state and
-    session host (``build_process_host``), and its owner ends it, so ``run()`` neither
-    ends it nor closes the sessions (``close_sessions=False``). Otherwise the interpreter
-    builds one on first use and ends it with its run.
+    A supplied *host* shares services across runs and stays with its owner.
+    Otherwise this interpreter builds and closes its own host session.
     """
 
     DEFAULT_MAX_CALL_DEPTH: int = 256
@@ -405,7 +395,6 @@ class IrInterpreter:
         session_host: "SessionHost | None" = None,
         get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
         resolve_agent_spec: "AgentSpecResolver | None" = None,
-        close_sessions: bool = True,
         strict_json: bool = False,
         echo_agent_output: bool = False,
         shell_exec_timeout: float | None = None,
@@ -415,8 +404,7 @@ class IrInterpreter:
         builtin_host_settings: Mapping[str | BuiltinVarKey, Value] | None = None,
         param_seeds: Mapping[StaticBindingKey, Value] | None = None,
         process_environment: Mapping[str, str] | None = None,
-        extern_runtime_state: ExternRuntimeState | None = None,
-        process_host: ProcessHost | None = None,
+        host: HostSession | None = None,
     ) -> None:
         self._handled: list[AglRaise] = []
         self._program = program
@@ -436,14 +424,20 @@ class IrInterpreter:
         self._trace: TraceStore = trace if trace is not None else noop_trace()
         self._echo_agent_output = echo_agent_output
         self._max_call_depth: int = max_call_depth
-        self._session_host: SessionHost = (
-            session_host
-            if session_host is not None
-            else AgentDispatcherSessionHost(agent_dispatcher)
+        assert host is None or session_host is None
+        self._owns_host = host is None
+        self._host = (
+            host
+            if host is not None
+            else HostSession(
+                session_host
+                if session_host is not None
+                else AgentDispatcherSessionHost(agent_dispatcher),
+                fallback_debug=lambda: self.debug,
+            )
         )
         self._get_sandbox_context = get_sandbox_context
         self._resolve_agent_spec = resolve_agent_spec
-        self._close_sessions = close_sessions
         # Once the free-ask default session exists, its environment is fixed
         # forever: skip evaluating and decoding ``environ`` on every later
         # free ask in this run, only doing so while creating it.
@@ -573,16 +567,6 @@ class IrInterpreter:
             extern_registry if extern_registry is not None else ExternRegistry()
         )
         self._extern_call_window_guard = ExternCallWindow()
-        # A host-supplied state bag outlives this interpreter; its host closes it.
-        self._owns_extern_runtime_state = extern_runtime_state is None
-        self._extern_runtime_state = (
-            extern_runtime_state if extern_runtime_state is not None else ExternRuntimeState()
-        )
-        # Forked children belong to a supplied host, ended by its owner, or else to one built
-        # on first use and ended by `run()`.
-        assert process_host is None or not close_sessions, "the owner of a host closes sessions"
-        self._supplied_process_host = process_host
-        self._owned_process_host: ProcessHost | None = None
         self._effects = EffectHandlers(self)
 
     def _parse_host_output(
@@ -600,37 +584,9 @@ class IrInterpreter:
             default_resolver=self.default_for_field,
         )
 
-    @property
-    def _process_host(self) -> ProcessHost:
-        """The host forked children belong to: the supplied one, else this run's own."""
-        if self._supplied_process_host is not None:
-            return self._supplied_process_host
-        if self._owned_process_host is None:
-            self._owned_process_host = build_process_host(
-                state=self._extern_runtime_state,
-                sessions=self._session_host,
-                debug=lambda: self.debug,
-                reporter=self.report_unconsumed,
-            )
-        return self._owned_process_host
-
     def report_unconsumed(self, info: ProcessInfo, problem: str) -> None:
         """Trace a forked child's failure that nobody consumed (a process host's reporter)."""
         self._trace.process_unconsumed(child_pid=info.pid, problem=problem)
-
-    @contextmanager
-    def _owned_processes_ended(self) -> Iterator[None]:
-        """End the processes of an owned host: awaited after the block, else terminated."""
-        with cleanup_on_failure(
-            partial(self._end_owned_processes, Disposition.TERMINATE),
-            label="process termination",
-        ):
-            yield
-        self._end_owned_processes(Disposition.SETTLE)
-
-    def _end_owned_processes(self, disposition: Disposition) -> None:
-        if self._owned_process_host is not None:
-            self._owned_process_host.end(disposition)
 
     @property
     def _frame(self) -> Frame:
@@ -1323,25 +1279,15 @@ class IrInterpreter:
         ``RecursionError`` that still escapes (its limit is capped) is converted
         to a catchable AgL ``RecursionError`` rather than crashing the host.
 
-        Cleanup runs in a fixed order: the forked processes of a process host this
-        interpreter owns (awaited after a normal run, else terminated), then agent
-        sessions (gated by ``close_sessions``), then companion state this interpreter
-        owns, honoring the final ``debug`` setting. A supplied process host is left to
-        its owner.
+        An owned host session ends processes, agent sessions, then companion state,
+        honoring the final debug setting. A supplied host stays with its owner.
         """
         needed = _BASE_RECURSION_HEADROOM + self._max_call_depth * _PYTHON_FRAMES_PER_AGL_CALL
         target = min(needed, _MAX_PYTHON_RECURSION_LIMIT)
-        session_cleanup = self._session_host.close_all if self._close_sessions else _noop
-        state_cleanup = (
-            self._close_extern_runtime_state if self._owns_extern_runtime_state else _noop
-        )
-
-        with raised_recursion_limit(target):
+        with raised_recursion_limit(target), self._host.serving(self):
             try:
                 with (
-                    preserve_primary_error(state_cleanup, label="companion state cleanup"),
-                    preserve_primary_error(session_cleanup, label="agent session cleanup"),
-                    self._owned_processes_ended(),
+                    self._host.owned() if self._owns_host else nullcontext(),
                     decimal.localcontext(AGL_DECIMAL_CONTEXT),
                 ):
                     self._install_function_closures()
@@ -1367,9 +1313,6 @@ class IrInterpreter:
                 return self._collect_results()
             except RecursionError:
                 raise self._recursion_error() from None
-
-    def _close_extern_runtime_state(self) -> None:
-        self._extern_runtime_state.close_all(debug=self.debug)
 
     def _eval_and_record_initializer(self, module_id: ModuleId, node: IrExpr) -> None:
         """Evaluate one initializer, retaining its result for result collection.

@@ -22,7 +22,9 @@ from agnette.agl.ir.program import (
 )
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.runtime.boundary import AglArrayView, AglException
-from agnette.agl.runtime.externs import ExternRegistry, ExternRuntimeState
+from agnette.agl.runtime.externs import ExternRegistry
+from agnette.agl.runtime.host_session import HostSession
+from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.semantics.values import ArrayValue, IntValue, TextValue
 from tests._agl_helpers import option_nominal_descriptors
 from tests.agl.ir_harness import lower_ir
@@ -178,10 +180,10 @@ class _LoadedProgram:
     companion: ModuleType
     program_symbol: SymbolId
 
-    def run(self, *arguments: IntValue, state: ExternRuntimeState | None = None) -> None:
-        IrInterpreter(
-            self.executable, extern_registry=self.registry, extern_runtime_state=state
-        ).run(program_symbol=self.program_symbol, arguments=arguments)
+    def run(self, *arguments: IntValue, host: HostSession | None = None) -> None:
+        IrInterpreter(self.executable, extern_registry=self.registry, host=host).run(
+            program_symbol=self.program_symbol, arguments=arguments
+        )
 
 
 def _load_program(tmp_path: Path, source: str, companion_source: str) -> _LoadedProgram:
@@ -237,17 +239,17 @@ class _DrawCompanion(Protocol):
 
 
 class _ForkDrawRunner:
-    """Runs a draw program against one host-supplied state, as a (forked) process would."""
+    """Runs a draw program against one host session, as a (forked) process would."""
 
     def __init__(self, program: _LoadedProgram) -> None:
         self._program = program
-        self.state = ExternRuntimeState()
+        self.host = HostSession(AgentDispatcherSessionHost(None), fallback_debug=lambda: False)
 
     def seed(self, value: int) -> None:
-        self._program.run(IntValue(1), IntValue(value), state=self.state)
+        self._program.run(IntValue(1), IntValue(value), host=self.host)
 
     def draw(self) -> tuple[int, int]:
-        self._program.run(IntValue(2), IntValue(0), state=self.state)
+        self._program.run(IntValue(2), IntValue(0), host=self.host)
         return cast(_DrawCompanion, self._program.companion).draws.pop()
 
 
@@ -271,9 +273,9 @@ def _draw_after_forks(program: _LoadedProgram, *, forks: int, in_child: bool) ->
     """
     runner = _ForkDrawRunner(program)
     runner.seed(7)
-    forked = [runner.state.prepare_fork() for _ in range(forks)]
+    forked = [runner.host.state.prepare_fork() for _ in range(forks)]
     if in_child:
-        runner.state.enter_forked_child(forked[-1])
+        runner.host.state.enter_forked_child(forked[-1])
     return runner.draw()
 
 
