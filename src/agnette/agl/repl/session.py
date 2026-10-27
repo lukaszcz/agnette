@@ -2610,7 +2610,9 @@ class ReplSession:
         A file that is no program (a syntax error, over-deep nesting) is evaluated as a
         single entry: a bare type entry succeeds, anything else yields a single failed
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
-        items to run and yields an empty list (a benign no-op).
+        items to run: a benign no-op yielding an empty list, or, with TAB advisories, one
+        entry carrying them. A load halted by a failing entry reports the advisories of
+        the entries after it with that entry, so it reports what ``agm check`` does.
         """
         from agnette.agl.lexer import lex_replay, lex_source, tab_warning_collector
         from agnette.agl.parser import entry_slices, parse_repl_transcript
@@ -2643,7 +2645,7 @@ class ReplSession:
         # to run; skip the pipeline entirely and load it as a no-op.
         lexed = lex_source(normalized)
         if not has_runnable_statements(lexed):
-            return []
+            return self._load_advisories_alone(label, lexed.tab_warnings)
 
         # Parse the whole file ONCE only to find top-level item boundaries;
         # this parse is never promoted (each slice is re-parsed by eval_entry with
@@ -2679,7 +2681,7 @@ class ReplSession:
         results: list[EntryResult] = []
         self._inherited_allows = module_allowed_names(program)
         try:
-            for (start, end), reading in zip(spans, readings):
+            for index, ((start, end), reading) in enumerate(zip(spans, readings)):
                 result = self.eval_entry(
                     normalized[start:end],
                     origin=_origin_at(label, normalized, start),
@@ -2687,10 +2689,54 @@ class ReplSession:
                 )
                 results.append(result)
                 if not result.ok:
-                    break  # halt on the first failing item, like a script
+                    # Halt on the first failing item, like a script, still reporting the
+                    # advisories of the entries after it, as ``agm check`` does.
+                    if index + 1 < len(spans):
+                        after = _origin_at(label, normalized, spans[index + 1][0])
+                        self._report_advisories(
+                            result,
+                            [
+                                w
+                                for w in lexed.tab_warnings
+                                if (w.line, w.column) >= (after.line, after.column)
+                            ],
+                        )
+                    break
         finally:
             self._inherited_allows = frozenset()
         return results
+
+    def _load_advisories_alone(self, label: str, advisories: list[Diagnostic]) -> list[EntryResult]:
+        """Load a file with nothing to run: one entry carrying its *advisories*, none without.
+
+        The advisories are governed by the session's warning policy and placed at the file
+        (*label*); a denied one fails the entry.
+        """
+        if not advisories:
+            return []
+        self._begin_entry(FileOrigin(label, 1, 1))
+        outcome = self._govern_warnings(advisories, (), scope_complete=True)
+        result = EntryResult(
+            kind="statement",
+            name=None,
+            value=None,
+            value_type=None,
+            diagnostics=list(outcome.denied),
+            warnings=list(outcome.reported),
+            error=None,
+            ok=not outcome.denied,
+        )
+        return [relocate(result, self._place, unplaced=REPL_LABEL)]
+
+    def _report_advisories(self, result: EntryResult, advisories: list[Diagnostic]) -> None:
+        """Add file-placed *advisories* of entries never run to *result*, governed.
+
+        A denied one is another error; only the file's leading ``@!allow`` names silence
+        them, as no ``@allow`` region of an entry that never resolved is known.
+        """
+        outcome = self._govern_warnings(advisories, (), scope_complete=True)
+        result.warnings.extend(outcome.reported)
+        result.diagnostics.extend(outcome.denied)
 
     def _eval_unparsed(
         self,
