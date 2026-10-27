@@ -41,7 +41,7 @@ from agnette.agl.lexer.errors import (
     UnterminatedTripleQuotedStringError,
 )
 from agnette.agl.lexer.lexer import build_parser
-from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span, touched_ranges
+from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span
 from agnette.agl.lexer.tokens import LAYOUT_TOKENS, NEWLINE, VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import (
@@ -496,41 +496,26 @@ def _module_tree(children: Sequence[Tree], rebase: Rebase, closing: Token | None
     return root
 
 
-def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[LexedSource | None]:
-    """Read each of *ranges* of ``lexed.text``, a module's top-level entries, off its one pass.
+def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[LexedSource]:
+    """Read each of *ranges*, a module's top-level entries, off the one pass *lexed* of its text.
 
-    Each slice is the pass over its entry's text, read off the tokens of *lexed* without
-    scanning (:func:`~agnette.agl.lexer.lexed_slices`). When *lexed* also records the
-    module's program parse, a slice holding the module's top-level items whole also carries
-    their parse, so reading it parses nothing; the module's leading inner attributes belong
-    to the first entry. What follows an item's last token, which an indented block's closing
-    layout covers (whitespace, a comment), is no part of it: the slice's spans end there, as
-    parsing its text alone puts them. ``None`` for an entry that is not a pass of its own: all
-    of them when *lexed* failed.
+    *lexed* records the module's program parse and *ranges* are
+    :meth:`ProgramTree.entry_ranges`. Each slice is the pass over its entry's text, read off
+    the tokens of *lexed* without scanning (:func:`~agnette.agl.lexer.lexed_slices`), and
+    carries its entry's parse, so reading it parses nothing; the module's leading inner
+    attributes belong to the first entry. What follows an item's last token, which an indented
+    block's closing layout covers (whitespace, a comment), is no part of it: the slice's spans
+    end there, as parsing its text alone puts them.
     """
     lines = LineIndex(lexed.text)
     slices = lexed_slices(lexed, ranges, lines)
-    whole = lexed.parses.get(_PROGRAM_START)
-    if not isinstance(whole, Tree):
-        return slices
+    whole = lexed.parses[_PROGRAM_START]
+    assert isinstance(whole, Tree)
     entries: list[list[Tree]] = [[] for _ in ranges]
     starts = [start for start, _ in ranges]
-    text = lexed.text
-    for child in ProgramTree(whole, text).children():
-        begin, end = child.meta.start_pos, child.meta.end_pos
-        # An indented block's closing layout covers the newline after it, past its entry's text.
-        while end > begin and text[end - 1].isspace():
-            end -= 1
-        first = range_at(starts, begin)
-        if starts[first] <= begin and end <= ranges[first][1]:
-            entries[first].append(child)
-            continue
-        # An item crossing an entry's boundary leaves every entry it touches no parse of its own.
-        for index in touched_ranges(ranges, starts, begin, end):
-            slices[index] = None
+    for child in ProgramTree(whole, lexed.text).children():
+        entries[range_at(starts, child.meta.start_pos)].append(child)
     for sliced, (start, end), entry in zip(slices, ranges, entries):
-        if sliced is None or not entry:
-            continue
         last = max(i for i, t in enumerate(sliced.tokens) if t.type not in LAYOUT_TOKENS)
         code = sliced.tokens[last]
         rebase = Rebase(lines, start, (end, code))

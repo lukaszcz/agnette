@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from bisect import bisect_left, bisect_right
+from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import cast
@@ -63,19 +63,6 @@ class LineIndex:
 def range_at(starts: Sequence[int], offset: int) -> int:
     """The index of the range starting last at or before *offset*; the first before them all."""
     return max(bisect_right(starts, offset) - 1, 0)
-
-
-def touched_ranges(
-    ranges: Sequence[tuple[int, int]], starts: Sequence[int], begin: int, end: int
-) -> list[int]:
-    """The indices of the disjoint, ordered *ranges* sharing a character with ``[begin, end)``.
-
-    *starts* are the ranges' starts. Only the ranges starting before *end*, from the one
-    holding *begin*, are looked at.
-    """
-    return [
-        i for i in range(range_at(starts, begin), bisect_left(starts, end)) if ranges[i][1] > begin
-    ]
 
 
 class Rebase:
