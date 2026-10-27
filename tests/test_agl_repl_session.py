@@ -11569,19 +11569,47 @@ def test_an_entry_indented_throughout_may_hold_blocks() -> None:
     assert result.value == IntValue(1)
 
 
-def test_the_first_lines_indentation_is_a_top_level_indentation_beside_column_zero() -> None:
+BASE_SOURCES = [
+    "def f() -> int =\n  1\nlet b = f()\n",
+    "def f(x: int) -> int =\n  case x of\n  | 1 => 1\n  | _ => 2\nlet c = f(1)\n",
+    "def f(x: int) -> int =\n  if\n| x > 1 => 1\n| else => 2\n",
+    "def f() -> int =\n  let r = [1, 2]\n    .map(fn v => v * 2)\n  r.length()\n",
+    "def f() -> int =\n  var i = 0\n  do[3]\n    i := i + 1\n  until i > 1\n  i\n",
+    "def f() -> int =\n  1 +\n2\nlet b = f()\n",
+    "def f() -> int =\n  1\n bad = 2\n",
+    "def f() -> int =\n1\n",
+]
+
+
+def _indented(source: str, indent: str) -> str:
+    return "".join(indent + line for line in source.splitlines(keepends=True))
+
+
+@pytest.mark.parametrize("source", BASE_SOURCES)
+@pytest.mark.parametrize("indent", ["  ", "    ", "\t"], ids=("two", "four", "tab"))
+def test_a_source_indented_by_its_base_means_what_the_source_without_it_means(
+    source: str, indent: str
+) -> None:
+    plain, shifted = ReplSession(), ReplSession()
+    plain.open()
+    shifted.open()
+
+    assert shifted.eval_entry(_indented(source, indent)).ok == plain.eval_entry(source).ok
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "    def f() -> int =\n  1\n",
+        "    let a = 1\n  let b = 2\n",
+        "    def f() -> int =\n        1\n  let b = 2\n",
+        "    let a = 1\nlet b = 2\n    let c = 3\n",
+        "  let a = 1\ndef f() -> int =\n  a\nf()\n",
+        "    def f(x: int) -> int =\n        case x of\n  | 1 => 1\n",
+    ],
+)
+def test_a_line_less_indented_than_the_base_of_the_source_is_rejected(source: str) -> None:
     session = ReplSession()
     session.open()
 
-    assert session.eval_entry("  let q = 1\nq").value == IntValue(1)
-    assert not session.eval_entry("    let r = 1\n  r").ok
-
-
-def test_a_block_less_indented_than_the_first_line_is_still_a_block() -> None:
-    session = ReplSession()
-    session.open()
-
-    result = session.eval_entry("    def f() -> int =\n  1\nf()")
-
-    assert result.ok
-    assert result.value == IntValue(1)
+    assert not session.eval_entry(source).ok

@@ -32,9 +32,9 @@ The layout rules:
 1. **Indentation width.** Leading spaces count 1 column each; a tab advances
    to the next multiple of 4 columns, but draws the `tab-indentation` [static
    warning](warnings.md). A dedent must return to an active prior
-   indentation level — a misaligned dedent is a lexical error. The first
-   line of code may be indented: that indentation is then the level of the
-   source's items, which may also return to column 0.
+   indentation level, else it is a lexical error. The indentation of the line
+   holding a source's first token is its base; indentation is read relative to
+   it, and a code line indented less than the base is a misaligned dedent.
 2. **Blank lines and comment-only lines** are ignored for layout purposes.
 3. **Implicit continuation inside brackets.** While any `(`, `[`, or `{` is
    open, newlines do not terminate the item; the logical line continues until

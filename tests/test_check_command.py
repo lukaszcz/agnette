@@ -244,6 +244,30 @@ class TestCheckCommand:
         assert "bad.agl" in captured.err
         assert "error:" in captured.err
 
+    @pytest.mark.parametrize(
+        ("source", "accepted"),
+        [
+            ("    def f() -> int =\n        1\n    let b = 1\n", True),
+            ("    def f() -> int =\n  1\n", False),
+            ("    let a = 1\n  let b = 2\n", False),
+            ("    def f() -> int =\n        1\n  let b = 2\n", False),
+            ("    let a = 1\nlet b = 2\n    let c = 3\n", False),
+        ],
+    )
+    def test_a_line_less_indented_than_the_base_of_the_source_is_an_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], source: str, accepted: bool
+    ) -> None:
+        agl_file = tmp_path / "base.agl"
+        agl_file.write_text(source)
+
+        if accepted:
+            check_command.run(CheckArgs(files=[str(agl_file)]))
+        else:
+            with pytest.raises(SystemExit) as exc_info:
+                check_command.run(CheckArgs(files=[str(agl_file)]))
+            assert exc_info.value.code == 1
+            assert "error:" in capsys.readouterr().err
+
     def test_type_error_reports_diagnostic_and_exits_1(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

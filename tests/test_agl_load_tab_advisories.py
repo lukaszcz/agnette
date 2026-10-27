@@ -18,7 +18,7 @@ _Advisory = tuple[int, int | None, int | None, int | None, str]
 
 _SOURCES = {
     "entries-on-one-line": "let x = 1\nlet y = 2; let z = 3\t\n",
-    "indented-entry": "# c\n\tlet a = 1\nlet b = 2\n",
+    "indented-entry": "# c\n\tlet a = 1\n\tlet b = 2\n",
     "between-entries": "let x = 1\n\t\nlet b = 2\t# x\t\n# \tc\nlet c = 3\n",
     "space-indented-entry": "# c\n  let a =\t1\n",
     "after-last-entry": "let a = 1\n# \tz\n\t\n",

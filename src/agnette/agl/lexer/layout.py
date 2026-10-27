@@ -6,8 +6,10 @@ rules.
 
 Key rules
 ---------
-- The indent stack starts at ``[0]``, or ``[0, base]`` when the first code line is indented by
-  ``base``: that level opens no block, and leaving it emits no layout.
+- The indent stack starts at ``[0]``. The *base* is the indentation of the line holding the
+  source's first token; every line's indentation is read relative to it, so a source indented
+  uniformly by its base reads as the source without it. A code line indented less than the
+  base is a misaligned dedent that snaps to level 0.
 - Inside brackets/parens/braces (``paren_level > 0``) ``_NEWLINE`` tokens are
   suppressed (implicit line continuation).
 - On a ``_NEWLINE`` token: compare the carried indentation width against the
@@ -72,6 +74,7 @@ from agnette.agl.lexer.tokens import (
     ARROW,
     DEDENT,
     EQ,
+    ERROR,
     INDENT,
     LAYOUT_DELIMITERS,
     LSQB,
@@ -146,18 +149,22 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
         The augmented token stream with layout tokens injected.
     """
     stream = iter(tokens)
-    first = next(stream, None)
-    if first is not None:
-        stream = chain([first], stream)
-    base = 0 if first is None else token_span(first).start_col - 1
-    indent_stack: list[int] = [0, base] if base else [0]
+    # The base is the column of the first token on the first code line. Recovery may flag an
+    # invalid character in a comment ahead of it, on a line of its own.
+    head: list[Token] = []
+    for token in stream:
+        head.append(token)
+        if token.type != ERROR:
+            break
+    stream = chain(head, stream)
+    line_head = next((t for t in head if t.line == head[-1].line), None)
+    base = 0 if line_head is None else token_span(line_head).start_col - 1
+    indent_stack: list[int] = [0]
     # Parallel stack aligned with indent_stack: each entry is either the
     # enclosing indent level (indent_stack top before the _INDENT push) when a
     # loop body was opened at that indent level, or None if this level is not a
     # loop body.  Seeded with [None] to match indent_stack's initial [0].
-    loop_body_enclosing: list[int | None] = [None] * len(indent_stack)
-    # Whether the base level, no block of its own, is still the top of the stack's bottom pair.
-    base_open = base > 0
+    loop_body_enclosing: list[int | None] = [None]
     paren_level = 0
 
     # One-token lookahead buffer for the branch/compound continuation rule.
@@ -193,6 +200,23 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
                 buffered.insert(0, token)
         return first, second
 
+    def _relative(width: int, line_token: Token | None) -> int:
+        """Return *width*, the line indentation of *line_token*, relative to the base.
+
+        A code line below the base is a misaligned dedent, flagged on *line_token* and read at
+        level 0; the end of the source, with no line after it, is level 0.
+        """
+        if width >= base or line_token is None:
+            return max(width - base, 0)
+        error = LexError(
+            f"Misaligned dedent: indentation {width} is below the source's base {base}",
+            span=token_span(line_token),
+        )
+        if errors is None:
+            raise error
+        errors.append(error)
+        return 0
+
     def _pop_level(ref: Token, triggering_tok: Token | None) -> Iterator[Token]:
         """Pop one indent level, emit _DEDENT, and inject synthetic DONE if needed.
 
@@ -205,13 +229,8 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             or None at EOF.  Used to determine whether this pop is caused by an
             explicit until/done aligned with the do.
         """
-        nonlocal base_open
         enclosing_col = loop_body_enclosing.pop()
         indent_stack.pop()
-        if base_open and len(indent_stack) == 1:
-            # The base level opened no block: leaving it emits no layout.
-            base_open = False
-            return
         yield _synthetic(DEDENT, "", ref)
         if enclosing_col is not None:
             # This is a loop-body level.  Inject a synthetic DONE unless
@@ -221,7 +240,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             is_explicit_terminator = (
                 triggering_tok is not None
                 and triggering_tok.type in (KW_UNTIL, KW_DONE)
-                and token_span(triggering_tok).start_col - 1 == enclosing_col
+                and token_span(triggering_tok).start_col - 1 - base == enclosing_col
             )
             if not is_explicit_terminator:
                 yield _synthetic(KW_DONE, KW_DONE, ref)
@@ -313,7 +332,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
         if (
             not in_header
             and last_real is not None
-            and not (indent_width > current_level and opens_suite(last_real))
+            and not (indent_width - base > current_level and opens_suite(last_real))
             and stands_as_operator(
                 last_real,
                 prev_real.type if prev_real is not None else None,
@@ -326,7 +345,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             # Continuation rule: suppress the _NEWLINE and emit only the DEDENTs
             # needed to pop the stack to levels strictly greater than the
             # token's column.  These lines never push an indent.
-            kw_col = token_span(sig).start_col - 1  # convert 1-based column to 0-based
+            kw_col = _relative(token_span(sig).start_col - 1, sig)
 
             while len(indent_stack) > 1 and indent_stack[-1] > kw_col:
                 yield from _pop_level(tok, sig)
@@ -337,10 +356,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             _pending_loop_body = False
             continue
 
-        if base_open and len(indent_stack) == 2 and indent_width < base:
-            # A line less indented than the base leaves it, and the source is then at level 0.
-            yield from _pop_level(tok, sig)
-            current_level = indent_stack[-1]
+        indent_width = _relative(indent_width, sig)
 
         if indent_width > current_level:
             # Leading-operator rule: a more indented line opening with an
