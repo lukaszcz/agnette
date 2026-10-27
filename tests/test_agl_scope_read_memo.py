@@ -82,3 +82,13 @@ def test_a_read_that_fails_is_not_kept_and_binding_its_path_is_harmless() -> Non
     reads.values.bound(("x",))
 
     assert reads.get("bad") == 1
+
+
+def test_a_read_of_several_paths_is_forgotten_once() -> None:
+    reads = _Reads()
+    reads.get("a", paths=(("x",), ("y",)))
+
+    reads.values.bound(("x",))
+    reads.values.bound(("y",))
+
+    assert reads.reads_run({"a": (("x",), ("y",))}) == ["a"]

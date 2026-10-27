@@ -193,3 +193,22 @@ def test_a_glob_use_reads_a_scoped_binding_only_from_where_the_walk_binds_it(
     # ``g`` is ``m::g`` above the scope ``T``'s binding and ``T::g``, an int, below it.
     assert ok("")
     assert not ok("  let b = g()\n")
+
+
+@pytest.mark.parametrize("host", ["script", "repl"])
+def test_a_first_name_beneath_globs_is_read_before_and_after_a_scope_binds_it(
+    tmp_path: Path, host: str
+) -> None:
+    (tmp_path / "m.agl").write_text("scope K\n  def x() -> int = 1\nend K\n", encoding="utf-8")
+    text = (
+        "import m\nuse m::*\nuse T::*\n\nscope T\n  let a = K::x()\n  let K = 2\n  let b = K\nend T\n"
+    )
+    if host == "repl":
+        assert repl_session_with_root(tmp_path).eval_entry(text).ok
+        return
+    assert run_inline_code(
+        PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None),
+        text,
+        roots=agl_roots(tmp_path),
+        entry_path=tmp_path / "main.agl",
+    ).ok
