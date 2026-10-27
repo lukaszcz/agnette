@@ -11585,6 +11585,19 @@ def _indented(source: str, indent: str) -> str:
     return "".join(indent + line for line in source.splitlines(keepends=True))
 
 
+def _meaning(result: EntryResult) -> tuple[object, ...]:
+    """What an entry's result means: outcome, value, and the lines and kinds of its diagnostics.
+
+    Tab advisories are the indentation's own and not part of the meaning.
+    """
+    notes = sorted(
+        (d.line, d.severity, d.warning_name)
+        for d in [*result.diagnostics, *result.warnings]
+        if d.warning_name != "tab-indentation"
+    )
+    return (result.ok, result.value, notes)
+
+
 @pytest.mark.parametrize("source", BASE_SOURCES)
 @pytest.mark.parametrize("indent", ["  ", "    ", "\t"], ids=("two", "four", "tab"))
 def test_a_source_indented_by_its_base_means_what_the_source_without_it_means(
@@ -11594,7 +11607,9 @@ def test_a_source_indented_by_its_base_means_what_the_source_without_it_means(
     plain.open()
     shifted.open()
 
-    assert shifted.eval_entry(_indented(source, indent)).ok == plain.eval_entry(source).ok
+    assert _meaning(shifted.eval_entry(_indented(source, indent))) == _meaning(
+        plain.eval_entry(source)
+    )
 
 
 @pytest.mark.parametrize(

@@ -8,8 +8,10 @@ Key rules
 ---------
 - The indent stack starts at ``[0]``. The *base* is the indentation of the line holding the
   source's first token; every line's indentation is read relative to it, so a source indented
-  uniformly by its base reads as the source without it. A code line indented less than the
-  base is a misaligned dedent that snaps to level 0.
+  uniformly by its base has the block structure of the source without it (tab stops are still
+  measured from the line start, and the content lines of a triple-quoted string with margin 0
+  keep the base). A line indented less than the base is a misaligned dedent that snaps to
+  level 0, unless its indentation is unmeasured (inside brackets, after a trailing operator).
 - Inside brackets/parens/braces (``paren_level > 0``) ``_NEWLINE`` tokens are
   suppressed (implicit line continuation).
 - On a ``_NEWLINE`` token: compare the carried indentation width against the
