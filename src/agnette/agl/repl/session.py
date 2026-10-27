@@ -2754,7 +2754,14 @@ class ReplSession:
                 if not result.ok:
                     if index + 1 < len(spans):
                         self._report_advisories(
-                            result, label, normalized, lexed, tree, programs, spans[index + 1][0]
+                            result,
+                            label,
+                            normalized,
+                            lexed,
+                            tree,
+                            programs,
+                            spans[index + 1 :],
+                            None if allows is None else allows[index + 1 :],
                         )
                     break
         finally:
@@ -2851,37 +2858,91 @@ class ReplSession:
         lexed: "LexedSource",
         tree: "ProgramTree | AglError",
         programs: Sequence["Program"],
-        resume: int,
+        unrun: Sequence[tuple[int, int]],
+        allows: Sequence[frozenset[str]] | None,
     ) -> None:
-        """Add the advisories of the entries never run to *result*, governed by the file's allows.
+        """Add the advisories of the *unrun* entries to *result*, governed as running them would.
 
         These are the advisories of the file *label* (text *normalized*, lexed as *lexed*)
-        from offset *resume* on; a denied one is another error. The ``@allow`` regions
-        come from the file's inner attributes, converted with its first entry, and the items of
-        its parse *tree* from *resume* on, converted here: the earlier items are in the
-        *programs* of the entries run. They are withheld when the file could not resolve, which
-        *result* and an unparsable or invalid *tree* tell, or its first entry made no header; a
+        within the *unrun* entries' spans; a denied one is another error. They are withheld
+        when the file could not resolve, which *result* and an unparsable *tree* tell; a
         failure in a later entry is not known without running it.
+
+        A plain file (no *allows*) is governed by the ``@allow`` regions of its inner
+        attributes, converted with its first entry, and of the items of its parse *tree* from
+        the first unrun entry on, converted here: the earlier items are in the *programs* of
+        the entries run. They are withheld too when the first entry made no header.
+        A transcript entry is governed by its own *allows* marks and by the regions of its own
+        inner attributes and items; an entry that does not convert reports none.
         """
         from agnette.agl.scope.attributes import module_allow_regions
 
-        head = self._header
-        if result.scope_failed or isinstance(tree, AglError) or head is None:
+        if result.scope_failed or isinstance(tree, AglError):
             return
+        if allows is not None:
+            self._report_entry_advisories(result, label, normalized, lexed, tree, unrun, allows)
+            return
+        head = self._header
+        if head is None:
+            return
+        resume = unrun[0][0]
         try:
             rest = tree.items_from(resume, start_id=self._next_node_id)
-            unrun = rest.body.items if rest else ()
+            items = rest.body.items if rest else ()
             run = tuple(item for program in programs for item in program.body.items)
-            module = replace(head, body=replace(head.body, items=(*run, *unrun)))
-            regions = module_allow_regions(module, source_text=normalized, items=unrun)
+            module = replace(head, body=replace(head.body, items=(*run, *items)))
+            regions = module_allow_regions(module, source_text=normalized, items=items)
         except AglError:
             return
         after = _origin_at(label, normalized, resume)
-        outcome = self._govern_file_advisories(
+        self._add_governed_advisories(
+            result,
             label,
             (w for w in lexed.tab_warnings if (w.line, w.column) >= (after.line, after.column)),
             regions,
         )
+
+    def _report_entry_advisories(
+        self,
+        result: EntryResult,
+        label: str,
+        normalized: str,
+        lexed: "LexedSource",
+        tree: "ProgramTree",
+        unrun: Sequence[tuple[int, int]],
+        allows: Sequence[frozenset[str]],
+    ) -> None:
+        """Add to *result* each *unrun* transcript entry's advisories under its *allows* marks."""
+        from agnette.agl.lexer.positions import LineIndex, range_at
+        from agnette.agl.scope.attributes import module_allow_regions
+
+        lines = LineIndex(normalized)
+        starts = [start for start, _ in unrun]
+        owned: list[list[Diagnostic]] = [[] for _ in unrun]
+        for advisory in lexed.tab_warnings:
+            offset = lines.offset(advisory.line, cast(int, advisory.column))
+            if offset >= starts[0]:
+                owned[range_at(starts, offset)].append(advisory)
+        for (start, end), marks, advisories in zip(unrun, allows, owned):
+            pending = [w for w in advisories if w.warning_name not in marks]
+            if not pending:
+                continue
+            try:
+                program = tree.entry_program(start, end, start_id=self._next_node_id)
+                regions = module_allow_regions(program, source_text=normalized) if program else []
+            except AglError:
+                continue
+            self._add_governed_advisories(result, label, pending, regions)
+
+    def _add_governed_advisories(
+        self,
+        result: EntryResult,
+        label: str,
+        advisories: Iterable[Diagnostic],
+        regions: "Sequence[AllowRegion]",
+    ) -> None:
+        """Add *advisories* of the file *label* to *result*, governed by *regions*."""
+        outcome = self._govern_file_advisories(label, advisories, regions)
         result.warnings.extend(outcome.reported)
         result.diagnostics.extend(outcome.denied)
 

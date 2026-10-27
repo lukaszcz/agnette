@@ -427,8 +427,9 @@ def test_a_halted_load_converts_only_the_unrun_items_beyond_the_entries_run(
     ("transcript", "converted"),
     [
         (_MULTI_ITEM, [2, 1, 1]),
-        (_transcript("let a = 1; let b: int = 'x'", "let c = 1", "let d = 2"), [2, 2]),
-        (_transcript("let a = 1", 'let b: int = "x"', "let c = 1\t", "let d = 2"), [1, 1, 2]),
+        # An unrun entry is converted, once, only if it has an advisory to govern.
+        (_transcript("let a = 1; let b: int = 'x'", "let c = 1", "let d = 2"), [2]),
+        (_transcript("let a = 1", 'let b: int = "x"', "let c = 1\t", "let d = 2"), [1, 1, 1]),
     ],
     ids=("complete", "halted-in-multi-item", "halted"),
 )

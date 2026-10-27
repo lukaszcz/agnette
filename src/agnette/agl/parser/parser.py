@@ -364,9 +364,26 @@ class ProgramTree:
         converted: the entry that heads the file converts them. Header ordering is not
         enforced: the entry that runs an item judges it.
         """
-        chosen = [
-            c for c in self.children() if c.data != "inner_attribute" and c.meta.start_pos >= offset
-        ]
+        return self._program_of(
+            [
+                c
+                for c in self.children()
+                if c.data != "inner_attribute" and c.meta.start_pos >= offset
+            ],
+            start_id,
+        )
+
+    def entry_program(self, begin: int, end: int, *, start_id: int) -> syntax.Program | None:
+        """Convert to AST the inner attributes and items starting within ``[begin, end)``, if any.
+
+        As :meth:`items_from`, but an entry's own attributes head its program.
+        """
+        return self._program_of(
+            [c for c in self.children() if begin <= c.meta.start_pos < end], start_id
+        )
+
+    def _program_of(self, chosen: Sequence[Tree], start_id: int) -> syntax.Program | None:
+        """Convert *chosen* top-level children, in file positions, to a program."""
         if not chosen:
             return None
         root = _module_tree(chosen, Rebase(LineIndex(self.text), 0))

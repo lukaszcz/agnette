@@ -280,3 +280,62 @@ def test_an_inner_attribute_after_an_item_rejects_the_file_unrun(tmp_path: Path)
         str(path),
     )
     assert not session.eval_entry("a").ok
+
+
+def _transcript(*entries: tuple[str, str]) -> str:
+    """A framed transcript of (text, allow marks) entries."""
+    return "# agm:repl-transcript:v1\n" + "".join(
+        f"# agm:entry:{len(text)}{' allow=' + marks if marks else ''}\n{text}\n"
+        for text, marks in entries
+    )
+
+
+_FAILING = ('let b: int = "x"', "")
+_TAB_ENTRY = "let c = 1\t"
+_ALLOW = '@!allow("tab-indentation")\n'
+
+
+@pytest.mark.parametrize("deny", [False, True], ids=("warn", "deny"))
+def test_a_halted_transcript_reports_an_entry_advisory_despite_the_first_entrys_allow(
+    tmp_path: Path, deny: bool
+) -> None:
+    entries = [(_ALLOW + "let a = 1", ""), _FAILING, (_TAB_ENTRY, "")]
+    _, results = _load(tmp_path, _transcript(*entries), deny=deny)
+
+    assert [r.ok for r in results] == [True, False]
+    assert len(_tab_diagnostics(results, denied=deny)) == 1
+
+
+@pytest.mark.parametrize("deny", [False, True], ids=("warn", "deny"))
+def test_a_halted_transcript_silences_an_entry_advisory_its_own_mark_allows(
+    tmp_path: Path, deny: bool
+) -> None:
+    entries = [("let a = 1", ""), _FAILING, (_TAB_ENTRY, "tab-indentation")]
+
+    _, results = _load(tmp_path, _transcript(*entries), deny=deny)
+
+    assert [r.ok for r in results] == [True, False]
+    assert _tab_diagnostics(results, denied=deny) == []
+
+
+@pytest.mark.parametrize("deny", [False, True], ids=("warn", "deny"))
+def test_a_halted_transcript_silences_an_entry_advisory_its_own_attribute_allows(
+    tmp_path: Path, deny: bool
+) -> None:
+    entries = [("let a = 1", ""), _FAILING, (_ALLOW + _TAB_ENTRY, "")]
+
+    _, results = _load(tmp_path, _transcript(*entries), deny=deny)
+
+    assert [r.ok for r in results] == [True, False]
+    assert _tab_diagnostics(results, denied=deny) == []
+
+
+def test_a_halted_transcript_silences_an_entry_advisory_its_own_item_allows(
+    tmp_path: Path,
+) -> None:
+    allowed = '@allow("tab-indentation")\ndef g() -> int =\n\t1'
+    entries = [("let a = 1", ""), _FAILING, (allowed, ""), ("def h() -> int =\n\t2", "")]
+
+    path, results = _load(tmp_path, _transcript(*entries))
+
+    assert _tab_diagnostics(results, denied=False) == [(str(path), 12)]
