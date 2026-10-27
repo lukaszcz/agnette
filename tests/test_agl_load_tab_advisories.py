@@ -339,3 +339,35 @@ def test_a_halted_transcript_silences_an_entry_advisory_its_own_item_allows(
     path, results = _load(tmp_path, _transcript(*entries))
 
     assert _tab_diagnostics(results, denied=False) == [(str(path), 12)]
+
+
+def test_a_halted_transcript_reports_the_advisory_of_an_unrun_entry_of_no_items(
+    tmp_path: Path,
+) -> None:
+    entries = [("let a = 1", ""), _FAILING, ("# \tnote", "")]
+
+    path, results = _load(tmp_path, _transcript(*entries))
+
+    assert [r.ok for r in results] == [True, False]
+    assert _tab_diagnostics(results, denied=False) == [(str(path), 7)]
+
+
+def test_a_halted_transcript_withholds_only_the_advisories_of_an_entry_that_does_not_convert(
+    tmp_path: Path,
+) -> None:
+    bad = '@allow("no-such-warning")\nlet b = 1\t'
+    entries = [("let a = 1", ""), _FAILING, (bad, ""), (_TAB_ENTRY, "")]
+
+    path, results = _load(tmp_path, _transcript(*entries))
+
+    assert [r.ok for r in results] == [True, False]
+    assert _tab_diagnostics(results, denied=False) == [(str(path), 10)]
+
+
+def test_the_first_entry_of_a_file_that_does_not_convert_withholds_the_later_advisories(
+    tmp_path: Path,
+) -> None:
+    _, results = _load(tmp_path, "use a::{}\nlet c = 1\t\n")
+
+    assert [r.ok for r in results] == [False]
+    assert _tab_diagnostics(results, denied=False) == []
