@@ -516,7 +516,7 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
         if sliced is None or not entry:
             continue
         code = next(t for t in reversed(sliced.tokens) if t.type not in LAYOUT_TOKENS)
-        rebase = Rebase(lines, start, (end, start + cast(int, code.end_pos)))
+        rebase = Rebase(lines, start, (end, code))
         sliced.parses[_PROGRAM_START] = _module_tree(entry, rebase)
     return slices
 
