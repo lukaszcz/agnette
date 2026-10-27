@@ -74,7 +74,7 @@ from agnette.agl.semantics.values import (
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.typecheck.env import AglTypeError
 from agnette.packages.layout import MODULE_TREE_DIRNAME
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from tests._agl_helpers import REPO_STDLIB_ROOT, agent_value, repl_session_with_root
 from tests._process_helpers import FakeShell
 from tests.agl.qualifier_support import (
@@ -11353,7 +11353,7 @@ class TestDeferredStdlibResolution:
         )
         write_record(stdlib_root)
         write_activation_index(
-            context_store(home=tmp_path / "unused-home", env={"AGM_HOME": str(agm_home)}),
+            global_store(home=tmp_path / "unused-home", env={"AGM_HOME": str(agm_home)}),
             ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
         )
 

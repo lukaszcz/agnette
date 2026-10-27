@@ -177,7 +177,7 @@ _HELP_TEXTS: dict[str, str] = {
     "pkg": textwrap.dedent("""\
         agm pkg COMMAND
 
-        Manage AgL packages in AgM's versioned store.
+        Manage AgL packages in AgM's versioned store and the current project's.
 
         Commands:
           init       Create a package
@@ -534,7 +534,7 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         a deterministic <name>-<version>.agmpkg archive beside it, or to FILE.
     """),
     ("pkg", "install"): textwrap.dedent("""\
-        agm pkg install [--editable] [--reinstall] [--shadow] [--dry-run] SRC
+        agm pkg install [--project] [--editable] [--reinstall] [--shadow] [--dry-run] SRC
 
         Install a package directory or .agmpkg archive into the store and
         activate it. URL dependencies are fetched and verified against their
@@ -542,7 +542,15 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         unsatisfied, all of them are installed together into AgM's interpreter
         (uv, else pip); a failure fails the install.
 
+        With --project the package goes into the current project's store, which
+        is visible only inside the project and whose packages replace
+        same-named global ones there. Its dependencies resolve from the project
+        store, then the global selection; missing path or URL dependencies
+        install into the project store.
+
         Options:
+          --project    Use the current project's store, not the global one;
+                       not for std.
           --editable   Activate the SRC directory in place.
           --reinstall  Replace the installation of the same name and version;
                        not with --editable.
@@ -550,15 +558,21 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
                        failing.
     """),
     ("pkg", "uninstall"): textwrap.dedent("""\
-        agm pkg uninstall [--dry-run] NAME[@VERSION]
+        agm pkg uninstall [--project] [--dry-run] NAME[@VERSION]
 
         Verify and remove a stored version (default: the active one), clearing
         its activation. An editable package is only deactivated.
+
+        Options:
+          --project  Use the current project's store, not the global one.
     """),
     ("pkg", "switch"): textwrap.dedent("""\
-        agm pkg switch [--dry-run] NAME@VERSION
+        agm pkg switch [--project] [--dry-run] NAME@VERSION
 
         Activate a version already in the store.
+
+        Options:
+          --project  Use the current project's store, not the global one.
     """),
     ("pkg", "list"): textwrap.dedent("""\
         agm pkg list
@@ -574,11 +588,15 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         false).
     """),
     ("pkg", "sync"): textwrap.dedent("""\
-        agm pkg sync [--dry-run]
+        agm pkg sync [--project] [--dry-run]
 
         If any [python] requirement of the active packages is unsatisfied,
         install all of them together into AgM's interpreter (uv, else pip) and
         list the unsatisfied ones. Nothing is uninstalled.
+
+        Options:
+          --project  Sync the current project store's packages, not the global
+                     ones.
     """),
     ("tmux", "open"): textwrap.dedent("""\
         agm tmux open [-d] [-n PANES] [--dry-run] [SESSION]

@@ -9,7 +9,7 @@ from typing import Protocol
 
 import semver
 
-from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.layout import MODULE_TREE_DIRNAME, StoreScope
 from agnette.packages.manifest import (
     DependencySpec,
     PackageManifest,
@@ -85,12 +85,16 @@ class PackageInfo:
     (a development checkout or an editable selection). It is the package's
     origin, decided where the package is resolved, and is what makes its
     warnings the user's non-concern (:mod:`agnette.agl.warning_policy`).
+
+    ``store_scope`` is the store the package was resolved from; ``None`` for
+    a package no store supplied, such as a development checkout.
     """
 
     root: Path
     manifest: PackageManifest
     commands_complete: bool = True
     installed: bool = False
+    store_scope: StoreScope | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", self.root.resolve())

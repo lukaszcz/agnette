@@ -4,7 +4,7 @@ AgM's project-management layer turns a directory tree into an agent-oriented pro
 
 ## Project Layout
 
-A project has fixed roles — repository, branch worktrees, config directory, dependencies, notes — in one of two layouts: **embedded** (under `.agm/` in the project root) or **split** (sibling directories). `project/layout.py` detects the layout and resolves role paths; current-project discovery walks up from the invocation directory (skipping the AgM home), then falls back to `$PROJ_DIR`. `agm init` creates either layout.
+A project has fixed roles — repository, branch worktrees, config directory, dependencies, notes, and the project-local package store (`packages`, created lazily by `agm pkg install --project`, not by `init`; [package-store.md](package-store.md)) — in one of two layouts: **embedded** (under `.agm/` in the project root) or **split** (sibling directories). `project/layout.py` detects the layout and resolves role paths; current-project discovery walks up from the invocation directory (skipping the AgM home), then falls back to `$PROJ_DIR`. `agm init` creates either layout.
 
 ## Workspaces and Worktrees
 

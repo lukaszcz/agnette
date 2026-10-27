@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 from agnette.agm.cli_support.args import PkgListArgs
-from agnette.agm.cli_support.pkg_store import pkg_store
+from agnette.agm.cli_support.pkg_store import pkg_target
 from agnette.config.context import current_config_context
 from agnette.packages.activation import (
     PackageActivationError,
@@ -24,7 +24,7 @@ def run(args: PkgListArgs) -> None:
     del args
     context = current_config_context()
     try:
-        store = pkg_store(context)
+        store = pkg_target(context, project=False).store
         index = load_activation_index(store)
         packages = installed_packages(store)
         editable_versions = {

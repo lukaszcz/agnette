@@ -12,7 +12,7 @@ from agnette.config.home import agm_home_dir, agm_path_candidates
 from agnette.config.module_roots import ModuleRootsConfig, resolve_lib_root, select_stdlib_root
 from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 from agnette.packages.record import write_record
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from agnette.version import AGM_VERSION
 
 
@@ -22,7 +22,7 @@ def _activate_stdlib(home: Path, version: str = AGM_VERSION) -> Path:
     shutil.copytree(Path(__file__).resolve().parent.parent / "packages" / "stdlib", root)
     write_record(root)
     write_activation_index(
-        context_store(home=home, env={"AGM_HOME": str(home)}),
+        global_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex({"std": ActivePackage(semver.Version.parse(version))}),
     )
     return root

@@ -38,7 +38,7 @@ from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import PackageManifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from agnette.version import AGM_VERSION
 from tests._package_helpers import (
     PythonInstaller,
@@ -125,7 +125,7 @@ def test_parameter_surface_fixture_installs_its_source_commands(tmp_path: Path) 
 
     install_directory(_PARAM_SURFACE_PACKAGE, home=home, env={})
 
-    commands = load_activation_index(context_store(home=home)).commands
+    commands = load_activation_index(global_store(home=home)).commands
     assert commands["param review"].program == "param_tools/review::main"
     assert commands["param audit"].program == "param_tools/audit::main"
 
@@ -211,14 +211,14 @@ def test_dry_run_shadow_install_reports_the_planned_displacement_without_changin
     context = _context(tmp_path)
 
     install_directory(_command_package(tmp_path, "alpha"), home=context.home)
-    persisted = load_activation_index(context_store(home=context.home))
+    persisted = load_activation_index(global_store(home=context.home))
     candidate = _command_package(tmp_path, "bravo")
     dry_run.set_enabled(True)
 
     install_command.run(PkgInstallArgs(str(candidate), editable=False, shadow=True))
 
     assert "shadowed command launch from alpha" in capsys.readouterr().out
-    assert load_activation_index(context_store(home=context.home)) == persisted
+    assert load_activation_index(global_store(home=context.home)) == persisted
 
 
 @pytest.mark.parametrize("operation", ["install", "uninstall"])
@@ -231,7 +231,7 @@ def test_missing_package_is_rejected_without_activating_it(tmp_path: Path, opera
 
     assert raised.value.code == 1
     assert (
-        "missing" not in load_activation_index(context_store(home=_context(tmp_path).home)).packages
+        "missing" not in load_activation_index(global_store(home=_context(tmp_path).home)).packages
     )
     assert not (_context(tmp_path).home / ".agm" / "packages" / "missing").exists()
 
@@ -287,7 +287,7 @@ def test_info_command_uses_live_editable_dependency_versions(
         encoding="utf-8",
     )
     write_activation_index(
-        context_store(home=_context(tmp_path).home),
+        global_store(home=_context(tmp_path).home),
         ActivationIndex(
             {
                 "alpha": ActivePackage(alpha.manifest.version, editable=alpha.root),
@@ -313,7 +313,7 @@ def test_info_command_reports_whether_python_requirements_hold(
         "agm-test-inapplicable; python_version < '3'",
     )
     write_activation_index(
-        context_store(home=_context(tmp_path).home),
+        global_store(home=_context(tmp_path).home),
         ActivationIndex({"alpha": ActivePackage(semver.Version(1), editable=alpha)}),
     )
 
@@ -338,7 +338,7 @@ def test_info_command_rejects_immutable_store_escapes_and_identity_mismatches(
     context = _context(tmp_path)
     active = ActivePackage(semver.Version.parse("1.0.0"))
     write_activation_index(
-        context_store(home=_context(tmp_path).home), ActivationIndex({"alpha": active})
+        global_store(home=_context(tmp_path).home), ActivationIndex({"alpha": active})
     )
 
     store = context.home / ".agm" / "packages"
@@ -382,7 +382,7 @@ def test_info_command_rejects_different_build_metadata_for_immutable_package(
     )
     write_record(root)
     write_activation_index(
-        context_store(home=_context(tmp_path).home), ActivationIndex({"alpha": active})
+        global_store(home=_context(tmp_path).home), ActivationIndex({"alpha": active})
     )
 
     with pytest.raises(SystemExit):
@@ -413,7 +413,7 @@ def test_info_command_reads_manifest_metadata_and_current_dependency_status(
             "echo": ActivePackage(semver.Version.parse("1.0.0")),
         }
     )
-    write_activation_index(context_store(home=_context(tmp_path).home), index)
+    write_activation_index(global_store(home=_context(tmp_path).home), index)
 
     info_command.run(PkgInfoArgs("alpha"))
 
@@ -502,14 +502,14 @@ def test_version_targets_switch_and_remove_only_the_selected_tree(tmp_path: Path
         install_directory(_versioned_package(tmp_path, version), home=home, env={})
 
     assert _invoke(["pkg", "switch", "alpha@1.0.1"]).exit_code == 0
-    assert str(load_activation_index(context_store(home=home)).packages["alpha"].version) == "1.0.1"
+    assert str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "1.0.1"
     assert _invoke(["pkg", "switch", "alpha@1.0.3"]).exit_code == 0
-    assert str(load_activation_index(context_store(home=home)).packages["alpha"].version) == "1.0.3"
+    assert str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "1.0.3"
 
     assert _invoke(["pkg", "uninstall", "alpha@1.0.2"]).exit_code == 0
     assert not (home / ".agm" / "packages" / "alpha" / "1.0.2").exists()
     assert (home / ".agm" / "packages" / "alpha" / "1.0.1").exists()
-    assert str(load_activation_index(context_store(home=home)).packages["alpha"].version) == "1.0.3"
+    assert str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "1.0.3"
 
 
 def test_version_targeted_uninstall_of_active_package_clears_selection(tmp_path: Path) -> None:
@@ -517,7 +517,7 @@ def test_version_targeted_uninstall_of_active_package_clears_selection(tmp_path:
     install_directory(_package(tmp_path).root, home=home, env={})
 
     assert _invoke(["pkg", "uninstall", "alpha@1.0.0"]).exit_code == 0
-    assert "alpha" not in load_activation_index(context_store(home=home)).packages
+    assert "alpha" not in load_activation_index(global_store(home=home)).packages
     assert not (home / ".agm" / "packages" / "alpha" / "1.0.0").exists()
 
 
@@ -527,7 +527,7 @@ def test_version_targeted_uninstall_deactivates_matching_editable_package(tmp_pa
     install_directory(source, home=home, env={}, editable=True)
 
     assert _invoke(["pkg", "uninstall", "alpha@1.0.0"]).exit_code == 0
-    assert "alpha" not in load_activation_index(context_store(home=home)).packages
+    assert "alpha" not in load_activation_index(global_store(home=home)).packages
     assert source.exists()
 
 
@@ -538,8 +538,7 @@ def test_version_targets_reject_missing_versions_without_changing_selection(tmp_
     for command in ("switch", "uninstall"):
         assert _invoke(["pkg", command, "alpha@2.0.0"]).exit_code == 1
         assert (
-            str(load_activation_index(context_store(home=home)).packages["alpha"].version)
-            == "1.0.0"
+            str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "1.0.0"
         )
 
 
@@ -550,8 +549,7 @@ def test_switch_rejects_incomplete_targets_and_keeps_activation(tmp_path: Path) 
     for target in ("alpha", "alpha@", "alpha@1", "@1.0.0", "alpha@1.0.0@2.0.0"):
         assert _invoke(["pkg", "switch", target]).exit_code == 1
         assert (
-            str(load_activation_index(context_store(home=home)).packages["alpha"].version)
-            == "1.0.0"
+            str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "1.0.0"
         )
 
 
@@ -560,7 +558,7 @@ def test_switch_rejects_managed_std_package(tmp_path: Path) -> None:
     install_directory(_package(tmp_path).root, home=home, env={})
 
     assert _invoke(["pkg", "switch", "std@1.0.0"]).exit_code == 1
-    assert str(load_activation_index(context_store(home=home)).packages["alpha"].version) == "1.0.0"
+    assert str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "1.0.0"
 
 
 def test_switch_dry_run_keeps_the_previous_version_active(tmp_path: Path) -> None:
@@ -569,7 +567,7 @@ def test_switch_dry_run_keeps_the_previous_version_active(tmp_path: Path) -> Non
         install_directory(_versioned_package(tmp_path, version), home=home, env={})
 
     assert _invoke(["pkg", "switch", "alpha@1.0.0", "--dry-run"]).exit_code == 0
-    assert str(load_activation_index(context_store(home=home)).packages["alpha"].version) == "2.0.0"
+    assert str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "2.0.0"
 
 
 def test_switch_rejects_a_version_required_by_an_active_dependent(tmp_path: Path) -> None:
@@ -583,7 +581,7 @@ def test_switch_rejects_a_version_required_by_an_active_dependent(tmp_path: Path
     install_directory(dependent.root, home=home, env={})
 
     assert _invoke(["pkg", "switch", "alpha@1.0.0"]).exit_code == 1
-    assert str(load_activation_index(context_store(home=home)).packages["alpha"].version) == "2.0.0"
+    assert str(load_activation_index(global_store(home=home)).packages["alpha"].version) == "2.0.0"
 
 
 def test_uninstall_inactive_version_when_no_version_is_active(tmp_path: Path) -> None:
@@ -593,7 +591,7 @@ def test_uninstall_inactive_version_when_no_version_is_active(tmp_path: Path) ->
     assert _invoke(["pkg", "uninstall", "alpha"]).exit_code == 0
 
     assert _invoke(["pkg", "uninstall", "alpha@1.0.0"]).exit_code == 0
-    assert load_activation_index(context_store(home=home)) == ActivationIndex()
+    assert load_activation_index(global_store(home=home)) == ActivationIndex()
     assert not (home / ".agm" / "packages" / "alpha" / "1.0.0").exists()
 
 

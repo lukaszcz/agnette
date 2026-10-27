@@ -20,7 +20,7 @@ import pytest
 from agnette.config.context import current_config_context
 from agnette.config.home import agm_home_dir
 from agnette.packages.activation import load_activation_index
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from tests._git_helpers import git_output, init_repo
 from tests.conftest import GIT_IDENTITY, LAUNCH_ENVIRONMENT, isolate_host_environment
 
@@ -65,7 +65,7 @@ def test_the_agm_home_is_empty_of_installed_state() -> None:
     home = agm_home_dir(home=context.home)
 
     assert not home.exists()
-    index = load_activation_index(context_store(home=context.home))
+    index = load_activation_index(global_store(home=context.home))
     assert index.packages == {}
     assert index.commands == {}
 

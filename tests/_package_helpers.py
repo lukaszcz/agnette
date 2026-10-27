@@ -52,7 +52,7 @@ from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import load_manifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import verify_record, write_record
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from agnette.version import AGM_VERSION
 
 
@@ -109,7 +109,7 @@ def write_installed_package(
     module.write_text(source, encoding="utf-8")
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({name: ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     return module
@@ -147,7 +147,7 @@ def install_directory(
 ) -> PackageInfo:
     """Install a package directory and return the installed package."""
     return install_directory_with_plan(
-        context_store(home=home, env=env), source, editable=editable, shadow=shadow
+        global_store(home=home, env=env), source, editable=editable, shadow=shadow
     ).package
 
 
@@ -160,7 +160,7 @@ def install_archive(
 ) -> PackageInfo:
     """Install a package archive and return the installed package."""
     return install_archive_with_plan(
-        context_store(home=home, env=env), archive, shadow=shadow
+        global_store(home=home, env=env), archive, shadow=shadow
     ).package
 
 
@@ -233,7 +233,7 @@ class InstalledPackageSnapshot:
             package.root,
             home,
             _file_snapshot(package.root),
-            load_activation_index(context_store(home=home, env={})),
+            load_activation_index(global_store(home=home, env={})),
             (home / ".agm" / "packages" / "index.toml").read_bytes(),
         )
 
@@ -243,7 +243,7 @@ class InstalledPackageSnapshot:
 
         assert _file_snapshot(self.root) == self.files
         assert verify_record(self.root)
-        assert load_activation_index(context_store(home=self.home, env={})) == self.index
+        assert load_activation_index(global_store(home=self.home, env={})) == self.index
         assert self.index_path.read_bytes() == self.index_bytes
         assert not tuple(self.root.parent.glob(".agm-previous-*"))
         assert not tuple(self.root.parent.glob(".agm-package-*"))
@@ -273,7 +273,7 @@ class PythonInstaller:
         """Stand-in for ``process.run_foreground``; never installs anything."""
         self.runs.append(cmd)
         self.active_during_run.append(
-            set(load_activation_index(context_store(home=self.home, env={})).packages)
+            set(load_activation_index(global_store(home=self.home, env={})).packages)
         )
         if self.interrupt:
             raise KeyboardInterrupt

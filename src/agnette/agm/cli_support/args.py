@@ -55,16 +55,19 @@ class PkgInstallArgs:
     editable: bool
     shadow: bool
     reinstall: bool = False
+    project: bool = False
 
 
 @dataclass(slots=True)
 class PkgUninstallArgs:
     name: str
+    project: bool = False
 
 
 @dataclass(slots=True)
 class PkgSwitchArgs:
     target: str
+    project: bool = False
 
 
 @dataclass(slots=True)
@@ -74,7 +77,7 @@ class PkgListArgs:
 
 @dataclass(slots=True)
 class PkgSyncArgs:
-    pass
+    project: bool = False
 
 
 @dataclass(slots=True)

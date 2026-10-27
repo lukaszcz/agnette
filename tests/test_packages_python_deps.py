@@ -21,7 +21,7 @@ from agnette.packages.install import (
     uninstall_package,
 )
 from agnette.packages.python_deps import python_dependencies, sync_python_dependencies
-from agnette.packages.store import context_store, installed_packages
+from agnette.packages.store import global_store, installed_packages
 from tests._package_helpers import (
     InstalledPackageSnapshot,
     PythonInstaller,
@@ -54,10 +54,10 @@ def test_required_dependencies_are_the_union_over_store_and_editable_packages(
         editable=True,
     )
 
-    index = load_activation_index(context_store(home=home, env={}))
+    index = load_activation_index(global_store(home=home, env={}))
 
     assert python_dependencies(
-        resolve_indexed_packages(context_store(home=home, env={}), index)
+        resolve_indexed_packages(global_store(home=home, env={}), index)
     ) == (
         _SHARED,
         _ABSENT_B,
@@ -135,7 +135,7 @@ def test_install_syncs_before_publishing_the_activation(
     )
 
     assert python_installer.active_during_run == [set(), {"alpha"}]
-    assert set(load_activation_index(context_store(home=home, env={})).packages) == {
+    assert set(load_activation_index(global_store(home=home, env={})).packages) == {
         "alpha",
         "bravo",
     }
@@ -147,8 +147,8 @@ def test_failed_python_install_rolls_the_store_back(
 ) -> None:
     home = python_installer.home
     install_directory(write_python_package(tmp_path / "alpha", "alpha"), home=home, env={})
-    before_index = load_activation_index(context_store(home=home, env={}))
-    before_store = installed_packages(context_store(home=home, env={}))
+    before_index = load_activation_index(global_store(home=home, env={}))
+    before_store = installed_packages(global_store(home=home, env={}))
     python_installer.returncode = 1
 
     with pytest.raises(PackageInstallError):
@@ -160,9 +160,9 @@ def test_failed_python_install_rolls_the_store_back(
         )
 
     assert python_installer.specs == [[_ABSENT_B]]
-    assert load_activation_index(context_store(home=home, env={})) == before_index
-    assert installed_packages(context_store(home=home, env={})) == before_store
-    assert not context_store(home=home, env={}).package_path("bravo", semver.Version(1)).exists()
+    assert load_activation_index(global_store(home=home, env={})) == before_index
+    assert installed_packages(global_store(home=home, env={})) == before_store
+    assert not global_store(home=home, env={}).package_path("bravo", semver.Version(1)).exists()
 
 
 @pytest.mark.parametrize("archive_source", [False, True], ids=["directory", "archive"])
@@ -207,9 +207,9 @@ def test_failed_external_python_installer_restores_a_replaced_package(
 
     with pytest.raises(PackageInstallError):
         if archive_source:
-            install_archive_with_plan(context_store(home=home, env={}), archive, reinstall=True)
+            install_archive_with_plan(global_store(home=home, env={}), archive, reinstall=True)
         else:
-            install_directory_with_plan(context_store(home=home, env={}), source, reinstall=True)
+            install_directory_with_plan(global_store(home=home, env={}), source, reinstall=True)
 
     observed = json.loads(log.read_text(encoding="utf-8"))
     assert observed["args"] == ["pip", "install", "--python", sys.executable, _PRESENT, _ABSENT_B]
@@ -226,7 +226,7 @@ def test_interrupted_python_install_rolls_the_store_back(
 ) -> None:
     home = python_installer.home
     install_directory(write_python_package(tmp_path / "alpha", "alpha"), home=home, env={})
-    before_index = load_activation_index(context_store(home=home, env={}))
+    before_index = load_activation_index(global_store(home=home, env={}))
     python_installer.interrupt = True
 
     with pytest.raises(KeyboardInterrupt):
@@ -234,8 +234,8 @@ def test_interrupted_python_install_rolls_the_store_back(
             write_python_package(tmp_path / "bravo", "bravo", _ABSENT_B), home=home, env={}
         )
 
-    assert load_activation_index(context_store(home=home, env={})) == before_index
-    assert not context_store(home=home, env={}).package_path("bravo", semver.Version(1)).exists()
+    assert load_activation_index(global_store(home=home, env={})) == before_index
+    assert not global_store(home=home, env={}).package_path("bravo", semver.Version(1)).exists()
 
 
 def test_unstartable_installer_fails_the_install(
@@ -253,7 +253,7 @@ def test_unstartable_installer_fails_the_install(
             env={},
         )
 
-    assert load_activation_index(context_store(home=python_installer.home, env={})).packages == {}
+    assert load_activation_index(global_store(home=python_installer.home, env={})).packages == {}
 
 
 def test_dry_run_install_reports_the_requirements_without_installing(
@@ -296,7 +296,7 @@ def test_archive_install_syncs_the_archived_requirements(
 
     assert python_installer.specs == [[_ABSENT_A]]
     assert (
-        "alpha" in load_activation_index(context_store(home=python_installer.home, env={})).packages
+        "alpha" in load_activation_index(global_store(home=python_installer.home, env={})).packages
     )
 
 
@@ -310,9 +310,9 @@ def test_failed_python_install_rolls_an_archive_install_back(
     with pytest.raises(PackageInstallError):
         install_archive(archive, home=python_installer.home, env={})
 
-    assert load_activation_index(context_store(home=python_installer.home, env={})).packages == {}
+    assert load_activation_index(global_store(home=python_installer.home, env={})).packages == {}
     assert (
-        not context_store(home=python_installer.home, env={})
+        not global_store(home=python_installer.home, env={})
         .package_path("alpha", semver.Version(1))
         .exists()
     )
@@ -327,7 +327,7 @@ def test_uninstall_leaves_python_packages_alone(
     )
     python_installer.runs.clear()
 
-    uninstall_package(context_store(home=home, env={}), "alpha")
+    uninstall_package(global_store(home=home, env={}), "alpha")
 
     assert python_installer.runs == []
 
@@ -361,11 +361,22 @@ def test_active_sync_installs_the_whole_active_union_and_reports_the_unsatisfied
     )
     python_installer.runs.clear()
 
-    assert sync_active_python_dependencies(context_store(home=home, env={})) == (
+    assert sync_active_python_dependencies(global_store(home=home, env={})) == (
         _ABSENT_A,
         _ABSENT_B,
     )
     assert python_installer.specs == [[_PRESENT, _ABSENT_A, _ABSENT_B]]
+
+
+def test_active_sync_of_an_unreadable_activation_index_is_a_package_install_error(
+    tmp_path: Path, python_installer: PythonInstaller
+) -> None:
+    store = global_store(home=python_installer.home, env={})
+    store.root.mkdir(parents=True)
+    store.index_path.write_text("[packages\n", encoding="utf-8")
+
+    with pytest.raises(PackageInstallError, match="activation"):
+        sync_active_python_dependencies(store)
 
 
 def test_active_sync_of_an_unresolvable_activation_is_a_package_install_error(
@@ -378,5 +389,5 @@ def test_active_sync_of_an_unresolvable_activation_is_a_package_install_error(
     (source / "package.toml").unlink()
 
     with pytest.raises(PackageInstallError):
-        sync_active_python_dependencies(context_store(home=home, env={}))
+        sync_active_python_dependencies(global_store(home=home, env={}))
     assert python_installer.runs == []

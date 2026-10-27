@@ -1228,6 +1228,7 @@ def pkg_install(
     reinstall: bool = typer.Option(
         False, "--reinstall", help="Replace the installed package with this name and version."
     ),
+    project: bool = typer.Option(False, "--project", help="Use the current project's store."),
     _help: bool = _help_option(),
     _dry_run: bool = _dry_run_option(),
 ) -> None:
@@ -1241,6 +1242,7 @@ def pkg_install(
             editable=editable,
             shadow=shadow,
             reinstall=reinstall,
+            project=project,
         )
     )
 
@@ -1248,6 +1250,7 @@ def pkg_install(
 @pkg_app.command(name="uninstall")
 def pkg_uninstall(
     name: str | None = typer.Argument(None, metavar="NAME"),
+    project: bool = typer.Option(False, "--project", help="Use the current project's store."),
     _help: bool = _help_option(),
     _dry_run: bool = _dry_run_option(),
 ) -> None:
@@ -1256,13 +1259,17 @@ def pkg_uninstall(
     import agnette.agm.commands.pkg.uninstall as pkg_uninstall_command
 
     pkg_uninstall_command.run(
-        PkgUninstallArgs(name=_require_value(name, command_path=["pkg", "uninstall"], name="name"))
+        PkgUninstallArgs(
+            name=_require_value(name, command_path=["pkg", "uninstall"], name="name"),
+            project=project,
+        )
     )
 
 
 @pkg_app.command(name="switch")
 def pkg_switch(
     target: str | None = typer.Argument(None, metavar="NAME@VERSION"),
+    project: bool = typer.Option(False, "--project", help="Use the current project's store."),
     _help: bool = _help_option(),
     _dry_run: bool = _dry_run_option(),
 ) -> None:
@@ -1271,7 +1278,10 @@ def pkg_switch(
     import agnette.agm.commands.pkg.switch as pkg_switch_command
 
     pkg_switch_command.run(
-        PkgSwitchArgs(target=_require_value(target, command_path=["pkg", "switch"], name="target"))
+        PkgSwitchArgs(
+            target=_require_value(target, command_path=["pkg", "switch"], name="target"),
+            project=project,
+        )
     )
 
 
@@ -1300,6 +1310,7 @@ def pkg_info(
 
 @pkg_app.command(name="sync")
 def pkg_sync(
+    project: bool = typer.Option(False, "--project", help="Use the current project's store."),
     _help: bool = _help_option(),
     _dry_run: bool = _dry_run_option(),
 ) -> None:
@@ -1307,7 +1318,7 @@ def pkg_sync(
     del _dry_run
     import agnette.agm.commands.pkg.sync as pkg_sync_command
 
-    pkg_sync_command.run(PkgSyncArgs())
+    pkg_sync_command.run(PkgSyncArgs(project=project))
 
 
 @sync_app.callback(invoke_without_command=True)

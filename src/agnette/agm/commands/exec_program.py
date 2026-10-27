@@ -138,7 +138,7 @@ from agnette.packages.manifest import (
     program_reference,
 )
 from agnette.packages.model import PackageInfo, owning_package
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from agnette.sandbox.prepare import lazy_sandbox_context
 
 if TYPE_CHECKING:
@@ -863,7 +863,7 @@ def run_registered(
             # packages are its one live exception: their manifest is reread
             # above with the active package selection, so follow a changed
             # registration while immutable cached entries stay fail-closed.
-            active = load_activation_index(context_store(home=context.home)).packages.get(package)
+            active = load_activation_index(global_store(home=context.home)).packages.get(package)
             if active is None or active.editable != target.package.root:
                 _registered_command_mismatch(command_path)
             program = command.program

@@ -23,7 +23,7 @@ from agnette.config.general import (
 )
 from agnette.core.fs import mkdir, write_text_atomic
 from agnette.core.toml import TomlDict, dumps_toml, empty_toml_doc, load_toml_file, toml_dict
-from agnette.packages.layout import MODULE_TREE_DIRNAME
+from agnette.packages.layout import MODULE_TREE_DIRNAME, StoreScope
 from agnette.packages.manifest import (
     ManifestError,
     PackageManifest,
@@ -38,7 +38,7 @@ from agnette.packages.model import (
     is_std_package_name,
     unmet_std_requirement,
 )
-from agnette.packages.store import PackageStore, context_store
+from agnette.packages.store import PackageStore, StoreLayers, context_layers
 
 
 class PackageActivationError(ValueError):
@@ -243,12 +243,40 @@ def write_package_provenance(store: PackageStore, name: str, active: ActivePacka
     return path
 
 
-def validate_activation_index(index: ActivationIndex, *, packages: tuple[PackageInfo, ...]) -> None:
-    """Ensure the commands are consistent and the resolved *packages* of *index* have
-    satisfied requirements."""
+def validate_activation_index(
+    index: ActivationIndex,
+    *,
+    packages: tuple[PackageInfo, ...],
+    inherited: tuple[PackageInfo, ...] = (),
+) -> None:
+    """Ensure the commands are consistent and the requirements of the effective selection hold.
+
+    The effective selection is the resolved *packages* of *index* over the
+    *inherited* selection of the layer beneath it (a project store's global
+    one), so a package replacing an inherited one is checked against that
+    layer's other packages too.
+    """
 
     _validate_commands(index)
-    _validate_requirements(packages)
+    _validate_requirements(layered_packages(inherited, packages))
+
+
+def layered_packages(
+    lower: tuple[PackageInfo, ...], upper: tuple[PackageInfo, ...]
+) -> tuple[PackageInfo, ...]:
+    """Return *lower*'s packages with those of *upper* replacing same-named ones."""
+
+    merged = {package.manifest.name: package for package in lower}
+    merged.update((package.manifest.name, package) for package in upper)
+    return tuple(merged.values())
+
+
+def store_selection(store: PackageStore) -> tuple[PackageInfo, ...]:
+    """Resolve *store*'s activation index into its selected packages (a read, so tolerant)."""
+
+    return resolve_indexed_packages(
+        store, load_activation_index(store), fallback_to_manifest_commands=True
+    )
 
 
 def load_package_pins(
@@ -312,15 +340,17 @@ def select_active_packages(
     cwd: Path,
     env: Mapping[str, str] | None = None,
 ) -> tuple[PackageInfo, ...]:
-    """Return globally active packages with project pins overlaid and checked.
+    """Return the selected packages: the layered indexes with project pins overlaid, checked.
 
+    Inside a project its index entries replace same-named global ones; a pin
+    then resolves its version in the project store first, else the global one.
     A read of activation state: an editable package whose source fails command
     discovery falls back to its manifest's own commands — see
     :func:`resolve_active_package`.
     """
 
     packages = _selected_active_packages(
-        context_store(home=home, env=env),
+        context_layers(home=home, proj_dir=proj_dir, env=env),
         home=home,
         proj_dir=proj_dir,
         cwd=cwd,
@@ -338,33 +368,36 @@ def effective_command_index(
     cwd: Path,
     env: Mapping[str, str] | None = None,
 ) -> ActivationIndex:
-    """Return selected-package commands with project pins applied.
+    """Return selected-package commands with the project index and pins applied.
 
     The persistent activation index caches commands for the global selection.
-    A project pin changes that selection, so derive its command registry from
+    A project index or pin changes that selection, so derive its command registry from
     the selected manifests and the persisted registration priority of each
     selected immutable version. A read of activation state: an editable
     package whose source fails command discovery falls back to its manifest's
     own commands — see :func:`resolve_active_package`.
     """
 
-    store = context_store(home=home, env=env)
+    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
+    store = layers.global_store
     index = load_activation_index(store)
     pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
-    packages = _selected_active_packages(
-        store,
+    selected = _selected_active_packages(
+        layers,
         home=home,
         proj_dir=proj_dir,
         cwd=cwd,
         excluded_names=set(),
         env=env,
-        index=index,
-        pins=pins,
     )
-    _validate_requirements(packages)
-    # Without pins the selection is exactly the index, so the cached command
-    # registry already describes it — unless an editable package's manifest
-    # may have changed its commands since the index was written.
+    _validate_requirements(selected)
+    # The registry covers the global store's packages; a project package's
+    # commands are not registered.
+    packages = tuple(p for p in selected if p.store_scope is not StoreScope.PROJECT)
+    # Without pins the selection differs from the global index only by project
+    # packages replacing global ones, which ``packages`` already excludes. The
+    # index then describes it — unless an editable package's manifest may have
+    # changed its commands since the index was written.
     if not pins and all(active.editable is None for active in index.packages.values()):
         return _reconciled_commands(index, packages)
     selections: dict[str, ActivePackage] = {}
@@ -432,7 +465,7 @@ def select_package_roots(
     # override or source-checkout fallback cannot also mount an active tree.
     excluded_names = {*development_names, STD_PACKAGE_NAME}
     activated = _selected_active_packages(
-        context_store(home=home, env=env),
+        context_layers(home=home, proj_dir=proj_dir, env=env),
         home=home,
         proj_dir=proj_dir,
         cwd=cwd,
@@ -448,30 +481,51 @@ def select_package_roots(
 
 
 def _selected_active_packages(
-    store: PackageStore,
+    layers: StoreLayers,
     *,
     home: Path,
     proj_dir: Path | None,
     cwd: Path,
     excluded_names: set[str],
     env: Mapping[str, str] | None,
-    index: ActivationIndex | None = None,
-    pins: Mapping[str, semver.Version] | None = None,
 ) -> tuple[PackageInfo, ...]:
-    """Load global selections with pins, excluding development names before resolution."""
+    """Layer the stores' selections, then pins, excluding development names before resolution.
 
-    if index is None:
-        index = load_activation_index(store)
-    if pins is None:
-        pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
-    selections = dict(index.packages)
+    Global index entries come first, project entries replace same-named ones,
+    and a pin replaces both. The result is ordered by package name.
+    """
+
+    chosen: dict[str, tuple[PackageStore, ActivePackage]] = {}
+    for store in reversed(layers.stores):
+        for name, active in load_activation_index(store).packages.items():
+            chosen[name] = (store, active)
+    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     for name, version in pins.items():
-        selections[name] = ActivePackage(version)
+        chosen[name] = (_pin_store(layers, name, version), ActivePackage(version))
     for name in excluded_names:
-        selections.pop(name, None)
-    return resolve_indexed_packages(
-        store, ActivationIndex(selections), fallback_to_manifest_commands=True
+        chosen.pop(name, None)
+    packages: list[PackageInfo] = []
+    for store in layers.stores:
+        selections = {name: active for name, (owner, active) in chosen.items() if owner == store}
+        packages.extend(
+            resolve_indexed_packages(
+                store, ActivationIndex(selections), fallback_to_manifest_commands=True
+            )
+        )
+    return tuple(sorted(packages, key=_package_name))
+
+
+def _pin_store(layers: StoreLayers, name: str, version: semver.Version) -> PackageStore:
+    """The most specific store holding a pinned version's tree, else the global store."""
+
+    return next(
+        (store for store in layers.stores if store.package_path(name, version).is_dir()),
+        layers.global_store,
     )
+
+
+def _package_name(package: PackageInfo) -> str:
+    return package.manifest.name
 
 
 def validate_package_command_conflicts(
@@ -816,7 +870,9 @@ def resolve_active_package(
     if active.editable is not None:
         root = active.editable
         manifest = _load_installed_manifest(root, commands_complete=False)
-        package = _checked_active_package(name, active, root, manifest, commands_complete=False)
+        package = _checked_active_package(
+            name, active, root, manifest, store.scope, commands_complete=False
+        )
         return _with_editable_source_commands(
             package, fallback_to_manifest_commands=fallback_to_manifest_commands
         )
@@ -826,7 +882,7 @@ def resolve_active_package(
         raise PackageActivationError(
             f"active package {name!r} resolves outside the package store root"
         ) from exc
-    return _checked_active_package(name, active, root, _load_installed_manifest(root))
+    return _checked_active_package(name, active, root, _load_installed_manifest(root), store.scope)
 
 
 def _with_editable_source_commands(
@@ -871,12 +927,14 @@ def _checked_active_package(
     active: ActivePackage,
     root: Path,
     manifest: PackageManifest,
+    scope: StoreScope,
     *,
     commands_complete: bool = True,
 ) -> PackageInfo:
     """Return the resolved package, rejecting one whose manifest disagrees with its activation.
 
     An editable selection is live source; any other is an installed store tree.
+    *scope* is the selecting store's.
     """
 
     if manifest.name != name:
@@ -888,7 +946,11 @@ def _checked_active_package(
     ) != canonical_package_identity(name, active.version):
         raise PackageActivationError(f"active package {name!r} has a mismatched installed version")
     return PackageInfo(
-        root, manifest, commands_complete=commands_complete, installed=active.editable is None
+        root,
+        manifest,
+        commands_complete=commands_complete,
+        installed=active.editable is None,
+        store_scope=scope,
     )
 
 
@@ -1005,7 +1067,9 @@ def _resolve_indexed_packages(
             )
         else:
             packages.append(
-                _checked_active_package(name, active, transient.root, transient.manifest)
+                _checked_active_package(
+                    name, active, transient.root, transient.manifest, store.scope
+                )
             )
     return tuple(packages)
 

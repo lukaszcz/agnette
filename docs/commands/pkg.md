@@ -9,15 +9,17 @@ source.
 | `agm pkg init [DIR] [--name NAME] [--version VERSION]` | Scaffold a new package |
 | `agm pkg check [DIR]` | Validate a package directory |
 | `agm pkg create [DIR] [-o FILE]` | Validate and write a `<name>-<version>.agmpkg` archive |
-| `agm pkg install SRC [--editable] [--reinstall] [--shadow]` | Install and activate a directory or archive |
-| `agm pkg switch NAME@VERSION` | Switch the globally active version |
-| `agm pkg uninstall NAME[@VERSION]` | Remove the active package or an exact stored version |
+| `agm pkg install SRC [--project] [--editable] [--reinstall] [--shadow]` | Install and activate a directory or archive |
+| `agm pkg switch NAME@VERSION [--project]` | Switch the active version |
+| `agm pkg uninstall NAME[@VERSION] [--project]` | Remove the active package or an exact stored version |
 | `agm pkg list` | List installed versions and active editable packages |
 | `agm pkg info NAME` | Show an active package's metadata and dependency status |
-| `agm pkg sync` | Install the active packages' unsatisfied Python requirements |
+| `agm pkg sync [--project]` | Install the active packages' unsatisfied Python requirements |
 
-`DIR` defaults to the current directory. `--dry-run` is available on commands that report
-planned operations; read-only `check`, `list`, and `info` do not accept it.
+`DIR` defaults to the current directory. `install`, `uninstall`, `switch`, and `sync` act on the
+global store unless given `--project` (see [Project store](#project-store)). `--dry-run` is
+available on commands that report planned operations; read-only `check`, `list`, and `info` do not
+accept it.
 
 ## Quick start: a package with a command
 
@@ -384,6 +386,39 @@ requirement needing installation is listed; otherwise it reports that all are sa
 no installer. An installer failure exits non-zero. `--dry-run` prints the installer command
 instead of running it.
 
+## Project store
+
+Inside an AgM project, `--project` makes `install`, `uninstall`, `switch`, and `sync` act on the
+project's own store, `<project>/packages` (`$PROJ_DIR/packages` for a split project,
+`<repo>/.agm/packages` for an embedded one). The first `--project` install creates the directory;
+`agm init` does not. Outside a project, `--project` is an error.
+
+- The store is self-contained: its own activation index, lock, provenance, and `RECORD`s, and the
+  same directory, archive, `--editable`, and `--reinstall` installs. Its trees are installed
+  packages (their warnings are capped like the global store's) unless editable.
+- Inside the project, package selection layers the stores: the global index, then the project
+  index replacing same-named entries, then `[packages]` pins. A pin resolves in the project store
+  first, then the global one. Outside the project, project packages are not selected at all, and a
+  development checkout still takes precedence over every store.
+- A project install resolves dependencies from the project store, then the global store's active
+  selection; a path or URL dependency neither has is installed into the project store. A global
+  install never sees project stores. A project package selected over a global one of the same
+  name replaces it for every dependency check. `uninstall`, `switch`, and the install itself
+  validate the resulting effective selection, so a project operation cannot leave a package
+  without its dependency. Inside a project, `check` and `create` resolve dependencies the same
+  way.
+- A global `install`, `uninstall`, or `switch` run inside a project succeeds on its own terms, but
+  warns when the project's effective selection no longer validates (for example, a project
+  package depending on the global package just removed).
+- `std` is global-only: `install --project` of it is rejected.
+- `list` and `info` show the global store only. Project packages mount their modules but register
+  no commands: run them with `agm exec NAME/MODULE::PROGRAM`. A project package replacing a global
+  one therefore hides that package's commands inside the project.
+- `uninstall`, `switch`, and `sync` with `--project` do nothing, and create nothing, until a
+  `--project` install has created the project store.
+- `sync --project` installs the Python requirements of the project store's active packages into
+  AgM's interpreter environment, as `sync` does for the global store.
+
 ## Version pins
 
 Select a stored version per project instead of the globally active one:
@@ -396,8 +431,9 @@ platform-tools = "1.0.0+linux"
 
 Pins live in any layered `config.toml` (install prefix, AgM home, project `config/config.toml`,
 then `.agm/config.toml`), merge by name with later layers winning, and select an exact identity that
-must already be a valid stored version. A pin affects module roots, command dispatch, help, and
-completion for the invocation only; it never installs or fetches. The `list` and `info` commands
+must already be a valid stored version of the project store or, failing that, the global one. A pin
+affects module roots, command dispatch, help, and completion for the invocation only; it never
+installs or fetches. The `list` and `info` commands
 report the active package set. A development checkout of the same name discovered from the
 execution root still takes precedence.
 

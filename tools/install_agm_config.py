@@ -12,7 +12,7 @@ from typing import Protocol, cast
 from agnette.config.home import agm_home_dir
 from agnette.core.fs import backup_file
 from agnette.packages.install import refresh_managed_stdlib
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 
 
 class InstallArgs(Protocol):
@@ -95,7 +95,7 @@ def install_user_config(
     # The package domain owns the managed stdlib's locked staging,
     # publication, integrity record, activation, and stale-file replacement.
     stdlib = refresh_managed_stdlib(
-        context_store(home=install_root, env=env), repo_root / "packages" / "stdlib"
+        global_store(home=install_root, env=env), repo_root / "packages" / "stdlib"
     )
     installed.append(stdlib.root)
 

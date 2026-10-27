@@ -8,9 +8,10 @@ from pathlib import Path, PureWindowsPath
 
 import semver
 
+from agnette.agm.project.layout import project_packages_dir
 from agnette.config.home import agm_home_dir
 from agnette.packages.errors import PackageInstallError
-from agnette.packages.layout import ACTIVATION_INDEX_FILENAME, store_root_path
+from agnette.packages.layout import ACTIVATION_INDEX_FILENAME, StoreScope, store_root_path
 from agnette.packages.manifest import DependencySpec, ManifestError, load_installed_manifest
 from agnette.packages.model import (
     PackageInfo,
@@ -34,9 +35,11 @@ class PackageStore:
 
     Every store path derives from :attr:`root`, so each store keeps its own
     activation index, operation lock, provenance sidecars, and ``RECORD`` files.
+    :attr:`scope` says whether it is AgM's global store or a project's.
     """
 
     root: Path
+    scope: StoreScope = StoreScope.GLOBAL
 
     @property
     def index_path(self) -> Path:
@@ -101,14 +104,63 @@ class PackageStore:
         return logical_candidate.resolve()
 
 
-def context_store(*, home: Path, env: Mapping[str, str] | None = None) -> PackageStore:
-    """Return the package store a context selects packages from: the one beneath the AgM home.
+def global_store(*, home: Path, env: Mapping[str, str] | None = None) -> PackageStore:
+    """Return the global package store: the one beneath the AgM home.
 
-    The single place a context resolves its store; callers never build one
-    from the home themselves.
+    The only place the global store is built from a home; callers never build
+    one themselves. A context that may be inside a project resolves
+    :func:`context_layers` instead.
     """
 
     return PackageStore(store_root_path(agm_home_dir(home=home, env=env)))
+
+
+def project_store(proj_dir: Path) -> PackageStore:
+    """Return *proj_dir*'s package store, which may not exist yet."""
+
+    return PackageStore(project_packages_dir(proj_dir), StoreScope.PROJECT)
+
+
+@dataclass(frozen=True, slots=True)
+class StoreLayers:
+    """The stores a context selects packages from: the global store and, in a project, its own.
+
+    Project selections replace same-named global ones; ``std`` lives in the
+    global store alone.
+    """
+
+    global_store: PackageStore
+    project: PackageStore | None = None
+
+    @property
+    def stores(self) -> tuple[PackageStore, ...]:
+        """The stores, most specific first."""
+
+        return (self.global_store,) if self.project is None else (self.project, self.global_store)
+
+    def is_package_root(self, root: Path, name: str, version: semver.Version) -> bool:
+        """Return whether *root* is an immutable tree of this identity in any layer."""
+
+        return any(store.is_package_root(root, name, version) for store in self.stores)
+
+
+def context_layers(
+    *, home: Path, proj_dir: Path | None, env: Mapping[str, str] | None = None
+) -> StoreLayers:
+    """Return the store layers a context selects packages from: the single resolver.
+
+    The project store is a layer whenever there is a current project, even
+    before its directory exists. A project store that is the global store
+    itself (an AgM home that is a project) is not a second layer.
+    """
+
+    beneath_home = global_store(home=home, env=env)
+    if proj_dir is None:
+        return StoreLayers(beneath_home)
+    project = project_store(proj_dir)
+    if project.root.resolve() == beneath_home.root.resolve():
+        return StoreLayers(beneath_home)
+    return StoreLayers(beneath_home, project)
 
 
 def iter_store_package_dirs(store: PackageStore) -> Iterator[Path]:
@@ -167,7 +219,7 @@ def iter_installed_packages(store: PackageStore) -> Iterator[PackageInfo]:
                 raise StoreIdentityError(
                     f"installed package at {version_dir} does not match its store identity"
                 )
-            yield PackageInfo(version_dir, manifest, installed=True)
+            yield PackageInfo(version_dir, manifest, installed=True, store_scope=store.scope)
 
 
 def satisfying_from_store(
@@ -216,6 +268,23 @@ def satisfying_installed_package(
         if editable.manifest.name == name and editable.manifest.version >= requirement.version
         else None
     )
+
+
+def satisfying_inherited(
+    inherited: Iterable[PackageInfo],
+    name: str,
+    requirement: DependencySpec,
+    active: VersionSelection | None,
+) -> PackageInfo | None:
+    """Select a satisfying package of the *inherited* (global) selection beneath a project store.
+
+    *active* is the project store's own selection of *name*: when set it
+    replaces the inherited package, which then cannot satisfy anything.
+    """
+
+    if active is not None:
+        return None
+    return satisfying_from_store(inherited, name, requirement, None)
 
 
 def _store_component(value: str, label: str) -> str:

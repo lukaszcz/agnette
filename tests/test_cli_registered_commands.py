@@ -28,7 +28,7 @@ from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import CommandSpec, PackageManifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from tests._help_helpers import assert_lists_engine_settings
 from tests._package_helpers import exec_args, install_directory, write_installed_package
 
@@ -820,7 +820,7 @@ def test_registered_command_program_option_error_renders_shared_usage_help(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -870,7 +870,7 @@ def test_registered_command_help_flag_bundled_into_a_short_group_renders_help(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -913,7 +913,7 @@ def test_registered_command_binds_a_negated_bool_value_argument(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -965,7 +965,7 @@ def test_registered_command_reaches_the_programs_end_of_options_marker(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -1151,7 +1151,7 @@ version = "1.0.0"
         },
     )
     write_record(package_root)
-    write_activation_index(context_store(home=home), index)
+    write_activation_index(global_store(home=home), index)
 
     result = invoke(CliRunner(), ["help"], env={"HOME": str(home)})
 
@@ -1298,7 +1298,7 @@ def test_immutable_execution_uses_the_pinned_dependency_not_a_vendored_path_sour
     write_record(tools)
 
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex(
             packages={
                 "tools": ActivePackage(semver.Version.parse("1.0.0")),
@@ -1330,7 +1330,7 @@ def test_exec_runs_an_installed_reference(monkeypatch: pytest.MonkeyPatch, tmp_p
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -1386,7 +1386,7 @@ def test_installed_legacy_dev_alias_does_not_break_commands_or_package_listing(
         manifest.read_text(encoding="utf-8") + '\n[aliases]\ndev = "devel"\n',
         encoding="utf-8",
     )
-    index_path = context_store(home=home, env={}).index_path
+    index_path = global_store(home=home, env={}).index_path
     with index_path.open("a", encoding="utf-8") as index_file:
         index_file.write(
             '\n[commands.dev]\npackage = "tools"\n'
@@ -1656,7 +1656,7 @@ def test_exec_help_for_an_installed_reference_includes_program_arguments(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -1684,7 +1684,7 @@ def test_exec_program_option_overrides_an_installed_reference(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -1741,7 +1741,7 @@ def test_registered_command_argument_error_renders_shared_usage_help(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -1786,7 +1786,7 @@ def test_registered_command_argument_error_handles_no_description_or_parameters(
     module.write_text("program def main() -> unit = ()\n", encoding="utf-8")
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
@@ -2259,7 +2259,7 @@ def test_registered_program_declaration_prefers_the_entry_module_over_an_import(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     context = ConfigContext(home=home, proj_dir=None, cwd=tmp_path)

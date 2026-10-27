@@ -16,7 +16,7 @@ import agnette.agm.completion as completion
 import agnette.vcs.git as git_helpers
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.record import write_record
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from tests._package_helpers import install_directory
 
 _PARAM_SURFACE_PACKAGE = Path(__file__).parent / "agl" / "packages" / "param_surface"
@@ -88,7 +88,7 @@ review-tools = { program = "tools/review::main" }
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex(
             packages={"tools": ActivePackage(semver.Version.parse("1.0.0"))},
             commands={
@@ -337,7 +337,7 @@ def test_registered_command_completes_path_parameter_values(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex(
             packages={"tools": ActivePackage(semver.Version.parse("1.0.0"))},
             commands={"tools lint": CommandRegistration("tools", "tools/lint::main")},
@@ -386,7 +386,7 @@ def test_installed_exec_reference_offers_program_value_argument_completion(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setattr(
@@ -431,7 +431,7 @@ def test_installed_exec_reference_uses_its_selected_program_for_completion(
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setattr(
@@ -555,7 +555,7 @@ version = "1.0.0"
     )
     write_record(package_root)
     write_activation_index(
-        context_store(home=home),
+        global_store(home=home),
         ActivationIndex(
             packages={"tools": ActivePackage(semver.Version.parse("1.0.0"))},
             commands={"tools lint": CommandRegistration("tools", "tools/lint::main")},

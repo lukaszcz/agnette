@@ -6,7 +6,7 @@ import sys
 import textwrap
 
 from agnette.agm.cli_support.args import PkgInfoArgs
-from agnette.agm.cli_support.pkg_store import pkg_store
+from agnette.agm.cli_support.pkg_store import pkg_target
 from agnette.config.context import current_config_context
 from agnette.core.env import help_width
 from agnette.core.pyenv import requirement_status
@@ -31,7 +31,7 @@ def run(args: PkgInfoArgs) -> None:
 
     context = current_config_context()
     try:
-        store = pkg_store(context)
+        store = pkg_target(context, project=False).store
         index = load_activation_index(store)
         active = index.packages.get(args.name)
         if active is None:

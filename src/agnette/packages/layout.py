@@ -10,6 +10,7 @@ prefix, or the project-relative default) stays the responsibility of
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 
 STORE_DIRNAME = "packages"
@@ -24,6 +25,13 @@ MODULE_TREE_DIRNAME = "src"
 Fixed for every package, so a module id's leading segment names the package
 while the rest of the id is a path beneath this directory.
 """
+
+
+class StoreScope(Enum):
+    """Which store a package comes from: AgM's global store or the current project's."""
+
+    GLOBAL = "global"
+    PROJECT = "project"
 
 
 def store_root_path(agm_home: Path) -> Path:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import fcntl
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import mkdtemp
 from typing import TYPE_CHECKING
@@ -26,6 +26,7 @@ from agnette.packages.activation import (
     merge_package_commands,
     reconcile_package_commands,
     resolve_indexed_packages,
+    store_selection,
     validate_activation_index,
     validate_package_command_conflicts,
     write_activation_index,
@@ -48,6 +49,7 @@ from agnette.packages.distribution import (
 )
 from agnette.packages.errors import DisciplineError, FetchError
 from agnette.packages.errors import PackageInstallError as PackageInstallError
+from agnette.packages.layout import StoreScope
 from agnette.packages.manifest import (
     DependencySpec,
     ManifestError,
@@ -74,7 +76,11 @@ from agnette.packages.record import (
     verify_record,
     write_record,
 )
-from agnette.packages.store import PackageStore, satisfying_installed_package
+from agnette.packages.store import (
+    PackageStore,
+    satisfying_inherited,
+    satisfying_installed_package,
+)
 from agnette.packages.store import (
     installed_packages as installed_packages,
 )
@@ -122,9 +128,11 @@ def sync_active_python_dependencies(store: PackageStore) -> tuple[str, ...]:
     """Sync AgM's interpreter environment to every active package's Python requirements.
 
     Returns the requirements that were unsatisfied, hence installed (or, in
-    dry-run, reported). Raises :class:`PackageInstallError`.
+    dry-run, reported). An absent store has none. Raises :class:`PackageInstallError`.
     """
 
+    if not store.root.exists():
+        return ()
     with _package_operation_lock(store):
         try:
             packages = resolve_indexed_packages(
@@ -143,11 +151,13 @@ def _sync_python_requirements(packages: tuple[PackageInfo, ...]) -> tuple[str, .
 
 
 def _validate_managed_stdlib_install(
-    manifest: PackageManifest, *, source: Path | None, editable: bool
+    manifest: PackageManifest, *, store: PackageStore, source: Path | None, editable: bool
 ) -> None:
-    """Require ``std`` to be the immutable, lockstep shipped package."""
+    """Require ``std`` to be the immutable, lockstep shipped package of the global store."""
     if not is_std_package_name(manifest.name):
         return
+    if store.scope is StoreScope.PROJECT:
+        raise PackageInstallError("the managed std package can only be installed globally")
     if canonical_package_identity(manifest.name, manifest.version) != canonical_package_identity(
         STD_PACKAGE_NAME, semver.Version.parse(AGM_VERSION)
     ):
@@ -164,8 +174,16 @@ def _validate_managed_stdlib_install(
 
 @dataclass(slots=True)
 class _InstallState:
+    """One install transaction on ``store``.
+
+    ``inherited`` is the selection of the layer beneath a project store (the
+    global store's): it satisfies dependencies and completes requirement
+    checks, but its packages are never activated in ``index``.
+    """
+
     store: PackageStore
     index: ActivationIndex
+    inherited: tuple[PackageInfo, ...] = ()
     installing: set[Path] = field(default_factory=set)
     resolved: set[Path] = field(default_factory=set)
     created: list[Path] = field(default_factory=list)
@@ -184,12 +202,17 @@ def install_directory_with_plan(
     editable: bool = False,
     shadow: bool = False,
     reinstall: bool = False,
+    fallback: PackageStore | None = None,
 ) -> PackageInstallPlan:
     """Install a package directory, or activate it as an editable package.
 
     Dependencies: the highest installed satisfying version is selected first;
     otherwise a declared local path is installed recursively or a URL archive
     is fetched, hash-verified, and installed. Returns the activation plan.
+
+    For a project *store*, *fallback* is the global store beneath it: its
+    active selection satisfies dependencies the project store does not, and
+    completes the requirement checks of the effective selection.
     """
 
     if editable and reinstall:
@@ -199,6 +222,7 @@ def install_directory_with_plan(
             source, state=state, editable=editable, shadow=shadow, reinstall=reinstall
         ),
         store=store,
+        fallback=fallback,
         shadow=shadow,
     )
 
@@ -228,9 +252,16 @@ def parse_versioned_package_target(target: str) -> tuple[str, semver.Version]:
 
 
 def activate_installed_package_with_plan(
-    store: PackageStore, name: str, version: semver.Version
+    store: PackageStore,
+    name: str,
+    version: semver.Version,
+    *,
+    fallback: PackageStore | None = None,
 ) -> PackageInstallPlan:
-    """Activate an exact version already present in the package store."""
+    """Activate an exact version already present in the package store (*fallback*: see install)."""
+
+    if not store.root.exists():
+        raise PackageInstallError(f"package {name!r} version {version} is not installed")
 
     def activate(state: _InstallState) -> PackageInfo:
         if is_std_package_name(name):
@@ -249,16 +280,22 @@ def activate_installed_package_with_plan(
         _activate_package(package, state, editable_root=None, shadow=False)
         return package
 
-    return _install_with_plan(activate, store=store, shadow=False)
+    return _install_with_plan(activate, store=store, fallback=fallback, shadow=False)
 
 
 def _install_with_plan(
-    install: Callable[[_InstallState], PackageInfo], *, store: PackageStore, shadow: bool
+    install: Callable[[_InstallState], PackageInfo],
+    *,
+    store: PackageStore,
+    fallback: PackageStore | None,
+    shadow: bool,
 ) -> PackageInstallPlan:
     """Run one locked install transaction, rolling back trees it created on any failure."""
 
     with _package_operation_lock(store):
-        state = _InstallState(store, index=_load_install_index(store))
+        state = _InstallState(
+            store, index=_load_install_index(store), inherited=_inherited_selection(fallback)
+        )
         try:
             package = install(state)
             command_shadows = _commit_install_activation(state, package, report_shadows=shadow)
@@ -267,6 +304,17 @@ def _install_with_plan(
             raise
         _cleanup_replaced_trees(state)
         return PackageInstallPlan(package, command_shadows)
+
+
+def _inherited_selection(fallback: PackageStore | None) -> tuple[PackageInfo, ...]:
+    """The active selection of the global *fallback* store beneath a project store."""
+
+    if fallback is None:
+        return ()
+    try:
+        return store_selection(fallback)
+    except PackageActivationError as exc:
+        raise PackageInstallError(f"cannot load package activation: {exc}") from exc
 
 
 def refresh_managed_stdlib(store: PackageStore, source: Path) -> PackageInfo:
@@ -281,7 +329,9 @@ def refresh_managed_stdlib(store: PackageStore, source: Path) -> PackageInfo:
 
     with _package_operation_lock(store):
         package = _validated_directory_package(source)
-        _validate_managed_stdlib_install(package.manifest, source=package.root, editable=False)
+        _validate_managed_stdlib_install(
+            package.manifest, store=store, source=package.root, editable=False
+        )
         _validate_agm_compatibility(package.manifest)
         resolution = validate_package(package)
         try:
@@ -340,28 +390,37 @@ def install_archive_with_plan(
     *,
     shadow: bool = False,
     reinstall: bool = False,
+    fallback: PackageStore | None = None,
 ) -> PackageInstallPlan:
     """Verify, atomically extract, and activate a portable package archive; return its plan."""
 
     return _install_with_plan(
         lambda state: _install_archive(archive, state=state, shadow=shadow, reinstall=reinstall),
         store=store,
+        fallback=fallback,
         shadow=shadow,
     )
 
 
-def uninstall_package(store: PackageStore, target: str) -> None:
+def uninstall_package(
+    store: PackageStore, target: str, *, fallback: PackageStore | None = None
+) -> None:
     """Remove an exact stored version, or the active package when unqualified.
 
     Editable packages have no copied tree or record, so removal only drops
-    their activation selection.
+    their activation selection. The remaining effective selection is checked
+    over the global *fallback* store of a project *store*.
     """
 
+    if not store.root.exists():
+        raise PackageInstallError(f"package {parse_package_target(target)[0]!r} is not installed")
     with _package_operation_lock(store):
-        _uninstall_package(store, target)
+        _uninstall_package(store, target, _inherited_selection(fallback))
 
 
-def _uninstall_package(store: PackageStore, target: str) -> None:
+def _uninstall_package(
+    store: PackageStore, target: str, inherited: tuple[PackageInfo, ...]
+) -> None:
     name, version = parse_package_target(target)
     try:
         index = load_activation_index(store)
@@ -413,7 +472,7 @@ def _uninstall_package(store: PackageStore, target: str) -> None:
     packages = dict(index.packages)
     del packages[name]
     if root is None or dry_run.enabled():
-        _commit_activation(store, ActivationIndex(packages))
+        _commit_activation(store, ActivationIndex(packages), inherited=inherited)
         if root is not None:
             _remove_recorded_tree(root, entries)
             _remove_package_provenance(store, name, active.version)
@@ -426,7 +485,7 @@ def _uninstall_package(store: PackageStore, target: str) -> None:
     except OSError as exc:
         raise PackageInstallError(f"cannot remove package {name!r}: {exc}") from exc
     try:
-        _commit_activation(store, ActivationIndex(packages))
+        _commit_activation(store, ActivationIndex(packages), inherited=inherited)
     except PackageInstallError as activation_error:
         try:
             tombstone.replace(root)
@@ -586,7 +645,9 @@ def _install_directory(
     package = _validated_directory_package(source)
     root = package.root
 
-    _validate_managed_stdlib_install(package.manifest, source=root, editable=editable)
+    _validate_managed_stdlib_install(
+        package.manifest, store=state.store, source=root, editable=editable
+    )
     _validate_agm_compatibility(package.manifest)
     _resolve_dependencies(package, state)
     dependency_packages = tuple(state.resource_packages.values())
@@ -596,7 +657,7 @@ def _install_directory(
         raise PackageInstallError(f"cannot install package from {source}: {exc}") from exc
 
     if editable:
-        installed = package
+        installed = replace(package, store_scope=state.store.scope)
     else:
         try:
             destination = state.store.canonical_package_path(
@@ -606,7 +667,7 @@ def _install_directory(
             raise PackageInstallError(
                 f"cannot install package {package.manifest.name!r}: {exc}"
             ) from exc
-        installed = PackageInfo(destination, package.manifest)
+        installed = PackageInfo(destination, package.manifest, store_scope=state.store.scope)
         if destination.exists():
             distribution = distribution_manifest(package.manifest)
             if reinstall:
@@ -709,7 +770,9 @@ def _install_archive(
     if dry_run.enabled():
         try:
             metadata = verify_archive_discipline(archive_path)
-            _validate_managed_stdlib_install(metadata.manifest, source=None, editable=False)
+            _validate_managed_stdlib_install(
+                metadata.manifest, store=state.store, source=None, editable=False
+            )
             _validate_agm_compatibility(metadata.manifest)
             destination = state.store.canonical_package_path(
                 metadata.manifest.name, metadata.manifest.version
@@ -721,14 +784,16 @@ def _install_archive(
         except (ArchiveError, ValueError) as exc:
             raise PackageInstallError(f"cannot install package archive {archive}: {exc}") from exc
         dry_run.print_operation("install-package-archive", str(archive))
-        installed = PackageInfo(destination, metadata.manifest)
+        installed = PackageInfo(destination, metadata.manifest, store_scope=state.store.scope)
     else:
         prepared: list[tuple[Path, Path]] = []
 
         def prepare_staging(metadata: ArchiveMetadata) -> Path:
             """Create staging beside the canonical destination once identity is verified."""
 
-            _validate_managed_stdlib_install(metadata.manifest, source=None, editable=False)
+            _validate_managed_stdlib_install(
+                metadata.manifest, store=state.store, source=None, editable=False
+            )
             _validate_agm_compatibility(metadata.manifest)
             destination = state.store.canonical_package_path(
                 metadata.manifest.name, metadata.manifest.version
@@ -765,7 +830,7 @@ def _install_archive(
                     _record_created_tree(state, destination)
                 else:
                     _record_replaced_tree(state, staging, destination, previous)
-            installed = PackageInfo(destination, package.manifest)
+            installed = PackageInfo(destination, package.manifest, store_scope=state.store.scope)
             state.resource_packages[installed.manifest.name] = installed
         except PackageInstallError:
             raise
@@ -925,6 +990,7 @@ def _resolve_dependency_requirements(package: PackageInfo, state: _InstallState)
         if is_std_package_name(name):
             continue
         selected = _installed_satisfying(name, requirement, state)
+        inherited = selected is not None and selected in state.inherited
         if selected is None and requirement.path is not None:
             selected = _install_directory(
                 package.root / requirement.path, state=state, editable=False, shadow=False
@@ -947,6 +1013,8 @@ def _resolve_dependency_requirements(package: PackageInfo, state: _InstallState)
                 f"unsatisfied package requirement {name!r} >= {requirement.version}"
             )
         state.resource_packages.setdefault(name, selected)
+        if inherited:
+            continue
         current = state.index.packages.get(name)
         if current is not None and current.editable == selected.root:
             if canonical_package_identity(name, current.version) != canonical_package_identity(
@@ -1023,7 +1091,7 @@ def _installed_satisfying(
     )
     active = state.index.packages.get(name)
     try:
-        return satisfying_installed_package(
+        local = satisfying_installed_package(
             _transaction_installed_packages(state),
             name,
             requirement,
@@ -1032,6 +1100,9 @@ def _installed_satisfying(
         )
     except ManifestError as exc:
         raise PackageInstallError(f"cannot load active editable package {name!r}: {exc}") from exc
+    if local is not None:
+        return local
+    return satisfying_inherited(state.inherited, name, requirement, active)
 
 
 def _fetch_archive_install(
@@ -1147,6 +1218,7 @@ def _commit_install_activation(
             state.index,
             transient_packages=transient_packages,
             packages=prepare_packages,
+            inherited=state.inherited,
         )
         command_shadows = (
             command_shadow_diagnostics(
@@ -1163,11 +1235,13 @@ def _commit_install_activation(
         raise PackageInstallError(f"cannot write package activation: {exc}") from exc
 
 
-def _commit_activation(store: PackageStore, index: ActivationIndex) -> ActivationIndex:
+def _commit_activation(
+    store: PackageStore, index: ActivationIndex, *, inherited: tuple[PackageInfo, ...] = ()
+) -> ActivationIndex:
     """Validate and atomically publish a complete activation selection."""
 
     try:
-        reconciled = _prepare_activation(store, index, transient_packages=None)
+        reconciled = _prepare_activation(store, index, transient_packages=None, inherited=inherited)
         _publish_activation(store, reconciled)
         return reconciled
     except PackageActivationError as exc:
@@ -1180,8 +1254,12 @@ def _prepare_activation(
     *,
     transient_packages: Mapping[str, PackageInfo] | None,
     packages: tuple[PackageInfo, ...] | None = None,
+    inherited: tuple[PackageInfo, ...] = (),
 ) -> ActivationIndex:
     """Return the validated activation snapshot that is ready for publication.
+
+    ``inherited`` is the selection beneath a project store that completes the
+    requirement checks.
 
     ``packages`` lets a caller that already resolved and verified *index*'s
     active package set under the same ``transient_packages`` reuse it.
@@ -1203,7 +1281,7 @@ def _prepare_activation(
             packages=resolved,
         )
     )
-    validate_activation_index(reconciled, packages=resolved)
+    validate_activation_index(reconciled, packages=resolved, inherited=inherited)
     return reconciled
 
 

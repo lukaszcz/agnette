@@ -11,12 +11,17 @@ from agnette.packages.activation import (
     ActivationIndex,
     PackageActivationError,
     load_activation_index,
+    store_selection,
 )
 from agnette.packages.discipline import DisciplineError, validate_package_structure
 from agnette.packages.install import PackageInstallError, installed_packages
 from agnette.packages.manifest import DependencySpec, ManifestError
 from agnette.packages.model import PackageInfo, is_std_package_name, unmet_std_requirement
-from agnette.packages.store import PackageStore, satisfying_installed_package
+from agnette.packages.store import (
+    PackageStore,
+    satisfying_inherited,
+    satisfying_installed_package,
+)
 
 
 class DependencyError(ValueError):
@@ -26,6 +31,7 @@ class DependencyError(ValueError):
 @dataclass(slots=True)
 class _CheckState:
     store: PackageStore
+    inherited: tuple[PackageInfo, ...] = ()
     checking: set[Path] = field(default_factory=set)
     checked: set[Path] = field(default_factory=set)
     resolved: dict[str, PackageInfo] = field(default_factory=dict)
@@ -33,8 +39,13 @@ class _CheckState:
     index: ActivationIndex | None = None
 
 
-def validate_dependencies(store: PackageStore, package: PackageInfo) -> tuple[PackageInfo, ...]:
+def validate_dependencies(
+    store: PackageStore, package: PackageInfo, *, fallback: PackageStore | None = None
+) -> tuple[PackageInfo, ...]:
     """Ensure every requirement has a usable store, path, or URL source.
+
+    A requirement *store* does not satisfy may be satisfied by the active
+    selection of *fallback*, the global store beneath a project store.
 
     Stored and previously selected versions take precedence, matching
     installation's highest-satisfying-version resolution. When no selected version satisfies a
@@ -43,7 +54,11 @@ def validate_dependencies(store: PackageStore, package: PackageInfo) -> tuple[Pa
     deferred source; validation never fetches it.
     """
 
-    state = _CheckState(store)
+    try:
+        inherited = () if fallback is None else store_selection(fallback)
+    except (ManifestError, PackageActivationError) as exc:
+        raise DependencyError(str(exc)) from exc
+    state = _CheckState(store, inherited)
     _validate_package_dependencies(package, state)
     return tuple(state.resolved[name] for name in sorted(state.resolved))
 
@@ -114,11 +129,14 @@ def _selected_satisfying(
     try:
         installed = _cached_installed_packages(state)
         active = _cached_activation_index(state).packages.get(name)
-        return satisfying_installed_package(
+        local = satisfying_installed_package(
             installed, name, requirement, active, extra_candidates=extra
         )
     except (ManifestError, PackageActivationError, PackageInstallError) as exc:
         raise DependencyError(str(exc)) from exc
+    if local is not None:
+        return local
+    return satisfying_inherited(state.inherited, name, requirement, active)
 
 
 def _path_package(

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from agnette.agm.cli_support.args import PkgCreateArgs
-from agnette.agm.cli_support.pkg_store import pkg_store
+from agnette.agm.cli_support.pkg_store import pkg_resolution_target
 from agnette.config.context import current_config_context
 from agnette.core import dry_run
 from agnette.packages.archive import (
@@ -28,8 +28,8 @@ def run(args: PkgCreateArgs) -> None:
         # The identity only: validating the archive source validates the tree
         # it is built from, so that is the one validation this command runs.
         package = PackageInfo(root=root, manifest=archive_source_manifest(root))
-        context = current_config_context()
-        dependencies = validate_dependencies(pkg_store(context), package)
+        target = pkg_resolution_target(current_config_context())
+        dependencies = validate_dependencies(target.store, package, fallback=target.fallback)
         validate_archive_source(root, dependency_packages=dependencies)
         destination = (
             package.root.parent / f"{package.manifest.name}-{package.manifest.version}.agmpkg"

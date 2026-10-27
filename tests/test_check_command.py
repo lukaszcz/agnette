@@ -27,7 +27,7 @@ from typer.main import get_command
 import agnette.agm.cli as cli
 import agnette.agm.commands.check as check_command
 from agnette.agm.cli_support.args import CheckArgs
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 
 # Building the Typer app's Click command tree costs more than the assertions in
 # the parser-contract tests below; it is derived from module-level definitions
@@ -595,7 +595,7 @@ def test_check_searches_the_development_std_checkout_holding_the_entry(
     )
     (store_root / "src" / "prelude.agl").write_text("def unused() -> int = 0\n", encoding="utf-8")
     write_activation_index(
-        context_store(home=home, env={"AGM_HOME": str(home)}),
+        global_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
     )
     checkout = tmp_path / "checkout"

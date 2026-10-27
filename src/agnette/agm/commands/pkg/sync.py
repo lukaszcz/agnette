@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 from agnette.agm.cli_support.args import PkgSyncArgs
-from agnette.agm.cli_support.pkg_store import pkg_store
+from agnette.agm.cli_support.pkg_store import pkg_target
 from agnette.config.context import current_config_context
 from agnette.core import dry_run
 from agnette.packages.install import PackageInstallError, sync_active_python_dependencies
@@ -14,9 +14,9 @@ from agnette.packages.install import PackageInstallError, sync_active_python_dep
 def run(args: PkgSyncArgs) -> None:
     """Install the active packages' Python requirements when any is unsatisfied."""
 
-    del args
     try:
-        installed = sync_active_python_dependencies(pkg_store(current_config_context()))
+        target = pkg_target(current_config_context(), project=args.project)
+        installed = sync_active_python_dependencies(target.store)
     except PackageInstallError as exc:
         print(f"pkg sync: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

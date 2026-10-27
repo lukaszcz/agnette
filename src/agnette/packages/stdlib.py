@@ -25,7 +25,7 @@ from agnette.packages.model import (
     is_std_package_name,
     owning_package,
 )
-from agnette.packages.store import PackageStore
+from agnette.packages.store import PackageStore, StoreLayers
 from agnette.stdlib_locator import shipped_stdlib_root
 from agnette.version import AGM_VERSION
 
@@ -65,7 +65,8 @@ def select_std_package(store: PackageStore, *, anchor: Path | None = None) -> St
     active immutable store ``std`` package wins, but only when its version
     exactly matches the running AgM binary. Without an active store package,
     AgM uses the stdlib bundled in an installed wheel or the repository
-    ``packages/stdlib/`` tree in a source checkout.
+    ``packages/stdlib/`` tree in a source checkout. ``std`` is global-only, so only
+    the global *store* is consulted.
     """
     if anchor is not None:
         checkout = _anchoring_std_checkout(anchor, store)
@@ -121,13 +122,16 @@ def _anchoring_std_checkout(anchor: Path, store: PackageStore) -> Path | None:
     it: a standard-library module resolves the library it belongs to, and
     nothing else does.
 
+    Only the global store is excluded from discovery: ``std`` is global-only,
+    so no project store tree is ever ``std``.
+
     An unusable manifest or store layout leaves the anchor unclassified: the
     fault is reported where packages are discovered, so stdlib selection
     simply falls through to the store and shipped trees.
     """
 
     try:
-        package = containing_development_package(store, anchor)
+        package = containing_development_package(StoreLayers(store), anchor)
     except ValueError:
         return None
     if package is None or not is_std_package_name(package.manifest.name):

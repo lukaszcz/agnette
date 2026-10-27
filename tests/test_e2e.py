@@ -7022,6 +7022,288 @@ class TestPackageInstall:
         assert unpinned.returncode == 1
 
 
+def _write_marked_package(
+    root: Path, name: str, version: str, output: str, *, dependencies: str = ""
+) -> Path:
+    """Write a package whose ``main`` program prints *output*."""
+    package = _write_store_test_package(root, name, version)
+    manifest = package / "package.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + dependencies, encoding="utf-8")
+    (package / "src" / "main.agl").write_text(
+        f'program def main() -> unit = print("{output}")\n', encoding="utf-8"
+    )
+    return package
+
+
+class TestProjectPackages:
+    """``agm pkg ... --project``: the project-local store layered over the global one."""
+
+    @pytest.fixture
+    def scene(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> tuple[Path, dict[str, str], dict[str, str]]:
+        """A project directory plus the environments inside and outside it."""
+        env["AGM_HOME"] = str(tmp_path / "agm-home")
+        project = tmp_path / "project"
+        project.mkdir()
+        inside = {**env, "PROJ_DIR": str(project)}
+        return project, inside, env
+
+    def test_a_project_package_is_visible_only_inside_the_project(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        source = _write_marked_package(tmp_path / "src", "alpha", "1.0.0", "project alpha")
+
+        installed = run_agm(["pkg", "install", "--project", str(source)], env=inside, cwd=project)
+        here = run_agm(["exec", "alpha/main::main"], env=inside, cwd=project)
+        elsewhere = run_agm(["exec", "alpha/main::main"], env=outside, cwd=tmp_path, check=False)
+        listing = run_agm(["pkg", "list"], env=outside, cwd=tmp_path)
+
+        assert installed.returncode == 0
+        assert (project / "packages" / "alpha" / "1.0.0" / "package.toml").is_file()
+        assert not (tmp_path / "agm-home" / "packages" / "alpha").exists()
+        assert here.stdout == "project alpha\n"
+        assert elsewhere.returncode == 1
+        assert "alpha" not in listing.stdout
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["install", "--project", "SRC"],
+            ["uninstall", "--project", "alpha"],
+            ["switch", "--project", "alpha@1.0.0"],
+            ["sync", "--project"],
+        ],
+    )
+    def test_project_flag_requires_a_current_project(
+        self,
+        tmp_path: Path,
+        scene: tuple[Path, dict[str, str], dict[str, str]],
+        args: list[str],
+    ) -> None:
+        _, _, outside = scene
+        source = _write_marked_package(tmp_path / "src", "alpha", "1.0.0", "alpha")
+
+        result = run_agm(
+            ["pkg", *[str(source) if arg == "SRC" else arg for arg in args]],
+            env=outside,
+            cwd=tmp_path,
+            check=False,
+        )
+
+        assert result.returncode == 1
+        assert result.stderr
+        assert not (tmp_path / "packages").exists()
+
+    def test_project_switch_uninstall_and_sync(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, _ = scene
+        for version in ("1.0.0", "2.0.0"):
+            source = _write_marked_package(tmp_path / version, "alpha", version, f"alpha {version}")
+            run_agm(["pkg", "install", "--project", str(source)], env=inside, cwd=project)
+        latest = run_agm(["exec", "alpha/main::main"], env=inside, cwd=project)
+
+        switched = run_agm(["pkg", "switch", "--project", "alpha@1.0.0"], env=inside, cwd=project)
+        earlier = run_agm(["exec", "alpha/main::main"], env=inside, cwd=project)
+        synced = run_agm(["pkg", "sync", "--project"], env=inside, cwd=project)
+        removed = run_agm(["pkg", "uninstall", "--project", "alpha@2.0.0"], env=inside, cwd=project)
+        gone = run_agm(["pkg", "uninstall", "--project", "alpha"], env=inside, cwd=project)
+        absent = run_agm(["exec", "alpha/main::main"], env=inside, cwd=project, check=False)
+
+        assert latest.stdout == "alpha 2.0.0\n"
+        assert switched.returncode == 0
+        assert earlier.stdout == "alpha 1.0.0\n"
+        assert synced.returncode == 0
+        assert removed.returncode == 0
+        assert not (project / "packages" / "alpha" / "2.0.0").exists()
+        assert gone.returncode == 0
+        assert not (project / "packages" / "alpha" / "1.0.0").exists()
+        assert absent.returncode == 1
+
+    def test_project_editable_archive_and_reinstall(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, _ = scene
+        live = _write_marked_package(tmp_path / "live", "live", "1.0.0", "first")
+        packed = _write_marked_package(tmp_path / "packed", "packed", "1.0.0", "packed")
+        archive = tmp_path / "packed.agmpkg"
+        run_agm(["pkg", "create", str(packed), "-o", str(archive)], env=inside, cwd=project)
+
+        editable = run_agm(
+            ["pkg", "install", "--project", "--editable", str(live)], env=inside, cwd=project
+        )
+        (live / "src" / "main.agl").write_text(
+            'program def main() -> unit = print("second")\n', encoding="utf-8"
+        )
+        edited = run_agm(["exec", "live/main::main"], env=inside, cwd=project)
+        from_archive = run_agm(
+            ["pkg", "install", "--project", str(archive)], env=inside, cwd=project
+        )
+        (packed / "src" / "main.agl").write_text(
+            'program def main() -> unit = print("repacked")\n', encoding="utf-8"
+        )
+        reinstalled = run_agm(
+            ["pkg", "install", "--project", "--reinstall", str(packed)], env=inside, cwd=project
+        )
+        replaced = run_agm(["exec", "packed/main::main"], env=inside, cwd=project)
+
+        assert editable.returncode == 0
+        assert not (project / "packages" / "live" / "1.0.0").exists()
+        assert edited.stdout == "second\n"
+        assert from_archive.returncode == 0
+        assert reinstalled.returncode == 0
+        assert replaced.stdout == "repacked\n"
+
+    def test_a_pin_resolves_the_project_store_before_the_global_one(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        for label, store_args, home_env in (
+            ("global 1", [], outside),
+            ("project 1", ["--project"], inside),
+            ("project 2", ["--project"], inside),
+        ):
+            version = label[-1] + ".0.0"
+            source = _write_marked_package(
+                tmp_path / label.replace(" ", "-"), "alpha", version, label
+            )
+            run_agm(["pkg", "install", *store_args, str(source)], env=home_env, cwd=project)
+        (project / "config").mkdir()
+        (project / "config" / "config.toml").write_text(
+            '[packages]\nalpha = "1.0.0"\n', encoding="utf-8"
+        )
+        pinned = run_agm(["exec", "alpha/main::main"], env=inside, cwd=project)
+        (project / "config" / "config.toml").write_text(
+            '[packages]\nalpha = "3.0.0"\n', encoding="utf-8"
+        )
+        missing = run_agm(["exec", "alpha/main::main"], env=inside, cwd=project, check=False)
+
+        assert pinned.stdout == "project 1\n"
+        assert missing.returncode == 1
+
+    def test_a_pin_falls_back_to_the_global_store(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        old = _write_marked_package(tmp_path / "old", "alpha", "1.0.0", "global 1")
+        new = _write_marked_package(tmp_path / "new", "alpha", "2.0.0", "project 2")
+        run_agm(["pkg", "install", str(old)], env=outside, cwd=project)
+        run_agm(["pkg", "install", "--project", str(new)], env=inside, cwd=project)
+        (project / "config").mkdir()
+        (project / "config" / "config.toml").write_text(
+            '[packages]\nalpha = "1.0.0"\n', encoding="utf-8"
+        )
+
+        pinned = run_agm(["exec", "alpha/main::main"], env=inside, cwd=project)
+
+        assert pinned.stdout == "global 1\n"
+
+    def test_a_project_install_falls_back_to_a_global_dependency(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        base = _write_marked_package(tmp_path / "base", "base", "1.0.0", "base")
+        app = _write_marked_package(
+            tmp_path / "app",
+            "papp",
+            "1.0.0",
+            "papp",
+            dependencies='\n[dependencies]\nbase = "1.0"\n',
+        )
+        run_agm(["pkg", "install", str(base)], env=outside, cwd=project)
+
+        installed = run_agm(["pkg", "install", "--project", str(app)], env=inside, cwd=project)
+        ran = run_agm(["exec", "papp/main::main"], env=inside, cwd=project)
+
+        assert installed.returncode == 0
+        assert not (project / "packages" / "base").exists()
+        assert ran.stdout == "papp\n"
+
+    def test_a_global_install_never_sees_the_project_store(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        base = _write_marked_package(tmp_path / "base", "base", "1.0.0", "base")
+        app = _write_marked_package(
+            tmp_path / "app",
+            "gapp",
+            "1.0.0",
+            "gapp",
+            dependencies='\n[dependencies]\nbase = "1.0"\n',
+        )
+        run_agm(["pkg", "install", "--project", str(base)], env=inside, cwd=project)
+
+        refused = run_agm(["pkg", "install", str(app)], env=inside, cwd=project, check=False)
+
+        assert refused.returncode == 1
+        assert not (tmp_path / "agm-home" / "packages" / "gapp").exists()
+
+    @pytest.mark.parametrize("args", [["sync"], ["uninstall", "alpha"], ["switch", "alpha@1.0.0"]])
+    def test_project_operations_do_not_create_an_absent_project_store(
+        self,
+        scene: tuple[Path, dict[str, str], dict[str, str]],
+        args: list[str],
+    ) -> None:
+        project, inside, _ = scene
+
+        result = run_agm(
+            ["pkg", args[0], "--project", *args[1:]], env=inside, cwd=project, check=False
+        )
+
+        assert result.returncode == (0 if args[0] == "sync" else 1)
+        assert not (project / "packages").exists()
+
+    @pytest.mark.parametrize("command", ["check", "create"])
+    def test_resolving_commands_work_when_the_project_is_the_agm_home(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]], command: str
+    ) -> None:
+        project, _, outside = scene
+        as_home = {**outside, "AGM_HOME": str(project), "PROJ_DIR": str(project)}
+        source = _write_marked_package(tmp_path / "src", "alpha", "1.0.0", "alpha")
+
+        result = run_agm(["pkg", command, str(source)], env=as_home, cwd=project)
+
+        assert result.returncode == 0
+
+    def test_a_global_change_that_breaks_the_project_selection_warns(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, outside = scene
+        base = _write_marked_package(tmp_path / "base", "base", "1.0.0", "base")
+        app = _write_marked_package(
+            tmp_path / "app",
+            "papp",
+            "1.0.0",
+            "papp",
+            dependencies='\n[dependencies]\nbase = "1.0"\n',
+        )
+        unrelated = _write_marked_package(tmp_path / "other", "other", "1.0.0", "other")
+        run_agm(["pkg", "install", str(base)], env=outside, cwd=project)
+        run_agm(["pkg", "install", "--project", str(app)], env=inside, cwd=project)
+
+        harmless = run_agm(["pkg", "install", str(unrelated)], env=inside, cwd=project)
+        removed = run_agm(["pkg", "uninstall", "base"], env=inside, cwd=project)
+
+        assert harmless.stderr == ""
+        assert removed.returncode == 0
+        assert "papp" in removed.stderr
+
+    def test_project_install_rejects_the_managed_std_package(
+        self, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, _ = scene
+        std = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
+
+        result = run_agm(
+            ["pkg", "install", "--project", str(std)], env=inside, cwd=project, check=False
+        )
+
+        assert result.returncode == 1
+        assert not (project / "packages" / "std").exists()
+
+
 # ── help system ────────────────────────────────────────────────────────────
 
 

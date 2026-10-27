@@ -19,7 +19,7 @@ from agnette.config.module_roots import (
 )
 from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 from agnette.packages.record import write_record
-from agnette.packages.store import context_store
+from agnette.packages.store import global_store
 from agnette.version import AGM_VERSION
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +31,7 @@ def _activate_stdlib(home: Path, version: str) -> Path:
     shutil.copytree(_REPO_ROOT / "packages" / "stdlib", root)
     write_record(root)
     write_activation_index(
-        context_store(home=home, env={}),
+        global_store(home=home, env={}),
         ActivationIndex({"std": ActivePackage(semver.Version.parse(version))}),
     )
     return root
@@ -330,7 +330,7 @@ class TestResolveStdlibRoot:
     def test_missing_active_store_tree_falls_back_to_repo_checkout(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
         write_activation_index(
-            context_store(home=home, env={}),
+            global_store(home=home, env={}),
             ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
         )
 
@@ -360,7 +360,7 @@ class TestResolveStdlibRoot:
         editable = tmp_path / "editable"
         editable.mkdir()
         write_activation_index(
-            context_store(home=home, env={}),
+            global_store(home=home, env={}),
             ActivationIndex(
                 {"std": ActivePackage(semver.Version.parse(AGM_VERSION), editable=editable)}
             ),
@@ -377,7 +377,7 @@ class TestResolveStdlibRoot:
         store.mkdir(parents=True)
         (store / "std").symlink_to(target, target_is_directory=True)
         write_activation_index(
-            context_store(home=home, env={}),
+            global_store(home=home, env={}),
             ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
         )
 
@@ -390,7 +390,7 @@ class TestResolveStdlibRoot:
         store_stdlib.parent.mkdir(parents=True)
         store_stdlib.touch()
         write_activation_index(
-            context_store(home=home, env={}),
+            global_store(home=home, env={}),
             ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
         )
 

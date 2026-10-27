@@ -347,6 +347,11 @@ def project_deps_dir(project_dir: Path) -> Path:
     return project_dir / "deps"
 
 
+def project_packages_dir(project_dir: Path) -> Path:
+    """The project-local package store; created by the first ``--project`` install."""
+    return project_dir / "packages"
+
+
 def project_notes_dir(project_dir: Path) -> Path:
     return project_dir / "notes"
 
