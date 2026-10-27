@@ -16,7 +16,8 @@ from tests._agl_corpus import lexical_corpus
 
 
 def test_parent_corpus_character_styles() -> None:
-    # Captured from 91132ba0, with qualified declaration styles corrected.
+    # Captured from 91132ba0, with qualified declaration styles corrected and the last token
+    # of an indented block (no newline after it) styled.
     expected = json.loads(Path(__file__).with_name("agl_repl_corpus_styles.json").read_text())
     differences = []
     for name, source in lexical_corpus():
@@ -26,6 +27,12 @@ def test_parent_corpus_character_styles() -> None:
         if signature != expected[name]:
             differences.append(name)
     assert not differences
+
+
+def test_the_last_token_of_an_indented_block_is_styled() -> None:
+    (*_, last_line) = AglPromptLexer._styled_lines("def f() -> int =\n  g(1)")
+
+    assert last_line[-1] == ("class:agl.operator", ")")
 
 
 @pytest.mark.parametrize(

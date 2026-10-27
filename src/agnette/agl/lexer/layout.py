@@ -111,15 +111,27 @@ _CONTINUATION = {
 _HEADER_WORDS = frozenset({KW_IMPORT, KW_USE, KW_EXPORT})
 
 
+def _closing_position(last: Token) -> Token:
+    """A zero-width token at the end of *last*, the position a closing layout token takes."""
+    return Token(
+        "",
+        "",
+        start_pos=last.end_pos,
+        line=last.end_line,
+        column=last.end_column,
+        end_line=last.end_line,
+        end_column=last.end_column,
+        end_pos=last.end_pos,
+    )
+
+
 def _synthetic(typ: str, value: str, ref: Token) -> Token:
     """Create a synthetic layout token borrowing position from *ref*.
 
-    Position rule (the coherent ruling for layout tokens): synthetic
-    ``_NEWLINE``/``_INDENT``/``_DEDENT`` tokens are positioned at the newline
-    that introduces the next line — i.e. they borrow the full
-    line/column/start_pos/end_pos of the originating ``_NEWLINE`` ``ref`` token
-    (which the scanner positions at the ``\\n`` character itself).  At EOF the
-    ``ref`` is the last real token.
+    Position rule: a synthetic ``_INDENT`` borrows the position of the ``_NEWLINE`` that
+    introduces its line (the scanner positions it at the ``\\n`` character itself), and a
+    closing token (``_DEDENT``, a loop's synthetic ``done``) that of :func:`_closing_position`,
+    so a construct ends at its last real token whatever follows it on the line.
     """
     return Token(
         typ,
@@ -219,13 +231,11 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
         errors.append(error)
         return 0
 
-    def _pop_level(ref: Token, triggering_tok: Token | None) -> Iterator[Token]:
+    def _pop_level(triggering_tok: Token | None) -> Iterator[Token]:
         """Pop one indent level, emit _DEDENT, and inject synthetic DONE if needed.
 
         Parameters
         ----------
-        ref:
-            The _NEWLINE (or, at EOF, the last real) token used for position borrowing.
         triggering_tok:
             The first significant token that caused the pop (peeked but not consumed),
             or None at EOF.  Used to determine whether this pop is caused by an
@@ -233,7 +243,8 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
         """
         enclosing_col = loop_body_enclosing.pop()
         indent_stack.pop()
-        yield _synthetic(DEDENT, "", ref)
+        closing = _closing_position(cast(Token, last_real))
+        yield _synthetic(DEDENT, "", closing)
         if enclosing_col is not None:
             # This is a loop-body level.  Inject a synthetic DONE unless
             # the triggering token is an explicit until/done whose column
@@ -245,7 +256,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
                 and token_span(triggering_tok).start_col - 1 - base == enclosing_col
             )
             if not is_explicit_terminator:
-                yield _synthetic(KW_DONE, KW_DONE, ref)
+                yield _synthetic(KW_DONE, KW_DONE, closing)
 
     # Reference token for EOF dedents, and its predecessor: the operator-position
     # test reads the token on either side of a line break.
@@ -350,7 +361,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             kw_col = _relative(token_span(sig).start_col - 1, sig)
 
             while len(indent_stack) > 1 and indent_stack[-1] > kw_col:
-                yield from _pop_level(tok, sig)
+                yield from _pop_level(sig)
 
             # Suppress the _NEWLINE — the token continues the current construct.
             # Clear any _pending_loop_body: the `do` body must have been inline
@@ -391,7 +402,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
         else:
             # Dedent: pop levels and emit _DEDENT for each
             while len(indent_stack) > 1 and indent_stack[-1] > indent_width:
-                yield from _pop_level(tok, sig)
+                yield from _pop_level(sig)
 
             if indent_stack[-1] != indent_width:
                 # Misaligned dedent — the new indentation is not on the stack.
@@ -416,4 +427,4 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
     # EOF: unwind remaining indent levels with _DEDENT tokens anchored at the
     # last real token, which any pushed indent follows.
     while len(indent_stack) > 1:
-        yield from _pop_level(cast(Token, last_real), None)
+        yield from _pop_level(None)

@@ -9,6 +9,7 @@ A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}`, `%
 - **Literal scanning** — escape, number, identifier, and hole-opener rules live in `agl/value_syntax/lexical.py`, shared by the lexer and the host value-syntax reader; it also spells values back as literals so runtime rendering and constant folding cannot diverge. Every hole opener starts at `%` (`%!` quotes), and one recognizer (`hole_opener`) classifies it. All template forms share one hole scanner and one `template` grammar rule.
 - **Keywords** — `keywords.py` is the single inventory of reserved and soft keywords (soft keywords are ordinary names outside their promotion window). The lexer, shared highlighter, portable grammar and generated Emacs inventory import it; the parser grammar's literals and micro mode mirror it by hand.
 - **Operator position** — `lexer/operators.py` is the one inventory of operand-closing/opening tokens; layout line-continuation and operator-word promotion both query it, so they cannot disagree.
+- **Spans** — a construct's span ends at its last real token: closing layout tokens (`_DEDENT`, a loop's synthetic `done`) are zero-width there, so whitespace and comments after it are outside every span.
 
 ## Constant Folding
 

@@ -42,7 +42,7 @@ from agnette.agl.lexer.errors import (
 )
 from agnette.agl.lexer.lexer import build_parser
 from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span
-from agnette.agl.lexer.tokens import LAYOUT_TOKENS, NEWLINE, VERBATIM_END, VERBATIM_START
+from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import (
     MISPLACED_INNER_ATTRIBUTE_MESSAGE,
@@ -477,11 +477,8 @@ def _set_span(
     meta.end_pos, meta.end_line, meta.end_column = rebase.position(*end)
 
 
-def _module_tree(children: Sequence[Tree], rebase: Rebase, closing: Token | None = None) -> Tree:
-    """The program tree of the module whose top-level *children* are given, all rebased.
-
-    The tree spans to the end of *closing*, the rebased newline ending the last item's line, if any.
-    """
+def _module_tree(children: Sequence[Tree], rebase: Rebase) -> Tree:
+    """The program tree of the module whose top-level *children* are given, all rebased."""
     block = Tree("module_block", [_rebased_tree(c, rebase) for c in children])
     root = Tree("start", [block])
     first, last = children[0].meta, children[-1].meta
@@ -492,13 +489,6 @@ def _module_tree(children: Sequence[Tree], rebase: Rebase, closing: Token | None
             (last.end_pos, last.end_line, last.end_column),
             rebase,
         )
-        if closing is not None:
-            meta = node.meta
-            meta.end_pos, meta.end_line, meta.end_column = (
-                cast(int, closing.end_pos),
-                cast(int, closing.end_line),
-                cast(int, closing.end_column),
-            )
     return root
 
 
@@ -515,10 +505,7 @@ def entry_slices(
     (:func:`~agnette.agl.lexer.positions.entry_padding`). Each slice is the pass over its
     entry's text, read off the tokens of *lexed* without scanning
     (:func:`~agnette.agl.lexer.lexed_slices`), and carries its entry's parse, so reading it
-    parses nothing; the module's leading inner attributes belong to the first
-    entry. What follows an item's last token, which an indented block's closing layout covers
-    (whitespace, a comment), is no part of it: the slice's spans end there, as
-    parsing its text alone puts them.
+    parses nothing; the module's leading inner attributes belong to the first entry.
     """
     slices = lexed_slices(lexed, ranges, lines, paddings)
     whole = lexed.parses[_PROGRAM_START]
@@ -527,12 +514,8 @@ def entry_slices(
     starts = [start for start, _ in ranges]
     for child in ProgramTree(whole, lexed.text).children():
         entries[range_at(starts, child.meta.start_pos)].append(child)
-    for sliced, (start, end), padding, entry in zip(slices, ranges, paddings, entries):
-        last = max(i for i, t in enumerate(sliced.tokens) if t.type not in LAYOUT_TOKENS)
-        code = sliced.tokens[last]
-        rebase = Rebase(lines, start, padding, (end, code))
-        closing = next((t for t in sliced.tokens[last + 1 :] if t.type == NEWLINE), None)
-        sliced.parses[_PROGRAM_START] = _module_tree(entry, rebase, closing)
+    for sliced, start, padding, entry in zip(slices, starts, paddings, entries):
+        sliced.parses[_PROGRAM_START] = _module_tree(entry, Rebase(lines, start, padding))
     return slices
 
 

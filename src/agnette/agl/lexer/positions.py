@@ -98,10 +98,7 @@ class Rebase:
 
     Positions are 1-based lines and columns and 0-based offsets, as tokens carry them. The
     entry is the tail of the text from *start* (:func:`entry_text`, indented by *padding*,
-    :func:`entry_padding`). With *bound* ``(end, last)``, the tail stops at *end*: a position
-    past it, such as the newline a closing layout token covers after the tail's last item, is
-    read as the end of *last*, the tail's last token already rebased, where scanning the tail
-    alone puts it.
+    :func:`entry_padding`).
     """
 
     def __init__(
@@ -109,10 +106,8 @@ class Rebase:
         lines: LineIndex,
         start: int,
         padding: int = 0,
-        bound: tuple[int, Token] | None = None,
     ) -> None:
         self._start = start
-        self._bound = bound
         self._line = lines.line(start)
         self._padding = padding
         self._first_column = lines.column(start) - 1 - self._padding
@@ -127,14 +122,7 @@ class Rebase:
         return column if line != self._line else column - self._first_column
 
     def position(self, offset: int, line: int, column: int) -> tuple[int, int, int]:
-        """The rebased ``(offset, line, column)`` of a position, bounded by the tail's end."""
-        if self._bound is not None and offset > self._bound[0]:
-            last = self._bound[1]
-            return (
-                cast(int, last.end_pos),
-                cast(int, last.end_line),
-                cast(int, last.end_column),
-            )
+        """The rebased ``(offset, line, column)`` of a position."""
         return self.offset(offset), self.line(line), self.column(line, column)
 
     def token(self, tok: Token) -> Token:

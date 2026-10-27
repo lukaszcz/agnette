@@ -92,3 +92,40 @@ def test_a_module_allow_covers_a_tab_indented_last_line_without_a_newline(
     assert "warning" not in capsys.readouterr().err
     assert [w for r in loaded for w in r.warnings] == []
     assert entry.warnings == []
+
+
+# Source text -> the TAB advisories (line, column) an `@allow` leaves: it covers its item from
+# the first attribute to the item's last token, whatever the item's shape.
+_END_CASES = {
+    "block-then-item": (f"{_ALLOW}\ndef w() -> int =\n  1\t# c\nlet z = 1\n", [(3, 4)]),
+    "block-at-end": (f"{_ALLOW}\ndef w() -> int =\n  1\t# c\n", [(3, 4)]),
+    "block-without-newline": (f"{_ALLOW}\ndef w() -> int =\n  1\t# c", [(3, 4)]),
+    "single-line": (f"{_ALLOW} let w = 1\t# c\nlet z = 1\n", [(1, 36)]),
+    "record": (f"{_ALLOW}\nrecord R\n  x: int\t# c\nlet z = 1\n", [(3, 9)]),
+    "loop": (
+        f"{_ALLOW}\ndef w() -> unit =\n  var i = 0\n  while i < 1 do\n    i := i + 1\t# c\n",
+        [(5, 15)],
+    ),
+    "scope-item": (
+        f"scope S\n  {_ALLOW}\n  def w() -> int =\n    1\t# c\n  let z = 1\nend S\n",
+        [(4, 6)],
+    ),
+    "inside-the-item": (f"{_ALLOW}\ndef w() -> int =\n  let a = 1\t# c\n  a\n", []),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_END_CASES))
+def test_an_allow_ends_at_its_items_last_token_on_every_surface(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    source, expected = _END_CASES[name]
+    path = tmp_path / "p.agl"
+    path.write_text(source)
+    typed = ReplSession()
+    typed.open()
+
+    assert _checked(path, capsys) == expected
+    assert _loaded(source, path) == expected
+    assert [
+        (w.line, w.column) for w in typed.eval_entry(source).warnings if w.warning_name == TAB
+    ] == expected
