@@ -418,6 +418,7 @@ class IrInterpreter:
         extern_runtime_state: ExternRuntimeState | None = None,
         process_host: ProcessHost | None = None,
     ) -> None:
+        self._handled: list[AglRaise] = []
         self._program = program
         self._descriptors = ValueDescriptors.from_program(program)
         self._frames: list[Frame] = [base_frame if base_frame is not None else {}]
@@ -1749,6 +1750,8 @@ class IrInterpreter:
                     return UNIT_VALUE
 
                 case IrRaise(exc=exc_expr):
+                    if exc_expr is None:
+                        raise self._handled[-1]
                     exc_val = cast(ExceptionValue, self._eval(exc_expr))
                     raise AglRaise(exc_val, span=node.location)
 
@@ -1775,7 +1778,11 @@ class IrInterpreter:
                         ):
                             if handler.symbol is not None:
                                 self._frame[handler.symbol] = pending.exc
-                            return self._eval(handler.body)
+                            self._handled.append(pending)
+                            try:
+                                return self._eval(handler.body)
+                            finally:
+                                self._handled.pop()
                     raise pending
 
                 case IrCase(subject=subject_expr, arms=arms, default=default):

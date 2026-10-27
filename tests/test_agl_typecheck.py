@@ -5827,6 +5827,11 @@ class TestCatchReachability:
 
 
 class TestRaise:
+    def test_rethrow_has_bottom_type(self) -> None:
+        resolve_and_check_repl_entry(
+            'try\n  raise Abort(message = "stop")\ncatch _ =>\n  let n: int = raise\n  n\n'
+        )
+
     def test_raise_abort_ok(self) -> None:
         r = resolve_and_check_repl_entry('raise Abort(message = "error")')
         raise_node = r.resolved.program.body.items[0]

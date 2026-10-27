@@ -4699,6 +4699,8 @@ class _Checker:
     # --- raise ---
 
     def _infer_raise(self, node: Raise) -> BottomType:
+        if node.exc is None:
+            return BottomType()
         exc_type = self._check_expr(node.exc, expected=None)
         if not isinstance(exc_type, ExceptionType):
             error = AglTypeError(

@@ -469,7 +469,7 @@ paren_block    ::= (marked_item ";")+ marked_item
                  | inline_assign
                  | let_decl | var_decl
 
-raise_expr     ::= "raise" or_expr
+raise_expr     ::= "raise" or_expr?
 return_expr    ::= "return" or_expr?
 ```
 

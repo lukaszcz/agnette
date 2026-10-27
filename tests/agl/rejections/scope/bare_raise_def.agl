@@ -1,0 +1,6 @@
+program def main() -> unit =
+  try
+    raise Abort(message = "outer")
+  catch _ =>
+    def f() -> unit = raise
+    f()

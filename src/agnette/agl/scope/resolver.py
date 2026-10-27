@@ -776,6 +776,7 @@ class _Resolver(ModuleSources):
         # Function-body flag: True only while resolving a def/fn body (not parameter
         # defaults). Used to reject `return` outside the nearest function boundary.
         self._in_function: bool = False
+        self._in_handler = False
         # Whether this module declares a ``program def`` of its own, which
         # decides how a static-root rejection is explained.
         self._declares_program_entry = declares_source_entry(program.body.items)
@@ -2039,23 +2040,29 @@ class _Resolver(ModuleSources):
 
     @contextmanager
     def _resolution_flags_ctx(
-        self, *, in_loop: bool | None = None, in_function: bool | None = None
+        self,
+        *,
+        in_loop: bool | None = None,
+        in_function: bool | None = None,
+        in_handler: bool | None = None,
     ) -> Iterator[None]:
-        """Resolve a region with the loop and function flags it dictates.
+        """Resolve a region with its lexical control-flow flags.
 
-        A flag passed as ``None`` keeps its enclosing value.  Both are restored
+        A flag passed as ``None`` keeps its enclosing value.  All are restored
         on the way out, so nested regions and the code after one see the flags
         their own position dictates.
         """
-        previous = (self._in_loop, self._in_function)
+        previous = (self._in_loop, self._in_function, self._in_handler)
         if in_loop is not None:
             self._in_loop = in_loop
         if in_function is not None:
             self._in_function = in_function
+        if in_handler is not None:
+            self._in_handler = in_handler
         try:
             yield
         finally:
-            self._in_loop, self._in_function = previous
+            self._in_loop, self._in_function, self._in_handler = previous
 
     def _define(self, name: str, ref: BindingRef) -> None:
         """Define *name* in the current scope; error on redeclaration.
@@ -2613,7 +2620,12 @@ class _Resolver(ModuleSources):
             case Lambda():
                 self._resolve_lambda(expr)
             case Raise():
-                self._resolve_expr(expr.exc)
+                if expr.exc is not None:
+                    self._resolve_expr(expr.exc)
+                elif not self._in_handler:
+                    raise AglScopeError(
+                        "Bare 'raise' used outside a catch handler.", span=expr.span
+                    )
             case Return():
                 if not self._in_function:
                     raise AglScopeError(
@@ -3356,7 +3368,8 @@ class _Resolver(ModuleSources):
                     module_id=self._module_id,
                 )
                 catch_scope.define(clause.binding, ref)
-            self._resolve_expr_or_block(clause.body)
+            with self._resolution_flags_ctx(in_handler=True):
+                self._resolve_expr_or_block(clause.body)
 
     def _resolve_lambda(self, node: Lambda) -> None:
         """Resolve a ``fn(params) => body`` lambda; it is not in scope inside its own body."""
@@ -3368,7 +3381,7 @@ class _Resolver(ModuleSources):
         ``_in_loop`` is reset so that neither a ``break``/``continue`` in a
         default nor one in the body can cross the function boundary.
         """
-        with self._resolution_flags_ctx(in_loop=False, in_function=False):
+        with self._resolution_flags_ctx(in_loop=False, in_function=False, in_handler=False):
             with self._child_scope(node.node_id) as param_scope:
                 for param in node.params:
                     if param.default is not None:

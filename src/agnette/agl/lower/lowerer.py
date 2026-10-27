@@ -1025,7 +1025,8 @@ class _Lowerer:
                     if isinstance(seg, InterpSegment):
                         self._scan_captures(seg.expr, local_ids, captured)
             case Raise():
-                self._scan_captures(node.exc, local_ids, captured)
+                if node.exc is not None:
+                    self._scan_captures(node.exc, local_ids, captured)
             case Return():
                 if node.value is not None:
                     self._scan_captures(node.value, local_ids, captured)
@@ -1588,7 +1589,7 @@ class _Lowerer:
             case Raise(exc=exc_expr, span=span):
                 return IrRaise(
                     location=self._loc(span),
-                    exc=self.lower_expr(exc_expr),
+                    exc=self.lower_expr(exc_expr) if exc_expr is not None else None,
                 )
 
             case Return(value=value_expr, span=span):

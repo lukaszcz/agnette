@@ -2335,7 +2335,7 @@ class AstBuilder(Transformer):
     # ------------------------------------------------------------------
 
     def raise_expr(self, meta: Meta, args: _Args) -> syntax.Raise:
-        exc = _find_expr(args)
+        exc = next((cast(syntax.Expr, a) for a in args if _is_expr_node(a)), None)
         return syntax.Raise(exc=exc, span=self._span_from_meta(meta), node_id=self._next_id())
 
     def return_expr(self, meta: Meta, args: _Args) -> syntax.Return:

@@ -144,8 +144,8 @@ scope WaitInternals
   @doc("""
     Wait for the processes in order of completion, so that the first failure raises at once.
 
-    The failure is raised by waiting for the failed process again, which keeps its source
-    location; with `terminate-rest`, the processes still running are terminated first.
+    Rethrows the failure with its source location; with `terminate-rest`, the processes still
+    running are terminated first.
   """)
   def wait-completed[T](ps: array[Process[T]], terminate-rest: bool) -> unit =
     let pending = shallow-copy ps
@@ -155,7 +155,7 @@ scope WaitInternals
         let _ = wait(p)
       catch _ =>
         if terminate-rest => terminate-all(pending)
-        let _ = wait(p)
+        raise
     done
 end WaitInternals
 
