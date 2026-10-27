@@ -182,7 +182,7 @@ def tab_warning(line: int, col: int) -> Diagnostic:
     """Return the TAB advisory for the ``\\t`` at *line* and 1-based lexer column *col*."""
     return warning_diagnostic(
         TAB_INDENTATION,
-        f"TAB character at column {col} is not allowed; use spaces for indentation",
+        "TAB character is not allowed; use spaces for indentation",
         SourceSpan(line, col, line, col + 1, 0, 0),
     )
 

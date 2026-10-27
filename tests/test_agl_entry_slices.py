@@ -25,6 +25,7 @@ _SOURCES = {
     "records": "record P\n  x: int\nenum E =\n  | A\n  | B(v: int)\nlet p = P(1)\n",
     "base-indented": "  let a = 1\n  let b = a\n  def f() -> int =\n    b\n",
     "tab": "let a = 1\ndef f() -> int =\n\t1\nlet b = 2\ndef g() -> int =\n\t\t2\n",
+    "same-line-tab": "let a = 1; let\tb = 2\nlet c = 3\n",
     "spaced-qualifier": "let a = 1\nlet b = app/config ::x\nlet c = 3\nlet d = a::y\n",
     "text": 'let s = "a {1 + 1} b"\nlet t = $"x {s}"\nlet u = $\n  raw\n  more\n',
 }
