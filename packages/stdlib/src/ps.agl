@@ -78,7 +78,8 @@ enum OnFailure
   are discarded; a failure nobody consumed is reported as a warning. After an uncaught exception,
   an interrupt or `std/os::exit`, the children are terminated. In the REPL, children outlive the
   entry that forked them until `:quit` or `:reset` terminates them; an entry that fails
-  terminates its own children.
+  terminates its own children. Surviving members of attached children's process groups are
+  terminated at run or session end, even if their leaders have already finished.
 
   Raises `ProcessError` if the process cannot fork, for instance because the program has other
   threads, and `SessionError`, before any child exists, if a listed session is closed or cannot be
@@ -118,9 +119,11 @@ extern def settle-any[T](ps: array[Process[T]]) -> int
   Terminate the process and wait until it has ended.
 
   The child receives SIGTERM, unwinds and releases what it owns (its own children, sessions and
-  subprocesses); after a grace period it is killed. Terminating a finished process does nothing. A
-  process terminated before it delivered its outcome makes `wait` raise `ProcessExitError` with
-  its `signal`. Raises `ProcessError` for a detached, unknown or foreign handle.
+  subprocesses); after a grace period it and surviving members of its process group receive
+  SIGKILL. Group members are terminated even if the child has already finished; its outcome is
+  preserved. A process terminated before it delivered its outcome makes `wait` raise
+  `ProcessExitError` with its `signal`. Raises `ProcessError` for a detached, unknown or foreign
+  handle.
 """)
 extern def terminate[T](p: Process[T]) -> unit
 

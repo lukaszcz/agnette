@@ -516,7 +516,8 @@ A process the program forked through `std/ps` belongs to the run until it is det
   after a grace period), each unwinding and releasing what it owns, before the run's other
   cleanup. A second interrupt during termination kills them at once.
 
-A detached process is neither waited for nor terminated.
+Surviving members of an attached child's process group are terminated during cleanup, even if
+the child has already finished. A detached process is neither waited for nor terminated.
 
 In the REPL, a process belongs to the session and outlives the entry that forked it. Ctrl-C
 cancels the entry and terminates only the processes that entry forked; an entry that ends with

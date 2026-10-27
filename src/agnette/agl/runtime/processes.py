@@ -14,7 +14,8 @@ promptly.
 
 *Lifetime.* Terminating processes sends SIGTERM to each child and its group, keeps draining
 and reaping until one shared deadline, then SIGKILLs the stragglers; an interrupt meanwhile
-SIGKILLs at once. :meth:`ProcessHost.scope` terminates the processes forked inside it when
+SIGKILLs at once. Process groups remain targets after their leaders are reaped.
+:meth:`ProcessHost.scope` terminates the processes forked inside it when
 left by an exception, and :meth:`ProcessHost.end` settles or terminates all of them. A child
 tears down the same way before it exits, with half its parent's grace period, so it ends its
 own processes within the deadline its parent gives it. Only a SIGKILL that arrives at once (a
@@ -195,7 +196,8 @@ class _Entry:
     ``fd`` is ``-1`` once closed. A child at EOF that is not yet reaped keeps ``result``
     ``None`` until a wait completes it, so an interrupt can strike between the two steps.
     ``consumed``: the outcome was returned or reported, or the process was terminated by
-    :meth:`ProcessHost.terminate`.
+    :meth:`ProcessHost.terminate`. ``group_pending`` tracks group cleanup independently
+    of the outcome; it clears once the group is gone or has received SIGKILL.
     """
 
     id: str
@@ -206,6 +208,7 @@ class _Entry:
     consumed: bool = False
     decoded: object = None
     has_decoded: bool = False
+    group_pending: bool = True
 
     @property
     def done(self) -> bool:
@@ -218,10 +221,19 @@ def _signal(entry: _Entry, number: int = signal.SIGKILL) -> None:
     The group reaches the child while it leads it, and its descendants; the pid alone reaches a
     child that left its group (or has not joined it yet).
     """
-    with suppress(ProcessLookupError):
-        if os.getpgid(entry.pid) != entry.pid:
-            os.kill(entry.pid, number)
-    kill_group(entry.pid, number)
+    if not entry.done:
+        with suppress(ProcessLookupError):
+            if os.getpgid(entry.pid) != entry.pid:
+                os.kill(entry.pid, number)
+    if entry.group_pending:
+        entry.group_pending = kill_group(entry.pid, number) and number != signal.SIGKILL
+
+
+def _group_exists(entry: _Entry) -> bool:
+    """Check a pending group; never revisit a group once it has disappeared."""
+    if entry.group_pending:
+        entry.group_pending = kill_group(entry.pid, 0)
+    return entry.group_pending
 
 
 def _close_pipe(entry: _Entry) -> None:
@@ -576,7 +588,8 @@ class ProcessHost:
     def terminate(self, *ids: str) -> None:
         """Terminate processes *ids* under one shared deadline and wait until they have ended.
 
-        Finished ones are left alone. A process ended before it delivered reports
+        Finished children are left alone; surviving group members are terminated.
+        A process ended before it delivered reports
         ``Ended(signal=SIGTERM)``, or ``SIGKILL`` if it outlived the grace period. The outcomes
         count as consumed, so :meth:`end` does not report them.
         """
@@ -606,6 +619,7 @@ class ProcessHost:
         ``SETTLE`` waits for all of them, then reports each unconsumed outcome that is not a
         clean delivery (a failure, a raised exception, an early end): a one-line warning on
         stderr, then the reporter. An interrupt meanwhile terminates the rest and re-raises.
+        Both dispositions terminate surviving group members after their leaders finish.
         ``TERMINATE`` terminates all of them, reporting nothing.
         """
         try:
@@ -615,6 +629,7 @@ class ProcessHost:
                 everything = list(self._entries.values())
                 with self._terminating_on_error(lambda: everything):
                     self._pump(self._all_done(everything))
+                    self._terminate(everything)
                 run_cleanup_steps([functools.partial(self._report, e) for e in everything])
         finally:
             self._reap_detached()
@@ -645,35 +660,37 @@ class ProcessHost:
         return lambda: all(entry.done for entry in entries)
 
     def _terminate(self, entries: Sequence[_Entry]) -> None:
-        """Terminate those of *entries* that have not finished, under one shared deadline.
+        """Terminate unfinished children and surviving groups under one shared deadline.
 
         SIGTERM goes to them and their groups; the pipes of all attached processes are drained and
         finished ones reaped until the grace period is over, then SIGKILL goes to the
         groups of the stragglers. Any exception meanwhile (an interrupt) skips the wait:
         the remaining ones are killed and reaped, and it propagates.
         """
-        targets = [entry for entry in entries if not entry.done]
-        done = self._all_done(targets)
+        targets = [entry for entry in entries if not entry.done or _group_exists(entry)]
+
+        def done() -> bool:
+            return all(entry.done and not _group_exists(entry) for entry in targets)
+
         try:
             for entry in targets:
                 _signal(entry, signal.SIGTERM)
             self._pump(done, time.monotonic() + self._grace)
         except BaseException:
-            self._kill(targets, done)
+            self._kill(targets)
             raise
         if not done():
-            self._kill(targets, done)
+            self._kill(targets)
 
-    def _kill(self, targets: Sequence[_Entry], done: Callable[[], bool]) -> None:
-        """SIGKILL the groups of the unfinished *targets* and reap them.
+    def _kill(self, targets: Sequence[_Entry]) -> None:
+        """SIGKILL pending groups and unreaped children, then reap the children.
 
         Signals are held: SIGKILL ends the wait, and a pending interrupt then propagates.
         """
         with held_signals(_TERMINATING):
             for entry in targets:
-                if not entry.done:
-                    _signal(entry)
-            self._pump(done)
+                _signal(entry)
+            self._pump(self._all_done(targets))
 
     def _entry(self, id: str) -> _Entry:
         try:
@@ -732,6 +749,7 @@ class ProcessHost:
             _, status = os.waitpid(entry.pid, 0)
             entry.result = classify(entry.buffer, status)
             entry.buffer.clear()
+            _group_exists(entry)
 
     def _reap_detached(self) -> None:
         """Reap detached children that have exited; forget those already gone."""

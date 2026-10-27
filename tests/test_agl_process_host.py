@@ -14,7 +14,9 @@ import io
 import json
 import os
 import resource
+import select
 import signal
+import subprocess
 import sys
 import threading
 import warnings
@@ -1850,6 +1852,85 @@ def _terminate_one(workdir: Path) -> dict[str, Any]:
         host.terminate(stubborn.id)
         report["stubborn"] = _show(host.outcome(stubborn.id))
     return report
+
+
+def _surviving_process_group(workdir: Path, how: str, completed: bool) -> dict[str, Any]:
+    announce, writer = os.pipe()
+    gate = _Gate()
+
+    def child() -> bytes:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "os.write(1, b'r'); time.sleep(60)",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=writer,
+            stderr=subprocess.DEVNULL,
+        )
+        os.close(writer)
+        gate.pass_through()
+        # Keep the Popen alive until the callable returns.
+        return str(process.pid).encode()
+
+    with _host(grace=600.0 if how == "interrupt" else 0.1) as host:
+        info = host.fork(child, ())
+        os.close(writer)
+        assert os.read(announce, 1) == b"r"
+        if completed or how == "settle":
+            gate.open()
+        if completed:
+            host.decoded(info.id, _show)
+
+        interrupted = False
+
+        def interrupt_after_reaping(call: int) -> None:
+            if how == "interrupt" and _is_reaped(info.pid):
+                raise KeyboardInterrupt
+
+        try:
+            with before_each_poll(interrupt_after_reaping):
+                if how in ("terminate", "interrupt"):
+                    host.terminate(info.id)
+                else:
+                    host.end(Disposition.TERMINATE if how == "end" else Disposition.SETTLE)
+        except KeyboardInterrupt:
+            interrupted = True
+        poller = select.poll()
+        poller.register(announce, select.POLLHUP)
+        try:
+            gone = bool(poller.poll(5000))
+        finally:
+            kill_group(info.pid)
+            os.close(announce)
+        return {"gone": gone, "interrupted": interrupted, "reaped": _is_reaped(info.pid)}
+
+
+@pytest.mark.parametrize(
+    ("how", "completed"),
+    [
+        ("terminate", False),
+        ("terminate", True),
+        ("end", False),
+        ("end", True),
+        ("settle", False),
+        ("settle", True),
+        ("interrupt", False),
+    ],
+)
+def test_cleanup_ends_a_process_group_after_its_leader_exits(
+    tmp_path: Path, how: str, completed: bool
+) -> None:
+    report = run_callable(
+        _surviving_process_group,
+        tmp_path,
+        {"how": how, "completed": completed},
+        timeout=RUN_TIMEOUT,
+    ).value
+
+    assert report == {"gone": True, "interrupted": how == "interrupt", "reaped": True}
 
 
 def _kill_the_stubborn_among_the_finished(workdir: Path) -> list[Any]:
