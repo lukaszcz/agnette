@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import ModuleGraph
     from agnette.agl.modules.roots import RootSet
+    from agnette.agl.runtime.arguments import InheritedParamValue
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
@@ -218,7 +219,7 @@ class ArgumentPreflight:
     ``param_seeds``
         The decoded module-parameter values, ready for ``run_prepared``.
         Already folds in any ``@config`` entry targeting a ``@param``
-        binding, at its rank between the module-route and program-route/CLI
+        binding, at its rank between the module-route and ``@inherit``
         tiers (:meth:`PipelineDriver.preflight_arguments`).
     ``function_param_seeds``
         The decoded ``@param`` ``def``-parameter values, ready for ``run_prepared``:
@@ -1378,6 +1379,7 @@ class PipelineDriver:
         compiled: "MatchCompiledProgram | None" = None,
         param_values: "Mapping[HostParamKey, object] | None" = None,
         param_values_lower: "Mapping[HostParamKey, object] | None" = None,
+        param_values_inherited: "Mapping[HostParamKey, InheritedParamValue] | None" = None,
         supplied: "frozenset[HostParamKey]" = frozenset(),
     ) -> "ArgumentPreflight | ArgumentPreflightFailure":
         """Validate program arguments and host parameter values before execution.
@@ -1394,9 +1396,10 @@ class PipelineDriver:
         and merged by tier, lowest first, so one chain ranks every kind:
         *param_values_lower* (the declaration route, a package-owned program's
         manifest ``[config]`` values already folded in above it), then the
-        program's own ``@config`` entries, then *param_values* (supplied and
-        program-route values). A value a higher tier overrides is never
-        decoded. The ``@config`` values are already typed ``Value``s (evaluated
+        program's own ``@config`` entries, then *param_values_inherited* (raw
+        ``@inherit`` values, each with its address), then *param_values*
+        (supplied and program-route values). A value a higher tier overrides is
+        never decoded. The ``@config`` values are already typed ``Value``s (evaluated
         by :meth:`_evaluate_program_config`) and need no decoding. The tiers are
         the only channel of named program arguments: one is keyed by its
         program's :class:`~agnette.agl.ir.static_keys.FunctionParamKey`, the
@@ -1423,7 +1426,17 @@ class PipelineDriver:
         get_interp = lazy_interpreter(executable)
         default_resolver = resolver_over_interpreter(get_interp)
         upper, upper_arguments = split_program_arguments(param_values or {}, program)
+        upper_keys = frozenset(param_values or {})
         lower_params, lower_arguments = split_program_arguments(param_values_lower or {}, program)
+        inherited = {
+            key: item
+            for key, item in (param_values_inherited or {}).items()
+            if key not in upper_keys
+        }
+        inherited_addresses = {key: item.address for key, item in inherited.items()}
+        inherited_params, inherited_arguments = split_program_arguments(
+            {key: item.value for key, item in inherited.items()}, program
+        )
         program_config = self._evaluate_program_config(executable, program, get_interp)
         config_seeds, config_arguments = split_program_arguments(program_config, program)
         named = {
@@ -1432,6 +1445,7 @@ class PipelineDriver:
                 for name, value in lower_arguments.items()
                 if name not in config_arguments
             },
+            **inherited_arguments,
             **upper_arguments,
         }
         bound, bind_diagnostics = bind_program_arguments_for(
@@ -1440,6 +1454,9 @@ class PipelineDriver:
             ProgramArguments(positional=positional, named=named, fallback=config_arguments),
             default_resolver=default_resolver,
             configured=frozenset(name for name in named if program.param_key(name) not in supplied),
+            inherited={
+                name: inherited_addresses[program.param_key(name)] for name in inherited_arguments
+            },
         )
         usage_diagnostics = tuple(
             diag for diag in bind_diagnostics if not isinstance(diag, ConfiguredArgumentDiagnostic)
@@ -1447,15 +1464,22 @@ class PipelineDriver:
         config_param_values = {
             key: value
             for key, value in config_seeds.items()
-            if key in executable.param_bindings or key in executable.function_param_bindings
+            if (key in executable.param_bindings or key in executable.function_param_bindings)
+            and key not in inherited_params
         }
         lower = {
             key: value
             for key, value in lower_params.items()
-            if key not in upper and key not in config_param_values
+            if key not in upper and key not in config_param_values and key not in inherited_params
         }
         decoded_lower, lower_diagnostics = bind_param_values(
             executable, lower, default_resolver=default_resolver
+        )
+        decoded_inherited, inherited_diagnostics = bind_param_values(
+            executable,
+            inherited_params,
+            default_resolver=default_resolver,
+            inherited=inherited_addresses,
         )
         decoded_configured, configured_diagnostics = bind_param_values(
             executable,
@@ -1468,7 +1492,13 @@ class PipelineDriver:
             default_resolver=default_resolver,
         )
         seeds: dict[HostParamKey, Value] = {}
-        for tier in (decoded_lower, config_param_values, decoded_configured, decoded_supplied):
+        for tier in (
+            decoded_lower,
+            config_param_values,
+            decoded_inherited,
+            decoded_configured,
+            decoded_supplied,
+        ):
             seeds.update(tier.items())
         param_seeds, function_param_seeds = split_host_param_values(seeds)
         if not bind_diagnostics:
@@ -1480,6 +1510,7 @@ class PipelineDriver:
         diagnostics = (
             *bind_diagnostics,
             *lower_diagnostics,
+            *inherited_diagnostics,
             *configured_diagnostics,
             *supplied_diagnostics,
         )
@@ -1885,6 +1916,7 @@ def _module_param_infos(
                 static_binding_name(binding.item),
                 binding_type,
                 binding.cli,
+                inherit=binding.inherit,
                 **present(binding.item.type_ann, binding_type),
             )
 
@@ -1912,6 +1944,7 @@ def _function_param_infos(
                 binding.param.name,
                 param_type,
                 binding.cli,
+                inherit=binding.inherit,
                 **present(binding.param.type_expr, param_type),
             )
 
@@ -1959,6 +1992,7 @@ def _program_param_infos(
                 checked, module_id, ast_param.type_expr, param_spec.type, aliases
             ),
             enum_values=_enum_completion_values(param_spec.type, type_table),
+            inherit=checked_module.resolved.attributes.inherits.get(ast_param.node_id, ()),
         )
         for ast_param, param_spec in zip(funcdef.params, signature.params, strict=True)
     )

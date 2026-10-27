@@ -42,6 +42,7 @@ from agnette.agl.attributes import (
     DOC_ATTRIBUTE,
     EXEMPTS_ATTRIBUTE,
     EXTERN_NAME_ATTRIBUTE,
+    INHERIT_ATTRIBUTE,
     JSON_NAME_ATTRIBUTE,
     NAME_ADDRESSED_OPTION_ATTRIBUTES,
     NAME_ATTRIBUTE,
@@ -234,6 +235,7 @@ def recognize_attributes(
         extern_names=recognizer.extern_names,
         program_options=recognizer.program_options,
         params=recognizer.params,
+        inherits=recognizer.inherits,
         docs=recognizer.docs,
         external_names=recognizer.external_names,
         program_configs=recognizer.program_configs,
@@ -279,6 +281,7 @@ class _Recognizer:
         self.extern_names: dict[int, str] = {}
         self.program_options: dict[int, ProgramOptionSpec] = {}
         self.params: dict[int, ProgramOptionSpec] = {}
+        self.inherits: dict[int, tuple[str, ...]] = {}
         self.docs: dict[int, str] = {}
         self.external_names: dict[int, ExternalName] = {}
         self.program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = {}
@@ -378,6 +381,9 @@ class _Recognizer:
             self.docs[node_id] = documentation
         self._external_name(node_id, recognized)
         self._warning_names(node_id, span, recognized)
+        inherited = recognized.lists.get(INHERIT_ATTRIBUTE)
+        if inherited is not None:
+            self.inherits[node_id] = inherited
         return recognized
 
     def _inner(self, node: Program | ScopeRegion) -> None:
@@ -693,7 +699,7 @@ class _Recognizer:
         catalog's patterns in ``_validate_attribute_prefix``.)
         """
         if zone is ParamZone.POSITIONAL_ONLY:
-            for name in (PARAM_ATTRIBUTE, *NAME_ADDRESSED_OPTION_ATTRIBUTES):
+            for name in (PARAM_ATTRIBUTE, INHERIT_ATTRIBUTE, *NAME_ADDRESSED_OPTION_ATTRIBUTES):
                 attribute = recognized.nodes.get(name)
                 if attribute is not None:
                     raise AglScopeError(
@@ -814,13 +820,24 @@ def _program_command_path(recognized: _Recognized) -> str | None:
     return path
 
 
+def _check_text_pattern(
+    attribute: Attribute, spec: AttributeSpec, text: str, span: SourceSpan
+) -> None:
+    """Reject *text* unless it has the shape *spec* requires of a text argument."""
+    if spec.pattern is not None and spec.pattern.fullmatch(text) is None:
+        raise AglScopeError(
+            f"Attribute '{attribute.spelling}' {spec.expected} {text!r}.", span=span
+        )
+
+
 def _check_list_elements(attribute: Attribute, spec: AttributeSpec, texts: tuple[str, ...]) -> None:
-    """Reject a list argument repeating an element or naming one the spec does not admit.
+    """Reject a list argument with an ill-shaped, repeated, unknown or inadmissible element.
 
     Each error is anchored at the offending argument expression.
     """
     seen: set[str] = set()
     for text, argument in zip(texts, attribute.args, strict=True):
+        _check_text_pattern(attribute, spec, text, argument.span)
         if text in seen:
             raise AglScopeError(
                 f"Attribute '{attribute.spelling}' lists {spec.element} {text!r} more than once; "
@@ -911,11 +928,7 @@ def _check_arguments(
             span=attribute.span,
         )
     folded = _fold_text(attribute, attribute.args[0], constants, scope_path)
-    if spec.pattern is not None and spec.pattern.fullmatch(folded) is None:
-        raise AglScopeError(
-            f"Attribute '{attribute.spelling}' {spec.expected} {folded!r}.",
-            span=attribute.span,
-        )
+    _check_text_pattern(attribute, spec, folded, attribute.span)
     return folded
 
 

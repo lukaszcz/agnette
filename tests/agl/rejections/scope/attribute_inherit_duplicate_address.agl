@@ -1,0 +1,2 @@
+program def main(@inherit("tools.review.rounds", "tools.fix.rounds", "tools.review.rounds") count: int = 1) -> unit =
+  print count

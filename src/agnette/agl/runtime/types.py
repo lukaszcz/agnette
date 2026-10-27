@@ -85,6 +85,7 @@ class ProgramParamInfo:
                         no longer shows.
     ``enum_values``  — the preferred value-syntax spelling of each enum member,
                         using ``@name`` when present.
+    ``inherit``      — the ``@inherit`` addresses, in written order.
     """
 
     name: str
@@ -95,6 +96,7 @@ class ProgramParamInfo:
     cli: "ProgramOptionSpec"
     is_path: bool = False
     enum_values: tuple[str, ...] = ()
+    inherit: tuple[str, ...] = ()
 
 
 class HostParamKind(Enum):
@@ -124,6 +126,8 @@ class HostParamInfo:
     ``owner``        — the root or mount ``module`` resolved through
                         (:meth:`~agnette.agl.modules.roots.RootSet.owner_of`);
                         ``None`` when it has none (always, for an engine setting).
+    ``inherit``      — the ``@inherit`` addresses, in written order (none for an
+                        engine setting).
 
     Built only by the per-kind factories, which derive ``key`` from the
     identity fields; a new kind adds its own factory.
@@ -139,6 +143,7 @@ class HostParamInfo:
     is_path: bool = False
     enum_values: tuple[str, ...] = ()
     owner: "Path | None" = None
+    inherit: tuple[str, ...] = ()
 
     @classmethod
     def module_param(
@@ -152,6 +157,7 @@ class HostParamInfo:
         is_path: bool = False,
         enum_values: tuple[str, ...] = (),
         owner: "Path | None" = None,
+        inherit: tuple[str, ...] = (),
     ) -> "HostParamInfo":
         """Build the info of a ``@param`` module binding."""
         from agnette.agl.ir.static_keys import static_binding_key
@@ -167,6 +173,7 @@ class HostParamInfo:
             is_path=is_path,
             enum_values=enum_values,
             owner=owner,
+            inherit=inherit,
         )
 
     @classmethod
@@ -182,6 +189,7 @@ class HostParamInfo:
         is_path: bool = False,
         enum_values: tuple[str, ...] = (),
         owner: "Path | None" = None,
+        inherit: tuple[str, ...] = (),
     ) -> "HostParamInfo":
         """Build the info of a ``@param`` parameter of the ``def`` *function* in *scope_path*."""
         from agnette.agl.ir.static_keys import FunctionParamKey
@@ -197,6 +205,7 @@ class HostParamInfo:
             is_path=is_path,
             enum_values=enum_values,
             owner=owner,
+            inherit=inherit,
         )
 
     @classmethod

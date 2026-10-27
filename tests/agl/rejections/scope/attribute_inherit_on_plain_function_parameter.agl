@@ -1,0 +1,3 @@
+def helper(@inherit("tools.review.rounds") rounds: int = 1) -> int = rounds
+
+program def main() -> unit = print helper()

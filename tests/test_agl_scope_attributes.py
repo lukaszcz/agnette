@@ -587,6 +587,79 @@ class TestFunctionParams:
             resolve_entry(f'def f(@{name}("x") n: int = 1) -> int = n\n')
 
 
+class TestInherit:
+    """``@inherit`` addresses, filed by the parameter or binding they sit on."""
+
+    def test_a_program_parameter_files_its_addresses_in_written_order(self) -> None:
+        resolution = resolve_entry(
+            'program def main(@inherit("a.b.c", "x.y") n: int = 1) -> unit = ()\n'
+        )
+
+        (entry,) = _entries(resolution, "main")
+        assert resolution.attributes.inherits == {entry.node_id: ("a.b.c", "x.y")}
+
+    def test_a_param_binding_files_its_addresses(self) -> None:
+        resolution = resolve_entry('@param @inherit("a.b") let count = 1\n')
+        binding = _static_binding(resolution, "count")
+
+        assert resolution.attributes.inherits == {_binding_node_id(binding): ("a.b",)}
+
+    def test_a_param_def_parameter_files_its_addresses(self) -> None:
+        resolution = resolve_entry('def f(@param @inherit("a.b") n: int = 1) -> int = n\n')
+
+        (entry,) = _entries(resolution, "f")
+        assert resolution.attributes.inherits == {entry.node_id: ("a.b",)}
+
+    def test_an_address_folds_a_module_constant(self) -> None:
+        resolution = resolve_entry(
+            'let target = "a.b"\n\ndef f(@param @inherit(target) n: int = 1) -> int = n\n'
+        )
+
+        (entry,) = _entries(resolution, "f")
+        assert resolution.attributes.inherits == {entry.node_id: ("a.b",)}
+
+    def test_unmarked_sites_file_nothing(self) -> None:
+        resolution = resolve_entry("def f(@param n: int = 1) -> int = n\n")
+
+        assert resolution.attributes.inherits == {}
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            '@inherit("a.b") let count = 1\n',
+            'def f(@inherit("a.b") n: int = 1) -> int = n\n',
+            'record R\n  @inherit("a.b")\n  x: int\n',
+            '@inherit("a.b")\nprogram def main() -> unit = ()\n',
+            '@inherit("a.b")\ndef f() -> int = 1\n',
+        ],
+        ids=["binding", "def-parameter", "field", "program", "function"],
+    )
+    def test_misplaced_inherit_is_rejected(self, source: str) -> None:
+        with pytest.raises(AglScopeError, match="inherit"):
+            resolve_entry(source)
+
+    @pytest.mark.parametrize(
+        "address", ["a", "", "a.", ".a", "a..b", "a b.c", "a.b c", "a.-b", "a.b-", "é.b"]
+    )
+    def test_an_address_that_is_not_two_or_more_words_is_rejected(self, address: str) -> None:
+        with pytest.raises(AglScopeError, match="inherit"):
+            resolve_entry(f'program def main(@inherit("{address}") n: int = 1) -> unit = ()\n')
+
+    def test_a_duplicate_address_is_rejected(self) -> None:
+        with pytest.raises(AglScopeError, match="more than once"):
+            resolve_entry(
+                'program def main(@inherit("a.b", "c.d", "a.b") n: int = 1) -> unit = ()\n'
+            )
+
+    def test_inherit_needs_an_argument(self) -> None:
+        with pytest.raises(AglScopeError, match="inherit"):
+            resolve_entry("program def main(@inherit n: int = 1) -> unit = ()\n")
+
+    def test_a_positional_only_program_parameter_is_rejected(self) -> None:
+        with pytest.raises(AglScopeError, match="positional-only"):
+            resolve_entry('program def main(@arg-pos @inherit("a.b") n: int) -> unit = ()\n')
+
+
 class TestDocumentationTexts:
     """``@doc`` text, keyed by the declaration that carries it."""
 

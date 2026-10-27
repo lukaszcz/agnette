@@ -43,6 +43,7 @@ __all__ = [
     "DOC_ATTRIBUTE",
     "EXEMPTS_ATTRIBUTE",
     "EXTERN_NAME_ATTRIBUTE",
+    "INHERIT_ATTRIBUTE",
     "JSON_NAME_ATTRIBUTE",
     "NAME_ADDRESSED_OPTION_ATTRIBUTES",
     "NAME_ATTRIBUTE",
@@ -117,9 +118,9 @@ class AttributeSpec:
 
     ``targets`` are the declaration kinds it may sit on, ``arguments`` its
     argument shape, and ``conflicts`` the names it may not appear beside.
-    ``pattern`` narrows a text argument further — the spelling a host has to
-    be able to form from it — and ``expected`` phrases that shape for the
-    diagnostic an argument failing it raises. Both are absent for an
+    ``pattern`` narrows a text argument (each element of a list) further — the
+    spelling a host has to be able to form from it — and ``expected`` phrases
+    that shape for the diagnostic an argument failing it raises. Both are absent for an
     attribute whose text is arbitrary prose.
 
     A ``TEXT_LIST`` attribute may restrict its elements: ``known`` is every
@@ -215,6 +216,27 @@ OPTION_ENV_ATTRIBUTE = "opt-env"
 OPTION_METAVAR_ATTRIBUTE = "opt-metavar"
 OPTION_HIDDEN_ATTRIBUTE = "opt-hidden"
 
+
+def _word_source(extra: str = "") -> str:
+    """Return the regex source of a word of ASCII letters, digits, *extra* and interior hyphens."""
+    word_chars = f"A-Za-z0-9{extra}"
+    return rf"[{word_chars}](?:[{word_chars}]|-(?=[{word_chars}]))*"
+
+
+#: The attribute giving a host parameter other commands' parameters' configured
+#: values as defaults, by dotted address: a registered command path followed by a
+#: parameter spelling (``devel.review.agent``).
+INHERIT_ATTRIBUTE = "inherit"
+
+#: The shape of an ``@inherit`` address: at least two dot-separated words of
+#: ASCII letters, digits, underscores and interior hyphens. A command word of
+#: any other spelling (a dot, say) cannot be addressed.
+INHERIT_ADDRESS_PATTERN = re.compile(rf"{_word_source('_')}(?:\.{_word_source('_')})+")
+_INHERIT_ADDRESS_EXPECTED = (
+    "takes dot-separated words of ASCII letters, digits, underscores and interior hyphens "
+    "(at least two), not"
+)
+
 #: The marker that exposes a static binding or a ``def`` parameter as a host-facing parameter.
 PARAM_ATTRIBUTE = "param"
 
@@ -248,7 +270,7 @@ NAME_ADDRESSED_OPTION_ATTRIBUTES: tuple[str, ...] = (
 #: hyphen with one, so a host can form both ``--<name>`` and the derived
 #: ``--no-<name>`` from it. Anything else — a leading, trailing or doubled
 #: hyphen, whitespace, ``=``, other punctuation, the empty text — is rejected.
-OPTION_NAME_PATTERN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9]))*")
+OPTION_NAME_PATTERN = re.compile(_word_source())
 _OPTION_NAME_EXPECTED = (
     "takes a flag word — ASCII letters, digits and hyphens, beginning with a letter or digit — not"
 )
@@ -431,6 +453,14 @@ _SPECS: tuple[AttributeSpec, ...] = (
     _option_spec(OPTION_ENV_ATTRIBUTE, AttributeArguments.ONE_TEXT),
     _option_spec(OPTION_METAVAR_ATTRIBUTE, AttributeArguments.ONE_TEXT),
     _option_spec(OPTION_HIDDEN_ATTRIBUTE, AttributeArguments.NONE),
+    AttributeSpec(
+        name=INHERIT_ATTRIBUTE,
+        targets=_HOST_PARAMETER_TARGETS,
+        arguments=AttributeArguments.TEXT_LIST,
+        pattern=INHERIT_ADDRESS_PATTERN,
+        expected=_INHERIT_ADDRESS_EXPECTED,
+        element="address",
+    ),
     _program_spec(COMMAND_ATTRIBUTE),
     AttributeSpec(
         name=CONFIG_ATTRIBUTE,

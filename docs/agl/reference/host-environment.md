@@ -492,7 +492,7 @@ Every host parameter — program argument, function parameter, module parameter
 or engine setting — takes the first value supplied, left to right:
 
 ```
-CLI  >  @opt-env  >  program route  >  @config  >  manifest [config]  >  declaration route  >  default
+CLI  >  @opt-env  >  program route  >  @inherit  >  @config  >  manifest [config]  >  declaration route  >  default
 ```
 
 A program argument has no declaration route beyond its program route, and its
@@ -505,6 +505,11 @@ declared default. An engine setting has no `@opt-env`; its declaration route is
 - **Program route** — the selected program's own tables (its qualified
   table and, for a registered command, its command-path table), then inherited
   group tables; see [Config-file schema](#config-file-schema).
+- **`@inherit`** — the value [`@inherit`](attributes.md#inherit) reads from
+  another command's configuration: its program tables, then its package's
+  manifest `[config]`. Another command's command line, environment, `@config`,
+  and `@inherit` never contribute. An address naming no registered command
+  draws a warning and supplies nothing.
 - **`@config`** — the selected program's own [`@config`](attributes.md#config)
   entries. A program argument takes its value only when that program is the
   selected one; a function `@param` takes it as the default of every reaching
@@ -533,7 +538,8 @@ manifest: its own value parameters resolve as CLI token > `@opt-env` >
 declared default, and its own module parameters as CLI flag > `@opt-env` >
 `@config` > initializer, while its file-backed imports keep their module
 routes. The REPL has no selected
-program: engine settings resolve as CLI > `[exec]` > declared default, and a
+program: engine settings resolve as CLI > `[exec]` > declared default,
+`@inherit` and `@config` apply nothing, and a
 `program def` declared there is an ordinary function, so its named-only
 parameters are supplied as `main(x = 5)`.
 

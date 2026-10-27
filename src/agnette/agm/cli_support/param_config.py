@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import NamedTuple, NoReturn
 
 from agnette.agl.ir.static_keys import (
@@ -13,8 +13,14 @@ from agnette.agl.ir.static_keys import (
     host_param_label,
 )
 from agnette.agl.modules.ids import ModuleId
+from agnette.agl.runtime.arguments import InheritedParamValue
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
+from agnette.agm.cli_support.param_inherit import (
+    InheritRequest,
+    InheritScope,
+    resolve_inherited_values,
+)
 from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
 from agnette.agm.cli_support.program_options import (
     ProjectedOption,
@@ -66,7 +72,9 @@ class ParamValueTiers:
     package-owned) already outranks the plain declaration-route value for the
     same key. The full chain also ranks a selected program's own ``@config``
     entries between the two — ``PipelineDriver.preflight_arguments`` merges
-    all three; there is no flattened two-tier view here.
+    all three; there is no flattened two-tier view here. ``inherited`` holds
+    the ``@inherit`` values, ranked between ``@config`` and ``upper``; it
+    never names a key ``upper`` or ``supplied`` holds.
 
     Every host parameter kind is keyed alike by :data:`HostParamKey`: module
     parameters and engine settings by binding key (an engine setting's
@@ -81,6 +89,7 @@ class ParamValueTiers:
     upper: Mapping[HostParamKey, object]
     lower: Mapping[HostParamKey, object]
     supplied: frozenset[HostParamKey] = frozenset()
+    inherited: Mapping[HostParamKey, InheritedParamValue] = field(default_factory=dict)
 
 
 class _RouteReport(NamedTuple):
@@ -240,6 +249,7 @@ def resolve_param_values(
     declared_programs: Sequence[ProgramDeclInfo] = (),
     positional: frozenset[FunctionParamKey] = frozenset(),
     manifest_anchor: PathAnchor | None = None,
+    inherit_scope: InheritScope | None = None,
 ) -> ParamValueTiers:
     """Resolve parameter config values beneath parsed CLI/environment values.
 
@@ -288,6 +298,12 @@ def resolve_param_values(
     A table at a leaf position is a nested route, not a value, when it is a
     command table (``package_command_paths`` and the program's own) or a route
     table of any declaration or the program; any other table is a native value.
+
+    A parameter's ``@inherit`` addresses fill ``inherited`` for every parameter
+    that no CLI, environment, positional or program-route value covers, read from
+    the registered commands of *inherit_scope* (``None``: ``@inherit`` is not
+    resolved). An address naming no registered command warns for every
+    parameter, covered or not.
     """
     supplied = frozenset(params) | positional
     entries = surface.entries
@@ -354,7 +370,12 @@ def resolve_param_values(
         )
 
     _report_undeclared_config_keys(config, reports, package_command_paths, nested_routes)
-    return ParamValueTiers(upper=upper, lower=lower, supplied=supplied)
+    inherited = (
+        {}
+        if inherit_scope is None
+        else _inherited_values(config, targets, inherit_scope, upper.keys() | supplied)
+    )
+    return ParamValueTiers(upper=upper, lower=lower, supplied=supplied, inherited=inherited)
 
 
 def colliding_declarations(params: Iterable[HostParamInfo]) -> str | None:
@@ -384,24 +405,30 @@ def _declaration_routed(params: Iterable[HostParamInfo]) -> tuple[HostParamInfo,
 
 
 class _Target(NamedTuple):
-    """A parameter the selected program's tables address, by every leaf spelling it wins."""
+    """A parameter the selected program's tables address, by every leaf spelling it wins.
+
+    ``label`` names it in diagnostics: a program argument by its name, any other
+    parameter by its qualified spelling.
+    """
 
     label: str
     key: HostParamKey
     projected: ProjectedOption
     spellings: tuple[str, ...]
     is_path: bool
+    inherit: tuple[str, ...]
 
 
 def _targets(program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]) -> tuple[_Target, ...]:
     """Return the program arguments and surface parameters its own tables address."""
     arguments = tuple(
         _Target(
-            host_param_label(program.param_key(argument.name)),
+            argument.name,
             program.param_key(argument.name),
             project_option(argument.cli.name, argument.type),
             (argument.cli.name,),
             argument.is_path,
+            argument.inherit,
         )
         for argument in program.parameters
         if argument.kind in NAME_ADDRESSABLE_ZONES
@@ -413,10 +440,37 @@ def _targets(program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]) -> 
             project_option(entry.param.cli.name, entry.param.type),
             entry.spellings,
             entry.param.is_path,
+            entry.param.inherit,
         )
         for entry in entries
     )
     return (*arguments, *parameters)
+
+
+def _inherited_values(
+    config: GeneralConfig,
+    targets: Sequence[_Target],
+    scope: InheritScope,
+    covered: Collection[HostParamKey],
+) -> dict[HostParamKey, InheritedParamValue]:
+    """Resolve the ``@inherit`` values of *targets* not in *covered*, as raw argument values.
+
+    Covered targets are resolved only for the diagnostics of their addresses.
+    """
+    resolved = resolve_inherited_values(
+        config,
+        {target.key: InheritRequest(target.label, target.inherit) for target in targets},
+        scope,
+    )
+    by_key = {target.key: target for target in targets}
+    return {
+        key: InheritedParamValue(
+            _native_value(by_key[key].projected, by_key[key].is_path, value.configured),
+            value.address,
+        )
+        for key, value in resolved.items()
+        if key not in covered
+    }
 
 
 def _reject_configured_cross_route_ambiguities(

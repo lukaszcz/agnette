@@ -52,7 +52,7 @@ The parser keeps attributes verbatim; scope gives them meaning. One walk checks 
 | `param_zones` | `@arg-*` | typecheck parameter and field lists (the AST carries no zone) |
 | `extern_names` | `@extern-name` | lowering and companion resolution ([execution/ffi.md](../execution/ffi.md)) |
 | `external_names` | `@name`, `@json-name` | type building; collisions checked by typecheck |
-| `params`, `program_options`, `docs` | `@param`, `@opt-*`, `@doc` | program discovery and CLI projection ([hosting.md](../hosting.md)); `docs` also type building |
+| `params`, `program_options`, `inherits`, `docs` | `@param`, `@opt-*`, `@inherit`, `@doc` | program discovery and CLI projection ([hosting.md](../hosting.md)); `docs` also type building |
 | `program_configs` | `@config` | typecheck (keys resolved, values checked as constants) and lowering ([hosting.md](../hosting.md)); a key naming a `def` parameter (`function::parameter`) resolves as the function reference, recorded in `ModuleResolution.config_param_functions` and checked against `BindingRef.host_params` (carried across imports like `is_param`; a non-`@param` parameter is legal only for the carrying `program def`); like a scope member, its chain selects the parameter under the function's path and the key resolves to the parameter, so navigation and highlighting need no special case; typecheck rejects a positional-only parameter |
 | `module_doc`, `region_docs` | `@!doc` | REPL `:info` ([repl.md](../repl.md)) |
 | `warning_allows` | `@allow`, `@!allow` | the warning policy ([hosting.md](../hosting.md)) |

@@ -1,0 +1,4 @@
+@inherit("tools.review.rounds")
+let rounds = 1
+
+program def main() -> unit = print rounds

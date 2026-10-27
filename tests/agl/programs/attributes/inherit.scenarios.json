@@ -1,0 +1,26 @@
+{
+  "scenarios": [
+    {
+      "name": "defaults_apply_when_nothing_is_inherited",
+      "expect": {
+        "stdout": "plain\n9\n2\nscoped\n4\n"
+      }
+    },
+    {
+      "name": "directly_supplied_values_are_unaffected",
+      "params": {
+        "agent-name": "given"
+      },
+      "module_params": {
+        "<entry>::rounds": 7,
+        "<entry>::Sc::label": "set"
+      },
+      "function_params": {
+        "refine::steps": 1
+      },
+      "expect": {
+        "stdout": "given\n9\n7\nset\n1\n"
+      }
+    }
+  ]
+}

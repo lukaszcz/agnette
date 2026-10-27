@@ -17,6 +17,7 @@ from agnette.agl.pipeline import (
     PreparedProgram,
     ProgramDiscovery,
 )
+from agnette.agl.runtime.arguments import InheritedParamValue
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
 from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots
@@ -57,6 +58,7 @@ def _preflight(
     *,
     param_values: dict[HostParamKey, object] | None = None,
     param_values_lower: dict[HostParamKey, object] | None = None,
+    param_values_inherited: dict[HostParamKey, InheritedParamValue] | None = None,
 ) -> ArgumentPreflight:
     """Preflight the first discovered program with no value arguments."""
     return runtime.preflight_arguments(
@@ -65,6 +67,7 @@ def _preflight(
         compiled=discovery.compiled,
         param_values=param_values,
         param_values_lower=param_values_lower,
+        param_values_inherited=param_values_inherited,
     )
 
 
@@ -684,6 +687,144 @@ class TestParamValueTierMerge:
 
         assert preflight.result.ok
         assert preflight.param_seeds == {count.key: IntValue(7)}
+
+
+def test_discovery_exposes_inherit_addresses_of_every_parameter_kind(tmp_path: Path) -> None:
+    discovery = _discover(
+        """
+@param @inherit("a.b", "c.d") let verbose: bool = false
+@param let plain: bool = false
+
+def refine(@param @inherit("x.y") steps: int = 1, @param other: int = 2) -> bool =
+  steps + other > 0 and verbose and plain
+
+program def main(@inherit("p.q") depth: int = 1, flat: int = 2) -> unit =
+  let _ = refine() and depth + flat > 0
+""",
+        tmp_path,
+    )
+    program = discovery.programs[0]
+
+    inherits = {param.name: param.inherit for param in discovery.params_for(program)}
+    assert inherits["verbose"] == ("a.b", "c.d")
+    assert inherits["plain"] == ()
+    assert inherits["steps"] == ("x.y",)
+    assert inherits["other"] == ()
+    assert {arg.name: arg.inherit for arg in program.parameters} == {
+        "depth": ("p.q",),
+        "flat": (),
+    }
+
+
+class TestInheritedTier:
+    """``param_values_inherited`` ranks between ``@config`` (below) and the upper tier (above)."""
+
+    _SOURCE = "@param let count: int = 1\n\n@config(count = 2)\n"
+    _MAIN = "program def main() -> unit =\n  let _ = count\n"
+
+    def test_inherited_overrides_config_and_lower(self, tmp_path: Path) -> None:
+        from agnette.agl.semantics.values import IntValue
+
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared(self._SOURCE + self._MAIN, tmp_path)
+        discovery = runtime.discover_programs(prepared)
+        (count,) = _module_params(discovery, discovery.programs[0])
+
+        preflight = _preflight(
+            runtime,
+            prepared,
+            discovery,
+            param_values_lower={count.key: 5},
+            param_values_inherited={count.key: InheritedParamValue(9, "a.b")},
+        )
+
+        assert preflight.param_seeds == {count.key: IntValue(9)}
+
+    def test_upper_overrides_inherited_and_the_inherited_value_is_never_decoded(
+        self, tmp_path: Path
+    ) -> None:
+        from agnette.agl.semantics.values import IntValue
+
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared(self._SOURCE + self._MAIN, tmp_path)
+        discovery = runtime.discover_programs(prepared)
+        (count,) = _module_params(discovery, discovery.programs[0])
+
+        preflight = _preflight(
+            runtime,
+            prepared,
+            discovery,
+            param_values={count.key: 7},
+            param_values_inherited={count.key: InheritedParamValue("not-an-int", "a.b")},
+        )
+
+        assert preflight.param_seeds == {count.key: IntValue(7)}
+
+    def test_an_inherited_value_that_does_not_decode_names_the_address_and_is_no_usage_error(
+        self, tmp_path: Path
+    ) -> None:
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared(self._SOURCE + self._MAIN, tmp_path)
+        discovery = runtime.discover_programs(prepared)
+        (count,) = _module_params(discovery, discovery.programs[0])
+
+        failure = runtime.preflight_arguments(
+            prepared,
+            discovery.programs[0],
+            compiled=discovery.compiled,
+            param_values_inherited={count.key: InheritedParamValue("not-an-int", "a.b")},
+        )
+
+        assert isinstance(failure, ArgumentPreflightFailure)
+        (diagnostic,) = failure.result.diagnostics
+        assert "count" in diagnostic.message
+        assert "a.b" in diagnostic.message
+        assert not failure.usage_diagnostics
+
+    def test_a_program_argument_takes_the_inherited_value_over_config_and_lower(
+        self, tmp_path: Path
+    ) -> None:
+        from agnette.agl.semantics.values import IntValue
+
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared(
+            "@config(main::count = 2)\nprogram def main(count: int = 1) -> unit = ()\n", tmp_path
+        )
+        discovery = runtime.discover_programs(prepared)
+        program = discovery.programs[0]
+        key = program.param_key("count")
+
+        preflight = runtime.preflight_arguments(
+            prepared,
+            program,
+            compiled=discovery.compiled,
+            param_values_lower={key: 5},
+            param_values_inherited={key: InheritedParamValue(9, "a.b")},
+        )
+
+        assert isinstance(preflight, ArgumentPreflight)
+        assert preflight.arguments == (IntValue(9),)
+
+    def test_a_program_argument_inherited_value_that_does_not_decode_names_the_address(
+        self, tmp_path: Path
+    ) -> None:
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = _prepared("program def main(count: int = 1) -> unit = ()\n", tmp_path)
+        discovery = runtime.discover_programs(prepared)
+        program = discovery.programs[0]
+
+        failure = runtime.preflight_arguments(
+            prepared,
+            program,
+            compiled=discovery.compiled,
+            param_values_inherited={program.param_key("count"): InheritedParamValue("nope", "a.b")},
+        )
+
+        assert isinstance(failure, ArgumentPreflightFailure)
+        (diagnostic,) = failure.result.diagnostics
+        assert "count" in diagnostic.message
+        assert "a.b" in diagnostic.message
+        assert not failure.usage_diagnostics
 
 
 class TestProgramArgumentTierMerge:

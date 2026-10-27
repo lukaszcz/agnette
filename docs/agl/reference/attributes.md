@@ -17,11 +17,11 @@ attributes may be written in a row; their layout is given in
 [Lexical structure](lexical-structure.md#attributes), their syntax in
 [Grammar](grammar.md#attributes).
 
-Every built-in attribute but `@config`, `@allow`, and `@exempts` takes one
-constant text expression positionally, or nothing at all; see [Constant
-arguments](#constant-arguments) below. `@allow` and `@exempts` take one or more
-such expressions, `@allow("a", "b")`. `@config` instead takes one or more
-`key = value` entries; see [`@config`](#config). An unknown name, a misplaced,
+Every built-in attribute but `@config`, `@allow`, `@exempts`, and `@inherit`
+takes one constant text expression positionally, or nothing at all; see
+[Constant arguments](#constant-arguments) below. `@allow`, `@exempts`, and
+`@inherit` take one or more such expressions, `@allow("a", "b")`. `@config`
+instead takes one or more `key = value` entries; see [`@config`](#config). An unknown name, a misplaced,
 repeated, or conflicting attribute, and an argument list the attribute does not
 admit are static errors.
 
@@ -115,6 +115,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@opt-env("VAR")` | variable name | `program def` parameter, `@param` parameter, or `@param` binding | Environment fallback when no CLI token supplies the value. |
 | `@opt-metavar("…")` | placeholder | `program def` parameter, `@param` parameter, or `@param` binding | Value placeholder in usage and help. |
 | `@opt-hidden` | none | `program def` parameter, `@param` parameter, or `@param` binding | Omits the flag from help and completion; the parameter still binds. |
+| `@inherit("a.b.c", ...)` | one or more dotted config addresses | `program def` parameter, `@param` parameter, or `@param` binding | Defaults the parameter to the configured value of another command's parameter; see [`@inherit`](#inherit). |
 | `@name("…")` | AgL identifier | field, enum member, or record declaration | Alternative external name; default JSON name. |
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
@@ -399,6 +400,41 @@ same module that is not selected, keeps its own parameters and settings
 unaffected by it. `agm check` and the REPL validate a `@config` attribute
 statically and apply nothing. Where `@config` ranks against the command line
 and configuration files: [Precedence](host-environment.md#precedence).
+
+## `@inherit`
+
+`@inherit("tools.review.limit", ...)` makes a host parameter default to the
+value configured for a parameter of another command, so related commands share
+one setting. Each argument is a constant text address of two or more
+dot-separated words (ASCII letters, digits, `_`, interior `-`); a repeated
+address is a static error. A command word of any other spelling, such as one
+containing a dot, cannot be addressed. It applies to a `program def`
+parameter, a [`@param`](#function-parameters) parameter, or a
+[`@param`](#module-parameters) binding; a positional-only `program def`
+parameter cannot carry it.
+
+An address names a registered command (or its alias) followed by a
+configuration key of that command: the longest leading words naming a command
+path are the command, the rest is the key, so `tools.review.max.steps` reads
+the key `max.steps` of `tools review`. The first address that yields a value
+supplies it. Only configuration is read: the command's program tables
+(its command-path and inherited group tables) and its package's
+[manifest `[config]`](../../commands/pkg.md#config) — never that command's
+command line, environment, `@config`, or `@inherit`, so inheritance does not
+chain. An address naming no registered command, or a command group, contributes
+nothing and draws a warning.
+
+The value is decoded as the inheriting parameter's own type, with relative path
+values anchored to the file that defines them; a value its type rejects is a
+configuration error naming both parameters. Where `@inherit` ranks:
+[Precedence](host-environment.md#precedence). `agm check` and the REPL validate
+`@inherit` statically and apply nothing.
+
+```agl
+@command("tools audit")
+program def audit(@inherit("tools.review.limit") limit: int = 10) -> unit =
+  print limit
+```
 
 ## Host parameter attributes
 

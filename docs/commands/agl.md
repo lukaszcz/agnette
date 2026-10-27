@@ -555,6 +555,12 @@ A [registered command](pkg.md#registered-commands)'s program route also inherits
 path — its own or an alias's — feeds every command beneath it, deepest prefix first, below the
 program's own tables but above `@config`.
 
+A parameter may instead default to another command's configured value with
+[`@inherit`](../agl/reference/attributes.md#inherit): the first address yielding a value
+supplies it, read from that command's program tables, then its package's manifest `[config]`.
+It ranks below the program route and above `@config`; an address naming no registered command
+draws a warning on stderr and supplies nothing.
+
 A key in the selected program's table naming neither a name-addressable parameter nor an engine
 setting (typically a misspelling) is reported on stderr and ignored; one naming a
 positional-only parameter is reported with a distinct message (supply it positionally). Either

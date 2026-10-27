@@ -998,6 +998,11 @@ class AttributeFacts:
         ``var`` (keyed by its binding node id) and ``def`` parameter (keyed by
         ``Param.node_id``). A ``program def`` ``@param`` parameter has an entry
         here and in ``program_options``. Unmarked sites have no entry.
+    ``inherits``
+        The ``@inherit`` addresses, in written order, of every host parameter or
+        ``@param`` binding carrying them, keyed like ``params`` (binding node id
+        or ``Param.node_id``; a program parameter's own entry too). Addresses are
+        validated and distinct.
     ``docs``
         The ``@doc`` text of every declaration carrying one, parameters and
         fields included, keyed by that declaration's node id.
@@ -1034,6 +1039,7 @@ class AttributeFacts:
     extern_names: dict[int, str] = field(default_factory=dict)
     program_options: dict[int, ProgramOptionSpec] = field(default_factory=dict)
     params: dict[int, ProgramOptionSpec] = field(default_factory=dict)
+    inherits: dict[int, tuple[str, ...]] = field(default_factory=dict)
     docs: dict[int, str] = field(default_factory=dict)
     external_names: dict[int, ExternalName] = field(default_factory=dict)
     program_configs: dict[int, tuple[AttributeKeyedArg, ...]] = field(default_factory=dict)
@@ -1057,6 +1063,7 @@ class ParamBinding:
     node_id: int
     scope_path: ScopePath
     cli: ProgramOptionSpec
+    inherit: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1072,6 +1079,7 @@ class FunctionParamBinding:
     index: int
     param: Param
     cli: ProgramOptionSpec
+    inherit: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1282,6 +1290,7 @@ class ModuleResolution:
                 node_id=node_id,
                 scope_path=scope_names(item.scope_path),
                 cli=cli,
+                inherit=self.attributes.inherits.get(node_id, ()),
             )
 
     def function_param_bindings(self) -> Iterator[FunctionParamBinding]:
@@ -1298,6 +1307,7 @@ class ModuleResolution:
                         index=index,
                         param=param,
                         cli=cli,
+                        inherit=self.attributes.inherits.get(param.node_id, ()),
                     )
 
 

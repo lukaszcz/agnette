@@ -95,6 +95,7 @@ from agnette.agm.cli_support.param_config import (
     report_undeclared_exec_keys,
     resolve_param_values,
 )
+from agnette.agm.cli_support.param_inherit import InheritScope
 from agnette.agm.cli_support.program_discovery import (
     ProgramDiscoveryArtifacts,
     discover_program_artifacts_for_target,
@@ -130,12 +131,17 @@ from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decis
 from agnette.core.process import terminating_signals_exit
 from agnette.core.toml import TomlDict, toml_dict
 from agnette.packages.activation import load_activation_index
-from agnette.packages.manifest import command_paths_for_program, expanded_commands
+from agnette.packages.command_registry import command_registry
+from agnette.packages.manifest import (
+    command_paths_for_program,
+    expanded_commands,
+    program_reference,
+)
 from agnette.packages.model import PackageInfo, owning_package
 from agnette.sandbox.prepare import lazy_sandbox_context
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
     from agnette.agl.runtime.types import HostParamInfo
     from agnette.config.general import ExecConfig, GeneralConfig
@@ -179,6 +185,7 @@ def _bind_host_inputs(
     package_command_paths: frozenset[tuple[str, ...]],
     package_config: TomlDict | None = None,
     manifest_anchor: PathAnchor | None = None,
+    inherit_scope: InheritScope | None = None,
 ) -> tuple[tuple[object, ...], ParamValueTiers]:
     """Bind one selected program's CLI, environment, and config host inputs.
 
@@ -198,7 +205,8 @@ def _bind_host_inputs(
     settings are split off): it, not this function, ranks the ``lower`` tier —
     the declaration route, with a package-owned program's manifest ``[config]``
     values already folded in above it — beneath the selected program's own
-    ``@config`` values, which are only known once the program is lowered.
+    ``@config`` values, which are only known once the program is lowered. Those
+    rank beneath the ``inherited`` ``@inherit`` tier, which ranks beneath ``upper``.
     """
     if report_colliding_declarations(declared_params):
         raise SystemExit(1)
@@ -229,6 +237,7 @@ def _bind_host_inputs(
             package_command_paths=package_command_paths,
             package_config=package_config,
             manifest_anchor=manifest_anchor,
+            inherit_scope=inherit_scope,
             declared_params=declared_params,
             declared_programs=declared_programs,
             positional=frozenset(
@@ -261,60 +270,36 @@ def _package_entry_segments(entry_path: Path | None, roots: RootSet) -> tuple[st
 
 @dataclass(frozen=True)
 class _PackageProgramRoute:
-    """One program's owning package, if any, plus its registered command-path metadata.
+    """One program's owning package, if any, plus its registered command paths.
 
     ``command_paths`` is this program's own registration, one more spelling
-    of its configuration table; ``package_command_paths`` is every path any
-    mounted package registers (aliases expanded), whose tables are command
-    tables rather than leaf values and whose own table is exempt from
-    undeclared-key warnings when a leaf is really a descendant command's
-    inherited default. ``package`` is the owner itself, whose manifest
+    of its configuration table. ``package`` is the owner itself, whose manifest
     ``[config]`` supplies this program's defaults.
     """
 
     package: PackageInfo | None
     command_paths: tuple[tuple[str, ...], ...]
-    package_command_paths: frozenset[tuple[str, ...]]
 
 
 def _package_program_route(
     entry_path: Path,
-    roots: RootSet,
+    packages: tuple[PackageInfo, ...],
     module_segments: tuple[str, ...],
     program_path: tuple[str, ...],
 ) -> _PackageProgramRoute:
-    """Resolve the entry's owning package once, for every package-derived config route.
+    """Resolve the entry's owning package, for every package-derived config route.
 
     Read whether the program was reached as a registered command, by
     installed reference, or by file path — the owning package's manifest is
     the authority dispatch itself checks, so a program no package owns has no
-    command table and no manifest defaults. A development checkout's table is
-    completed here, on demand, for this one owning package only — mounting
-    its module root never pays for that scan (see
-    :mod:`agnette.packages.development`).
+    command table and no manifest defaults. *packages* are the mounted
+    packages with their command tables completed from source (see :func:`run`).
     """
-    package = owning_package(entry_path, roots.packages)
+    package = owning_package(entry_path, packages)
     if package is None:
-        return _PackageProgramRoute(None, (), _registered_command_paths(roots.packages))
-    if not package.commands_complete:
-        # Lazy: builds the AgL parser, which activation.py also keeps out of
-        # import-time paths.
-        from agnette.packages.source_commands import package_with_source_commands_or_declared
-
-        package = package_with_source_commands_or_declared(package)
-    reference = "::".join(("/".join(module_segments), *program_path))
-    command_paths = command_paths_for_program(package.manifest, reference)
-    others = (other for other in roots.packages if other.root != package.root)
-    return _PackageProgramRoute(
-        package, command_paths, _registered_command_paths((package, *others))
-    )
-
-
-def _registered_command_paths(packages: "Iterable[PackageInfo]") -> frozenset[tuple[str, ...]]:
-    """Return every command path *packages* register, aliases expanded."""
-    return frozenset(
-        tuple(path.split()) for package in packages for path in expanded_commands(package.manifest)
-    )
+        return _PackageProgramRoute(None, ())
+    reference = program_reference(module_segments, program_path)
+    return _PackageProgramRoute(package, command_paths_for_program(package.manifest, reference))
 
 
 def _exec_config(
@@ -514,19 +499,25 @@ def run(
         requested=args.program,
         declaration_path=lambda item: "::".join((*scope_names(item.scope_path), item.name)),
     )
+    # Lazy: builds the AgL parser, which activation.py also keeps out of
+    # import-time paths. A development checkout's command table is completed
+    # from source once, here, for the owning package and the registry alike.
+    from agnette.packages.source_commands import complete_packages
+
+    packages = complete_packages(exec_roots.roots.packages)
+    registry = command_registry(packages)
+    package_command_paths = frozenset(registry)
     command_paths: tuple[tuple[str, ...], ...] = ()
-    package_command_paths = _registered_command_paths(exec_roots.roots.packages)
     owning_package_info: PackageInfo | None = None
     if entry_path is not None and selected_parsed_program is not None:
         package_route = _package_program_route(
             entry_path,
-            exec_roots.roots,
+            packages,
             config_entry_segments,
             scope_names(selected_parsed_program.scope_path) + (selected_parsed_program.name,),
         )
         owning_package_info = package_route.package
         command_paths = package_route.command_paths
-        package_command_paths = package_route.package_command_paths
     # ``echo`` and ``max-call-depth`` come from ``[exec]`` alone; the engine settings
     # are resolved with every other host parameter once the program is selected.
     options = exec_options_from_merged(merged_config)
@@ -619,6 +610,7 @@ def run(
             if owning_package_info is not None
             else None
         ),
+        inherit_scope=InheritScope(registry, ctx.cwd),
     )
     module_tiers, engine_values = split_engine_tiers(param_tiers)
 
@@ -677,6 +669,7 @@ def run(
         compiled=discovery.compiled,
         param_values=module_tiers.upper,
         param_values_lower=module_tiers.lower,
+        param_values_inherited=module_tiers.inherited,
         supplied=module_tiers.supplied,
     )
     if isinstance(argument_preflight, ArgumentPreflightFailure):

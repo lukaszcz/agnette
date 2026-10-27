@@ -1,0 +1,24 @@
+# `@inherit` sits on a program parameter, a function `@param` parameter, and a
+# module `@param` binding. With nothing inherited, every default applies.
+
+@param
+@inherit("tools.review.rounds", "tools.fix.rounds")
+let rounds: int = 2
+
+scope Sc
+  @param @inherit("tools.review.label")
+  let label: text = "scoped"
+end Sc
+
+def refine(@param @inherit("tools.refine.steps") steps: int = 4) -> int = steps
+
+@config(main::cap = 9)
+program def main(
+  @inherit("tools.review.agent", "tools.fix.agent") agent-name: text = "plain",
+  @inherit("tools.review.limit") cap: int = 5,
+) -> unit =
+  print agent-name
+  print cap
+  print rounds
+  print Sc::label
+  print refine()

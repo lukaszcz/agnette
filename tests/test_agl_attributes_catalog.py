@@ -16,6 +16,7 @@ import pytest
 from agnette.agl.attributes import (
     BUILTIN_ATTRIBUTES,
     CONFIG_ATTRIBUTE,
+    INHERIT_ATTRIBUTE,
     PARAM_ATTRIBUTE,
     AttributeArguments,
     AttributeSpec,
@@ -42,6 +43,7 @@ class TestCatalogContents:
             "json-name",
             "allow",
             "exempts",
+            "inherit",
             "shell-quoted",
         }
 
@@ -136,6 +138,21 @@ class TestParamAttribute:
             {AttributeTarget.PARAM_BINDING, AttributeTarget.PARAM_PARAMETER}
         )
         assert spec.arguments is AttributeArguments.NONE
+
+
+class TestInheritAttribute:
+    def test_inherit_takes_a_text_list_on_host_facing_parameters(self) -> None:
+        spec = BUILTIN_ATTRIBUTES[INHERIT_ATTRIBUTE]
+
+        assert spec.targets == frozenset(
+            {
+                AttributeTarget.PROGRAM_PARAMETER,
+                AttributeTarget.PARAM_BINDING,
+                AttributeTarget.PARAM_PARAMETER,
+            }
+        )
+        assert spec.arguments is AttributeArguments.TEXT_LIST
+        assert spec.pattern is not None
 
 
 class TestConfigAttribute:

@@ -21,7 +21,7 @@ A package is a portable, versioned AgL module collection: a `package.toml` manif
 Commands come from two equivalent sources:
 
 - The manifest `[commands]` hierarchy maps nested tables to CLI path words, naming a program or describing a group; `[aliases]` maps alternate paths. Group prose lives here.
-- `@command` on a `program def` ([agl/frontend/scope.md](agl/frontend/scope.md)). A parse-only, AST-level scan (`source_commands.py`) merges these registrations into the manifest wherever a command table is needed (install, check, archive, editable resolution, a selected program's owning checkout); it reuses the module loader's parse cache and needs no module graph. Conflicting declarations of one path are errors.
+- `@command` on a `program def` ([agl/frontend/scope.md](agl/frontend/scope.md)). A parse-only, AST-level scan (`source_commands.py`) merges these registrations into the manifest wherever a command table is needed (install, check, archive, editable resolution, `exec`'s mounted development checkouts, completed once per run by `complete_packages`); it reuses the module loader's parse cache and needs no module graph. Conflicting declarations of one path are errors.
 
 Each invocation derives its command registry from the selected manifests, so project pins affect dispatch, help, and completion. A command path may not start with a reserved AgM name (`command_catalog.py`); activation rejects path conflicts between packages unless installed with `--shadow`. Dispatch runs the program through the same host as `agm exec`, with the same parameter projection and precedence ([cli.md](cli.md)). An editable package re-scans its source when its commands are needed: operations that persist command state (install) fail on a scan error, while reads (dispatch, help, completion, `pkg sync`) fall back to the manifest's own commands.
 
@@ -29,7 +29,7 @@ Each invocation derives its command registry from the selected manifests, so pro
 
 - `src/agnette/packages/manifest.py` — manifest schema, alias expansion, distribution-manifest view.
 - `src/agnette/packages/model.py`, `development.py`, `dependencies.py` — identity and version selection, development-package discovery, dependency closure.
-- `src/agnette/packages/discipline.py` — package validation; `source_commands.py` — `@command` scan and merge.
+- `src/agnette/packages/discipline.py` — package validation; `source_commands.py` — `@command` scan and merge; `command_registry.py` — command and alias path to registering package.
 - `src/agnette/packages/layout.py` — pure layout constants.
 - `src/agnette/agl/modules/roots.py`, `loader.py` — package-root mounting and import visibility.
 - `src/agnette/agm/commands/pkg/` — the package CLI; `src/agnette/agm/cli_dispatch.py`, `commands/exec_program.py` — registered-command dispatch and execution.

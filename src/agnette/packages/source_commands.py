@@ -17,7 +17,7 @@ complete command table and an immutable store package is never rescanned.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -33,7 +33,11 @@ from agnette.packages.discipline import DisciplineError, package_module_files
 from agnette.packages.manifest import CommandSpec, ManifestError, validate_command_set
 from agnette.packages.model import PackageInfo
 
-__all__ = ["package_with_source_commands", "package_with_source_commands_or_declared"]
+__all__ = [
+    "complete_packages",
+    "package_with_source_commands",
+    "package_with_source_commands_or_declared",
+]
 
 
 def package_with_source_commands(package: PackageInfo) -> PackageInfo:
@@ -114,6 +118,17 @@ def package_with_source_commands_or_declared(package: PackageInfo) -> PackageInf
     if package.commands_complete:
         return package
     return replace(package, commands_complete=True)
+
+
+def complete_packages(packages: Iterable[PackageInfo]) -> tuple[PackageInfo, ...]:
+    """Return *packages*, each incomplete command table completed from source once.
+
+    A failed scan falls back as :func:`package_with_source_commands_or_declared` does.
+    """
+    return tuple(
+        package if package.commands_complete else package_with_source_commands_or_declared(package)
+        for package in packages
+    )
 
 
 def _documented(spec: CommandSpec, docs: Mapping[str, str]) -> CommandSpec:

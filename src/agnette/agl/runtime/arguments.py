@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ConfiguredArgumentDiagnostic",
+    "InheritedParamValue",
     "OptionSome",
     "ProgramArguments",
     "bind_program_arguments_for",
@@ -94,6 +95,20 @@ def _missing_required_message(name: str) -> str:
     a missing required program argument, however it is reached, calls this.
     """
     return f"Missing required program argument: {name!r}"
+
+
+@dataclass(frozen=True, slots=True)
+class InheritedParamValue:
+    """A raw host value a parameter inherited, with the ``@inherit`` address it came from."""
+
+    value: object
+    address: str
+
+
+def _inherited_note[K](inherited: "Mapping[K, str] | None", key: K) -> str:
+    """Return the diagnostic suffix naming the ``@inherit`` address *key*'s value came from."""
+    address = None if inherited is None else inherited.get(key)
+    return "" if address is None else f" (inherited from '{address}')"
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +311,7 @@ def bind_program_arguments(
     *,
     default_resolver: "DefaultResolver | None" = None,
     configured: frozenset[str] = frozenset(),
+    inherited: "Mapping[str, str] | None" = None,
 ) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
     """Bind and decode *arguments* against *signature*.
 
@@ -323,7 +339,8 @@ def bind_program_arguments(
     *default_resolver*, when given, fills an omitted defaulted field nested in
     a supplied argument's value (see :func:`decode_param_value`). A decode
     failure of a *configured* name (a configuration tier supplied its value) is
-    a :class:`ConfiguredArgumentDiagnostic`.
+    a :class:`ConfiguredArgumentDiagnostic`; *inherited* maps the arguments whose
+    value is inherited to their ``@inherit`` address, which that diagnostic names.
     """
     from agnette.agl.runtime.convert import StrictJsonParseError
 
@@ -358,7 +375,8 @@ def bind_program_arguments(
             diagnostics.append(
                 diagnostic_from_span(
                     f"Program argument {param.name!r}: could not parse as "
-                    f"{param.decoder.target_type_label}: {exc}",
+                    f"{param.decoder.target_type_label}: {exc}"
+                    f"{_inherited_note(inherited, param.name)}",
                     param.span,
                     diagnostic_type=(
                         ConfiguredArgumentDiagnostic if param.name in configured else Diagnostic
@@ -377,6 +395,7 @@ def bind_program_arguments_for(
     *,
     default_resolver: "DefaultResolver | None" = None,
     configured: frozenset[str] = frozenset(),
+    inherited: "Mapping[str, str] | None" = None,
 ) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
     """Fuse *program*'s declaration info with *executable*'s signature, then bind *arguments*.
 
@@ -391,7 +410,11 @@ def bind_program_arguments_for(
         executable.program_signatures[program_symbol], program.parameters, program.span
     )
     return bind_program_arguments(
-        signature, arguments, default_resolver=default_resolver, configured=configured
+        signature,
+        arguments,
+        default_resolver=default_resolver,
+        configured=configured,
+        inherited=inherited,
     )
 
 
@@ -400,13 +423,15 @@ def bind_param_values[K: HostParamKey](
     raw: "Mapping[K, object]",
     *,
     default_resolver: "DefaultResolver | None" = None,
+    inherited: "Mapping[K, str] | None" = None,
 ) -> "tuple[Mapping[K, Value], tuple[Diagnostic, ...]]":
     """Decode supplied module- and function-parameter values against *executable*'s tables.
 
     Every supplied key is checked independently so an unknown parameter and
     all malformed values are returned together before the interpreter starts.
     *default_resolver*, when given, fills a defaulted field a value omits
-    (built by the caller over *executable*'s own real nominal table).
+    (built by the caller over *executable*'s own real nominal table). A failure
+    of a key in *inherited* names its ``@inherit`` address.
     """
     from agnette.agl.runtime.convert import StrictJsonParseError
 
@@ -425,6 +450,7 @@ def bind_param_values[K: HostParamKey](
             message = (
                 f"Parameter {host_param_label(key)}: "
                 f"could not parse as {decoder.target_type_label}: {exc}"
+                f"{_inherited_note(inherited, key)}"
             )
             span = cast("SourceSpan", executable.param_spans[key])
             diagnostics.append(diagnostic_from_span(message, span))

@@ -107,6 +107,22 @@ def command_paths_for_program(
     )
 
 
+def program_reference(module_segments: Iterable[str], declaration_path: Iterable[str]) -> str:
+    """Return the ``MODULE::DECL`` reference of a program in a module."""
+    return "::".join(("/".join(module_segments), *declaration_path))
+
+
+def split_program_reference(reference: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split a ``MODULE::DECL`` *reference* into module segments and declaration path.
+
+    Raises :class:`ValueError` for a malformed module path or a missing declaration.
+    """
+    module_path, separator, declaration = reference.partition("::")
+    if not separator or not declaration:
+        raise ValueError(f"program reference {reference!r} has no declaration path")
+    return ModuleId.from_path(module_path).segments, tuple(declaration.split("::"))
+
+
 def expanded_commands(manifest: PackageManifest) -> dict[str, CommandSpec]:
     """Expand aliases against canonical paths, including a group's descendants.
 
