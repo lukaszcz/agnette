@@ -42,7 +42,7 @@ from agnette.agl.lexer.errors import (
     UnterminatedTripleQuotedStringError,
 )
 from agnette.agl.lexer.lexer import build_parser
-from agnette.agl.lexer.positions import LineIndex, Rebase, token_span
+from agnette.agl.lexer.positions import LineIndex, Rebase, token_span, touched_ranges
 from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import (
@@ -516,9 +516,8 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
             entries[first].append(child)
             continue
         # An item crossing an entry's boundary leaves every entry it touches no parse of its own.
-        for index in range(first, len(ranges)):
-            if starts[index] < end and ranges[index][1] > begin:
-                slices[index] = None
+        for index in touched_ranges(ranges, starts, begin, end):
+            slices[index] = None
     for sliced, (start, end), entry in zip(slices, ranges, entries):
         if sliced is None or not entry:
             continue

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import sys
+from collections.abc import Callable, Iterator
 from dataclasses import replace
+from types import FrameType
 
 import pytest
 
@@ -141,8 +143,16 @@ class _CountedText(str):
         return super().rfind(sub, start, end)
 
 
+type _Tracer = Callable[[FrameType, str, object], _Tracer | None]
+_SLICING_SOURCES = ("lexer/lexer.py", "lexer/positions.py", "parser/parser.py")
+
+
 def _slicing_work(entries: int) -> int:
-    """The elements and characters read off a file of *entries* entries to slice them."""
+    """The elements and characters read off a file of *entries* entries to slice them.
+
+    Plus the lines of lexer and parser code the slicing runs, so a loop over the entries made
+    for each token counts.
+    """
     source = "".join(
         f"def f{i}() -> int =\n\t{i}\nlet q{i} = app/config ::x{i}\n" for i in range(entries)
     )
@@ -155,19 +165,32 @@ def _slicing_work(entries: int) -> int:
     )
     assert spaced and tabs
 
-    slices = entry_slices(
-        replace(lexed, text=text, tokens=tokens, spaced_qualifiers=spaced, tab_warnings=tabs),
-        spans,
-    )
+    lines = 0
+
+    def count_lines(frame: FrameType, event: str, arg: object) -> _Tracer | None:
+        nonlocal lines
+        if event == "line" and frame.f_code.co_filename.endswith(_SLICING_SOURCES):
+            lines += 1
+        return count_lines
+
+    previous = sys.gettrace()
+    sys.settrace(count_lines)
+    try:
+        slices = entry_slices(
+            replace(lexed, text=text, tokens=tokens, spaced_qualifiers=spaced, tab_warnings=tabs),
+            spans,
+        )
+    finally:
+        sys.settrace(previous)
 
     assert all(slices)
-    return tokens.reads + spaced.reads + tabs.reads + text.scanned
+    return tokens.reads + spaced.reads + tabs.reads + text.scanned + lines
 
 
 def test_slicing_a_file_reads_it_in_linear_work() -> None:
     small, large = _slicing_work(100), _slicing_work(200)
 
-    assert large < 2.5 * small
+    assert large < 2.1 * small
 
 
 def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_it() -> None:

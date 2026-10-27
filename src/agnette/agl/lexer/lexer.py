@@ -63,7 +63,7 @@ from agnette.agl.lexer.operators import (
     promotes_as_operator,
     scanner_token_type,
 )
-from agnette.agl.lexer.positions import LineIndex, Rebase, token_span
+from agnette.agl.lexer.positions import LineIndex, Rebase, token_span, touched_ranges
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
     ARROW,
@@ -305,11 +305,7 @@ def lexed_slices(
         if starts[index] <= start_pos and end_pos <= ranges[index][1]:
             tokens[index].append(rebases[index].token(token))
         else:
-            crossed.update(
-                i
-                for i in range(index, len(ranges))
-                if starts[i] < end_pos and ranges[i][1] > start_pos
-            )
+            crossed.update(touched_ranges(ranges, starts, start_pos, end_pos))
     spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
     for qualifier in lexed.spaced_qualifiers:
         offset = qualifier.run_start_offset
