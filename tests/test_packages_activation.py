@@ -33,7 +33,7 @@ from agnette.packages.activation import (
     write_activation_index,
     write_package_provenance,
 )
-from agnette.packages.layout import MODULE_TREE_DIRNAME, StoreScope
+from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import CommandSpec, load_manifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
@@ -1201,7 +1201,7 @@ def test_editable_package_resolves_to_its_live_root(tmp_path: Path) -> None:
 
     selected = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
 
-    assert selected == (replace(editable, store_scope=StoreScope.GLOBAL),)
+    assert selected == (replace(editable, store=global_store(home=home, env=env)),)
 
 
 def test_editable_package_uses_its_live_manifest_for_requirement_checks(tmp_path: Path) -> None:

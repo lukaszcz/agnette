@@ -24,7 +24,7 @@ from agnette.packages.activation import ActivationIndex, ActivePackage, write_ac
 from agnette.packages.layout import StoreScope
 from agnette.packages.manifest import load_manifest
 from agnette.packages.model import PackageInfo
-from agnette.packages.store import global_store, project_store
+from agnette.packages.store import PackageStore, global_store, project_store
 from tests._agl_helpers import REPO_STDLIB_ROOT, run_inline_code
 from tests._package_helpers import write_distribution, write_python_package
 from tests.agl.ir_harness import write_companion_file, write_module_file
@@ -36,15 +36,15 @@ _SYNC_PROJECT = "agm pkg sync --project"
 _INSTALL = "agm pkg install"
 
 
-def _package(root: Path = _PACKAGE, scope: StoreScope | None = None) -> PackageInfo:
-    return PackageInfo(root, load_manifest(root / "package.toml"), store_scope=scope)
+def _package(root: Path = _PACKAGE, store: PackageStore | None = None) -> PackageInfo:
+    return PackageInfo(root, load_manifest(root / "package.toml"), store=store)
 
 
 def _roots(
     *,
     loose: Path | None = None,
     package: Path = _PACKAGE,
-    scope: StoreScope | None = None,
+    store: PackageStore | None = None,
     mounted: tuple[PackageInfo, ...] = (),
 ) -> RootSet:
     return assemble_roots(
@@ -54,7 +54,7 @@ def _roots(
         configured=[],
         cli=() if loose is None else (str(loose),),
         cwd=_PACKAGE,
-        package_roots=(_package(package, scope), *mounted),
+        package_roots=(_package(package, store), *mounted),
     )
 
 
@@ -63,13 +63,13 @@ def _run(
     *,
     loose: Path | None = None,
     package: Path = _PACKAGE,
-    scope: StoreScope | None = None,
+    store: PackageStore | None = None,
     mounted: tuple[PackageInfo, ...] = (),
 ) -> RunResult:
     return run_inline_code(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
         source,
-        roots=_roots(loose=loose, package=package, scope=scope, mounted=mounted),
+        roots=_roots(loose=loose, package=package, store=store, mounted=mounted),
         default_stdlib=False,
     )
 
@@ -202,7 +202,7 @@ def _run_project_package(overlay: Path) -> RunResult:
     return _run(
         "import python_requirement/double\nlet r = python_requirement/double::double(21)",
         package=tree,
-        scope=StoreScope.PROJECT,
+        store=PackageStore(overlay.parent, StoreScope.PROJECT),
     )
 
 
@@ -300,7 +300,7 @@ def _run_global_package(tree: Path) -> RunResult:
     return _run(
         "import python_requirement/double\nlet r = python_requirement/double::double(21)",
         package=tree,
-        scope=StoreScope.GLOBAL,
+        store=global_store(home=Path.home()),
     )
 
 
@@ -354,7 +354,9 @@ def test_a_run_wiring_only_global_companions_leaves_sys_path_and_requirements_al
     monkeypatch.syspath_prepend(interpreter)
     write_distribution(project_package, "agm-test-absent-distribution", "0.1")
     before = list(sys.path)
-    mounted = _package(write_python_package(tmp_path / "other", "other"), StoreScope.PROJECT)
+    mounted = _package(
+        write_python_package(tmp_path / "other", "other"), project_store(tmp_path / "project")
+    )
 
     result = _run(
         "import python_requirement/double\nlet r = python_requirement/double::double(2)",

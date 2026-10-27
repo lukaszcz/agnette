@@ -46,7 +46,7 @@ from agnette.packages.activation import (
 )
 from agnette.packages.layout import StoreScope
 from agnette.packages.model import PackageInfo
-from agnette.packages.store import PackageStore, context_layers, global_store, project_store
+from agnette.packages.store import PackageStore, context_layers
 
 #: A generation's lock file: processes using it hold it shared, a deleter exclusive.
 GENERATION_LOCK = ".lock"
@@ -110,18 +110,16 @@ def sync_python_dependencies(specs: Sequence[str]) -> tuple[str, ...]:
 
 
 def requirement_store(package: PackageInfo) -> PackageStore | None:
-    """The store whose sync provides *package*'s requirements, in the current context.
+    """The store whose sync provides *package*'s requirements.
 
-    A package resolved from a store belongs to it. Any other (a development
-    checkout, which carries no scope) belongs to the store whose activation
-    selects it, if one does.
+    A package resolved from a store belongs to it. A development checkout
+    (which carries no store) belongs to the store whose activation in the
+    current context selects it, if one does.
     """
 
+    if package.store is not None:
+        return package.store
     context = config_context.current_config_context()
-    if package.store_scope is StoreScope.PROJECT:
-        return None if context.proj_dir is None else project_store(context.proj_dir)
-    if package.store_scope is StoreScope.GLOBAL:
-        return global_store(home=context.home)
     return activating_store(context_layers(home=context.home, proj_dir=context.proj_dir), package)
 
 

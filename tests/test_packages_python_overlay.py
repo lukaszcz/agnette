@@ -15,7 +15,7 @@ import semver
 import agnette.agm.commands.pkg.info as info_command
 import agnette.packages.install as install_module
 from agnette.agm.cli_support.args import PkgInfoArgs
-from agnette.config.context import ConfigContext, current_config_context
+from agnette.config.context import ConfigContext
 from agnette.core import dry_run
 from agnette.core.pyenv import RequirementState
 from agnette.packages import python_deps
@@ -40,7 +40,7 @@ from agnette.packages.python_deps import (
     requirement_store,
     unsatisfied_python_dependencies,
 )
-from agnette.packages.store import StoreLayers, global_store, project_store
+from agnette.packages.store import PackageStore, StoreLayers, global_store, project_store
 from tests._package_helpers import PythonInstaller, write_distribution, write_python_package
 
 _A = "agm-test-absent-a>=1"
@@ -499,9 +499,9 @@ def test_info_reports_a_project_package_requirement_status_from_its_overlay(
 
 
 class TestRunTime:
-    def _package(self, scope: StoreScope | None) -> PackageInfo:
+    def _package(self, store: PackageStore | None) -> PackageInfo:
         manifest = PackageManifest(name="alpha", version=semver.Version.parse("1.0.0"))
-        return PackageInfo(Path("/unused"), manifest, store_scope=scope)
+        return PackageInfo(Path("/unused"), manifest, store=store)
 
     def test_only_project_store_packages_use_the_projects_overlay(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -514,22 +514,14 @@ class TestRunTime:
         context = ConfigContext(home=tmp_path, proj_dir=tmp_path, cwd=tmp_path)
         monkeypatch.setattr("agnette.config.context.current_config_context", lambda: context)
 
-        assert overlay_for(self._package(StoreScope.PROJECT)) == generation.resolve()
-        assert overlay_for(self._package(StoreScope.GLOBAL)) is None
+        assert overlay_for(self._package(store)) == generation.resolve()
+        assert overlay_for(self._package(global_store(home=tmp_path))) is None
         assert overlay_for(self._package(None)) is None
-
-    def test_a_project_package_outside_a_project_has_no_overlay(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        context = ConfigContext(home=tmp_path, proj_dir=None, cwd=tmp_path)
-        monkeypatch.setattr("agnette.config.context.current_config_context", lambda: context)
-
-        assert overlay_for(self._package(StoreScope.PROJECT)) is None
 
     def test_the_overlay_is_the_generation_its_link_names(self, world: _World) -> None:
         world.install("alpha", _A)
 
-        package = self._package(StoreScope.PROJECT)
+        package = self._package(world.project)
 
         assert overlay_for(package) == world.current()
         assert overlay_for(package) != world.overlay
@@ -642,9 +634,9 @@ def _hold(generation: Path, operation: int) -> int:
     return fd
 
 
-def _project_package() -> PackageInfo:
+def _project_package(store: PackageStore) -> PackageInfo:
     manifest = PackageManifest(name="alpha", version=semver.Version.parse("1.0.0"))
-    return PackageInfo(Path("/unused"), manifest, store_scope=StoreScope.PROJECT)
+    return PackageInfo(Path("/unused"), manifest, store=store)
 
 
 class TestStaleOverlay:
@@ -732,14 +724,14 @@ class TestProcessGeneration:
         self, world: _World
     ) -> None:
         world.install("alpha", _A)
-        first = overlay_for(_project_package())
+        first = overlay_for(_project_package(world.project))
         moved = world.project.root / ".python-moved"
         moved.mkdir()
         (moved / python_deps.GENERATION_LOCK).touch()
         (world.project.root / ".python.new").symlink_to(moved.name)
         os.replace(world.project.root / ".python.new", world.overlay)
 
-        assert first == overlay_for(_project_package()) != moved
+        assert first == overlay_for(_project_package(world.project)) != moved
 
     def test_a_generation_already_on_sys_path_is_used_even_when_the_link_moved(
         self, world: _World, monkeypatch: pytest.MonkeyPatch
@@ -753,12 +745,12 @@ class TestProcessGeneration:
         (world.project.root / ".python.new").symlink_to(moved.name)
         os.replace(world.project.root / ".python.new", world.overlay)
 
-        assert overlay_for(_project_package()) == used
+        assert overlay_for(_project_package(world.project)) == used
 
     def test_the_generation_in_use_is_protected_by_a_shared_lock(self, world: _World) -> None:
         world.install("alpha", _A)
 
-        used = overlay_for(_project_package())
+        used = overlay_for(_project_package(world.project))
 
         assert used == world.current()
         with pytest.raises(BlockingIOError):
@@ -768,12 +760,12 @@ class TestProcessGeneration:
         world.install("alpha", _A)
         deleting = _hold(world.current(), fcntl.LOCK_EX)
         try:
-            assert overlay_for(_project_package()) is None
+            assert overlay_for(_project_package(world.project)) is None
         finally:
             os.close(deleting)
 
     def test_an_absent_overlay_is_not_used(self, world: _World) -> None:
-        assert overlay_for(_project_package()) is None
+        assert overlay_for(_project_package(world.project)) is None
 
     def test_a_rebuild_keeps_a_generation_a_process_still_holds(self, world: _World) -> None:
         world.install("alpha", _A)
@@ -853,14 +845,18 @@ class TestUnchangedUnion:
         assert world.generations() == [current]
 
 
-def test_a_global_package_requirement_store_is_the_global_store_without_an_index(
-    world: _World,
+@pytest.mark.parametrize("scope", [StoreScope.GLOBAL, StoreScope.PROJECT])
+def test_an_installed_package_belongs_to_its_store_without_an_activation_context(
+    world: _World, monkeypatch: pytest.MonkeyPatch, scope: StoreScope
 ) -> None:
-    package = PackageInfo(
-        Path("/unused"), _project_package().manifest, store_scope=StoreScope.GLOBAL
-    )
+    layers = StoreLayers(world.global_store) if scope is StoreScope.GLOBAL else world.layers
+    source = write_python_package(world.tmp / "alpha-src", "alpha", _A)
+    package = install_directory_with_plan(layers, source).package
+    context = ConfigContext(home=world.installer.home, proj_dir=None, cwd=world.tmp)
+    monkeypatch.setattr("agnette.config.context.current_config_context", lambda: context)
 
-    assert requirement_store(package) == global_store(home=current_config_context().home)
+    assert requirement_store(package) == layers.stores[0]
+    assert overlay_for(package) == (world.current() if scope is StoreScope.PROJECT else None)
 
 
 def test_a_development_checkout_belongs_to_the_store_selecting_it(world: _World) -> None:

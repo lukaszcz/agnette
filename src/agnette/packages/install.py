@@ -673,7 +673,7 @@ def _install_directory(
         raise PackageInstallError(f"cannot install package from {source}: {exc}") from exc
 
     if editable:
-        installed = replace(package, store_scope=state.store.scope)
+        installed = replace(package, store=state.store)
     else:
         try:
             destination = state.store.canonical_package_path(
@@ -683,7 +683,7 @@ def _install_directory(
             raise PackageInstallError(
                 f"cannot install package {package.manifest.name!r}: {exc}"
             ) from exc
-        installed = PackageInfo(destination, package.manifest, store_scope=state.store.scope)
+        installed = PackageInfo(destination, package.manifest, store=state.store)
         if destination.exists():
             distribution = distribution_manifest(package.manifest)
             if reinstall:
@@ -800,7 +800,7 @@ def _install_archive(
         except (ArchiveError, ValueError) as exc:
             raise PackageInstallError(f"cannot install package archive {archive}: {exc}") from exc
         dry_run.print_operation("install-package-archive", str(archive))
-        installed = PackageInfo(destination, metadata.manifest, store_scope=state.store.scope)
+        installed = PackageInfo(destination, metadata.manifest, store=state.store)
     else:
         prepared: list[tuple[Path, Path]] = []
 
@@ -846,7 +846,7 @@ def _install_archive(
                     _record_created_tree(state, destination)
                 else:
                     _record_replaced_tree(state, staging, destination, previous)
-            installed = PackageInfo(destination, package.manifest, store_scope=state.store.scope)
+            installed = PackageInfo(destination, package.manifest, store=state.store)
             state.resource_packages[installed.manifest.name] = installed
         except PackageInstallError:
             raise

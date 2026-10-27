@@ -863,9 +863,9 @@ def _validate_command_conflict_provenance(
 
 
 def _grouped_by_store(packages: Iterable[PackageInfo]) -> Iterable[list[PackageInfo]]:
-    groups: dict[StoreScope | None, list[PackageInfo]] = {}
+    groups: dict[PackageStore | None, list[PackageInfo]] = {}
     for package in packages:
-        groups.setdefault(package.store_scope, []).append(package)
+        groups.setdefault(package.store, []).append(package)
     return groups.values()
 
 
@@ -1026,7 +1026,7 @@ def resolve_active_package(
         root = active.editable
         manifest = _load_installed_manifest(root, commands_complete=False)
         package = _checked_active_package(
-            name, active, root, manifest, store.scope, commands_complete=False
+            name, active, root, manifest, store, commands_complete=False
         )
         return _with_editable_source_commands(
             package, fallback_to_manifest_commands=fallback_to_manifest_commands
@@ -1037,7 +1037,7 @@ def resolve_active_package(
         raise PackageActivationError(
             f"active package {name!r} resolves outside the package store root"
         ) from exc
-    return _checked_active_package(name, active, root, _load_installed_manifest(root), store.scope)
+    return _checked_active_package(name, active, root, _load_installed_manifest(root), store)
 
 
 def _with_editable_source_commands(
@@ -1082,14 +1082,14 @@ def _checked_active_package(
     active: ActivePackage,
     root: Path,
     manifest: PackageManifest,
-    scope: StoreScope,
+    store: PackageStore,
     *,
     commands_complete: bool = True,
 ) -> PackageInfo:
     """Return the resolved package, rejecting one whose manifest disagrees with its activation.
 
     An editable selection is live source; any other is an installed store tree.
-    *scope* is the selecting store's.
+    *store* is the selecting store.
     """
 
     if manifest.name != name:
@@ -1105,7 +1105,7 @@ def _checked_active_package(
         manifest,
         commands_complete=commands_complete,
         installed=active.editable is None,
-        store_scope=scope,
+        store=store,
     )
 
 
@@ -1222,9 +1222,7 @@ def _resolve_indexed_packages(
             )
         else:
             packages.append(
-                _checked_active_package(
-                    name, active, transient.root, transient.manifest, store.scope
-                )
+                _checked_active_package(name, active, transient.root, transient.manifest, store)
             )
     return tuple(packages)
 

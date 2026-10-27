@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import semver
 
@@ -17,6 +17,9 @@ from agnette.packages.manifest import (
     load_manifest,
 )
 from agnette.version import AGM_VERSION
+
+if TYPE_CHECKING:
+    from agnette.packages.store import PackageStore
 
 PackageIdentity = tuple[str, str]
 
@@ -86,7 +89,7 @@ class PackageInfo:
     origin, decided where the package is resolved, and is what makes its
     warnings the user's non-concern (:mod:`agnette.agl.warning_policy`).
 
-    ``store_scope`` is the store the package was resolved from; ``None`` for
+    ``store`` is the store the package was resolved from; ``None`` for
     a package no store supplied, such as a development checkout.
     """
 
@@ -94,10 +97,16 @@ class PackageInfo:
     manifest: PackageManifest
     commands_complete: bool = True
     installed: bool = False
-    store_scope: StoreScope | None = None
+    store: PackageStore | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", self.root.resolve())
+
+    @property
+    def store_scope(self) -> StoreScope | None:
+        """The scope of :attr:`store`, ``None`` without one."""
+
+        return None if self.store is None else self.store.scope
 
     @classmethod
     def live_source(cls, root: Path, *, legacy_aliases: bool = False) -> PackageInfo:

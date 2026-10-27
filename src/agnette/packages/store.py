@@ -232,7 +232,7 @@ def iter_installed_packages(store: PackageStore) -> Iterator[PackageInfo]:
                 raise StoreIdentityError(
                     f"installed package at {version_dir} does not match its store identity"
                 )
-            yield PackageInfo(version_dir, manifest, installed=True, store_scope=store.scope)
+            yield PackageInfo(version_dir, manifest, installed=True, store=store)
 
 
 def satisfying_from_store(
