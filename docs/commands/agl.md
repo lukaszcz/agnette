@@ -913,7 +913,7 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   declaration here, and `agm check` rejects REPL-only constructs (bare expressions, bare type
   entries, redefinitions, imports after declarations) without reporting advisories. A loaded file's (or transcript's) diagnostics, runtime errors and trace
   records name the file and use file-relative lines and columns (text typed at the prompt is
-  `<repl>`); a file that is not UTF-8 text reports an error. A file that fails to parse runs nothing; an error found while converting an item (`use a::{}`, a chained comparison, over-deep nesting, a misplaced inner attribute in a scope region) fails only that item's entry, after the earlier entries ran, as scope and type errors do and in a transcript.
+  `<repl>`); a file that is not UTF-8 text reports an error. A plain file that fails to parse runs nothing; in a transcript, an entry that fails to parse fails only that entry, after the earlier entries ran. An error found while converting an item (`use a::{}`, a chained comparison, over-deep nesting, a misplaced inner attribute in a scope region) fails only that item's entry, after the earlier entries ran, as scope and type errors do and in a transcript.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the
