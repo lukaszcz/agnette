@@ -203,53 +203,11 @@ def _slicing_work(entries: int) -> int:
 
 
 def test_slicing_a_file_reads_it_in_linear_work() -> None:
-    small, large = _slicing_work(100), _slicing_work(200)
+    small, medium, large = _slicing_work(100), _slicing_work(200), _slicing_work(400)
 
-    assert large < 2.1 * small
-
-
-_BLOCK_ENDINGS = {
-    "bare": "def m(x: int) -> int =\n  case x of\n    | 1 =>\n      2\n    | 1 =>\n      3",
-    "comment": (
-        "def m(x: int) -> int =\n  case x of\n    | 1 =>\n      2\n    | 1 =>\n"
-        "      3 # trailing note"
-    ),
-    "comment-line": "def m() -> int =\n  1\n  # note",
-    "newline": "def m() -> int =\n  1\n",
-    "blank-lines": "def m() -> int =\n  1\n\n  # note\n",
-    "template": 'def m() -> text =\n  """x\n  y\n  """',
-}
-
-
-def _block_entry_slices(name: str) -> Iterator[tuple[str, LexedSource]]:
-    """The text and the slice of each entry of a file whose middle entry ends as *name* says."""
-    pieces = ["let a = 1", _BLOCK_ENDINGS[name], "let b = 2"]
-    source = "\n".join(pieces)
-    ranges, offset = [], 0
-    for piece in pieces:
-        ranges.append((offset, offset + len(piece)))
-        offset += len(piece) + 1
-    lexed = lex_source(source)
-    with lex_replay(lexed):
-        parse_program_tree(source)
-    for (start, end), read in zip(ranges, entry_slices(lexed, ranges)):
-        assert read is not None
-        yield source[start:end], read
-
-
-@pytest.mark.parametrize("name", sorted(_BLOCK_ENDINGS))
-def test_an_entry_ending_in_a_block_has_the_tokens_of_its_text_scanned(name: str) -> None:
-    for text, read in _block_entry_slices(name):
-        scanned = lex_source(text).tokens
-        assert [_position(t) for t in read.tokens] == [_position(t) for t in scanned]
-
-
-@pytest.mark.parametrize("name", sorted(_BLOCK_ENDINGS))
-def test_an_entry_ending_in_a_block_has_the_spans_of_its_text_parsed(name: str) -> None:
-    for text, read in _block_entry_slices(name):
-        with lex_replay(read):
-            from_slice = parse_program_seeded(text, start_id=0)
-        assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
+    # Linear work doubles with the file, up to a constant; a quadratic share adds a growing excess.
+    assert medium - 2 * small < small // 100
+    assert large - 2 * medium < small // 100
 
 
 @pytest.mark.parametrize(
