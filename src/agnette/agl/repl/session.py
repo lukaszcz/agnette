@@ -969,15 +969,15 @@ class ReplSession:
         """
         # Whatever the verdict, the next ``info_of`` reopens the library image afresh.
         self._open_failure = ()
-        if self._pending_bootstrap_warnings:
-            result.warnings[:0] = self._pending_bootstrap_warnings
-            self._pending_bootstrap_warnings.clear()
         if result.failure is not None and lexed is not None:
-            type_result = self._try_type_entry(
-                text, next_id=next_id, value_failure=result.failure, source=source, lexed=lexed
+            result = (
+                self._try_type_entry(
+                    text, next_id=next_id, value_failure=result.failure, source=source, lexed=lexed
+                )
+                or result
             )
-            if type_result is not None:
-                return type_result
+        result.warnings[:0] = self._pending_bootstrap_warnings
+        self._pending_bootstrap_warnings.clear()
         return result
 
     def _try_type_entry(
@@ -1029,7 +1029,7 @@ class ReplSession:
         node-id counter, or mutates session state: the synthetic declaration
         is discarded once its resolved type (or generic definition) is read.
         """
-        from agnette.agl.lexer import lex_replay, spaced_qualifier_collector
+        from agnette.agl.lexer import lex_replay, spaced_qualifier_collector, tab_warning_collector
         from agnette.agl.parser import AglSyntaxError, parse_type_entry_seeded
         from agnette.agl.repl.type_display import (
             format_generic_type_def_for_repl,
@@ -1039,18 +1039,26 @@ class ReplSession:
         from agnette.agl.typecheck import UnappliedGenericTypeError
 
         def parse() -> tuple[
-            tuple["Attribute", ...], "TypeExpr", int, tuple["SpacedQualifier", ...]
+            tuple["Attribute", ...],
+            "TypeExpr",
+            int,
+            tuple["SpacedQualifier", ...],
+            list[Diagnostic],
         ]:
-            with lex_replay(lexed), spaced_qualifier_collector() as spaced_sink:
+            with (
+                lex_replay(lexed),
+                spaced_qualifier_collector() as spaced_sink,
+                tab_warning_collector() as tab_sink,
+            ):
                 attributes, expr, ids = parse_type_entry_seeded(
                     text, start_id=next_id, source=source
                 )
-            return attributes, expr, ids, tuple(spaced_sink)
+            return attributes, expr, ids, tuple(spaced_sink), list(tab_sink)
 
         parsed = _static_verdict(parse)
         if isinstance(parsed, AglError):
             return None
-        attributes, type_expr, next_node_id, spaced_qualifiers = parsed
+        attributes, type_expr, next_node_id, spaced_qualifiers, advisories = parsed
         probe, fresh_name, next_node_id = self._type_probe_program(
             type_expr, next_node_id, attributes
         )
@@ -1071,6 +1079,7 @@ class ReplSession:
                 return self._type_entry_result(
                     probe,
                     resolved,
+                    advisories,
                     type_display=format_generic_type_def_for_repl(
                         checked.display_name,
                         checked.generic_def,
@@ -1095,6 +1104,7 @@ class ReplSession:
         return self._type_entry_result(
             probe,
             resolved,
+            advisories,
             value_type=value_type,
             type_display=(
                 format_type_for_repl(value_type, table, self._base_spelling)
@@ -1152,14 +1162,20 @@ class ReplSession:
         self,
         probe: "Program",
         resolved: "ResolvedProgram",
+        advisories: list[Diagnostic],
         *,
         value_type: "Type | None" = None,
         type_display: str | None = None,
         type_table: "TypeTable | None" = None,
     ) -> EntryResult:
-        """The ``kind == "type"`` result of a *probe* program, or the rejection of its warnings."""
+        """The ``kind == "type"`` result of a *probe* program, or the rejection of its warnings.
+
+        The warnings are the entry's lexer *advisories* and the program's own.
+        """
         outcome = self._govern_warnings(
-            unused_module_doc_warnings(probe), resolved.modules.values(), scope_complete=True
+            [*advisories, *unused_module_doc_warnings(probe)],
+            resolved.modules.values(),
+            scope_complete=True,
         )
         if outcome.denied:
             return self._fail(list(outcome.denied), list(outcome.reported))
@@ -1964,8 +1980,9 @@ class ReplSession:
     def type_of(self, text: str, *, warnings: list[Diagnostic] | None = None) -> str:
         """Return the canonical display type of *text* as an expression entry.
 
-        A module-level attribute is governed like an entry's: ``unused-module-doc`` is
-        appended to *warnings*, or raised as a :class:`DiagnosedError` when the policy denies it.
+        The expression's lexer advisories and a module-level attribute are governed like an
+        entry's: their warnings (``tab-indentation``, ``unused-module-doc``) are appended to
+        *warnings*, or raised as a :class:`DiagnosedError` when the policy denies one.
 
         Resolves against the session scope, typechecks against the session
         environment, and match-compiles before reporting the type. It never
@@ -1979,11 +1996,11 @@ class ReplSession:
         are strictly below it, making this parse's ids disjoint from the
         session's.
         """
-        from agnette.agl.lexer import spaced_qualifier_collector
+        from agnette.agl.lexer import spaced_qualifier_collector, tab_warning_collector
         from agnette.agl.parser import parse_program_seeded
         from agnette.agl.syntax.nodes import Binder, Declaration, ScopeRegion
 
-        with spaced_qualifier_collector() as spaced_sink:
+        with spaced_qualifier_collector() as spaced_sink, tab_warning_collector() as tab_sink:
             program, next_node_id = parse_program_seeded(text, start_id=self._next_node_id)
         spaced_qualifiers = tuple(spaced_sink)
         items = program.body.items
@@ -2011,7 +2028,7 @@ class ReplSession:
         from agnette.agl.repl.type_display import format_type_for_repl
 
         outcome = self._govern_warnings(
-            unused_module_doc_warnings(program),
+            [*tab_sink, *unused_module_doc_warnings(program)],
             resolved_program.modules.values(),
             scope_complete=True,
         )

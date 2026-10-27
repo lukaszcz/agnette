@@ -12,7 +12,7 @@ from agnette.agl import PipelineDriver, artifact_cache
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.pipeline import RunResult
-from agnette.agl.repl.session import ReplSession
+from agnette.agl.repl.session import DiagnosedError, ReplSession
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.packages.model import PackageInfo
 from tests._agl_helpers import (
@@ -511,3 +511,68 @@ def test_repl_reset_discards_pending_bootstrap_warnings(tmp_path: Path) -> None:
     result = session.eval_entry("1")
 
     assert _names(result.warnings) == [("warning", "tab-indentation")]
+
+
+def test_a_bare_type_entry_reports_its_own_lexer_advisories() -> None:
+    session = ReplSession()
+    session.open()
+
+    result = session.eval_entry("int\t")
+
+    assert result.ok and result.kind == "type"
+    assert _names(result.warnings) == [("warning", "tab-indentation")]
+
+
+def test_a_denied_advisory_fails_a_bare_type_entry() -> None:
+    session = ReplSession(warning_policy=_DENY_TAB)
+    session.open()
+
+    result = session.eval_entry("int\t")
+
+    assert not result.ok
+    assert _names(result.diagnostics) == [("error", "tab-indentation")]
+
+
+def test_a_loaded_bare_type_entry_reports_its_own_lexer_advisories(tmp_path: Path) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text("int\t\n")
+    session = ReplSession()
+    session.open()
+
+    results = session.load_file(path)
+
+    assert [r.kind for r in results] == ["type"]
+    assert _names(results[0].warnings) == [("warning", "tab-indentation")]
+
+
+def test_a_bare_type_entry_carries_the_pending_bootstrap_warnings(tmp_path: Path) -> None:
+    stdlib = tmp_path / "stdlib"
+    (stdlib / "src").mkdir(parents=True)
+    (stdlib / "src" / "prelude.agl").write_text(_TABBY_LIBRARY)
+    session = ReplSession(stdlib_root=stdlib)
+    assert session.open() == ()
+
+    first = session.eval_entry("int")
+    later = session.eval_entry("2")
+
+    assert first.kind == "type"
+    assert _names(first.warnings) == [("warning", "tab-indentation")]
+    assert later.warnings == []
+
+
+def test_type_of_reports_the_lexer_advisories_of_its_expression() -> None:
+    session = ReplSession()
+    session.open()
+    warnings: list[Diagnostic] = []
+
+    assert session.type_of("1 +\t2", warnings=warnings) == "int"
+
+    assert _names(warnings) == [("warning", "tab-indentation")]
+
+
+def test_type_of_fails_on_a_denied_lexer_advisory() -> None:
+    session = ReplSession(warning_policy=_DENY_TAB)
+    session.open()
+
+    with pytest.raises(DiagnosedError):
+        session.type_of("1 +\t2")
