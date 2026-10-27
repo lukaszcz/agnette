@@ -179,6 +179,16 @@ _RESERVED_OPERATOR_NAMES: dict[str, str] = {
 #: Spellings the scanner retypes from a maximal-munch operator run or punctuation.
 RESERVED_OPERATOR_SPELLINGS: frozenset[str] = frozenset(_RESERVED_OPERATOR_NAMES)
 
+
+def tab_warning(line: int, col: int) -> Diagnostic:
+    """Return the TAB advisory for the ``\\t`` at *line* and 1-based column *col*."""
+    return warning_diagnostic(
+        TAB_INDENTATION,
+        f"TAB character at column {col} is not allowed; use spaces for indentation",
+        SourceSpan(line, col, line, col + 1, 0, 0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Triple-quoted template segments (typed union)
 # ---------------------------------------------------------------------------
@@ -304,14 +314,7 @@ class _Scanner:
         a `$`-literal block strips ahead of the scanner.
         """
         col = pos - self._line_start_pos + 1
-        span = SourceSpan(line, col, line, col + 1, pos, pos + 1)
-        self._tab_warnings.append(
-            warning_diagnostic(
-                TAB_INDENTATION,
-                f"TAB character at column {col} is not allowed; use spaces for indentation",
-                span,
-            )
-        )
+        self._tab_warnings.append(tab_warning(line, col))
 
     # ------------------------------------------------------------------
     # Low-level helpers

@@ -34,7 +34,7 @@ from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from functools import cache
-from typing import Iterator, TypeVar
+from typing import Iterator, TypeVar, cast
 
 from lark import Lark, Tree
 from lark.exceptions import UnexpectedToken
@@ -63,7 +63,7 @@ from agnette.agl.lexer.operators import (
     scanner_token_type,
 )
 from agnette.agl.lexer.positions import Rebase, token_span
-from agnette.agl.lexer.scanner import _Scanner
+from agnette.agl.lexer.scanner import _Scanner, tab_warning
 from agnette.agl.lexer.tokens import (
     ARROW,
     ASSIGN,
@@ -278,17 +278,16 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
 def lexed_slice(lexed: LexedSource, start: int, end: int) -> LexedSource | None:
     """Return the pass over ``lexed.text[start:end]``, read off *lexed* instead of scanning it.
 
-    ``None`` when *lexed* failed or recorded advisories on the slice's lines, whose messages
-    and positions are relative to the text they were scanned in: the slice is then scanned.
+    The slice's tokens and advisories are those of *lexed* within it, rebased to the slice.
+    ``None`` when *lexed* failed.
     """
     if lexed.failure is not None:
         return None
     text = lexed.text
-    first_line, last_line = text.count("\n", 0, start) + 1, text.count("\n", 0, end) + 1
-    if any(first_line <= w.line <= last_line for w in lexed.tab_warnings) or any(
-        start <= q.run_start_offset < end for q in lexed.spaced_qualifiers
-    ):
-        return None
+    first_line, last_line = (
+        text.count("\n", 0, start) + 1,
+        text.count("\n", 0, max(start, end - 1)) + 1,
+    )
     rebase = Rebase(text, start)
     tokens = tuple(
         rebase.token(token)
@@ -298,7 +297,21 @@ def lexed_slice(lexed: LexedSource, start: int, end: int) -> LexedSource | None:
         and start <= token.start_pos
         and token.end_pos <= end
     )
-    return LexedSource(text[start:end], tokens, (), ())
+    tabs = tuple(
+        tab_warning(rebase.line(w.line), rebase.column(w.line, cast(int, w.column)))
+        for w in lexed.tab_warnings
+        if first_line <= w.line <= last_line
+    )
+    spaced = tuple(
+        replace(
+            q,
+            run_start_offset=rebase.offset(q.run_start_offset),
+            dcolon_span=rebase.span(q.dcolon_span),
+        )
+        for q in lexed.spaced_qualifiers
+        if start <= q.run_start_offset < end
+    )
+    return LexedSource(text[start:end], tokens, spaced, tabs)
 
 
 def replayed_parse(start: str, text: str, parse: Callable[[str], Tree]) -> Tree:

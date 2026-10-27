@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import cast
 
 from lark.lexer import Token
@@ -63,4 +64,16 @@ class Rebase:
             self.line(end_line),
             self.column(end_line, cast(int, tok.end_column)),
             self.offset(end),
+        )
+
+    def span(self, span: SourceSpan) -> SourceSpan:
+        """Return a copy of *span* at its rebased position."""
+        return replace(
+            span,
+            start_line=self.line(span.start_line),
+            start_col=self.column(span.start_line, span.start_col),
+            end_line=self.line(span.end_line),
+            end_col=self.column(span.end_line, span.end_col),
+            start_offset=self.offset(span.start_offset),
+            end_offset=self.offset(span.end_offset),
         )

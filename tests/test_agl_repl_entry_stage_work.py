@@ -240,6 +240,27 @@ def test_a_loaded_file_is_lexed_and_parsed_once(
     assert (scans.count, parses.count) == (1, 1)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "let a = 1\ndef h() -> int =\n\t3\nlet b = 2\nprint(a + b)\n",
+        "let a = 1\nlet c = app/config ::x\nlet b = 2\nprint(a + b)\n",
+    ],
+    ids=("tab", "spaced-qualifier"),
+)
+def test_a_loaded_file_with_advisories_is_lexed_and_parsed_once(
+    tmp_path: Path, scans: _Scans, parses: _Parses, source: str
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(source)
+    scans.count = parses.count = 0
+
+    session.load_file(path)
+
+    assert (scans.count, parses.count) == (1, 1)
+
+
 def test_a_loaded_entry_reports_file_positions_after_other_entries_on_its_line(
     tmp_path: Path,
 ) -> None:
@@ -265,3 +286,26 @@ def test_a_loaded_entry_with_a_tab_warns_at_its_file_position(tmp_path: Path) ->
     assert all(r.ok for r in results)
     (warning,) = results[1].warnings
     assert (warning.line, warning.column) == (3, 1)
+
+
+def test_loaded_entries_with_tabs_warn_at_their_file_positions(tmp_path: Path) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text("let a = 1\ndef f() -> int =\n\ta\nlet b = 2\ndef g() -> int =\n\tb\ng()\n")
+
+    results = session.load_file(path)
+
+    assert all(r.ok for r in results)
+    assert [(w.line, w.column) for r in results for w in r.warnings] == [(3, 1), (6, 1)]
+
+
+def test_a_loaded_entry_with_a_spaced_qualifier_reports_file_positions(tmp_path: Path) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text("let a = 1\nlet z = 2\nlet b = app/config ::x\nlet c = 3\n")
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True, True, False]
+    (diagnostic,) = results[2].diagnostics
+    assert (diagnostic.line, diagnostic.column) == (3, 9)
