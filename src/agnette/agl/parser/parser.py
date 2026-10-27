@@ -413,10 +413,8 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     children = [c for c in cast(Tree, whole.children[0]).children if not isinstance(c, Token)]
     attributes = [c for c in children if c.data == "inner_attribute"]
     entries = [[c] for c in children if c.data != "inner_attribute"]
-    if entries:
-        entries[0] = [*attributes, *entries[0]]
-    elif attributes:
-        entries = [attributes]
+    if attributes:
+        entries[:1] = [[*attributes, *(entries[0] if entries else [])]]
     if len(entries) != len(ranges):
         return [None] * len(ranges)
     lines = LineIndex(lexed.text)

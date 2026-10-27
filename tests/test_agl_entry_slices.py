@@ -116,3 +116,10 @@ def test_slicing_a_file_reads_it_in_linear_work() -> None:
     small, large = _slicing_work(100), _slicing_work(200)
 
     assert large < 2.5 * small
+
+
+def test_no_entry_is_read_off_a_file_for_other_ranges_than_its_entries() -> None:
+    source = "let a = 1\nlet b = 2\n"
+    lexed, spans = _parsed(source)
+
+    assert entry_slices(lexed, spans[:1]) == [None]

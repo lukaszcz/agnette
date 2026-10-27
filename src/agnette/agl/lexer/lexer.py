@@ -281,9 +281,9 @@ def lexed_slices(
 ) -> list[LexedSource]:
     """Return the pass over each of *ranges* of ``lexed.text``, read off *lexed*, not scanned.
 
-    *ranges* are disjoint and in order, and *lines* indexes the text. A slice's tokens and
-    spaced qualifiers are those of *lexed*, a pass that did not fail, within its range,
-    rebased to it. Each TAB advisory of *lexed* goes to the one slice whose range starts last
+    *ranges* are disjoint and in order, and *lines* indexes the text. A slice's tokens are
+    those of *lexed*, a pass that did not fail, within its range, rebased to it. Each spaced
+    qualifier and TAB advisory of *lexed* goes to the one slice whose range starts last
     at or before it, the first slice taking those before it, keeping the whole pass's message
     with only its positions rebased. One walk over each of *lexed*'s sequences.
     """
@@ -304,15 +304,14 @@ def lexed_slices(
     for qualifier in lexed.spaced_qualifiers:
         offset = qualifier.run_start_offset
         index = slice_at(offset)
-        if starts[index] <= offset < ranges[index][1]:
-            rebase = rebases[index]
-            spaced[index].append(
-                replace(
-                    qualifier,
-                    run_start_offset=rebase.offset(offset),
-                    dcolon_span=rebase.span(qualifier.dcolon_span),
-                )
+        rebase = rebases[index]
+        spaced[index].append(
+            replace(
+                qualifier,
+                run_start_offset=rebase.offset(offset),
+                dcolon_span=rebase.span(qualifier.dcolon_span),
             )
+        )
     tabs: list[list[Diagnostic]] = [[] for _ in ranges]
     for advisory in lexed.tab_warnings:
         index = slice_at(lines.offset(advisory.line, cast(int, advisory.column)))
