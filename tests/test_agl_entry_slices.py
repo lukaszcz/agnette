@@ -253,7 +253,7 @@ def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_
         "let a = 1\n# c",
         "let a = 1 # t\n# c",
         "let a = 1; let b = 2\n# c",
-        "scope S\n  let q = 1\nend S # t\n# c",
+        "scope S\n  let q = 1\nend S # t\n\n# c",
     ],
     ids=(
         "verbatim",

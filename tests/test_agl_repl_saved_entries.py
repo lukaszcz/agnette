@@ -87,7 +87,7 @@ def test_a_mismatch_in_a_tab_indented_entry_spans_the_same_columns_when_loaded(
         "def v() -> int =\n  $\n    line one\n    line two\n",
         'def v(n: int) -> int =\n  "a{n}"\n',
         'let v: int = """\nabc\n"""\n',
-        "scope S\n  def q() -> int =\n    1\nend S # tail\nlet v: int = true\n",
+        "scope S\n  def q() -> int =\n    1\nend S # tail\n\nlet v: int = true\n",
         'def v() -> int =\n  "x" # c\n',
     ],
     ids=("verbatim", "interpolation", "triple-quoted", "scope-end", "comment"),
