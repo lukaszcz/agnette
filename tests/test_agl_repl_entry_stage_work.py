@@ -644,3 +644,14 @@ def test_the_leading_allow_governs_the_advisories_after_a_type_entry_and_a_faili
     assert [r.ok for r in results] == [True, False]
     assert not any(w.warning_name == "tab-indentation" for r in results for w in r.warnings)
     assert not any(d.warning_name == "tab-indentation" for r in results for d in r.diagnostics)
+
+
+def test_a_transcript_entry_ending_in_a_block_loads_beside_an_entry_that_does_not_parse(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text(_transcript("def g() -> int =\n  0", "let e = )", "g()"))
+
+    results = _session().load_file(path)
+
+    assert [(r.ok, r.name) for r in results] == [(True, "g"), (False, None)]
