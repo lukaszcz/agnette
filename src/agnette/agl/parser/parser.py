@@ -345,7 +345,8 @@ class ProgramTree:
     def entry_ranges(self) -> list[tuple[int, int]]:
         """The source ranges of the module's entries: one per item, or one for attributes alone.
 
-        The module's leading inner attributes head the first entry.
+        The module's leading inner attributes head the first entry. An entry that begins its
+        line starts at the line's start, with its indentation.
         """
         children = self.children()
         attributes = [c.meta for c in children if c.data == "inner_attribute"]
@@ -355,7 +356,13 @@ class ProgramTree:
         if not ranges:
             ranges = [(min(a.start_pos for a in attributes), max(a.end_pos for a in attributes))]
         ranges[0] = (min([ranges[0][0], *(a.start_pos for a in attributes)]), ranges[0][1])
-        return ranges
+        lines = LineIndex(self.text)
+
+        def begin(start: int) -> int:
+            line_start = lines.line_start(start)
+            return line_start if self.text[line_start:start].strip(" \t") == "" else start
+
+        return [(begin(start), end) for start, end in ranges]
 
     def items_from(self, offset: int, *, start_id: int) -> syntax.Program:
         """Convert to AST the module's items starting at or after *offset*, of which there are some.
@@ -518,7 +525,7 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     for sliced, (start, end), entry in zip(slices, ranges, entries):
         last = max(i for i, t in enumerate(sliced.tokens) if t.type not in LAYOUT_TOKENS)
         code = sliced.tokens[last]
-        rebase = Rebase(lines, start, (end, code))
+        rebase = Rebase(lines, start, lexed.base, (end, code))
         closing = next((t for t in sliced.tokens[last + 1 :] if t.type == NEWLINE), None)
         sliced.parses[_PROGRAM_START] = _module_tree(entry, rebase, closing)
     return slices

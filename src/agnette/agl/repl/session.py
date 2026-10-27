@@ -26,7 +26,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
-from agnette.agl.lexer.positions import LineIndex
+from agnette.agl.lexer.positions import LineIndex, entry_padding, entry_text
 from agnette.agl.lexer.tokens import LAYOUT_TOKENS
 from agnette.agl.repl.entry import (
     REPL_LABEL,
@@ -155,9 +155,15 @@ def _decode_transcript(text: str) -> tuple[_SavedEntry, ...] | None:
     return tuple(entries)
 
 
-def _origin_at(label: str, lines: LineIndex, offset: int) -> FileOrigin:
-    """The origin of the slice of the file named *label* (text *lines*) starting at *offset*."""
-    return FileOrigin(label, lines.line(offset), lines.column(offset))
+def _origin_at(label: str, lines: LineIndex, offset: int, padding: int = 0) -> FileOrigin:
+    """The origin of the entry of the file *label* (text *lines*) starting at *offset*.
+
+    The entry's text starts *padding* columns before *offset* (:func:`entry_text`).
+    """
+    raw_column = offset - lines.line_start(offset) + 1
+    return FileOrigin(
+        label, lines.line(offset), lines.column(offset) - padding, raw_column - padding
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -937,13 +943,15 @@ class ReplSession:
         self._entry_label = source.label
         return source
 
-    def _place(self, location: Placement) -> Placement:
+    def _place(self, location: Placement, /, *, raw: bool = False) -> Placement:
         """Move a location in an entry's source to where that entry's text lies; others stay."""
         label, line, column = location
         if label not in self._entry_origins:
             return location
         origin = self._entry_origins[label]
-        return (None, line, column) if origin is None else origin.place((None, line, column))
+        return (
+            (None, line, column) if origin is None else origin.place((None, line, column), raw=raw)
+        )
 
     def user_place(
         self, label: str | None, line: int, column: int | None
@@ -2703,7 +2711,12 @@ class ReplSession:
         def halted(result: EntryResult, programs: Sequence[Program], resume: int) -> None:
             self._report_advisories(result, label, lines, lexed, tree, programs, spans[resume:])
 
-        return self._run_entries(label, lines, spans, entry_slices(lexed, spans), None, halted)
+        base = lexed.base
+        texts = [entry_text(lines, start, end, base) for start, end in spans]
+        origins = [
+            _origin_at(label, lines, start, entry_padding(lines, start, base)) for start, _ in spans
+        ]
+        return self._run_entries(texts, origins, entry_slices(lexed, spans), None, halted)
 
     def _load_transcript(
         self, label: str, lines: LineIndex, saved_entries: tuple[_SavedEntry, ...]
@@ -2718,18 +2731,19 @@ class ReplSession:
         def halted(result: EntryResult, _programs: Sequence[Program], resume: int) -> None:
             self._report_entry_advisories(result, label, lines, spans[resume:], allows[resume:])
 
-        return self._run_entries(label, lines, spans, [None] * len(spans), allows, halted)
+        texts = [lines.text[start:end] for start, end in spans]
+        origins = [_origin_at(label, lines, start) for start, _ in spans]
+        return self._run_entries(texts, origins, [None] * len(spans), allows, halted)
 
     def _run_entries(
         self,
-        label: str,
-        lines: LineIndex,
-        spans: Sequence[tuple[int, int]],
+        texts: Sequence[str],
+        origins: Sequence[FileOrigin],
         readings: Sequence["LexedSource | None"],
         allows: Sequence[frozenset[str]] | None,
         halted: Callable[[EntryResult, Sequence["Program"], int], None],
     ) -> list[EntryResult]:
-        """Evaluate the entries at *spans* of the file *label* until one fails.
+        """Evaluate the entries with *texts* placed at *origins* in their file until one fails.
 
         Each entry is read off its *readings* pass if it has one, and runs under its own
         inherited *allows*, or, without any, under the leading ``@!allow`` names of the
@@ -2742,20 +2756,16 @@ class ReplSession:
         self._parsed_programs, self._header_allows = programs, allows is None
         self._header, self._header_open = None, True
         try:
-            for index, ((start, end), reading) in enumerate(zip(spans, readings)):
+            for index, (text, origin, reading) in enumerate(zip(texts, origins, readings)):
                 if allows is not None:
                     self._inherited_allows = allows[index]
-                result = self.eval_entry(
-                    lines.text[start:end],
-                    origin=_origin_at(label, lines, start),
-                    lexed=reading,
-                )
+                result = self.eval_entry(text, origin=origin, lexed=reading)
                 results.append(result)
                 if index == 0:
                     self._header_open = False
                     self._header_allows = False
                 if not result.ok:
-                    if index + 1 < len(spans):
+                    if index + 1 < len(texts):
                         halted(result, programs, index + 1)
                     break
         finally:
@@ -2938,9 +2948,9 @@ class ReplSession:
         """
         outcome = self._govern_file_advisories(label, advisories, regions)
 
-        def place(location: Placement) -> Placement:
+        def place(location: Placement, /, *, raw: bool = False) -> Placement:
             _, line, column = location
-            return location if origin is None else origin.place((None, line, column))
+            return location if origin is None else origin.place((None, line, column), raw=raw)
 
         result.warnings.extend(relocate_diagnostic(w, place) for w in outcome.reported)
         result.diagnostics.extend(relocate_diagnostic(d, place) for d in outcome.denied)

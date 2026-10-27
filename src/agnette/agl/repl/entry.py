@@ -5,12 +5,12 @@ Shared by the session and its program collaborator.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from agnette.agl.diagnostics import Diagnostic, RelatedDiagnostic
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE
+from agnette.agl.warnings import TAB_INDENTATION
 
 if TYPE_CHECKING:
     from agnette.agl.diagnostics import AglError
@@ -119,16 +119,24 @@ REPL_LABEL = "<repl>"
 """The source label users see for text typed at the prompt."""
 
 
-def relocate_diagnostic(
-    diagnostic: Diagnostic, place: Callable[[Placement], Placement]
-) -> Diagnostic:
-    """Return *diagnostic* with its location and its notes' moved by *place*."""
+class Place(Protocol):
+    """Maps a location to its final one; *raw* when its column counts characters, not columns."""
+
+    def __call__(self, location: Placement, /, *, raw: bool = False) -> Placement: ...
+
+
+def relocate_diagnostic(diagnostic: Diagnostic, place: Place) -> Diagnostic:
+    """Return *diagnostic* with its location and its notes' moved by *place*.
+
+    A TAB advisory's columns count characters.
+    """
+    raw = diagnostic.warning_name == TAB_INDENTATION.name
 
     def moved[D: (Diagnostic, RelatedDiagnostic)](located: D) -> D:
-        label, line, column = place((located.source_label, located.line, located.column))
+        label, line, column = place((located.source_label, located.line, located.column), raw=raw)
         end_line, end_column = located.end_line, located.end_column
         if end_line is not None:
-            _, end_line, end_column = place((located.source_label, end_line, end_column))
+            _, end_line, end_column = place((located.source_label, end_line, end_column), raw=raw)
         return replace(
             located,
             line=line,
@@ -143,7 +151,7 @@ def relocate_diagnostic(
 
 def relocate(
     result: EntryResult,
-    place: Callable[[Placement], Placement],
+    place: Place,
     *,
     unplaced: str = UNKNOWN_SOURCE.label,
 ) -> EntryResult:
@@ -166,19 +174,25 @@ def relocate(
 
 @dataclass(frozen=True, slots=True)
 class FileOrigin:
-    """Where an entry's text starts inside a file: its 1-based *line* and *column*."""
+    """Where an entry's text starts inside a file: its 1-based *line* and *column*.
+
+    *raw_column* is the position in characters, which differs from *column* by the tab
+    expansion of the indentation before the entry on its line (default: *column*).
+    """
 
     label: str
     line: int
     column: int
+    raw_column: int | None = None
 
-    def place(self, location: Placement) -> Placement:
+    def place(self, location: Placement, /, *, raw: bool = False) -> Placement:
         """Move an entry-relative location into the file; columns shift on the first line only.
 
-        A location anchored in another source stays put.
+        A location anchored in another source stays put. A *raw* location counts characters.
         """
         label, line, column = location
         if label not in (None, UNKNOWN_SOURCE.label):
             return location
-        shifted = column if column is None or line != 1 else column + self.column - 1
+        origin = self.raw_column if raw and self.raw_column is not None else self.column
+        shifted = column if column is None or line != 1 else column + origin - 1
         return self.label, line + self.line - 1, shifted

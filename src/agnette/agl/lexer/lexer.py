@@ -62,7 +62,7 @@ from agnette.agl.lexer.operators import (
     promotes_as_operator,
     scanner_token_type,
 )
-from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span
+from agnette.agl.lexer.positions import LineIndex, Rebase, entry_text, range_at, token_span
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
     ARROW,
@@ -232,6 +232,11 @@ class LexedSource:
         default_factory=dict, compare=False, repr=False
     )
 
+    @property
+    def base(self) -> int:
+        """The indentation of the line holding the first token: what the layout reads from."""
+        return token_span(self.tokens[0]).start_col - 1 if self.tokens else 0
+
 
 _LEX_REPLAY: contextvars.ContextVar[LexedSource | None] = contextvars.ContextVar(
     "agl_lex_replay", default=None
@@ -284,14 +289,16 @@ def lexed_slices(
     *lexed* is a pass that did not fail, and *ranges* are its items' ranges: disjoint, in
     order, and each holding whole tokens and closed blocks, as :meth:`ProgramTree.entry_ranges
     <agnette.agl.parser.ProgramTree.entry_ranges>` gives them. *lines* indexes the text. A
-    slice's tokens are those of *lexed* within its range, rebased to it. Each spaced qualifier
-    and TAB advisory of *lexed* goes to the one slice whose range starts last at or before it,
-    the first slice taking those before it, keeping the whole pass's message with only its
-    positions rebased. One walk over each of *lexed*'s sequences.
+    slice is the pass over the text of its entry (:func:`~agnette.agl.lexer.positions
+    .entry_text`): its tokens are those of *lexed* within its range, rebased to it. Each
+    spaced qualifier and TAB advisory of *lexed* goes to the one slice whose range starts last
+    at or before it, the first slice taking those before it, with only its positions rebased.
+    One walk over each of *lexed*'s sequences.
     """
     assert lexed.failure is None
     starts = [start for start, _ in ranges]
-    rebases = [Rebase(lines, start) for start in starts]
+    base = lexed.base
+    rebases = [Rebase(lines, start, base) for start in starts]
 
     tokens: list[list[Token]] = [[] for _ in ranges]
     for token in lexed.tokens:
@@ -316,7 +323,9 @@ def lexed_slices(
         index = range_at(starts, lines.offset(advisory.line, cast(int, advisory.column)))
         tabs[index].append(rebases[index].advisory(advisory))
     return [
-        LexedSource(lexed.text[start:end], tuple(entry), tuple(qualifiers), tuple(warnings))
+        LexedSource(
+            entry_text(lines, start, end, base), tuple(entry), tuple(qualifiers), tuple(warnings)
+        )
         for (start, end), entry, qualifiers, warnings in zip(ranges, tokens, spaced, tabs)
     ]
 
