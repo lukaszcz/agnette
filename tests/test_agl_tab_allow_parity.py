@@ -66,3 +66,29 @@ def test_a_halted_load_reports_the_tabs_around_an_allow_as_a_load_does(
     tabs_of_base = [(1, 4 * tab + 1) for tab in range(len(base))]
     assert halted == tabs_of_base + [(line + 1, column) for line, column in expected]
 
+
+_HOLE = "unquoted-exec-hole"
+_MODULE_ALLOW = f'@!allow("{_HOLE}", "{TAB}")\n'
+# No trailing newline, as a REPL entry never has one.
+_TAB_INDENTED_LAST_LINE = (
+    f"{_MODULE_ALLOW}program def main(name: text) -> unit =\n"
+    '\tif true =>\n\t\tif true =>\n\t\t\tprint (exec "ls %{name}")'
+)
+
+
+def test_a_module_allow_covers_a_tab_indented_last_line_without_a_newline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "p.agl"
+    path.write_text(_TAB_INDENTED_LAST_LINE)
+    check_command.run(CheckArgs(files=[str(path)]))
+    session = ReplSession()
+    session.open()
+    loaded = session.load_file(path)
+    typed = ReplSession()
+    typed.open()
+    entry = typed.eval_entry(_TAB_INDENTED_LAST_LINE)
+
+    assert "warning" not in capsys.readouterr().err
+    assert [w for r in loaded for w in r.warnings] == []
+    assert entry.warnings == []

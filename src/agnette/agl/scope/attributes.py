@@ -897,15 +897,18 @@ def region_paths(
 
 
 def _whole_source(span: SourceSpan, text: str) -> SourceSpan:
-    """Return a span covering all of *text*, which *span* indexes."""
-    lines = text.split("\n")
+    """Return a span covering all of *text*, which *span* indexes, to the end of its last line.
+
+    The exclusive end is the start of the line after the last, so no column on the last line
+    lies past it.
+    """
     return replace(
         span,
         start_line=1,
         start_col=1,
         start_offset=0,
-        end_line=len(lines),
-        end_col=len(lines[-1]) + 1,
+        end_line=text.count("\n") + 2,
+        end_col=1,
         end_offset=len(text),
     )
 
