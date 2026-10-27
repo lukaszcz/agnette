@@ -404,7 +404,8 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     The module items are *ranges* in order, the first also holding the module's leading
     inner attributes. Each slice is the pass over its entry's text with the parse of that
     text already made, so reading the entry scans and parses nothing. ``None`` for an entry
-    that cannot be read off (:func:`~agnette.agl.lexer.lexed_slice`: *lexed* failed), or for all of them when
+    that cannot be read off (:func:`~agnette.agl.lexer.lexed_slice`; *lexed* failed), or for
+    all of them when
     *lexed* holds no program parse of as many items.
     """
     whole = lexed.parses.get(_PROGRAM_START)
