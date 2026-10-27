@@ -79,6 +79,7 @@ from agnette.core.process import terminating_signals_exit
 from agnette.core.toml import toml_dict
 from agnette.packages.activation import select_package_roots
 from agnette.packages.development import discover_development_packages
+from agnette.packages.store import context_store
 from agnette.sandbox.prepare import lazy_sandbox_context
 
 
@@ -176,11 +177,12 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
         raise SystemExit(1) from exc
     lib_root = resolve_lib_root(mod_roots_cfg, home=ctx.home)
     try:
+        store = context_store(home=ctx.home)
         package_roots = select_package_roots(
             home=ctx.home,
             proj_dir=ctx.proj_dir,
             cwd=ctx.cwd,
-            development_packages=discover_development_packages(ctx.cwd, home=ctx.home),
+            development_packages=discover_development_packages(store, ctx.cwd),
         )
     except ValueError as exc:
         print(f"Error: invalid package roots: {exc}", file=sys.stderr)

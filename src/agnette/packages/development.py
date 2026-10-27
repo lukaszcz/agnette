@@ -13,18 +13,15 @@ imports.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 import semver
 
 from agnette.packages.model import PackageInfo
-from agnette.packages.store import is_package_store_root
+from agnette.packages.store import PackageStore
 
 
-def containing_development_package(
-    anchor: Path, *, home: Path, env: Mapping[str, str] | None = None
-) -> PackageInfo | None:
+def containing_development_package(store: PackageStore, anchor: Path) -> PackageInfo | None:
     """Return the nearest development package at or above *anchor*.
 
     ``None`` when no ancestor carries a manifest, or when the nearest one is
@@ -38,12 +35,12 @@ def containing_development_package(
     canonical_root = package_root.resolve()
     package = PackageInfo.live_source(canonical_root, legacy_aliases=True)
     manifest = package.manifest
-    if is_package_store_root(canonical_root, manifest.name, manifest.version, home=home, env=env):
+    if store.is_package_root(canonical_root, manifest.name, manifest.version):
         return None
     return package
 
 
-def discover_development_packages(anchor: Path, *, home: Path) -> tuple[PackageInfo, ...]:
+def discover_development_packages(store: PackageStore, anchor: Path) -> tuple[PackageInfo, ...]:
     """Return the containing development package and its path dependency closure.
 
     A development package is selected only by an ancestor ``package.toml`` of
@@ -54,7 +51,7 @@ def discover_development_packages(anchor: Path, *, home: Path) -> tuple[PackageI
     active package selection rather than being reclassified as development source.
     """
 
-    seed = containing_development_package(anchor, home=home)
+    seed = containing_development_package(store, anchor)
     if seed is None:
         return ()
     packages: dict[Path, PackageInfo] = {}
@@ -63,7 +60,7 @@ def discover_development_packages(anchor: Path, *, home: Path) -> tuple[PackageI
     def add(package: PackageInfo) -> None:
         canonical_root = package.root
         manifest = package.manifest
-        if is_package_store_root(canonical_root, manifest.name, manifest.version, home=home):
+        if store.is_package_root(canonical_root, manifest.name, manifest.version):
             return
         if canonical_root in packages:
             return

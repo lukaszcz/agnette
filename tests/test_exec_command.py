@@ -32,6 +32,7 @@ from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.commands import exec_program as exec_engine
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.stdlib import StdlibSelection
+from agnette.packages.store import context_store
 from tests._agl_helpers import write_file_program
 from tests._engine_flags import ENGINE_SETTING_ARGS, engine_flag_tokens, exec_args_with
 from tests._help_helpers import (
@@ -5434,9 +5435,8 @@ class TestExecStandardLibraryEntries:
             'program def main(message: text = "default") -> unit = print message\n',
         )
         write_activation_index(
+            context_store(home=home, env={}),
             ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
-            home=home,
-            env={},
         )
         self._config_context(monkeypatch, home, tmp_path)
 

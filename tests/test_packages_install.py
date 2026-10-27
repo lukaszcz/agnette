@@ -55,6 +55,7 @@ from agnette.packages.record import (
     verify_record,
     write_record,
 )
+from agnette.packages.store import context_store
 from agnette.version import AGM_VERSION
 from tests._package_helpers import (
     InstalledPackageSnapshot,
@@ -119,14 +120,17 @@ def test_uninstall_inactive_version_checks_store_identity_and_record(tmp_path: P
     (inactive / "package.toml").write_text('[package]\nname = "bravo"\nversion = "1.0.0"\n')
 
     with pytest.raises(PackageInstallError):
-        uninstall_package("alpha@1.0.0", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
 
     (inactive / "package.toml").write_text('[package]\nname = "alpha"\nversion = "1.0.0"\n')
     (inactive / "RECORD").write_text("broken")
     with pytest.raises(PackageInstallError):
-        uninstall_package("alpha@1.0.0", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
     assert inactive.exists()
-    assert str(load_activation_index(home=home, env={}).packages["alpha"].version) == "2.0.0"
+    assert (
+        str(load_activation_index(context_store(home=home, env={})).packages["alpha"].version)
+        == "2.0.0"
+    )
 
 
 def test_uninstall_inactive_version_rejects_a_linked_tree(tmp_path: Path) -> None:
@@ -136,7 +140,7 @@ def test_uninstall_inactive_version_rejects_a_linked_tree(tmp_path: Path) -> Non
     inactive.symlink_to(displaced, target_is_directory=True)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package("alpha@1.0.0", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
     assert displaced.exists()
 
 
@@ -144,10 +148,13 @@ def test_uninstall_inactive_version_dry_run_preserves_the_tree(tmp_path: Path) -
     home, inactive = _two_stored_versions(tmp_path)
     dry_run.set_enabled(True)
 
-    uninstall_package("alpha@1.0.0", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
 
     assert inactive.exists()
-    assert str(load_activation_index(home=home, env={}).packages["alpha"].version) == "2.0.0"
+    assert (
+        str(load_activation_index(context_store(home=home, env={})).packages["alpha"].version)
+        == "2.0.0"
+    )
 
 
 def test_uninstall_inactive_version_retries_interrupted_cleanup(tmp_path: Path) -> None:
@@ -155,11 +162,14 @@ def test_uninstall_inactive_version_retries_interrupted_cleanup(tmp_path: Path) 
     tombstone = inactive.parent / ".uninstalling-1.0.0"
     inactive.rename(tombstone)
 
-    uninstall_package("alpha@1.0.0", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
 
     assert not inactive.exists()
     assert not tombstone.exists()
-    assert str(load_activation_index(home=home, env={}).packages["alpha"].version) == "2.0.0"
+    assert (
+        str(load_activation_index(context_store(home=home, env={})).packages["alpha"].version)
+        == "2.0.0"
+    )
 
 
 def test_uninstall_inactive_version_cleans_a_stale_tombstone(tmp_path: Path) -> None:
@@ -167,7 +177,7 @@ def test_uninstall_inactive_version_cleans_a_stale_tombstone(tmp_path: Path) -> 
     tombstone = inactive.parent / ".uninstalling-1.0.0"
     shutil.copytree(inactive, tombstone)
 
-    uninstall_package("alpha@1.0.0", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
 
     assert not inactive.exists()
     assert not tombstone.exists()
@@ -180,7 +190,7 @@ def test_uninstall_inactive_version_dry_run_keeps_an_interrupted_tree(tmp_path: 
     dry_run.set_enabled(True)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package("alpha@1.0.0", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
 
     assert tombstone.exists()
 
@@ -199,7 +209,7 @@ def test_uninstall_inactive_version_reports_rename_failure(
     monkeypatch.setattr(Path, "replace", fail_replace)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package("alpha@1.0.0", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha@1.0.0")
     assert inactive.exists()
 
 
@@ -291,14 +301,14 @@ def test_prebuilt_store_hands_every_caller_an_isolated_copy(
 ) -> None:
     """Mutating a prebuilt store must not reach the session cache behind it."""
     first = prebuilt_store(_Preinstalled("alpha", "1.0.0"))
-    uninstall_package("alpha", home=first, env={})
+    uninstall_package(context_store(home=first, env={}), "alpha")
     (_store_root(first, "bravo", "1.0.0")).mkdir(parents=True)
 
     second = prebuilt_store(_Preinstalled("alpha", "1.0.0"))
 
     assert first != second
-    assert load_activation_index(home=first, env={}).packages == {}
-    assert set(load_activation_index(home=second, env={}).packages) == {"alpha"}
+    assert load_activation_index(context_store(home=first, env={})).packages == {}
+    assert set(load_activation_index(context_store(home=second, env={})).packages) == {"alpha"}
     assert not _store_root(second, "bravo", "1.0.0").exists()
     assert _store_root(second, "alpha", "1.0.0").is_dir()
 
@@ -308,16 +318,16 @@ def test_refresh_registers_stdlib_package_under_an_isolated_agm_home(tmp_path: P
     agm_home = tmp_path / "agm-home"
 
     installed = refresh_managed_stdlib(
-        source,
-        home=tmp_path / "ignored-home",
-        env={"AGM_HOME": str(agm_home)},
+        context_store(home=tmp_path / "ignored-home", env={"AGM_HOME": str(agm_home)}), source
     )
 
     assert installed.root == agm_home / "packages" / "std" / AGM_VERSION
     assert (installed.root / MODULE_TREE_DIRNAME / "prelude.agl").is_file()
     assert (installed.root / MODULE_TREE_DIRNAME / "option.agl").is_file()
     assert verify_record(installed.root)
-    index = load_activation_index(home=tmp_path / "ignored-home", env={"AGM_HOME": str(agm_home)})
+    index = load_activation_index(
+        context_store(home=tmp_path / "ignored-home", env={"AGM_HOME": str(agm_home)})
+    )
     assert index.packages["std"].version == installed.manifest.version
 
 
@@ -347,9 +357,9 @@ def test_managed_stdlib_refresh_deactivates_packages_from_an_incompatible_releas
         package_model, "AGM_VERSION", str(semver.Version.parse(AGM_VERSION).bump_major())
     )
 
-    refresh_managed_stdlib(source, home=home, env={})
+    refresh_managed_stdlib(context_store(home=home, env={}), source)
 
-    active = load_activation_index(home=home, env={}).packages
+    active = load_activation_index(context_store(home=home, env={})).packages
     assert set(active) == {"std"}
     assert alpha.root.is_dir()
     assert bravo.root.is_dir()
@@ -385,7 +395,7 @@ def test_managed_stdlib_refresh_stages_under_the_store_lock(
 
     monkeypatch.setattr(package_install, "materialize_distribution", observe_staging)
 
-    refreshed = refresh_managed_stdlib(source, home=home, env={})
+    refreshed = refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert refreshed.root == installed_root
     assert observed_staging is not None
@@ -393,7 +403,7 @@ def test_managed_stdlib_refresh_stages_under_the_store_lock(
     assert core.read_bytes() == (source / MODULE_TREE_DIRNAME / "prelude.agl").read_bytes()
     assert not stale.exists()
     assert verify_record(refreshed.root)
-    active = load_activation_index(home=home, env={}).packages["std"]
+    active = load_activation_index(context_store(home=home, env={})).packages["std"]
     assert active.version == refreshed.manifest.version
 
 
@@ -411,12 +421,12 @@ def test_managed_stdlib_refresh_retries_post_commit_cleanup(
         original_rmtree(path)
 
     monkeypatch.setattr(package_install.fs, "rmtree", fail_previous_cleanup)
-    refreshed = refresh_managed_stdlib(source, home=home, env={})
+    refreshed = refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert refreshed.root == installed_root
     assert verify_record(refreshed.root)
     assert (
-        load_activation_index(home=home, env={}).packages["std"].version
+        load_activation_index(context_store(home=home, env={})).packages["std"].version
         == refreshed.manifest.version
     )
     assert tuple(installed_root.parent.glob(".agm-previous-*"))
@@ -430,9 +440,9 @@ def test_managed_stdlib_refresh_retries_post_commit_cleanup(
         return original_glob(path, pattern, **kwargs)
 
     monkeypatch.setattr(Path, "glob", fail_cleanup_glob)
-    refresh_managed_stdlib(source, home=home, env={})
+    refresh_managed_stdlib(context_store(home=home, env={}), source)
     monkeypatch.setattr(Path, "glob", original_glob)
-    refresh_managed_stdlib(source, home=home, env={})
+    refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert not tuple(installed_root.parent.glob(".agm-previous-*"))
 
@@ -453,7 +463,7 @@ def test_managed_stdlib_refresh_restores_the_complete_tree_when_activation_fails
     monkeypatch.setattr(package_install, "_commit_activation", fail_activation)
 
     with pytest.raises(PackageInstallError, match="refresh"):
-        refresh_managed_stdlib(source, home=home, env={})
+        refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert core.read_text(encoding="utf-8") == "old complete tree\n"
     assert verify_record(installed_root)
@@ -473,7 +483,7 @@ def test_initial_managed_stdlib_refresh_removes_publication_when_activation_fail
     monkeypatch.setattr(package_install, "_commit_activation", fail_activation)
 
     with pytest.raises(PackageInstallError, match="refresh"):
-        refresh_managed_stdlib(source, home=home, env={})
+        refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert not (home / ".agm" / "packages" / "std" / AGM_VERSION).exists()
 
@@ -495,7 +505,7 @@ def test_managed_stdlib_refresh_reports_a_failed_activation_rollback(
     )
 
     with pytest.raises(PackageInstallError, match="restore"):
-        refresh_managed_stdlib(source, home=home, env={})
+        refresh_managed_stdlib(context_store(home=home, env={}), source)
 
 
 def test_initial_managed_stdlib_refresh_cleans_staging_when_publication_fails(
@@ -514,7 +524,7 @@ def test_initial_managed_stdlib_refresh_cleans_staging_when_publication_fails(
     monkeypatch.setattr(Path, "replace", fail_publication)
 
     with pytest.raises(PackageInstallError, match="refresh"):
-        refresh_managed_stdlib(source, home=home, env={})
+        refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert not destination.exists()
     assert not tuple(destination.parent.glob(".agm-package-*"))
@@ -540,7 +550,7 @@ def test_managed_stdlib_refresh_restores_the_complete_tree_when_publication_fail
     monkeypatch.setattr(Path, "replace", fail_publication)
 
     with pytest.raises(PackageInstallError, match="refresh"):
-        refresh_managed_stdlib(source, home=home, env={})
+        refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert core.read_text(encoding="utf-8") == "old complete tree\n"
     assert verify_record(installed_root)
@@ -555,7 +565,7 @@ def test_managed_stdlib_refresh_dry_run_only_reports_the_planned_refresh(
     home = tmp_path / "home"
     dry_run.set_enabled(True)
 
-    planned = refresh_managed_stdlib(source, home=home, env={})
+    planned = refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert planned.root == home / ".agm" / "packages" / "std" / AGM_VERSION
     assert "refresh-managed-stdlib" in capsys.readouterr().out
@@ -572,7 +582,7 @@ def test_managed_stdlib_refresh_refuses_a_symlinked_store_destination(tmp_path: 
     std_versions.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(PackageInstallError, match="refresh"):
-        refresh_managed_stdlib(source, home=home, env={})
+        refresh_managed_stdlib(context_store(home=home, env={}), source)
 
     assert not tuple(outside.iterdir())
 
@@ -585,7 +595,7 @@ def test_package_operations_create_a_store_lock(tmp_path: Path) -> None:
 
     lock = home / ".agm" / "packages" / ".lock"
     assert lock.is_file()
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
     assert lock.is_file()
 
 
@@ -627,7 +637,7 @@ def test_install_copies_package_writes_record_and_activates_it(tmp_path: Path) -
     assert (installed.root / MODULE_TREE_DIRNAME / "main.agl").is_file()
     assert (installed.root.parent / ".provenance" / "1.0.0.toml").is_file()
     assert verify_record(installed.root)
-    active = load_activation_index(home=home, env={}).packages["alpha"]
+    active = load_activation_index(context_store(home=home, env={})).packages["alpha"]
     assert active.version == installed.manifest.version
 
 
@@ -724,10 +734,10 @@ def test_uninstall_refuses_the_managed_standard_library(tmp_path: Path) -> None:
     installed = install_directory(source, home=home, env={})
 
     with pytest.raises(PackageInstallError, match="std"):
-        uninstall_package("std", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "std")
 
     assert installed.root.is_dir()
-    assert "std" in load_activation_index(home=home, env={}).packages
+    assert "std" in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_install_refuses_an_unmanaged_standard_library_source(tmp_path: Path) -> None:
@@ -801,7 +811,7 @@ def test_install_rejects_an_older_incompatible_std_before_publication(tmp_path: 
         install_directory(source, home=home, env={})
 
     assert not (home / ".agm" / "packages" / "alpha").exists()
-    assert load_activation_index(home=home, env={}) == ActivationIndex()
+    assert load_activation_index(context_store(home=home, env={})) == ActivationIndex()
 
 
 def test_install_accepts_a_package_requiring_the_running_agm_without_active_stdlib(
@@ -818,7 +828,7 @@ def test_install_accepts_a_package_requiring_the_running_agm_without_active_stdl
     installed = install_directory(source, home=home, env={})
 
     assert installed.manifest.name == "alpha"
-    assert load_activation_index(home=home, env={}).packages.keys() == {"alpha"}
+    assert load_activation_index(context_store(home=home, env={})).packages.keys() == {"alpha"}
 
 
 def test_install_archive_refuses_a_package_requiring_a_newer_agm(tmp_path: Path) -> None:
@@ -858,10 +868,10 @@ def test_uninstall_tolerates_an_absent_provenance_sidecar(tmp_path: Path) -> Non
     installed = install_directory(source, home=home, env={})
     (installed.root.parent / ".provenance" / "1.0.0.toml").unlink()
 
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not installed.root.exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_uninstall_reports_a_provenance_cleanup_failure(
@@ -879,13 +889,13 @@ def test_uninstall_reports_a_provenance_cleanup_failure(
 
     monkeypatch.setattr(package_install.fs, "unlink", fail_provenance_unlink)
     with pytest.raises(PackageInstallError, match="provenance"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert (home / ".agm" / "packages" / "alpha" / ".uninstalling").is_dir()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
     monkeypatch.setattr(package_install.fs, "unlink", original_unlink)
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not (home / ".agm" / "packages" / "alpha" / ".uninstalling").exists()
 
@@ -903,18 +913,18 @@ def test_uninstall_retries_when_interrupted_before_activation_commit(
 
     monkeypatch.setattr(package_install, "_commit_activation", interrupt_commit)
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     assert tombstone.is_dir()
     assert not installed.root.exists()
-    assert "alpha" in load_activation_index(home=home, env={}).packages
+    assert "alpha" in load_activation_index(context_store(home=home, env={})).packages
 
     monkeypatch.setattr(package_install, "_commit_activation", original_commit)
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not tombstone.exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_dry_run_uninstall_preserves_interrupted_tombstone(
@@ -931,16 +941,16 @@ def test_dry_run_uninstall_preserves_interrupted_tombstone(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt),
     )
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     monkeypatch.setattr(package_install, "_commit_activation", original_commit)
     dry_run.set_enabled(True)
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert tombstone.is_dir()
     assert not installed.root.exists()
-    assert "alpha" in load_activation_index(home=home, env={}).packages
+    assert "alpha" in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_uninstall_rejects_interrupted_tombstone_with_wrong_identity(
@@ -956,7 +966,7 @@ def test_uninstall_rejects_interrupted_tombstone_with_wrong_identity(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt),
     )
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     (tombstone / "package.toml").write_text(
@@ -965,7 +975,7 @@ def test_uninstall_rejects_interrupted_tombstone_with_wrong_identity(
     write_record(tombstone)
 
     with pytest.raises(PackageInstallError, match="identity"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
 
 def test_partial_uninstall_cleanup_is_hidden_and_retryable(
@@ -988,20 +998,20 @@ def test_partial_uninstall_cleanup_is_hidden_and_retryable(
     monkeypatch.setattr(package_install.fs, "unlink", interrupt_tree_cleanup)
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     assert removed_files == 2
     assert tombstone.is_dir()
     assert not installed.root.exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
-    assert installed_packages(home=home, env={}) == ()
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
+    assert installed_packages(context_store(home=home, env={})) == ()
 
     monkeypatch.setattr(package_install.fs, "unlink", original_unlink)
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not tombstone.exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_uninstall_cleans_an_interrupted_tombstone_after_a_different_reinstall(
@@ -1023,12 +1033,12 @@ def test_uninstall_cleans_an_interrupted_tombstone_after_a_different_reinstall(
 
     monkeypatch.setattr(package_install.fs, "unlink", interrupt_cleanup)
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert interrupted
     assert tombstone.is_dir()
     assert old_provenance.is_file()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
     monkeypatch.setattr(package_install.fs, "unlink", original_unlink)
     second_source = _package(tmp_path / "second", "alpha", "2.0.0")
@@ -1040,13 +1050,13 @@ def test_uninstall_cleans_an_interrupted_tombstone_after_a_different_reinstall(
     assert old_provenance.is_file()
     assert new_provenance.is_file()
 
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not second.root.exists()
     assert not tombstone.exists()
     assert not old_provenance.exists()
     assert not new_provenance.exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_uninstall_retries_after_payload_removal_but_before_tombstone_removal(
@@ -1069,7 +1079,7 @@ def test_uninstall_retries_after_payload_removal_but_before_tombstone_removal(
     monkeypatch.setattr(package_install.fs, "rmdir", interrupt_directory_cleanup)
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     assert interrupted
@@ -1078,7 +1088,7 @@ def test_uninstall_retries_after_payload_removal_but_before_tombstone_removal(
     assert not (tombstone / "RECORD").exists()
 
     monkeypatch.setattr(package_install.fs, "rmdir", original_rmdir)
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not tombstone.exists()
 
@@ -1090,12 +1100,12 @@ def test_uninstall_refuses_a_malformed_retry_tombstone(tmp_path: Path) -> None:
     (tombstone / "package.toml").write_text("invalid", encoding="utf-8")
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
 
 def test_uninstall_refuses_an_invalid_package_path(tmp_path: Path) -> None:
     with pytest.raises(PackageInstallError, match="not installed"):
-        uninstall_package("../alpha", home=tmp_path / "home", env={})
+        uninstall_package(context_store(home=tmp_path / "home", env={}), "../alpha")
 
 
 def test_uninstall_refuses_a_redirected_retry_tombstone(tmp_path: Path) -> None:
@@ -1109,7 +1119,7 @@ def test_uninstall_refuses_a_redirected_retry_tombstone(tmp_path: Path) -> None:
     (package_root / ".uninstalling").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(PackageInstallError, match="tombstone"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert marker.read_text(encoding="utf-8") == "keep"
 
@@ -1131,10 +1141,10 @@ def test_uninstall_rename_failure_preserves_the_active_package(
     monkeypatch.setattr(Path, "replace", fail_tombstone_rename)
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert installed.root.is_dir()
-    assert "alpha" in load_activation_index(home=home, env={}).packages
+    assert "alpha" in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_legacy_activation_orders_are_assigned_when_an_editable_package_is_present(
@@ -1144,15 +1154,14 @@ def test_legacy_activation_orders_are_assigned_when_an_editable_package_is_prese
     bravo = _package(tmp_path / "bravo", "bravo", "1.0.0")
     home = tmp_path / "home"
     install_directory(alpha, home=home, env={}, editable=True)
-    active_alpha = load_activation_index(home=home, env={}).packages["alpha"]
+    active_alpha = load_activation_index(context_store(home=home, env={})).packages["alpha"]
     write_activation_index(
+        context_store(home=home, env={}),
         ActivationIndex({"alpha": ActivePackage(active_alpha.version, editable=alpha)}),
-        home=home,
-        env={},
     )
     install_directory(bravo, home=home, env={})
 
-    index = load_activation_index(home=home, env={})
+    index = load_activation_index(context_store(home=home, env={}))
     assert index.packages["alpha"].registration_order > 0
 
 
@@ -1169,14 +1178,14 @@ def test_install_merges_commands_and_unregisters_them_on_uninstall(
 
     install_directory(source, home=home, env={})
 
-    index = load_activation_index(home=home, env={})
+    index = load_activation_index(context_store(home=home, env={}))
     assert index.commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main", "Launch alpha")
     }
 
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
-    assert load_activation_index(home=home, env={}).commands == {}
+    assert load_activation_index(context_store(home=home, env={})).commands == {}
 
 
 def test_install_bakes_a_source_declared_command_into_the_store_manifest(
@@ -1198,14 +1207,14 @@ def test_install_bakes_a_source_declared_command_into_the_store_manifest(
     assert installed.manifest.commands == {
         "launch": CommandSpec(program="alpha/main::main", doc="Launch alpha")
     }
-    index = load_activation_index(home=home, env={})
+    index = load_activation_index(context_store(home=home, env={}))
     assert index.commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main", "Launch alpha")
     }
 
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
-    assert load_activation_index(home=home, env={}).commands == {}
+    assert load_activation_index(context_store(home=home, env={})).commands == {}
 
 
 def test_editable_install_rejects_an_alias_colliding_with_a_source_declared_command(
@@ -1320,11 +1329,11 @@ def test_shadow_diagnostics_are_computed_from_the_locked_prepublication_plan(
         '\n[commands]\nlaunch = { program = "bravo/main::main" }\n',
     )
     home = prebuilt_store(_Preinstalled("alpha", "1.0.0", _ALPHA_LAUNCH_COMMAND))
-    previous_index = load_activation_index(home=home, env={})
+    previous_index = load_activation_index(context_store(home=home, env={}))
     original_diagnostics = package_install.command_shadow_diagnostics
 
     def observe_diagnostics(*args: object, **kwargs: object) -> object:
-        assert load_activation_index(home=home, env={}) == previous_index
+        assert load_activation_index(context_store(home=home, env={})) == previous_index
         with (home / ".agm" / "packages" / ".lock").open("a+", encoding="utf-8") as lock:
             with pytest.raises(BlockingIOError):
                 package_install.fcntl.flock(
@@ -1334,12 +1343,15 @@ def test_shadow_diagnostics_are_computed_from_the_locked_prepublication_plan(
 
     monkeypatch.setattr(package_install, "command_shadow_diagnostics", observe_diagnostics)
 
-    plan = install_directory_with_plan(bravo, home=home, env={}, shadow=True)
+    plan = install_directory_with_plan(context_store(home=home, env={}), bravo, shadow=True)
 
     assert [(shadow.path_name, shadow.displaced_packages) for shadow in plan.command_shadows] == [
         ("launch", ("alpha",))
     ]
-    assert load_activation_index(home=home, env={}).packages.keys() == {"alpha", "bravo"}
+    assert load_activation_index(context_store(home=home, env={})).packages.keys() == {
+        "alpha",
+        "bravo",
+    }
 
 
 def test_shadow_diagnostic_failure_prevents_activation_and_rolls_back_install(
@@ -1354,9 +1366,9 @@ def test_shadow_diagnostic_failure_prevents_activation_and_rolls_back_install(
     monkeypatch.setattr(package_install, "command_shadow_diagnostics", fail_diagnostics)
 
     with pytest.raises(PackageInstallError, match="diagnostics failed"):
-        install_directory_with_plan(source, home=home, env={}, shadow=True)
+        install_directory_with_plan(context_store(home=home, env={}), source, shadow=True)
 
-    assert load_activation_index(home=home, env={}) == ActivationIndex()
+    assert load_activation_index(context_store(home=home, env={})) == ActivationIndex()
     assert not (home / ".agm" / "packages" / "alpha" / "1.0.0").exists()
 
 
@@ -1376,13 +1388,13 @@ def test_shadowed_command_is_restored_when_the_winning_package_is_uninstalled(
 
     install_directory(bravo, home=home, env={}, shadow=True)
 
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
-    uninstall_package("bravo", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "bravo")
 
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main")
     }
 
@@ -1391,11 +1403,11 @@ def test_install_allocates_after_inactive_provenance(
     tmp_path: Path, prebuilt_store: Callable[..., Path]
 ) -> None:
     home = prebuilt_store(_Preinstalled("alpha", "1.0.0"), _Preinstalled("alpha", "2.0.0"))
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     install_directory(_package(tmp_path / "bravo", "bravo", "1.0.0"), home=home, env={})
 
-    index = load_activation_index(home=home, env={})
+    index = load_activation_index(context_store(home=home, env={}))
     assert index.packages["bravo"].registration_order == 2
 
 
@@ -1440,7 +1452,7 @@ def test_install_resolves_path_dependencies_before_activation(tmp_path: Path) ->
 
     install_directory(alpha, home=home, env={})
 
-    index = load_activation_index(home=home, env={})
+    index = load_activation_index(context_store(home=home, env={}))
     assert set(index.packages) == {"alpha", "bravo"}
     assert index.packages["bravo"].version.major == 1
     assert (home / ".agm" / "packages" / "bravo" / "1.2.0") == (
@@ -1458,7 +1470,7 @@ def test_install_activates_an_installed_dependency_missing_from_the_index(tmp_pa
         '\n[commands]\ninspect = { program = "bravo/main::main" }\n',
     )
     install_directory(bravo, home=home, env={})
-    write_activation_index(ActivationIndex(), home=home, env={})
+    write_activation_index(context_store(home=home, env={}), ActivationIndex())
     alpha = _package(
         tmp_path / "alpha",
         "alpha",
@@ -1468,7 +1480,7 @@ def test_install_activates_an_installed_dependency_missing_from_the_index(tmp_pa
 
     install_directory(alpha, home=home, env={})
 
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "inspect": CommandRegistration("bravo", "bravo/main::main")
     }
 
@@ -1484,7 +1496,7 @@ def test_install_rejects_an_inactive_dependency_command_conflicting_with_an_acti
         '\n[commands]\nlaunch = { program = "bravo/main::main" }\n',
     )
     install_directory(bravo, home=home, env={})
-    write_activation_index(ActivationIndex(), home=home, env={})
+    write_activation_index(context_store(home=home, env={}), ActivationIndex())
     charlie = _package(
         tmp_path / "charlie",
         "charlie",
@@ -1544,7 +1556,9 @@ def test_install_uses_an_installed_satisfying_dependency_before_path_source(tmp_
 
     install_directory(alpha, home=home, env={})
 
-    assert load_activation_index(home=home, env={}).packages["bravo"].version.major == 2
+    assert (
+        load_activation_index(context_store(home=home, env={})).packages["bravo"].version.major == 2
+    )
 
 
 def test_dependency_resolution_preserves_active_equal_precedence_build(tmp_path: Path) -> None:
@@ -1555,7 +1569,10 @@ def test_dependency_resolution_preserves_active_equal_precedence_build(tmp_path:
 
     install_directory(alpha, home=home, env={})
 
-    assert str(load_activation_index(home=home, env={}).packages["bravo"].version) == "1.0.0+macos"
+    assert (
+        str(load_activation_index(context_store(home=home, env={})).packages["bravo"].version)
+        == "1.0.0+macos"
+    )
 
 
 def test_install_activates_the_closure_of_a_stored_dependency(tmp_path: Path) -> None:
@@ -1569,12 +1586,16 @@ def test_install_activates_the_closure_of_a_stored_dependency(tmp_path: Path) ->
     )
     install_directory(charlie, home=home, env={})
     install_directory(bravo, home=home, env={})
-    write_activation_index(ActivationIndex(), home=home, env={})
+    write_activation_index(context_store(home=home, env={}), ActivationIndex())
     alpha = _package(tmp_path / "alpha", "alpha", "1.0.0", '\n[dependencies]\nbravo = "1"\n')
 
     install_directory(alpha, home=home, env={})
 
-    assert set(load_activation_index(home=home, env={}).packages) == {"alpha", "bravo", "charlie"}
+    assert set(load_activation_index(context_store(home=home, env={})).packages) == {
+        "alpha",
+        "bravo",
+        "charlie",
+    }
 
 
 def test_install_accepts_an_active_editable_dependency(tmp_path: Path) -> None:
@@ -1585,7 +1606,7 @@ def test_install_accepts_an_active_editable_dependency(tmp_path: Path) -> None:
 
     install_directory(alpha, home=home, env={})
 
-    active = load_activation_index(home=home, env={}).packages["bravo"]
+    active = load_activation_index(context_store(home=home, env={})).packages["bravo"]
     assert active.editable == bravo.resolve()
 
 
@@ -1617,7 +1638,7 @@ def test_changed_editable_dependency_version_preserves_its_root_and_command_prov
     )
     install_directory(alpha, home=home, env={})
     install_directory(bravo, home=home, env={}, editable=True, shadow=True)
-    original = load_activation_index(home=home, env={}).packages["bravo"]
+    original = load_activation_index(context_store(home=home, env={})).packages["bravo"]
     manifest = bravo / "package.toml"
     manifest.write_text(
         manifest.read_text(encoding="utf-8").replace(
@@ -1634,7 +1655,7 @@ def test_changed_editable_dependency_version_preserves_its_root_and_command_prov
 
     install_directory(charlie, home=home, env={})
 
-    index = load_activation_index(home=home, env={})
+    index = load_activation_index(context_store(home=home, env={}))
     active_bravo = index.packages["bravo"]
     assert str(active_bravo.version) == changed_version
     assert active_bravo.editable == bravo.resolve()
@@ -1651,7 +1672,7 @@ def test_editable_install_mounts_live_tree_without_a_record(tmp_path: Path) -> N
 
     assert installed.root == source.resolve()
     assert not (source / "RECORD").exists()
-    active = load_activation_index(home=home, env={}).packages["alpha"]
+    active = load_activation_index(context_store(home=home, env={})).packages["alpha"]
     assert active.editable == source.resolve()
 
 
@@ -1740,11 +1761,11 @@ def test_uninstall_removes_a_store_tree_polluted_by_unrecorded_caches(tmp_path: 
     (installed.root / ".git").mkdir()
     (installed.root / ".git" / "config").write_text("vcs", encoding="utf-8")
 
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not installed.root.exists()
     assert not (installed.root.parent / ".uninstalling").exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_uninstall_refuses_a_store_tree_with_unrecorded_package_content(tmp_path: Path) -> None:
@@ -1755,7 +1776,7 @@ def test_uninstall_refuses_a_store_tree_with_unrecorded_package_content(tmp_path
     (installed.root / MODULE_TREE_DIRNAME / "extra.agl").write_text("()\n", encoding="utf-8")
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
 
 def test_uninstall_verifies_record_then_removes_only_the_requested_version(
@@ -1763,11 +1784,11 @@ def test_uninstall_verifies_record_then_removes_only_the_requested_version(
 ) -> None:
     home = prebuilt_store(_Preinstalled("alpha", "1.0.0"), _Preinstalled("alpha", "2.0.0"))
 
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert not _store_root(home, "alpha", "2.0.0").exists()
     assert _store_root(home, "alpha", "1.0.0").exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_uninstall_refuses_to_leave_an_active_package_with_unsatisfied_dependencies(
@@ -1784,10 +1805,13 @@ def test_uninstall_refuses_to_leave_an_active_package_with_unsatisfied_dependenc
     install_directory(alpha, home=home, env={})
 
     with pytest.raises(PackageInstallError, match="bravo"):
-        uninstall_package("bravo", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "bravo")
 
     assert (home / ".agm" / "packages" / "bravo" / "1.0.0").is_dir()
-    assert set(load_activation_index(home=home, env={}).packages) == {"alpha", "bravo"}
+    assert set(load_activation_index(context_store(home=home, env={})).packages) == {
+        "alpha",
+        "bravo",
+    }
     assert bravo.is_dir()
 
 
@@ -1804,10 +1828,13 @@ def test_dry_run_uninstall_refuses_to_leave_unsatisfied_remaining_selection(tmp_
     dry_run.set_enabled(True)
 
     with pytest.raises(PackageInstallError, match="bravo"):
-        uninstall_package("bravo", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "bravo")
 
     assert (home / ".agm" / "packages" / "bravo" / "1.0.0").is_dir()
-    assert set(load_activation_index(home=home, env={}).packages) == {"alpha", "bravo"}
+    assert set(load_activation_index(context_store(home=home, env={})).packages) == {
+        "alpha",
+        "bravo",
+    }
     assert bravo.is_dir()
 
 
@@ -1816,10 +1843,10 @@ def test_uninstall_of_editable_package_only_removes_activation(tmp_path: Path) -
     home = tmp_path / "home"
     install_directory(source, home=home, env={}, editable=True)
 
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert source.exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_install_rejects_invalid_and_linked_source_trees(tmp_path: Path) -> None:
@@ -1860,10 +1887,10 @@ def test_install_and_uninstall_refuse_store_paths_redirected_outside_the_store(
     (store / "alpha").symlink_to(external, target_is_directory=True)
 
     with pytest.raises(PackageInstallError, match="store"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert external_version.is_dir()
-    assert "alpha" in load_activation_index(home=home, env={}).packages
+    assert "alpha" in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_install_refuses_an_in_store_symlinked_package_path(tmp_path: Path) -> None:
@@ -1878,7 +1905,7 @@ def test_install_refuses_an_in_store_symlinked_package_path(tmp_path: Path) -> N
         install_directory(source, home=home, env={})
 
     assert not (internal_target / "1.0.0").exists()
-    assert load_activation_index(home=home, env={}).packages == {}
+    assert load_activation_index(context_store(home=home, env={})).packages == {}
 
 
 def test_install_refuses_cyclic_and_mismatched_path_dependencies(tmp_path: Path) -> None:
@@ -1964,7 +1991,7 @@ def test_directory_install_stages_beside_the_final_store_path(
         assert staging.parent == destination.parent
         assert staging.stat().st_dev == destination.parent.stat().st_dev
         assert not destination.exists()
-        assert installed_packages(home=home, env={}) == ()
+        assert installed_packages(context_store(home=home, env={})) == ()
         staged.append(staging)
         original_materialize(source_root, manifest, staging)
 
@@ -2005,7 +2032,7 @@ def test_directory_install_revalidates_staged_imports_after_source_changes(
     assert not destination.exists()
     assert staging_path is not None
     assert not staging_path.exists()
-    assert load_activation_index(home=home, env={}).packages == {}
+    assert load_activation_index(context_store(home=home, env={})).packages == {}
 
 
 def test_directory_install_revalidates_the_staged_package_identity(
@@ -2033,7 +2060,7 @@ def test_directory_install_revalidates_the_staged_package_identity(
     assert not destination.exists()
     assert staging_path is not None
     assert not staging_path.exists()
-    assert installed_packages(home=home, env={}) == ()
+    assert installed_packages(context_store(home=home, env={})) == ()
 
 
 def test_directory_install_cleans_staging_when_atomic_publication_fails(
@@ -2070,7 +2097,7 @@ def test_install_refuses_tampered_existing_tree_and_cleans_failed_copy(
     source = _package(tmp_path / "source", "alpha", "1.0.0")
     installed = install_directory(source, home=home, env={})
     (installed.root / MODULE_TREE_DIRNAME / "main.agl").write_text("tampered", encoding="utf-8")
-    write_activation_index(ActivationIndex(), home=home, env={})
+    write_activation_index(context_store(home=home, env={}), ActivationIndex())
     with pytest.raises(PackageInstallError, match="integrity"):
         install_directory(source, home=home, env={})
     (installed.root / MODULE_TREE_DIRNAME / "main.agl").write_bytes(
@@ -2155,9 +2182,9 @@ def test_install_archive_verifies_extracts_records_and_activates_it(tmp_path: Pa
 
     assert installed.root == tmp_path / "home" / ".agm" / "packages" / "alpha" / "1.0.0"
     assert verify_record(installed.root)
-    assert load_activation_index(home=tmp_path / "home", env={}).packages["alpha"].version == (
-        installed.manifest.version
-    )
+    assert load_activation_index(context_store(home=tmp_path / "home", env={})).packages[
+        "alpha"
+    ].version == (installed.manifest.version)
 
 
 def test_archive_command_lifecycle_restores_the_remaining_owner(tmp_path: Path) -> None:
@@ -2184,12 +2211,12 @@ def test_archive_command_lifecycle_restores_the_remaining_owner(tmp_path: Path) 
         install_archive(bravo_archive, home=home, env={})
 
     install_archive(bravo_archive, home=home, env={}, shadow=True)
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
-    uninstall_package("bravo", home=home, env={})
-    assert load_activation_index(home=home, env={}).commands == {
+    uninstall_package(context_store(home=home, env={}), "bravo")
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main")
     }
 
@@ -2212,12 +2239,12 @@ def test_archive_shadow_install_plan_reports_the_displaced_command_owner(tmp_pat
     home = tmp_path / "home"
     install_directory(alpha, home=home, env={})
 
-    plan = install_archive_with_plan(archive, home=home, env={}, shadow=True)
+    plan = install_archive_with_plan(context_store(home=home, env={}), archive, shadow=True)
 
     assert [(shadow.path_name, shadow.displaced_packages) for shadow in plan.command_shadows] == [
         ("launch", ("alpha",))
     ]
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
@@ -2250,7 +2277,7 @@ def test_pkg_install_shadow_activates_a_conflicting_archive_command(
 
     install_command.run(PkgInstallArgs(str(archive), editable=False, shadow=True))
 
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
@@ -2272,14 +2299,14 @@ def test_editable_command_lifecycle_restores_the_remaining_owner(tmp_path: Path)
     install_directory(alpha, home=home, env={})
     install_directory(bravo, home=home, env={}, editable=True, shadow=True)
 
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
-    uninstall_package("bravo", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "bravo")
 
     assert bravo.exists()
-    assert load_activation_index(home=home, env={}).commands == {
+    assert load_activation_index(context_store(home=home, env={})).commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main")
     }
 
@@ -2431,7 +2458,8 @@ def test_dry_run_archive_reinstall_reports_without_replacing_the_store_tree(
     dry_run.set_enabled(True)
 
     assert (
-        install_archive_with_plan(archive, home=home, env={}, reinstall=True).package == installed
+        install_archive_with_plan(context_store(home=home, env={}), archive, reinstall=True).package
+        == installed
     )
 
     assert (installed.root / "RECORD").read_bytes() == previous_record
@@ -2452,7 +2480,9 @@ def test_dry_run_directory_reinstall_reports_without_replacing_the_store_tree(
     dry_run.set_enabled(True)
 
     assert (
-        install_directory_with_plan(source, home=home, env={}, reinstall=True).package.root
+        install_directory_with_plan(
+            context_store(home=home, env={}), source, reinstall=True
+        ).package.root
         == installed.root
     )
 
@@ -2492,7 +2522,9 @@ def test_reinstall_archive_replaces_the_complete_existing_tree(tmp_path: Path) -
     home = tmp_path / "home"
     installed = install_archive(first_archive, home=home, env={})
 
-    replaced = install_archive_with_plan(second_archive, home=home, env={}, reinstall=True).package
+    replaced = install_archive_with_plan(
+        context_store(home=home, env={}), second_archive, reinstall=True
+    ).package
 
     assert replaced.root == installed.root
     assert not (replaced.root / "obsolete.txt").exists()
@@ -2520,9 +2552,13 @@ def test_reinstall_publishes_if_the_previous_tree_disappears_before_swap(
     if archive_source:
         archive = tmp_path / "replacement.agmpkg"
         write_archive(source, archive)
-        replaced = install_archive_with_plan(archive, home=home, env={}, reinstall=True).package
+        replaced = install_archive_with_plan(
+            context_store(home=home, env={}), archive, reinstall=True
+        ).package
     else:
-        replaced = install_directory_with_plan(source, home=home, env={}, reinstall=True).package
+        replaced = install_directory_with_plan(
+            context_store(home=home, env={}), source, reinstall=True
+        ).package
 
     assert replaced.root == installed.root
     assert not (replaced.root / "obsolete.txt").exists()
@@ -2543,7 +2579,7 @@ def test_failed_directory_reinstall_cleans_its_staging_tree(
     monkeypatch.setattr(package_install, "_publish_staged_refresh", fail_publish)
 
     with pytest.raises(PackageInstallError, match="publish failed"):
-        install_directory_with_plan(source, home=home, env={}, reinstall=True)
+        install_directory_with_plan(context_store(home=home, env={}), source, reinstall=True)
 
     assert (installed.root / "package.toml").read_bytes() == previous_manifest
     assert not tuple(installed.root.parent.glob(".agm-package-*"))
@@ -2565,7 +2601,9 @@ def test_reinstall_keeps_the_previous_tree_if_cleanup_fails(
     monkeypatch.setattr(package_install.fs, "rmtree", fail_previous_cleanup)
     (source / "replacement.txt").write_text("new", encoding="utf-8")
 
-    replaced = install_directory_with_plan(source, home=home, env={}, reinstall=True).package
+    replaced = install_directory_with_plan(
+        context_store(home=home, env={}), source, reinstall=True
+    ).package
 
     assert replaced.root == installed.root
     assert (replaced.root / "replacement.txt").read_text(encoding="utf-8") == "new"
@@ -2586,7 +2624,7 @@ def test_dry_run_reinstall_reports_a_source_distribution_error(
     dry_run.set_enabled(True)
 
     with pytest.raises(PackageInstallError, match="source read failed"):
-        install_directory_with_plan(source, home=home, env={}, reinstall=True)
+        install_directory_with_plan(context_store(home=home, env={}), source, reinstall=True)
 
     assert (installed.root / "package.toml").is_file()
 
@@ -2606,7 +2644,9 @@ def test_reinstall_directory_replaces_the_complete_existing_tree(tmp_path: Path)
         encoding="utf-8",
     )
 
-    replaced = install_directory_with_plan(source, home=home, env={}, reinstall=True).package
+    replaced = install_directory_with_plan(
+        context_store(home=home, env={}), source, reinstall=True
+    ).package
 
     assert replaced.root == installed.root
     assert replaced.manifest.description == "reinstalled"
@@ -2623,7 +2663,7 @@ def test_reinstall_cannot_be_used_with_an_editable_package(tmp_path: Path) -> No
 
     with pytest.raises(PackageInstallError, match="cannot be used with --editable"):
         install_directory_with_plan(
-            source, home=tmp_path / "home", env={}, editable=True, reinstall=True
+            context_store(home=tmp_path / "home", env={}), source, editable=True, reinstall=True
         )
 
 
@@ -2654,9 +2694,9 @@ def test_failed_reinstall_restores_the_previous_store_tree_and_activation(
 
     with pytest.raises(PackageInstallError):
         if archive_source:
-            install_archive_with_plan(archive, home=home, env={}, reinstall=True)
+            install_archive_with_plan(context_store(home=home, env={}), archive, reinstall=True)
         else:
-            install_directory_with_plan(source, home=home, env={}, reinstall=True)
+            install_directory_with_plan(context_store(home=home, env={}), source, reinstall=True)
 
     monkeypatch.chdir(tmp_path)
     previous.assert_restored()
@@ -2694,7 +2734,7 @@ def test_archive_staging_is_not_visible_to_package_store_scans(
     extract = package_install.extract_archive
 
     def extract_and_scan(path: Path, destination: Path) -> object:
-        assert installed_packages(home=home, env={}) == ()
+        assert installed_packages(context_store(home=home, env={})) == ()
         return extract(path, destination)
 
     monkeypatch.setattr(package_install, "extract_archive", extract_and_scan)
@@ -2874,7 +2914,10 @@ def test_url_dependency_hands_verified_archive_to_the_installer(
 
     assert installed.manifest.name == "alpha"
     assert fetched == ["bravo >= 1.0.0"]
-    assert set(load_activation_index(home=tmp_path / "home", env={}).packages) == {"alpha", "bravo"}
+    assert set(load_activation_index(context_store(home=tmp_path / "home", env={})).packages) == {
+        "alpha",
+        "bravo",
+    }
 
 
 def test_archive_install_wraps_activation_and_extraction_failures(
@@ -2886,7 +2929,7 @@ def test_archive_install_wraps_activation_and_extraction_failures(
     monkeypatch.setattr(
         package_install,
         "load_activation_index",
-        lambda **_: (_ for _ in ()).throw(PackageActivationError("broken")),
+        lambda *_, **__: (_ for _ in ()).throw(PackageActivationError("broken")),
     )
 
     with pytest.raises(PackageInstallError, match="activation"):
@@ -2895,7 +2938,7 @@ def test_archive_install_wraps_activation_and_extraction_failures(
     monkeypatch.setattr(
         package_install,
         "load_activation_index",
-        lambda **_: load_activation_index(home=tmp_path / "other", env={}),
+        lambda *_, **__: load_activation_index(context_store(home=tmp_path / "other", env={})),
     )
     monkeypatch.setattr(
         package_install,
@@ -2951,8 +2994,7 @@ def test_active_editable_manifest_errors_are_install_errors(
     editable.mkdir()
     (editable / "package.toml").write_text("invalid", encoding="utf-8")
     state = package_install._InstallState(
-        home=tmp_path / "home",
-        env={},
+        context_store(home=tmp_path / "home", env={}),
         index=ActivationIndex(
             {"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=editable)}, {}
         ),
@@ -2974,7 +3016,9 @@ def test_provenance_snapshot_and_restore_wrap_io_errors(
     monkeypatch.setattr(Path, "read_bytes", lambda _: (_ for _ in ()).throw(OSError("broken")))
 
     with pytest.raises(PackageActivationError, match="snapshot"):
-        package_install._snapshot_package_provenance(index, home=tmp_path / "home", env={})
+        package_install._snapshot_package_provenance(
+            context_store(home=tmp_path / "home", env={}), index
+        )
 
     path = tmp_path / "provenance.toml"
     monkeypatch.setattr(
@@ -2991,7 +3035,7 @@ def test_fetch_and_activation_failures_become_package_errors(
     monkeypatch.setattr(
         package_install,
         "load_activation_index",
-        lambda **_: (_ for _ in ()).throw(PackageActivationError("broken")),
+        lambda *_, **__: (_ for _ in ()).throw(PackageActivationError("broken")),
     )
     with pytest.raises(PackageInstallError, match="activation"):
         install_directory(source, home=tmp_path / "home", env={})
@@ -2999,7 +3043,7 @@ def test_fetch_and_activation_failures_become_package_errors(
     monkeypatch.setattr(
         package_install,
         "load_activation_index",
-        lambda **_: load_activation_index(home=tmp_path / "other", env={}),
+        lambda *_, **__: load_activation_index(context_store(home=tmp_path / "other", env={})),
     )
     monkeypatch.setattr(
         package_install,
@@ -3013,28 +3057,28 @@ def test_fetch_and_activation_failures_become_package_errors(
 
 def test_installed_package_enumeration_rejects_invalid_store_identity(tmp_path: Path) -> None:
     home = tmp_path / "home"
-    assert installed_packages(home=home, env={}) == ()
+    assert installed_packages(context_store(home=home, env={})) == ()
     root = home / ".agm" / "packages" / "alpha" / "1.0.0"
     (root / MODULE_TREE_DIRNAME).mkdir(parents=True)
     (root / "package.toml").write_text(
         '[package]\nname = "bravo"\nversion = "1.0.0"\n', encoding="utf-8"
     )
     with pytest.raises(PackageInstallError, match="identity"):
-        installed_packages(home=home, env={})
+        installed_packages(context_store(home=home, env={}))
 
 
 def test_uninstall_reports_unknown_and_activation_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with pytest.raises(PackageInstallError, match="not installed"):
-        uninstall_package("alpha", home=tmp_path / "home", env={})
+        uninstall_package(context_store(home=tmp_path / "home", env={}), "alpha")
     monkeypatch.setattr(
         package_install,
         "load_activation_index",
-        lambda **_: (_ for _ in ()).throw(PackageActivationError("broken")),
+        lambda *_, **__: (_ for _ in ()).throw(PackageActivationError("broken")),
     )
     with pytest.raises(PackageInstallError, match="activation"):
-        uninstall_package("alpha", home=tmp_path / "home", env={})
+        uninstall_package(context_store(home=tmp_path / "home", env={}), "alpha")
 
 
 def test_uninstall_reports_activation_write_failure(
@@ -3049,11 +3093,11 @@ def test_uninstall_reports_activation_write_failure(
         lambda *_, **__: (_ for _ in ()).throw(PackageActivationError("broken")),
     )
     with pytest.raises(PackageInstallError, match="activation"):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert (home / ".agm" / "packages" / "alpha" / "1.0.0").is_dir()
     assert not (home / ".agm" / "packages" / "alpha" / ".uninstalling").exists()
-    assert "alpha" in load_activation_index(home=home, env={}).packages
+    assert "alpha" in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_uninstall_translates_failed_activation_rollback_and_can_retry(
@@ -3080,16 +3124,16 @@ def test_uninstall_translates_failed_activation_rollback_and_can_retry(
     monkeypatch.setattr(Path, "replace", fail_rollback)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package("alpha", home=home, env={})
+        uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert tombstone.is_dir()
-    assert "alpha" in load_activation_index(home=home, env={}).packages
+    assert "alpha" in load_activation_index(context_store(home=home, env={})).packages
 
     monkeypatch.setattr(package_install, "write_activation_index", original_write)
     monkeypatch.setattr(Path, "replace", original_replace)
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
     assert not tombstone.exists()
-    assert "alpha" not in load_activation_index(home=home, env={}).packages
+    assert "alpha" not in load_activation_index(context_store(home=home, env={})).packages
 
 
 def test_installed_package_enumeration_skips_non_package_entries_and_bad_manifests(
@@ -3101,12 +3145,12 @@ def test_installed_package_enumeration_skips_non_package_entries_and_bad_manifes
     (store / "index.toml").write_text("", encoding="utf-8")
     (store / "alpha").mkdir()
     (store / "alpha" / "notes").write_text("not a version", encoding="utf-8")
-    assert installed_packages(home=home, env={}) == ()
+    assert installed_packages(context_store(home=home, env={})) == ()
     broken = store / "alpha" / "1.0.0"
     broken.mkdir()
     (broken / "package.toml").write_text("[package\n", encoding="utf-8")
     with pytest.raises(PackageInstallError, match="cannot load"):
-        installed_packages(home=home, env={})
+        installed_packages(context_store(home=home, env={}))
 
 
 def test_directory_install_rolls_back_new_dependency_after_discipline_failure(
@@ -3131,8 +3175,8 @@ def test_directory_install_rolls_back_new_dependency_after_discipline_failure(
     with pytest.raises(PackageInstallError):
         install_directory(source, home=home, env={})
 
-    assert installed_packages(home=home, env={}) == ()
-    assert load_activation_index(home=home, env={}).packages == {}
+    assert installed_packages(context_store(home=home, env={})) == ()
+    assert load_activation_index(context_store(home=home, env={})).packages == {}
 
 
 def _dependency_with_undistributed_module(root: Path) -> Path:
@@ -3164,8 +3208,8 @@ def test_directory_dependency_is_validated_against_its_stored_distribution(
     with pytest.raises(PackageInstallError):
         install_directory(source, home=home, env={})
 
-    assert installed_packages(home=home, env={}) == ()
-    assert load_activation_index(home=home, env={}).packages == {}
+    assert installed_packages(context_store(home=home, env={})) == ()
+    assert load_activation_index(context_store(home=home, env={})).packages == {}
 
     main.write_text("import bravo/kept\nprogram def main() -> unit = ()\n", encoding="utf-8")
     install_directory(source, home=home, env={})
@@ -3173,7 +3217,10 @@ def test_directory_dependency_is_validated_against_its_stored_distribution(
     installed = home / ".agm" / "packages" / "bravo" / "1.0.0" / MODULE_TREE_DIRNAME
     assert (installed / "kept.agl").is_file()
     assert not (installed / "extras").exists()
-    assert set(load_activation_index(home=home, env={}).packages) == {"alpha", "bravo"}
+    assert set(load_activation_index(context_store(home=home, env={})).packages) == {
+        "alpha",
+        "bravo",
+    }
 
 
 def test_editable_dependency_stays_visible_as_its_live_source(tmp_path: Path) -> None:
@@ -3192,7 +3239,10 @@ def test_editable_dependency_stays_visible_as_its_live_source(tmp_path: Path) ->
 
     install_directory(source, home=home, env={})
 
-    assert set(load_activation_index(home=home, env={}).packages) == {"alpha", "bravo"}
+    assert set(load_activation_index(context_store(home=home, env={})).packages) == {
+        "alpha",
+        "bravo",
+    }
 
 
 def test_dependency_command_registration_failure_rolls_back_the_install(tmp_path: Path) -> None:
@@ -3222,7 +3272,7 @@ def test_dependency_command_registration_failure_rolls_back_the_install(tmp_path
 
     assert not (store / "bravo" / "1.0.0").exists()
     assert not (store / "alpha" / "1.0.0").exists()
-    assert load_activation_index(home=home, env={}).packages == {}
+    assert load_activation_index(context_store(home=home, env={})).packages == {}
     assert (charlie / "package.toml").is_file()
 
 
@@ -3313,7 +3363,9 @@ def test_dry_run_install_validates_the_resulting_activation_without_writing(tmp_
         install_directory(_package(tmp_path / "bravo-one", "bravo", "1.0.0"), home=home, env={})
 
     assert not (home / ".agm" / "packages" / "bravo" / "1.0.0").exists()
-    assert load_activation_index(home=home, env={}).packages["bravo"].version.major == 2
+    assert (
+        load_activation_index(context_store(home=home, env={})).packages["bravo"].version.major == 2
+    )
 
 
 def test_dry_run_install_selects_prior_transient_dependencies(tmp_path: Path) -> None:
@@ -3344,7 +3396,11 @@ def test_dry_run_install_selects_prior_transient_dependencies(tmp_path: Path) ->
     actual = install_directory(alpha, home=home, env={})
 
     assert actual == installed
-    assert set(load_activation_index(home=home, env={}).packages) == {"alpha", "bravo", "charlie"}
+    assert set(load_activation_index(context_store(home=home, env={})).packages) == {
+        "alpha",
+        "bravo",
+        "charlie",
+    }
 
 
 def test_dry_run_url_dependency_never_fetches_or_creates_scratch(
@@ -3427,7 +3483,7 @@ def test_install_and_uninstall_use_dry_run_filesystem_primitives(tmp_path: Path)
     dry_run.set_enabled(False)
     install_directory(source, home=home, env={})
     dry_run.set_enabled(True)
-    uninstall_package("alpha", home=home, env={})
+    uninstall_package(context_store(home=home, env={}), "alpha")
 
     assert (home / ".agm" / "packages" / "alpha" / "1.0.0").exists()
 

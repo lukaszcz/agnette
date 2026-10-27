@@ -2336,8 +2336,9 @@ def _requirement_repair(package: "PackageInfo") -> str:
     """
     from agnette.config.context import current_config_context
     from agnette.packages.activation import is_active_package
+    from agnette.packages.store import context_store
 
-    if is_active_package(package, home=current_config_context().home):
+    if is_active_package(context_store(home=current_config_context().home), package):
         return "run `agm pkg sync` to install them"
     return f"install the package with `agm pkg install [--editable] {package.root}`"
 

@@ -34,6 +34,7 @@ from agnette.core.toml import load_toml_file, toml_dict
 from agnette.packages.stdlib import StdlibResolutionError as StdlibResolutionError
 from agnette.packages.stdlib import StdlibSelection, select_std_package
 from agnette.packages.stdlib import StdlibVersionMismatchError as StdlibVersionMismatchError
+from agnette.packages.store import context_store
 from agnette.util.interp import interp_preserving
 
 
@@ -151,4 +152,4 @@ def select_stdlib_root(
     override = resolve_env(env).get("AGM_STDLIB")
     if override is not None and override.strip():
         return StdlibSelection(expand_env_root(override), installed=False)
-    return select_std_package(home=home, env=env, anchor=anchor)
+    return select_std_package(context_store(home=home, env=env), anchor=anchor)

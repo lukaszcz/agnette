@@ -19,11 +19,11 @@ from agnette.packages.activation import (
     ActivePackage,
     CommandShadow,
     PackageActivationError,
+    checked_provenance_path,
     command_shadow_diagnostics,
     load_activation_index,
     load_package_provenance,
     merge_package_commands,
-    package_provenance_path,
     reconcile_package_commands,
     resolve_indexed_packages,
     validate_activation_index,
@@ -74,12 +74,7 @@ from agnette.packages.record import (
     verify_record,
     write_record,
 )
-from agnette.packages.store import (
-    canonical_package_store_path,
-    package_store_path,
-    satisfying_installed_package,
-    store_root,
-)
+from agnette.packages.store import PackageStore, satisfying_installed_package
 from agnette.packages.store import (
     installed_packages as installed_packages,
 )
@@ -101,45 +96,39 @@ class PackageInstallPlan:
 
 
 @contextmanager
-def _package_operation_lock(*, home: Path, env: Mapping[str, str] | None) -> Iterator[None]:
+def _package_operation_lock(store: PackageStore) -> Iterator[None]:
     """Serialize package-store mutations through a persistent advisory lock."""
 
     if dry_run.enabled():
         yield
         return
-    root = store_root(home=home, env=env)
     try:
-        root.mkdir(parents=True, exist_ok=True)
-        lock = (root / ".lock").open("a+", encoding="utf-8")
+        store.root.mkdir(parents=True, exist_ok=True)
+        lock = store.lock_path.open("a+", encoding="utf-8")
     except OSError as exc:
-        raise PackageInstallError(f"cannot lock package store {root}: {exc}") from exc
+        raise PackageInstallError(f"cannot lock package store {store.root}: {exc}") from exc
     with lock:
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         except OSError as exc:
-            raise PackageInstallError(f"cannot lock package store {root}: {exc}") from exc
+            raise PackageInstallError(f"cannot lock package store {store.root}: {exc}") from exc
         try:
             yield
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
-def sync_active_python_dependencies(
-    *, home: Path, env: Mapping[str, str] | None = None
-) -> tuple[str, ...]:
+def sync_active_python_dependencies(store: PackageStore) -> tuple[str, ...]:
     """Sync AgM's interpreter environment to every active package's Python requirements.
 
     Returns the requirements that were unsatisfied, hence installed (or, in
     dry-run, reported). Raises :class:`PackageInstallError`.
     """
 
-    with _package_operation_lock(home=home, env=env):
+    with _package_operation_lock(store):
         try:
             packages = resolve_indexed_packages(
-                load_activation_index(home=home, env=env),
-                home=home,
-                env=env,
-                fallback_to_manifest_commands=True,
+                store, load_activation_index(store), fallback_to_manifest_commands=True
             )
         except PackageActivationError as exc:
             raise PackageInstallError(f"cannot load package activation: {exc}") from exc
@@ -175,8 +164,7 @@ def _validate_managed_stdlib_install(
 
 @dataclass(slots=True)
 class _InstallState:
-    home: Path
-    env: Mapping[str, str] | None
+    store: PackageStore
     index: ActivationIndex
     installing: set[Path] = field(default_factory=set)
     resolved: set[Path] = field(default_factory=set)
@@ -190,10 +178,9 @@ class _InstallState:
 
 
 def install_directory_with_plan(
+    store: PackageStore,
     source: Path,
     *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
     editable: bool = False,
     shadow: bool = False,
     reinstall: bool = False,
@@ -211,8 +198,7 @@ def install_directory_with_plan(
         lambda state: _install_directory(
             source, state=state, editable=editable, shadow=shadow, reinstall=reinstall
         ),
-        home=home,
-        env=env,
+        store=store,
         shadow=shadow,
     )
 
@@ -242,11 +228,7 @@ def parse_versioned_package_target(target: str) -> tuple[str, semver.Version]:
 
 
 def activate_installed_package_with_plan(
-    name: str,
-    version: semver.Version,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
+    store: PackageStore, name: str, version: semver.Version
 ) -> PackageInstallPlan:
     """Activate an exact version already present in the package store."""
 
@@ -267,20 +249,16 @@ def activate_installed_package_with_plan(
         _activate_package(package, state, editable_root=None, shadow=False)
         return package
 
-    return _install_with_plan(activate, home=home, env=env, shadow=False)
+    return _install_with_plan(activate, store=store, shadow=False)
 
 
 def _install_with_plan(
-    install: Callable[[_InstallState], PackageInfo],
-    *,
-    home: Path,
-    env: Mapping[str, str] | None,
-    shadow: bool,
+    install: Callable[[_InstallState], PackageInfo], *, store: PackageStore, shadow: bool
 ) -> PackageInstallPlan:
     """Run one locked install transaction, rolling back trees it created on any failure."""
 
-    with _package_operation_lock(home=home, env=env):
-        state = _InstallState(home=home, env=env, index=_load_install_index(home=home, env=env))
+    with _package_operation_lock(store):
+        state = _InstallState(store, index=_load_install_index(store))
         try:
             package = install(state)
             command_shadows = _commit_install_activation(state, package, report_shadows=shadow)
@@ -291,12 +269,7 @@ def _install_with_plan(
         return PackageInstallPlan(package, command_shadows)
 
 
-def refresh_managed_stdlib(
-    source: Path,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
-) -> PackageInfo:
+def refresh_managed_stdlib(store: PackageStore, source: Path) -> PackageInfo:
     """Safely replace and activate AgM's shipped standard-library package.
 
     The complete replacement is staged beside its versioned store path while
@@ -306,14 +279,14 @@ def refresh_managed_stdlib(
     """
     from agnette.packages.discipline import validate_package
 
-    with _package_operation_lock(home=home, env=env):
+    with _package_operation_lock(store):
         package = _validated_directory_package(source)
         _validate_managed_stdlib_install(package.manifest, source=package.root, editable=False)
         _validate_agm_compatibility(package.manifest)
         resolution = validate_package(package)
         try:
-            destination = canonical_package_store_path(
-                package.manifest.name, package.manifest.version, home=home, env=env
+            destination = store.canonical_package_path(
+                package.manifest.name, package.manifest.version
             )
         except ValueError as exc:
             raise PackageInstallError(f"cannot refresh managed std package: {exc}") from exc
@@ -330,15 +303,11 @@ def refresh_managed_stdlib(
             )
             previous = _publish_staged_refresh(staging, destination)
             published = (staging, previous)
-            state = _InstallState(
-                home=home,
-                env=env,
-                index=_load_install_index(home=home, env=env),
-            )
+            state = _InstallState(store, index=_load_install_index(store))
             _deactivate_release_incompatible_packages(state)
             _resolve_dependencies(package, state)
             _activate_package(installed, state, editable_root=None, shadow=False)
-            _commit_activation(state.index, home=home, env=env)
+            _commit_activation(store, state.index)
             published = None
             _cleanup_previous_refreshes(destination.parent)
             return installed
@@ -366,10 +335,9 @@ def refresh_managed_stdlib(
 
 
 def install_archive_with_plan(
+    store: PackageStore,
     archive: Path,
     *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
     shadow: bool = False,
     reinstall: bool = False,
 ) -> PackageInstallPlan:
@@ -377,57 +345,53 @@ def install_archive_with_plan(
 
     return _install_with_plan(
         lambda state: _install_archive(archive, state=state, shadow=shadow, reinstall=reinstall),
-        home=home,
-        env=env,
+        store=store,
         shadow=shadow,
     )
 
 
-def uninstall_package(target: str, *, home: Path, env: Mapping[str, str] | None = None) -> None:
+def uninstall_package(store: PackageStore, target: str) -> None:
     """Remove an exact stored version, or the active package when unqualified.
 
     Editable packages have no copied tree or record, so removal only drops
     their activation selection.
     """
 
-    with _package_operation_lock(home=home, env=env):
-        _uninstall_package(target, home=home, env=env)
+    with _package_operation_lock(store):
+        _uninstall_package(store, target)
 
 
-def _uninstall_package(target: str, *, home: Path, env: Mapping[str, str] | None = None) -> None:
+def _uninstall_package(store: PackageStore, target: str) -> None:
     name, version = parse_package_target(target)
     try:
-        index = load_activation_index(home=home, env=env)
+        index = load_activation_index(store)
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot load package activation: {exc}") from exc
     if is_std_package_name(name):
         raise PackageInstallError("the AgM-managed std package cannot be uninstalled")
     placeholder_version = semver.Version(0, 0, 0)
     try:
-        package_store_path(name, placeholder_version, home=home, env=env)
+        store.package_path(name, placeholder_version)
     except ValueError as exc:
         raise PackageInstallError(f"package {name!r} is not installed") from exc
     try:
-        tombstone = (
-            canonical_package_store_path(name, placeholder_version, home=home, env=env).parent
-            / ".uninstalling"
-        )
+        tombstone = store.canonical_package_path(name, placeholder_version).parent / ".uninstalling"
     except ValueError as exc:
         raise PackageInstallError(f"package store path is invalid for {name!r}: {exc}") from exc
     active = index.packages.get(name)
     if version is not None and (active is None or active.version != version):
-        _uninstall_inactive_version(name, version, home=home, env=env)
+        _uninstall_inactive_version(store, name, version)
         return
     if active is None:
         if tombstone.exists():
-            _finish_uninstall(name, tombstone, home=home, env=env)
+            _finish_uninstall(store, name, tombstone)
             return
         raise PackageInstallError(f"package {name!r} is not installed")
     root: Path | None = None
     entries: tuple[RecordEntry, ...] = ()
     if active.editable is None:
         try:
-            root = canonical_package_store_path(name, active.version, home=home, env=env)
+            root = store.canonical_package_path(name, active.version)
             if not root.exists() and tombstone.exists():
                 entries = read_record(tombstone)
                 manifest = load_installed_manifest(tombstone / "package.toml")
@@ -449,20 +413,20 @@ def _uninstall_package(target: str, *, home: Path, env: Mapping[str, str] | None
     packages = dict(index.packages)
     del packages[name]
     if root is None or dry_run.enabled():
-        _commit_activation(ActivationIndex(packages), home=home, env=env)
+        _commit_activation(store, ActivationIndex(packages))
         if root is not None:
             _remove_recorded_tree(root, entries)
-            _remove_package_provenance(name, active.version, home=home, env=env)
+            _remove_package_provenance(store, name, active.version)
         return
 
     if tombstone.exists():
-        _finish_uninstall(name, tombstone, home=home, env=env)
+        _finish_uninstall(store, name, tombstone)
     try:
         root.replace(tombstone)
     except OSError as exc:
         raise PackageInstallError(f"cannot remove package {name!r}: {exc}") from exc
     try:
-        _commit_activation(ActivationIndex(packages), home=home, env=env)
+        _commit_activation(store, ActivationIndex(packages))
     except PackageInstallError as activation_error:
         try:
             tombstone.replace(root)
@@ -471,22 +435,20 @@ def _uninstall_package(target: str, *, home: Path, env: Mapping[str, str] | None
                 f"cannot restore package {name!r} after activation failure: {rollback_error}"
             ) from activation_error
         raise
-    _finish_uninstall(name, tombstone, version=active.version, home=home, env=env)
+    _finish_uninstall(store, name, tombstone, version=active.version)
 
 
-def _uninstall_inactive_version(
-    name: str, version: semver.Version, *, home: Path, env: Mapping[str, str] | None
-) -> None:
+def _uninstall_inactive_version(store: PackageStore, name: str, version: semver.Version) -> None:
     """Remove an unselected stored tree without changing activation."""
 
     try:
-        root = canonical_package_store_path(name, version, home=home, env=env)
+        root = store.canonical_package_path(name, version)
     except ValueError as exc:
         raise PackageInstallError(f"package store path is invalid for {name!r}: {exc}") from exc
     tombstone = root.parent / f".uninstalling-{version}"
     if tombstone.exists():
         if not dry_run.enabled():
-            _finish_uninstall(name, tombstone, home=home, env=env)
+            _finish_uninstall(store, name, tombstone)
             if not root.exists():
                 return
     if not root.is_dir():
@@ -504,7 +466,7 @@ def _uninstall_inactive_version(
         root.replace(tombstone)
     except OSError as exc:
         raise PackageInstallError(f"cannot remove package {name!r}: {exc}") from exc
-    _finish_uninstall(name, tombstone, version=version, home=home, env=env)
+    _finish_uninstall(store, name, tombstone, version=version)
 
 
 def _validated_directory_package(source: Path) -> PackageInfo:
@@ -637,8 +599,8 @@ def _install_directory(
         installed = package
     else:
         try:
-            destination = canonical_package_store_path(
-                package.manifest.name, package.manifest.version, home=state.home, env=state.env
+            destination = state.store.canonical_package_path(
+                package.manifest.name, package.manifest.version
             )
         except ValueError as exc:
             raise PackageInstallError(
@@ -749,8 +711,8 @@ def _install_archive(
             metadata = verify_archive_discipline(archive_path)
             _validate_managed_stdlib_install(metadata.manifest, source=None, editable=False)
             _validate_agm_compatibility(metadata.manifest)
-            destination = canonical_package_store_path(
-                metadata.manifest.name, metadata.manifest.version, home=state.home, env=state.env
+            destination = state.store.canonical_package_path(
+                metadata.manifest.name, metadata.manifest.version
             )
             if destination.exists() and not reinstall:
                 _verify_existing_install(destination, metadata.manifest, metadata.package_hash)
@@ -768,8 +730,8 @@ def _install_archive(
 
             _validate_managed_stdlib_install(metadata.manifest, source=None, editable=False)
             _validate_agm_compatibility(metadata.manifest)
-            destination = canonical_package_store_path(
-                metadata.manifest.name, metadata.manifest.version, home=state.home, env=state.env
+            destination = state.store.canonical_package_path(
+                metadata.manifest.name, metadata.manifest.version
             )
             fs.mkdir(destination.parent)
             staging = Path(mkdtemp(prefix=".agm-package-", dir=destination.parent))
@@ -847,7 +809,7 @@ def _transaction_installed_packages(state: _InstallState) -> tuple[PackageInfo, 
     """
 
     if state.installed is None:
-        state.installed = installed_packages(home=state.home, env=state.env)
+        state.installed = installed_packages(state.store)
     return state.installed
 
 
@@ -887,10 +849,7 @@ def _transaction_resolved_packages(state: _InstallState) -> tuple[PackageInfo, .
 
     if state.resolved_active is None:
         state.resolved_active = resolve_indexed_packages(
-            state.index,
-            home=state.home,
-            env=state.env,
-            transient_packages=state.transient_packages,
+            state.store, state.index, transient_packages=state.transient_packages
         )
     return state.resolved_active
 
@@ -1087,7 +1046,7 @@ def _fetch_archive_install(
         raise PackageInstallError(
             f"cannot install URL package dependency during dry-run: {requirement}"
         )
-    scratch = store_root(home=state.home, env=state.env)
+    scratch = state.store.root
     try:
         fs.mkdir(scratch)
     except OSError as exc:
@@ -1137,13 +1096,13 @@ def _already_installed_error(manifest: PackageManifest) -> PackageInstallError:
     )
 
 
-def _load_install_index(*, home: Path, env: Mapping[str, str] | None) -> ActivationIndex:
+def _load_install_index(store: PackageStore) -> ActivationIndex:
     try:
-        index = load_activation_index(home=home, env=env)
+        index = load_activation_index(store)
         for name, active in index.packages.items():
             if active.editable is None:
-                load_package_provenance(name, active.version, home=home, env=env)
-        return reconcile_package_commands(index, home=home, env=env)
+                load_package_provenance(store, name, active.version)
+        return reconcile_package_commands(store, index)
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot load package activation: {exc}") from exc
 
@@ -1159,10 +1118,9 @@ def _next_registration_order(state: _InstallState) -> int:
         retained = 0
         for package in _transaction_installed_packages(state):
             provenance = load_package_provenance(
+                state.store,
                 package.manifest.name,
                 package.manifest.version,
-                home=state.home,
-                env=state.env,
             )
             if provenance is not None:
                 retained = max(retained, provenance.registration_order)
@@ -1185,9 +1143,8 @@ def _commit_install_activation(
     prepare_packages = _transaction_resolved_packages(state) if dry_run.enabled() else None
     try:
         reconciled = _prepare_activation(
+            state.store,
             state.index,
-            home=state.home,
-            env=state.env,
             transient_packages=transient_packages,
             packages=prepare_packages,
         )
@@ -1200,38 +1157,27 @@ def _commit_install_activation(
         )
         # Reconciling never changes the selection, so the resolved set is reconciled's.
         _sync_python_requirements(_transaction_resolved_packages(state))
-        _publish_activation(reconciled, home=state.home, env=state.env)
+        _publish_activation(state.store, reconciled)
         return command_shadows
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot write package activation: {exc}") from exc
 
 
-def _commit_activation(
-    index: ActivationIndex,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None,
-) -> ActivationIndex:
+def _commit_activation(store: PackageStore, index: ActivationIndex) -> ActivationIndex:
     """Validate and atomically publish a complete activation selection."""
 
     try:
-        reconciled = _prepare_activation(
-            index,
-            home=home,
-            env=env,
-            transient_packages=None,
-        )
-        _publish_activation(reconciled, home=home, env=env)
+        reconciled = _prepare_activation(store, index, transient_packages=None)
+        _publish_activation(store, reconciled)
         return reconciled
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot write package activation: {exc}") from exc
 
 
 def _prepare_activation(
+    store: PackageStore,
     index: ActivationIndex,
     *,
-    home: Path,
-    env: Mapping[str, str] | None,
     transient_packages: Mapping[str, PackageInfo] | None,
     packages: tuple[PackageInfo, ...] | None = None,
 ) -> ActivationIndex:
@@ -1247,15 +1193,12 @@ def _prepare_activation(
     resolved = (
         packages
         if packages is not None
-        else resolve_indexed_packages(
-            index, home=home, env=env, transient_packages=transient_packages
-        )
+        else resolve_indexed_packages(store, index, transient_packages=transient_packages)
     )
     reconciled = _assign_missing_registration_orders(
         reconcile_package_commands(
+            store,
             index,
-            home=home,
-            env=env,
             transient_packages=transient_packages,
             packages=resolved,
         )
@@ -1264,24 +1207,22 @@ def _prepare_activation(
     return reconciled
 
 
-def _publish_activation(
-    index: ActivationIndex, *, home: Path, env: Mapping[str, str] | None
-) -> None:
+def _publish_activation(store: PackageStore, index: ActivationIndex) -> None:
     """Atomically publish one already validated activation snapshot."""
 
-    provenance = _snapshot_package_provenance(index, home=home, env=env)
+    provenance = _snapshot_package_provenance(store, index)
     try:
         for name, active in index.packages.items():
             if active.editable is None:
-                write_package_provenance(name, active, home=home, env=env)
-        write_activation_index(index, home=home, env=env)
+                write_package_provenance(store, name, active)
+        write_activation_index(store, index)
     except PackageActivationError:
         _restore_package_provenance(provenance)
         raise
 
 
 def _snapshot_package_provenance(
-    index: ActivationIndex, *, home: Path, env: Mapping[str, str] | None
+    store: PackageStore, index: ActivationIndex
 ) -> dict[Path, bytes | None]:
     """Capture immutable-package sidecars before publishing an activation."""
 
@@ -1290,7 +1231,7 @@ def _snapshot_package_provenance(
             path: path.read_bytes() if path.exists() else None
             for name, active in index.packages.items()
             if active.editable is None
-            for path in (package_provenance_path(name, active.version, home=home, env=env),)
+            for path in (checked_provenance_path(store, name, active.version),)
         }
     except OSError as exc:
         raise PackageActivationError(f"cannot snapshot package provenance: {exc}") from exc
@@ -1341,11 +1282,10 @@ def _rollback_created_trees(state: _InstallState) -> None:
 
 
 def _finish_uninstall(
+    store: PackageStore,
     name: str,
     tombstone: Path,
     *,
-    home: Path,
-    env: Mapping[str, str] | None,
     version: semver.Version | None = None,
 ) -> None:
     """Finish cleanup of a hidden immutable tree, including after an interrupted attempt."""
@@ -1359,7 +1299,7 @@ def _finish_uninstall(
             raise PackageInstallError(f"cannot remove package {name!r}: {exc}") from exc
         version = manifest.version
     if version is not None:
-        _remove_package_provenance(name, version, home=home, env=env)
+        _remove_package_provenance(store, name, version)
     try:
         entries = read_record(tombstone) if (tombstone / "RECORD").exists() else ()
         _remove_recorded_tree(tombstone, entries)
@@ -1367,17 +1307,11 @@ def _finish_uninstall(
         raise PackageInstallError(f"cannot remove package {name!r}: {exc}") from exc
 
 
-def _remove_package_provenance(
-    name: str,
-    version: semver.Version,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None,
-) -> None:
+def _remove_package_provenance(store: PackageStore, name: str, version: semver.Version) -> None:
     """Remove one immutable package's activation sidecar."""
 
     try:
-        fs.unlink(package_provenance_path(name, version, home=home, env=env), missing_ok=True)
+        fs.unlink(checked_provenance_path(store, name, version), missing_ok=True)
     except (OSError, PackageActivationError) as exc:
         raise PackageInstallError(f"cannot remove package provenance for {name!r}: {exc}") from exc
 

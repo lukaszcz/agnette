@@ -43,6 +43,7 @@ from agnette.agm.cli_support.args import ReplArgs
 from agnette.config.general import GeneralConfig
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.stdlib import StdlibSelection
+from agnette.packages.store import PackageStore, context_store
 from agnette.sandbox.request import SandboxLimits
 from tests._engine_flags import engine_flag_tokens
 
@@ -647,18 +648,18 @@ class TestReplRun:
         fake_plain_console: list[dict[str, object]],
     ) -> None:
         home = _isolated_home(monkeypatch, tmp_path)
-        calls: list[Path] = []
+        calls: list[PackageStore] = []
         original = repl_command.discover_development_packages
 
-        def discover(anchor: Path, *, home: Path) -> tuple[object, ...]:
-            calls.append(home)
-            return original(anchor, home=home)
+        def discover(store: PackageStore, anchor: Path) -> tuple[object, ...]:
+            calls.append(store)
+            return original(store, anchor)
 
         monkeypatch.setattr(repl_command, "discover_development_packages", discover)
 
         repl_command.run(_args(no_stdlib=True))
 
-        assert calls == [home]
+        assert calls == [context_store(home=home)]
 
     def test_repl_mounts_the_current_package_and_its_path_dependencies(
         self,

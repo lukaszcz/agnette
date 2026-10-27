@@ -21,11 +21,9 @@ from agnette.config.general import (
     config_file_candidates,
     load_merged_config,
 )
-from agnette.config.home import agm_home_dir
 from agnette.core.fs import mkdir, write_text_atomic
 from agnette.core.toml import TomlDict, dumps_toml, empty_toml_doc, load_toml_file, toml_dict
 from agnette.packages.layout import MODULE_TREE_DIRNAME
-from agnette.packages.layout import activation_index_path as _resolved_activation_index_path
 from agnette.packages.manifest import (
     ManifestError,
     PackageManifest,
@@ -40,11 +38,7 @@ from agnette.packages.model import (
     is_std_package_name,
     unmet_std_requirement,
 )
-from agnette.packages.store import (
-    canonical_package_provenance_path,
-    canonical_package_store_path,
-    package_store_path,
-)
+from agnette.packages.store import PackageStore, context_store
 
 
 class PackageActivationError(ValueError):
@@ -121,18 +115,14 @@ class ActivationIndex:
     commands: dict[str, CommandRegistration] = field(default_factory=dict)
 
 
-def activation_index_path(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
-    return _resolved_activation_index_path(agm_home_dir(home=home, env=env))
-
-
-def load_activation_index(*, home: Path, env: Mapping[str, str] | None = None) -> ActivationIndex:
+def load_activation_index(store: PackageStore) -> ActivationIndex:
     """Load the activation index, treating an absent index as no selections.
 
     Several independent entry points read the index within one invocation, so
     the parse is memoized on the file's content.
     """
 
-    path = activation_index_path(home=home, env=env)
+    path = store.index_path
     return context_cached(
         ("activation-index", path),
         content_stamp((path,)),
@@ -150,26 +140,20 @@ def _read_activation_index(path: Path) -> ActivationIndex:
     return _parse_activation_index(raw)
 
 
-def is_active_package(
-    package: PackageInfo, *, home: Path, env: Mapping[str, str] | None = None
-) -> bool:
-    """Whether the activation index selects *package*: its name, at its root."""
+def is_active_package(store: PackageStore, package: PackageInfo) -> bool:
+    """Whether *store*'s activation index selects *package*: its name, at its root."""
 
-    active = load_activation_index(home=home, env=env).packages.get(package.manifest.name)
+    active = load_activation_index(store).packages.get(package.manifest.name)
     if active is None:
         return False
-    root = active.editable or package_store_path(
-        package.manifest.name, active.version, home=home, env=env
-    )
+    root = active.editable or store.package_path(package.manifest.name, active.version)
     return root.resolve() == package.root.resolve()
 
 
-def write_activation_index(
-    index: ActivationIndex, *, home: Path, env: Mapping[str, str] | None = None
-) -> Path:
-    """Atomically write a canonical activation index and return its path."""
+def write_activation_index(store: PackageStore, index: ActivationIndex) -> Path:
+    """Atomically write a canonical activation index to *store* and return its path."""
 
-    path = activation_index_path(home=home, env=env)
+    path = store.index_path
     doc = empty_toml_doc()
 
     packages_table = tomlkit.table()
@@ -208,13 +192,15 @@ def write_activation_index(
     return path
 
 
-def package_provenance_path(
-    name: str, version: semver.Version, *, home: Path, env: Mapping[str, str] | None = None
-) -> Path:
-    """Return the canonical sidecar path for one immutable package version."""
+def checked_provenance_path(store: PackageStore, name: str, version: semver.Version) -> Path:
+    """Return the canonical, link-checked sidecar path for one immutable package version.
+
+    Unlike :meth:`PackageStore.provenance_path`, this rejects a path that
+    resolves outside the store.
+    """
 
     try:
-        return canonical_package_provenance_path(name, version, home=home, env=env)
+        return store.canonical_provenance_path(name, version)
     except ValueError as exc:
         raise PackageActivationError(
             f"package provenance for {name!r} resolves outside the package store root"
@@ -222,11 +208,11 @@ def package_provenance_path(
 
 
 def load_package_provenance(
-    name: str, version: semver.Version, *, home: Path, env: Mapping[str, str] | None = None
+    store: PackageStore, name: str, version: semver.Version
 ) -> PackageProvenance | None:
     """Load one immutable package's optional command-priority sidecar."""
 
-    path = package_provenance_path(name, version, home=home, env=env)
+    path = checked_provenance_path(store, name, version)
     if not path.exists():
         return None
     try:
@@ -236,19 +222,13 @@ def load_package_provenance(
     return _parse_package_provenance(raw, path)
 
 
-def write_package_provenance(
-    name: str,
-    active: ActivePackage,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
-) -> Path:
+def write_package_provenance(store: PackageStore, name: str, active: ActivePackage) -> Path:
     """Atomically persist activation priority outside the immutable package payload."""
 
     _validate_active_package(name, active)
     if active.editable is not None:
         raise PackageActivationError(f"editable package {name!r} has no store provenance")
-    path = package_provenance_path(name, active.version, home=home, env=env)
+    path = checked_provenance_path(store, name, active.version)
     doc = empty_toml_doc()
     activation_table = tomlkit.table()
     activation_table["registration-order"] = active.registration_order
@@ -340,6 +320,7 @@ def select_active_packages(
     """
 
     packages = _selected_active_packages(
+        context_store(home=home, env=env),
         home=home,
         proj_dir=proj_dir,
         cwd=cwd,
@@ -367,9 +348,11 @@ def effective_command_index(
     own commands — see :func:`resolve_active_package`.
     """
 
-    index = load_activation_index(home=home, env=env)
+    store = context_store(home=home, env=env)
+    index = load_activation_index(store)
     pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     packages = _selected_active_packages(
+        store,
         home=home,
         proj_dir=proj_dir,
         cwd=cwd,
@@ -394,12 +377,7 @@ def effective_command_index(
         if retains_global_selection:
             metadata = previous
         else:
-            metadata = load_package_provenance(
-                name,
-                package.manifest.version,
-                home=home,
-                env=env,
-            )
+            metadata = load_package_provenance(store, name, package.manifest.version)
             if metadata is None:
                 # Without a provenance sidecar, use the package's activation-index
                 # metadata as the registration-priority fallback.
@@ -454,6 +432,7 @@ def select_package_roots(
     # override or source-checkout fallback cannot also mount an active tree.
     excluded_names = {*development_names, STD_PACKAGE_NAME}
     activated = _selected_active_packages(
+        context_store(home=home, env=env),
         home=home,
         proj_dir=proj_dir,
         cwd=cwd,
@@ -469,6 +448,7 @@ def select_package_roots(
 
 
 def _selected_active_packages(
+    store: PackageStore,
     *,
     home: Path,
     proj_dir: Path | None,
@@ -481,7 +461,7 @@ def _selected_active_packages(
     """Load global selections with pins, excluding development names before resolution."""
 
     if index is None:
-        index = load_activation_index(home=home, env=env)
+        index = load_activation_index(store)
     if pins is None:
         pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     selections = dict(index.packages)
@@ -490,10 +470,7 @@ def _selected_active_packages(
     for name in excluded_names:
         selections.pop(name, None)
     return resolve_indexed_packages(
-        ActivationIndex(selections),
-        home=home,
-        env=env,
-        fallback_to_manifest_commands=True,
+        store, ActivationIndex(selections), fallback_to_manifest_commands=True
     )
 
 
@@ -554,10 +531,9 @@ def merge_package_commands(
 
 
 def reconcile_package_commands(
+    store: PackageStore,
     index: ActivationIndex,
     *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
     transient_packages: Mapping[str, PackageInfo] | None = None,
     packages: tuple[PackageInfo, ...] | None = None,
 ) -> ActivationIndex:
@@ -568,7 +544,7 @@ def reconcile_package_commands(
     """
 
     resolved = _resolved_index_packages(
-        index, packages, home=home, env=env, transient_packages=transient_packages
+        store, index, packages, transient_packages=transient_packages
     )
     return _reconciled_commands(index, resolved)
 
@@ -807,11 +783,10 @@ def _validate_command_registration(
 
 
 def resolve_active_package(
+    store: PackageStore,
     name: str,
     active: ActivePackage,
     *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
     fallback_to_manifest_commands: bool = False,
 ) -> PackageInfo:
     """Resolve one activation selection into its root and installed manifest.
@@ -846,7 +821,7 @@ def resolve_active_package(
             package, fallback_to_manifest_commands=fallback_to_manifest_commands
         )
     try:
-        root = canonical_package_store_path(name, active.version, home=home, env=env)
+        root = store.canonical_package_path(name, active.version)
     except ValueError as exc:
         raise PackageActivationError(
             f"active package {name!r} resolves outside the package store root"
@@ -918,25 +893,21 @@ def _checked_active_package(
 
 
 def _resolved_index_packages(
+    store: PackageStore,
     index: ActivationIndex,
     packages: tuple[PackageInfo, ...] | None,
     *,
-    home: Path,
-    env: Mapping[str, str] | None,
     transient_packages: Mapping[str, PackageInfo] | None,
 ) -> tuple[PackageInfo, ...]:
     if packages is not None:
         return packages
-    return resolve_indexed_packages(
-        index, home=home, env=env, transient_packages=transient_packages
-    )
+    return resolve_indexed_packages(store, index, transient_packages=transient_packages)
 
 
 def resolve_indexed_packages(
+    store: PackageStore,
     index: ActivationIndex,
     *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
     transient_packages: Mapping[str, PackageInfo] | None = None,
     fallback_to_manifest_commands: bool = False,
 ) -> tuple[PackageInfo, ...]:
@@ -961,24 +932,22 @@ def resolve_indexed_packages(
 
     if transient_packages is not None:
         return _resolve_indexed_packages(
+            store,
             index,
-            home=home,
-            env=env,
             transient_packages=transient_packages,
             fallback_to_manifest_commands=fallback_to_manifest_commands,
         )
     return context_cached(
         (
             "indexed-packages",
-            agm_home_dir(home=home, env=env),
+            store.root,
             tuple(sorted(index.packages)),
             fallback_to_manifest_commands,
         ),
         _selection_stamp(index),
         lambda: _resolve_indexed_packages(
+            store,
             index,
-            home=home,
-            env=env,
             transient_packages=None,
             fallback_to_manifest_commands=fallback_to_manifest_commands,
         ),
@@ -1016,10 +985,9 @@ def _editable_stamp(root: Path) -> tuple[bytes, ...]:
 
 
 def _resolve_indexed_packages(
+    store: PackageStore,
     index: ActivationIndex,
     *,
-    home: Path,
-    env: Mapping[str, str] | None,
     transient_packages: Mapping[str, PackageInfo] | None,
     fallback_to_manifest_commands: bool,
 ) -> tuple[PackageInfo, ...]:
@@ -1029,10 +997,9 @@ def _resolve_indexed_packages(
         if transient is None:
             packages.append(
                 resolve_active_package(
+                    store,
                     name,
                     active,
-                    home=home,
-                    env=env,
                     fallback_to_manifest_commands=fallback_to_manifest_commands,
                 )
             )

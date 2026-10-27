@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 
 from agnette.agm.cli_support.args import PkgSwitchArgs
+from agnette.agm.cli_support.pkg_store import pkg_store
 from agnette.config.context import current_config_context
 from agnette.packages.install import (
     PackageInstallError,
@@ -19,7 +20,7 @@ def run(args: PkgSwitchArgs) -> None:
     context = current_config_context()
     try:
         name, version = parse_versioned_package_target(args.target)
-        activate_installed_package_with_plan(name, version, home=context.home)
+        activate_installed_package_with_plan(pkg_store(context), name, version)
     except PackageInstallError as exc:
         print(f"pkg switch: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

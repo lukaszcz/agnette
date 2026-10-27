@@ -12,6 +12,7 @@ from typing import Protocol, cast
 from agnette.config.home import agm_home_dir
 from agnette.core.fs import backup_file
 from agnette.packages.install import refresh_managed_stdlib
+from agnette.packages.store import context_store
 
 
 class InstallArgs(Protocol):
@@ -93,7 +94,9 @@ def install_user_config(
 
     # The package domain owns the managed stdlib's locked staging,
     # publication, integrity record, activation, and stale-file replacement.
-    stdlib = refresh_managed_stdlib(repo_root / "packages" / "stdlib", home=install_root, env=env)
+    stdlib = refresh_managed_stdlib(
+        context_store(home=install_root, env=env), repo_root / "packages" / "stdlib"
+    )
     installed.append(stdlib.root)
 
     # Editor modes belong to Agnette, not to the user, so they always refresh.

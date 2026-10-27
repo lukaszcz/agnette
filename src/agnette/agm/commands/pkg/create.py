@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from agnette.agm.cli_support.args import PkgCreateArgs
+from agnette.agm.cli_support.pkg_store import pkg_store
 from agnette.config.context import current_config_context
 from agnette.core import dry_run
 from agnette.packages.archive import (
@@ -28,7 +29,7 @@ def run(args: PkgCreateArgs) -> None:
         # it is built from, so that is the one validation this command runs.
         package = PackageInfo(root=root, manifest=archive_source_manifest(root))
         context = current_config_context()
-        dependencies = validate_dependencies(package, home=context.home)
+        dependencies = validate_dependencies(pkg_store(context), package)
         validate_archive_source(root, dependency_packages=dependencies)
         destination = (
             package.root.parent / f"{package.manifest.name}-{package.manifest.version}.agmpkg"

@@ -20,6 +20,7 @@ from agnette.agl.semantics.values import IntValue
 from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
 from agnette.packages.manifest import load_manifest
 from agnette.packages.model import PackageInfo
+from agnette.packages.store import context_store
 from tests._agl_helpers import REPO_STDLIB_ROOT, run_inline_code
 from tests.agl.ir_harness import write_companion_file, write_module_file
 
@@ -73,7 +74,9 @@ def requirement_installed(monkeypatch: pytest.MonkeyPatch) -> None:
 def package_active() -> None:
     """Activate the fixture package, editable at its own root, in the test's AgM home."""
     active = ActivePackage(_package().manifest.version, editable=_PACKAGE)
-    write_activation_index(ActivationIndex({"python_requirement": active}), home=Path.home())
+    write_activation_index(
+        context_store(home=Path.home()), ActivationIndex({"python_requirement": active})
+    )
 
 
 def _assert_requirement_diagnostic(result: RunResult | EntryResult, *, repair: str = _SYNC) -> None:
@@ -106,7 +109,9 @@ def test_package_active_at_another_root_suggests_installing_the_mounted_one(
     elsewhere.mkdir()
     (elsewhere / "package.toml").write_bytes((_PACKAGE / "package.toml").read_bytes())
     active = ActivePackage(_package().manifest.version, editable=elsewhere)
-    write_activation_index(ActivationIndex({"python_requirement": active}), home=Path.home())
+    write_activation_index(
+        context_store(home=Path.home()), ActivationIndex({"python_requirement": active})
+    )
 
     result = _run("import python_requirement/double\npython_requirement/double::double(2)")
 
@@ -117,7 +122,9 @@ def test_unsatisfied_requirement_of_the_active_store_package_suggests_syncing() 
     store_root = Path.home() / ".agm" / "packages" / "python_requirement" / "1.0.0"
     shutil.copytree(_PACKAGE, store_root)
     active = ActivePackage(_package().manifest.version)
-    write_activation_index(ActivationIndex({"python_requirement": active}), home=Path.home())
+    write_activation_index(
+        context_store(home=Path.home()), ActivationIndex({"python_requirement": active})
+    )
 
     result = _run(
         "import python_requirement/double\npython_requirement/double::double(2)",

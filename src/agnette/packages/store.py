@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
 import semver
 
 from agnette.config.home import agm_home_dir
 from agnette.packages.errors import PackageInstallError
-from agnette.packages.layout import store_root_path
+from agnette.packages.layout import ACTIVATION_INDEX_FILENAME, store_root_path
 from agnette.packages.manifest import DependencySpec, ManifestError, load_installed_manifest
 from agnette.packages.model import (
     PackageInfo,
@@ -27,73 +28,101 @@ class StoreIdentityError(ValueError):
     """Raised when an installed package version disagrees with its store location."""
 
 
-def store_root(*, home: Path, env: Mapping[str, str] | None = None) -> Path:
-    return store_root_path(agm_home_dir(home=home, env=env))
+@dataclass(frozen=True, slots=True)
+class PackageStore:
+    """One versioned package store: a root directory owning its index, lock, and trees.
 
-
-def package_store_path(
-    name: str, version: semver.Version, *, home: Path, env: Mapping[str, str] | None = None
-) -> Path:
-    """Return the logical extracted-tree path for one installed package version."""
-
-    return (
-        store_root(home=home, env=env)
-        / _store_component(name, "package name")
-        / _store_component(str(version), "package version")
-    )
-
-
-def package_provenance_path(
-    name: str, version: semver.Version, *, home: Path, env: Mapping[str, str] | None = None
-) -> Path:
-    """Return the package-local sidecar path for activation provenance.
-
-    The sidecar lives in its own namespace below the package name, keeping
-    mutable activation history out of the payload covered by ``RECORD`` and
-    avoiding collisions with semantic-version directory names.
+    Every store path derives from :attr:`root`, so each store keeps its own
+    activation index, operation lock, provenance sidecars, and ``RECORD`` files.
     """
 
-    package_path = package_store_path(name, version, home=home, env=env)
-    return package_path.parent / ".provenance" / f"{package_path.name}.toml"
+    root: Path
+
+    @property
+    def index_path(self) -> Path:
+        """The store's activation index."""
+
+        return self.root / ACTIVATION_INDEX_FILENAME
+
+    @property
+    def lock_path(self) -> Path:
+        """The store's persistent advisory operation lock."""
+
+        return self.root / ".lock"
+
+    def package_path(self, name: str, version: semver.Version) -> Path:
+        """Return the logical extracted-tree path for one installed package version."""
+
+        return (
+            self.root
+            / _store_component(name, "package name")
+            / _store_component(str(version), "package version")
+        )
+
+    def provenance_path(self, name: str, version: semver.Version) -> Path:
+        """Return the package-local sidecar path for activation provenance.
+
+        The sidecar lives in its own namespace below the package name, keeping
+        mutable activation history out of the payload covered by ``RECORD`` and
+        avoiding collisions with semantic-version directory names.
+        """
+
+        package_path = self.package_path(name, version)
+        return package_path.parent / ".provenance" / f"{package_path.name}.toml"
+
+    def canonical_provenance_path(self, name: str, version: semver.Version) -> Path:
+        """Return the canonical, unlinked provenance sidecar path."""
+
+        return self._canonical_managed_path(self.provenance_path(name, version))
+
+    def canonical_package_path(self, name: str, version: semver.Version) -> Path:
+        """Return an installed-tree path only when it is an unlinked store tree.
+
+        The logical package-name directory and version target must not be symbolic
+        links, even if resolving them would remain in the store. The store root
+        itself may be relocated by a link.
+        """
+
+        return self._canonical_managed_path(self.package_path(name, version))
+
+    def is_package_root(self, root: Path, name: str, version: semver.Version) -> bool:
+        """Return whether *root* is this store's immutable tree for an identity."""
+
+        return root.resolve() == self.canonical_package_path(name, version)
+
+    def _canonical_managed_path(self, logical_candidate: Path) -> Path:
+        """Resolve a logical store path once its managed ancestry is known link-free."""
+
+        candidate = logical_candidate
+        while candidate != self.root:
+            if candidate.is_symlink():
+                raise StorePathError(f"package store path contains a symlink: {candidate}")
+            candidate = candidate.parent
+        return logical_candidate.resolve()
 
 
-def canonical_package_provenance_path(
-    name: str, version: semver.Version, *, home: Path, env: Mapping[str, str] | None = None
-) -> Path:
-    """Return the canonical, unlinked provenance sidecar path."""
+def context_store(*, home: Path, env: Mapping[str, str] | None = None) -> PackageStore:
+    """Return the package store a context selects packages from: the one beneath the AgM home.
 
-    return _canonical_managed_path(
-        package_provenance_path(name, version, home=home, env=env), home=home, env=env
-    )
-
-
-def canonical_package_store_path(
-    name: str, version: semver.Version, *, home: Path, env: Mapping[str, str] | None = None
-) -> Path:
-    """Return an installed-tree path only when it is an unlinked store tree.
-
-    The logical package-name directory and version target must not be symbolic
-    links, even if resolving them would remain in the store. The store root
-    itself may be relocated by a link.
+    The single place a context resolves its store; callers never build one
+    from the home themselves.
     """
 
-    return _canonical_managed_path(
-        package_store_path(name, version, home=home, env=env), home=home, env=env
-    )
+    return PackageStore(store_root_path(agm_home_dir(home=home, env=env)))
 
 
-def iter_store_package_dirs(*, home: Path, env: Mapping[str, str] | None = None) -> Iterator[Path]:
-    """Yield each package-name directory in the store, in name order.
+def iter_store_package_dirs(store: PackageStore) -> Iterator[Path]:
+    """Yield each package-name directory in *store*, in name order.
 
-    An absent store holds no packages, and a linked name directory does not
-    designate a managed tree.
+    An absent store holds no packages. A linked name directory does not
+    designate a managed tree, and dot-prefixed entries are the store's own
+    bookkeeping , never package names.
     """
 
-    root = store_root(home=home, env=env)
-    if not root.is_dir():
+    if not store.root.is_dir():
         return
-    for name_dir in sorted(root.iterdir()):
-        if name_dir.is_dir() and not name_dir.is_symlink():
+    for name_dir in sorted(store.root.iterdir()):
+        if name_dir.is_dir() and not name_dir.is_symlink() and not name_dir.name.startswith("."):
             yield name_dir
 
 
@@ -113,12 +142,8 @@ def iter_store_version_dirs(name_dir: Path) -> Iterator[Path]:
             yield version_dir
 
 
-def iter_installed_packages(
-    *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
-) -> Iterator[PackageInfo]:
-    """Yield every installed package version, validated against its store identity.
+def iter_installed_packages(store: PackageStore) -> Iterator[PackageInfo]:
+    """Yield every installed package version of *store*, validated against its store identity.
 
     Iterates store name directories, then each package's version directories,
     loading and checking ``package.toml`` against the store's own naming.
@@ -127,7 +152,7 @@ def iter_installed_packages(
     with its store location raises :class:`StoreIdentityError`.
     """
 
-    for name_dir in iter_store_package_dirs(home=home, env=env):
+    for name_dir in iter_store_package_dirs(store):
         for version_dir in iter_store_version_dirs(name_dir):
             try:
                 manifest = load_installed_manifest(version_dir / "package.toml")
@@ -193,38 +218,6 @@ def satisfying_installed_package(
     )
 
 
-def is_package_store_root(
-    root: Path,
-    name: str,
-    version: semver.Version,
-    *,
-    home: Path,
-    env: Mapping[str, str] | None = None,
-) -> bool:
-    """Return whether *root* is the immutable store tree for an identity."""
-
-    return root.resolve() == canonical_package_store_path(name, version, home=home, env=env)
-
-
-def _canonical_managed_path(
-    logical_candidate: Path, *, home: Path, env: Mapping[str, str] | None
-) -> Path:
-    """Resolve a logical store path once its managed ancestry is known link-free."""
-
-    _reject_managed_tree_symlinks(logical_candidate, store_root(home=home, env=env))
-    return logical_candidate.resolve()
-
-
-def _reject_managed_tree_symlinks(logical_target: Path, logical_store_root: Path) -> None:
-    """Reject links in a logical package tree while permitting a relocated store root."""
-
-    candidate = logical_target
-    while candidate != logical_store_root:
-        if candidate.is_symlink():
-            raise StorePathError(f"package store path contains a symlink: {candidate}")
-        candidate = candidate.parent
-
-
 def _store_component(value: str, label: str) -> str:
     """Validate one portable, non-traversing store path component."""
 
@@ -241,12 +234,10 @@ def _store_component(value: str, label: str) -> str:
     return value
 
 
-def installed_packages(
-    *, home: Path, env: Mapping[str, str] | None = None
-) -> tuple[PackageInfo, ...]:
-    """Return all installed immutable package versions, sorted by identity."""
+def installed_packages(store: PackageStore) -> tuple[PackageInfo, ...]:
+    """Return all installed immutable package versions of *store*, sorted by identity."""
 
     try:
-        return tuple(iter_installed_packages(home=home, env=env))
+        return tuple(iter_installed_packages(store))
     except StoreIdentityError as exc:
         raise PackageInstallError(str(exc)) from exc

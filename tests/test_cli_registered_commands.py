@@ -22,13 +22,13 @@ from agnette.packages.activation import (
     ActivePackage,
     CommandRegistration,
     PackageActivationError,
-    activation_index_path,
     write_activation_index,
 )
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import CommandSpec, PackageManifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
+from agnette.packages.store import context_store
 from tests._help_helpers import assert_lists_engine_settings
 from tests._package_helpers import exec_args, install_directory, write_installed_package
 
@@ -148,12 +148,12 @@ def test_command_index_loader_uses_project_selected_package_commands(
     monkeypatch.setattr(
         activation,
         "load_activation_index",
-        lambda **_: ActivationIndex(
+        lambda *_, **__: ActivationIndex(
             packages={"tools": ActivePackage(semver.Version.parse("1.0.0"))},
             commands={"old": CommandRegistration("tools", "tools/old::main")},
         ),
     )
-    monkeypatch.setattr(activation, "_selected_active_packages", lambda **_: (pinned_package,))
+    monkeypatch.setattr(activation, "_selected_active_packages", lambda *_, **__: (pinned_package,))
 
     index = dispatch.load_command_index(home=home, proj_dir=tmp_path, cwd=tmp_path)
 
@@ -820,7 +820,8 @@ def test_registered_command_program_option_error_renders_shared_usage_help(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(
@@ -869,7 +870,8 @@ def test_registered_command_help_flag_bundled_into_a_short_group_renders_help(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(
@@ -911,7 +913,8 @@ def test_registered_command_binds_a_negated_bool_value_argument(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(
@@ -962,7 +965,8 @@ def test_registered_command_reaches_the_programs_end_of_options_marker(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(
@@ -1147,7 +1151,7 @@ version = "1.0.0"
         },
     )
     write_record(package_root)
-    write_activation_index(index, home=home)
+    write_activation_index(context_store(home=home), index)
 
     result = invoke(CliRunner(), ["help"], env={"HOME": str(home)})
 
@@ -1187,7 +1191,7 @@ def test_exec_installed_reference_preserves_all_file_options(
     package = PackageInfo(root, PackageManifest("tools", semver.Version.parse("1.0.0")))
     context = ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path)
     monkeypatch.setattr(exec_program, "current_config_context", lambda: context)
-    monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: (package,))
+    monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (package,))
     calls: list[ExecArgs] = []
 
     def fake_run(args: ExecArgs, **_: object) -> None:
@@ -1294,6 +1298,7 @@ def test_immutable_execution_uses_the_pinned_dependency_not_a_vendored_path_sour
     write_record(tools)
 
     write_activation_index(
+        context_store(home=home),
         ActivationIndex(
             packages={
                 "tools": ActivePackage(semver.Version.parse("1.0.0")),
@@ -1301,7 +1306,6 @@ def test_immutable_execution_uses_the_pinned_dependency_not_a_vendored_path_sour
             },
             commands={"tools run": CommandRegistration("tools", "tools/main::main")},
         ),
-        home=home,
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.chdir(project)
@@ -1326,7 +1330,8 @@ def test_exec_runs_an_installed_reference(monkeypatch: pytest.MonkeyPatch, tmp_p
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
 
@@ -1381,7 +1386,7 @@ def test_installed_legacy_dev_alias_does_not_break_commands_or_package_listing(
         manifest.read_text(encoding="utf-8") + '\n[aliases]\ndev = "devel"\n',
         encoding="utf-8",
     )
-    index_path = activation_index_path(home=home, env={})
+    index_path = context_store(home=home, env={}).index_path
     with index_path.open("a", encoding="utf-8") as index_file:
         index_file.write(
             '\n[commands.dev]\npackage = "tools"\n'
@@ -1651,7 +1656,8 @@ def test_exec_help_for_an_installed_reference_includes_program_arguments(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
 
@@ -1678,7 +1684,8 @@ def test_exec_program_option_overrides_an_installed_reference(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
 
@@ -1734,7 +1741,8 @@ def test_registered_command_argument_error_renders_shared_usage_help(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(
@@ -1778,7 +1786,8 @@ def test_registered_command_argument_error_handles_no_description_or_parameters(
     module.write_text("program def main() -> unit = ()\n", encoding="utf-8")
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(
@@ -1851,7 +1860,7 @@ def test_exec_rejects_invalid_active_package_selection(
     monkeypatch.setattr(
         exec_target,
         "select_active_packages",
-        lambda **_: (_ for _ in ()).throw(ValueError("broken selection")),
+        lambda *_, **__: (_ for _ in ()).throw(ValueError("broken selection")),
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -1883,7 +1892,7 @@ def test_registered_dispatch_rejects_a_stale_cached_program(
         "current_config_context",
         lambda: ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path),
     )
-    monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: (package,))
+    monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (package,))
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered(
@@ -1916,8 +1925,8 @@ def test_editable_registered_dispatch_uses_the_live_manifest(
         packages={"tools": ActivePackage(semver.Version.parse("1.0.0"), editable=root)}
     )
     monkeypatch.setattr(exec_program, "current_config_context", lambda: context)
-    monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: (package,))
-    monkeypatch.setattr(exec_program, "load_activation_index", lambda **_: index)
+    monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (package,))
+    monkeypatch.setattr(exec_program, "load_activation_index", lambda *_, **__: index)
     calls: list[tuple[ExecArgs, tuple[str, ...] | None]] = []
     monkeypatch.setattr(
         exec_program,
@@ -1965,8 +1974,8 @@ def test_editable_registered_dispatch_rejects_invalid_live_manifest_command(
         packages={"tools": ActivePackage(semver.Version.parse("1.0.0"), editable=root)}
     )
     monkeypatch.setattr(exec_program, "current_config_context", lambda: context)
-    monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: (package,))
-    monkeypatch.setattr(exec_program, "load_activation_index", lambda **_: index)
+    monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (package,))
+    monkeypatch.setattr(exec_program, "load_activation_index", lambda *_, **__: index)
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered(
@@ -2004,7 +2013,7 @@ def test_registered_dispatch_rejects_a_program_owned_by_another_package(
         "current_config_context",
         lambda: ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path),
     )
-    monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: (tools, bravo))
+    monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (tools, bravo))
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered(
@@ -2050,7 +2059,7 @@ def test_exec_rejects_missing_module_in_an_active_package(
         "current_config_context",
         lambda: ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path),
     )
-    monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: (package,))
+    monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: (package,))
 
     with pytest.raises(SystemExit) as exc_info:
         exec_program.run_registered("tools/review::main", args=exec_args())
@@ -2070,7 +2079,7 @@ def test_exec_unknown_installed_reference_exits_cleanly(
         "current_config_context",
         lambda: ConfigContext(home=tmp_path / "home", proj_dir=None, cwd=tmp_path),
     )
-    monkeypatch.setattr(exec_target, "select_active_packages", lambda **_: ())
+    monkeypatch.setattr(exec_target, "select_active_packages", lambda *_, **__: ())
 
     with pytest.raises(SystemExit) as exc_info:
         exec_command.run(ExecArgs(file="missing/main::main"))
@@ -2250,7 +2259,8 @@ def test_registered_program_declaration_prefers_the_entry_module_over_an_import(
     )
     write_record(package_root)
     write_activation_index(
-        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}), home=home
+        context_store(home=home),
+        ActivationIndex({"tools": ActivePackage(semver.Version.parse("1.0.0"))}),
     )
     context = ConfigContext(home=home, proj_dir=None, cwd=tmp_path)
 
@@ -2272,7 +2282,7 @@ def test_registered_program_declaration_degrades_when_selection_fails(
     monkeypatch.setattr(
         exec_target,
         "select_active_packages",
-        lambda **_: (_ for _ in ()).throw(PackageActivationError("unavailable")),
+        lambda *_, **__: (_ for _ in ()).throw(PackageActivationError("unavailable")),
     )
 
     assert (

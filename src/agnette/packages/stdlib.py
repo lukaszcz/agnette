@@ -11,7 +11,6 @@ the configuration layer. ``agnette.config.module_roots`` handles only the
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +25,7 @@ from agnette.packages.model import (
     is_std_package_name,
     owning_package,
 )
-from agnette.packages.store import canonical_package_store_path
+from agnette.packages.store import PackageStore
 from agnette.stdlib_locator import shipped_stdlib_root
 from agnette.version import AGM_VERSION
 
@@ -57,9 +56,7 @@ class StdlibSelection:
     installed: bool
 
 
-def select_std_package(
-    *, home: Path, env: Mapping[str, str] | None = None, anchor: Path | None = None
-) -> StdlibSelection:
+def select_std_package(store: PackageStore, *, anchor: Path | None = None) -> StdlibSelection:
     """Select the AgL standard library, with its origin.
 
     A development ``std`` checkout whose module tree contains *anchor* wins
@@ -71,11 +68,11 @@ def select_std_package(
     ``packages/stdlib/`` tree in a source checkout.
     """
     if anchor is not None:
-        checkout = _anchoring_std_checkout(anchor, home=home, env=env)
+        checkout = _anchoring_std_checkout(anchor, store)
         if checkout is not None:
             return StdlibSelection(checkout, installed=False)
     try:
-        active = load_activation_index(home=home, env=env).packages.get(STD_PACKAGE_NAME)
+        active = load_activation_index(store).packages.get(STD_PACKAGE_NAME)
     except PackageActivationError as exc:
         raise StdlibResolutionError(f"cannot resolve active std package: {exc}") from exc
     if active is not None:
@@ -87,9 +84,7 @@ def select_std_package(
         ) != canonical_package_identity(STD_PACKAGE_NAME, semver.Version.parse(AGM_VERSION)):
             raise StdlibVersionMismatchError(installed_version, AGM_VERSION)
         try:
-            store_stdlib = canonical_package_store_path(
-                STD_PACKAGE_NAME, active.version, home=home, env=env
-            )
+            store_stdlib = store.canonical_package_path(STD_PACKAGE_NAME, active.version)
         except ValueError as exc:
             raise StdlibResolutionError(f"cannot resolve active std package: {exc}") from exc
         if store_stdlib.exists():
@@ -117,9 +112,7 @@ def select_std_package(
     return StdlibSelection(shipped, installed=True)
 
 
-def _anchoring_std_checkout(
-    anchor: Path, *, home: Path, env: Mapping[str, str] | None
-) -> Path | None:
+def _anchoring_std_checkout(anchor: Path, store: PackageStore) -> Path | None:
     """Return the development ``std`` checkout whose modules contain *anchor*.
 
     *anchor* is a file being compiled or a working directory. It selects a
@@ -134,7 +127,7 @@ def _anchoring_std_checkout(
     """
 
     try:
-        package = containing_development_package(anchor, home=home, env=env)
+        package = containing_development_package(store, anchor)
     except ValueError:
         return None
     if package is None or not is_std_package_name(package.manifest.name):

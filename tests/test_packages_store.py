@@ -18,21 +18,17 @@ from agnette.packages.record import write_record
 from agnette.packages.store import (
     StoreIdentityError,
     StorePathError,
-    canonical_package_provenance_path,
-    canonical_package_store_path,
-    is_package_store_root,
+    context_store,
     iter_installed_packages,
-    package_provenance_path,
-    package_store_path,
+    iter_store_package_dirs,
     satisfying_from_store,
     satisfying_installed_package,
-    store_root,
 )
 from tests._package_helpers import package_info
 
 
 def _write_store_package(home: Path, name: str, version: str) -> Path:
-    root = store_root(home=home, env={}) / name / version
+    root = context_store(home=home, env={}).root / name / version
     (root / name).mkdir(parents=True)
     (root / "package.toml").write_text(
         f'[package]\nname = "{name}"\nversion = "{version}"\n', encoding="utf-8"
@@ -45,9 +41,9 @@ def test_store_paths_use_the_agm_home_override(tmp_path: Path, env: dict[str, st
     agm_home = tmp_path / "isolated-agm-home"
     env["AGM_HOME"] = str(agm_home)
 
-    assert store_root(home=Path(env["HOME"]), env=env) == agm_home / "packages"
-    assert package_store_path(
-        "review-tools", semver.Version.parse("1.2.3"), home=Path(env["HOME"]), env=env
+    assert context_store(home=Path(env["HOME"]), env=env).root == agm_home / "packages"
+    assert context_store(home=Path(env["HOME"]), env=env).package_path(
+        "review-tools", semver.Version.parse("1.2.3")
     ) == (agm_home / "packages" / "review-tools" / "1.2.3")
 
 
@@ -60,7 +56,7 @@ def test_store_root_uses_the_installed_executable_prefix(
     index.write_text("")
     installed_agm_prefix(prefix)
 
-    assert store_root(home=tmp_path / "home", env={}) == prefix / ".agm" / "packages"
+    assert context_store(home=tmp_path / "home", env={}).root == prefix / ".agm" / "packages"
 
 
 def test_a_test_run_never_reaches_an_installed_prefix_store(
@@ -82,7 +78,7 @@ def test_a_test_run_never_reaches_an_installed_prefix_store(
     home = tmp_path / "home"
 
     assert agm_installation_prefix() == prefix
-    assert store_root(home=home, env={}) == home / ".agm" / "packages"
+    assert context_store(home=home, env={}).root == home / ".agm" / "packages"
 
     _write_store_package(home, "alpha", "1.0.0")
 
@@ -101,9 +97,9 @@ def test_store_root_identity_supports_relocation_without_matching_editable_sourc
     logical_store.symlink_to(relocated, target_is_directory=True)
     version = semver.Version.parse("1.0.0")
 
-    assert is_package_store_root(immutable, "alpha", version, home=home, env={})
-    assert not is_package_store_root(
-        tmp_path / "editable" / "alpha", "alpha", version, home=home, env={}
+    assert context_store(home=home, env={}).is_package_root(immutable, "alpha", version)
+    assert not context_store(home=home, env={}).is_package_root(
+        tmp_path / "editable" / "alpha", "alpha", version
     )
 
 
@@ -115,7 +111,9 @@ def test_canonical_store_path_refuses_an_in_store_symlinked_tree_ancestor(tmp_pa
     (store / "std").symlink_to(internal_target, target_is_directory=True)
 
     with pytest.raises(StorePathError, match="symlink"):
-        canonical_package_store_path("std", semver.Version.parse("1.2.3"), home=home, env={})
+        context_store(home=home, env={}).canonical_package_path(
+            "std", semver.Version.parse("1.2.3")
+        )
 
 
 def test_canonical_store_path_refuses_an_in_store_symlinked_tree_target(tmp_path: Path) -> None:
@@ -128,7 +126,9 @@ def test_canonical_store_path_refuses_an_in_store_symlinked_tree_target(tmp_path
     logical_target.symlink_to(target, target_is_directory=True)
 
     with pytest.raises(StorePathError, match="symlink"):
-        canonical_package_store_path("std", semver.Version.parse("1.2.3"), home=home, env={})
+        context_store(home=home, env={}).canonical_package_path(
+            "std", semver.Version.parse("1.2.3")
+        )
 
 
 def test_provenance_paths_do_not_collide_with_valid_package_versions(tmp_path: Path) -> None:
@@ -136,9 +136,9 @@ def test_provenance_paths_do_not_collide_with_valid_package_versions(tmp_path: P
     version = semver.Version.parse("1.0.0+alpha")
     colliding_version = semver.Version.parse("1.0.0+alpha.provenance.toml")
 
-    assert package_provenance_path("alpha", version, home=home, env={}) != package_store_path(
-        "alpha", colliding_version, home=home, env={}
-    )
+    assert context_store(home=home, env={}).provenance_path("alpha", version) != context_store(
+        home=home, env={}
+    ).package_path("alpha", colliding_version)
 
 
 def test_canonical_provenance_path_refuses_a_symlinked_sidecar(tmp_path: Path) -> None:
@@ -152,7 +152,9 @@ def test_canonical_provenance_path_refuses_a_symlinked_sidecar(tmp_path: Path) -
     logical_sidecar.symlink_to(target)
 
     with pytest.raises(StorePathError, match="symlink"):
-        canonical_package_provenance_path("std", semver.Version.parse("1.2.3"), home=home, env={})
+        context_store(home=home, env={}).canonical_provenance_path(
+            "std", semver.Version.parse("1.2.3")
+        )
 
 
 @pytest.mark.parametrize(
@@ -163,7 +165,9 @@ def test_package_store_path_rejects_names_that_could_escape_the_store(
     tmp_path: Path, env: dict[str, str], name: str
 ) -> None:
     with pytest.raises(StorePathError):
-        package_store_path(name, semver.Version.parse("1.2.3"), home=Path(env["HOME"]), env=env)
+        context_store(home=Path(env["HOME"]), env=env).package_path(
+            name, semver.Version.parse("1.2.3")
+        )
 
 
 @pytest.mark.parametrize("version", ["", ".", "..", "../outside", "1.2.3/extra", r"1.2.3\extra"])
@@ -171,11 +175,8 @@ def test_package_store_path_rejects_versions_that_could_escape_the_store(
     tmp_path: Path, env: dict[str, str], version: str
 ) -> None:
     with pytest.raises(StorePathError):
-        package_store_path(
-            "review-tools",
-            cast(semver.Version, version),
-            home=Path(env["HOME"]),
-            env=env,
+        context_store(home=Path(env["HOME"]), env=env).package_path(
+            "review-tools", cast(semver.Version, version)
         )
 
 
@@ -185,7 +186,7 @@ def test_iter_installed_packages_yields_every_store_version_in_order(tmp_path: P
     _write_store_package(home, "alpha", "2.0.0")
     _write_store_package(home, "bravo", "1.0.0")
 
-    packages = list(iter_installed_packages(home=home, env={}))
+    packages = list(iter_installed_packages(context_store(home=home, env={})))
 
     assert [(package.manifest.name, str(package.manifest.version)) for package in packages] == [
         ("alpha", "1.0.0"),
@@ -194,34 +195,45 @@ def test_iter_installed_packages_yields_every_store_version_in_order(tmp_path: P
     ]
 
 
+def test_store_enumeration_ignores_dot_prefixed_entries(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _write_store_package(home, "alpha", "1.0.0")
+    store = context_store(home=home, env={})
+    (store.root / ".python" / "lib").mkdir(parents=True)
+    (store.root / ".staging-alpha").mkdir()
+
+    assert [path.name for path in iter_store_package_dirs(store)] == ["alpha"]
+    assert [package.manifest.name for package in iter_installed_packages(store)] == ["alpha"]
+
+
 def test_iter_installed_packages_raises_an_install_error_for_an_unloadable_manifest(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
-    root = store_root(home=home, env={}) / "alpha" / "1.0.0"
+    root = context_store(home=home, env={}).root / "alpha" / "1.0.0"
     (root / "alpha").mkdir(parents=True)
     (root / "package.toml").write_text("", encoding="utf-8")
 
     with pytest.raises(PackageInstallError, match="cannot load"):
-        list(iter_installed_packages(home=home, env={}))
+        list(iter_installed_packages(context_store(home=home, env={})))
 
 
 def test_iter_installed_packages_rejects_identity_mismatch(tmp_path: Path) -> None:
     home = tmp_path / "home"
     _write_store_package(home, "alpha", "1.0.0")
-    (store_root(home=home, env={}) / "alpha" / "1.0.0" / "package.toml").write_text(
+    (context_store(home=home, env={}).root / "alpha" / "1.0.0" / "package.toml").write_text(
         '[package]\nname = "alpha"\nversion = "2.0.0"\n', encoding="utf-8"
     )
 
     with pytest.raises(StoreIdentityError, match="does not match its store identity"):
-        list(iter_installed_packages(home=home, env={}))
+        list(iter_installed_packages(context_store(home=home, env={})))
 
 
 def test_satisfying_from_store_selects_the_highest_version(tmp_path: Path) -> None:
     home = tmp_path / "home"
     _write_store_package(home, "alpha", "1.0.0")
     _write_store_package(home, "alpha", "2.0.0")
-    packages = list(iter_installed_packages(home=home, env={}))
+    packages = list(iter_installed_packages(context_store(home=home, env={})))
     requirement = DependencySpec(semver.Version.parse("1.0.0"))
 
     selected = satisfying_from_store(packages, "alpha", requirement, None)

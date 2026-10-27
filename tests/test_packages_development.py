@@ -12,6 +12,7 @@ from agnette.packages.development import (
     containing_development_package,
     discover_development_packages,
 )
+from agnette.packages.store import context_store
 
 
 def _write_package(
@@ -71,7 +72,7 @@ import {module}
 
 
 def test_discovery_ignores_a_directory_without_a_containing_manifest(tmp_path: Path) -> None:
-    assert discover_development_packages(tmp_path, home=tmp_path / "home") == ()
+    assert discover_development_packages(context_store(home=tmp_path / "home"), tmp_path) == ()
 
 
 def test_discovery_uses_path_dependencies_recursively_and_ignores_unavailable_sources(
@@ -93,7 +94,9 @@ def test_discovery_uses_path_dependencies_recursively_and_ignores_unavailable_so
         "\n[dependencies]\nalpha = { version = " + '"1", path = "../alpha" }\n',
     )
 
-    packages = discover_development_packages(alpha / "alpha" / "main.agl", home=tmp_path / "home")
+    packages = discover_development_packages(
+        context_store(home=tmp_path / "home"), alpha / "alpha" / "main.agl"
+    )
 
     assert tuple(package.manifest.name for package in packages) == ("alpha", "bravo")
 
@@ -114,7 +117,9 @@ def test_discovery_accepts_a_path_dependency_whose_group_is_completed_by_source(
         encoding="utf-8",
     )
 
-    packages = discover_development_packages(alpha / "alpha" / "main.agl", home=tmp_path / "home")
+    packages = discover_development_packages(
+        context_store(home=tmp_path / "home"), alpha / "alpha" / "main.agl"
+    )
 
     assert tuple(package.manifest.name for package in packages) == ("alpha", "bravo")
 
@@ -132,7 +137,7 @@ def test_recursive_discovery_leaves_store_dependencies_to_activation(tmp_path: P
     )
     _write_package(stored, "bravo")
 
-    packages = discover_development_packages(alpha / "alpha" / "main.agl", home=home)
+    packages = discover_development_packages(context_store(home=home), alpha / "alpha" / "main.agl")
 
     assert tuple(package.manifest.name for package in packages) == ("alpha",)
 
@@ -154,7 +159,9 @@ def test_discovery_validates_path_dependency_identity(
     _write_package(target, actual_name, version=actual_version)
 
     with pytest.raises(ValueError, match="bravo"):
-        discover_development_packages(alpha / "alpha" / "main.agl", home=tmp_path / "home")
+        discover_development_packages(
+            context_store(home=tmp_path / "home"), alpha / "alpha" / "main.agl"
+        )
 
 
 def test_discovery_rejects_a_symbolic_link_path_dependency(tmp_path: Path) -> None:
@@ -170,7 +177,9 @@ def test_discovery_rejects_a_symbolic_link_path_dependency(tmp_path: Path) -> No
     linked.symlink_to(target, target_is_directory=True)
 
     with pytest.raises(ValueError, match="symbolic-link package dependency"):
-        discover_development_packages(alpha / "alpha" / "main.agl", home=tmp_path / "home")
+        discover_development_packages(
+            context_store(home=tmp_path / "home"), alpha / "alpha" / "main.agl"
+        )
 
 
 def test_discovery_rejects_different_roots_with_the_same_package_identity(tmp_path: Path) -> None:
@@ -199,14 +208,18 @@ def test_discovery_rejects_different_roots_with_the_same_package_identity(tmp_pa
     _write_package(shared_two, "shared")
 
     with pytest.raises(ValueError, match="shared"):
-        discover_development_packages(alpha / "alpha" / "main.agl", home=tmp_path / "home")
+        discover_development_packages(
+            context_store(home=tmp_path / "home"), alpha / "alpha" / "main.agl"
+        )
 
 
 def test_containing_development_package_reports_the_nearest_manifest(tmp_path: Path) -> None:
     alpha = tmp_path / "alpha"
     _write_package(alpha, "alpha")
 
-    package = containing_development_package(alpha / "alpha" / "main.agl", home=tmp_path / "home")
+    package = containing_development_package(
+        context_store(home=tmp_path / "home"), alpha / "alpha" / "main.agl"
+    )
 
     assert package is not None
     assert package.root == alpha.resolve()
@@ -216,7 +229,7 @@ def test_containing_development_package_reports_the_nearest_manifest(tmp_path: P
 def test_containing_development_package_ignores_a_directory_without_a_manifest(
     tmp_path: Path,
 ) -> None:
-    assert containing_development_package(tmp_path, home=tmp_path / "home") is None
+    assert containing_development_package(context_store(home=tmp_path / "home"), tmp_path) is None
 
 
 def test_containing_development_package_leaves_a_store_tree_to_activation(tmp_path: Path) -> None:
@@ -225,7 +238,7 @@ def test_containing_development_package_leaves_a_store_tree_to_activation(tmp_pa
     stored.parent.mkdir(parents=True)
     _write_package(stored, "bravo")
 
-    assert containing_development_package(stored / "bravo", home=home) is None
+    assert containing_development_package(context_store(home=home), stored / "bravo") is None
 
 
 def test_containing_development_package_accepts_a_group_completed_by_source(
@@ -239,7 +252,7 @@ def test_containing_development_package_accepts_a_group_completed_by_source(
         encoding="utf-8",
     )
 
-    package = containing_development_package(root, home=tmp_path / "home")
+    package = containing_development_package(context_store(home=tmp_path / "home"), root)
 
     assert package is not None
     assert package.manifest.name == "alpha"

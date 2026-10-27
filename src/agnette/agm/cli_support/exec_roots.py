@@ -20,6 +20,7 @@ from agnette.packages.development import discover_development_packages
 from agnette.packages.manifest import ManifestError, load_manifest
 from agnette.packages.model import PackageInfo, is_std_package_name, owning_package
 from agnette.packages.stdlib import StdlibSelection
+from agnette.packages.store import context_store
 
 if TYPE_CHECKING:
     from agnette.agl.pipeline import PreparedProgram
@@ -57,7 +58,8 @@ def effective_exec_roots(
     only the invocation's own paths.
     """
     anchor = entry_path if entry_path is not None else cwd
-    development_packages = discover_development_packages(anchor, home=home)
+    store = context_store(home=home)
+    development_packages = discover_development_packages(store, anchor)
     module_config = load_module_roots(home=home, proj_dir=proj_dir, cwd=cwd)
     selected_packages = select_package_roots(
         home=home,

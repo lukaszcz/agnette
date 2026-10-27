@@ -2,6 +2,10 @@
 
 Installed packages live in a store under the AgM home ([config.md](config.md)). An *immutable* installation is a content-hashed tree copied into the store; an *editable* installation mounts a live source tree. An activation index selects one version of each package globally; project `[packages]` pins override it per invocation. Dependency installation and validation share the same selection rule.
 
+## The Store Handle
+
+`PackageStore(root)` is the handle every store, activation, and install API takes in place of the AgM home. It owns every path beneath its root: activation index, operation lock, package trees, provenance sidecars, and the `RECORD`s inside trees, so each store is self-contained. `context_store(home, env)` is the single resolver of a context's store (today the one under the AgM home); the config-aware selectors in `activation.py` derive it from the `(home, env)` they take, and `agm pkg` commands use `cli_support/pkg_store.py`. Enumeration skips dot-prefixed entries (bookkeeping, never package names) and linked directories. Callers outside the package domain build the handle at the call boundary.
+
 ## Distribution
 
 A source directory ships as its *distribution*: the normalized manifest plus files surviving gitignore and standard exclusions, with symlinked files copied as regular files. One module (`distribution.py`) owns that selection, so archives, store staging, and the content hash agree, and a directory and its archive install identically. The normalized manifest includes `@command` registrations ([packages.md](packages.md)), so an immutable installation carries a complete command table and is never rescanned; an editable one re-derives its commands from live source.
@@ -20,7 +24,7 @@ The standard library ships as a managed store package whose version must exactly
 
 ## Code Entry Points
 
-- `src/agnette/packages/store.py`, `errors.py` — store layout, enumeration, lifecycle errors (no installation or compiler imports).
+- `src/agnette/packages/store.py`, `errors.py` — `PackageStore`, enumeration, lifecycle errors (no installation or compiler imports).
 - `src/agnette/packages/distribution.py`, `record.py`, `archive.py` — distribution view, integrity records, archives.
 - `src/agnette/packages/activation.py`, `install.py`, `fetch.py` — activation, lifecycle operations, downloads.
 - `src/agnette/packages/python_deps.py` — Python-requirement union and sync.

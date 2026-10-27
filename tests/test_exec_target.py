@@ -173,7 +173,7 @@ class TestResolveInstalledReference:
         monkeypatch.setattr(
             exec_target,
             "select_active_packages",
-            lambda **_: (_ for _ in ()).throw(ValueError("broken")),
+            lambda *_, **__: (_ for _ in ()).throw(ValueError("broken")),
         )
 
         result = resolve_installed_reference(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,7 +16,7 @@ from agnette.packages.discipline import DisciplineError, validate_package_struct
 from agnette.packages.install import PackageInstallError, installed_packages
 from agnette.packages.manifest import DependencySpec, ManifestError
 from agnette.packages.model import PackageInfo, is_std_package_name, unmet_std_requirement
-from agnette.packages.store import satisfying_installed_package
+from agnette.packages.store import PackageStore, satisfying_installed_package
 
 
 class DependencyError(ValueError):
@@ -26,8 +25,7 @@ class DependencyError(ValueError):
 
 @dataclass(slots=True)
 class _CheckState:
-    home: Path
-    env: Mapping[str, str] | None
+    store: PackageStore
     checking: set[Path] = field(default_factory=set)
     checked: set[Path] = field(default_factory=set)
     resolved: dict[str, PackageInfo] = field(default_factory=dict)
@@ -35,9 +33,7 @@ class _CheckState:
     index: ActivationIndex | None = None
 
 
-def validate_dependencies(
-    package: PackageInfo, *, home: Path, env: Mapping[str, str] | None = None
-) -> tuple[PackageInfo, ...]:
+def validate_dependencies(store: PackageStore, package: PackageInfo) -> tuple[PackageInfo, ...]:
     """Ensure every requirement has a usable store, path, or URL source.
 
     Stored and previously selected versions take precedence, matching
@@ -47,7 +43,7 @@ def validate_dependencies(
     deferred source; validation never fetches it.
     """
 
-    state = _CheckState(home=home, env=env)
+    state = _CheckState(store)
     _validate_package_dependencies(package, state)
     return tuple(state.resolved[name] for name in sorted(state.resolved))
 
@@ -95,7 +91,7 @@ def _cached_installed_packages(state: _CheckState) -> tuple[PackageInfo, ...]:
     """Return the store contents, scanned once per dependency check."""
 
     if state.installed is None:
-        state.installed = installed_packages(home=state.home, env=state.env)
+        state.installed = installed_packages(state.store)
     return state.installed
 
 
@@ -103,7 +99,7 @@ def _cached_activation_index(state: _CheckState) -> ActivationIndex:
     """Return the activation index, loaded once per dependency check."""
 
     if state.index is None:
-        state.index = load_activation_index(home=state.home, env=state.env)
+        state.index = load_activation_index(state.store)
     return state.index
 
 

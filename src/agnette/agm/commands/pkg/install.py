@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from agnette.agm.cli_support.args import PkgInstallArgs
+from agnette.agm.cli_support.pkg_store import pkg_store
 from agnette.config.context import current_config_context
 from agnette.packages.install import (
     PackageInstallError,
@@ -22,17 +23,18 @@ def run(args: PkgInstallArgs) -> None:
         if args.editable and args.reinstall:
             raise PackageInstallError("--reinstall cannot be used with --editable")
         source = Path(args.source)
+        store = pkg_store(context)
         if source.is_file() and not args.editable:
             plan = install_archive_with_plan(
+                store,
                 source,
-                home=context.home,
                 shadow=args.shadow,
                 reinstall=args.reinstall,
             )
         else:
             plan = install_directory_with_plan(
+                store,
                 source,
-                home=context.home,
                 editable=args.editable,
                 shadow=args.shadow,
                 reinstall=args.reinstall,

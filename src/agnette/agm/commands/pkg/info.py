@@ -6,6 +6,7 @@ import sys
 import textwrap
 
 from agnette.agm.cli_support.args import PkgInfoArgs
+from agnette.agm.cli_support.pkg_store import pkg_store
 from agnette.config.context import current_config_context
 from agnette.core.env import help_width
 from agnette.core.pyenv import requirement_status
@@ -30,11 +31,12 @@ def run(args: PkgInfoArgs) -> None:
 
     context = current_config_context()
     try:
-        index = load_activation_index(home=context.home)
+        store = pkg_store(context)
+        index = load_activation_index(store)
         active = index.packages.get(args.name)
         if active is None:
             raise PackageActivationError(f"package {args.name!r} is not installed")
-        manifest = resolve_active_package(args.name, active, home=context.home).manifest
+        manifest = resolve_active_package(store, args.name, active).manifest
         active_versions = {
             name: active_package_version(selected) for name, selected in index.packages.items()
         }

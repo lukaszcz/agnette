@@ -18,14 +18,13 @@ from agnette.packages.activation import (
     CommandRegistration,
     CommandShadow,
     PackageActivationError,
-    activation_index_path,
+    checked_provenance_path,
     command_shadow_diagnostics,
     effective_command_index,
     load_activation_index,
     load_package_pins,
     load_package_provenance,
     merge_package_commands,
-    package_provenance_path,
     resolve_active_package,
     resolve_indexed_packages,
     select_active_packages,
@@ -37,6 +36,7 @@ from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import CommandSpec, load_manifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import write_record
+from agnette.packages.store import context_store
 from agnette.version import AGM_VERSION
 from tests._package_helpers import package_info
 
@@ -83,9 +83,9 @@ def test_activation_index_round_trips_command_ownership_and_registration_order(
         },
     )
 
-    write_activation_index(index, home=home, env={"AGM_HOME": str(home)})
+    write_activation_index(context_store(home=home, env={"AGM_HOME": str(home)}), index)
 
-    assert load_activation_index(home=home, env={"AGM_HOME": str(home)}) == index
+    assert load_activation_index(context_store(home=home, env={"AGM_HOME": str(home)})) == index
 
 
 def test_package_provenance_is_a_record_external_sidecar(tmp_path: Path) -> None:
@@ -93,10 +93,12 @@ def test_package_provenance_is_a_record_external_sidecar(tmp_path: Path) -> None
     active = ActivePackage(semver.Version.parse("1.2.3"), shadow=True, registration_order=4)
     package = _write_package(home, "alpha", "1.2.3")
 
-    path = write_package_provenance("alpha", active, home=home, env={"AGM_HOME": str(home)})
+    path = write_package_provenance(
+        context_store(home=home, env={"AGM_HOME": str(home)}), "alpha", active
+    )
 
     provenance = load_package_provenance(
-        "alpha", active.version, home=home, env={"AGM_HOME": str(home)}
+        context_store(home=home, env={"AGM_HOME": str(home)}), "alpha", active.version
     )
 
     assert path == package.parent / ".provenance" / "1.2.3.toml"
@@ -119,15 +121,19 @@ def test_package_provenance_is_a_record_external_sidecar(tmp_path: Path) -> None
 def test_package_provenance_rejects_invalid_state(tmp_path: Path, content: str) -> None:
     home = tmp_path / "agm-home"
     _write_package(home, "alpha", "1.0.0")
-    path = package_provenance_path(
-        "alpha", semver.Version.parse("1.0.0"), home=home, env={"AGM_HOME": str(home)}
+    path = checked_provenance_path(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
+        "alpha",
+        semver.Version.parse("1.0.0"),
     )
     path.parent.mkdir()
     path.write_text(content, encoding="utf-8")
 
     with pytest.raises(PackageActivationError, match="provenance"):
         load_package_provenance(
-            "alpha", semver.Version.parse("1.0.0"), home=home, env={"AGM_HOME": str(home)}
+            context_store(home=home, env={"AGM_HOME": str(home)}),
+            "alpha",
+            semver.Version.parse("1.0.0"),
         )
 
 
@@ -140,8 +146,10 @@ def test_package_provenance_refuses_escaped_store_sidecars(tmp_path: Path) -> No
     (store / "alpha").symlink_to(external, target_is_directory=True)
 
     with pytest.raises(PackageActivationError, match="outside"):
-        package_provenance_path(
-            "alpha", semver.Version.parse("1.0.0"), home=home, env={"AGM_HOME": str(home)}
+        checked_provenance_path(
+            context_store(home=home, env={"AGM_HOME": str(home)}),
+            "alpha",
+            semver.Version.parse("1.0.0"),
         )
 
 
@@ -152,7 +160,7 @@ def test_package_provenance_rejects_editable_and_write_failures(
     version = semver.Version.parse("1.0.0")
     with pytest.raises(PackageActivationError, match="editable"):
         write_package_provenance(
-            "alpha", ActivePackage(version, editable=tmp_path), home=home, env={}
+            context_store(home=home, env={}), "alpha", ActivePackage(version, editable=tmp_path)
         )
 
     def fail_open(_: Path, *__: object, **___: object) -> Never:
@@ -161,7 +169,7 @@ def test_package_provenance_rejects_editable_and_write_failures(
     monkeypatch.setattr(Path, "open", fail_open)
     with pytest.raises(PackageActivationError, match="cannot write"):
         write_package_provenance(
-            "alpha", ActivePackage(version, registration_order=1), home=home, env={}
+            context_store(home=home, env={}), "alpha", ActivePackage(version, registration_order=1)
         )
 
 
@@ -176,10 +184,10 @@ def test_activation_index_round_trips_all_activation_markers(tmp_path: Path) -> 
     )
 
     env = {"AGM_HOME": str(home)}
-    write_activation_index(index, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), index)
 
-    assert activation_index_path(home=home, env=env) == home / "packages" / "index.toml"
-    assert load_activation_index(home=home, env=env) == index
+    assert context_store(home=home, env=env).index_path == home / "packages" / "index.toml"
+    assert load_activation_index(context_store(home=home, env=env)) == index
 
 
 def test_activation_index_write_failure_keeps_the_previous_index(
@@ -188,7 +196,7 @@ def test_activation_index_write_failure_keeps_the_previous_index(
     home = tmp_path / "agm-home"
     env = {"AGM_HOME": str(home)}
     original = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"))})
-    write_activation_index(original, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), original)
 
     def fail_open(_: Path, *__: object, **___: object) -> Never:
         raise OSError("full")
@@ -197,12 +205,11 @@ def test_activation_index_write_failure_keeps_the_previous_index(
         patch.setattr(Path, "open", fail_open)
         with pytest.raises(PackageActivationError, match="cannot write"):
             write_activation_index(
+                context_store(home=home, env=env),
                 ActivationIndex({"alpha": ActivePackage(semver.Version.parse("2.0.0"))}),
-                home=home,
-                env=env,
             )
 
-    assert load_activation_index(home=home, env=env) == original
+    assert load_activation_index(context_store(home=home, env=env)) == original
 
 
 def test_effective_command_index_reconciles_cached_immutable_command_priority(
@@ -220,6 +227,7 @@ def test_effective_command_index_reconciles_cached_immutable_command_priority(
         write_record(root)
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             {
                 "alpha": ActivePackage(semver.Version.parse("1.0.0"), registration_order=1),
@@ -229,8 +237,6 @@ def test_effective_command_index_reconciles_cached_immutable_command_priority(
             },
             {"launch": CommandRegistration("alpha", "alpha/main::main")},
         ),
-        home=home,
-        env=env,
     )
 
     assert effective_command_index(home=home, proj_dir=None, cwd=tmp_path, env=env).commands == {
@@ -252,7 +258,7 @@ def test_effective_command_index_uses_live_editable_manifest_commands(tmp_path: 
         {"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=root)},
         {"launch": CommandRegistration("alpha", "alpha/main::stale")},
     )
-    write_activation_index(index, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), index)
 
     assert effective_command_index(home=home, proj_dir=None, cwd=tmp_path, env=env).commands == {
         "launch": CommandRegistration("alpha", "alpha/main::current")
@@ -279,6 +285,7 @@ def test_effective_command_index_rejects_a_live_editable_command_conflict_withou
     )
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             {
                 "alpha": ActivePackage(semver.Version.parse("1.0.0"), registration_order=1),
@@ -293,8 +300,6 @@ def test_effective_command_index_rejects_a_live_editable_command_conflict_withou
                 "inspect": CommandRegistration("bravo", "bravo/main::main"),
             },
         ),
-        home=home,
-        env=env,
     )
     (bravo / "package.toml").write_text(
         '[package]\nname = "bravo"\nversion = "1.0.0"\n\n'
@@ -343,9 +348,10 @@ def test_effective_command_index_uses_pinned_version_provenance_without_losing_a
     env = {"AGM_HOME": str(home)}
     version = semver.Version.parse("1.0.0")
     write_package_provenance(
-        "alpha", ActivePackage(version, registration_order=1), home=home, env=env
+        context_store(home=home, env=env), "alpha", ActivePackage(version, registration_order=1)
     )
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             {
                 "alpha": ActivePackage(
@@ -357,8 +363,6 @@ def test_effective_command_index_uses_pinned_version_provenance_without_losing_a
             },
             {"launch": CommandRegistration("alpha", "alpha/main::main")},
         ),
-        home=home,
-        env=env,
     )
     project = tmp_path / "project"
     (project / "config").mkdir(parents=True)
@@ -388,6 +392,7 @@ def test_effective_command_index_supports_legacy_pins_without_version_provenance
     if indexed:
         _write_package(home, "alpha", "2.0.0")
         write_activation_index(
+            context_store(home=home, env=env),
             ActivationIndex(
                 {
                     "alpha": ActivePackage(
@@ -397,8 +402,6 @@ def test_effective_command_index_supports_legacy_pins_without_version_provenance
                     )
                 }
             ),
-            home=home,
-            env=env,
         )
     project = tmp_path / "project"
     (project / "config").mkdir(parents=True)
@@ -436,12 +439,11 @@ def test_effective_command_index_rebuilds_for_a_pin_with_different_build_metadat
     )
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             {"alpha": ActivePackage(semver.Version.parse("1.0.0+old"))},
             {"launch": CommandRegistration("alpha", "alpha/main::old")},
         ),
-        home=home,
-        env=env,
     )
 
     assert effective_command_index(home=home, proj_dir=project, cwd=project, env=env).commands == {
@@ -464,12 +466,11 @@ def test_effective_command_index_rejects_a_pinned_command_conflict_without_prove
         )
         write_record(package)
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             {"alpha": ActivePackage(semver.Version.parse("1.0.0"), registration_order=1)},
             {"launch": CommandRegistration("alpha", "alpha/main::main")},
         ),
-        home=home,
-        env=env,
     )
     project = tmp_path / "project"
     (project / "config").mkdir(parents=True)
@@ -499,15 +500,14 @@ def test_effective_command_index_rejects_a_pinned_command_conflict_without_shado
         write_record(package)
     version = semver.Version.parse("1.0.0")
     write_package_provenance(
-        "bravo", ActivePackage(version, registration_order=2), home=home, env=env
+        context_store(home=home, env=env), "bravo", ActivePackage(version, registration_order=2)
     )
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             {"alpha": ActivePackage(version, registration_order=1)},
             {"launch": CommandRegistration("alpha", "alpha/main::main")},
         ),
-        home=home,
-        env=env,
     )
     project = tmp_path / "project"
     (project / "config").mkdir(parents=True)
@@ -549,7 +549,9 @@ def test_command_shadow_diagnostics_and_registry_merge_are_deterministic(tmp_pat
 
     diagnostics = command_shadow_diagnostics(
         index,
-        packages=resolve_indexed_packages(index, home=home, env={"AGM_HOME": str(home)}),
+        packages=resolve_indexed_packages(
+            context_store(home=home, env={"AGM_HOME": str(home)}), index
+        ),
     )
 
     assert diagnostics == {"bravo": (CommandShadow("launch", ("alpha", "charlie")),)}
@@ -562,9 +564,8 @@ def test_project_pin_overrides_the_global_active_version(tmp_path: Path) -> None
     one = _write_package(home, "alpha", "1.0.0")
     two = _write_package(home, "alpha", "2.0.0")
     write_activation_index(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env={"AGM_HOME": str(home)},
     )
     project = tmp_path / "project"
     config = project / "config"
@@ -572,7 +573,10 @@ def test_project_pin_overrides_the_global_active_version(tmp_path: Path) -> None
     (config / "config.toml").write_text('[packages]\nalpha = "2.0.0"\n', encoding="utf-8")
 
     packages = select_active_packages(
-        home=home, proj_dir=project, cwd=project, env={"AGM_HOME": str(home)}
+        home=home,
+        proj_dir=project,
+        cwd=project,
+        env={"AGM_HOME": str(home)},
     )
 
     assert tuple(package.root for package in packages) == (two.resolve(),)
@@ -589,9 +593,8 @@ def test_pinned_selection_checks_package_requirements_loudly(tmp_path: Path) -> 
         '\n[dependencies]\nbravo = "2.0"\n',
     )
     write_activation_index(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env={"AGM_HOME": str(home)},
     )
     project = tmp_path / "project"
     config = project / "config"
@@ -600,7 +603,10 @@ def test_pinned_selection_checks_package_requirements_loudly(tmp_path: Path) -> 
 
     with pytest.raises(PackageActivationError, match="bravo"):
         select_active_packages(
-            home=home, proj_dir=project, cwd=project, env={"AGM_HOME": str(home)}
+            home=home,
+            proj_dir=project,
+            cwd=project,
+            env={"AGM_HOME": str(home)},
         )
 
 
@@ -616,7 +622,10 @@ def test_unrelated_config_sections_do_not_prevent_pin_loading(tmp_path: Path) ->
     )
 
     packages = select_active_packages(
-        home=home, proj_dir=project, cwd=project, env={"AGM_HOME": str(home)}
+        home=home,
+        proj_dir=project,
+        cwd=project,
+        env={"AGM_HOME": str(home)},
     )
 
     assert tuple(package.root for package in packages) == (selected.resolve(),)
@@ -633,9 +642,8 @@ def test_development_package_shadows_an_active_package_with_the_same_name(tmp_pa
     development = package_info(development_root)
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env=env,
     )
 
     packages = select_package_roots(
@@ -666,9 +674,8 @@ def test_development_package_shadows_stale_or_missing_active_or_pinned_store_sel
     project = tmp_path / "project"
     if selection == "active":
         write_activation_index(
+            context_store(home=home, env=env),
             ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-            home=home,
-            env=env,
         )
         proj_dir = None
     else:
@@ -701,14 +708,13 @@ def test_final_root_selection_validates_requirements_after_shadowing_missing_sel
     )
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             packages={
                 "alpha": ActivePackage(semver.Version.parse("1.0.0")),
                 "bravo": ActivePackage(semver.Version.parse("1.0.0")),
             }
         ),
-        home=home,
-        env=env,
     )
 
     with pytest.raises(PackageActivationError, match="bravo"):
@@ -748,14 +754,13 @@ def test_final_root_selection_uses_development_package_for_active_requirements(
     development = _write_development_package(tmp_path / "development", "bravo", "2.0.0")
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             packages={
                 "alpha": ActivePackage(semver.Version.parse("1.0.0")),
                 "bravo": ActivePackage(semver.Version.parse("1.0.0")),
             }
         ),
-        home=home,
-        env=env,
     )
 
     packages = select_package_roots(
@@ -780,14 +785,13 @@ def test_only_store_tree_selections_are_installed(tmp_path: Path) -> None:
     development = _write_development_package(tmp_path / "development", "charlie", "1.0.0")
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             packages={
                 "alpha": ActivePackage(semver.Version.parse("1.0.0")),
                 "bravo": ActivePackage(semver.Version.parse("1.0.0"), editable=editable.root),
             }
         ),
-        home=home,
-        env=env,
     )
 
     packages = select_package_roots(
@@ -817,9 +821,8 @@ def test_std_is_never_selected_as_a_package_root(tmp_path: Path) -> None:
     development = package_info(development_root)
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(packages={"std": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env=env,
     )
 
     packages = select_package_roots(
@@ -839,9 +842,8 @@ def test_effective_exec_roots_mounts_indexed_packages_under_agm_home(
     home = tmp_path / "agm-home"
     package_root = _write_package(home, "alpha", "1.0.0")
     write_activation_index(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env={"AGM_HOME": str(home)},
     )
     monkeypatch.setenv("AGM_HOME", str(home))
     monkeypatch.setenv("AGM_STDLIB", str(tmp_path / "missing-stdlib"))
@@ -871,14 +873,13 @@ def test_effective_exec_roots_treats_stdlib_override_as_exclusive(
     override = tmp_path / "override"
     (override / MODULE_TREE_DIRNAME).mkdir(parents=True)
     write_activation_index(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex(
             packages={
                 "std": ActivePackage(semver.Version.parse(AGM_VERSION)),
                 "alpha": ActivePackage(semver.Version.parse("1.0.0")),
             }
         ),
-        home=home,
-        env={"AGM_HOME": str(home)},
     )
     monkeypatch.setenv("AGM_HOME", str(home))
     monkeypatch.setenv("AGM_STDLIB", str(override))
@@ -905,9 +906,8 @@ def test_effective_exec_roots_falls_back_when_active_std_tree_is_missing(
     """A missing managed tree does not block the source-checkout fallback."""
     home = tmp_path / "agm-home"
     write_activation_index(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
-        home=home,
-        env={"AGM_HOME": str(home)},
     )
     monkeypatch.setenv("AGM_HOME", str(home))
     monkeypatch.delenv("AGM_STDLIB", raising=False)
@@ -933,9 +933,8 @@ def test_package_root_selection_rejects_a_std_requirement_newer_than_agm(tmp_pat
     newer_agm = semver.Version.parse(AGM_VERSION).bump_major()
     _write_package(home, "alpha", "1.0.0", f'\n[dependencies]\nstd = "{newer_agm}"\n')
     write_activation_index(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env={"AGM_HOME": str(home)},
     )
 
     with pytest.raises(PackageActivationError, match="AgM"):
@@ -951,7 +950,7 @@ def test_missing_activation_index_reads_as_empty(tmp_path: Path) -> None:
     home = tmp_path / "agm-home"
     env = {"AGM_HOME": str(home)}
 
-    assert load_activation_index(home=home, env=env) == ActivationIndex()
+    assert load_activation_index(context_store(home=home, env=env)) == ActivationIndex()
 
 
 @pytest.mark.parametrize(
@@ -1000,7 +999,7 @@ def test_activation_index_rejects_invalid_state(tmp_path: Path, content: str) ->
     index_path.write_text(content, encoding="utf-8")
 
     with pytest.raises(PackageActivationError):
-        load_activation_index(home=home, env={"AGM_HOME": str(home)})
+        load_activation_index(context_store(home=home, env={"AGM_HOME": str(home)}))
 
 
 def test_activation_index_drops_command_fields_this_build_does_not_know(tmp_path: Path) -> None:
@@ -1015,7 +1014,7 @@ def test_activation_index_drops_command_fields_this_build_does_not_know(tmp_path
         encoding="utf-8",
     )
 
-    index = load_activation_index(home=home, env={"AGM_HOME": str(home)})
+    index = load_activation_index(context_store(home=home, env={"AGM_HOME": str(home)}))
 
     assert index.commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main", "Launch alpha")
@@ -1039,21 +1038,19 @@ def test_activation_index_rejects_invalid_in_memory_command_registration(
     commands = {} if command is None else {"launch": command}
     with pytest.raises(PackageActivationError):
         write_activation_index(
+            context_store(home=tmp_path / "home", env={}),
             ActivationIndex(packages={"alpha": active}, commands=commands),
-            home=tmp_path / "home",
-            env={},
         )
 
 
 def test_activation_index_rejects_option_shaped_command_segment(tmp_path: Path) -> None:
     with pytest.raises(PackageActivationError):
         write_activation_index(
+            context_store(home=tmp_path / "home", env={}),
             ActivationIndex(
                 packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))},
                 commands={"tools --help": CommandRegistration("alpha", "alpha/main::main")},
             ),
-            home=tmp_path / "home",
-            env={},
         )
 
 
@@ -1064,7 +1061,7 @@ def test_activation_index_rejects_invalid_toml(tmp_path: Path) -> None:
     index_path.write_text("[packages\n", encoding="utf-8")
 
     with pytest.raises(PackageActivationError):
-        load_activation_index(home=home, env={"AGM_HOME": str(home)})
+        load_activation_index(context_store(home=home, env={"AGM_HOME": str(home)}))
 
 
 @pytest.mark.parametrize("pin", ("1.0", "not-a-version"))
@@ -1075,7 +1072,12 @@ def test_package_pins_must_be_complete_semver(tmp_path: Path, pin: str) -> None:
     (config / "config.toml").write_text(f'[packages]\nalpha = "{pin}"\n', encoding="utf-8")
 
     with pytest.raises(PackageActivationError):
-        select_active_packages(home=tmp_path / "home", proj_dir=project, cwd=project, env={})
+        select_active_packages(
+            home=tmp_path / "home",
+            proj_dir=project,
+            cwd=project,
+            env={},
+        )
 
 
 @pytest.mark.parametrize("config_text", ("[packages]\nalpha = 1\n", 'packages = "wrong"\n'))
@@ -1086,7 +1088,12 @@ def test_package_pins_must_be_a_table_of_version_strings(tmp_path: Path, config_
     (config / "config.toml").write_text(config_text, encoding="utf-8")
 
     with pytest.raises(PackageActivationError):
-        select_active_packages(home=tmp_path / "home", proj_dir=project, cwd=project, env={})
+        select_active_packages(
+            home=tmp_path / "home",
+            proj_dir=project,
+            cwd=project,
+            env={},
+        )
 
 
 def test_package_pins_are_empty_when_the_section_is_absent(tmp_path: Path) -> None:
@@ -1102,9 +1109,8 @@ def test_non_editable_package_cannot_escape_the_canonical_store_root(tmp_path: P
     store_version.symlink_to(external_root, target_is_directory=True)
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env=env,
     )
 
     with pytest.raises(PackageActivationError, match="store root"):
@@ -1115,15 +1121,15 @@ def test_active_package_must_exist_and_match_its_selected_identity(tmp_path: Pat
     home = tmp_path / "agm-home"
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env=env,
     )
 
     with pytest.raises(PackageActivationError):
         select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
 
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             packages={
                 "alpha": ActivePackage(
@@ -1131,16 +1137,13 @@ def test_active_package_must_exist_and_match_its_selected_identity(tmp_path: Pat
                 )
             }
         ),
-        home=home,
-        env=env,
     )
     with pytest.raises(PackageActivationError):
         select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
 
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env=env,
     )
     root = _write_package(home, "alpha", "1.0.0")
     (root / "package.toml").write_text(
@@ -1167,9 +1170,8 @@ def test_active_immutable_package_must_match_exact_build_metadata(tmp_path: Path
     write_record(root)
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0+selected"))}),
-        home=home,
-        env=env,
     )
 
     with pytest.raises(PackageActivationError, match="mismatched"):
@@ -1181,11 +1183,10 @@ def test_editable_package_resolves_to_its_live_root(tmp_path: Path) -> None:
     editable = _write_development_package(tmp_path / "editable", "alpha", "1.0.0")
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             {"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=editable.root)}
         ),
-        home=home,
-        env=env,
     )
 
     assert select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env) == (editable,)
@@ -1202,14 +1203,13 @@ def test_editable_package_uses_its_live_manifest_for_requirement_checks(tmp_path
     bravo = _write_package(home, "bravo", "1.0.0")
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(
             packages={
                 "alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=editable),
                 "bravo": ActivePackage(semver.Version.parse("1.0.0")),
             }
         ),
-        home=home,
-        env=env,
     )
 
     packages = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
@@ -1229,9 +1229,8 @@ def test_editable_package_resolves_its_own_source_declared_commands(tmp_path: Pa
     )
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=editable)}),
-        home=home,
-        env=env,
     )
 
     (package,) = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
@@ -1260,9 +1259,8 @@ def test_editable_package_source_command_conflict_falls_back_to_manifest_command
     )
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=editable)}),
-        home=home,
-        env=env,
     )
 
     (package,) = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
@@ -1294,9 +1292,8 @@ def test_editable_package_with_an_unparsable_module_falls_back_to_manifest_comma
     )
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=editable)}),
-        home=home,
-        env=env,
     )
 
     (package,) = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
@@ -1325,7 +1322,7 @@ def test_resolve_active_package_strict_default_rejects_broken_editable_source(
     active = ActivePackage(semver.Version.parse("1.0.0"), editable=editable)
 
     with pytest.raises(PackageActivationError, match="alpha"):
-        resolve_active_package("alpha", active, home=tmp_path / "agm-home", env={})
+        resolve_active_package(context_store(home=tmp_path / "agm-home", env={}), "alpha", active)
 
 
 def test_resolve_active_package_tolerant_flag_returns_manifest_commands(tmp_path: Path) -> None:
@@ -1347,7 +1344,10 @@ def test_resolve_active_package_tolerant_flag_returns_manifest_commands(tmp_path
     active = ActivePackage(semver.Version.parse("1.0.0"), editable=editable)
 
     package = resolve_active_package(
-        "alpha", active, home=tmp_path / "agm-home", env={}, fallback_to_manifest_commands=True
+        context_store(home=tmp_path / "agm-home", env={}),
+        "alpha",
+        active,
+        fallback_to_manifest_commands=True,
     )
 
     assert package.manifest.commands == {"launch": CommandSpec("alpha/main::main")}
@@ -1358,9 +1358,8 @@ def test_requirements_must_name_an_active_package(tmp_path: Path) -> None:
     _write_package(home, "alpha", "1.0.0", '\n[dependencies]\nbravo = "1.0"\n')
     env = {"AGM_HOME": str(home)}
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex(packages={"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env=env,
     )
 
     with pytest.raises(PackageActivationError, match="bravo"):
@@ -1373,9 +1372,8 @@ def test_write_activation_index_rejects_non_segment_package_names(
 ) -> None:
     with pytest.raises(PackageActivationError):
         write_activation_index(
+            context_store(home=tmp_path / "home", env={}),
             ActivationIndex(packages={name: ActivePackage(semver.Version.parse("1.0.0"))}),
-            home=tmp_path / "home",
-            env={},
         )
 
 
@@ -1385,9 +1383,8 @@ def test_write_activation_index_rejects_reserved_keyword_package_names(
 ) -> None:
     with pytest.raises(PackageActivationError):
         write_activation_index(
+            context_store(home=tmp_path / "home", env={}),
             ActivationIndex(packages={name: ActivePackage(semver.Version.parse("1.0.0"))}),
-            home=tmp_path / "home",
-            env={},
         )
 
 
@@ -1461,9 +1458,8 @@ def test_effective_exec_roots_mounts_the_store_stdlib_holding_the_entry(
         "def value() -> int = 1\n", encoding="utf-8"
     )
     write_activation_index(
+        context_store(home=home, env={"AGM_HOME": str(home)}),
         ActivationIndex({"std": ActivePackage(semver.Version.parse(AGM_VERSION))}),
-        home=home,
-        env={"AGM_HOME": str(home)},
     )
     monkeypatch.setenv("AGM_HOME", str(home))
     monkeypatch.delenv("AGM_STDLIB", raising=False)
@@ -1602,7 +1598,7 @@ def test_editable_package_completes_a_manifest_group_from_its_source_commands(
     _write_editable_group_package(root)
     env = {"AGM_HOME": str(home)}
     index = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=root)})
-    write_activation_index(index, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), index)
 
     commands = effective_command_index(home=home, proj_dir=None, cwd=tmp_path, env=env).commands
 
@@ -1619,7 +1615,7 @@ def test_editable_package_with_broken_source_drops_an_unsatisfiable_command_set(
     (root / MODULE_TREE_DIRNAME / "main.agl").write_text("program def (", encoding="utf-8")
     env = {"AGM_HOME": str(home)}
     index = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=root)})
-    write_activation_index(index, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), index)
 
     commands = effective_command_index(home=home, proj_dir=None, cwd=tmp_path, env=env).commands
 
@@ -1632,7 +1628,7 @@ def test_one_invocation_parses_the_activation_index_once(
     home = tmp_path / "agm-home"
     env = {"AGM_HOME": str(home)}
     index = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"))})
-    write_activation_index(index, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), index)
     original = activation_module.load_toml_file
     reads = 0
 
@@ -1643,8 +1639,8 @@ def test_one_invocation_parses_the_activation_index_once(
 
     monkeypatch.setattr(activation_module, "load_toml_file", counted)
 
-    assert load_activation_index(home=home, env=env) == index
-    assert load_activation_index(home=home, env=env) == index
+    assert load_activation_index(context_store(home=home, env=env)) == index
+    assert load_activation_index(context_store(home=home, env=env)) == index
     assert reads == 1
 
 
@@ -1652,28 +1648,28 @@ def test_a_written_activation_index_supersedes_an_earlier_read(tmp_path: Path) -
     home = tmp_path / "agm-home"
     env = {"AGM_HOME": str(home)}
     first = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"))})
-    write_activation_index(first, home=home, env=env)
-    assert load_activation_index(home=home, env=env) == first
+    write_activation_index(context_store(home=home, env=env), first)
+    assert load_activation_index(context_store(home=home, env=env)) == first
 
     second = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("2.0.0"))})
-    write_activation_index(second, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), second)
 
-    assert load_activation_index(home=home, env=env) == second
+    assert load_activation_index(context_store(home=home, env=env)) == second
 
 
 def test_an_activation_index_rewritten_outside_agm_is_read_again(tmp_path: Path) -> None:
     home = tmp_path / "agm-home"
     env = {"AGM_HOME": str(home)}
     index = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"))})
-    path = write_activation_index(index, home=home, env=env)
-    assert load_activation_index(home=home, env=env) == index
+    path = write_activation_index(context_store(home=home, env=env), index)
+    assert load_activation_index(context_store(home=home, env=env)) == index
 
     path.write_text(
         '[packages]\n[packages.alpha]\nversion = "3.0.0"\nregistration-order = 0\n',
         encoding="utf-8",
     )
 
-    selected = load_activation_index(home=home, env=env).packages["alpha"]
+    selected = load_activation_index(context_store(home=home, env=env)).packages["alpha"]
     assert selected.version == semver.Version.parse("3.0.0")
 
 
@@ -1682,9 +1678,8 @@ def test_repeated_selections_reuse_one_package_resolution(tmp_path: Path) -> Non
     env = {"AGM_HOME": str(home)}
     _write_package(home, "alpha", "1.0.0")
     write_activation_index(
+        context_store(home=home, env=env),
         ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"))}),
-        home=home,
-        env=env,
     )
 
     first = select_active_packages(home=home, proj_dir=None, cwd=tmp_path, env=env)
@@ -1704,7 +1699,7 @@ def test_an_edited_editable_source_command_is_seen_by_a_later_read(tmp_path: Pat
     )
     env = {"AGM_HOME": str(home)}
     index = ActivationIndex({"alpha": ActivePackage(semver.Version.parse("1.0.0"), editable=root)})
-    write_activation_index(index, home=home, env=env)
+    write_activation_index(context_store(home=home, env=env), index)
     assert (
         "tools review"
         in effective_command_index(home=home, proj_dir=None, cwd=tmp_path, env=env).commands

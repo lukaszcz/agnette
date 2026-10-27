@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from agnette.agm.cli_support.args import PkgCheckArgs
+from agnette.agm.cli_support.pkg_store import pkg_store
 from agnette.config.context import current_config_context
 from agnette.packages.dependencies import DependencyError, validate_dependencies
 from agnette.packages.discipline import (
@@ -27,7 +28,7 @@ def run(args: PkgCheckArgs) -> None:
         package = PackageInfo.live_source(root)
         validate_package_structure(package)
         package = package_with_source_commands(package)
-        dependencies = validate_dependencies(package, home=current_config_context().home)
+        dependencies = validate_dependencies(pkg_store(current_config_context()), package)
         validate_package(package, dependency_packages=dependencies)
     except (DependencyError, DisciplineError, ManifestError) as exc:
         print(f"pkg check: {exc}", file=sys.stderr)
