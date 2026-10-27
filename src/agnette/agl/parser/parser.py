@@ -358,21 +358,28 @@ class ProgramTree:
         ranges[0] = (min([ranges[0][0], *(a.start_pos for a in attributes)]), ranges[0][1])
         return ranges
 
-    def items_from(self, offset: int, *, start_id: int) -> tuple[syntax.Item, ...]:
-        """Convert the items starting at or after *offset* to AST, with ids from *start_id*.
+    def module_from(
+        self, offset: int | None, *, attributes: bool, start_id: int
+    ) -> syntax.Program | None:
+        """Convert to AST the module's inner attributes and the items from *offset*, if any.
 
-        Spans are the file's own. Header ordering is not enforced: the entry that runs an
-        item judges it.
+        The attributes are converted only when *attributes* is set, the items only when
+        *offset* is given: those starting at or after it. Ids start at *start_id* and
+        spans are the file's own. ``None`` when nothing is selected. Header ordering is
+        not enforced: the entry that runs an item judges it.
         """
-        items = [
-            c for c in self.children() if c.data != "inner_attribute" and c.meta.start_pos >= offset
+        chosen = [
+            c
+            for c in self.children()
+            if (attributes if c.data == "inner_attribute" else offset is not None)
+            and (c.data == "inner_attribute" or c.meta.start_pos >= cast(int, offset))
         ]
-        if not items:
-            return ()
-        root = _module_tree(items, Rebase(LineIndex(self.text), 0))
+        if not chosen:
+            return None
+        root = _module_tree(chosen, Rebase(LineIndex(self.text), 0))
         with frontend_recursion_boundary():
             program, _ = _transform_tree(root, start_id=start_id, source=None, allow_late_uses=True)
-        return cast(syntax.Program, program).body.items
+        return cast(syntax.Program, program)
 
 
 def parse_program_tree(text: str, *, source: SourceId | None = None) -> ProgramTree:

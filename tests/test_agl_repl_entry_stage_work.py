@@ -506,3 +506,42 @@ def test_a_query_lexes_and_parses_its_text_once(name: str, scans: _Scans, parses
     getattr(session, name)("a + 1" if name == "type_of" else "a")
 
     assert (scans.count, parses.count) == (1, 1)
+
+
+_TYPE = "array[" * 200 + "int" + "]" * 200
+
+
+def _denying_session() -> ReplSession:
+    from agnette.agl.warning_policy import WarningPolicy
+
+    session = ReplSession(warning_policy=WarningPolicy({"tab-indentation": "deny"}))
+    session.open()
+    return session
+
+
+@pytest.mark.parametrize("transcribed", [False, True], ids=("plain", "transcript"))
+@pytest.mark.parametrize(
+    "later", [("let a = 1", "let b = 2\t"), ("# only a comment",)], ids=("items", "no-items")
+)
+def test_a_halted_load_whose_first_entry_is_a_type_reports_the_later_advisories(
+    tmp_path: Path, transcribed: bool, later: tuple[str, ...]
+) -> None:
+    path = tmp_path / "t.agl"
+    entries = (f"{_TYPE}\t", *later)
+    path.write_text(_transcript(*entries) if transcribed else "\n".join(entries) + "\n")
+
+    results = _denying_session().load_file(path)
+
+    assert not results[0].ok
+    assert len(results) == 1
+
+
+def test_the_leading_allow_of_a_file_whose_first_entry_is_a_type_governs_later_entries(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text(f'@!allow("tab-indentation")\n{_TYPE}\nlet a = 1\t\n')
+
+    results = _denying_session().load_file(path)
+
+    assert [r.ok for r in results] == [True, True]

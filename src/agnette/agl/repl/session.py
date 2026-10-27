@@ -2742,6 +2742,10 @@ class ReplSession:
                     lexed=reading,
                 )
                 results.append(result)
+                if index == 0 and self._header_allows:
+                    self._header_allows = False
+                    if not programs and not isinstance(tree, AglError):
+                        self._inherited_allows = self._header_allowed_names(tree)
                 if not result.ok:
                     if index + 1 < len(spans):
                         self._report_advisories(
@@ -2753,11 +2757,19 @@ class ReplSession:
             self._parsed_programs, self._header_allows = None, False
         return results
 
+    def _header_allowed_names(self, tree: "ProgramTree") -> frozenset[str]:
+        """The ``@!allow`` names of the file *tree*'s inner attributes, converted from the tree."""
+        from agnette.agl.scope.attributes import module_allowed_names
+
+        header = tree.module_from(None, attributes=True, start_id=self._next_node_id)
+        return module_allowed_names(header) if header else frozenset()
+
     def _note_parsed(self, program: "Program") -> None:
         """Record the *program* of an entry a file load has parsed.
 
         The file's first entry heads it, so its ``@!allow`` names, when the load has no
-        saved ones, govern every entry of the file.
+        saved ones, govern every entry of the file. An entry 0 that parsed no program takes
+        them from the tree instead (:meth:`_run_entries`).
         """
         from agnette.agl.scope.attributes import module_allowed_names
 
@@ -2850,9 +2862,14 @@ class ReplSession:
 
         if result.scope_failed or isinstance(tree, AglError):
             return
-        head = programs[0]
         try:
-            unrun = tree.items_from(resume, start_id=self._next_node_id)
+            # The first entry's program carries the file's inner attributes; if none parsed,
+            # they come from the tree.
+            rest = tree.module_from(resume, attributes=not programs, start_id=self._next_node_id)
+            unrun = rest.body.items if rest else ()
+            head = programs[0] if programs else rest
+            if head is None:
+                return
             run = tuple(item for program in programs for item in program.body.items)
             module = replace(head, body=replace(head.body, items=(*run, *unrun)))
             regions = module_allow_regions(module, source_text=normalized, items=unrun)
