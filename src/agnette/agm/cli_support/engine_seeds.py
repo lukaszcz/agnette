@@ -32,8 +32,7 @@ from agnette.agl.runtime.engine_config import (
 )
 from agnette.agl.runtime.option import option_text
 from agnette.agl.semantics.values import BoolValue, RecordValue
-from agnette.agm.cli_support.param_config import ParamValueTiers
-from agnette.agm.cli_support.program_options import engine_command, option_none_raw
+from agnette.agm.cli_support.program_options import engine_command
 from agnette.config.engine_keys import (
     ENGINE_KEYS,
     ENGINE_REGISTERS,
@@ -43,15 +42,17 @@ from agnette.config.engine_keys import (
     trace_write_implies_enabled,
 )
 from agnette.core.log import TraceDecision
+from agnette.host_params.config import ParamValueTiers
+from agnette.host_params.projection import option_none_raw
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from agnette.agl.semantics.type_table import TypeTable
     from agnette.agl.semantics.values import Value
-    from agnette.agm.cli_support.param_surface import ParamSurfaceEntry
     from agnette.config.general import ExecConfig
     from agnette.core.toml import TomlDict
+    from agnette.host_params.surface import ParamSurfaceEntry
 
 __all__ = [
     "EngineHostValues",

@@ -15,7 +15,7 @@ from agnette.agl.runtime.types import (
     ProgramParamInfo,
 )
 from agnette.agl.zones import ParamZone
-from agnette.agm.cli_support.program_options import (
+from agnette.host_params.projection import (
     ProjectedOption,
     param_spellings,
     project_option,

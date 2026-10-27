@@ -43,4 +43,4 @@ Compiler self-checks (checker closure, match artifacts, deep IR validation, FFI 
 - `src/agnette/agl/diagnostics.py`, `recursion.py`, `self_validation.py` — host-facing leaves; `warning_policy.py` — levels, `@allow` regions, denial.
 - `src/agnette/agl/navigation.py` — position → declaration locations for editors.
 - `src/agnette/agl/runtime/arguments.py`, `value_decode.py`, `engine_config.py` — argument binding, host-value decoding, engine settings.
-- `src/agnette/agm/commands/exec_program.py`, `check.py`, `repl.py` — the CLI hosts; `src/agnette/agm/cli_support/` — discovery, parameter routes, engine seeds.
+- `src/agnette/agm/commands/exec_program.py`, `check.py`, `repl.py` — the CLI hosts; `src/agnette/agm/cli_support/` — discovery, CLI projection, engine seeds; `src/agnette/host_params/` — type projection, spellings, config and `@inherit` values.

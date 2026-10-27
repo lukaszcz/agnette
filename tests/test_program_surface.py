@@ -17,12 +17,12 @@ from agnette.agl.runtime.types import (
 from agnette.agl.semantics.types import BoolType, IntType, TextType, Type
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
-from agnette.agm.cli_support.param_surface import (
+from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS, REGISTERED_RESERVED_FLAGS
+from agnette.host_params.surface import (
     ParamSurface,
     ParamSurfaceEntry,
     build_param_surface,
 )
-from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS, REGISTERED_RESERVED_FLAGS
 from tests._agl_helpers import EMPTY_REACHABLE
 
 ENGINE = HostParamKind.ENGINE

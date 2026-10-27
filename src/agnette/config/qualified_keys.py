@@ -467,7 +467,7 @@ def param_spellings_for(
     shortest route first. An anonymous entry module has no module prefix, so
     its binding has the bare name and, in a non-empty scope path, the
     scope-qualified spelling alone.
-    Shared by CLI/config projection (:mod:`agnette.agm.cli_support.param_surface`)
+    Shared by CLI/config projection (:mod:`agnette.host_params.surface`)
     and package manifest ``[config]`` leaf validation.
     """
     spellings = [name]

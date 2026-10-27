@@ -219,16 +219,20 @@ def test_execution_package_dependency_contract(package: str, allowed: tuple[str,
     assert violations == []
 
 
-def _agnette_imports_of_file(path: Path) -> list[str]:
-    """Return every internal ``agnette`` module one file imports, relatives resolved."""
+def _imports_of_file(path: Path) -> list[str]:
+    """Return every module one file imports, relatives resolved."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return [
         module
         for node in ast.walk(tree)
         if isinstance(node, (ast.Import, ast.ImportFrom))
         for module in _imported_modules(path, node)
-        if _is_agnette(module)
     ]
+
+
+def _agnette_imports_of_file(path: Path) -> list[str]:
+    """Return every internal ``agnette`` module one file imports, relatives resolved."""
+    return [module for module in _imports_of_file(path) if _is_agnette(module)]
 
 
 def test_import_collectors_find_language_and_shared_dependencies() -> None:
@@ -276,6 +280,35 @@ def test_shared_primitives_do_not_import_manager_or_language(package: str) -> No
     ]
 
     assert violations == []
+
+
+def test_host_params_stay_free_of_the_cli() -> None:
+    """Keep host-parameter resolution below the CLI: no Click, Typer or ``agnette.agm`` import."""
+    paths = sorted((SRC_ROOT / "agnette" / "host_params").rglob("*.py"))
+    assert paths
+    forbidden = ("click", "typer", "agnette.agm")
+    violations = [
+        f"{path.relative_to(SRC_ROOT)} imports {module}"
+        for path in paths
+        for module in _imports_of_file(path)
+        if _is_allowed(module, forbidden)
+    ]
+
+    assert violations == []
+
+
+def test_host_params_load_no_cli() -> None:
+    """Importing host-parameter resolution loads neither Click, Typer nor ``cli_support``."""
+    probe = (
+        "import sys, agnette.host_params.projection, agnette.host_params.surface, "
+        "agnette.host_params.config, agnette.host_params.inherit; "
+        "loaded = [m for m in sys.modules if m in ('click', 'typer') "
+        "or m.startswith('agnette.agm.cli_support')]; "
+        "assert not loaded, loaded"
+    )
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stderr.decode()
 
 
 @pytest.mark.parametrize(

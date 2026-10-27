@@ -15,7 +15,7 @@ Start here for the system shape, then read only the subsystem documents relevant
 ## Architecture and Design Decisions
 
 - **The command tree is the directory tree.** `src/agnette/agm/commands/` mirrors the CLI hierarchy one-to-one; finding a command is a path lookup.
-- **Commands orchestrate; primitives do.** Manager-specific behavior lives in `agnette.agm`'s project and tmux services; shared behavior lives in `agnette`'s core, utilities, VCS, configuration, agents, packages, and sandboxing — never in commands. Configuration is the exception to strict layering: it uses `agnette.agm.project.layout` for project discovery and config paths.
+- **Commands orchestrate; primitives do.** Manager-specific behavior lives in `agnette.agm`'s project and tmux services; shared behavior lives in `agnette`'s core, utilities, VCS, configuration, host parameters, agents, packages, and sandboxing — never in commands. Configuration is the exception to strict layering: it uses `agnette.agm.project.layout` for project discovery and config paths.
 - **Configuration is layered TOML.** Install, home, project, and invocation-directory scopes merge; AgL source writes and CLI flags override file layers where relevant.
 - **The filesystem is the project model.** A project is a directory layout plus git worktrees and dependency checkouts, detected from disk with no separate database.
 - **Agent calls share one host boundary.** AgL dispatches typed agent values through shared subprocess and session services.
@@ -41,6 +41,7 @@ Start here for the system shape, then read only the subsystem documents relevant
 - `src/agnette/agm/project/`, `src/agnette/agm/tmux/` — manager-specific project layout and tmux.
 - `src/agnette/core/`, `src/agnette/util/` — primitives and pure helpers.
 - `src/agnette/config/`, `src/agnette/stdlib_locator.py` — configuration; shipped stdlib location.
+- `src/agnette/host_params/` — CLI-free host-parameter resolution (projection, spelling claims, config and `@inherit` values).
 - `src/agnette/agent/`, `src/agnette/vcs/`, `src/agnette/packages/`, `src/agnette/sandbox/` — agents, git, packages, sandboxing.
 - `src/agnette/agl/` — AgL implementation and host runtime; `packages/stdlib/src/` — the AgL standard library and its Python companions; `packages/sysone/` — the `sysone/jev` package; `packages/devel/` — the development-workflow package.
 - `src/agnette/agl/highlight/` — shared highlighting, Pygments/Markdown adapters and generated targets; `tools/install_highlighting.py`, `tools/install_emacs_mode.py` — installation hooks.

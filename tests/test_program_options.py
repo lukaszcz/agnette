@@ -46,16 +46,14 @@ from agnette.agm.cli_support.program_options import (
     ProgramCommand,
     ProgramHelpRequested,
     ReservedFlagError,
-    ValueForm,
     build_program_command,
     engine_command,
     exec_program_name,
-    native_raw_value,
     program_help_requested,
-    project_option,
     protect_host_option_values,
     split_exec_tail,
 )
+from agnette.host_params.projection import ValueForm, native_raw_value, project_option
 from tests._agl_helpers import EMPTY_REACHABLE, next_decl_id
 from tests._help_helpers import assert_lists_execution_options, execution_options_is_last
 

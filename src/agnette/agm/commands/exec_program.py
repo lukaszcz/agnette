@@ -90,13 +90,6 @@ from agnette.agm.cli_support.exec_target import (
     PackageProgramReference,
     resolve_installed_reference,
 )
-from agnette.agm.cli_support.param_config import (
-    ParamValueTiers,
-    report_colliding_declarations,
-    report_undeclared_exec_keys,
-    resolve_param_values,
-)
-from agnette.agm.cli_support.param_inherit import InheritScope
 from agnette.agm.cli_support.program_discovery import (
     ProgramDiscoveryArtifacts,
     discover_program_artifacts_for_target,
@@ -131,6 +124,13 @@ from agnette.core.fs import read_text_arg
 from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
 from agnette.core.process import terminating_signals_exit
 from agnette.core.toml import TomlDict, toml_dict
+from agnette.host_params.config import (
+    ParamValueTiers,
+    report_colliding_declarations,
+    report_undeclared_exec_keys,
+    resolve_param_values,
+)
+from agnette.host_params.inherit import InheritScope
 from agnette.packages.activation import by_command_priority
 from agnette.packages.command_registry import CommandRegistry, command_registry
 from agnette.packages.manifest import (

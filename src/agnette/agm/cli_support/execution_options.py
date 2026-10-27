@@ -1,6 +1,6 @@
 """Shared declarations and help display for the AgL options that are not engine settings.
 
-Engine settings are host parameters (``cli_support/param_surface.py``), not
+Engine settings are host parameters (``host_params/surface.py``), not
 execution options.
 """
 

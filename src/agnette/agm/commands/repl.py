@@ -50,12 +50,6 @@ from agnette.agm.cli_support.engine_seeds import (
     resolve_strict_json,
     resolve_timeout,
 )
-from agnette.agm.cli_support.param_config import (
-    colliding_declarations,
-    declaration_route_tables,
-    report_undeclared_exec_keys,
-    resolve_declaration_route_values,
-)
 from agnette.config.context import current_config_context
 from agnette.config.general import (
     EXEC_CONFIG_SECTION,
@@ -78,6 +72,12 @@ from agnette.core.cleanup import preserve_primary_error
 from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
 from agnette.core.process import terminating_signals_exit
 from agnette.core.toml import toml_dict
+from agnette.host_params.config import (
+    colliding_declarations,
+    declaration_route_tables,
+    report_undeclared_exec_keys,
+    resolve_declaration_route_values,
+)
 from agnette.packages.activation import select_package_roots
 from agnette.packages.development import discover_development_packages
 from agnette.packages.store import context_layers

@@ -16,18 +16,6 @@ from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.arguments import InheritedParamValue
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
-from agnette.agm.cli_support.param_inherit import (
-    InheritRequest,
-    InheritScope,
-    resolve_inherited_values,
-)
-from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
-from agnette.agm.cli_support.program_options import (
-    ProjectedOption,
-    is_optional_default,
-    native_raw_value,
-    project_option,
-)
 from agnette.config.general import (
     EXEC_CONFIG_SECTION,
     GeneralConfig,
@@ -51,6 +39,18 @@ from agnette.config.qualified_keys import (
     route_table_paths,
 )
 from agnette.core.toml import TomlDict
+from agnette.host_params.inherit import (
+    InheritRequest,
+    InheritScope,
+    resolve_inherited_values,
+)
+from agnette.host_params.projection import (
+    ProjectedOption,
+    is_optional_default,
+    native_raw_value,
+    project_option,
+)
+from agnette.host_params.surface import ParamSurface, ParamSurfaceEntry
 
 __all__ = [
     "ParamValueTiers",

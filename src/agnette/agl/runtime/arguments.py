@@ -199,8 +199,8 @@ class OptionSome:
 
     Boxes the raw ``VALUE`` a CLI flag or config table supplied for an
     ``Option[T]`` or ``Optional[T]`` parameter
-    (:func:`~agnette.agm.cli_support.program_options.option_some_raw`
-    builds it) so :func:`decode_param_value` can decode ``value`` against the
+    (:func:`~agnette.host_params.projection.token_raw_value` and
+    ``native_raw_value`` build it) so :func:`decode_param_value` can decode ``value`` against the
     ``Some`` variant's own field type before wrapping it back into the enum's
     JSON shape — a string is read through the same host-text dispatch as any
     other textual value; a native value is already decoded data.

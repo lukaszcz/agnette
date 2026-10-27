@@ -1,17 +1,6 @@
-"""Type-directed CLI projection shared by every host parameter kind.
+"""Click command for a program's CLI surface.
 
-:func:`project_option` maps one name and AgL type onto its CLI surface:
-``bool`` becomes a bare ``--x``/``--no-x`` flag pair (no value); ``Option[T]``
-becomes a value-taking ``--x VALUE``/``--no-x`` pair, where ``VALUE`` decodes
-as ``T`` and is wrapped ``Some``, and ``--no-x`` supplies ``None``;
-``Optional[T]`` has the same pair plus the exact ``--x default`` spelling for
-``Default``; ``text`` takes ``VALUE`` verbatim; standard ``Agent`` uses host
-Agent syntax; every other type takes one strict-JSON ``VALUE``.
-Whether a type is the standard ``Option`` or ``Optional`` is decided by nominal
-provenance, not by name, so a user-declared enum sharing either name projects as
-an ordinary JSON-form value. This is the single derivation of every CLI flag:
-program arguments and host parameters, engine settings included
-(:func:`project_param_option`), so they can never disagree.
+Type-to-flag projection and raw-value rules live in :mod:`agnette.host_params.projection`.
 
 :func:`build_program_command` builds a whole program's CLI surface from its
 declaration: one ``click.Command`` carrying a catch-all positional argument
@@ -58,57 +47,24 @@ The same inventory decides which tail token is ``agm exec``'s FILE argument
 and which belong to the program: :func:`split_exec_tail` is the one place
 that split is derived, and :func:`retain_end_of_options` is what keeps the
 end-of-options marker visible to it across Click's own parse.
-
-Nested optional handling
-------------------------
-
-Only the outermost type gets special CLI treatment, and a ``VALUE`` token is
-read the same way whether it follows a flag or fills a positional slot. A
-non-optional token passes through verbatim:
-``decode_param_value`` already reads a raw string against the parameter's
-own decoder (host Agent syntax, strict JSON, or AgL value syntax alike), so
-reading it again here would duplicate that step and lose its diagnostic,
-anchored at the parameter's declaration, on a malformed value.
-
-An ``Option[T]`` or ``Optional[T]`` token is the one boxing exception. Its raw value is an
-:class:`~agnette.agl.runtime.arguments.OptionSome` box around the token, built by
-:func:`option_some_raw` — ``decode_param_value``'s deferred-decode path reads
-a boxed ``Some`` payload against ``T``'s own field schema (host-text dispatch
-when it is a string, as native data otherwise) and wraps the result into the
-enum's own ``{"$case": "Some", "value": ...}`` JSON shape itself, so no
-decoding happens in this module. This rule is applied once, uniformly, with
-no further special case, so it also defines nested behavior:
-``Option[bool]``'s ``VALUE`` is a JSON boolean literal (``--x true`` /
-``--x false``; ``--no-x`` for ``None``), and ``Option[Option[T]]``'s
-``VALUE`` is a JSON or value-syntax literal of the *whole* inner ``Option``
-shape (``--no-x`` for the outer ``None``). ``Optional[T]`` applies its
-``default`` shortcut before this boxing step. A malformed optional payload —
-like any other malformed value — surfaces as a decode diagnostic anchored at
-the parameter's declaration, not as a Click usage error.
 """
 
 from __future__ import annotations
 
-import enum
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, cast
+from dataclasses import dataclass
+from typing import cast
 
 import click
 from click.core import ParameterSource
 
 from agnette.agl.ir.static_keys import HostParamKey
-from agnette.agl.runtime.arguments import OptionSome, ProgramArguments
-from agnette.agl.runtime.serialize import dumps_exact
-from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramParamInfo
-from agnette.agl.semantics.types import (
-    BoolType,
-    JsonType,
-    TextType,
-    is_negatable_host_type,
-    is_standard_agent_enum,
-    is_standard_option_enum,
-    is_standard_optional_enum,
+from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.runtime.types import (
+    HostParamInfo,
+    HostParamKind,
+    ProgramDeclInfo,
+    ProgramParamInfo,
 )
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
 from agnette.agm.cli_support.execution_options import (
@@ -116,15 +72,20 @@ from agnette.agm.cli_support.execution_options import (
     execution_option_flags,
     write_execution_options,
 )
-from agnette.config.engine_keys import (
-    REGISTER_ENABLING_ENGINE_KEYS,
+from agnette.host_params.projection import (
+    ProjectedOption,
+    ValueForm,
+    is_nullable_value_form,
+    option_none_raw,
+    param_spellings,
+    project_option,
+    project_param_option,
+    short_flag,
+    spelling_tuple,
+    token_raw_value,
 )
+from agnette.host_params.surface import ParamSurface, ParamSurfaceEntry, build_param_surface
 from agnette.util.text import keep_indented_paragraphs
-
-if TYPE_CHECKING:
-    from agnette.agl.runtime.types import ProgramDeclInfo
-    from agnette.agl.semantics.types import Type as AglType
-    from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
 
 __all__ = [
     "DuplicateOptionFlagError",
@@ -134,26 +95,19 @@ __all__ = [
     "ProgramHelpRequested",
     "ProgramOptionError",
     "ParsedTail",
-    "ProjectedOption",
     "REGISTERED_RESERVED_FLAGS",
     "REGISTERED_RUN_FLAGS",
     "ReservedFlagError",
-    "ValueForm",
     "build_program_command",
     "contains_help_flag",
     "engine_command",
     "exec_program_help",
     "exec_program_name",
-    "is_optional_default",
-    "native_raw_value",
     "option_value_map",
-    "param_spellings",
     "program_command_for",
     "program_help_requested",
     "protect_potential_program_values",
     "protect_host_option_values",
-    "project_option",
-    "project_param_option",
     "render_program_help",
     "retain_end_of_options",
     "split_exec_tail",
@@ -161,9 +115,6 @@ __all__ = [
 
 #: Help section listing the engine settings.
 ENGINE_SETTINGS_SECTION = "Engine settings"
-
-# The value text that supplies ``Optional::Default`` rather than a value.
-_OPTIONAL_DEFAULT_KEYWORD = "default"
 
 # Zones whose parameter fills a positional CLI slot.
 _POSITIONAL_ZONES = (ParamZone.POSITIONAL_ONLY, ParamZone.STANDARD)
@@ -212,7 +163,7 @@ class ProgramHelpRequested(_HelpSignal):
     def __init__(
         self,
         command: "ProgramCommand",
-        program: "ProgramDeclInfo | None" = None,
+        program: ProgramDeclInfo | None = None,
     ) -> None:
         super().__init__("program help requested")
         self.command = command
@@ -249,124 +200,6 @@ def _positive_dest(index: int) -> str:
 
 def _negative_dest(index: int) -> str:
     return f"_neg{index}"
-
-
-def _spelling_tuple(spelling: str | None) -> tuple[str, ...]:
-    return () if spelling is None else (spelling,)
-
-
-class ValueForm(enum.Enum):
-    """How a projected option's ``VALUE`` becomes a raw decode input."""
-
-    #: ``text``: the token, verbatim.
-    TEXT = "text"
-    #: ``Option[T]``: a ``{"$case": ...}`` envelope wrapping ``T``'s own value.
-    OPTION = "option"
-    #: ``Optional[T]``: ``Option[T]`` plus the reserved ``default`` value.
-    OPTIONAL = "optional"
-    #: ``bool``: a native Python bool, no ``VALUE`` token.
-    BOOL = "bool"
-    #: Standard ``Agent``: compact syntax, command text, a constructor call, or
-    #: canonical JSON.
-    AGENT = "agent"
-    #: ``json``: one JSON token.
-    JSON = "json"
-    #: Every other type: one strict-JSON-or-AgL-value-syntax token.
-    VALUE = "value"
-
-
-@dataclass(frozen=True, slots=True)
-class ProjectedOption:
-    """One type's CLI surface, as :func:`project_option` derives it.
-
-    ``value_form`` is the one stored discriminant: ``negative_flag`` and
-    ``takes_value`` both follow from it, so :attr:`takes_value` is derived
-    rather than stored and cannot disagree with the form. A form with no
-    negation spells no ``negative_flag`` at all.
-
-    ``option_inner``/``option_inner_form`` are ``Option[T]`` or ``Optional[T]``'s
-    own ``T`` and ``T``'s bare value form for either optional value form,
-    and ``None`` for every other form — computed once here rather than
-    re-derived from the parameter's type on every token, so the raw-value
-    builder and the metavar never have to re-classify ``T`` themselves.
-    """
-
-    flag: str
-    negative_flag: str | None
-    value_form: ValueForm
-    option_inner: "AglType | None" = None
-    option_inner_form: ValueForm | None = None
-
-    @property
-    def takes_value(self) -> bool:
-        return self.value_form is not ValueForm.BOOL
-
-
-def _optional_projection(type_: "AglType") -> "tuple[ValueForm, AglType] | None":
-    """Return the CLI form and inner type for a standard optional enum."""
-    if is_standard_option_enum(type_):
-        form = ValueForm.OPTION
-    elif is_standard_optional_enum(type_):
-        form = ValueForm.OPTIONAL
-    else:
-        return None
-    return (form, type_.type_args[0]) if type_.type_args else None
-
-
-def _is_nullable_value_form(form: ValueForm) -> bool:
-    """Return whether *form* has value and negative CLI polarities."""
-    return form in (ValueForm.OPTION, ValueForm.OPTIONAL)
-
-
-def _bare_value_form(type_: "AglType") -> ValueForm:
-    """Return the CLI value form for a bare type: never ``bool`` or an optional enum.
-
-    An optional enum's inner ``T`` shares this mapping with a bare parameter.
-    """
-    if isinstance(type_, TextType):
-        return ValueForm.TEXT
-    if is_standard_agent_enum(type_):
-        return ValueForm.AGENT
-    if isinstance(type_, JsonType):
-        return ValueForm.JSON
-    return ValueForm.VALUE
-
-
-def project_option(name: str, type_: "AglType") -> ProjectedOption:
-    """Project one *name*/*type_* pair (a program parameter or an engine key) onto its CLI flags.
-
-    *name* is the option's external spelling: an engine key's own name, or a
-    program parameter's ``@opt-name`` (defaulting to its declared name).
-    """
-    optional = _optional_projection(type_)
-    inner: AglType | None = None
-    inner_form: ValueForm | None = None
-    if isinstance(type_, BoolType):
-        form = ValueForm.BOOL
-    elif optional is not None:
-        form, inner = optional
-        inner_form = _bare_value_form(inner)
-    else:
-        form = _bare_value_form(type_)
-    return ProjectedOption(
-        flag=f"--{name}",
-        negative_flag=f"--no-{name}" if is_negatable_host_type(type_) else None,
-        value_form=form,
-        option_inner=inner if _is_nullable_value_form(form) else None,
-        option_inner_form=inner_form,
-    )
-
-
-def project_param_option(param: HostParamInfo, name: str) -> ProjectedOption:
-    """Project *param* under the external spelling *name*.
-
-    An engine setting that turns its register on has no negative: the
-    register's own switch (``--no-trace``) turns it off.
-    """
-    projected = project_option(name, param.type)
-    if param.kind is HostParamKind.ENGINE and param.name in REGISTER_ENABLING_ENGINE_KEYS:
-        return replace(projected, negative_flag=None)
-    return projected
 
 
 # Flags ``agm exec`` declares itself, short spellings included: with
@@ -756,86 +589,6 @@ class DuplicateOptionFlagError:
 type ProgramOptionError = ReservedFlagError | DuplicateOptionFlagError
 
 
-def option_some_raw(value: object) -> OptionSome:
-    """Box one raw ``Option[T]`` "Some" value for ``decode_param_value`` to decode.
-
-    The single place this box is built — shared by :func:`_positive_raw`,
-    for a CLI raw ``VALUE`` token, and by the config-table path
-    (``commands.exec_program``), for an already-native TOML/JSON value read
-    from a program's qualified table. Decoding *value* (host-text dispatch
-    when it is a string, as is otherwise) and wrapping it into the enum's
-    ``{"$case": "Some", "value": ...}`` JSON shape happens at decode time
-    against the ``Some`` variant's own field type, not here.
-    """
-    return OptionSome(value)
-
-
-def option_none_raw() -> object:
-    """Return the ``None`` envelope ``decode_param_value`` expects for an ``Option[T]`` value."""
-    return {"$case": "None"}
-
-
-def optional_default_raw() -> object:
-    """Return the ``Default`` envelope ``decode_param_value`` expects for ``Optional[T]``."""
-    return {"$case": "Default"}
-
-
-def is_optional_default(projected: ProjectedOption, raw: object) -> bool:
-    """Return whether *raw* is the exact ``default`` keyword of an ``Optional`` slot.
-
-    The one spelling of that rule: the keyword supplies ``Optional::Default``
-    rather than a value, so it is neither decoded nor read as a path.
-    """
-    return projected.value_form is ValueForm.OPTIONAL and raw == _OPTIONAL_DEFAULT_KEYWORD
-
-
-def native_raw_value(projected: ProjectedOption, raw: object) -> object:
-    """Project one already-native host value onto *projected*'s raw argument shape.
-
-    The config-table counterpart of :func:`_positive_raw`, which applies the
-    same optional-enum rule to a CLI ``VALUE`` token. A present value is
-    normally wrapped ``Some``: a config table has no
-    ``--no-x`` equivalent, so an absent key supplies nothing at all and the
-    parameter falls back to its own default. The exact ``"default"`` string
-    supplies ``Optional::Default``. A native string for a slot whose
-    type is ``json`` (the parameter's own type, or ``Option[T]``'s inner
-    ``T``) is encoded into JSON text, preserving its distinction from AgL
-    value syntax; every other native string is host text, decoded the same
-    way a CLI token or ``@opt-env`` value is; a non-string native is already
-    decoded data. Keeping this beside :func:`_positive_raw` is what stops the
-    envelope rule from being spelled once per host surface.
-    """
-    if is_optional_default(projected, raw):
-        return optional_default_raw()
-    if _is_nullable_value_form(projected.value_form):
-        value = raw
-        if isinstance(raw, str) and projected.option_inner_form is ValueForm.JSON:
-            value = dumps_exact(raw, indent=None)
-        return option_some_raw(value)
-    if projected.value_form is ValueForm.JSON and isinstance(raw, str):
-        return dumps_exact(raw, indent=None)
-    return raw
-
-
-def _positive_raw(projected: ProjectedOption, token: str) -> object:
-    """Build the raw value for one ``VALUE`` token: a flag's, or a positional slot's.
-
-    The one reading of a value token, so a parameter's flag, its ``@opt-env``
-    variable and its positional slot accept the same spellings. Every
-    non-optional form takes its token verbatim: ``decode_param_value`` reads a
-    string raw value through the shared host-text dispatch, so parsing it
-    here would duplicate that step and lose its diagnostic. An optional token
-    is boxed for the same deferred decode against ``T``'s own field type,
-    except for ``Optional``'s exact ``default`` shortcut. A ``bool`` flag
-    takes no token and never reaches here; a ``bool`` slot's token is verbatim.
-    """
-    if is_optional_default(projected, token):
-        return optional_default_raw()
-    if projected.option_inner is not None:
-        return option_some_raw(token)
-    return token
-
-
 def _reject_repetition(
     occurrences: Sequence[object], flag: str, negative_flag: str | None = None
 ) -> None:
@@ -906,10 +659,10 @@ def _supplied_value(
         _reject_repetition(positive, flag, negative_flag)
         return _NOT_SUPPLIED if suppress_positive or not positive else positive[0]
     _reject_repetition(positive, flag)
-    if not bool_form and not _is_nullable_value_form(projected.value_form):
+    if not bool_form and not is_nullable_value_form(projected.value_form):
         if suppress_positive or not positive:
             return _NOT_SUPPLIED
-        return _positive_raw(projected, cast(str, positive[0]))
+        return token_raw_value(projected, cast(str, positive[0]))
     negative = cast(tuple[object, ...], values.get(_negative_dest(index), ()))
     _reject_repetition(negative, negative_flag)
     # Two Click parameters, so only their sources tell a supplied token from
@@ -924,35 +677,7 @@ def _supplied_value(
         return False if bool_form else option_none_raw()
     if suppress_positive or not positive:
         return _NOT_SUPPLIED
-    return positive[0] if bool_form else _positive_raw(projected, cast(str, positive[0]))
-
-
-def _short_flag(param: "ProgramParamInfo | HostParamInfo") -> str | None:
-    """Return *param*'s ``-x`` short spelling, or ``None`` when it declares none."""
-    short = param.cli.short
-    return None if short is None else f"-{short}"
-
-
-def param_spellings(
-    param: "ProgramParamInfo | HostParamInfo", *projections: ProjectedOption
-) -> list[str]:
-    """Return every flag one parameter claims: its positives, its negatives, and its short.
-
-    The one enumeration of a parameter's CLI spellings, so the reservation
-    check (:func:`_check_reservation`), completion
-    (:meth:`ProgramCommand.option_spellings`) and the module-parameter surface
-    (``cli_support.param_surface``) can never disagree about what a parameter
-    occupies. A module parameter is projected once per qualified route it
-    answers to; every other parameter has the one projection of its own name.
-    """
-    return [
-        *(
-            flag
-            for projected in projections
-            for flag in (projected.flag, *_spelling_tuple(projected.negative_flag))
-        ),
-        *_spelling_tuple(_short_flag(param)),
-    ]
+    return positive[0] if bool_form else token_raw_value(projected, cast(str, positive[0]))
 
 
 class _ProgramOption(click.Option):
@@ -1011,7 +736,7 @@ def _default_metavar(param: "ProgramParamInfo | HostParamInfo", projected: Proje
     """
     if param.is_path:
         return "PATH"
-    if _is_nullable_value_form(projected.value_form):
+    if is_nullable_value_form(projected.value_form):
         return _value_form_metavar(cast(ValueForm, projected.option_inner_form))
     return _value_form_metavar(projected.value_form)
 
@@ -1093,19 +818,19 @@ def _click_params(
     exclusivity :meth:`ProgramCommand.parse` checks once both are parsed;
     every other form is one value-taking option.
     """
-    short = _spelling_tuple(_short_flag(param))
+    short = spelling_tuple(short_flag(param))
     if projected.value_form is ValueForm.BOOL:
         pair = f"{projected.flag}/{projected.negative_flag}"
         return [_positive_option(index, param, projected, (pair, *short))]
     positive = _positive_option(index, param, projected, (projected.flag, *short))
-    negative = _spelling_tuple(projected.negative_flag)
+    negative = spelling_tuple(projected.negative_flag)
     if not negative:
         return [positive]
     return [positive, _negative_option(index, param, negative)]
 
 
 def _surface_click_params(
-    index: int, entry: "ParamSurfaceEntry", projected: ProjectedOption
+    index: int, entry: ParamSurfaceEntry, projected: ProjectedOption
 ) -> list[click.Parameter]:
     """Build one surface parameter's Click options from its resolved flag table.
 
@@ -1113,7 +838,7 @@ def _surface_click_params(
     all; a parameter left with no positive spelling keeps its ``@opt-env``
     fallback through a synthetic declaration.
     """
-    positive = (*entry.positive_option_spellings, *_spelling_tuple(entry.short_option))
+    positive = (*entry.positive_option_spellings, *spelling_tuple(entry.short_option))
     params: list[click.Parameter] = []
     if positive:
         params.append(_positive_option(index, entry.param, projected, positive))
@@ -1132,9 +857,9 @@ def _surface_click_params(
     return params
 
 
-def _surface_help_record(entry: "ParamSurfaceEntry", projected: ProjectedOption) -> tuple[str, str]:
+def _surface_help_record(entry: ParamSurfaceEntry, projected: ProjectedOption) -> tuple[str, str]:
     """Render one surface parameter: its shortest positive spelling beside its shortest negative."""
-    positive = (*entry.positive_option_spellings, *_spelling_tuple(entry.short_option))
+    positive = (*entry.positive_option_spellings, *spelling_tuple(entry.short_option))
     labels: list[str] = []
     if positive:
         metavar = entry.param.cli.metavar or _default_metavar(entry.param, projected)
@@ -1147,7 +872,7 @@ def _surface_help_record(entry: "ParamSurfaceEntry", projected: ProjectedOption)
     return " / ".join(labels), help_text
 
 
-def _help_section_title(entry: "ParamSurfaceEntry") -> str:
+def _help_section_title(entry: ParamSurfaceEntry) -> str:
     """Return the help section *entry* is listed under."""
     if entry.param.kind is HostParamKind.ENGINE:
         return ENGINE_SETTINGS_SECTION
@@ -1157,7 +882,7 @@ def _help_section_title(entry: "ParamSurfaceEntry") -> str:
 def _write_surface_section(
     formatter: click.HelpFormatter,
     title: str,
-    entries: "Sequence[tuple[ParamSurfaceEntry, ProjectedOption]]",
+    entries: Sequence[tuple[ParamSurfaceEntry, ProjectedOption]],
     *,
     col_max: int = 30,
 ) -> None:
@@ -1189,10 +914,10 @@ class _ProgramClickCommand(click.Command):
         positional_help: tuple[tuple[str, str], ...] = (),
         parameter_sections: tuple[tuple[str, tuple[click.Parameter, ...]], ...] = (),
         surface_help_sections: tuple[
-            tuple[str, tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]], ...
+            tuple[str, tuple[tuple[ParamSurfaceEntry, ProjectedOption], ...]], ...
         ] = (),
-        ambiguous_options: Mapping[str, tuple["HostParamInfo", ...]] | None = None,
-        surface_entries: Mapping["HostParamInfo", "ParamSurfaceEntry"] | None = None,
+        ambiguous_options: Mapping[str, tuple[HostParamInfo, ...]] | None = None,
+        surface_entries: Mapping[HostParamInfo, ParamSurfaceEntry] | None = None,
         context_settings: dict[str, bool] | None = None,
     ) -> None:
         settings: dict[str, bool] = {} if context_settings is None else dict(context_settings)
@@ -1317,10 +1042,10 @@ def _build_click_command(
     extra_options: Sequence[click.Parameter] = (),
     parameter_sections: tuple[tuple[str, tuple[click.Parameter, ...]], ...] = (),
     surface_help_sections: tuple[
-        tuple[str, tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]], ...
+        tuple[str, tuple[tuple[ParamSurfaceEntry, ProjectedOption], ...]], ...
     ] = (),
-    ambiguous_options: Mapping[str, tuple["HostParamInfo", ...]] | None = None,
-    surface_entries: Mapping["HostParamInfo", "ParamSurfaceEntry"] | None = None,
+    ambiguous_options: Mapping[str, tuple[HostParamInfo, ...]] | None = None,
+    surface_entries: Mapping[HostParamInfo, ParamSurfaceEntry] | None = None,
     context_settings: dict[str, bool] | None = None,
 ) -> _ProgramClickCommand:
     """Assemble one program command: its own parameters, then *extra_options*, then help.
@@ -1388,8 +1113,8 @@ class ProgramCommand:
     command: _ProgramClickCommand
     positional: tuple["ProgramParamInfo", ...]
     options: tuple[tuple["ProgramParamInfo", ProjectedOption], ...]
-    surface_options: tuple[tuple["ParamSurfaceEntry", ProjectedOption], ...]
-    surface: "ParamSurface"
+    surface_options: tuple[tuple[ParamSurfaceEntry, ProjectedOption], ...]
+    surface: ParamSurface
     params: tuple[click.Parameter, ...]
 
     def parse(self, tokens: Sequence[str]) -> ParsedTail:
@@ -1471,7 +1196,7 @@ class ProgramCommand:
             if slot is None:
                 positional.append(token)
                 continue
-            value = _positive_raw(project_option(slot.cli.name, slot.type), token)
+            value = token_raw_value(project_option(slot.cli.name, slot.type), token)
             if by_name:
                 named[slot.name] = value
             else:
@@ -1543,7 +1268,7 @@ class ProgramCommand:
             arity[projected.flag] = projected.takes_value
             if projected.negative_flag is not None:
                 arity[projected.negative_flag] = False
-            short = _short_flag(param)
+            short = short_flag(param)
             if short is not None:
                 arity[short] = projected.takes_value
         for entry, projected in self.surface_options:
@@ -1566,13 +1291,13 @@ class ProgramCommand:
         for param, projected in self.options:
             if not projected.takes_value or param.cli.cli_positional:
                 continue
-            result.append((param, (projected.flag, *_spelling_tuple(_short_flag(param)))))
+            result.append((param, (projected.flag, *spelling_tuple(short_flag(param)))))
         for entry, projected in self.surface_options:
             if projected.takes_value:
                 result.append(
                     (
                         entry.param,
-                        (*entry.positive_option_spellings, *_spelling_tuple(entry.short_option)),
+                        (*entry.positive_option_spellings, *spelling_tuple(entry.short_option)),
                     )
                 )
         return tuple(result)
@@ -1748,8 +1473,8 @@ def _check_reservation(
 
 def _ambiguous_option_callback(
     spelling: str,
-    candidates: tuple["HostParamInfo", ...],
-    entries: Mapping["HostParamInfo", "ParamSurfaceEntry"],
+    candidates: tuple[HostParamInfo, ...],
+    entries: Mapping[HostParamInfo, ParamSurfaceEntry],
 ) -> Callable[[click.Context, click.Parameter, object], None]:
     """Return the usage callback for one ambiguous module-parameter flag."""
 
@@ -1763,8 +1488,8 @@ def _ambiguous_option_callback(
 
 def _ambiguous_option_message(
     spelling: str,
-    candidates: tuple["HostParamInfo", ...],
-    entries: Mapping["HostParamInfo", "ParamSurfaceEntry"],
+    candidates: tuple[HostParamInfo, ...],
+    entries: Mapping[HostParamInfo, ParamSurfaceEntry],
 ) -> str:
     """Render one ambiguous option's declaration-aware usage diagnostic."""
     descriptions = "; ".join(
@@ -1775,8 +1500,8 @@ def _ambiguous_option_message(
 
 
 def _ambiguous_click_options(
-    ambiguous: Mapping[str, tuple["HostParamInfo", ...]],
-    entries: Mapping["HostParamInfo", "ParamSurfaceEntry"],
+    ambiguous: Mapping[str, tuple[HostParamInfo, ...]],
+    entries: Mapping[HostParamInfo, ParamSurfaceEntry],
 ) -> list[click.Parameter]:
     """Build hidden rejecting options for every ambiguous module spelling."""
     return [
@@ -1793,9 +1518,9 @@ def _ambiguous_click_options(
 
 
 def build_program_command(
-    program: "ProgramDeclInfo",
+    program: ProgramDeclInfo,
     reserved_flags: frozenset[str],
-    params: Sequence["HostParamInfo"] = (),
+    params: Sequence[HostParamInfo] = (),
 ) -> "ProgramCommand | ProgramOptionError":
     """Build *program*'s Click command, checking flag reservation first.
 
@@ -1827,8 +1552,6 @@ def build_program_command(
     )
     if collision is not None:
         return collision
-    from agnette.agm.cli_support.param_surface import build_param_surface
-
     return _assemble_command(
         program.declaration_path,
         program.doc,
@@ -1853,7 +1576,6 @@ def engine_command() -> ProgramCommand:
     global _engine_command
     if _engine_command is None:
         from agnette.agl.runtime.engine_config import engine_setting_params
-        from agnette.agm.cli_support.param_surface import build_param_surface
 
         _engine_command = _assemble_command(
             "",
@@ -1878,7 +1600,7 @@ def _assemble_command(
     description: str | None,
     positional: "tuple[ProgramParamInfo, ...]",
     options: "tuple[tuple[ProgramParamInfo, ProjectedOption], ...]",
-    surface: "ParamSurface",
+    surface: ParamSurface,
 ) -> ProgramCommand:
     """Assemble the Click command over a signature's *options* and the resolved *surface*."""
     surface_options = tuple(
@@ -1943,9 +1665,9 @@ def _assemble_command(
 
 
 def program_command_for(
-    program: "ProgramDeclInfo | None",
+    program: ProgramDeclInfo | None,
     reserved_flags: frozenset[str],
-    params: Sequence["HostParamInfo"] = (),
+    params: Sequence[HostParamInfo] = (),
 ) -> "ProgramCommand | None":
     """Build *program*'s command, degrading a missing program or a collision to ``None``.
 

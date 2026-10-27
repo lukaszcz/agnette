@@ -18,12 +18,12 @@ from agnette.agl.semantics.types import BoolType, DictType, IntType, TextType, T
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.engine_seeds import split_engine_tiers
-from agnette.agm.cli_support.param_config import ParamValueTiers, resolve_param_values
-from agnette.agm.cli_support.param_surface import ParamSurface, build_param_surface
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
 from agnette.config.general import GeneralConfig, PathAnchor
 from agnette.config.qualified_keys import QualifiedConfigLookupError
 from agnette.core.toml import TomlDict, toml_dict
+from agnette.host_params.config import ParamValueTiers, resolve_param_values
+from agnette.host_params.surface import ParamSurface, build_param_surface
 from tests._agl_helpers import EMPTY_REACHABLE
 from tests._config_helpers import unanchored_config as _config
 

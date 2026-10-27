@@ -42,8 +42,8 @@ from typing import TYPE_CHECKING
 
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.cli_support.exec_roots import prepare_entry_file
-from agnette.agm.cli_support.param_config import report_colliding_declarations
 from agnette.core.fs import read_text_arg_or_none
+from agnette.host_params.config import report_colliding_declarations
 
 if TYPE_CHECKING:
     from agnette.agl.warning_policy import WarningPolicy
