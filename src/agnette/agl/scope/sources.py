@@ -305,6 +305,9 @@ class ModuleSources(SourcesHost):
         # What the imports a qualifier route names expose -- the root-position
         # tails' under ``None`` -- by the first segment of each exposed path.
         self._exposures: dict[Route | None, dict[str, list[_Exposed]]] = {}
+        # The first names of the paths beneath each imported module's root
+        # (:meth:`module_first_names`).
+        self._module_names: dict[ModuleId, frozenset[str]] = {}
         # Once the tables the resolver collects are complete (:meth:`_keep_readings`),
         # the contributions at each full path and the own types, by what they are read with.
         self._keeping_readings = False
@@ -1579,6 +1582,24 @@ class ModuleSources(SourcesHost):
                             (module, _route_root(source, rest)), (ImportWay(node_id),)
                         )
         return frozenset(found | self.module_route_origins((path[0],), path[1:], anchored=False))
+
+    def module_first_names(self, origin: QName) -> frozenset[str] | None:
+        """The first names a path beneath *origin* can start with, a module's root alone.
+
+        Every name an imported module's routes bring, whatever the route; ``None`` for any
+        other origin, whose surface is not enumerated.
+        """
+        module, atom = origin
+        contribution = self._import_env.contributions.get(module)
+        if atom != () or module == self._module_id or contribution is None:
+            return None
+        found = self._module_names.get(module)
+        if found is None:
+            atoms = [*contribution.members, *contribution.exports]
+            for surface in contribution.routes.values():
+                atoms.extend((*surface.members, *surface.scope_paths))
+            found = self._module_names[module] = frozenset(_bare_path(a)[0] for a in atoms)
+        return found
 
     def routed_origins(self, route: Route, path: ScopePath) -> frozenset[Origin]:
         """The scopes and types module *route* reaches as *path* beneath it."""

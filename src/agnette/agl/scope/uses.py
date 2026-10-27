@@ -10,7 +10,7 @@ which in turn read the uses: :class:`UseSources` is what it reads of them.
 from __future__ import annotations
 
 import heapq
-from collections.abc import Hashable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from typing import Protocol, cast
@@ -81,13 +81,18 @@ class _UseReads:
 
 
 class _GlobScan(KeptRead):
-    """The globs of one layer a first name lies beneath: those among the first *scanned* globs."""
+    """The globs of one layer a first name lies beneath, among the candidates already asked.
 
-    __slots__ = ("found", "scanned")
+    The candidates are the globs that can expose the name (:meth:`_UseIndex.candidates`):
+    the first *named* of those listed under it and the first *loose* of the unlisted.
+    """
+
+    __slots__ = ("found", "loose", "named")
 
     def __init__(self, table: _UseReads, key: tuple[int, str]) -> None:
         super().__init__(table, key)
-        self.scanned = 0
+        self.named = 0
+        self.loose = 0
         self.found: list[tuple[int, UseDecl]] = []
 
 
@@ -131,11 +136,36 @@ class _UseIndex:
         self._count = 0
         self._named: dict[str, list[tuple[int, UseDecl]]] = {}
         self._any: list[tuple[int, UseDecl]] = []
+        # The globs sorted by the first names they can expose: listed under each, or
+        # unlisted ("loose") when any. All are in writing order.
+        self._classified = 0
+        self._listed: dict[str, list[tuple[int, UseDecl]]] = {}
+        self._loose: list[tuple[int, UseDecl]] = []
 
-    def globs(self) -> list[tuple[int, UseDecl]]:
-        """The layer's globs with their positions, in writing order."""
+    def classify(
+        self, horizon: int | None, names_of: Callable[[UseDecl], frozenset[str] | None]
+    ) -> None:
+        """Sort the globs written before *horizon* by the first names *names_of* gives them.
+
+        ``None`` names leave a glob loose. Asking *names_of* for a glob reads only the
+        uses before it, so it never classifies the glob it is asked about.
+        """
         self._catch_up()
-        return self._any
+        while self._classified < len(self._any):
+            entry = self._any[self._classified]
+            if horizon is not None and entry[1].node_id >= horizon:
+                break
+            names = names_of(entry[1])
+            if names is None:
+                self._loose.append(entry)
+            else:
+                for name in names:
+                    self._listed.setdefault(name, []).append(entry)
+            self._classified += 1
+
+    def candidates(self, first: str) -> tuple[list[tuple[int, UseDecl]], list[tuple[int, UseDecl]]]:
+        """The classified globs that can expose a path starting with *first*: listed, loose."""
+        return self._listed.get(first, []), self._loose
 
     def matching(
         self, first: str, globs: Iterable[tuple[int, UseDecl]] | None = None
@@ -221,6 +251,10 @@ class UseSources(PathSources, Protocol):
         self, route: tuple[str, ...], path: ScopePath, *, anchored: bool
     ) -> frozenset[Origin]:
         """The scopes and types module *route* reaches as *path* beneath it; itself for none."""
+        ...
+
+    def module_first_names(self, origin: QName) -> frozenset[str] | None:
+        """The first names a path beneath *origin* can start with; ``None`` when not enumerated."""
         ...
 
     def removed_with(self, qname: QName) -> frozenset[DeclarationKey]:
@@ -372,30 +406,61 @@ class UseReader:
     ) -> Iterable[tuple[int, UseDecl]] | None:
         """The visible globs of *layer* that can expose *relative*; ``None`` for every glob.
 
-        A glob exposes a path of several names only where its target reaches
-        the first (:meth:`_reaches_beneath_target`). Scanning the globs once
-        per first name, rather than asking each glob on every path read,
-        keeps the reads of paths through many globs from multiplying.
+        A glob exposes a path only where its target can expose the first name
+        (:meth:`_glob_names`), and one of several names only where its target reaches it
+        (:meth:`_reaches_beneath_target`), which only those globs are asked, once per
+        first name rather than on every path read. This keeps the reads of paths through
+        many globs from multiplying.
         """
         reads = self._shared
-        if reads is None or len(relative) < 2:
+        if reads is None:
             return None
         first = relative[0]
-        globs = self._indexes[id(layer)].globs()
+        index = self._indexes[id(layer)]
+        horizon = self._horizon
+        index.classify(horizon, lambda decl: self._glob_names(layer.scope_path, decl))
+        named, loose = index.candidates(first)
+        if len(relative) < 2:
+            return heapq.merge(named, loose)
         key = id(layer), first
         scan = reads.scans.get(key)
         if scan is None:
             scan = reads.scans[key] = _GlobScan(reads, key)
-        horizon = self._horizon
         with self._value_reads.computing(scan):
-            while scan.scanned < len(globs):
-                position, decl = globs[scan.scanned]
+            while True:
+                from_named = scan.named < len(named)
+                from_loose = scan.loose < len(loose)
+                if from_named and from_loose:
+                    from_named = named[scan.named][0] < loose[scan.loose][0]
+                elif not (from_named or from_loose):
+                    break
+                position, decl = named[scan.named] if from_named else loose[scan.loose]
                 if horizon is not None and decl.node_id >= horizon:
                     break
                 if self._reaches_beneath_target(layer.scope_path, decl, first):
                     scan.found.append((position, decl))
-                scan.scanned += 1
+                if from_named:
+                    scan.named += 1
+                else:
+                    scan.loose += 1
         return scan.found
+
+    def _glob_names(self, site: ScopePath, decl: UseDecl) -> frozenset[str] | None:
+        """The first names the paths beneath glob *decl*'s target can start with; ``None`` for any.
+
+        Known when the target names imported modules' roots alone, whose surfaces are
+        enumerated: no value binds a name there. Otherwise the target may name an own
+        scope or a type, whose members change as the walk binds them.
+        """
+        with self._reading_use(decl):
+            origins = self._use_path_origins(site, decl, _use_target(decl))
+        names: set[str] = set()
+        for origin in origins:
+            exposed = self._sources.module_first_names(origin.qname)
+            if exposed is None:
+                return None
+            names |= exposed
+        return frozenset(names) if origins else None
 
     def _seen(self, layer: ScopeNode, uses: Iterable[UseDecl]) -> Iterator[UseDecl]:
         """Yield those of *uses*, written in *layer*, a read now sees."""

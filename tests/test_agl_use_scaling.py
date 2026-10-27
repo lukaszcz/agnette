@@ -213,3 +213,60 @@ def test_a_first_name_beneath_globs_is_read_before_and_after_a_scope_binds_it(
         roots=agl_roots(tmp_path),
         entry_path=tmp_path / "main.agl",
     ).ok
+
+
+def _scoped_glob_program(root: Path, globs: int) -> str:
+    """A script globbing *globs* modules, declaring as many scopes and reading one scope each."""
+    for i in range(globs):
+        scope = f"scope K{i}\n  def g() -> int = {i}\nend K{i}\n"
+        (root / f"m{i}.agl").write_text(f"def f{i}() -> int = {i}\n{scope}", encoding="utf-8")
+    return (
+        "".join(f"import m{i}\n" for i in range(globs))
+        + "".join(f"use m{i}::*\n" for i in range(globs))
+        + "".join(f"scope S{j}\n  let w = f{j}()\nend S{j}\n" for j in range(globs))
+        + "".join(f"let v{j} = K{j}::g()\n" for j in range(globs))
+    )
+
+
+@pytest.mark.parametrize("host", ["script", "repl"])
+def test_a_name_is_asked_only_of_the_globs_that_can_expose_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    """Own scopes and one scope per glob target ask no more than the globs exposing them."""
+    asked = {"beneath": 0, "exposure": 0}
+
+    def counting(name: str, key: str) -> None:
+        original = getattr(UseReader, name)
+
+        def wrapper(self: UseReader, *args: Any, **kwargs: Any) -> Any:
+            asked[key] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(UseReader, name, wrapper)
+
+    counting("_reaches_beneath_target", "beneath")
+    counting("exposure", "exposure")
+
+    def work(globs: int) -> dict[str, int]:
+        root = tmp_path / f"{host}{globs}"
+        root.mkdir()
+        text = _scoped_glob_program(root, globs)
+        for key in asked:
+            asked[key] = 0
+        if host == "script":
+            result = run_inline_code(
+                PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None),
+                text,
+                roots=agl_roots(root),
+                entry_path=root / "main.agl",
+            )
+            assert result.ok
+        else:
+            assert repl_session_with_root(root).eval_entry(text).ok
+        return dict(asked)
+
+    work(2)
+    small, large = work(10), work(20)
+    # Linear work at most: doubling the globs multiplies it by under 2^1.5.
+    for key in asked:
+        assert large[key] < 2.8 * small[key], key
