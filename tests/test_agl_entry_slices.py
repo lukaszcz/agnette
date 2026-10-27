@@ -238,3 +238,48 @@ def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_
             from_slice = parse_program_seeded(text, start_id=0)
         assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
         assert "start" in read.parses
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "def v() -> int =\n  $\n    line one\n    line two\n",
+        'def v(n: int) -> int =\n  "a{n}"\n',
+        'let v = """\nabc\n"""\n',
+        'let v = """\nabc\n""" # c\n',
+        "scope S\n  def q() -> int =\n    1\nend S # tail\n",
+        "def v() -> int =\n  1 # c\n",
+        "let a = 1\n",
+        "let a = 1\n# c",
+        "let a = 1 # t\n# c",
+        "let a = 1; let b = 2\n# c",
+        "scope S\n  let q = 1\nend S # t\n# c",
+    ],
+    ids=(
+        "verbatim",
+        "interpolation",
+        "triple-quoted",
+        "triple-quoted-comment",
+        "scope-end",
+        "comment",
+        "plain",
+        "comment-line",
+        "comment-after-item",
+        "items-comment-line",
+        "scope-end-comment-line",
+    ),
+)
+def test_an_entry_is_read_as_scanned_and_parsed_or_not_at_all(entry: str) -> None:
+    source = f"let pre = 0\n{entry}\nlet post = 1\n"
+    start = len("let pre = 0\n")
+    ranges = [(0, 11), (start, start + len(entry)), (start + len(entry) + 1, len(source) - 1)]
+    lexed, _ = _parsed(source)
+
+    read = entry_slices(lexed, ranges)[1]
+
+    if read is None:
+        return
+    assert [_position(t) for t in read.tokens] == [_position(t) for t in lex_source(entry).tokens]
+    with lex_replay(read):
+        from_slice = parse_program_seeded(entry, start_id=0)
+    assert repr(from_slice) == repr(parse_program_seeded(entry, start_id=0))

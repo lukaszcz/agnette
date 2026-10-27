@@ -42,7 +42,7 @@ from agnette.agl.lexer.errors import (
 )
 from agnette.agl.lexer.lexer import build_parser
 from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span, touched_ranges
-from agnette.agl.lexer.tokens import LAYOUT_TOKENS, VERBATIM_END, VERBATIM_START
+from agnette.agl.lexer.tokens import LAYOUT_TOKENS, NEWLINE, VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import (
     MISPLACED_INNER_ATTRIBUTE_MESSAGE,
@@ -465,8 +465,11 @@ def _set_span(
     meta.end_pos, meta.end_line, meta.end_column = rebase.position(*end)
 
 
-def _module_tree(children: Sequence[Tree], rebase: Rebase) -> Tree:
-    """The program tree of the module whose top-level *children* are given, all rebased."""
+def _module_tree(children: Sequence[Tree], rebase: Rebase, closing: Token | None = None) -> Tree:
+    """The program tree of the module whose top-level *children* are given, all rebased.
+
+    The tree spans to the end of *closing*, the rebased newline ending the last item's line, if any.
+    """
     block = Tree("module_block", [_rebased_tree(c, rebase) for c in children])
     root = Tree("start", [block])
     first, last = children[0].meta, children[-1].meta
@@ -477,6 +480,13 @@ def _module_tree(children: Sequence[Tree], rebase: Rebase) -> Tree:
             (last.end_pos, last.end_line, last.end_column),
             rebase,
         )
+        if closing is not None:
+            meta = node.meta
+            meta.end_pos, meta.end_line, meta.end_column = (
+                cast(int, closing.end_pos),
+                cast(int, closing.end_line),
+                cast(int, closing.end_column),
+            )
     return root
 
 
@@ -515,9 +525,11 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     for sliced, (start, end), entry in zip(slices, ranges, entries):
         if sliced is None or not entry:
             continue
-        code = next(t for t in reversed(sliced.tokens) if t.type not in LAYOUT_TOKENS)
+        last = max(i for i, t in enumerate(sliced.tokens) if t.type not in LAYOUT_TOKENS)
+        code = sliced.tokens[last]
         rebase = Rebase(lines, start, (end, code))
-        sliced.parses[_PROGRAM_START] = _module_tree(entry, rebase)
+        closing = next((t for t in sliced.tokens[last + 1 :] if t.type == NEWLINE), None)
+        sliced.parses[_PROGRAM_START] = _module_tree(entry, rebase, closing)
     return slices
 
 

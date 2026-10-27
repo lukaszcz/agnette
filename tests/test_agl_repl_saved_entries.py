@@ -79,3 +79,27 @@ def test_a_mismatch_in_a_tab_indented_entry_spans_the_same_columns_when_loaded(
 
     assert not typed[0]
     assert loaded == typed
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "def v() -> int =\n  $\n    line one\n    line two\n",
+        'def v(n: int) -> int =\n  "a{n}"\n',
+        'let v: int = """\nabc\n"""\n',
+        "scope S\n  def q() -> int =\n    1\nend S # tail\nlet v: int = true\n",
+        'def v() -> int =\n  "x" # c\n',
+    ],
+    ids=("verbatim", "interpolation", "triple-quoted", "scope-end", "comment"),
+)
+def test_a_mismatch_in_an_entry_ending_in_a_newline_spans_the_same_when_loaded(
+    tmp_path: Path, entry: str
+) -> None:
+    typed = _outcome(_session(False).eval_entry(entry), 0)
+    path = tmp_path / "t.agl"
+    path.write_text(f"# agm:repl-transcript:v1\n# agm:entry:{len(entry)}\n{entry}\n")
+
+    (loaded,) = [_outcome(r, 1) for r in _session(False).load_file(path)]
+
+    assert not typed[0]
+    assert loaded == typed

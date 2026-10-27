@@ -288,8 +288,8 @@ def lexed_slices(
     rebased. One walk over each of *lexed*'s sequences. The dedents closing a range's last
     block past its end sit on its last token, as scanning its text alone puts them; the newline
     after it is no token of it. A range is no pass of its own, and reads ``None``, when a
-    token crosses its boundary or a dedent closes a block opened before it; all of them are
-    when *lexed* failed.
+    token crosses its boundary, a dedent closes a block opened before it, or its text ends in a
+    newline that its last token does not end on; all of them are when *lexed* failed.
     """
     if lexed.failure is not None:
         return [None] * len(ranges)
@@ -327,6 +327,15 @@ def lexed_slices(
         elif token.type != NEWLINE or start_pos < ranges[index][1]:
             # The newline after a range is no token of it; any other token outside is a crossing.
             crossed.update(touched_ranges(ranges, starts, start_pos, end_pos))
+    for index, (start, end) in enumerate(ranges):
+        # Scanning a text ending in a newline ends its layout on that newline; the whole lex,
+        # a text token having swallowed it, may not.
+        if (
+            tokens[index]
+            and lexed.text[end - 1] == "\n"
+            and tokens[index][-1].end_pos != end - start
+        ):
+            crossed.add(index)
     spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
     for qualifier in lexed.spaced_qualifiers:
         offset = qualifier.run_start_offset
