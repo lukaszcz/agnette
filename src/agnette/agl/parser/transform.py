@@ -434,8 +434,8 @@ class AstBuilder(Transformer):
         # Source identity stamped on every span this builder constructs.
         # Defaults to UNKNOWN_SOURCE when no source is supplied.
         self._source: SourceId = source if source is not None else UNKNOWN_SOURCE
-        # Transcript parsing discovers entry boundaries only; each entry is
-        # parsed normally before evaluation and owns its own header ordering.
+        # A file load converts items apart from their module; each entry owns its own
+        # header ordering.
         self._allow_late_uses = allow_late_uses
 
     def _source_start_span(self) -> SourceSpan:
