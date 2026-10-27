@@ -275,6 +275,9 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
         yield
 
 
+_LAYOUT_TYPES = frozenset({NEWLINE, INDENT, DEDENT})
+
+
 def lexed_slices(
     lexed: LexedSource, ranges: Sequence[tuple[int, int]], lines: LineIndex
 ) -> list[LexedSource | None]:
@@ -284,8 +287,10 @@ def lexed_slices(
     those of *lexed* within its range, rebased to it. Each spaced qualifier and TAB advisory
     of *lexed* goes to the one slice whose range starts last at or before it, the first
     slice taking those before it, keeping the whole pass's message with only its positions
-    rebased. One walk over each of *lexed*'s sequences. A range is no pass of its own, and
-    reads ``None``, when a token crosses its boundary; all of them are when *lexed* failed.
+    rebased. One walk over each of *lexed*'s sequences. The dedents closing a range's last
+    block past its end sit on its last token, as scanning its text alone puts them; the newline
+    after it is no token of it. A range is no pass of its own, and reads ``None``, when a
+    token crosses its boundary; all of them are when *lexed* failed.
     """
     if lexed.failure is not None:
         return [None] * len(ranges)
@@ -293,13 +298,34 @@ def lexed_slices(
     rebases = [Rebase(lines, start) for start in starts]
 
     tokens: list[list[Token]] = [[] for _ in ranges]
+    last_code: list[Token | None] = [None] * len(ranges)
     crossed: set[int] = set()
     for token in lexed.tokens:
         start_pos, end_pos = cast(int, token.start_pos), cast(int, token.end_pos)
         index = range_at(starts, start_pos)
+        anchor = last_code[index]
         if starts[index] <= start_pos and end_pos <= ranges[index][1]:
-            tokens[index].append(rebases[index].token(token))
-        else:
+            rebased = rebases[index].token(token)
+            tokens[index].append(rebased)
+            if token.type not in _LAYOUT_TYPES:
+                last_code[index] = rebased
+        elif token.type == DEDENT and start_pos >= ranges[index][1] and anchor is not None:
+            # A range ending in a block, short of the newline, is closed by dedents past its end;
+            # scanning its text alone closes it at its last token.
+            tokens[index].append(
+                Token(
+                    DEDENT,
+                    token.value,
+                    cast(int, anchor.start_pos),
+                    anchor.line,
+                    anchor.column,
+                    anchor.end_line,
+                    anchor.end_column,
+                    anchor.end_pos,
+                )
+            )
+        elif token.type != NEWLINE or start_pos < ranges[index][1]:
+            # The newline after a range is no token of it; any other token outside is a crossing.
             crossed.update(touched_ranges(ranges, starts, start_pos, end_pos))
     spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
     for qualifier in lexed.spaced_qualifiers:

@@ -6,8 +6,10 @@ import sys
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from types import FrameType
+from typing import cast
 
 import pytest
+from lark.lexer import Token
 
 from agnette.agl.lexer import LexedSource, lex_replay, lex_source
 from agnette.agl.parser import entry_slices, parse_program_seeded, parse_program_tree
@@ -24,6 +26,19 @@ _SOURCES = {
     "spaced-qualifier": "let a = 1\nlet b = app/config ::x\nlet c = 3\nlet d = a::y\n",
     "text": 'let s = "a {1 + 1} b"\nlet t = $"x {s}"\nlet u = $\n  raw\n  more\n',
 }
+
+
+def _position(token: Token) -> tuple[str, str, int, int, int, int, int | None, int | None]:
+    return (
+        token.type,
+        str(token),
+        cast(int, token.start_pos),
+        cast(int, token.end_pos),
+        cast(int, token.line),
+        cast(int, token.column),
+        token.end_line,
+        token.end_column,
+    )
 
 
 def _parsed(source: str) -> tuple[LexedSource, list[tuple[int, int]]]:
@@ -207,3 +222,39 @@ def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_
             from_slice = parse_program_seeded(text, start_id=0)
         assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
         assert "start" in read.parses
+
+
+_BLOCK_ENDINGS = {
+    "bare": "def m(x: int) -> int =\n  case x of\n    | 1 =>\n      2\n    | 1 =>\n      3",
+    "comment": (
+        "def m(x: int) -> int =\n  case x of\n    | 1 =>\n      2\n    | 1 =>\n"
+        "      3 # trailing note"
+    ),
+    "comment-line": "def m() -> int =\n  1\n  # note",
+    "newline": "def m() -> int =\n  1\n",
+    "blank-lines": "def m() -> int =\n  1\n\n  # note\n",
+    "template": 'def m() -> text =\n  """x\n  y\n  """',
+}
+
+
+def _block_entry_slices(name: str) -> Iterator[tuple[str, LexedSource]]:
+    """The text and the slice of each entry of a file whose middle entry ends as *name* says."""
+    pieces = ["let a = 1", _BLOCK_ENDINGS[name], "let b = 2"]
+    source = "\n".join(pieces)
+    ranges, offset = [], 0
+    for piece in pieces:
+        ranges.append((offset, offset + len(piece)))
+        offset += len(piece) + 1
+    lexed = lex_source(source)
+    with lex_replay(lexed):
+        parse_program_tree(source)
+    for (start, end), read in zip(ranges, entry_slices(lexed, ranges)):
+        assert read is not None
+        yield source[start:end], read
+
+
+@pytest.mark.parametrize("name", sorted(_BLOCK_ENDINGS))
+def test_an_entry_ending_in_a_block_has_the_tokens_of_its_text_scanned(name: str) -> None:
+    for text, read in _block_entry_slices(name):
+        scanned = lex_source(text).tokens
+        assert [_position(t) for t in read.tokens] == [_position(t) for t in scanned]
