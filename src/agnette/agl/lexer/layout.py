@@ -337,6 +337,11 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             _pending_loop_body = False
             continue
 
+        if base_open and len(indent_stack) == 2 and indent_width < base:
+            # A line less indented than the base leaves it, and the source is then at level 0.
+            yield from _pop_level(tok, sig)
+            current_level = indent_stack[-1]
+
         if indent_width > current_level:
             # Leading-operator rule: a more indented line opening with an
             # operator continues the line before it instead of opening a block.

@@ -11575,3 +11575,13 @@ def test_the_first_lines_indentation_is_a_top_level_indentation_beside_column_ze
 
     assert session.eval_entry("  let q = 1\nq").value == IntValue(1)
     assert not session.eval_entry("    let r = 1\n  r").ok
+
+
+def test_a_block_less_indented_than_the_first_line_is_still_a_block() -> None:
+    session = ReplSession()
+    session.open()
+
+    result = session.eval_entry("    def f() -> int =\n  1\nf()")
+
+    assert result.ok
+    assert result.value == IntValue(1)
