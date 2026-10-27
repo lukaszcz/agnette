@@ -403,9 +403,8 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
 
     The module items are *ranges* in order, the first also holding the module's leading
     inner attributes. Each slice is the pass over its entry's text with the parse of that
-    text already made, so reading the entry scans and parses nothing. ``None`` for an entry
-    that cannot be read off (:func:`~agnette.agl.lexer.lexed_slice`; *lexed* failed), or for
-    all of them when *lexed* holds no program parse of as many items.
+    text already made, so reading the entry scans and parses nothing. ``None`` for all of them
+    when *lexed* holds no program parse of as many items.
     """
     whole = lexed.parses.get(_PROGRAM_START)
     if not isinstance(whole, Tree):
@@ -418,20 +417,19 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     slices: list[LexedSource | None] = []
     for index, ((start, end), item) in enumerate(zip(ranges, items)):
         sliced = lexed_slice(lexed, start, end)
-        if sliced is not None:
-            rebase = Rebase(lexed.text, start)
-            entry = [*attributes, item] if index == 0 else [item]
-            block = Tree("module_block", [_rebased_tree(c, rebase) for c in entry])
-            root = Tree("start", [block])
-            first, last = entry[0].meta, entry[-1].meta
-            for node in (block, root):
-                _set_span(
-                    node,
-                    (first.start_pos, first.line, first.column),
-                    (last.end_pos, last.end_line, last.end_column),
-                    rebase,
-                )
-            sliced.parses[_PROGRAM_START] = root
+        rebase = Rebase(lexed.text, start)
+        entry = [*attributes, item] if index == 0 else [item]
+        block = Tree("module_block", [_rebased_tree(c, rebase) for c in entry])
+        root = Tree("start", [block])
+        first, last = entry[0].meta, entry[-1].meta
+        for node in (block, root):
+            _set_span(
+                node,
+                (first.start_pos, first.line, first.column),
+                (last.end_pos, last.end_line, last.end_column),
+                rebase,
+            )
+        sliced.parses[_PROGRAM_START] = root
         slices.append(sliced)
     return slices
 

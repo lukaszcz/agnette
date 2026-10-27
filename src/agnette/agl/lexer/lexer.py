@@ -275,14 +275,12 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
         yield
 
 
-def lexed_slice(lexed: LexedSource, start: int, end: int) -> LexedSource | None:
+def lexed_slice(lexed: LexedSource, start: int, end: int) -> LexedSource:
     """Return the pass over ``lexed.text[start:end]``, read off *lexed* instead of scanning it.
 
-    The slice's tokens and advisories are those of *lexed* within it, rebased to the slice.
-    ``None`` when *lexed* failed.
+    The slice's tokens and advisories are those of *lexed*, a pass that did not fail, within
+    it, rebased to the slice.
     """
-    if lexed.failure is not None:
-        return None
     text = lexed.text
     first_line, last_line = (
         text.count("\n", 0, start) + 1,

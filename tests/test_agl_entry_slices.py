@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agnette.agl.lexer import LexedSource, lex_replay, lex_source, lexed_slice
+from agnette.agl.lexer import LexedSource, lex_replay, lex_source
 from agnette.agl.parser import entry_slices, parse_program_seeded, parse_repl_transcript
 
 _SOURCES = {
@@ -59,10 +59,3 @@ def test_no_entry_is_read_off_a_file_without_a_program_parse() -> None:
     lexed = lex_source("let a = 1\nlet b = 2\n")
 
     assert entry_slices(lexed, [(0, 9), (10, 19)]) == [None, None]
-
-
-def test_a_failed_lex_has_no_slice() -> None:
-    lexed = lex_source('let a = 1\nlet s = "unterminated\n')
-
-    assert lexed.failure is not None
-    assert lexed_slice(lexed, 0, 9) is None
