@@ -2239,6 +2239,7 @@ def _wire_extern_registry(
     across multiple runs (e.g. the REPL) imports each companion only once.
     """
     from agnette.agl.runtime.externs import ExternImportError, ExternResolutionError
+    from agnette.packages.model import owning_package
 
     # A companion path is recorded (non-``None``) exactly for extern-declaring
     # modules, so this cheap check short-circuits the common no-extern program
@@ -2259,7 +2260,6 @@ def _wire_extern_registry(
     # Verdicts live for this wiring only and are never cached in the artifact cache:
     # installed distributions can change between runs.
     requirement_verdicts: dict[Path, bool] = {}
-    check_requirements = any(package.manifest.python_dependencies for package in packages)
     for mid, name in declarations:
         if mid in failed_modules:
             # This module's companion already failed to import; every extern
@@ -2268,15 +2268,17 @@ def _wire_extern_registry(
         if mid not in loaded_modules:
             # The loader records a companion path for every extern-declaring module.
             companion_path = cast("Path", companion_paths[mid])
+            package = owning_package(companion_path, packages)
             if (
-                check_requirements
+                package is not None
+                and package.manifest.python_dependencies
                 and not registry.holds_current(companion_path)
-                and not _package_requirements_hold(
-                    companion_path, packages, requirement_verdicts, diagnostics
-                )
+                and not _package_requirements_hold(package, requirement_verdicts, diagnostics)
             ):
                 failed_modules.add(mid)
                 continue
+            if package is not None:
+                _expose_project_overlay(package)
             try:
                 registry.load_companion(mid, companion_path)
             except ExternImportError as exc:
@@ -2291,29 +2293,37 @@ def _wire_extern_registry(
     return diagnostics
 
 
+def _expose_project_overlay(package: "PackageInfo") -> None:
+    """Put the project overlay ahead of AgM's libraries if *package* uses a current one."""
+    from agnette.packages.python_deps import (
+        overlay_for,
+        overlay_is_stale,
+        prepend_overlay_to_path,
+    )
+
+    overlay = overlay_for(package)
+    if overlay is not None and not overlay_is_stale(overlay):
+        prepend_overlay_to_path(overlay)
+
+
 def _package_requirements_hold(
-    companion_path: Path,
-    packages: "tuple[PackageInfo, ...]",
+    package: "PackageInfo",
     verdicts: dict[Path, bool],
     diagnostics: list[Diagnostic],
 ) -> bool:
-    """Whether the Python requirements of *companion_path*'s owning package hold.
+    """Whether the Python requirements of the companion-owning *package* hold.
 
     A package is evaluated once, its verdict recorded in *verdicts* by root,
     appending one diagnostic to *diagnostics* when some requirement does not
-    hold. A companion no package owns, or whose package declares no
-    requirement, needs nothing and evaluates nothing.
+    hold.
     """
-    from agnette.packages.model import owning_package
-
-    package = owning_package(companion_path, packages)
-    if package is None or not package.manifest.python_dependencies:
-        return True
     verdict = verdicts.get(package.root)
     if verdict is None:
-        from agnette.packages.python_deps import unsatisfied_python_dependencies
+        from agnette.packages.python_deps import overlay_for, unsatisfied_python_dependencies
 
-        unsatisfied = unsatisfied_python_dependencies(package.manifest.python_dependencies)
+        unsatisfied = unsatisfied_python_dependencies(
+            package.manifest.python_dependencies, overlay_for(package)
+        )
         verdict = verdicts[package.root] = not unsatisfied
         if unsatisfied:
             listed = "; ".join(f"{spec}: {status.describe()}" for spec, status in unsatisfied)
@@ -2334,13 +2344,10 @@ def _requirement_repair(package: "PackageInfo") -> str:
 
     ``agm pkg sync`` covers only the activation index selections of one store.
     """
-    from agnette.config.context import current_config_context
-    from agnette.packages.activation import activating_store
     from agnette.packages.layout import StoreScope
-    from agnette.packages.store import context_layers
+    from agnette.packages.python_deps import requirement_store
 
-    context = current_config_context()
-    store = activating_store(context_layers(home=context.home, proj_dir=context.proj_dir), package)
+    store = requirement_store(package)
     if store is not None:
         flag = " --project" if store.scope is StoreScope.PROJECT else ""
         return f"run `agm pkg sync{flag}` to install them"

@@ -16,7 +16,7 @@ from agnette.packages.discipline import (
 )
 from agnette.packages.manifest import ManifestError
 from agnette.packages.model import PackageInfo
-from agnette.packages.python_deps import unsatisfied_python_dependencies
+from agnette.packages.python_deps import overlay_for, unsatisfied_python_dependencies
 from agnette.packages.source_commands import package_with_source_commands
 
 
@@ -34,7 +34,9 @@ def run(args: PkgCheckArgs) -> None:
     except (DependencyError, DisciplineError, ManifestError) as exc:
         print(f"pkg check: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-    unsatisfied = unsatisfied_python_dependencies(package.manifest.python_dependencies)
+    unsatisfied = unsatisfied_python_dependencies(
+        package.manifest.python_dependencies, overlay_for(package)
+    )
     for spec, status in unsatisfied:
         print(f"pkg check: python requirement {spec}: {status.describe()}", file=sys.stderr)
     if unsatisfied:

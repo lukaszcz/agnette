@@ -22,6 +22,9 @@ its ``PackageInfo``.
 requirements; ``PythonInstaller`` records installer runs in place of the real
 installer (see the ``python_installer`` fixture).
 
+``write_distribution`` lays out a minimal installed distribution (a ``.dist-info`` directory)
+under a directory that serves as an overlay or a ``sys.path`` entry.
+
 ``exec_args`` builds the ``ExecArgs`` a registered run is given.
 
 ``write_rollback_package``, ``replace_rollback_payload``, and
@@ -256,18 +259,24 @@ class InstalledPackageSnapshot:
 
 @dataclass
 class PythonInstaller:
-    """Records installer runs under AgM home *home*; each run returns *returncode*."""
+    """Records installer runs under AgM home *home*; each run returns *returncode*.
+
+    A run with ``--target`` creates the directory and a file in it (partial
+    even when the run fails) and records the pins of its ``-c`` constraints.
+    """
 
     home: Path
     returncode: int = 0
     interrupt: bool = False
     runs: list[list[str]] = field(default_factory=list)
     active_during_run: list[set[str]] = field(default_factory=list)
+    targets: list[Path] = field(default_factory=list)
+    constraints: list[list[str]] = field(default_factory=list)
 
     @property
     def specs(self) -> list[list[str]]:
-        """Requirements of each run, after ``uv pip install --python <interpreter>``."""
-        return [run[5:] for run in self.runs]
+        """Requirements of each run, after the installer's options."""
+        return [_installer_options(run)[0] for run in self.runs]
 
     def run_foreground(self, cmd: list[str], **_kwargs: object) -> int:
         """Stand-in for ``process.run_foreground``; never installs anything."""
@@ -275,9 +284,50 @@ class PythonInstaller:
         self.active_during_run.append(
             set(load_activation_index(global_store(home=self.home, env={})).packages)
         )
+        specs, target, constraints = _installer_options(cmd)
+        if target is not None:
+            self.targets.append(target)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "installed.txt").write_text("\n".join(specs), encoding="utf-8")
+        if constraints is not None:
+            self.constraints.append(constraints.read_text(encoding="utf-8").splitlines())
         if self.interrupt:
             raise KeyboardInterrupt
         return self.returncode
+
+
+def _installer_options(cmd: list[str]) -> tuple[list[str], Path | None, Path | None]:
+    """Split an installer command into its requirements, ``--target``, and ``-c`` constraints."""
+    arguments = iter(cmd[cmd.index("install") + 1 :])
+    specs: list[str] = []
+    target: Path | None = None
+    constraints: Path | None = None
+    for argument in arguments:
+        if argument == "--python":
+            next(arguments)
+        elif argument == "--target":
+            target = Path(next(arguments))
+        elif argument == "-c":
+            constraints = Path(next(arguments))
+        else:
+            specs.append(argument)
+    return specs, target, constraints
+
+
+def write_distribution(
+    directory: Path,
+    name: str,
+    version: str,
+    requires: tuple[str, ...] = (),
+    extras: tuple[str, ...] = (),
+) -> None:
+    """Install a metadata-only distribution *name* at *version* beneath *directory*."""
+    info = directory / f"{name.replace('-', '_')}-{version}.dist-info"
+    info.mkdir(parents=True)
+    lines = ["Metadata-Version: 2.1", f"Name: {name}", f"Version: {version}"]
+    lines += [f"Provides-Extra: {extra}" for extra in extras]
+    lines += [f"Requires-Dist: {requirement}" for requirement in requires]
+    (info / "METADATA").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def exec_args(argument_tokens: list[str] | None = None) -> ExecArgs:

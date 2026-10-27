@@ -7,6 +7,7 @@ it satisfied by standing in for the installed-distribution lookup.
 from __future__ import annotations
 
 import shutil
+import sys
 from importlib import metadata
 from pathlib import Path
 
@@ -18,11 +19,14 @@ from agnette.agl.repl.entry import EntryResult
 from agnette.agl.repl.session import ReplSession
 from agnette.agl.semantics.values import IntValue
 from agnette.config.context import ConfigContext, current_config_context
+from agnette.packages import python_deps
 from agnette.packages.activation import ActivationIndex, ActivePackage, write_activation_index
+from agnette.packages.layout import StoreScope
 from agnette.packages.manifest import load_manifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.store import global_store, project_store
 from tests._agl_helpers import REPO_STDLIB_ROOT, run_inline_code
+from tests._package_helpers import write_distribution, write_python_package
 from tests.agl.ir_harness import write_companion_file, write_module_file
 
 _PACKAGE = Path(__file__).parent / "agl" / "packages" / "python_requirement"
@@ -32,11 +36,17 @@ _SYNC_PROJECT = "agm pkg sync --project"
 _INSTALL = "agm pkg install"
 
 
-def _package(root: Path = _PACKAGE) -> PackageInfo:
-    return PackageInfo(root, load_manifest(root / "package.toml"))
+def _package(root: Path = _PACKAGE, scope: StoreScope | None = None) -> PackageInfo:
+    return PackageInfo(root, load_manifest(root / "package.toml"), store_scope=scope)
 
 
-def _roots(*, loose: Path | None = None, package: Path = _PACKAGE) -> RootSet:
+def _roots(
+    *,
+    loose: Path | None = None,
+    package: Path = _PACKAGE,
+    scope: StoreScope | None = None,
+    mounted: tuple[PackageInfo, ...] = (),
+) -> RootSet:
     return assemble_roots(
         invocation_root=None,
         stdlib_root=REPO_STDLIB_ROOT,
@@ -44,15 +54,22 @@ def _roots(*, loose: Path | None = None, package: Path = _PACKAGE) -> RootSet:
         configured=[],
         cli=() if loose is None else (str(loose),),
         cwd=_PACKAGE,
-        package_roots=(_package(package),),
+        package_roots=(_package(package, scope), *mounted),
     )
 
 
-def _run(source: str, *, loose: Path | None = None, package: Path = _PACKAGE) -> RunResult:
+def _run(
+    source: str,
+    *,
+    loose: Path | None = None,
+    package: Path = _PACKAGE,
+    scope: StoreScope | None = None,
+    mounted: tuple[PackageInfo, ...] = (),
+) -> RunResult:
     return run_inline_code(
         PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None),
         source,
-        roots=_roots(loose=loose, package=package),
+        roots=_roots(loose=loose, package=package, scope=scope, mounted=mounted),
         default_stdlib=False,
     )
 
@@ -154,6 +171,117 @@ def test_unsatisfied_requirement_of_the_active_project_package_suggests_a_projec
     )
 
     _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
+
+
+@pytest.fixture()
+def project_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Install the fixture package in the current project's store; return its overlay path."""
+    project = tmp_path / "project"
+    project.mkdir()
+    context = ConfigContext(home=current_config_context().home, proj_dir=project, cwd=tmp_path)
+    monkeypatch.setattr("agnette.config.context.current_config_context", lambda: context)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    store = project_store(project)
+    shutil.copytree(_PACKAGE, store.package_path("python_requirement", _package().manifest.version))
+    generation = store.root / ".python-test"
+    generation.mkdir()
+    (generation / python_deps.GENERATION_LOCK).touch()
+    store.python_overlay_path.symlink_to(generation.name)
+    write_activation_index(
+        store, ActivationIndex({"python_requirement": ActivePackage(_package().manifest.version)})
+    )
+    return store.python_overlay_path
+
+
+def _project_tree(overlay: Path) -> Path:
+    return overlay.parent / "python_requirement" / str(_package().manifest.version)
+
+
+def _run_project_package(overlay: Path) -> RunResult:
+    tree = _project_tree(overlay)
+    return _run(
+        "import python_requirement/double\nlet r = python_requirement/double::double(21)",
+        package=tree,
+        scope=StoreScope.PROJECT,
+    )
+
+
+def test_a_requirement_installed_in_the_project_overlay_satisfies_a_project_package(
+    project_package: Path,
+) -> None:
+    write_distribution(project_package, "agm-test-absent-distribution", "1.5")
+
+    result = _run_project_package(project_package)
+
+    assert result.ok, result.diagnostics
+    assert result.bindings["r"] == IntValue(42)
+
+
+def test_the_project_overlay_is_prepended_to_sys_path_once_when_wiring_externs(
+    project_package: Path,
+) -> None:
+    write_distribution(project_package, "agm-test-absent-distribution", "1.5")
+
+    _run_project_package(project_package)
+    _run_project_package(project_package)
+
+    assert sys.path.count(str(project_package.resolve())) == 1
+    assert sys.path.index(str(project_package.resolve())) < sys.path.index(
+        next(entry for entry in sys.path if "site-packages" in entry)
+    )
+
+
+def test_a_requirement_missing_from_the_project_overlay_suggests_a_project_sync(
+    project_package: Path,
+) -> None:
+    result = _run_project_package(project_package)
+
+    _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
+
+
+def test_a_stale_project_overlay_fails_the_check_and_stays_off_sys_path(
+    project_package: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    interpreter = tmp_path / "interpreter"
+    write_distribution(interpreter, "agm-test-absent-distribution", "2.0")
+    monkeypatch.syspath_prepend(interpreter)
+    write_distribution(project_package, "agm-test-absent-distribution", "1.0")
+    before = list(sys.path)
+
+    result = _run_project_package(project_package)
+
+    _assert_requirement_diagnostic(result, repair=_SYNC_PROJECT)
+    assert sys.path == before
+
+
+def test_a_global_package_never_uses_the_project_overlay(project_package: Path) -> None:
+    write_distribution(project_package, "agm-test-absent-distribution", "1.5")
+    before = list(sys.path)
+
+    result = _run("import python_requirement/double\npython_requirement/double::double(2)")
+
+    _assert_requirement_diagnostic(result, repair=_INSTALL)
+    assert sys.path == before
+
+
+def test_a_run_wiring_only_global_companions_leaves_sys_path_and_requirements_alone(
+    project_package: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    interpreter = tmp_path / "interpreter"
+    write_distribution(interpreter, "agm-test-absent-distribution", "1.0")
+    monkeypatch.syspath_prepend(interpreter)
+    write_distribution(project_package, "agm-test-absent-distribution", "0.1")
+    before = list(sys.path)
+    mounted = _package(write_python_package(tmp_path / "other", "other"), StoreScope.PROJECT)
+
+    result = _run(
+        "import python_requirement/double\nlet r = python_requirement/double::double(2)",
+        mounted=(mounted,),
+    )
+
+    assert result.ok, result.diagnostics
+    assert result.bindings["r"] == IntValue(4)
+    assert sys.path == before
 
 
 @pytest.mark.usefixtures("package_active")

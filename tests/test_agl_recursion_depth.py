@@ -230,10 +230,10 @@ class TestEveryGuardedPassReportsStackExhaustion:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         session = ReplSession()
-        monkeypatch.setattr("agnette.agl.lower.lower_repl_program", _raise_recursion_error)
-        assert session.eval_entry("let deep: int = 1 + 1").diagnostics
+        with monkeypatch.context() as patch:
+            patch.setattr("agnette.agl.lower.lower_repl_program", _raise_recursion_error)
+            assert session.eval_entry("let deep: int = 1 + 1").diagnostics
         # The failed entry rolled back cleanly: the session still evaluates.
-        monkeypatch.undo()
         assert not session.eval_entry("1 + 1").diagnostics
 
 

@@ -8,7 +8,7 @@ from pathlib import Path, PureWindowsPath
 
 import semver
 
-from agnette.agm.project.layout import project_packages_dir
+from agnette.agm.project.layout import packages_project_dir, project_packages_dir
 from agnette.config.home import agm_home_dir
 from agnette.packages.errors import PackageInstallError
 from agnette.packages.layout import ACTIVATION_INDEX_FILENAME, StoreScope, store_root_path
@@ -52,6 +52,19 @@ class PackageStore:
         """The store's persistent advisory operation lock."""
 
         return self.root / ".lock"
+
+    @property
+    def python_overlay_path(self) -> Path:
+        """The store's Python requirement overlay (see ``python_deps``)."""
+
+        return self.root / ".python"
+
+    @property
+    def project_dir(self) -> Path:
+        """The project owning a project store."""
+
+        assert self.scope is StoreScope.PROJECT
+        return packages_project_dir(self.root)
 
     def package_path(self, name: str, version: semver.Version) -> Path:
         """Return the logical extracted-tree path for one installed package version."""

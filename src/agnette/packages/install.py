@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import fcntl
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import mkdtemp
@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import semver
 
+from agnette.config import context as config_context
 from agnette.core import dry_run, fs
 from agnette.core.pyenv import RequirementInstallError
 from agnette.packages.activation import (
@@ -24,6 +25,7 @@ from agnette.packages.activation import (
     load_activation_index,
     load_package_provenance,
     merge_package_commands,
+    pinned_store_packages,
     reconcile_package_commands,
     resolve_indexed_packages,
     store_selection,
@@ -65,7 +67,11 @@ from agnette.packages.model import (
     is_std_package_name,
     unmet_std_requirement,
 )
-from agnette.packages.python_deps import python_dependencies, sync_python_dependencies
+from agnette.packages.python_deps import (
+    python_dependencies,
+    rebuilt_python_overlay,
+    sync_python_dependencies,
+)
 from agnette.packages.record import (
     RECORD_NAME,
     RecordEntry,
@@ -125,10 +131,12 @@ def _package_operation_lock(store: PackageStore) -> Iterator[None]:
 
 
 def sync_active_python_dependencies(store: PackageStore) -> tuple[str, ...]:
-    """Sync AgM's interpreter environment to every active package's Python requirements.
+    """Sync *store*'s active packages' Python requirements; return those installed.
 
-    Returns the requirements that were unsatisfied, hence installed (or, in
-    dry-run, reported). An absent store has none. Raises :class:`PackageInstallError`.
+    A global store syncs AgM's interpreter environment and returns the
+    requirements that were unsatisfied; a project store rebuilds its overlay and
+    returns every requirement installed into it. In dry-run they are only
+    reported. An absent store has none. Raises :class:`PackageInstallError`.
     """
 
     if not store.root.exists():
@@ -138,14 +146,33 @@ def sync_active_python_dependencies(store: PackageStore) -> tuple[str, ...]:
             packages = resolve_indexed_packages(
                 store, load_activation_index(store), fallback_to_manifest_commands=True
             )
+            with _python_requirements(store, packages, force=True) as installed:
+                return installed
         except PackageActivationError as exc:
             raise PackageInstallError(f"cannot load package activation: {exc}") from exc
-        return _sync_python_requirements(packages)
 
 
-def _sync_python_requirements(packages: tuple[PackageInfo, ...]) -> tuple[str, ...]:
+@contextmanager
+def _python_requirements(
+    store: PackageStore, packages: tuple[PackageInfo, ...], *, force: bool = False
+) -> Iterator[tuple[str, ...]]:
+    """Bring *store*'s Python environment in line with *packages*; yield what was installed.
+
+    A project store's overlay is built first and switched to when the body, which
+    publishes the activation, completes (see :func:`rebuilt_python_overlay`;
+    *force* rebuilds even an up-to-date one). It holds the requirements of
+    *packages* and, added to them, of the packages the project's pins select
+    from the store; the pins are those of the home and project config layers
+    alone, so the overlay does not depend on the invocation directory.
+    """
+
     try:
-        return sync_python_dependencies(python_dependencies(packages))
+        if store.scope is StoreScope.PROJECT:
+            pinned = pinned_store_packages(store, home=config_context.current_config_context().home)
+            with rebuilt_python_overlay(store, (*packages, *pinned), force=force) as installed:
+                yield installed
+        else:
+            yield sync_python_dependencies(python_dependencies(packages))
     except RequirementInstallError as exc:
         raise PackageInstallError(f"cannot install Python requirements: {exc}") from exc
 
@@ -1230,8 +1257,8 @@ def _commit_install_activation(
             else ()
         )
         # Reconciling never changes the selection, so the resolved set is reconciled's.
-        _sync_python_requirements(_transaction_resolved_packages(state))
-        _publish_activation(state.store, reconciled)
+        with _python_requirements(state.store, _transaction_resolved_packages(state)):
+            _publish_activation(state.store, reconciled)
         return command_shadows
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot write package activation: {exc}") from exc
@@ -1240,11 +1267,22 @@ def _commit_install_activation(
 def _commit_activation(
     store: PackageStore, index: ActivationIndex, *, inherited: tuple[PackageInfo, ...] = ()
 ) -> ActivationIndex:
-    """Validate and atomically publish a complete activation selection."""
+    """Validate and atomically publish a complete activation selection.
+
+    A project store's Python overlay is rebuilt around the publication.
+    """
 
     try:
-        reconciled = _prepare_activation(store, index, transient_packages=None, inherited=inherited)
-        _publish_activation(store, reconciled)
+        resolved = resolve_indexed_packages(store, index)
+        reconciled = _prepare_activation(
+            store, index, transient_packages=None, packages=resolved, inherited=inherited
+        )
+        with (
+            _python_requirements(store, resolved)
+            if store.scope is StoreScope.PROJECT
+            else nullcontext()
+        ):
+            _publish_activation(store, reconciled)
         return reconciled
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot write package activation: {exc}") from exc

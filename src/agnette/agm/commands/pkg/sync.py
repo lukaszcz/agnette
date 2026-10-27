@@ -1,4 +1,4 @@
-"""Sync AgM's interpreter environment to the active packages' Python requirements."""
+"""Sync the Python environment of the active packages: AgM's, or the project overlay."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from agnette.packages.install import PackageInstallError, sync_active_python_dep
 
 
 def run(args: PkgSyncArgs) -> None:
-    """Install the active packages' Python requirements when any is unsatisfied."""
+    """Install the unsatisfied requirements globally, or rebuild the project overlay."""
 
     try:
         target = pkg_target(current_config_context(), project=args.project)

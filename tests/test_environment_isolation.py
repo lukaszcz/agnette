@@ -23,7 +23,12 @@ from agnette.config.home import agm_home_dir
 from agnette.packages.activation import load_activation_index
 from agnette.packages.store import global_store
 from tests._git_helpers import git_output, init_repo
-from tests.conftest import GIT_IDENTITY, LAUNCH_ENVIRONMENT, isolate_host_environment
+from tests.conftest import (
+    GIT_IDENTITY,
+    LAUNCH_ENVIRONMENT,
+    InstallerGuard,
+    isolate_host_environment,
+)
 
 
 def test_the_suite_does_not_run_against_the_launching_home() -> None:
@@ -156,3 +161,36 @@ def test_git_discovery_cannot_climb_into_a_repository_the_temp_root_sits_inside(
         text=True,
     )
     assert fenced.returncode != 0
+
+
+def test_a_real_installer_invocation_is_blocked_and_logged(installer_guard: InstallerGuard) -> None:
+    results = [
+        subprocess.run([name, "install", "demo"], capture_output=True, text=True)
+        for name in ("uv", "pip", "pip3")
+    ]
+
+    assert [result.returncode for result in results] == [97, 97, 97]
+    assert len(installer_guard.log.read_text(encoding="utf-8").splitlines()) == 3
+    installer_guard.log.write_text("", encoding="utf-8")
+
+
+def test_the_installer_guard_survives_a_test_undoing_its_monkeypatch(
+    monkeypatch: pytest.MonkeyPatch, installer_guard: InstallerGuard
+) -> None:
+    monkeypatch.setenv("PIP_NO_INDEX", "0")
+    monkeypatch.undo()
+
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(installer_guard.bin_dir)
+    assert os.environ["PIP_NO_INDEX"] == "1"
+    assert os.environ["UV_OFFLINE"] == "1"
+
+
+def test_an_installer_a_test_fakes_shadows_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = tmp_path / "uv"
+    fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+    assert subprocess.run(["uv"]).returncode == 0

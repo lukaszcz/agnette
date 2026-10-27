@@ -26,7 +26,7 @@ Subprocess work goes through `core/process.py`: terminal-inheriting and captured
 
 ## Python Environment
 
-Package companions run in AgM's own interpreter. `core/pyenv.py` classifies PEP 508 requirements against that interpreter and installs them (`uv`, else `pip`); package installation, `agm pkg check`, and companion loading all use it.
+Package companions run in AgM's own interpreter. `core/pyenv.py` classifies PEP 508 requirements against that interpreter (or an overlay directory first) and installs them (`uv`, else `pip`; optionally `--target` an overlay, under constraints pinning every distribution installed in the interpreter); package installation, `agm pkg check`, and companion loading all use it.
 
 ## Dry Run and Cleanup
 

@@ -123,13 +123,16 @@ values incomparably (such as `os_name ~= "posix"`) — are manifest errors. A di
 listed more than once, for example with markers selecting per-environment variants.
 Requirements are stored verbatim, as declared, and are part of the package's content hash.
 [`install`](#commands) and [`sync`](#commands) install unsatisfied requirements into that
-environment; [`check`](#commands) and
-[`info`](#commands) only report them. The activation index is the source of truth: `sync` installs
-only the requirements of active packages. A program whose run imports one of the package's
-companions while a requirement is unsatisfied fails before running, with an error naming the
-package and the requirement. It suggests `agm pkg sync` when the package is the active one (same
-name and root), otherwise installing it with `agm pkg install [--editable] <root>`, as for a
-development checkout or a project-pinned version that is not active.
+environment; a [project](#project-store) package's requirements go to the project's Python overlay
+instead, which a run consults before AgM's environment. [`check`](#commands) and
+[`info`](#commands) only report them. The activation index is the source of truth: `sync`
+installs only the requirements of active packages. A program whose run imports one of the
+package's companions while a requirement is unsatisfied fails before running, with an error naming
+the package and the requirement. It suggests `agm pkg sync` when the package is the active one
+(same name and root), and `agm pkg sync --project` when it is a project package (selected by the
+project index or a pin); otherwise it suggests installing it with
+`agm pkg install [--editable] <root>`, as for a development checkout that is not active or a
+pinned global version.
 
 ### `[commands]`
 
@@ -360,7 +363,8 @@ requirements is installed into it with `uv pip install --python <interpreter>`
 (`<interpreter> -m pip install` when `uv` is not on `PATH`). The installer resolves them jointly:
 already satisfied distributions are left alone, and conflicting requirements across packages fail
 the install rather than downgrading one. An installer failure or interruption fails the install and
-leaves the store as it was. `--dry-run` prints the installer command instead of running it.
+leaves the store as it was. `--dry-run` prints the installer command instead of running it. A
+`--project` install rebuilds the project's [Python overlay](#project-store) instead.
 
 **`switch NAME@VERSION`** selects an exact stored version as globally active. Other stored versions
 stay installed. Activation validates package dependencies and registered commands.
@@ -369,7 +373,8 @@ stay installed. Activation validates package dependencies and registered command
 and removes the recorded files (plus cache and VCS residue). An editable package is only deactivated. Command
 ownership displaced by the removed package is restored. `uninstall NAME@VERSION` removes that exact
 stored version; when another version is active, activation stays unchanged. A matching active
-editable package is deactivated. Python distributions are never removed.
+editable package is deactivated. A global uninstall never removes Python distributions; a
+`--project` one rebuilds the [overlay](#project-store) without them.
 
 **`list`** shows every stored version as `active` or `installed`, and every active editable
 package. Inside a project both stores are listed, global first, each line ending in `global` or
@@ -379,18 +384,20 @@ package. Inside a project both stores are listed, global first, each line ending
 **`info`** shows metadata, command registrations with their prose, whether each direct
 dependency is active, unsatisfied, or missing, including the inferred `std` upper bound, and, as
 `requires python package SPEC: STATUS`, each `[python]` requirement's status in AgM's interpreter
-environment: `installed VERSION`, `installed VERSION (unsatisfied)`, `missing`, or
-`not applicable` (its marker does not hold). Inside a project it looks the package up in the
-project index, then the global one, resolves dependency status against that layered selection,
-and prints a `store: global|project` line (a project package also names the global version it
-shadows).
+environment (a project package's overlay first): `installed VERSION`,
+`installed VERSION (unsatisfied)`, `missing`, `stale overlay`, or `not applicable` (its marker
+does not hold).
+Inside a project it looks the package up in the project index, then the global one, resolves
+dependency status against that layered selection, and prints a `store: global|project` line (a
+project package also names the global version it shadows).
 
 **`sync`** restores Python requirements for active packages in AgM's interpreter environment:
 when some `[python]` requirement of an active package (store or editable) is unsatisfied, the
 union of every active package's requirements is installed exactly as `install` does, and each
 requirement needing installation is listed; otherwise it reports that all are satisfied and runs
 no installer. An installer failure exits non-zero. `--dry-run` prints the installer command
-instead of running it.
+instead of running it. `sync --project` rebuilds the project's [Python overlay](#project-store)
+and lists every requirement installed into it.
 
 ## Project store
 
@@ -427,8 +434,33 @@ project's own store, `<project>/packages` (`$PROJ_DIR/packages` for a split proj
   [Commands](#commands)).
 - `uninstall`, `switch`, and `sync` with `--project` do nothing, and create nothing, until a
   `--project` install has created the project store.
-- `sync --project` installs the Python requirements of the project store's active packages into
-  AgM's interpreter environment, as `sync` does for the global store.
+- **Python overlay.** The `[python]` requirements of the project index's active packages (editable
+  ones included), plus those of the project-store packages that `[packages]` pins select, are
+  installed jointly into `<project store>/.python`, a link to a generation directory beside it,
+  never into AgM's own environment. Pins come from the home and project config layers only (not
+  from `.agm/config.toml` of another invocation directory), and add to the index's requirements
+  rather than replace them; a run whose pin selects a package the overlay lacks reports its
+  requirements as missing. Every `--project` `install`, `uninstall`, and `switch` that changes the
+  selection rebuilds it from scratch, unless the requirements and the interpreter's pins are as
+  the current overlay was built under; `sync --project` always rebuilds and lists every
+  requirement installed (pins edited since are picked up then). The installer
+  (`uv pip install --target`, else `python -m pip install --target`) runs first, so a failure or
+  interruption leaves the previous overlay and the activation untouched; once the activation is
+  published, one atomic rename switches the overlay. Since `uninstall` and `switch` can rerun the
+  installer, they can fail offline. The installer runs under constraints pinning every
+  distribution installed in AgM's interpreter, so the overlay never holds another version of
+  anything AgM has; a requirement conflicting with one fails the operation. An empty union removes
+  the overlay. If AgM's interpreter changes afterwards so that the overlay holds another version of
+  a distribution it has, the overlay is stale: it is not used, every requirement it serves
+  reports `stale overlay`, and `sync --project` rebuilds it.
+  A run wires the companions of a package that uses the overlay (a project package, including a
+  checkout of an active editable one) with the overlay ahead of AgM's libraries on `sys.path`; it
+  is consulted before the interpreter by requirement checks (a run's, `check`'s, and `info`'s).
+  The requirement checks of global and `std` packages never consult it directly, but once on
+  `sys.path` it is process-wide; it holds only versions pinned to what AgM's interpreter has. A
+  process keeps the generation it first used, protected by a lock: a rebuild by another process
+  leaves such a generation in place until a later rebuild, and a running process sees a rebuild
+  only on its next start. `--dry-run` prints the installer command and changes nothing.
 
 ## Version pins
 

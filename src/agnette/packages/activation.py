@@ -338,6 +338,34 @@ def _read_package_pins(
     return pins
 
 
+def pinned_store_packages(
+    store: PackageStore,
+    *,
+    home: Path,
+    env: Mapping[str, str] | None = None,
+) -> tuple[PackageInfo, ...]:
+    """Resolve the packages the owning project's ``[packages]`` pins select from project *store*.
+
+    A pin resolves in the project store first (see :func:`select_active_packages`),
+    so these are the pinned packages that run from that store whether or not
+    its index selects them. Only the home and project config layers are read
+    (the project directory stands for the invocation directory), so the result
+    does not depend on where the caller runs.
+    """
+
+    proj_dir = store.project_dir
+    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
+    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=proj_dir, env=env)
+    selections = {
+        name: ActivePackage(version)
+        for name, version in pins.items()
+        if _pin_store(layers, name, version) == store
+    }
+    return resolve_indexed_packages(
+        store, ActivationIndex(selections), fallback_to_manifest_commands=True
+    )
+
+
 def select_active_packages(
     *,
     home: Path,

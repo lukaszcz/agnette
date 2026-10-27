@@ -48,6 +48,7 @@ from tests._git_helpers import clone_with_fork_remote
 from tests._help_helpers import assert_lists_execution_options, execution_options_is_last
 from tests._package_helpers import write_installed_package, write_python_package
 from tests._proc_helpers import wait_for_path
+from tests.conftest import InstallerGuard
 
 
 def _workspace_shell_path(env: dict[str, str], session_name: str) -> Path:
@@ -6029,23 +6030,61 @@ def _write_store_test_package(root: Path, name: str, version: str) -> Path:
     return root
 
 
+_FAKE_UV = """\
+import os, pathlib, re, sys
+
+args = sys.argv[1:]
+with open({log!r}, "a", encoding="utf-8") as log:
+    log.write(" ".join(args) + "\\n")
+target, specs, options = None, [], iter(args[2:])
+for arg in options:
+    if arg in ("--python", "-c"):
+        next(options)
+    elif arg == "--target":
+        target = pathlib.Path(next(options))
+    else:
+        specs.append(arg)
+status = int(os.environ.get("FAKE_UV_STATUS", "0"))
+if target is not None and status == 0:
+    for spec in specs:
+        name = re.match(r"[A-Za-z0-9_.-]+", spec).group()
+        info = target / (name.replace("-", "_") + "-1.0.dist-info")
+        info.mkdir(parents=True)
+        (info / "METADATA").write_text(
+            "Metadata-Version: 2.1\\nName: " + name + "\\nVersion: 1.0\\n", encoding="utf-8"
+        )
+        (target / (name.replace("-", "_") + ".py")).write_text("VALUE = 'overlay'\\n")
+sys.exit(status)
+"""
+
+
 def _install_fake_uv(directory: Path, env: dict[str, str]) -> Path:
     """Put a recording ``uv`` first on PATH; return its argv log.
 
-    It exits with ``FAKE_UV_STATUS`` (default 0) and never installs anything.
+    It exits with ``FAKE_UV_STATUS`` (default 0). It installs nothing, except into
+    a ``--target``: each requirement becomes a distribution plus a module
+    ``<name>.py`` defining ``VALUE``.
     """
     directory.mkdir(parents=True, exist_ok=True)
     log = directory / "uv.log"
     uv = directory / "uv"
     uv.write_text(
-        "#!/bin/sh\n"
-        f"printf '%s\\n' \"$*\" >> {shlex.quote(str(log))}\n"
-        'exit "${FAKE_UV_STATUS:-0}"\n',
+        f"#!{sys.executable}\n" + _FAKE_UV.format(log=str(log)),
         encoding="utf-8",
     )
     uv.chmod(uv.stat().st_mode | stat.S_IEXEC)
     env["PATH"] = str(directory) + ":" + env["PATH"]
     return log
+
+
+def test_a_real_installer_is_unreachable_from_the_agm_subprocess_environment(
+    env: dict[str, str], installer_guard: InstallerGuard
+) -> None:
+    staged = _agm_env(env)
+
+    assert shutil.which("uv", path=staged["PATH"]) == str(installer_guard.bin_dir / "uv")
+    assert shutil.which("pip", path=staged["PATH"]) == str(installer_guard.bin_dir / "pip")
+    assert (staged["UV_OFFLINE"], staged["PIP_NO_INDEX"]) == ("1", "1")
 
 
 class TestPackageInit:
@@ -7109,6 +7148,73 @@ class TestProjectPackages:
         assert result.returncode == 1
         assert result.stderr
         assert not (tmp_path / "packages").exists()
+
+    def test_project_requirements_go_to_the_project_overlay(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> None:
+        project, inside, _ = scene
+        log = _install_fake_uv(tmp_path / "bin", inside)
+        alpha = write_python_package(tmp_path / "alpha", "alpha", "agm-test-absent-alpha>=1")
+        overlay = project / "packages" / ".python"
+
+        installed = run_agm(["pkg", "install", "--project", str(alpha)], env=inside, cwd=project)
+        runs = log.read_text(encoding="utf-8").splitlines()
+        synced = run_agm(["pkg", "sync", "--project"], env=inside, cwd=project)
+        rebuilt = log.read_text(encoding="utf-8").splitlines()
+        built = (overlay / "agm_test_absent_alpha.py").is_file() and overlay.is_symlink()
+        removed = run_agm(["pkg", "uninstall", "--project", "alpha"], env=inside, cwd=project)
+
+        assert installed.returncode == 0
+        assert len(runs) == 1
+        assert "--target" in runs[0]
+        assert "-c" in runs[0].split()
+        assert runs[0].split()[-1] == "agm-test-absent-alpha>=1"
+        assert synced.returncode == 0
+        assert len(rebuilt) == 2
+        assert built
+        assert removed.returncode == 0
+        assert not overlay.exists()
+        assert len(log.read_text(encoding="utf-8").splitlines()) == 2
+
+    @pytest.fixture
+    def editable_alpha(
+        self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]
+    ) -> Path:
+        """An editable project package whose companion imports its overlay requirement."""
+        project, inside, _ = scene
+        _install_fake_uv(tmp_path / "bin", inside)
+        alpha = write_python_package(tmp_path / "alpha", "alpha", "agm-test-absent-alpha>=1")
+        (alpha / "src" / "main.agl").write_text(
+            "extern def value() -> text\nprogram def main() -> unit = print(value())\n",
+            encoding="utf-8",
+        )
+        (alpha / "src" / "main.py").write_text(
+            "import agm_test_absent_alpha\n\n\ndef value():\n"
+            "    return agm_test_absent_alpha.VALUE\n",
+            encoding="utf-8",
+        )
+        run_agm(["pkg", "install", "--project", "--editable", str(alpha)], env=inside, cwd=project)
+        return alpha
+
+    def test_an_editable_project_package_runs_with_the_project_overlay(
+        self, scene: tuple[Path, dict[str, str], dict[str, str]], editable_alpha: Path
+    ) -> None:
+        _, inside, _ = scene
+
+        by_name = run_agm(["exec", "alpha/main::main"], env=inside, cwd=editable_alpha)
+
+        assert by_name.stdout == "overlay\n"
+
+    def test_check_in_an_active_editable_project_package_sees_its_overlay(
+        self, scene: tuple[Path, dict[str, str], dict[str, str]], editable_alpha: Path
+    ) -> None:
+        _, inside, outside = scene
+
+        inside_project = run_agm(["pkg", "check"], env=inside, cwd=editable_alpha)
+        outside_project = run_agm(["pkg", "check"], env=outside, cwd=editable_alpha, check=False)
+
+        assert inside_project.returncode == 0
+        assert outside_project.returncode == 1
 
     def test_project_switch_uninstall_and_sync(
         self, tmp_path: Path, scene: tuple[Path, dict[str, str], dict[str, str]]

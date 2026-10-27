@@ -10,7 +10,7 @@ A package is a portable, versioned AgL module collection: a `package.toml` manif
 - **Development packages** are live checkouts found as the nearest ancestor `package.toml` of the entry file (or working directory); discovery mounts it and its path dependencies, and the rest come from the active selection.
 - **Import visibility** is enforced by the AgL module loader ([agl/modules.md](agl/modules.md)): a package module may import only its own tree, its declared dependencies, and the standard library. Loose roots are unrestricted.
 - **Manifest `[config]`** holds package-author defaults for programs the package owns, keyed by root and by registered command paths ([config.md](config.md)).
-- **Python requirements** are checked against, and installed into, AgM's own interpreter ([core.md](core.md)); an unsatisfied one fails a run before its companions import.
+- **Python requirements** are checked against, and installed into, AgM's own interpreter ([core.md](core.md)) — for project-store packages, a per-project overlay instead ([package-store.md](package-store.md)); an unsatisfied one fails a run before its companions import.
 
 ## Discipline Validation
 

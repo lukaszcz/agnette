@@ -546,7 +546,10 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         is visible only inside the project and whose packages replace
         same-named global ones there. Its dependencies resolve from the project
         store, then the global selection; missing path or URL dependencies
-        install into the project store.
+        install into the project store. The project packages' [python]
+        requirements are instead rebuilt as a whole into the project's Python
+        overlay, never into AgM's interpreter, and never as a different
+        version of anything AgM's interpreter has; a failure fails the install.
 
         Options:
           --project    Use the current project's store, not the global one;
@@ -564,7 +567,8 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         its activation. An editable package is only deactivated.
 
         Options:
-          --project  Use the current project's store, not the global one.
+          --project  Use the current project's store, not the global one; this
+                     rebuilds its Python overlay, rerunning the installer.
     """),
     ("pkg", "switch"): textwrap.dedent("""\
         agm pkg switch [--project] [--dry-run] NAME@VERSION
@@ -572,7 +576,8 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         Activate a version already in the store.
 
         Options:
-          --project  Use the current project's store, not the global one.
+          --project  Use the current project's store, not the global one; this
+                     rebuilds its Python overlay, rerunning the installer.
     """),
     ("pkg", "list"): textwrap.dedent("""\
         agm pkg list
@@ -603,8 +608,10 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
         list the unsatisfied ones. Nothing is uninstalled.
 
         Options:
-          --project  Sync the current project store's packages, not the global
-                     ones.
+          --project  Instead rebuild the Python overlay of the current project
+                     store's packages (and of the project packages pinned in
+                     [packages]) and list every requirement installed into it.
+                     Always rebuilds, which also cures a stale overlay.
     """),
     ("tmux", "open"): textwrap.dedent("""\
         agm tmux open [-d] [-n PANES] [--dry-run] [SESSION]

@@ -24,6 +24,7 @@ from agnette.agm.project import layout as project_layout
 from agnette.core import dry_run, process
 from agnette.core import http as core_http
 from agnette.core.process import CapturedOutput
+from agnette.packages import python_deps
 from tests import _command_coverage
 from tests._durations import (
     pytest_runtest_protocol,
@@ -140,6 +141,74 @@ def isolated_compiler_cache(
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("compiler-cache")))
         yield
+
+
+@dataclass(frozen=True, slots=True)
+class InstallerGuard:
+    """The stub installers every test sees on ``PATH`` unless it fakes one itself."""
+
+    bin_dir: Path
+    log: Path
+
+
+_GUARDED_INSTALLERS = ("uv", "pip", "pip3")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def installer_guard(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[InstallerGuard, None, None]:
+    """Make every real Python installer unreachable for the whole suite.
+
+    Stub ``uv``/``pip``/``pip3`` at the front of ``PATH`` log their argv and exit
+    97; the offline settings also stop ``python -m pip`` and any ``uv`` found by
+    other means. The patch is this fixture's own, so a test's ``monkeypatch``
+    cannot undo it; a fake a test installs is prepended later and wins.
+    Subprocesses inherit all of it.
+    """
+    bin_dir = tmp_path_factory.mktemp("installer-guard")
+    log = bin_dir / "calls.log"
+    log.touch()
+    for name in _GUARDED_INSTALLERS:
+        stub = bin_dir / name
+        stub.write_text(
+            f'#!/bin/sh\necho "{name} $*" >> "{log}"\n'
+            'echo "real installer blocked in tests" >&2\nexit 97\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+    patch = pytest.MonkeyPatch()
+    patch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    patch.setenv("UV_OFFLINE", "1")
+    patch.setenv("UV_NO_CONFIG", "1")
+    patch.setenv("PIP_NO_INDEX", "1")
+    patch.setenv("PIP_CONFIG_FILE", os.devnull)
+    try:
+        yield InstallerGuard(bin_dir, log)
+    finally:
+        patch.undo()
+
+
+@pytest.fixture(autouse=True)
+def fresh_python_overlay_state(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Give every test its own process-wide overlay state, releasing the locks it took."""
+    held: dict[Path, int] = {}
+    monkeypatch.setattr(python_deps, "_fixed", {})
+    monkeypatch.setattr(python_deps, "_stale", {})
+    monkeypatch.setattr(python_deps, "_held", held)
+    yield
+    for fd in held.values():
+        os.close(fd)
+
+
+@pytest.fixture(autouse=True)
+def fail_on_blocked_installer(installer_guard: InstallerGuard) -> Generator[None, None, None]:
+    """Fail a test during which a real installer was invoked and blocked."""
+    before = installer_guard.log.stat().st_size
+    yield
+    assert installer_guard.log.stat().st_size <= before, (
+        "test invoked a real installer:\n" + installer_guard.log.read_text(encoding="utf-8")
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

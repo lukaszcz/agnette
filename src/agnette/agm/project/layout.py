@@ -352,6 +352,11 @@ def project_packages_dir(project_dir: Path) -> Path:
     return project_dir / "packages"
 
 
+def packages_project_dir(packages_dir: Path) -> Path:
+    """The project owning *packages_dir*; inverse of :func:`project_packages_dir`."""
+    return packages_dir.parent
+
+
 def project_notes_dir(project_dir: Path) -> Path:
     return project_dir / "notes"
 

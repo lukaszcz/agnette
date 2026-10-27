@@ -901,14 +901,13 @@ def test_write_archive_retains_the_write_error_when_temporary_cleanup_fails(
     def fail_replace(_: str, __: str, **___: object) -> None:
         raise OSError("denied")
 
-    monkeypatch.setattr(package_archive.os, "unlink", fail_temporary_unlink)
-    monkeypatch.setattr(package_archive.os, "rename", fail_replace)
-
-    with pytest.raises(ArchiveError) as error:
-        write_archive(root, destination)
+    with monkeypatch.context() as patch:
+        patch.setattr(package_archive.os, "unlink", fail_temporary_unlink)
+        patch.setattr(package_archive.os, "rename", fail_replace)
+        with pytest.raises(ArchiveError) as error:
+            write_archive(root, destination)
 
     assert getattr(error.value.__cause__, "__notes__", [])
-    monkeypatch.undo()
     for temporary in tmp_path.glob(".package.agmpkg.*"):
         temporary.unlink()
 
@@ -925,11 +924,11 @@ def test_write_archive_reports_uninspectable_destination_and_source(
             raise OSError("denied")
         return original_stat(path, follow_symlinks=follow_symlinks)
 
-    monkeypatch.setattr(Path, "stat", fail_destination_stat)
-    with pytest.raises(ArchiveError):
-        write_archive(root, destination)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "stat", fail_destination_stat)
+        with pytest.raises(ArchiveError):
+            write_archive(root, destination)
 
-    monkeypatch.undo()
     destination.write_text("archive", encoding="utf-8")
     source = root / MODULE_TREE_DIRNAME / "main.agl"
 
@@ -938,9 +937,10 @@ def test_write_archive_reports_uninspectable_destination_and_source(
             raise OSError("denied")
         return original_stat(path, follow_symlinks=follow_symlinks)
 
-    monkeypatch.setattr(Path, "stat", fail_source_stat)
-    with pytest.raises(ArchiveError):
-        write_archive(root, destination)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "stat", fail_source_stat)
+        with pytest.raises(ArchiveError):
+            write_archive(root, destination)
 
 
 def test_write_archive_reports_invalid_roots_manifests_and_destinations(tmp_path: Path) -> None:
@@ -1013,11 +1013,11 @@ def test_write_archive_rejects_unreadable_source_files_and_gitignores(
             raise ArchiveError("cannot read package file: denied")
         return original_read_source(path, limit, total_limited=total_limited)
 
-    monkeypatch.setattr(package_archive, "_read_source_file", fail_source_read)
-    with pytest.raises(ArchiveError, match="cannot read package file"):
-        write_archive(root, tmp_path / "package.agmpkg")
+    with monkeypatch.context() as patch:
+        patch.setattr(package_archive, "_read_source_file", fail_source_read)
+        with pytest.raises(ArchiveError, match="cannot read package file"):
+            write_archive(root, tmp_path / "package.agmpkg")
 
-    monkeypatch.undo()
     (root / ".gitignore").write_bytes(b"\xff")
     with pytest.raises(ArchiveError, match="gitignore"):
         write_archive(root, tmp_path / "package.agmpkg")

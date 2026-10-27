@@ -721,12 +721,10 @@ def test_run_foreground_ignoring_signals_restores_sigint_when_interrupted_mid_in
             raise SystemExit(128 + signal.SIGTERM)
         return real_signal(number, handler)
 
-    monkeypatch.setattr(process_mod.signal, "signal", interrupted_on_sigquit)
-    try:
+    with monkeypatch.context() as patch:
+        patch.setattr(process_mod.signal, "signal", interrupted_on_sigquit)
         with pytest.raises(SystemExit):
             run_foreground_ignoring_signals(["true"])
-    finally:
-        monkeypatch.undo()
     assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
 
 

@@ -9,7 +9,6 @@ from agnette.agm.cli_support.args import PkgInfoArgs
 from agnette.agm.cli_support.pkg_store import pkg_layers
 from agnette.config.context import current_config_context
 from agnette.core.env import help_width
-from agnette.core.pyenv import requirement_status
 from agnette.packages.activation import (
     ActivePackage,
     PackageActivationError,
@@ -25,6 +24,7 @@ from agnette.packages.model import (
     std_compatibility_upper_bound,
     unmet_std_requirement,
 )
+from agnette.packages.python_deps import overlay_for, requirement_status
 from agnette.util.text import first_paragraph
 from agnette.version import AGM_VERSION
 
@@ -38,7 +38,8 @@ def run(args: PkgInfoArgs) -> None:
         if args.name not in selections:
             raise PackageActivationError(f"package {args.name!r} is not installed")
         store, active = selections[args.name]
-        manifest = resolve_active_package(store, args.name, active).manifest
+        package = resolve_active_package(store, args.name, active)
+        manifest = package.manifest
         active_versions = {
             name: active_package_version(selections[name][1])
             for name in manifest.dependencies
@@ -100,8 +101,9 @@ def run(args: PkgInfoArgs) -> None:
                 kind = "editable" if selected[1].editable is not None else "active"
                 status = f"{kind} {active_versions[name]}"
         print(f"requires {name} {requirement}: {status}")
+    overlay = overlay_for(package)
     for spec in manifest.python_dependencies:
-        print(f"requires python package {spec}: {requirement_status(spec).describe()}")
+        print(f"requires python package {spec}: {requirement_status(spec, overlay).describe()}")
 
 
 def _shadow_note(replaced: ActivePackage | None) -> str:

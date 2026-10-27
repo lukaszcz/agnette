@@ -22,7 +22,7 @@ Tests assert behavior, never exact help, warning, or error text. The e2e harness
 - **AgL layout style** — `tools/agl_style.py` formats and checks every `.agl` source, doc fence, and embedded snippet.
 - **Self-validation** — compiler invariant self-checks and completion's error re-raising are gated by `agnette.agl.self_validation`, enabled for in-process tests by `tests/conftest.py`; e2e subprocesses and production run without it.
 - **Hermeticity** — autouse fixtures give each test an empty `HOME`, strip inherited `AGM_*` and related variables, pin `AGM_STDLIB` to the repository stdlib, and bound git discovery (`tests/test_environment_isolation.py`).
-- **No real agents or network** — spawning an external agent or sandbox CLI (`tests/_external_agent_clis.py`) and unscripted HTTP fail the test; HTTP is scripted through `tests/_http_helpers.py` and `tests/_jev_helpers.py`.
+- **No real agents or network** — spawning an external agent or sandbox CLI (`tests/_external_agent_clis.py`) and unscripted HTTP fail the test; HTTP is scripted through `tests/_http_helpers.py` and `tests/_jev_helpers.py`. A session-wide guard (`tests/conftest.py`) puts blocking `uv`/`pip` stubs first on `PATH`, sets offline installer variables, and fails any test that reaches one; tests fake installers at the subprocess boundary.
 - **Dead code** — `tools/vulture_check.py` (`just vulture`); test-only use does not count.
 - **Vacuous-assertion guard** — `just test-neutral-tmp` reruns with neutrally named temp directories.
 - **Optional mutation gate** — `tools/mutation_check.py` replays the mutation sample in `tools/mutations.json`, outside `just check`.

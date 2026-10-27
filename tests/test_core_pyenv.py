@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from importlib import metadata
+from pathlib import Path
 
 import pytest
 
@@ -13,8 +14,10 @@ from agnette.core.pyenv import (
     RequirementState,
     RequirementStatus,
     install_requirements,
+    installed_pins,
     requirement_status,
 )
+from tests._package_helpers import write_distribution
 
 _UV = "/opt/tools/uv"
 
@@ -62,6 +65,53 @@ class TestInstallRequirements:
         install_requirements(("requests>=2",))
 
         assert commands == [[sys.executable, "-m", "pip", "install", "requests>=2"]]
+
+    def test_installs_into_a_target_directory_under_constraints_with_uv(
+        self, monkeypatch: pytest.MonkeyPatch, commands: list[list[str]]
+    ) -> None:
+        _uv_on_path(monkeypatch, True)
+
+        install_requirements(
+            ("requests>=2",), target=Path("/overlay"), constraints=Path("/pins.txt")
+        )
+
+        assert commands == [
+            [
+                _UV,
+                "pip",
+                "install",
+                "--python",
+                sys.executable,
+                "--target",
+                "/overlay",
+                "-c",
+                "/pins.txt",
+                "requests>=2",
+            ]
+        ]
+
+    def test_installs_into_a_target_directory_under_constraints_with_pip(
+        self, monkeypatch: pytest.MonkeyPatch, commands: list[list[str]]
+    ) -> None:
+        _uv_on_path(monkeypatch, False)
+
+        install_requirements(
+            ("requests>=2",), target=Path("/overlay"), constraints=Path("/pins.txt")
+        )
+
+        assert commands == [
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--target",
+                "/overlay",
+                "-c",
+                "/pins.txt",
+                "requests>=2",
+            ]
+        ]
 
     def test_nothing_to_install_runs_nothing(
         self, monkeypatch: pytest.MonkeyPatch, commands: list[list[str]]
@@ -266,3 +316,96 @@ class TestRequirementStatus:
 
         assert status == RequirementStatus(RequirementState.NOT_APPLICABLE)
         assert status.satisfied
+
+
+class TestOverlayLookup:
+    """A requirement is looked up in the overlay first, then in the interpreter."""
+
+    def test_the_overlay_satisfies_what_the_interpreter_lacks(self, tmp_path: Path) -> None:
+        write_distribution(tmp_path, "agm-test-absent-distribution", "1.5")
+
+        status = requirement_status("agm-test-absent-distribution>=1", overlay=tmp_path)
+
+        assert status == RequirementStatus(RequirementState.INSTALLED, "1.5")
+        assert not requirement_status("agm-test-absent-distribution>=1").satisfied
+
+    def test_the_overlay_version_wins_over_the_interpreters(self, tmp_path: Path) -> None:
+        write_distribution(tmp_path, "packaging", "0.5")
+
+        status = requirement_status("packaging>=1", overlay=tmp_path)
+
+        assert status == RequirementStatus(RequirementState.UNSATISFIED, "0.5")
+
+    def test_the_interpreter_serves_what_the_overlay_lacks(self, tmp_path: Path) -> None:
+        assert requirement_status("packaging>=1", overlay=tmp_path).satisfied
+
+    def test_a_missing_overlay_directory_is_no_overlay(self, tmp_path: Path) -> None:
+        assert requirement_status("packaging>=1", overlay=tmp_path / "absent").satisfied
+
+    def test_extras_are_read_from_the_overlay_distribution(self, tmp_path: Path) -> None:
+        write_distribution(
+            tmp_path,
+            "agm-test-absent-distribution",
+            "1.0",
+            ("agm-test-absent-extra-dep; extra == 'cli'",),
+        )
+
+        status = requirement_status("agm-test-absent-distribution[cli]", overlay=tmp_path)
+
+        assert status.state is RequirementState.UNSATISFIED
+        write_distribution(tmp_path, "agm-test-absent-extra-dep", "1.0")
+        assert requirement_status("agm-test-absent-distribution[cli]", overlay=tmp_path).satisfied
+
+
+class TestInstalledPins:
+    """Pins of every distribution installed on a search path."""
+
+    def test_pins_every_distribution_at_its_installed_version_sorted(self, tmp_path: Path) -> None:
+        write_distribution(tmp_path, "agm-t-b", "2.0")
+        write_distribution(tmp_path, "Agm_T.A", "1.2", ("agm-t-b",))
+
+        assert installed_pins([str(tmp_path)]) == ("agm-t-a==1.2", "agm-t-b==2.0")
+
+    def test_the_first_path_entry_wins_for_a_repeated_distribution(self, tmp_path: Path) -> None:
+        first, second = tmp_path / "first", tmp_path / "second"
+        write_distribution(first, "agm-t-a", "1")
+        write_distribution(second, "agm-t-a", "2")
+        write_distribution(second, "agm-t-b", "3")
+
+        assert installed_pins([str(first), str(second)]) == ("agm-t-a==1", "agm-t-b==3")
+
+    def test_a_distribution_without_a_name_is_skipped(self, tmp_path: Path) -> None:
+        write_distribution(tmp_path, "agm-t-a", "1")
+        broken = tmp_path / "broken-1.dist-info"
+        broken.mkdir()
+        (broken / "METADATA").write_text("Metadata-Version: 2.1\n", encoding="utf-8")
+
+        assert installed_pins([str(tmp_path)]) == ("agm-t-a==1",)
+
+    def test_a_distribution_without_a_version_is_skipped(self, tmp_path: Path) -> None:
+        write_distribution(tmp_path, "agm-t-a", "1")
+        versionless = tmp_path / "agm_t_b.dist-info"
+        versionless.mkdir()
+        (versionless / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: agm-t-b\n", encoding="utf-8"
+        )
+
+        assert installed_pins([str(tmp_path)]) == ("agm-t-a==1",)
+
+    def test_a_version_that_is_not_pep_440_is_pinned_by_arbitrary_equality(
+        self, tmp_path: Path
+    ) -> None:
+        write_distribution(tmp_path, "agm-t-a", "1")
+        write_distribution(tmp_path, "agm-t-b", "2023.weird-build")
+
+        assert installed_pins([str(tmp_path)]) == ("agm-t-a==1", "agm-t-b===2023.weird-build")
+
+    def test_the_interpreters_own_libraries_are_pinned_by_default(self) -> None:
+        pins = installed_pins()
+
+        assert f"packaging=={metadata.version('packaging')}" in pins
+        assert f"agnette=={metadata.version('agnette')}" in pins
+
+    def test_no_installed_distribution_is_an_error_not_empty_pins(self, tmp_path: Path) -> None:
+        with pytest.raises(RequirementInstallError):
+            installed_pins([str(tmp_path)])
