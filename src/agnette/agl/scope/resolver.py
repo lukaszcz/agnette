@@ -2094,7 +2094,7 @@ class _Resolver(ModuleSources):
             # The pre-pass already claimed this key for this exact binder
             # (see the docstring); install the member it pre-claimed.
             scope.register_member(name, replace(ref, scope_path=scope.scope_path))
-            self._installed(scope)
+            self._installed(scope, name)
             return
         existing = scope.bindings.get(name)
         if existing is not None and existing.decl_node_id == ref.decl_node_id:
@@ -2102,7 +2102,7 @@ class _Resolver(ModuleSources):
             # a static-root module already defined via
             # ``_define_static_binding_bindings``.
             scope.define(name, ref)
-            self._installed(scope)
+            self._installed(scope, name)
             return
         if existing is not None and (
             existing.kind is not BinderKind.constructor_binding
@@ -2110,15 +2110,15 @@ class _Resolver(ModuleSources):
         ):
             raise DuplicateDeclarationError(name, span=ref.decl_span)
         scope.define(name, ref)
-        self._installed(scope)
+        self._installed(scope, name)
 
-    def _installed(self, scope: ScopeNode) -> None:
-        """Note that the walk bound a value in *scope*; only a root or named scope is read by paths.
+    def _installed(self, scope: ScopeNode, name: str) -> None:
+        """Note that the walk bound value *name* in *scope*; only a root or named scope is read.
 
         A static-root module bound it up front.
         """
         if not self._is_static_root_module and (scope.scope_path or scope is self._root_scope):
-            self._bound_own_value()
+            self._bound_own_value((*scope.scope_path, name))
 
     def _check_not_reserved(self, name: str, span: SourceSpan) -> None:
         """Raise if lexical binder name *name* is a built-in contextual name; else record it."""

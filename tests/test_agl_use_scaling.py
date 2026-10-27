@@ -111,23 +111,31 @@ def test_reading_many_glob_uses_does_not_multiply_the_work_per_extra_glob(
         assert large[key] < 5.6 * small[key], key
 
 
-def _glob_program(root: Path, globs: int, lets: int) -> str:
-    """A script importing and globbing *globs* modules, binding *lets* values, then calling one."""
+def _glob_program(root: Path, globs: int, lets: int, *, scoped: bool = False) -> str:
+    """A script importing and globbing *globs* modules, binding *lets* values, then calling one.
+
+    Each module also declares a scope, which a *scoped* let reads too.
+    """
     for i in range(globs):
-        (root / f"m{i}.agl").write_text(f"def f{i}() -> int = {i}\n", encoding="utf-8")
+        scope = f"scope K{i}\n  def g() -> int = {i}\nend K{i}\n" if scoped else ""
+        (root / f"m{i}.agl").write_text(f"def f{i}() -> int = {i}\n{scope}", encoding="utf-8")
     return (
         "".join(f"import m{i}\n" for i in range(globs))
         + "".join(f"use m{i}::*\n" for i in range(globs))
-        + "".join(f"let v{j} = f{j % globs}()\n" for j in range(lets))
+        + "".join(
+            f"let v{j} = f{j % globs}()" + (f" + K{j % globs}::g()\n" if scoped else "\n")
+            for j in range(lets)
+        )
         + f"f{globs - 1}()\n"
     )
 
 
-@pytest.mark.parametrize("lets", [0, 5], ids=("plain", "binding"))
+@pytest.mark.parametrize("lets", [0, 5, -1], ids=("plain", "binding", "scaling"))
 @pytest.mark.parametrize("host", ["script", "repl"])
 def test_reading_glob_uses_of_a_script_or_repl_entry_does_not_cube_the_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str, lets: int
 ) -> None:
+    """Binding a value discards only reads that can depend on it; -1 lets one bind per glob."""
     reads = 0
     original = UseReader._use_path_reached
 
@@ -142,7 +150,7 @@ def test_reading_glob_uses_of_a_script_or_repl_entry_does_not_cube_the_work(
         nonlocal reads
         root = tmp_path / f"{host}{lets}x{globs}"
         root.mkdir()
-        text = _glob_program(root, globs, lets)
+        text = _glob_program(root, globs, globs if lets < 0 else lets, scoped=lets < 0)
         reads = 0
         if host == "script":
             result = run_inline_code(

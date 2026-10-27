@@ -10,9 +10,9 @@ which in turn read the uses: :class:`UseSources` is what it reads of them.
 from __future__ import annotations
 
 import heapq
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Hashable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from typing import Protocol, cast
 from weakref import proxy
 
@@ -35,6 +35,7 @@ from agnette.agl.scope.lookup import (
     lookup_steps,
     spelled_origins,
 )
+from agnette.agl.scope.read_memo import KeptRead, ReadMemo, ValueReads
 from agnette.agl.scope.symbols import (
     BinderKind,
     ContributionLayer,
@@ -58,30 +59,36 @@ from agnette.agl.scope.type_owners import TypeOwnerIndex
 from agnette.agl.syntax.nodes import QualifierAnchor, QualifierChain, QualifierSegment, UseDecl
 
 
-@dataclass(slots=True)
 class _UseReads:
     """What reads have learned each ``use`` reaches, by declaration and path.
 
-    A use's reach depends only on the uses written before it, so once the
-    module's tables are complete (:meth:`UseReader.share_reads`) every read
-    shares what it learns.
+    A use's reach depends only on the uses written before it and on the
+    module's own values, so once the module's tables are complete
+    (:meth:`UseReader.share_reads`) every read shares what it learns, until
+    a walk binds a value what it learned read.
     """
 
-    reached: dict[tuple[int, ScopePath, LookupKind], tuple[Candidate, ...]] = field(
-        default_factory=dict
-    )
-    origins: dict[tuple[int, ScopePath], frozenset[Origin]] = field(default_factory=dict)
-    beneath: dict[tuple[int, str], bool] = field(default_factory=dict)
-    # How far each glob list was scanned for the globs a name lies beneath, and those it found.
-    scans: dict[tuple[int, str], "_GlobScan"] = field(default_factory=dict)
+    def __init__(self, reads: ValueReads) -> None:
+        self.reached = ReadMemo[tuple[int, ScopePath, LookupKind], tuple[Candidate, ...]](reads)
+        self.origins = ReadMemo[tuple[int, ScopePath], frozenset[Origin]](reads)
+        self.beneath = ReadMemo[tuple[int, str], bool](reads)
+        # How far each glob list was scanned for the globs a name lies beneath, and those it found.
+        self.scans: dict[Hashable, _GlobScan] = {}
+
+    def forget(self, key: Hashable) -> None:
+        """Forget the glob scan kept under *key*."""
+        self.scans.pop(key, None)
 
 
-@dataclass(slots=True)
-class _GlobScan:
+class _GlobScan(KeptRead):
     """The globs of one layer a first name lies beneath: those among the first *scanned* globs."""
 
-    scanned: int = 0
-    found: list[tuple[int, UseDecl]] = field(default_factory=list)
+    __slots__ = ("found", "scanned")
+
+    def __init__(self, table: _UseReads, key: tuple[int, str]) -> None:
+        super().__init__(table, key)
+        self.scanned = 0
+        self.found: list[tuple[int, UseDecl]] = []
 
 
 def _use_target(decl: UseDecl) -> ScopePath:
@@ -204,6 +211,8 @@ def _use_target_spelling(decl: UseDecl, member_path: ScopePath = ()) -> str:
 class UseSources(PathSources, Protocol):
     """What reading a module's uses needs of the module, besides its path reads."""
 
+    value_reads: ValueReads
+
     def fits(self, target: QualifiedTarget, kind: LookupKind) -> bool:
         """Whether *target* is a declaration of the kind a position takes."""
         ...
@@ -241,6 +250,7 @@ class UseReader:
     ) -> None:
         # The owning source reader keeps this helper alive, not the reverse.
         self._sources = cast(UseSources, proxy(sources))
+        self._value_reads = sources.value_reads
         self._module_id = module_id
         self._scope_nodes = scope_nodes
         self._scope_entity_kinds = scope_entity_kinds
@@ -308,7 +318,7 @@ class UseReader:
         horizon, reads = self._horizon, self._reads
         if reads is None:
             self._outermost_reads += 1
-            current = self._shared or _UseReads()
+            current = self._shared or _UseReads(self._value_reads)
         else:
             current = reads
         self._horizon, self._reads = decl.node_id, current
@@ -372,15 +382,19 @@ class UseReader:
             return None
         first = relative[0]
         globs = self._indexes[id(layer)].globs()
-        scan = reads.scans.setdefault((id(layer), first), _GlobScan())
+        key = id(layer), first
+        scan = reads.scans.get(key)
+        if scan is None:
+            scan = reads.scans[key] = _GlobScan(reads, key)
         horizon = self._horizon
-        while scan.scanned < len(globs):
-            position, decl = globs[scan.scanned]
-            if horizon is not None and decl.node_id >= horizon:
-                break
-            if self._reaches_beneath_target(layer.scope_path, decl, first):
-                scan.found.append((position, decl))
-            scan.scanned += 1
+        with self._value_reads.computing(scan):
+            while scan.scanned < len(globs):
+                position, decl = globs[scan.scanned]
+                if horizon is not None and decl.node_id >= horizon:
+                    break
+                if self._reaches_beneath_target(layer.scope_path, decl, first):
+                    scan.found.append((position, decl))
+                scan.scanned += 1
         return scan.found
 
     def _seen(self, layer: ScopeNode, uses: Iterable[UseDecl]) -> Iterator[UseDecl]:
@@ -440,17 +454,9 @@ class UseReader:
             self._identities[decl.node_id] = found
         return found
 
-    @staticmethod
-    def _learn[K, V](memo: dict[K, V], key: K, read: Callable[[], V]) -> V:
-        """Return what *read* reaches, kept in *memo* under *key*."""
-        found = memo.get(key)
-        if found is None:
-            found = memo[key] = read()
-        return found
-
     def share_reads(self) -> None:
         """Share what reads learn among all later reads: the module's tables are complete."""
-        self._shared = _UseReads()
+        self._shared = _UseReads(self._value_reads)
 
     def _use_renames(self, site: ScopePath, decl: UseDecl) -> bool:
         """Whether *decl*, written in region *site*, is a single-item rename.
@@ -548,8 +554,7 @@ class UseReader:
         """
         with self._reading_use(decl) as reads:
             names = (*_use_target(decl), name)
-            return self._learn(
-                reads.beneath,
+            return reads.beneath.get(
                 (decl.node_id, name),
                 lambda: (
                     any(
@@ -612,7 +617,7 @@ class UseReader:
                     )
                 )
 
-            return self._learn(reads.reached, (decl.node_id, relative, kind), read)
+            return reads.reached.get((decl.node_id, relative, kind), read)
 
     def exposure(
         self, site: ScopePath, decl: UseDecl, relative: ScopePath, kind: LookupKind
@@ -708,7 +713,7 @@ class UseReader:
                     for origin in self._use_path_origins(site, decl, path)
                 )
 
-            return self._learn(reads.origins, (decl.node_id, relative), read)
+            return reads.origins.get((decl.node_id, relative), read)
 
     def name_references(
         self, site: ScopePath, decl: UseDecl

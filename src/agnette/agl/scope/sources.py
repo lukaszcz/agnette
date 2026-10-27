@@ -72,6 +72,7 @@ from agnette.agl.scope.lookup import (
     read_steps,
     shadowed_by_type_parameter,
 )
+from agnette.agl.scope.read_memo import ReadMemo, ValueReads
 from agnette.agl.scope.symbols import (
     AmbiguousConstructorError,
     BinderKind,
@@ -307,10 +308,12 @@ class ModuleSources(SourcesHost):
         # Once the tables the resolver collects are complete (:meth:`_keep_readings`),
         # the contributions at each full path and the own types, by what they are read with.
         self._keeping_readings = False
-        self._kept_contributions: dict[
+        # The reads of own values, which tell the kept results that depend on them.
+        self.value_reads = ValueReads()
+        self._kept_contributions = ReadMemo[
             tuple[int | None, tuple[ScopePath, ScopePath, LookupKind]], Reading
-        ] = {}
-        self._kept_own_types: dict[tuple[int | None, ScopePath], Reading] = {}
+        ](self.value_reads)
+        self._kept_own_types = ReadMemo[tuple[int | None, ScopePath], Reading](self.value_reads)
         self._reach_depth: tuple[int, int] | None = None
 
     @property
@@ -576,31 +579,27 @@ class ModuleSources(SourcesHost):
         declaring module, so no read from now on presumes a type being
         resolved. A read made while a use's own read is in progress, which
         sees only the uses written before it, is kept for that use. A walk
-        that binds an own value a path read sees discards the contributions
-        kept so far (:meth:`_bound_own_value`).
+        that binds an own value discards the kept results that read own
+        values (:meth:`_bound_own_value`).
         """
         self._keeping_readings = True
         self._uses.share_reads()
 
-    def _bound_own_value(self) -> None:
-        """Discard what was kept about contributions: the walk bound an own value they may read.
+    def _bound_own_value(self, path: ScopePath) -> None:
+        """Discard what was kept from the own value at *path*: the walk bound it.
 
         A static-root module binds every value up front; any other installs a
         root or scoped let/var only where its walk reaches it.
         """
-        if self._keeping_readings and self._kept_contributions:
-            self._kept_contributions.clear()
-            self._uses.share_reads()
+        self.value_reads.bound(path)
 
-    def _kept[K, V](self, kept: dict[tuple[int | None, K], V], key: K, read: Callable[[], V]) -> V:
+    def _kept[K, V](
+        self, kept: ReadMemo[tuple[int | None, K], V], key: K, read: Callable[[], V]
+    ) -> V:
         """Return what *read* reads, kept in *kept* under *key* and the uses it sees when final."""
         if not (self._keeping_readings and self._uses.settled_view):
             return read()
-        scoped = self._uses.horizon, key
-        found = kept.get(scoped)
-        if found is None:
-            found = kept[scoped] = read()
-        return found
+        return kept.get((self._uses.horizon, key), read)
 
     def own_at(self, path: ScopePath, kind: LookupKind) -> Reading:
         """This module's own declarations of *kind* at full *path*."""
@@ -617,10 +616,13 @@ class ModuleSources(SourcesHost):
                 if self._type_owners.is_declared(qname)
                 else None
             )
-        elif len(path) == 1:
-            target = self._own_root_value(path[0])
         else:
-            target = self._own_scoped_value(path[:-1], path[-1])
+            self.value_reads.note(path)
+            target = (
+                self._own_root_value(path[0])
+                if len(path) == 1
+                else self._own_scoped_value(path[:-1], path[-1])
+            )
         if target is None or not self.fits(target, kind):
             return Reading()
         layer = ContributionLayer.DECLARED
