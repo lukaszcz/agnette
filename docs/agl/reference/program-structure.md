@@ -68,22 +68,24 @@ Presentation attributes (`@doc`, `@opt-name`, `@opt-short`, `@opt-env`,
 `@opt-metavar`, `@opt-hidden`) shape the flag; see
 [Attributes](attributes.md#host-parameter-attributes).
 
-Each parameter resolves as CLI token > `@opt-env` variable > qualified config
-table > declared default. A required parameter with no external value is a
-host invocation error, reported before anything executes. Parameter types
+Each parameter resolves through the host's one
+[precedence chain](host-environment.md#precedence). A required parameter with
+no external value is a host invocation error, reported before anything executes. Parameter types
 must be JSON-wire-serializable: `text` crosses verbatim, every other type
 reads its external text as strict JSON or an [AgL value syntax
 literal](host-environment.md#value-syntax); `unit`, function types, and
 types reaching a dict whose key is not `Hashable` or not decodable (an
-exception key) are rejected. A name-addressable parameter cannot spell an
-[engine setting](host-environment.md#engine-settings) name, since both share
-one flag and config namespace. Full resolution and help rules:
+exception key) are rejected. A parameter named after an
+[engine setting](host-environment.md#engine-settings) claims the bare spelling
+first. Full resolution and help rules:
 [Host environment](host-environment.md#program-arguments).
 
-An `@param` static binding or `def` parameter is a separate host input owned by
-its declaring module, not a value parameter of the selected `program def`. A
-selected program exposes the marked bindings and function parameters it reaches
-alongside its own parameters; see [Host parameters](host-environment.md#host-parameters).
+An `@param` static binding or `def` parameter is a host input owned by its
+declaring module, separate from the selected program's own value parameters
+(unless it is one of them: an `@param` on the selected `program def`'s own
+parameter is that program's argument). A selected program exposes the marked
+bindings and function parameters it reaches alongside its own parameters; see
+[Host parameters](host-environment.md#host-parameters).
 
 ### Program-selected configuration
 

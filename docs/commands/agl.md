@@ -179,15 +179,15 @@ A positional token is read exactly as the same parameter's `--x VALUE` is: for a
 `--no-x`, so `None` comes from `--no-x` on an `@arg-std` parameter or from an omitted
 parameter's declared default; a `bool` slot takes `true` or `false`.
 
-An omitted argument resolves as `CLI > @opt-env variable > qualified program table (see
-[Configuration](#configuration)) > package manifest `[config]` (package-owned programs) >
-signature default > required error`. A value from the command line or an `@opt-env` variable
-that fails to parse is reported as CLI usage before any agent runs; one from a config table
-fails as a configuration error (exit 1, no usage). An explicit `@arg-pos` parameter skips the config table;
-an unzoned required parameter retains its config key. A config key cannot spell `None` for
-`Option[T]` or `Optional[T]`: a present key normally supplies `Some`, and an absent one falls
-through to the declared default. For
-`Optional[T]`, the exact string `"default"` supplies `Default`; pass `--no-x` for `None`.
+An omitted argument resolves through the one
+[precedence chain](../agl/reference/host-environment.md#precedence) (the config tiers are in
+[Configuration](#configuration)); a required one left unresolved is an error. A value from the
+command line or an `@opt-env` variable that fails to parse is reported as CLI usage before any agent
+runs; one from a config table fails as a configuration error (exit 1, no usage). An explicit
+`@arg-pos` parameter skips the config table; an unzoned required parameter retains its config key. A
+config key cannot spell `None` for `Option[T]` or `Optional[T]`: a present key normally supplies
+`Some`, and an absent one falls through to the declared default. For `Optional[T]`, the exact string
+`"default"` supplies `Default`; pass `--no-x` for `None`.
 
 Also reported before any agent runs: a parameter supplied twice (two flags, or positional plus
 `--x`), an unrecognized `--flag`, or more positionals than positional-capable parameters.
@@ -253,49 +253,36 @@ config table, then the default), so it cannot deliver an empty `text`; use a `""
 
 ### Host parameters
 
-A `@param let`, `@param var` or `@param` parameter of a `def` (a *function parameter*) that the
-selected program reaches (reads, assigns or calls, directly or through the functions and static
-bindings it uses) becomes a host option; one that is merely imported has no option, help entry, or
-configured value, and a config key naming it draws no warning. A function parameter's host value
-replaces its default at every call that omits the argument, whatever the call form; an explicit
-argument wins. The declaring module's external parameter name is used for a bare flag when it
-resolves, and for dotted qualified flags in all cases: an `A/logging` parameter `verbose` can
-be `--verbose`, `--logging.verbose`, or `--A.logging.verbose`; a `scope debug` parameter is
-`--logging.debug.trace` or `--A.logging.debug.trace`. A loose or inline entry has no module prefix: its function
-parameter `n` of `f` is `--n` or `--f.n`, and a root module parameter `n` just `--n`. A function parameter's qualified flags add
-its function's path, a method's receiver included: `max-steps` of `refine` in `devel/review` is
-`--review.refine.max-steps` or `--devel.review.refine.max-steps` (never `--refine.max-steps`),
-and `aspects` of `Agent::review` is `--review.Agent.review.aspects`. `bool`, `Option[T]`, and
-`Optional[T]` also have the
-corresponding `--no-...` form, and `@opt-short("v")` adds `-v`. Module, scope and function paths
-are dotted in flags; `::` is only for declaration paths in AgL source.
+A `@param let`, `@param var`, or `@param` parameter of a `def` (a *function parameter*) that the
+selected program reaches becomes a host option; one that is merely imported has no option, help
+entry, or configured value, and a config key naming it draws no warning. Reachability, claim levels,
+shadowing, and precedence are specified in
+[Host parameters](../agl/reference/host-environment.md#host-parameters). On the command line:
 
-A `@param` parameter of the selected `program def` is that program's own argument (one option,
-settable by the program's table and manifest like any other); the same parameter is a
-function parameter of every other command that reaches the program.
-
-Bare names are claimed by the host, the selected program's value parameters, every parameter's
-most qualified spelling (so each stays addressable: in a loose file a root `@param n` keeps
-`--n`, while `n` of functions `f` and `g` are `--f.n` and `--g.n`; named modules' first, so a loose
-file never takes an imported module's spelling), parameters of its
-own module, parameters of modules with the program's owner (the package mounting a module, else
-the loose module root it was found through), parameters of other owners, then the engine settings,
-in that order; a same-package helper
-therefore shadows a dependency's parameter of the same name, and any parameter shadows an engine
-setting's bare name. A shadowed parameter keeps its
-qualified flags. Several parameters in one level can make a bare flag ambiguous; declaring them
-is valid, but using that flag (or the config key of that spelling) is an error that names the
-declarations and their spellings. `@opt-name` supplies the
-external name in flags and config; `@opt-env` is the fallback after CLI flags; `@opt-hidden`
-removes the entry from help and completion without disabling it.
+- The external name is a bare flag when it resolves, and dotted qualified flags always: an
+  `A/logging` parameter `verbose` is `--verbose`, `--logging.verbose`, or `--A.logging.verbose`; a
+  `scope debug` one is `--logging.debug.trace` or `--A.logging.debug.trace`. A function parameter
+  adds its function's path, a method's receiver included: `max-steps` of `refine` in `devel/review`
+  is `--review.refine.max-steps` or `--devel.review.refine.max-steps` (never `--refine.max-steps`),
+  and `aspects` of `Agent::review` is `--review.Agent.review.aspects`. A loose or inline entry has
+  no module prefix: parameter `n` of `f` is `--n` or `--f.n`, and a root module parameter `n` just
+  `--n`. Paths are dotted in flags and TOML; `::` is only for declaration paths in AgL source.
+- `bool`, `Option[T]`, and `Optional[T]` also take `--no-...`; `@opt-short("v")` adds `-v`.
+- A same-package parameter shadows a dependency's, and any parameter shadows an engine setting's
+  bare name; a shadowed parameter keeps its qualified flags. Several parameters at one level make
+  a spelling ambiguous only when used. See the
+  [claim levels](../agl/reference/host-environment.md#host-parameters).
+- A `@param` parameter of the selected `program def` is that program's own argument (one option,
+  settable by the program's table and manifest like any other); every other command that reaches
+  the program sees it as a function parameter.
+- `@opt-env` is the fallback after CLI flags; `@opt-hidden` removes the entry from help and
+  completion without disabling it.
 
 Selected-program help shows its usual options first, then one `Parameters of MODULE` section for
 each module declaring a reached module or function parameter, then an `Engine settings` section,
-then the shared execution options. Each visible
-parameter appears under its shortest resolving spelling, so a shadowed one shows only qualified
-spellings; one with no resolving spelling is omitted.
-For parameter precedence and configuration routes, see
-[Host parameters](../agl/reference/host-environment.md#host-parameters).
+then the shared execution options. Each visible parameter appears under its shortest resolving
+spelling, so a shadowed one shows only qualified spellings; one with no resolving spelling is
+omitted.
 
 ### Host Agent syntax
 
@@ -525,8 +512,7 @@ module component is its `.agl` stem; a file run from a package (development chec
 store tree, or selected standard library) keeps its package-qualified route, like an installed
 reference. A `review::main` program in `review-tools/review` reads engine overrides and its
 value parameters from `[review-tools.review.review.main]`, a shorter unambiguous suffix, or the
-exact quoted route `["review-tools/review".review.main]`. Inline `-c` programs have no route, so
-their parameters resolve as CLI value > `@opt-env` > signature default.
+exact quoted route `["review-tools/review".review.main]`. Inline `-c` programs have no route.
 
 Module parameters use their declaring module's **module route**. For `A/logging`, root bindings use
 `[A.logging]`; bindings in `scope debug` use `[A.logging.debug]`, or the exact module anchor
@@ -544,16 +530,15 @@ function parameters and the program's own signature arguments (`main::x`). Below
 package-owned program's [manifest `[config]`](pkg.md#config) table supplies further defaults,
 signature arguments included — its own command table, then an inherited group table, then the
 manifest root — still above the declaration route; CLI and
-`@opt-env` still win over all of these. An inline entry has no config-file route or manifest, but
-its `@config` entries still apply to its module parameters, function parameters and own
-signature arguments, so they resolve as CLI > `@opt-env` > `@config` > initializer (an
-argument's default); its imported modules retain their declaration routes and
-may still be seeded by `@config`.
+`@opt-env` still win over all of these. An inline `-c` entry has no config-file route or
+manifest, but `@inherit` and `@config` still apply to its arguments and module and function
+parameters (see [Precedence](../agl/reference/host-environment.md#precedence)); its imported
+modules retain their declaration routes.
 
 A [registered command](pkg.md#registered-commands)'s program route also inherits from its
 [group tables](pkg.md#registered-commands): a table named for a proper prefix of the command's
 path — its own or an alias's — feeds every command beneath it, deepest prefix first, below the
-program's own tables but above `@config`.
+program's own tables but above `@inherit`.
 
 A parameter may instead default to another command's configured value with
 [`@inherit`](../agl/reference/attributes.md#inherit): the first address yielding a value
@@ -616,12 +601,14 @@ or `None`.
 
 Precedence for `agent`, `sandbox`, `strict-json`, `timeout`, `trace`,
 `trace-file`, `debug`, and `parse-error-retries` is
-`source write > CLI > qualified program table > @config > a package-owned program's manifest
+`source write > CLI > program table > @config > a package-owned program's manifest
 [config] > [exec].X > engine default`, where `@config` is the selected program's own
 [`@config`](../agl/reference/attributes.md#config) entries and the
 [manifest `[config]`](pkg.md#config) tier resolves its own command table, then an inherited
-group table, then the manifest root. CLI, config, `@config`, and the manifest supply the
-**initial** value; a source write overrides it from that program point on: after `--no-trace`,
+group table, then the manifest root (see
+[Precedence](../agl/reference/host-environment.md#precedence)). Engine settings take no
+`@inherit`. CLI, config, `@config`, and the manifest supply the **initial** value; a source write
+overrides it from that program point on: after `--no-trace`,
 `std/config::trace := true` enables tracing from there, and `std/config::strict-json := true`
 overrides `[exec] strict-json = false`.
 

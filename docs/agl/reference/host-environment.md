@@ -499,8 +499,8 @@ A program argument has no declaration route beyond its program route, and its
 default is its declared default (else a missing required argument is an error).
 A module parameter's declaration route is its module route and its default its
 initializer; a function parameter's is its function's table and its default the
-declared default. An engine setting has no `@opt-env`; its declaration route is
-`[exec]`.
+declared default. An engine setting has no `@opt-env` or `@inherit`; its
+declaration route is `[exec]`.
 
 - **Program route** — the selected program's own tables (its qualified
   table and, for a registered command, its command-path table), then inherited
@@ -533,11 +533,11 @@ Native` overrides both `[prog.main] sandbox = "Sandbox"` and
 `std/config::sandbox := AgentSandbox::Disabled` overrides the flag
 from that point on.
 
-Hosts without some tiers skip them. Inline `-c` source has no config route or
-manifest: its own value parameters resolve as CLI token > `@opt-env` >
-declared default, and its own module parameters as CLI flag > `@opt-env` >
-`@config` > initializer, while its file-backed imports keep their module
-routes. The REPL has no selected
+Hosts without some tiers skip them. Inline `-c` source has no program or
+declaration route and no manifest: all its parameters (program arguments,
+module and function parameters) resolve as CLI > `@opt-env` > `@inherit` >
+`@config` > default, while its file-backed imports keep their module routes.
+The REPL has no selected
 program: engine settings resolve as CLI > `[exec]` > declared default,
 `@inherit` and `@config` apply nothing, and a
 `program def` declared there is an ordinary function, so its named-only

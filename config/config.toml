@@ -72,7 +72,7 @@ alias = "codex --yolo --no-daemon"
 # ambiguity; ``["review-tools/judge".review]`` is an exact module anchor.
 # The same table also supplies a selected ``program def``'s own value
 # parameters, keyed by name. CLI options override config values for both.
-# Inline ``-c`` value parameters are CLI-only.
+# Inline ``-c`` programs have no such tables.
 #
 # [review-workflow.main]
 # timeout = "60s"               # engine-key override for this program
@@ -89,11 +89,16 @@ alias = "codex --yolo --no-daemon"
 # Module parameters use their declaring module route. A root binding in
 # A/logging uses [A.logging]; a binding inside `scope debug` uses
 # [A.logging.debug], or the exact anchor ["A/logging".debug]. Leaves use the
-# binding's @opt-name when present. The selected program table above overrides
-# a resolving bare module parameter leaf.
+# binding's @opt-name when present. A `@param` parameter of a `def` uses the
+# function's qualified table, e.g. [devel.review.refine] for `refine` in
+# devel/review. The selected program table above overrides a resolving bare
+# parameter leaf.
 #
 # [A.logging]
 # verbose = true
 #
 # [A.logging.debug]
 # trace = false
+#
+# [devel.review.refine]
+# max-steps = 6

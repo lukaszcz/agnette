@@ -301,12 +301,11 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
               and take --NAME options (named). bool: --NAME/--no-NAME; Option[T]:
               --NAME VALUE/--no-NAME, Optional[T] also --NAME default; text:
               verbatim; Agent: host Agent syntax; others: JSON or AgL value syntax.
-              An omitted argument falls back to its @opt-env variable (empty is
-              unset), the program's config table (named only), then its default.
               Reached `@param` bindings and `def` parameters add bare and
-              dotted flags (--A.logging.verbose), falling back to @opt-env, the
-              program's table, the declaration route (the module's or function's
-              table), then the initializer or default.
+              dotted flags (--A.logging.verbose). An omitted value falls back
+              through @opt-env, the program's tables, @inherit, @config, the
+              manifest, the declaration route, then the default
+              (docs/commands/agl.md, "Configuration").
               A bare flag matching several bindings errors when used.
 
             With a single program or -p, `agm exec FILE -h` shows the program's
@@ -592,8 +591,8 @@ _PATH_HELP_TEXTS: dict[tuple[str, ...], str] = {
 
         Show an active package's metadata, registered commands, direct
         dependencies, and [python] requirements, each installed VERSION,
-        installed VERSION (unsatisfied), missing, or not applicable (marker
-        false).
+        installed VERSION (unsatisfied), missing, stale overlay, or not
+        applicable (marker false).
 
         Inside a project, look NAME up in the project's store, then the global
         one, check dependencies against that layered selection, and print a

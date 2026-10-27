@@ -100,7 +100,7 @@ program def main(spec: text) -> unit =
 | [Named scopes](scopes.md) | Nestable declaration namespaces, qualifier paths, visibility, and `use` |
 | [Packages](packages.md) | Package module trees and identity, package-qualified paths, import visibility, programs as commands, params and qualified configuration keys, resources and companions |
 | [Python FFI](ffi.md) | `extern def`, the companion Python file, value mapping across the boundary, callbacks, `ExternError`, companion state, the trace hook, target type parameters |
-| [Host environment](host-environment.md) | The execution pipeline, agents, program arguments and value syntax, module parameters, engine settings and their precedence, tracing |
+| [Host environment](host-environment.md) | The execution pipeline, agents, program arguments and value syntax, host parameters, engine settings and their precedence, tracing |
 | [Grammar](grammar.md) | The complete EBNF |
 
 The reference names a library type or function only where the language's semantics

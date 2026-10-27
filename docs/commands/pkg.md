@@ -153,12 +153,13 @@ program = "review-tools/main::batch"
   `warnings`) gets no command-path config table, exact or inherited.
 - `program` names the `program def` to run as `<module>::<program>`: `review-tools/main::review` is
   program `review` in module `review-tools/main`, file `review-tools/src/main.agl`. Must belong to
-  this package, take no type parameters, return unit; its signature arguments and the module
-  parameters it reaches become the command's host surface.
+  this package, take no type parameters, return unit; its signature arguments and the module and
+  function parameters it reaches, plus the engine settings, become the command's host surface.
 - `doc` is the command's prose. A command naming a program never states it: that program's source
   `@doc` supplies it, and an installed manifest records the result. Command help shows it, then
-  signature options followed by one section for each module declaring a visible reached module
-  parameter. Parameter `@doc` attributes describe their options.
+  signature options, then one `Parameters of MODULE` section for each module declaring a visible
+  reached module or function parameter, then an `Engine settings` section. Parameter `@doc`
+  attributes describe their options.
 - Omit `program` for a command group (must have descendant commands), whose only prose is its own
   `doc` (TOML multiline strings work; a paragraph holding an indented line keeps its layout in
   help). Undeclared parent groups work automatically, with generated help listing their
@@ -252,14 +253,15 @@ unregistered nested table, an unknown leaf, an engine value that fails to decode
 is ambiguously both a registered subcommand and a setting spelling. At run time, whenever the
 selected program is owned by the package (run as a registered command, an installed reference, or
 a file path), its command table beats an inherited group table beats the root, ranking below
-config-file program, command, and group tables and `@config`, and above `[exec]` and a parameter's
-declaration route (see the Configuration bullet below); a program argument it sets is beaten by
-its CLI value, `@opt-env` and those tables. A relative path-valued setting, such as `trace-file`
-or a `path` parameter, resolves against the package root, else the current working directory
-when that path does not exist there. Validation checks spellings against the whole closure; a leaf in
-a command's own table that the selected program does not consume (a parameter outside its import
-graph, or a bare name a reserved flag shadows) is ignored with a run-time warning, like an unused
-config-file key.
+config-file program, command, and group tables, `@inherit` and `@config`, and above `[exec]` and
+a parameter's declaration route (see the
+[precedence chain](../agl/reference/host-environment.md#precedence)); a program argument it sets
+is beaten by its CLI value, `@opt-env` and those tables. A relative path-valued setting, such as
+`trace-file` or a `path` parameter, resolves against the package root, else the current working
+directory when that path does not exist there. Validation checks spellings against the whole
+closure; a leaf in a command's own table that the selected program does not consume (a parameter
+outside its import graph, or a bare name a reserved flag shadows) is ignored with a run-time
+warning, like an unused config-file key.
 
 ## Registered commands
 
@@ -284,25 +286,15 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   `--std.config.NAME` always addresses the setting.
   There is no `--warning` flag: warning levels come from the [`[warnings]`](config.md#warnings)
   config table only.
-- **Configuration.** Omitted signature arguments and engine settings use the program route:
-  the program's qualified table (e.g. `[review-tools.main.review]` for
-  `review-tools/main::review`) or a registered command path (`[pr-review]`, or `[dv.review]`
-  for command `dv review`). Both name the same program regardless of how it runs, so setting
-  one key through both in one config layer is an error. Below either, an inherited group table —
-  a proper prefix of a command path, such as `[dv]` for `dv review` (see
-  [Aliases](#aliases)) — supplies further defaults. The program's own
-  [`@config`](../agl/reference/attributes.md#config) entries rank below the program route: an
-  engine setting falls through to `@config` before `[exec]`, a module or function parameter
-  falls through to `@config` before its declaration route, and a signature argument reads
-  `@config` too (`main::x`). Below `@config`, the owning
-  package's manifest [`[config]`](#config) supplies further defaults — its own command table,
-  then an inherited group table, then the root — still above `[exec]` and a parameter's
-  declaration route; signature arguments read the manifest tier too. A resolving program-route
-  leaf — its bare external name, or a dotted qualified spelling as a quoted key — still overrides
-  both. CLI
-  values win over all of them; `@opt-env` reaches a signature argument and a module or function
-  parameter alike, but not an engine setting, which only a source `std/config` write outranks. See
-  [Configuration](agl.md#configuration).
+- **Configuration.** Omitted signature arguments and engine settings use the program route: the
+  program's qualified table (e.g. `[review-tools.main.review]` for `review-tools/main::review`) or
+  a registered command path (`[pr-review]`, or `[dv.review]` for command `dv review`), or an
+  inherited group table (a proper prefix of a command path, such as `[dv]`; see
+  [Aliases](#aliases)). The two program tables name the same program regardless of how it runs, so
+  setting one key through both in one config layer is an error. Ranking of these routes against
+  CLI, `@opt-env`, `@inherit`, `@config`, the owning package's manifest [`[config]`](#config) and
+  `[exec]`: [Precedence](../agl/reference/host-environment.md#precedence); the routes are
+  described in [Configuration](agl.md#configuration).
 - **Conflicts.** Two active packages of one store cannot own the same command path; install the
   later one with `--shadow` to make it the owner. Shadowing is recorded per store tree, so a
   rebuilt activation index preserves it. Inside a project, [project-store](#project-store)
@@ -346,7 +338,8 @@ files; a resource excluded this way fails creation. The archived manifest drops 
 every path-only dependency needs a stored version or `url` first.
 
 **`install`** takes a directory or archive, resolves the dependency closure, validates, and stores
-the distribution in `<AgM-home>/packages/<name>/<version>/` with a SHA-256 `RECORD`. From a
+the distribution in `<AgM-home>/packages/<name>/<version>/` (with `--project`, the
+[project store](#project-store)) with a SHA-256 `RECORD`. From a
 directory source it first merges the module tree's `@command` registrations into the manifest, so
 the stored package carries one complete command table. Activation is published atomically only
 after the resulting selection validates; a failed install leaves nothing active. If a package with
@@ -366,8 +359,9 @@ the install rather than downgrading one. An installer failure or interruption fa
 leaves the store as it was. `--dry-run` prints the installer command instead of running it. A
 `--project` install rebuilds the project's [Python overlay](#project-store) instead.
 
-**`switch NAME@VERSION`** selects an exact stored version as globally active. Other stored versions
-stay installed. Activation validates package dependencies and registered commands.
+**`switch NAME@VERSION`** selects an exact stored version as active (in the project store with
+`--project`). Other stored versions stay installed. Activation validates package dependencies and
+registered commands.
 
 **`uninstall`** verifies the `RECORD`, validates the selection without that package, deactivates,
 and removes the recorded files (plus cache and VCS residue). An editable package is only deactivated. Command
