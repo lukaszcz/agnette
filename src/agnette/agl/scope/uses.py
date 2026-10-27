@@ -65,7 +65,7 @@ class _UseReads:
     A use's reach depends only on the uses written before it and on the
     module's own values, so once the module's tables are complete
     (:meth:`UseReader.share_reads`) every read shares what it learns, until
-    a walk binds a value what it learned read.
+    a walk binds a value that it read.
     """
 
     def __init__(self, reads: ValueReads) -> None:

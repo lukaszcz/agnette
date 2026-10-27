@@ -582,8 +582,8 @@ class ModuleSources(SourcesHost):
         declaring module, so no read from now on presumes a type being
         resolved. A read made while a use's own read is in progress, which
         sees only the uses written before it, is kept for that use. A walk
-        that binds an own value discards the kept results that read own
-        values (:meth:`_bound_own_value`).
+        that binds an own value discards only the kept results that read
+        that value (:meth:`_bound_own_value`).
         """
         self._keeping_readings = True
         self._uses.share_reads()
