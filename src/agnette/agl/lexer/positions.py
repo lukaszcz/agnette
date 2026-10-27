@@ -76,7 +76,6 @@ class Rebase:
     def __init__(
         self, lines: LineIndex, start: int, bound: tuple[int, Token] | None = None
     ) -> None:
-        self._lines = lines
         self._start = start
         self._bound = bound
         self._line = lines.line(start)
