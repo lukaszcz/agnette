@@ -57,9 +57,11 @@ from agnette.packages.manifest import (
     expanded_commands,
     program_reference,
     registered_command_paths,
+    split_program_reference,
 )
 from agnette.packages.model import PackageInfo, is_std_package_name
 from agnette.stdlib_locator import shipped_stdlib_root
+from agnette.util.graph import reachable_nodes
 from agnette.util.ident import is_identifier
 from agnette.util.text import normalize_newlines
 
@@ -108,16 +110,28 @@ def validate_package(
     modules = validate_package_structure(package)
     dependencies = tuple(dependency_packages)
     resolution = _resolve_package_modules(package, modules, dependency_packages=dependencies)
-    _validate_command_programs(package.manifest, resolution.resolutions)
-    _validate_program_param_spellings(package.manifest, resolution)
-    _validate_manifest_config(package.manifest, resolution.all_resolutions)
     _validate_inherit_addresses(resolution, dependency_packages=dependencies)
-    _validate_resources(
+    _validate_resolved_package(
+        package.manifest,
         modules,
-        resolution.resolutions,
+        resolution,
         exists=lambda relative: _resource_exists(package.root, relative),
     )
     return resolution
+
+
+def _validate_resolved_package(
+    manifest: PackageManifest,
+    modules: Mapping[ModuleId, object],
+    resolution: PackageResolution,
+    *,
+    exists: Callable[[str], bool],
+) -> None:
+    """Validate a resolved package's commands, manifest config, and resources."""
+    _validate_command_programs(manifest, resolution.resolutions)
+    _validate_program_param_spellings(manifest, resolution)
+    _validate_manifest_config(manifest, resolution.all_resolutions)
+    _validate_resources(modules, resolution.resolutions, exists=exists)
 
 
 def validate_package_distribution(resolution: PackageResolution) -> None:
@@ -384,12 +398,10 @@ def _validate_archive_content(
             _validate_inherit_addresses(resolution, dependency_packages=dependency_packages)
     except (OSError, UnicodeDecodeError) as exc:
         raise DisciplineError(f"cannot load archive package {manifest.name!r}: {exc}") from exc
-    _validate_command_programs(manifest, resolution.resolutions)
-    _validate_program_param_spellings(manifest, resolution)
-    _validate_manifest_config(manifest, resolution.all_resolutions)
-    _validate_resources(
+    _validate_resolved_package(
+        manifest,
         modules,
-        resolution.resolutions,
+        resolution,
         exists=lambda relative: _archive_resource_exists(relative, archive_paths),
     )
 
@@ -556,7 +568,7 @@ def _validate_program_param_spellings(
     for command in manifest.commands.values():
         if command.program is None:
             continue
-        entry = ModuleId.from_path(command.program.partition("::")[0])
+        entry = ModuleId(split_program_reference(command.program)[0])
         closure = _import_closure(entry, package.adjacency)
         collision = full_spelling_collision(
             declaration
@@ -570,15 +582,8 @@ def _validate_program_param_spellings(
 def _import_closure(
     entry: ModuleId, adjacency: Mapping[ModuleId, tuple[ModuleId, ...]]
 ) -> tuple[ModuleId, ...]:
-    """Return *entry* and every module it imports, transitively, in discovery order."""
-    seen: dict[ModuleId, None] = {entry: None}
-    pending = [entry]
-    while pending:
-        for target in adjacency.get(pending.pop(), ()):
-            if target not in seen:
-                seen[target] = None
-                pending.append(target)
-    return tuple(seen)
+    """Return *entry* and every module it imports, transitively."""
+    return reachable_nodes(entry, lambda module_id: adjacency.get(module_id, ()))
 
 
 def _resolution_params(
@@ -635,9 +640,9 @@ def _command_argument_spellings(
     for path, command in expanded_commands(manifest).items():
         if command.program is None:
             continue
-        module_path, _separator, declaration_path = command.program.partition("::")
-        resolution = resolutions[ModuleId.from_path(module_path)]
-        function = _program_declarations(resolution)[tuple(declaration_path.split("::"))]
+        module_segments, declaration = split_program_reference(command.program)
+        resolution = resolutions[ModuleId(module_segments)]
+        function = _program_declarations(resolution)[declaration]
         spellings[tuple(path.split())] = _program_argument_spellings(resolution, function)
     return spellings
 

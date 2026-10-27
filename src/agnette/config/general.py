@@ -345,16 +345,12 @@ class ExecConfig:
     timeout: float | None
     trace: object | None
     trace_file: str | None
-    # Echo streamed agent output on the host's stderr channel.
-    echo: bool = False
     # Raw TOML value (a string or a native table): exec/repl decode it as a
     # host Agent value through the shared host-value decoder.
     agent: object | None = None
     # Raw TOML value (a string or a native table): exec/repl decode it as a
     # host AgentSandbox value through the shared host-value decoder.
     sandbox: object | None = None
-    # Optional recursion call-depth override (None = use the canonical default).
-    max_call_depth: int | None = None
     # Keep debugging artifacts (``std/fs`` temporary paths) past the host session.
     debug: object | None = None
     parse_error_retries: object | None = None
@@ -370,7 +366,9 @@ EXEC_OPTION_KEYS: tuple[str, ...] = (_ECHO_KEY, _MAX_CALL_DEPTH_KEY)
 class ExecOptions:
     """The ``[exec]`` options that are not engine settings."""
 
+    # Echo streamed agent output on the host's stderr channel.
     echo: bool
+    # Optional recursion call-depth override (None = use the canonical default).
     max_call_depth: int | None
 
 
@@ -427,7 +425,6 @@ def exec_config_from_merged(
             if key in table:
                 effective[key] = table[key]
 
-    options = exec_options_from_merged(merged)
     resolved_strict_json = effective.get("strict-json")
 
     resolved_timeout = _optional_timeout(effective, "timeout")
@@ -444,9 +441,7 @@ def exec_config_from_merged(
     resolved_parse_error_retries = effective.get("parse-error-retries")
 
     return ExecConfig(
-        echo=options.echo,
         strict_json=resolved_strict_json,
-        max_call_depth=options.max_call_depth,
         timeout=resolved_timeout,
         trace=resolved_trace,
         trace_file=resolved_trace_file,

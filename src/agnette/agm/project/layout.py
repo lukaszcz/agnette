@@ -13,6 +13,7 @@ from agnette.core.dotenv import write_dotenv_values
 from agnette.core.env import load_config_dotenv_files, resolve_env, resolve_home
 from agnette.core.process import require_success
 from agnette.core.toml import TomlDict, load_toml_file, toml_dict
+from agnette.packages.layout import store_root_path
 
 
 @dataclass(frozen=True)
@@ -348,8 +349,12 @@ def project_deps_dir(project_dir: Path) -> Path:
 
 
 def project_packages_dir(project_dir: Path) -> Path:
-    """The project-local package store; created by the first ``--project`` install."""
-    return project_dir / "packages"
+    """The project-local package store; created by the first ``--project`` install.
+
+    Laid out like the global store beneath an AgM home, so a home that is a
+    project has one store.
+    """
+    return store_root_path(project_dir)
 
 
 def packages_project_dir(packages_dir: Path) -> Path:

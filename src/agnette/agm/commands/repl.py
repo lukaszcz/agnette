@@ -61,6 +61,7 @@ from agnette.config.general import (
     EXEC_CONFIG_SECTION,
     GeneralConfig,
     exec_config_from_merged,
+    exec_options_from_merged,
     load_general_config,
     load_repl_config,
     save_repl_setting,
@@ -118,6 +119,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
         general_config = load_general_config(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
         merged_config = general_config.merged
         config = exec_config_from_merged(merged_config)
+        options = exec_options_from_merged(merged_config)
     except ValueError as exc:
         print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -128,7 +130,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     # Resolve max call depth: CLI > [exec] config (config pragmas are not applied
     # in the REPL).  ``None`` lets the session apply the canonical default.
     call_depth_limit = (
-        args.max_call_depth if args.max_call_depth is not None else config.max_call_depth
+        args.max_call_depth if args.max_call_depth is not None else options.max_call_depth
     )
 
     # Seed only explicit CLI/config controls.  Trace-service fallbacks remain
@@ -143,7 +145,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     engine_seeds = engine_tiers.merged()
     timeout = resolve_timeout(engine_seeds)
     strict_json = resolve_strict_json(engine_seeds)
-    echo_agent_output = config.echo if args.echo is None else args.echo
+    echo_agent_output = options.echo if args.echo is None else args.echo
 
     # One resolution for both the readable ``trace`` seed and the trace file
     # prepared below, exactly as ``agm exec`` does.

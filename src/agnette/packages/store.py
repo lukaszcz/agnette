@@ -181,14 +181,11 @@ def iter_store_package_dirs(store: PackageStore) -> Iterator[Path]:
 
     An absent store holds no packages. A linked name directory does not
     designate a managed tree, and dot-prefixed entries are the store's own
-    bookkeeping , never package names.
+    bookkeeping, never package names.
     """
 
-    if not store.root.is_dir():
-        return
-    for name_dir in sorted(store.root.iterdir()):
-        if name_dir.is_dir() and not name_dir.is_symlink() and not name_dir.name.startswith("."):
-            yield name_dir
+    if store.root.is_dir():
+        yield from _managed_subdirs(store.root)
 
 
 def iter_store_version_dirs(name_dir: Path) -> Iterator[Path]:
@@ -198,13 +195,14 @@ def iter_store_version_dirs(name_dir: Path) -> Iterator[Path]:
     uninstall tombstones, and provenance sidecars — not installed versions.
     """
 
-    for version_dir in sorted(name_dir.iterdir()):
-        if (
-            version_dir.is_dir()
-            and not version_dir.is_symlink()
-            and not version_dir.name.startswith(".")
-        ):
-            yield version_dir
+    yield from _managed_subdirs(name_dir)
+
+
+def _managed_subdirs(directory: Path) -> Iterator[Path]:
+    """Yield *directory*'s unlinked, non-dot-prefixed subdirectories, in name order."""
+    for child in sorted(directory.iterdir()):
+        if child.is_dir() and not child.is_symlink() and not child.name.startswith("."):
+            yield child
 
 
 def iter_installed_packages(store: PackageStore) -> Iterator[PackageInfo]:

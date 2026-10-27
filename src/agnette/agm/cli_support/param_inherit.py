@@ -65,19 +65,19 @@ def _target_value(
     target: ProgramTarget,
     leaf: str,
     command_tables: frozenset[tuple[str, ...]],
+    command_routes: frozenset[tuple[str, ...]],
     cwd: Path,
 ) -> ConfiguredValue | None:
     """Return *leaf*'s configured value for *target*: its program route, else its manifest.
 
     The target's CLI, environment, ``@config``, ``@inherit`` and declaration
     routes never contribute, so inheritance is not transitive. Nor does the
-    inheriting program: only registered command tables are routes.
+    inheriting program: only registered command tables (*command_routes*) are routes.
     """
     key = _key(target, leaf)
     # A leaf matching several routes is an error of the target program alone, so
     # each address is resolved once, independent of the inheriting program.
-    routes = known_route_tables((key,), command_tables)
-    found = resolve_qualified_values(config, (key,), routes).get(key)
+    found = resolve_qualified_values(config, (key,), command_routes).get(key)
     if found is None and target.package.manifest.config:
         found = resolve_manifest_values(
             target.package.manifest.config,
@@ -100,6 +100,7 @@ def resolve_inherited_values(
     nothing. Every unregistered address warns, though one already yielded a value.
     """
     command_tables = frozenset(scope.registry)
+    command_routes = known_route_tables((), command_tables)
     resolved: dict[HostParamKey, InheritedConfigValue] = {}
     for key, request in requests.items():
         for address in request.addresses:
@@ -114,7 +115,7 @@ def resolve_inherited_values(
             if key in resolved:
                 continue
             target, leaf = split
-            found = _target_value(config, target, leaf, command_tables, scope.cwd)
+            found = _target_value(config, target, leaf, command_tables, command_routes, scope.cwd)
             if found is not None:
                 resolved[key] = InheritedConfigValue(found, address)
     return resolved

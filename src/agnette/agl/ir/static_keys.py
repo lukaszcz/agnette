@@ -24,6 +24,11 @@ class FunctionParamKey:
     function: str
     param: str
 
+    @property
+    def declaration_key(self) -> StaticBindingKey:
+        """Return the declaration key of the function this parameter belongs to."""
+        return self.module, self.scope_path, self.function
+
 
 HostParamKey: TypeAlias = StaticBindingKey | FunctionParamKey
 """Any host parameter's identity, told apart by type.

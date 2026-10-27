@@ -163,24 +163,24 @@ def _report_undeclared_config_keys(
     command_tables = package_command_paths | frozenset(
         path for route in routes for path in route.command_paths
     )
+    foreign_commands = [command_tables - frozenset(route.command_paths) for route in routes]
     declared_by_table: dict[tuple[str, ...], set[str]] = {}
-    for route in routes:
-        foreign_commands = command_tables - frozenset(route.command_paths)
+    for route, foreign in zip(routes, foreign_commands, strict=True):
         read_tables = (
             *(
                 path
                 for path in route_table_paths(
                     route.module_segments, route.scope_path, route.command_paths
                 )
-                if path not in foreign_commands
+                if path not in foreign
             ),
             *inherited_table_paths(route.command_paths),
         )
         for table_path in read_tables:
             declared_by_table.setdefault(table_path, set()).update(route.declared_leaves)
-    for route in routes:
-        exempt_tables = (command_tables - frozenset(route.command_paths)) | (
-            _tables_with_registered_descendants(route.command_paths, package_command_paths)
+    for route, foreign in zip(routes, foreign_commands, strict=True):
+        exempt_tables = foreign | _tables_with_registered_descendants(
+            route.command_paths, package_command_paths
         )
         leaf_tables = configured_leaf_tables(
             config,
@@ -315,14 +315,11 @@ def resolve_param_values(
     unreached_leaves = _declared_leaves(param for param in declared if param.key not in reached)
     targets = _targets(program, entries)
     program_routes = _program_routes(program, entry_segments, command_paths, targets)
+    program_leaves = unreached_leaves | frozenset(
+        spelling for _target, key in program_routes for spelling in key.leaf_spellings()
+    )
     reports = _route_reports(
-        program,
-        entry_segments,
-        command_paths,
-        declared,
-        declared_programs,
-        unreached_leaves,
-        program_routes,
+        program, entry_segments, command_paths, declared, declared_programs, program_leaves
     )
     nested_routes = known_route_tables(
         (
@@ -336,7 +333,7 @@ def resolve_param_values(
             config, entry_segments, program.route_path, command_paths, nested_routes=nested_routes
         )
         _reject_configured_cross_route_ambiguities(
-            config, targets, entries, program_tables, nested_routes
+            config, targets, module_params, program_tables, nested_routes
         )
         _reject_configured_ambiguous_program_leaves(
             program_tables, command_paths, surface, package_command_paths, package_config
@@ -361,10 +358,7 @@ def resolve_param_values(
         _report_unused_manifest_leaves(
             package_config,
             command_paths,
-            frozenset(
-                spelling for _target, key in program_routes for spelling in key.leaf_spellings()
-            )
-            | unreached_leaves,
+            program_leaves,
             _positional_only_leaves(program),
             package_command_paths,
         )
@@ -476,7 +470,7 @@ def _inherited_values(
 def _reject_configured_cross_route_ambiguities(
     config: GeneralConfig,
     targets: Sequence[_Target],
-    entries: Sequence[ParamSurfaceEntry],
+    module_params: Sequence[HostParamInfo],
     program_tables: Mapping[str, frozenset[tuple[str, ...]]],
     nested_routes: frozenset[tuple[str, ...]],
 ) -> None:
@@ -493,7 +487,7 @@ def _reject_configured_cross_route_ambiguities(
     """
     if not program_tables:
         return
-    for param, key in _declaration_routes(_declaration_routed(entry.param for entry in entries)):
+    for param, key in _declaration_routes(module_params):
         peers = tuple(
             target for target in targets if target.key != param.key and key.leaf in target.spellings
         )
@@ -675,13 +669,12 @@ def _route_reports(
     command_paths: tuple[tuple[str, ...], ...],
     declared_params: Sequence[HostParamInfo],
     declared_programs: Sequence[ProgramDeclInfo],
-    unreached_leaves: frozenset[str],
-    program_routes: Sequence[tuple[_Target, QualifiedConfigKey]],
+    program_leaves: frozenset[str],
 ) -> list[_RouteReport]:
     """Describe declaration and selected-program config routes for warning reporting.
 
-    The program route declares the spellings reached parameters won plus
-    *unreached_leaves*, never a spelling a reached parameter lost. The
+    The program route declares *program_leaves*: the spellings reached parameters
+    won plus unreached parameters' leaves, never a spelling a reached parameter lost. The
     declaration route of each *declared_programs* entry is also that program's
     route, so it declares every name-addressable argument of the program.
     """
@@ -727,18 +720,12 @@ def _route_reports(
             )
 
     if entry_segments:
-        declared = frozenset(
-            {
-                *(spelling for _target, key in program_routes for spelling in key.leaf_spellings()),
-                *unreached_leaves,
-            }
-        )
         reports.append(
             _RouteReport(
                 entry_segments,
                 program.route_path,
                 command_paths,
-                declared,
+                program_leaves,
                 _positional_only_leaves(program),
             )
         )

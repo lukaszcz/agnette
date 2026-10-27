@@ -470,12 +470,9 @@ def split_program_arguments[V](
     """
     seeds: dict[HostParamKey, V] = {}
     arguments: dict[str, V] = {}
-    function = (program.module, program.scope_path, program.name)
+    function = program.declaration_key
     for key, value in values.items():
-        if (
-            isinstance(key, FunctionParamKey)
-            and (key.module, key.scope_path, key.function) == function
-        ):
+        if isinstance(key, FunctionParamKey) and key.declaration_key == function:
             arguments[key.param] = value
         else:
             seeds[key] = value

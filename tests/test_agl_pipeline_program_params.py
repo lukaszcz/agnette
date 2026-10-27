@@ -87,7 +87,7 @@ program def main() -> unit = ()
         tmp_path,
     )
 
-    params = discovery.module_params[discovery.programs[0].module]
+    params = discovery.host_params[discovery.programs[0].module]
 
     assert [(param.name, param.cli.name, param.route_path) for param in params] == [
         ("verbose", "loud", ()),
@@ -178,7 +178,7 @@ def test_discovery_marks_params_annotated_through_an_imported_path_alias(tmp_pat
     )
     program = discovery.programs[0]
 
-    assert [param.is_path for param in discovery.module_params[program.module]] == [True]
+    assert [param.is_path for param in discovery.host_params[program.module]] == [True]
     assert [param.is_path for param in program.parameters] == [True]
 
 
@@ -201,7 +201,7 @@ def test_imported_program_uses_its_own_source_reachable_closure(tmp_path: Path) 
         "library",
         "dependency",
     ]
-    assert discovery.module_params[ModuleId(("library",))][0].declaration_path == "library::library"
+    assert discovery.host_params[ModuleId(("library",))][0].declaration_path == "library::library"
 
 
 def test_discovery_has_empty_module_param_inventory_without_param_bindings(tmp_path: Path) -> None:
@@ -212,7 +212,7 @@ def test_discovery_has_empty_module_param_inventory_without_param_bindings(tmp_p
         tmp_path,
     )
 
-    assert all(not params for params in discovery.module_params.values())
+    assert all(not params for params in discovery.host_params.values())
     assert tuple(_module_params(discovery, discovery.programs[0])) == ()
 
 

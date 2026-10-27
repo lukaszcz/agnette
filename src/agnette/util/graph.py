@@ -3,6 +3,7 @@
 Provides:
 - ``GraphCycleError`` — raised by :func:`toposort` when a cycle is detected.
 - ``bfs_first`` — deterministic breadth-first search for the nearest hit.
+- ``reachable_nodes`` — depth-first pre-order of the nodes reachable from a start node.
 - ``sccs`` — Tarjan's strongly-connected-components (reverse topological order).
 - ``toposort`` — Kahn's topological sort (leaves first, deterministic).
 """
@@ -24,7 +25,7 @@ else:
 T = TypeVar("T")
 R = TypeVar("R")
 
-__all__ = ["GraphCycleError", "bfs_first", "sccs", "toposort"]
+__all__ = ["GraphCycleError", "bfs_first", "reachable_nodes", "sccs", "toposort"]
 
 
 def bfs_first(
@@ -80,6 +81,21 @@ class GraphCycleError(Exception):
     def __init__(self, cycle: set[object]) -> None:
         self.cycle = cycle
         super().__init__(f"cycle detected among {len(cycle)} node(s)")
+
+
+def reachable_nodes(start: T, successors: Callable[[T], Iterable[T]]) -> tuple[T, ...]:
+    """Return *start* and every node reachable from it, depth-first in successor order."""
+    seen: set[T] = set()
+    order: list[T] = []
+    pending = [start]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        order.append(current)
+        pending.extend(reversed(tuple(successors(current))))
+    return tuple(order)
 
 
 def sccs(

@@ -1,10 +1,10 @@
-"""Unit tests for agnette.util.graph — sccs, toposort, and bfs_first."""
+"""Unit tests for agnette.util.graph — sccs, toposort, bfs_first, and reachable_nodes."""
 
 from __future__ import annotations
 
 import pytest
 
-from agnette.util.graph import GraphCycleError, bfs_first, sccs, toposort
+from agnette.util.graph import GraphCycleError, bfs_first, reachable_nodes, sccs, toposort
 
 # ---------------------------------------------------------------------------
 # GraphCycleError
@@ -354,3 +354,22 @@ class TestBfsFirst:
 
         assert bfs_first(["a", "a"], lambda n: [], select, key=str) is None
         assert seen == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# reachable_nodes
+# ---------------------------------------------------------------------------
+
+
+class TestReachableNodes:
+    def test_depth_first_pre_order_in_successor_order(self) -> None:
+        graph = {"a": ("b", "c"), "b": ("d",), "c": ("d",), "d": ()}
+        assert reachable_nodes("a", graph.__getitem__) == ("a", "b", "d", "c")
+
+    def test_cycle_visits_each_node_once(self) -> None:
+        graph = {"a": ("b",), "b": ("a",)}
+        assert reachable_nodes("a", graph.__getitem__) == ("a", "b")
+
+    def test_excludes_unreachable_nodes(self) -> None:
+        graph = {"a": (), "b": ("a",)}
+        assert reachable_nodes("a", graph.__getitem__) == ("a",)

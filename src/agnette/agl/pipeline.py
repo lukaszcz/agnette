@@ -48,6 +48,7 @@ from agnette.agl.runtime.types import (
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.warning_policy import WarningOutcome, WarningPolicy, apply_program_policy
 from agnette.core.cleanup import notes_of
+from agnette.util.graph import reachable_nodes
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -128,8 +129,8 @@ class ProgramDiscovery:
     compiled: "MatchCompiledProgram | None"
     diagnostics: tuple[Diagnostic, ...]
     warnings: tuple[Diagnostic, ...]
-    module_params: Mapping["ModuleId", tuple[HostParamInfo, ...]] = field(default_factory=dict)
-    function_params: Mapping["ModuleId", tuple[HostParamInfo, ...]] = field(default_factory=dict)
+    # Per checked module: its module parameters, then its functions' parameters.
+    host_params: Mapping["ModuleId", tuple[HostParamInfo, ...]] = field(default_factory=dict)
 
     def params_for(self, program: ProgramDeclInfo) -> tuple[HostParamInfo, ...]:
         """Return the host parameters of *program*.
@@ -149,12 +150,7 @@ class ProgramDiscovery:
 
     def all_params(self) -> tuple[HostParamInfo, ...]:
         """Return every checked module's module and function parameters."""
-        return tuple(
-            param
-            for inventory in (self.module_params, self.function_params)
-            for params in inventory.values()
-            for param in params
-        )
+        return tuple(param for params in self.host_params.values() for param in params)
 
     def declared_programs_for(self, program: ProgramDeclInfo) -> tuple[ProgramDeclInfo, ...]:
         """Return the other programs declared by *program*'s closure modules."""
@@ -168,21 +164,20 @@ class ProgramDiscovery:
     ) -> tuple[HostParamInfo, ...]:
         """Select inventory entries the program reaches, or also every closure module declares.
 
-        Closure modules come first, in order, then the others (the two inventories
-        cover the same modules); a module's parameters precede its functions'.
+        Closure modules come first, in order, then the others; a module's
+        parameters precede its functions'.
         *program*'s own function parameters are skipped.
         """
         closure = frozenset(program.closure)
-        own = (program.module, program.scope_path, program.name)
+        own = program.declaration_key
         reachable = program.reachable
         selected: list[HostParamInfo] = []
-        for module_id in (*program.closure, *(m for m in self.module_params if m not in closure)):
+        for module_id in (*program.closure, *(m for m in self.host_params if m not in closure)):
             declared = include_closure and module_id in closure
-            for param in (
-                *self.module_params.get(module_id, ()),
-                *self.function_params.get(module_id, ()),
-            ):
-                function = _function_of(param)
+            for param in self.host_params.get(module_id, ()):
+                function = (
+                    param.key.declaration_key if isinstance(param.key, FunctionParamKey) else None
+                )
                 if function == own:
                     continue
                 if function is None:
@@ -192,14 +187,6 @@ class ProgramDiscovery:
                 if declared or reached:
                     selected.append(param)
         return tuple(selected)
-
-
-def _function_of(param: HostParamInfo) -> "tuple[ModuleId, tuple[str, ...], str] | None":
-    """Return the declaration key of the function *param* is a parameter of, if it is one."""
-    key = param.key
-    if isinstance(key, FunctionParamKey):
-        return key.module, key.scope_path, key.function
-    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1200,8 +1187,7 @@ class PipelineDriver:
         return replace(
             static,
             programs=_program_decl_infos(checked, resolved.graph, aliases),
-            module_params=_module_param_infos(checked, resolved.graph, aliases),
-            function_params=_function_param_infos(checked, resolved.graph, aliases),
+            host_params=_declared_param_infos(checked, resolved.graph, aliases),
         )
 
     def _wire_externs_or_fail(
@@ -1738,23 +1724,6 @@ class PipelineDriver:
 # ---------------------------------------------------------------------------
 
 
-def _reachable_modules(
-    module_id: "ModuleId", adjacency: "Mapping[ModuleId, tuple[ModuleId, ...]]"
-) -> tuple[ModuleId, ...]:
-    """Return a module and its dependencies in *adjacency* order."""
-    reachable: list[ModuleId] = []
-    seen: set[ModuleId] = set()
-    pending = [module_id]
-    while pending:
-        current = pending.pop()
-        if current in seen:
-            continue
-        seen.add(current)
-        reachable.append(current)
-        pending.extend(reversed(adjacency[current]))
-    return tuple(reachable)
-
-
 def _select_program_inventory(
     executable: "ExecutableProgram",
     graph: "ModuleGraph",
@@ -1769,12 +1738,12 @@ def _select_program_inventory(
     a sibling program def's entry look newly narrowed away rather than
     simply absent.
     """
-    runtime_reachable = frozenset(_reachable_modules(program.module, graph.adjacency))
+    runtime_reachable = frozenset(reachable_nodes(program.module, graph.adjacency.__getitem__))
     params = program.reachable.params
     function_bindings = {
         key: slot
         for key, slot in executable.function_param_bindings.items()
-        if (key.module, key.scope_path, key.function) in program.reachable.functions
+        if key.declaration_key in program.reachable.functions
     }
     keys = params | function_bindings.keys()
     return replace(
@@ -1955,7 +1924,12 @@ def declared_param_infos(
     checked: "CheckedProgram", graph: "ModuleGraph"
 ) -> dict["ModuleId", tuple[HostParamInfo, ...]]:
     """Return each checked module's module then function parameters, with no reachability filter."""
-    aliases = _TypeAliasIndex(checked)
+    return _declared_param_infos(checked, graph, _TypeAliasIndex(checked))
+
+
+def _declared_param_infos(
+    checked: "CheckedProgram", graph: "ModuleGraph", aliases: "_TypeAliasIndex"
+) -> dict["ModuleId", tuple[HostParamInfo, ...]]:
     modules = _module_param_infos(checked, graph, aliases)
     functions = _function_param_infos(checked, graph, aliases)
     return {module_id: (*params, *functions[module_id]) for module_id, params in modules.items()}
@@ -2260,6 +2234,7 @@ def _wire_extern_registry(
     # Verdicts live for this wiring only and are never cached in the artifact cache:
     # installed distributions can change between runs.
     requirement_verdicts: dict[Path, bool] = {}
+    overlays: dict[Path, Path | None] = {}
     for mid, name in declarations:
         if mid in failed_modules:
             # This module's companion already failed to import; every extern
@@ -2269,16 +2244,18 @@ def _wire_extern_registry(
             # The loader records a companion path for every extern-declaring module.
             companion_path = cast("Path", companion_paths[mid])
             package = owning_package(companion_path, packages)
+            overlay = None if package is None else _package_overlay(package, overlays)
             if (
                 package is not None
                 and package.manifest.python_dependencies
                 and not registry.holds_current(companion_path)
-                and not _package_requirements_hold(package, requirement_verdicts, diagnostics)
+                and not _package_requirements_hold(
+                    package, overlay, requirement_verdicts, diagnostics
+                )
             ):
                 failed_modules.add(mid)
                 continue
-            if package is not None:
-                _expose_project_overlay(package)
+            _expose_overlay(overlay)
             try:
                 registry.load_companion(mid, companion_path)
             except ExternImportError as exc:
@@ -2293,25 +2270,30 @@ def _wire_extern_registry(
     return diagnostics
 
 
-def _expose_project_overlay(package: "PackageInfo") -> None:
-    """Put the project overlay ahead of AgM's libraries if *package* uses a current one."""
-    from agnette.packages.python_deps import (
-        overlay_for,
-        overlay_is_stale,
-        prepend_overlay_to_path,
-    )
+def _package_overlay(package: "PackageInfo", overlays: dict[Path, "Path | None"]) -> "Path | None":
+    """Return *package*'s overlay generation, looked up once per root into *overlays*."""
+    if package.root not in overlays:
+        from agnette.packages.python_deps import overlay_for
 
-    overlay = overlay_for(package)
+        overlays[package.root] = overlay_for(package)
+    return overlays[package.root]
+
+
+def _expose_overlay(overlay: "Path | None") -> None:
+    """Put *overlay*, if any, ahead of AgM's libraries unless it is stale."""
+    from agnette.packages.python_deps import overlay_is_stale, prepend_overlay_to_path
+
     if overlay is not None and not overlay_is_stale(overlay):
         prepend_overlay_to_path(overlay)
 
 
 def _package_requirements_hold(
     package: "PackageInfo",
+    overlay: "Path | None",
     verdicts: dict[Path, bool],
     diagnostics: list[Diagnostic],
 ) -> bool:
-    """Whether the Python requirements of the companion-owning *package* hold.
+    """Whether the Python requirements of the companion-owning *package* hold under *overlay*.
 
     A package is evaluated once, its verdict recorded in *verdicts* by root,
     appending one diagnostic to *diagnostics* when some requirement does not
@@ -2319,11 +2301,9 @@ def _package_requirements_hold(
     """
     verdict = verdicts.get(package.root)
     if verdict is None:
-        from agnette.packages.python_deps import overlay_for, unsatisfied_python_dependencies
+        from agnette.packages.python_deps import requirement_repair, unsatisfied_python_dependencies
 
-        unsatisfied = unsatisfied_python_dependencies(
-            package.manifest.python_dependencies, overlay_for(package)
-        )
+        unsatisfied = unsatisfied_python_dependencies(package.manifest.python_dependencies, overlay)
         verdict = verdicts[package.root] = not unsatisfied
         if unsatisfied:
             listed = "; ".join(f"{spec}: {status.describe()}" for spec, status in unsatisfied)
@@ -2331,35 +2311,12 @@ def _package_requirements_hold(
                 Diagnostic(
                     message=(
                         f"package {package.manifest.name!r} has unsatisfied Python "
-                        f"requirements ({listed}); {_requirement_repair(package)}"
+                        f"requirements ({listed}); {requirement_repair(package)}"
                     ),
                     line=1,
                 )
             )
     return verdict
-
-
-def _requirement_repair(package: "PackageInfo") -> str:
-    """How to install *package*'s requirements: sync when a sync covers it, else pin or install.
-
-    A package outside the store's sync (see ``sync_covers``) gets a hint to bring it in.
-    """
-    from agnette.packages.layout import StoreScope
-    from agnette.packages.python_deps import requirement_store, sync_covers
-
-    store = requirement_store(package)
-    if store is None:
-        return f"install the package with `agm pkg install [--editable] {package.root}`"
-    project = store.scope is StoreScope.PROJECT
-    flag = " --project" if project else ""
-    sync = f"`agm pkg sync{flag}`"
-    if sync_covers(store, package):
-        return f"run {sync} to install them"
-    config = "the project config" if project else "the AgM home config"
-    return (
-        f"pin the package under [packages] in {config} then run {sync}, "
-        f"or select it with `agm pkg switch{flag}`"
-    )
 
 
 def exception_value_to_run_error(

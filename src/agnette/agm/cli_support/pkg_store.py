@@ -44,7 +44,7 @@ def pkg_target(context: ConfigContext, *, project: bool) -> PkgTarget:
         if context.proj_dir is not None:
             raise PackageInstallError("this project's store is the global store; omit --project")
         raise PackageInstallError("--project requires a current project")
-    return PkgTarget(layers.project, layers.global_store)
+    return PkgTarget(*layers.stores)
 
 
 def pkg_selections(
@@ -108,10 +108,7 @@ def pkg_resolution_target(context: ConfigContext) -> PkgTarget:
     including a project whose store is the global store, the global store alone.
     """
 
-    layers = context_layers(home=context.home, proj_dir=context.proj_dir)
-    return PkgTarget(
-        layers.project or layers.global_store, layers.global_store if layers.project else None
-    )
+    return PkgTarget(*context_layers(home=context.home, proj_dir=context.proj_dir).stores)
 
 
 def warn_if_project_selection_broken(context: ConfigContext, *, project: bool) -> None:

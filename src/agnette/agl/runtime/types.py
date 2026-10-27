@@ -281,6 +281,11 @@ class ProgramDeclInfo:
         return (*self.scope_path, self.name)
 
     @property
+    def declaration_key(self) -> "tuple[ModuleId, tuple[str, ...], str]":
+        """Return the program def's declaration key."""
+        return self.module, self.scope_path, self.name
+
+    @property
     def declaration_path(self) -> str:
         """Return the program's scope-qualified declaration spelling."""
         return "::".join(self.route_path)

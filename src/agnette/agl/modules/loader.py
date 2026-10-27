@@ -66,6 +66,7 @@ from agnette.agl.syntax.nodes import (
 from agnette.agl.syntax.spans import SourceId, SourceSpan
 from agnette.core import fs
 from agnette.packages.model import owning_package
+from agnette.util.graph import reachable_nodes
 from agnette.util.graph import sccs as _compute_sccs
 
 
@@ -232,17 +233,7 @@ class ModuleGraph:
         if closure is not None:
             return closure
         adjacency = self.source_adjacency or self.adjacency
-        reachable: list[ModuleId] = []
-        seen: set[ModuleId] = set()
-        pending = [module_id]
-        while pending:
-            current = pending.pop()
-            if current in seen:
-                continue
-            seen.add(current)
-            reachable.append(current)
-            pending.extend(reversed(adjacency[current]))
-        closure = tuple(reachable)
+        closure = reachable_nodes(module_id, adjacency.__getitem__)
         self._source_closures[module_id] = closure
         return closure
 

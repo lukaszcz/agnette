@@ -146,6 +146,27 @@ def sync_covers(store: PackageStore, package: PackageInfo) -> bool:
     return any(is_package_tree(package, other.root) for other in covered)
 
 
+def requirement_repair(package: PackageInfo) -> str:
+    """How to install *package*'s requirements: sync when a sync covers it, else pin or install.
+
+    A package outside the store's sync (see :func:`sync_covers`) gets a hint to bring it in.
+    """
+
+    store = requirement_store(package)
+    if store is None:
+        return f"install the package with `agm pkg install [--editable] {package.root}`"
+    project = store.scope is StoreScope.PROJECT
+    flag = " --project" if project else ""
+    sync = f"`agm pkg sync{flag}`"
+    if sync_covers(store, package):
+        return f"run {sync} to install them"
+    config = "the project config" if project else "the AgM home config"
+    return (
+        f"pin the package under [packages] in {config} then run {sync}, "
+        f"or select it with `agm pkg switch{flag}`"
+    )
+
+
 def overlay_for(package: PackageInfo) -> Path | None:
     """The overlay generation this process uses for *package*, if its store is a project's.
 

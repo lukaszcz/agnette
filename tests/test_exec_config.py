@@ -13,6 +13,7 @@ from agnette.config.context import ConfigContext
 from agnette.config.general import (
     ExecConfig,
     exec_config_from_merged,
+    exec_options_from_merged,
     load_merged_config,
 )
 from tests._package_helpers import exec_args, write_installed_package
@@ -56,7 +57,8 @@ class TestExecConfigFromConfigFiles:
         assert cfg.timeout is None
         assert cfg.trace is None
         assert cfg.trace_file is None
-        assert cfg.echo is False
+        merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
+        assert exec_options_from_merged(merged).echo is False
 
     def test_exec_settings_load_from_toml(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -73,7 +75,8 @@ class TestExecConfigFromConfigFiles:
         config.parent.mkdir(parents=True)
         config.write_text("[exec]\necho = true\n")
 
-        assert self._config(home, tmp_path).echo is True
+        merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
+        assert exec_options_from_merged(merged).echo is True
 
     def test_project_config_overrides_home(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -147,8 +150,8 @@ class TestExecConfigProgramTableOverride:
     def test_max_call_depth_accepts_only_a_positive_integer(
         self, value: object, expected: int | None
     ) -> None:
-        cfg = exec_config_from_merged({"exec": {"max-call-depth": value}})
-        assert cfg.max_call_depth == expected
+        options = exec_options_from_merged({"exec": {"max-call-depth": value}})
+        assert options.max_call_depth == expected
 
 
 class TestModuleParameterConfigRoutes:

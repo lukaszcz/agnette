@@ -418,11 +418,9 @@ def effective_command_index(
     own commands — see :func:`resolve_active_package`.
     """
 
-    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    chosen = effective_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    layers, chosen, pins = _selection_state(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     selected = resolve_selections(layers, chosen)
     _validate_requirements(selected)
-    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     index, provenance = _command_priorities(layers, chosen, pins)
     return _reconciled_commands(index, selected, provenance=provenance)
 
@@ -442,15 +440,37 @@ def by_command_priority(
     below all, keeping its place among its peers.
     """
 
-    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    chosen = effective_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
-    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    layers, chosen, pins = _selection_state(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    return _ranked(packages, _command_ranks(layers, chosen, pins))
+
+
+def _command_ranks(
+    layers: StoreLayers,
+    chosen: Mapping[str, tuple[PackageStore, ActivePackage]],
+    pins: Mapping[str, semver.Version],
+) -> dict[str, tuple[bool, int, str]]:
+    """Rank each of *chosen* by command priority: project over global, then registration order."""
     priorities, _ = _command_priorities(layers, chosen, pins)
-    ranks = {
+    return {
         name: _command_rank(store.scope is StoreScope.PROJECT, priorities.packages[name], name)
         for name, (store, _) in chosen.items()
     }
+
+
+def _ranked(
+    packages: Iterable[PackageInfo], ranks: Mapping[str, tuple[bool, int, str]]
+) -> tuple[PackageInfo, ...]:
+    """Order *packages* highest rank first; an unranked one ranks below all, in place."""
     return tuple(sorted(packages, key=partial(_package_rank, ranks), reverse=True))
+
+
+def _selection_state(
+    *, home: Path, proj_dir: Path | None, cwd: Path, env: Mapping[str, str] | None
+) -> tuple[StoreLayers, dict[str, tuple[PackageStore, ActivePackage]], dict[str, semver.Version]]:
+    """Return the context's store layers, effective selections, and the pins applied to them."""
+    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
+    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    return layers, _pinned_selections(layers, pins), pins
 
 
 def _command_priorities(
@@ -513,10 +533,8 @@ def select_package_roots(
     read path it tolerates an editable package's source failing discovery
     rather than failing every invocation over one half-written module — see
     :func:`resolve_active_package`. A development package's command table
-    stays incomplete here (its scan skips the AST pass for cost, and mounting
-    a module root never needs it): whichever program a command host actually
-    selects has its own owning package's table completed at that point
-    instead — see ``commands/exec_program.py:_package_program_route``.
+    stays incomplete here (mounting a module root never needs it); a command
+    host that needs it completes it afterwards (``source_commands.complete_packages``).
     """
 
     development = tuple(
@@ -528,18 +546,11 @@ def select_package_roots(
     # ``std`` is selected exclusively by ``select_stdlib_root`` so an
     # override or source-checkout fallback cannot also mount an active tree.
     excluded_names = {*development_names, STD_PACKAGE_NAME}
-    layers = context_layers(home=home, proj_dir=proj_dir, env=env)
-    chosen = effective_selections(layers, home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    layers, chosen, pins = _selection_state(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     for name in excluded_names:
         chosen.pop(name, None)
     activated = resolve_selections(layers, chosen)
-    priorities, _ = _command_priorities(
-        layers, chosen, load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
-    )
-    selected = (
-        *development,
-        *sorted(activated, key=partial(_command_registration_key, priorities), reverse=True),
-    )
+    selected = (*development, *_ranked(activated, _command_ranks(layers, chosen, pins)))
     _validate_requirements(selected)
     return selected
 
@@ -559,8 +570,16 @@ def effective_selections(
     and ``pkg info`` show.
     """
 
+    return _pinned_selections(
+        layers, load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
+    )
+
+
+def _pinned_selections(
+    layers: StoreLayers, pins: Mapping[str, semver.Version]
+) -> dict[str, tuple[PackageStore, ActivePackage]]:
+    """Return the stores' selections (see :func:`indexed_selections`) replaced by *pins*."""
     chosen = indexed_selections(layers)
-    pins = load_package_pins(home=home, proj_dir=proj_dir, cwd=cwd, env=env)
     for name, version in pins.items():
         chosen[name] = (_pin_store(layers, name, version), ActivePackage(version))
     return chosen
