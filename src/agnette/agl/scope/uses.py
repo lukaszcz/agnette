@@ -549,7 +549,7 @@ class UseReader:
         kinds = (LookupKind.VALUE, LookupKind.TYPE) if len(names) > 1 else (LookupKind.TYPE,)
         return any(
             self._use_path_reached(site, decl, names, kind, owners_within) for kind in kinds
-        ) or (len(names) > 1 and self._pending_at(site, decl, names))
+        ) or self._pending_at(site, decl, names)
 
     def _binds_unreadable_value(
         self, site: ScopePath, decl: UseDecl, names: ScopePath, owners_within: int | None = None
