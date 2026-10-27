@@ -316,7 +316,7 @@ class TestMultiline:
         assert "ONE" in output
         assert "TWO" in output
 
-    def test_ask_header_block_continues_and_uses_mocked_default_agent(self) -> None:
+    def test_ask_header_block_continues_and_uses_mocked_agent(self) -> None:
         # A `$`-literal (`ask $`) header opens an interactive block that
         # dispatches to the default agent once closed.
         agent = _CountingAgent("MOCKED REPLY")
@@ -905,16 +905,16 @@ class TestCompleter:
         assert "ask" in suggestions
         assert "ask-request" in suggestions
 
-    def test_completes_ask_without_default_agent(self) -> None:
-        # ``ask`` is a builtin call name independent of any configured default
-        # agent; even with no default agent it must be offered (regression for
+    def test_completes_ask_without_a_dispatcher(self) -> None:
+        # ``ask`` is a builtin call name independent of any configured
+        # dispatcher; even with none it must be offered (regression for
         # the previous behaviour where ``ask`` only leaked in via the agents
-        # pool when a default agent existed).
+        # pool when a dispatcher existed).
         completer = AglCompleter(ReplSession())
         assert "ask" in _completions(completer, "as")
 
-    def test_deduplicates_builtin_default_agent_name(self) -> None:
-        # A configured default agent is also named ``ask``; completion should
+    def test_deduplicates_builtin_ask_name(self) -> None:
+        # A configured dispatcher also names ``ask``; completion should
         # keep the builtin-first candidate once, not offer a duplicate.
         completer = AglCompleter(ReplSession(agent_dispatcher=_CountingAgent()))
         assert _completions(completer, "as").count("ask") == 1

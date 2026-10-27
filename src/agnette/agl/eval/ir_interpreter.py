@@ -221,7 +221,7 @@ _ArgT = TypeVar("_ArgT")
 class HostConfigurationError(Exception):
     """A host-backed value cannot be materialized as a valid AgL binding.
 
-    The evaluator raises this for a malformed startup ``default-agent`` and
+    The evaluator raises this for a malformed startup ``agent`` and
     for a read of a non-engine ``builtin var`` that has neither a host seed nor
     a declared default. Pipeline hosts translate it to an ordinary language
     diagnostic rather than leaking a Python implementation exception.
@@ -525,20 +525,20 @@ class IrInterpreter:
         self._builtin_vars = {
             key: value for key, value in effective.items() if not is_engine_builtin_var_key(key)
         }
-        default_agent = self._builtin_host_settings.get("default-agent")
-        if isinstance(default_agent, RecordValue):
-            default_agent = cast(
+        agent_setting = self._builtin_host_settings.get("agent")
+        if isinstance(agent_setting, RecordValue):
+            agent_setting = cast(
                 RecordValue,
                 restamp_engine_setting(
-                    "default-agent",
-                    default_agent,
+                    "agent",
+                    agent_setting,
                     from_table=NO_BUILTIN_DECLARATIONS,
                     to_table=self._program.builtin_nominals,
                 ),
             )
-            self._builtin_host_settings["default-agent"] = default_agent
-            self._check_default_agent_dispatchable(default_agent)
-        # ``trace-file`` always has a declared default (unlike ``default-agent``),
+            self._builtin_host_settings["agent"] = agent_setting
+            self._check_agent_setting_dispatchable(agent_setting)
+        # ``trace-file`` always has a declared default (unlike ``agent``),
         # so it is always present here.
         trace_file = cast(RecordValue, self._builtin_host_settings["trace-file"])
         self._builtin_host_settings["trace-file"] = restamp_engine_setting(
@@ -549,11 +549,11 @@ class IrInterpreter:
         )
         if self._host_reconfigurer is not None:
             self._reconfigure_host_service(self._host_reconfigurer)
-        default_sandbox = self._builtin_host_settings.get("default-sandbox")
-        if isinstance(default_sandbox, RecordValue):
-            self._builtin_host_settings["default-sandbox"] = restamp_engine_setting(
-                "default-sandbox",
-                default_sandbox,
+        sandbox_setting = self._builtin_host_settings.get("sandbox")
+        if isinstance(sandbox_setting, RecordValue):
+            self._builtin_host_settings["sandbox"] = restamp_engine_setting(
+                "sandbox",
+                sandbox_setting,
                 from_table=NO_BUILTIN_DECLARATIONS,
                 to_table=self._program.builtin_nominals,
             )
@@ -1360,11 +1360,11 @@ class IrInterpreter:
         if isinstance(node, IrSessionOpen):
             return self._effects.eval_ir_session_open(node)
         if isinstance(node, IrSessionDefault):
-            default_env = None if self._default_session_opened else self._eval(node.env)
+            environ_setting = None if self._default_session_opened else self._eval(node.env)
             result = self._effects.eval_ir_session_default(
-                self._load_builtin_setting("default-agent"),
-                self._load_builtin_setting("default-sandbox"),
-                default_env,
+                self._load_builtin_setting("agent"),
+                self._load_builtin_setting("sandbox"),
+                environ_setting,
             )
             self._default_session_opened = True
             return result
@@ -1926,8 +1926,8 @@ class IrInterpreter:
                 exc.span = node.location
             raise
 
-    def _check_default_agent_dispatchable(self, value: RecordValue) -> None:
-        """Eagerly validate a materialized ``default-agent`` value's command shape.
+    def _check_agent_setting_dispatchable(self, value: RecordValue) -> None:
+        """Eagerly validate a materialized ``agent`` value's command shape.
 
         Only the ``AgentCommand`` variant needs this: its command text is
         host-supplied and must shell-split, exactly like a configured runner
@@ -2008,7 +2008,7 @@ class IrInterpreter:
         the write onward; the host-consumed keys update their register.
         Writes to the ``trace``/``trace-file`` register pair additionally
         reconfigure the live trace service when a host reconfigurer is present;
-        ``default-agent`` remains a register-only value. A value outside the
+        ``agent`` remains a register-only value. A value outside the
         key's range raises the catchable ``RangeError``, an otherwise invalid one
         (blank path, bad duration) ``TypeError``; either leaves it unchanged.
         """

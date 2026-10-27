@@ -1,7 +1,7 @@
-"""Behavior tests for the typed ``std/config::default-sandbox`` engine setting.
+"""Behavior tests for the typed ``std/config::sandbox`` engine setting.
 
-Modeled on ``tests/test_default_agent_setting.py``, which covers the sibling
-``default-agent`` engine key with the same rigor; the shared ``run_program``/
+Modeled on ``tests/test_agent_setting.py``, which covers the sibling
+``agent`` engine key with the same rigor; the shared ``run_program``/
 ``assert_shape``/``shapes_match``/``write_file_program``/REPL helpers live in
 ``tests/_agl_helpers.py`` and are imported rather than duplicated here. The
 generic restamp-mechanism tests and the reserved-field-default drift guard
@@ -96,7 +96,7 @@ def _agent_sandbox_member_value(member_name: str) -> RecordValue:
 def test_engine_key_uses_the_agent_sandbox_nominal_type() -> None:
     from agnette.agl.semantics.engine_keys import get_engine_key_type
 
-    assert repr(get_engine_key_type("default-sandbox")) == "AgentSandbox"
+    assert repr(get_engine_key_type("sandbox")) == "AgentSandbox"
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +104,13 @@ def test_engine_key_uses_the_agent_sandbox_nominal_type() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_default_sandbox_initializer_and_qualified_write_are_visible() -> None:
+def test_sandbox_initializer_and_qualified_write_are_visible() -> None:
     result = _run(
         "import std/config\n"
-        "let initial = std/config::default-sandbox\n"
+        "let initial = std/config::sandbox\n"
         "let initial-is-sandbox = initial is Sandbox\n"
-        "std/config::default-sandbox := AgentSandbox::Native\n"
-        "let updated = std/config::default-sandbox\n"
+        "std/config::sandbox := AgentSandbox::Native\n"
+        "let updated = std/config::sandbox\n"
         "let updated-is-native = updated is AgentSandbox::Native\n"
         "updated\n"
     )
@@ -129,13 +129,13 @@ def test_default_sandbox_initializer_and_qualified_write_are_visible() -> None:
 
 
 def test_host_seed_overrides_initializer_until_source_write() -> None:
-    seed = build_engine_config_seeds({"default-sandbox": "Native"})
+    seed = build_engine_config_seeds({"sandbox": "Native"})
     result = _run(
         "import std/config\n"
-        "let seeded = std/config::default-sandbox\n"
+        "let seeded = std/config::sandbox\n"
         "let seeded-is-native = seeded is AgentSandbox::Native\n"
-        "std/config::default-sandbox := AgentSandbox::Disabled\n"
-        "let written = std/config::default-sandbox\n"
+        "std/config::sandbox := AgentSandbox::Disabled\n"
+        "let written = std/config::sandbox\n"
         "let written-is-disabled = written is AgentSandbox::Disabled\n"
         "written\n",
         seed=seed,
@@ -154,7 +154,7 @@ def test_host_seed_overrides_initializer_until_source_write() -> None:
     )
 
 
-def test_default_sandbox_write_does_not_reconfigure_host_services() -> None:
+def test_sandbox_write_does_not_reconfigure_host_services() -> None:
     """Only ``trace``/``trace-file`` writes reconfigure a live host service."""
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
 
@@ -165,7 +165,7 @@ def test_default_sandbox_write_does_not_reconfigure_host_services() -> None:
         return None
 
     result = _run(
-        "import std/config\nstd/config::default-sandbox := AgentSandbox::Native\n()\n",
+        "import std/config\nstd/config::sandbox := AgentSandbox::Native\n()\n",
         host_settings_policy=HostSettingsPolicy(resolve_trace_path=resolve_trace_path),
     )
 
@@ -178,16 +178,14 @@ def test_default_sandbox_write_does_not_reconfigure_host_services() -> None:
 # ---------------------------------------------------------------------------
 
 
-class TestDefaultSandboxPrecedenceChain:
+class TestSandboxSettingPrecedenceChain:
     """Each precedence step immediately adjacent to its neighbor, tier by tier."""
 
     def test_declared_initializer_used_with_no_configuration(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         program = tmp_path / "program.agl"
-        write_file_program(
-            program, "import std/config\nprint(std/config::default-sandbox is Sandbox)\n"
-        )
+        write_file_program(program, "import std/config\nprint(std/config::sandbox is Sandbox)\n")
         assert exec_command.run(_exec_args_no_trace(program)) is None
         assert capsys.readouterr().out == "true\n"
 
@@ -196,11 +194,11 @@ class TestDefaultSandboxPrecedenceChain:
     ) -> None:
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text('[exec]\ndefault-sandbox = "Native"\n')
+        (home / ".agm" / "config.toml").write_text('[exec]\nsandbox = "Native"\n')
         program = tmp_path / "prog.agl"
         write_file_program(
             program,
-            "import std/config\nprint(std/config::default-sandbox is AgentSandbox::Native)\n",
+            "import std/config\nprint(std/config::sandbox is AgentSandbox::Native)\n",
         )
         monkeypatch.setattr(
             exec_engine,
@@ -215,14 +213,14 @@ class TestDefaultSandboxPrecedenceChain:
     ) -> None:
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text('[exec]\ndefault-sandbox = "Native"\n')
+        (home / ".agm" / "config.toml").write_text('[exec]\nsandbox = "Native"\n')
         program = tmp_path / "prog.agl"
         write_file_program(
             program,
             "import std/config\n\n"
-            "@config(config::default-sandbox = AgentSandbox::Disabled)\n"
+            "@config(config::sandbox = AgentSandbox::Disabled)\n"
             "program def main() -> unit = "
-            "print(config::default-sandbox is AgentSandbox::Disabled)\n",
+            "print(config::sandbox is AgentSandbox::Disabled)\n",
         )
         monkeypatch.setattr(
             exec_engine,
@@ -237,14 +235,14 @@ class TestDefaultSandboxPrecedenceChain:
     ) -> None:
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text('[prog.main]\ndefault-sandbox = "Native"\n')
+        (home / ".agm" / "config.toml").write_text('[prog.main]\nsandbox = "Native"\n')
         program = tmp_path / "prog.agl"
         write_file_program(
             program,
             "import std/config\n\n"
-            "@config(config::default-sandbox = AgentSandbox::Disabled)\n"
+            "@config(config::sandbox = AgentSandbox::Disabled)\n"
             "program def main() -> unit = "
-            "print(config::default-sandbox is AgentSandbox::Native)\n",
+            "print(config::sandbox is AgentSandbox::Native)\n",
         )
         monkeypatch.setattr(
             exec_engine,
@@ -259,18 +257,18 @@ class TestDefaultSandboxPrecedenceChain:
     ) -> None:
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text('[prog.main]\ndefault-sandbox = "Native"\n')
+        (home / ".agm" / "config.toml").write_text('[prog.main]\nsandbox = "Native"\n')
         program = tmp_path / "prog.agl"
         write_file_program(
             program,
-            "import std/config\nprint(std/config::default-sandbox is AgentSandbox::Disabled)\n",
+            "import std/config\nprint(std/config::sandbox is AgentSandbox::Disabled)\n",
         )
         monkeypatch.setattr(
             exec_engine,
             "current_config_context",
             lambda: ConfigContext(home=home, proj_dir=None, cwd=tmp_path),
         )
-        assert exec_command.run(_exec_args_no_trace(program, default_sandbox="Disabled")) is None
+        assert exec_command.run(_exec_args_no_trace(program, sandbox="Disabled")) is None
         assert capsys.readouterr().out == "true\n"
 
     def test_source_write_beats_cli(
@@ -280,10 +278,10 @@ class TestDefaultSandboxPrecedenceChain:
         write_file_program(
             program,
             "import std/config\n"
-            "std/config::default-sandbox := AgentSandbox::Disabled\n"
-            "print(std/config::default-sandbox is AgentSandbox::Disabled)\n",
+            "std/config::sandbox := AgentSandbox::Disabled\n"
+            "print(std/config::sandbox is AgentSandbox::Disabled)\n",
         )
-        assert exec_command.run(_exec_args_no_trace(program, default_sandbox="Native")) is None
+        assert exec_command.run(_exec_args_no_trace(program, sandbox="Native")) is None
         assert capsys.readouterr().out == "true\n"
 
 
@@ -292,7 +290,7 @@ class TestDefaultSandboxPrecedenceChain:
 # ---------------------------------------------------------------------------
 
 
-class TestDefaultSandboxAcceptedSpellingsFromCli:
+class TestSandboxSettingAcceptedSpellingsFromCli:
     @pytest.mark.parametrize(
         ("cli_literal", "expected_substrings"),
         [
@@ -305,7 +303,7 @@ class TestDefaultSandboxAcceptedSpellingsFromCli:
             ),
         ],
     )
-    def test_exec_accepts_every_default_sandbox_spelling_from_cli(
+    def test_exec_accepts_every_sandbox_spelling_from_cli(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
@@ -313,36 +311,36 @@ class TestDefaultSandboxAcceptedSpellingsFromCli:
         expected_substrings: tuple[str, ...],
     ) -> None:
         program = tmp_path / "program.agl"
-        write_file_program(program, "import std/config\nprint std/config::default-sandbox\n")
-        assert exec_command.run(_exec_args_no_trace(program, default_sandbox=cli_literal)) is None
+        write_file_program(program, "import std/config\nprint std/config::sandbox\n")
+        assert exec_command.run(_exec_args_no_trace(program, sandbox=cli_literal)) is None
         rendered = capsys.readouterr().out
         for substring in expected_substrings:
             assert substring in rendered
 
 
-class TestDefaultSandboxAcceptedSpellingsFromConfig:
+class TestSandboxSettingAcceptedSpellingsFromConfig:
     @pytest.mark.parametrize(
         ("config_body", "expected_substrings"),
         [
-            ('[exec]\ndefault-sandbox = "Disabled"\n', ("AgentSandbox::Disabled",)),
-            ('[exec]\ndefault-sandbox = "Native"\n', ("AgentSandbox::Native",)),
+            ('[exec]\nsandbox = "Disabled"\n', ("AgentSandbox::Disabled",)),
+            ('[exec]\nsandbox = "Native"\n', ("AgentSandbox::Native",)),
             (
-                '[exec]\ndefault-sandbox = "Sandbox(patch = false)"\n',
+                '[exec]\nsandbox = "Sandbox(patch = false)"\n',
                 ("patch = false", "Optional::Default"),
             ),
             (
-                "[exec]\ndefault-sandbox = 'Sandbox(memory = Some(\"8G\"), patch = false)'\n",
+                "[exec]\nsandbox = 'Sandbox(memory = Some(\"8G\"), patch = false)'\n",
                 ("8G", "patch = false"),
             ),
             (
                 "[exec]\n"
-                'default-sandbox = \'{"$case": "Sandbox", '
+                'sandbox = \'{"$case": "Sandbox", '
                 '"memory": {"$case": "Some", "value": "8G"}, "patch": false}\'\n',
                 ("8G", "patch = false"),
             ),
             (
-                '[exec.default-sandbox]\n"$case" = "Sandbox"\npatch = false\n\n'
-                '[exec.default-sandbox.memory]\n"$case" = "Some"\nvalue = "8G"\n',
+                '[exec.sandbox]\n"$case" = "Sandbox"\npatch = false\n\n'
+                '[exec.sandbox.memory]\n"$case" = "Some"\nvalue = "8G"\n',
                 ("8G", "patch = false"),
             ),
         ],
@@ -355,7 +353,7 @@ class TestDefaultSandboxAcceptedSpellingsFromConfig:
             "toml-native-table",
         ],
     )
-    def test_exec_accepts_every_default_sandbox_spelling_from_config(
+    def test_exec_accepts_every_sandbox_spelling_from_config(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -367,7 +365,7 @@ class TestDefaultSandboxAcceptedSpellingsFromConfig:
         (home / ".agm").mkdir(parents=True)
         (home / ".agm" / "config.toml").write_text(config_body)
         program = tmp_path / "program.agl"
-        write_file_program(program, "import std/config\nprint std/config::default-sandbox\n")
+        write_file_program(program, "import std/config\nprint std/config::sandbox\n")
         monkeypatch.setattr(
             exec_engine,
             "current_config_context",
@@ -384,8 +382,8 @@ class TestDefaultSandboxAcceptedSpellingsFromConfig:
 # ---------------------------------------------------------------------------
 
 
-class TestDefaultSandboxRejection:
-    def test_exec_rejects_malformed_default_sandbox_literal_from_cli(
+class TestSandboxSettingRejection:
+    def test_exec_rejects_malformed_sandbox_literal_from_cli(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A syntactically broken CLI literal exits 1, before the program runs."""
@@ -393,21 +391,21 @@ class TestDefaultSandboxRejection:
         write_file_program(program, 'print "not-run"\n')
 
         with pytest.raises(SystemExit) as exc_info:
-            exec_command.run(_exec_args_no_trace(program, default_sandbox="Sandbox("))
+            exec_command.run(_exec_args_no_trace(program, sandbox="Sandbox("))
 
         assert exc_info.value.code == 1
         out, err = capsys.readouterr()
         assert out == ""
-        assert "default-sandbox" in err
-        assert "--default-sandbox" in err
+        assert "'sandbox'" in err
+        assert "--sandbox" in err
 
-    def test_exec_rejects_malformed_default_sandbox_literal_from_config(
+    def test_exec_rejects_malformed_sandbox_literal_from_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A syntactically broken config-table literal exits 1, before the program runs."""
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text('[exec]\ndefault-sandbox = "Sandbox("\n')
+        (home / ".agm" / "config.toml").write_text('[exec]\nsandbox = "Sandbox("\n')
         program = tmp_path / "program.agl"
         write_file_program(program, 'print "not-run"\n')
         monkeypatch.setattr(
@@ -422,16 +420,16 @@ class TestDefaultSandboxRejection:
         assert exc_info.value.code == 1
         out, err = capsys.readouterr()
         assert out == ""
-        assert "default-sandbox" in err
+        assert "'sandbox'" in err
         assert "configuration key" in err
 
-    def test_exec_rejects_wrong_shape_default_sandbox_value_from_config(
+    def test_exec_rejects_wrong_shape_sandbox_value_from_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A well-formed but non-``AgentSandbox`` value (a bare integer) is rejected."""
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text("[exec]\ndefault-sandbox = 7\n")
+        (home / ".agm" / "config.toml").write_text("[exec]\nsandbox = 7\n")
         program = tmp_path / "program.agl"
         write_file_program(program, 'print "not-run"\n')
         monkeypatch.setattr(
@@ -446,22 +444,22 @@ class TestDefaultSandboxRejection:
         assert exc_info.value.code == 1
         out, err = capsys.readouterr()
         assert out == ""
-        assert "default-sandbox" in err
+        assert "'sandbox'" in err
 
 
 # ---------------------------------------------------------------------------
-# REPL: ``--default-sandbox`` seed threading, cross-entry persistence, and
+# REPL: ``--sandbox`` seed threading, cross-entry persistence, and
 # ``restamp_engine_setting`` in both directions
 # ---------------------------------------------------------------------------
 
 
-class TestReplDefaultSandboxSeedThreading:
-    """Mirrors ``test_agl_repl_builtin_settings.py``'s ``TestDefaultAgentSeedThreading``."""
+class TestReplSandboxSeedThreading:
+    """Mirrors ``test_agl_repl_builtin_settings.py``'s ``TestAgentSeedThreading``."""
 
     def test_seed_is_observed_and_persists_across_entries(self) -> None:
-        s = _unopened_session(engine_base=build_engine_config_seeds({"default-sandbox": "Native"}))
+        s = _unopened_session(engine_base=build_engine_config_seeds({"sandbox": "Native"}))
         _ok(s, "import std/config")
-        result = _read_result(s, "default-sandbox")
+        result = _read_result(s, "sandbox")
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
         # ``result.value``'s nominal is restamped onto the running session's own
@@ -470,30 +468,30 @@ class TestReplDefaultSandboxSeedThreading:
         assert _variant(result.value, result.descriptors) == "Native"
 
         _ok(s, "let unrelated = 1")
-        later = _read_result(s, "default-sandbox")
+        later = _read_result(s, "sandbox")
         assert isinstance(later.value, RecordValue)
         assert later.descriptors is not None
         assert _variant(later.value, later.descriptors) == "Native"
 
     def test_source_write_still_overrides_it_afterward(self) -> None:
-        s = _unopened_session(engine_base=build_engine_config_seeds({"default-sandbox": "Native"}))
+        s = _unopened_session(engine_base=build_engine_config_seeds({"sandbox": "Native"}))
         _ok(s, "import std/config")
-        initial = _read_result(s, "default-sandbox")
+        initial = _read_result(s, "sandbox")
         assert isinstance(initial.value, RecordValue)
         assert initial.descriptors is not None
         assert _variant(initial.value, initial.descriptors) == "Native"
 
-        _ok(s, "std/config::default-sandbox := AgentSandbox::Disabled")
-        result = _read_result(s, "default-sandbox")
+        _ok(s, "std/config::sandbox := AgentSandbox::Disabled")
+        result = _read_result(s, "sandbox")
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
         assert _variant(result.value, result.descriptors) == "Disabled"
 
 
-class TestCrossEntryPersistenceForDefaultSandbox:
+class TestCrossEntryPersistenceForSandboxSetting:
     """A write in entry N is visible to a read two entries later (N+2).
 
-    Together with :class:`TestResetHostSeedPrecedenceForDefaultSandbox`, this
+    Together with :class:`TestResetHostSeedPrecedenceForSandboxSetting`, this
     exercises both directions of
     :func:`~agnette.agl.runtime.engine_config.restamp_engine_setting`: a value
     read back here carries the *host seed -> program* restamp (the seed's
@@ -507,15 +505,15 @@ class TestCrossEntryPersistenceForDefaultSandbox:
     def test_write_persists_two_entries_later(self) -> None:
         s = _session()
         _ok(s, "import std/config")
-        _ok(s, "std/config::default-sandbox := AgentSandbox::Disabled")
+        _ok(s, "std/config::sandbox := AgentSandbox::Disabled")
         _ok(s, "let unrelated = 1")
-        result = _read_result(s, "default-sandbox")
+        result = _read_result(s, "sandbox")
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
         assert _variant(result.value, result.descriptors) == "Disabled"
 
 
-class TestResetHostSeedPrecedenceForDefaultSandbox:
+class TestResetHostSeedPrecedenceForSandboxSetting:
     """``:reset`` discards a source write and restores the host-seeded value.
 
     ``ReplSession.reset`` restores ``_engine_seed``, which is already held in
@@ -525,12 +523,12 @@ class TestResetHostSeedPrecedenceForDefaultSandbox:
     """
 
     def test_host_seed_survives_a_source_write(self) -> None:
-        s = _session(engine_base=build_engine_config_seeds({"default-sandbox": "Native"}))
+        s = _session(engine_base=build_engine_config_seeds({"sandbox": "Native"}))
         _ok(s, "import std/config")
-        _ok(s, "std/config::default-sandbox := AgentSandbox::Disabled")
+        _ok(s, "std/config::sandbox := AgentSandbox::Disabled")
         s.reset()
         _ok(s, "import std/config")
-        result = _read_result(s, "default-sandbox")
+        result = _read_result(s, "sandbox")
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
         assert _variant(result.value, result.descriptors) == "Native"
@@ -542,8 +540,8 @@ class TestResetHostSeedPrecedenceForDefaultSandbox:
 
 
 class TestCheckNeverSeedsEngineSettings:
-    def test_default_sandbox_flag_is_rejected_on_check(self, tmp_path: Path) -> None:
-        """``agm check`` has no ``--default-sandbox`` flag: passing one is a usage error.
+    def test_sandbox_flag_is_rejected_on_check(self, tmp_path: Path) -> None:
+        """``agm check`` has no ``--sandbox`` flag: passing one is a usage error.
 
         A user-visible CLI-surface check that ``check`` can never build a
         seed for an engine key, rather than an assertion on ``CheckArgs``'s
@@ -554,24 +552,24 @@ class TestCheckNeverSeedsEngineSettings:
 
         result = CliRunner().invoke(
             get_command(cli.app),
-            ["check", "--default-sandbox", "Native", str(agl_file)],
+            ["check", "--sandbox", "Native", str(agl_file)],
             prog_name="agm",
         )
 
         assert result.exit_code != 0
 
-    def test_default_sandbox_read_type_checks_without_being_seeded(
+    def test_sandbox_read_type_checks_without_being_seeded(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A program reading ``default-sandbox`` checks cleanly with no output.
+        """A program reading ``sandbox`` checks cleanly with no output.
 
-        ``check`` never reaches evaluation, so a ``default-sandbox`` read
+        ``check`` never reaches evaluation, so a ``sandbox`` read
         type-checks without any seed ever being built or consumed, and
         without the read ever actually running.
         """
         agl_file = tmp_path / "program.agl"
         agl_file.write_text(
-            "import std/config\nprogram def main() -> unit =\n  print std/config::default-sandbox\n"
+            "import std/config\nprogram def main() -> unit =\n  print std/config::sandbox\n"
         )
 
         check_command.run(CheckArgs(files=[str(agl_file)]))

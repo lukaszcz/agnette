@@ -141,10 +141,10 @@ class TestSaveReplSetting:
         home = tmp_path / "home"
         agm_dir = home / ".agm"
         agm_dir.mkdir(parents=True)
-        (agm_dir / "config.toml").write_text('[exec]\ndefault-agent = "claude -p"\n')
+        (agm_dir / "config.toml").write_text('[exec]\nagent = "claude -p"\n')
         save_repl_setting("theme", "dark", home=home)
         content = (agm_dir / "config.toml").read_text()
-        assert 'default-agent = "claude -p"' in content
+        assert 'agent = "claude -p"' in content
         assert "dark" in content
 
     def test_preserves_other_repl_keys(self, tmp_path: Path) -> None:

@@ -318,39 +318,39 @@ class TestConfigTimeoutValidation:
         assert exc_info.value.code == 1
 
 
-class TestConfigDefaultAgent:
-    def test_config_default_agent_is_seeded(
+class TestConfigAgent:
+    def test_config_agent_is_seeded(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """``default-agent`` is one of the enum-backed engine keys (``AGENT``
-        kind, alongside ``default-sandbox``'s ``AGENT_SANDBOX``): a ``@config``
+        """``agent`` is one of the enum-backed engine keys (``AGENT``
+        kind, alongside ``sandbox``'s ``AGENT_SANDBOX``): a ``@config``
         value for it goes through the same executable -> standard identity
         restamp as ``timeout``/``trace-file`` (``OPTION_TEXT``)."""
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
             "import std/config\n\n"
-            '@config(config::default-agent = AgentCommand("config-agent"))\n'
-            "program def main() -> unit = print(config::default-agent)\n",
+            '@config(config::agent = AgentCommand("config-agent"))\n'
+            "program def main() -> unit = print(config::agent)\n",
         )
         exec_command.run(_exec_args_no_trace(agl_file))
         assert "config-agent" in capsys.readouterr().out
 
 
-class TestConfigDefaultSandbox:
-    def test_config_default_sandbox_is_seeded(
+class TestConfigSandbox:
+    def test_config_sandbox_is_seeded(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """``default-sandbox`` is the ``AGENT_SANDBOX`` engine key: a ``@config`` value
+        """``sandbox`` is the ``AGENT_SANDBOX`` engine key: a ``@config`` value
         for it goes through the same executable -> standard identity restamp as
-        ``default-agent``, but for the ``AgentSandbox`` reserved enum."""
+        ``agent``, but for the ``AgentSandbox`` reserved enum."""
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
             "import std/config\n\n"
-            "@config(config::default-sandbox = AgentSandbox::Native)\n"
+            "@config(config::sandbox = AgentSandbox::Native)\n"
             "program def main() -> unit = "
-            "print(config::default-sandbox is AgentSandbox::Native)\n",
+            "print(config::sandbox is AgentSandbox::Native)\n",
         )
         exec_command.run(_exec_args_no_trace(agl_file))
         assert capsys.readouterr().out == "true\n"

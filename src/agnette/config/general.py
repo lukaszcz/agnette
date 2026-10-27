@@ -11,7 +11,7 @@ from typing import Generic, TypeVar
 
 from agnette.agl.warnings import WarningLevel, warning_level_setting
 from agnette.agm.project.layout import project_config_dir
-from agnette.config.engine_keys import ENGINE_KEY_KINDS, PATH_ENGINE_KEYS
+from agnette.config.engine_keys import ENGINE_KEY_KINDS, ENGINE_KEY_NAMES, PATH_ENGINE_KEYS
 from agnette.config.home import agm_home_dir, agm_path_candidates
 from agnette.core.fs import mkdir, write_text
 from agnette.core.parse import parse_timeout as parse_timeout
@@ -340,15 +340,21 @@ class ExecConfig:
     echo: bool = False
     # Raw TOML value (a string or a native table): exec/repl decode it as a
     # host Agent value through the shared host-value decoder.
-    default_agent: object | None = None
+    agent: object | None = None
     # Raw TOML value (a string or a native table): exec/repl decode it as a
     # host AgentSandbox value through the shared host-value decoder.
-    default_sandbox: object | None = None
+    sandbox: object | None = None
     # Optional recursion call-depth override (None = use the canonical default).
     max_call_depth: int | None = None
     # Keep debugging artifacts (``std/fs`` temporary paths) past the host session.
     debug: object | None = None
     parse_error_retries: object | None = None
+
+
+_ECHO_KEY = "echo"
+_MAX_CALL_DEPTH_KEY = "max-call-depth"
+#: The ``[exec]`` keys that are execution options rather than engine settings.
+EXEC_OPTION_KEYS: tuple[str, ...] = (_ECHO_KEY, _MAX_CALL_DEPTH_KEY)
 
 
 @dataclass(frozen=True)
@@ -367,9 +373,15 @@ def exec_options_from_merged(merged: TomlDict) -> ExecOptions:
     """
     exec_table = toml_dict(merged.get("exec"))
     return ExecOptions(
-        echo=_optional_bool(exec_table, "echo"),
-        max_call_depth=_optional_positive_int(exec_table, "max-call-depth"),
+        echo=_optional_bool(exec_table, _ECHO_KEY),
+        max_call_depth=_optional_positive_int(exec_table, _MAX_CALL_DEPTH_KEY),
     )
+
+
+def undeclared_exec_keys(merged: TomlDict) -> tuple[str, ...]:
+    """Return the sorted ``[exec]`` keys of *merged* that are no engine setting or option."""
+    declared = ENGINE_KEY_NAMES | frozenset(EXEC_OPTION_KEYS)
+    return tuple(sorted(key for key in toml_dict(merged.get("exec")) if key not in declared))
 
 
 def exec_config_from_merged(
@@ -412,12 +424,12 @@ def exec_config_from_merged(
     resolved_trace = effective.get("trace")
     resolved_trace_file = _optional_str(effective, "trace-file")
     resolved_debug = effective.get("debug")
-    # Keep every explicitly supplied engine value raw (``default-agent`` and
-    # ``default-sandbox`` may be a native TOML table) so exec/repl decode and
+    # Keep every explicitly supplied engine value raw (``agent`` and
+    # ``sandbox`` may be a native TOML table) so exec/repl decode and
     # validate it through the shared host-value decoder at their AgL host
     # boundary; other commands stay free of AgL imports.
-    resolved_default_agent = effective.get("default-agent")
-    resolved_default_sandbox = effective.get("default-sandbox")
+    resolved_agent = effective.get("agent")
+    resolved_sandbox = effective.get("sandbox")
     resolved_parse_error_retries = effective.get("parse-error-retries")
 
     return ExecConfig(
@@ -427,8 +439,8 @@ def exec_config_from_merged(
         timeout=resolved_timeout,
         trace=resolved_trace,
         trace_file=resolved_trace_file,
-        default_agent=resolved_default_agent,
-        default_sandbox=resolved_default_sandbox,
+        agent=resolved_agent,
+        sandbox=resolved_sandbox,
         debug=resolved_debug,
         parse_error_retries=resolved_parse_error_retries,
     )

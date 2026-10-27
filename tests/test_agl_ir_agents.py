@@ -572,12 +572,12 @@ n
 
 
 # ---------------------------------------------------------------------------
-# default agent (ask without agent: named arg)
+# agent setting (ask without agent: named arg)
 # ---------------------------------------------------------------------------
 
 
-def test_default_agent_ask() -> None:
-    """ask() with no agent: named arg uses the default agent."""
+def test_ask_uses_the_agent_setting() -> None:
+    """ask() with no agent: named arg uses the ``agent`` setting."""
     source = """\
 let result: text = ask("Hello default.")
 result

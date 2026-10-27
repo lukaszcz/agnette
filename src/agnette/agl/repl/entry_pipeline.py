@@ -779,7 +779,7 @@ class EntryPipeline:
                 ok=False,
             )
         except HostConfigurationError as exc:
-            # The materialized ``default-agent`` value cannot be dispatched: a
+            # The materialized ``agent`` value cannot be dispatched: a
             # pre-execution host-configuration rejection rather than an
             # uncaught AgL exception, so it is reported as an ordinary
             # diagnostic -- like any other per-entry error, this never exits

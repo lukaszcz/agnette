@@ -481,7 +481,7 @@ def test_completion_treats_an_unreadable_colon_named_file_as_a_file_not_a_refere
 
         # Degrades to base completion (the file can't be read) rather than
         # attempting package resolution for "pkg::mod.agl" as a reference.
-        assert "--default-agent" in values
+        assert "--agent" in values
         assert "--level" not in values
     finally:
         unreadable.chmod(0o644)
@@ -1999,14 +1999,14 @@ class TestExecCommandShellComplete:
         """Unreadable file degrades to standard exec option completion (no crash)."""
         result = self._complete(["exec", "/nonexistent/prog.agl"], "--")
         # Built-in options should still appear.
-        assert "--default-agent" in result
+        assert "--agent" in result
         # No param options (nothing to discover).
         assert "--count" not in result
 
     def test_no_file_no_command_returns_base_completion(self) -> None:
         """Without FILE or -c, only built-in exec options are offered."""
         result = self._complete(["exec"], "--")
-        assert "--default-agent" in result
+        assert "--agent" in result
 
 
 class TestProgramArgumentCompletionItems:
@@ -2163,7 +2163,7 @@ class TestExecCommandShellCompleteEdgeCases:
         )
         result = self._complete(["exec", str(agl_file)], "--")
         # Built-in options still returned via base completion.
-        assert "--default-agent" in result
+        assert "--agent" in result
         # No program-argument items.
         assert "--msg" not in result
 

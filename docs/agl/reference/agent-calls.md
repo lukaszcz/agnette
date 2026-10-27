@@ -26,10 +26,10 @@ program def main(artifact: text) -> unit =
 
 ```text
 @arg-named
-ask[T](@arg-pos prompt: text, agent: Agent = std/config::default-agent,
+ask[T](@arg-pos prompt: text, agent: Agent = std/config::agent,
        format: text = "", strict-json: bool = false,
        parse-error-retries: int = std/config::parse-error-retries,
-       sandbox: AgentSandbox = std/config::default-sandbox,
+       sandbox: AgentSandbox = std/config::sandbox,
        env: Environ = std/env::environ) -> T
 ```
 
@@ -135,18 +135,18 @@ matters.
 ### The default agent
 
 Free `ask` uses `Session::default()`, which opens one session lazily on first
-use and snapshots `std/config::default-agent`, `std/config::default-sandbox`,
+use and snapshots `std/config::agent`, `std/config::sandbox`,
 and the ambient environment at that moment. Every later free `ask` in that run
 or REPL session continues the same conversation with the same agent; a later
 write to either setting does not switch it. The standard library's default is
-`AgentPi()`; the host's `--default-agent` and `[exec] default-agent` seeds
+`AgentPi()`; the host's `--agent` and `[exec] agent` seeds
 override it, and a source write made before the first free `ask` takes effect:
 
 ```agl
 import std/config
 
 program def main() -> unit =
-  std/config::default-agent := AgentClaude("sonnet", "medium")
+  std/config::agent := AgentClaude("sonnet", "medium")
   let answer: text = ask("Summarize")
 ```
 
@@ -168,7 +168,7 @@ program def main() -> unit =
 ```
 
 `Session::open(agent, transport = None, name = "", sandbox =
-std/config::default-sandbox, env = std/env::environ)` opens a session, and
+std/config::sandbox, env = std/env::environ)` opens a session, and
 `Session::default()` returns the default session that free `ask` uses. The
 session operations are `ask`, `compact(instructions = "")`, `reset()`,
 `fork()`, `stats()`, `set-name(name)`, and `close()`:
@@ -299,7 +299,7 @@ On a `text` target it draws the `noop-parse-retries` [static warning](warnings.m
 
 The call's sandboxing mode, an `AgentSandbox` value
 ([Types](types.md#agentsandbox)); it defaults to
-`std/config::default-sandbox`:
+`std/config::sandbox`:
 
 - `Sandbox(…)` (the default) — the agent process runs wrapped by the sandbox
   runtime, which applies the resource limits the record names; `AgentClaude`
@@ -514,11 +514,11 @@ first-attempt `AgentRequest` that the matching `ask` would dispatch,
 @arg-named
 ask-request[T](
   @arg-pos prompt: text,
-  agent: Agent = std/config::default-agent,
+  agent: Agent = std/config::agent,
   format: text = "",
   strict-json: bool = false,
   parse-error-retries: int = std/config::parse-error-retries,
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
 ) -> AgentRequest
 ```
 

@@ -376,7 +376,7 @@ def build_host_engine_seeds(
     :meth:`EngineSeedTiers.merged` recomputes it once the ``trace-file``
     implication and any caller-supplied middle tier are folded in.
 
-    Every key, ``default-agent`` included, decodes through
+    Every key, ``agent`` included, decodes through
     :func:`~agnette.agl.runtime.engine_config.validate_engine_leaf_value` against
     one shared seeded ``TypeTable``. A decode failure prints an error naming
     the offending key and its origin (``--<name>`` for a CLI flag, otherwise

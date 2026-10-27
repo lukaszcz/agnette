@@ -17,8 +17,8 @@ class EngineSettings(TypedDict, total=False):
     trace_file: str | None
     timeout: str | None
     no_timeout: bool
-    default_agent: str | None
-    default_sandbox: str | None
+    agent: str | None
+    sandbox: str | None
     debug: bool | None
     parse_error_retries: int | None
 
@@ -39,8 +39,8 @@ def engine_flag_tokens(**engine: Unpack[EngineSettings]) -> list[str]:
     for flag, text in (
         ("trace-file", engine.get("trace_file")),
         ("timeout", engine.get("timeout")),
-        ("default-agent", engine.get("default_agent")),
-        ("default-sandbox", engine.get("default_sandbox")),
+        ("agent", engine.get("agent")),
+        ("sandbox", engine.get("sandbox")),
         ("parse-error-retries", None if retries is None else str(retries)),
     ):
         if text is not None:

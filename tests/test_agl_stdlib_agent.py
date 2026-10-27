@@ -140,10 +140,10 @@ def test_chat_uses_current_defaults_without_opening_a_persistent_session(
     result = PipelineDriver(resolve_agent_spec=resolver, get_sandbox_context=None).run(
         "import std/config\n"
         "program def main() -> unit =\n"
-        "  config::default-sandbox := Native\n"
+        "  config::sandbox := Native\n"
         "  chat()\n"
-        "  config::default-agent := AgentCodex()\n"
-        "  config::default-sandbox := Disabled\n"
+        "  config::agent := AgentCodex()\n"
+        "  config::sandbox := Disabled\n"
         '  chat("second")\n'
         '  print "resumed"\n',
         roots=agl_roots(),

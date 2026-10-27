@@ -49,7 +49,7 @@ class TestAcceptedConfigTargets:
     def test_engine_setting_agent(self) -> None:
         _check(
             "import std/config\n\n"
-            '@config(config::default-agent = AgentClaude("opus", "high"))\n'
+            '@config(config::agent = AgentClaude("opus", "high"))\n'
             "program def main() -> unit = ()\n"
         )
 

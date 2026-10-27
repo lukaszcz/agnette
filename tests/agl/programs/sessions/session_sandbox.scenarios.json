@@ -61,7 +61,7 @@
       }
     },
     {
-      "name": "the_sandbox_operand_survives_a_later_default_sandbox_write",
+      "name": "the_sandbox_operand_survives_a_later_sandbox_write",
       "params": {"mode": "operand-survives-a-later-default-write"},
       "agents": {"impl": []},
       "expect": {
@@ -98,7 +98,7 @@
       }
     },
     {
-      "name": "an_omitted_sandbox_uses_the_default_sandbox_setting",
+      "name": "an_omitted_sandbox_uses_the_sandbox_setting",
       "params": {"mode": "implicit-default"},
       "agents": {"impl": []},
       "expect": {

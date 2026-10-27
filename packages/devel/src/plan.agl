@@ -39,7 +39,7 @@ def design-prompt(design-file: path, reports-dir: path) -> text =
 @doc("Create a plan interactively")
 program def plan-main(
   file: path = ".agent-files/PLAN.md",
-  agent: Agent = config::default-agent
+  agent: Agent = config::agent
 ) -> unit =
   agent.edit-and-chat(plan-prompt(file))
 
@@ -48,6 +48,6 @@ program def plan-main(
 program def plan-design(
   file: path = ".agent-files/DESIGN.md",
   reports-dir: path = ".agent-files/reports",
-  agent: Agent = config::default-agent
+  agent: Agent = config::agent
 ) -> unit =
   agent.edit-and-chat(design-prompt(file, reports-dir))

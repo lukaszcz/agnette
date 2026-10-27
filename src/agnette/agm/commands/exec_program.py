@@ -23,7 +23,7 @@ Exit-code contract:
 Flag notes:
     - ``--echo`` echoes live agent progress and final output to stderr;
       ``--no-echo`` disables it. ``[exec] echo = true`` enables it by default.
-    - The engine settings (``strict-json``, ``default-agent``, ``default-sandbox``,
+    - The engine settings (``strict-json``, ``agent``, ``sandbox``,
       ``timeout``, ``trace``, ``trace-file``, ``debug``, ``parse-error-retries``) are
       host parameters of the selected program's surface, at its lowest claim level:
       the bare flag (``--strict-json``, ``--no-trace``, ``--trace-file PATH``, ...) and
@@ -43,7 +43,7 @@ Flag notes:
       disables the automatic import throughout the loaded program. Ordinary imports are
       qualified by default; tails and ``use`` declarations make names bare.
     - A program reads and writes the engine settings (``strict-json``,
-      ``default-agent``, ``default-sandbox``, ``timeout``, ``trace``, ``trace-file``,
+      ``agent``, ``sandbox``, ``timeout``, ``trace``, ``trace-file``,
       ``debug``, ``parse-error-retries``) through the ``std/config`` module; a
       ``std/config::KEY := VALUE`` write takes effect from its program point onward
       and overrides the CLI value, which overrides the config-file layer.
@@ -88,7 +88,11 @@ from agnette.agm.cli_support.exec_target import (
     PackageProgramReference,
     resolve_installed_reference,
 )
-from agnette.agm.cli_support.param_config import ParamValueTiers, resolve_param_values
+from agnette.agm.cli_support.param_config import (
+    ParamValueTiers,
+    report_undeclared_exec_keys,
+    resolve_param_values,
+)
 from agnette.agm.cli_support.program_discovery import (
     ProgramDiscoveryArtifacts,
     discover_program_artifacts_for_target,
@@ -539,6 +543,7 @@ def run(
     # ``echo`` and ``max-call-depth`` come from ``[exec]`` alone; the engine settings
     # are resolved with every other host parameter once the program is selected.
     options = exec_options_from_merged(merged_config)
+    report_undeclared_exec_keys(config_view)
     resolve_agent_spec = host_agent_spec_resolver(merged_config)
 
     # Resolve max call depth: CLI > config.  ``None`` (nothing set at
@@ -628,7 +633,7 @@ def run(
     # are not seeds: passing them here would suppress a declared
     # ``builtin var`` initializer.  The shared decoder preserves explicit
     # ``None`` values for Option settings such as --no-timeout.  A host Agent
-    # value (``--default-agent``/``[exec] default-agent``) decodes through
+    # value (``--agent``/``[exec] agent``) decodes through
     # the same shared path as every other key; a bad value exits 1 here,
     # before the program is lowered. strict-json/timeout/trace are merged only
     # after preflight, below, once a selected program's own ``@config`` entries
@@ -662,8 +667,8 @@ def run(
     # what lets ``@config`` reach them without a second lowering pass or a
     # duplicated precedence rule. A ``@config`` value is decoded against
     # *executable*'s own nominal identity (see ``preflight_arguments``); an
-    # enum-backed value (``timeout``, ``trace-file``, ``default-agent``,
-    # ``default-sandbox``) is restamped onto the standard identity every other
+    # enum-backed value (``timeout``, ``trace-file``, ``agent``,
+    # ``sandbox``) is restamped onto the standard identity every other
     # engine tier already uses, so it reads back through the same plain accessors.
     #
     # Program arguments are validated against the lowered program, so this

@@ -303,19 +303,19 @@ class _Bindings(dict[str, object]):
 # The hand-built program in ``_check_program_ast`` declares its own
 # ``Agent`` enum (scoped to the entry module, not ``std/prelude``) and never loads
 # ``std/config``, so the bare ``ask(...)`` calls built by ``_ask_call`` have no
-# declared ``default-agent`` to read. ``_run_with_json_codec`` seeds one — its
+# declared ``agent`` to read. ``_run_with_json_codec`` seeds one — its
 # concrete variant is irrelevant, since every ``agent_dispatcher`` in this file
 # ignores ``request.agent`` and responds from the prompt alone. The command
 # text must still be non-empty and shell-splittable: ``IrInterpreter``
-# validates the materialized ``default-agent`` value eagerly at construction,
+# validates the materialized ``agent`` value eagerly at construction,
 # regardless of whether anything ever dispatches it.
-_TEST_DEFAULT_AGENT = RecordValue(
+_TEST_AGENT = RecordValue(
     nominal=NominalId(require_reserved_enum_member_id("Agent", "AgentCommand")),
     fields={"command": TextValue("unused")},
 )
-# Likewise seeds ``default-sandbox``: every ``Session::default``/``Session::open``
+# Likewise seeds ``sandbox``: every ``Session::default``/``Session::open``
 # now reads it too, and this hand-built program never declares one either.
-_TEST_DEFAULT_SANDBOX = RecordValue(
+_TEST_SANDBOX = RecordValue(
     nominal=NominalId(require_reserved_enum_member_id("AgentSandbox", "Disabled")),
     fields={},
 )
@@ -339,8 +339,8 @@ def _run_with_json_codec(
             agent_dispatcher=agent_dispatcher,
             strict_json=strict_json,
             builtin_host_settings={
-                "default-agent": _TEST_DEFAULT_AGENT,
-                "default-sandbox": _TEST_DEFAULT_SANDBOX,
+                "agent": _TEST_AGENT,
+                "sandbox": _TEST_SANDBOX,
             },
         ).run()
     )
@@ -377,8 +377,8 @@ def _ask_call(
     """Build an ``ask(text)`` call expression using the default agent.
 
     ``strict_json=True`` adds ``strict-json = true`` as a named argument.
-    The omitted agent argument reads the ``default-agent`` engine setting, which
-    ``_run_with_json_codec`` seeds with :data:`_TEST_DEFAULT_AGENT`.
+    The omitted agent argument reads the ``agent`` engine setting, which
+    ``_run_with_json_codec`` seeds with :data:`_TEST_AGENT`.
     """
     named_args: list[ast.NamedArg] = []
     if strict_json is not None:
@@ -2637,7 +2637,7 @@ class TestPipelineDriverWireUp:
         assert exc.nominal == NominalId(require_reserved_nominal_id("AgentParseError"))
         # AgentParseError preserves the (seeded) default Agent enum value.
         agent = exc.fields.get("agent")
-        assert agent == _TEST_DEFAULT_AGENT
+        assert agent == _TEST_AGENT
 
     def test_agent_parse_error_has_target_type_field(self) -> None:
         let_n = _let("n", _ask_call("Num."), type_ann=_int_ty())

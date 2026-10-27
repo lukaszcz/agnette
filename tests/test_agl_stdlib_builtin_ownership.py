@@ -62,8 +62,8 @@ _MODULES: dict[str, str] = {
         "import std/agent::{Agent, AgentSandbox}\n"
         "import std/option::{Option}\n"
         "\n"
-        'builtin var default-agent: Agent = AgentClaude("sonnet")\n'
-        "builtin var default-sandbox: AgentSandbox = Disabled\n"
+        'builtin var agent: Agent = AgentClaude("sonnet")\n'
+        "builtin var sandbox: AgentSandbox = Disabled\n"
         "builtin var strict-json: bool = false\n"
         "builtin var timeout: Option[text] = None\n"
         "builtin var trace: bool = false\n"
@@ -181,7 +181,7 @@ _MODULES: dict[str, str] = {
         "  agent: Agent,\n"
         "  transport: Option[SessionTransport] = Option[SessionTransport]::None,\n"
         '  name: text = "",\n'
-        "  sandbox: AgentSandbox = std/config::default-sandbox,\n"
+        "  sandbox: AgentSandbox = std/config::sandbox,\n"
         ") -> Session\n"
         "builtin def Session::default() -> Session\n"
         "builtin def Session::close(self) -> unit\n"

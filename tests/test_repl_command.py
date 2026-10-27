@@ -115,7 +115,7 @@ class TestReplArgsParsing:
         [
             ["--strict-json"],
             ["--no-strict-json"],
-            ["--default-agent", 'AgentCommand("echo agent")'],
+            ["--agent", 'AgentCommand("echo agent")'],
             ["--trace-file", "/tmp/r.log"],
             ["--no-trace"],
             ["--timeout", "5s"],
@@ -298,8 +298,8 @@ def _args(
     trace_file: str | None = None,
     timeout: str | None = None,
     no_timeout: bool = False,
-    default_agent: str | None = None,
-    default_sandbox: str | None = None,
+    agent: str | None = None,
+    sandbox: str | None = None,
     no_stdlib: bool = False,
     parse_error_retries: int | None = None,
     plain: bool = True,
@@ -320,8 +320,8 @@ def _args(
             trace_file=trace_file,
             timeout=timeout,
             no_timeout=no_timeout,
-            default_agent=default_agent,
-            default_sandbox=default_sandbox,
+            agent=agent,
+            sandbox=sandbox,
             parse_error_retries=parse_error_retries,
         ),
         no_stdlib=no_stdlib,
@@ -444,7 +444,7 @@ class TestReplRun:
         def run_console(session: ReplSession, **_kwargs: object) -> None:
             result = session.eval_entry(
                 "import std/config\n"
-                'std/config::default-agent := AgentPi("default", "model", "high")\n'
+                'std/config::agent := AgentPi("default", "model", "high")\n'
                 'let opened = Session::open(AgentPi("opened", "model", "high"))\n'
                 "let default = Session::default()\n"
                 'opened.ask("open prompt")\n'
@@ -704,18 +704,18 @@ class TestReplRun:
         from agnette.agl.semantics.values import RecordValue, TextValue
 
         _isolated_home(monkeypatch, tmp_path)
-        repl_command.run(_args(default_agent='AgentCommand("configured")'))
+        repl_command.run(_args(agent='AgentCommand("configured")'))
         session: ReplSession = fake_plain_console[0]["session"]
 
         assert session.eval_entry("import std/config").ok
-        seeded = session.eval_entry("std/config::default-agent")
+        seeded = session.eval_entry("std/config::agent")
         assert seeded.ok
         assert isinstance(seeded.value, RecordValue)
         assert "AgentCommand(" in render_value(seeded.value, session.descriptors())
         assert seeded.value.fields["command"] == TextValue("configured")
 
-        assert session.eval_entry('std/config::default-agent := AgentClaude("haiku", "low")').ok
-        result = session.eval_entry("std/config::default-agent")
+        assert session.eval_entry('std/config::agent := AgentClaude("haiku", "low")').ok
+        result = session.eval_entry("std/config::agent")
         assert result.ok
         assert isinstance(result.value, RecordValue)
         assert "AgentClaude(" in render_value(result.value, session.descriptors())
@@ -731,11 +731,11 @@ class TestReplRun:
         from agnette.agl.semantics.values import RecordValue
 
         _isolated_home(monkeypatch, tmp_path)
-        repl_command.run(_args(default_sandbox='Sandbox(memory = Some("8G"))'))
+        repl_command.run(_args(sandbox='Sandbox(memory = Some("8G"))'))
         session: ReplSession = fake_plain_console[0]["session"]
 
         assert session.eval_entry("import std/config").ok
-        seeded = session.eval_entry("std/config::default-sandbox")
+        seeded = session.eval_entry("std/config::sandbox")
         assert seeded.ok
         assert isinstance(seeded.value, RecordValue)
         rendered = render_value(seeded.value, session.descriptors())
@@ -773,13 +773,13 @@ class TestReplRun:
         from agnette.agl.semantics.values import RecordValue, TextValue
 
         _isolated_home(monkeypatch, tmp_path)
-        repl_command.run(_args(default_agent='AgentCommand("configured")'))
+        repl_command.run(_args(agent='AgentCommand("configured")'))
         session: ReplSession = fake_plain_console[0]["session"]
 
         assert session.eval_entry("import std/config").ok
         session.reset()
 
-        result = session.eval_entry("import std/config\nstd/config::default-agent")
+        result = session.eval_entry("import std/config\nstd/config::agent")
         assert result.ok
         assert isinstance(result.value, RecordValue)
         assert "AgentCommand(" in render_value(result.value, session.descriptors())
@@ -809,6 +809,26 @@ class TestReplRun:
         assert result.ok
         assert isinstance(result.value, RecordValue)
         assert result.value.fields["value"] == TextValue("30s")
+
+    def test_undeclared_exec_keys_warn_once(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        home = _isolated_home(monkeypatch, tmp_path)
+        (home / ".agm").mkdir(parents=True, exist_ok=True)
+        (home / ".agm" / "config.toml").write_text(
+            '[exec]\ndefault-agent = "old"\ndefault-sandbox = "Native"\necho = true\n'
+        )
+
+        repl_command.run(_args())
+
+        err = capsys.readouterr().err
+        assert err.count("default-agent") == 1
+        assert err.count("default-sandbox") == 1
+        assert err.count("echo") == 0
 
     @pytest.mark.parametrize(
         ("args", "expected_seed", "expected_seconds"),
@@ -1015,14 +1035,14 @@ class TestReplRun:
         fake_plain_console: list[dict[str, object]],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """A blank ``--default-agent`` is a host-shape error, rejected before the session builds."""
+        """A blank ``--agent`` is a host-shape error, rejected before the session builds."""
         _isolated_home(monkeypatch, tmp_path)
 
         with pytest.raises(SystemExit) as exc_info:
-            repl_command.run(_args(default_agent=""))
+            repl_command.run(_args(agent=""))
 
         assert exc_info.value.code == 1
-        assert "default-agent" in capsys.readouterr().err
+        assert "'agent'" in capsys.readouterr().err
         assert fake_plain_console == []
 
     @pytest.mark.parametrize("value", ["true", "(", "worker --flag"])
@@ -1035,7 +1055,7 @@ class TestReplRun:
     ) -> None:
         _isolated_home(monkeypatch, tmp_path)
 
-        repl_command.run(_args(default_agent=value))
+        repl_command.run(_args(agent=value))
 
         assert len(fake_plain_console) == 1
 
@@ -1046,14 +1066,14 @@ class TestReplRun:
         fake_plain_console: list[dict[str, object]],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """A well-typed but non-constant ``--default-agent`` literal exits before the banner."""
+        """A well-typed but non-constant ``--agent`` literal exits before the banner."""
         _isolated_home(monkeypatch, tmp_path)
 
         with pytest.raises(SystemExit) as exc_info:
-            repl_command.run(_args(default_agent='AgentCommand("not " + "constant")'))
+            repl_command.run(_args(agent='AgentCommand("not " + "constant")'))
 
         assert exc_info.value.code == 1
-        assert "--default-agent" in capsys.readouterr().err
+        assert "--agent" in capsys.readouterr().err
         assert fake_plain_console == []
 
     def test_malformed_agent_literal_with_no_stdlib_exits_before_the_session_builds(
@@ -1064,33 +1084,31 @@ class TestReplRun:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """``--no-stdlib`` never loads ``std/config``, but a malformed
-        ``--default-agent`` literal still exits 1: the decode failure is
+        ``--agent`` literal still exits 1: the decode failure is
         reported directly, independent of whether any module ever loads."""
         _isolated_home(monkeypatch, tmp_path)
 
         with pytest.raises(SystemExit) as exc_info:
-            repl_command.run(_args(default_agent='AgentClaude(model = "x"', no_stdlib=True))
+            repl_command.run(_args(agent='AgentClaude(model = "x"', no_stdlib=True))
 
         assert exc_info.value.code == 1
-        assert "--default-agent" in capsys.readouterr().err
+        assert "--agent" in capsys.readouterr().err
         assert fake_plain_console == []
 
-    def test_config_default_agent_with_no_stdlib_opens_cleanly(
+    def test_config_agent_with_no_stdlib_opens_cleanly(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         fake_plain_console: list[dict[str, object]],
     ) -> None:
-        """A project-configured ``[exec] default-agent`` decodes and seeds the
+        """A project-configured ``[exec] agent`` decodes and seeds the
         session cleanly even when ``--no-stdlib`` means ``std/config`` never
         loads: the seed reaches the interpreter's register independent of the
         module graph."""
         home = _isolated_home(monkeypatch, tmp_path)
         agm_dir = home / ".agm"
         agm_dir.mkdir()
-        agm_dir.joinpath("config.toml").write_text(
-            "[exec]\ndefault-agent = 'AgentCommand(\"echo cfg\")'\n"
-        )
+        agm_dir.joinpath("config.toml").write_text("[exec]\nagent = 'AgentCommand(\"echo cfg\")'\n")
 
         repl_command.run(_args(no_stdlib=True))
 
@@ -1157,7 +1175,7 @@ class TestReplRun:
         assert capsys.readouterr().err
         assert fake_plain_console == []
 
-    def test_blank_default_agent_config_literal_exits_1(
+    def test_blank_agent_config_literal_exits_1(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -1167,14 +1185,14 @@ class TestReplRun:
         home = _isolated_home(monkeypatch, tmp_path)
         config_dir = home / ".agm"
         config_dir.mkdir()
-        (config_dir / "config.toml").write_text('[exec]\ndefault-agent = ""\n')
+        (config_dir / "config.toml").write_text('[exec]\nagent = ""\n')
 
         with pytest.raises(SystemExit) as exc_info:
             repl_command.run(_args())
 
         assert exc_info.value.code == 1
         error = capsys.readouterr().err
-        assert "default-agent" in error
+        assert "'agent'" in error
         assert fake_plain_console == []
 
     def test_non_agent_config_syntax_opens_with_an_agent_command(
@@ -1186,7 +1204,7 @@ class TestReplRun:
         home = _isolated_home(monkeypatch, tmp_path)
         config_dir = home / ".agm"
         config_dir.mkdir()
-        (config_dir / "config.toml").write_text('[exec]\ndefault-agent = "not an agent"\n')
+        (config_dir / "config.toml").write_text('[exec]\nagent = "not an agent"\n')
 
         repl_command.run(_args())
 

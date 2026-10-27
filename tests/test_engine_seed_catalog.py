@@ -31,8 +31,8 @@ from tests._agl_helpers import agent_value
 _CONFIG_RAW_VALUES: dict[str, object] = {
     "trace": True,
     "strict-json": True,
-    "default-agent": 'AgentCommand("configured")',
-    "default-sandbox": "Native",
+    "agent": 'AgentCommand("configured")',
+    "sandbox": "Native",
     "trace-file": "configured.jsonl",
     "timeout": "12s",
     "debug": True,
@@ -42,8 +42,8 @@ _CONFIG_RAW_VALUES: dict[str, object] = {
 _CLI_VALUES: dict[str, object] = {
     "trace": False,
     "strict-json": False,
-    "default-agent": 'AgentCommand("cli")',
-    "default-sandbox": "Disabled",
+    "agent": 'AgentCommand("cli")',
+    "sandbox": "Disabled",
     "trace-file": "cli.jsonl",
     "timeout": "3s",
     "debug": False,
@@ -57,10 +57,8 @@ def _config_for(key: str, configured: bool) -> ExecConfig:
         timeout=12.0 if configured and key == "timeout" else None,
         trace=configured if key == "trace" else False,
         trace_file="configured.jsonl" if configured and key == "trace-file" else None,
-        default_agent='AgentCommand("configured")'
-        if configured and key == "default-agent"
-        else None,
-        default_sandbox="Native" if configured and key == "default-sandbox" else None,
+        agent='AgentCommand("configured")' if configured and key == "agent" else None,
+        sandbox="Native" if configured and key == "sandbox" else None,
         debug=configured if key == "debug" else False,
         parse_error_retries=7 if configured and key == "parse-error-retries" else None,
     )
@@ -74,8 +72,8 @@ def _config_for(key: str, configured: bool) -> ExecConfig:
 _RAW_AND_EXPECTED_BY_KEY: dict[str, tuple[object, object]] = {
     "trace": (True, True),
     "strict-json": (True, True),
-    "default-agent": ('AgentCommand("raw-agent")', 'AgentCommand("raw-agent")'),
-    "default-sandbox": ("Native", "Native"),
+    "agent": ('AgentCommand("raw-agent")', 'AgentCommand("raw-agent")'),
+    "sandbox": ("Native", "Native"),
     "trace-file": ("raw.jsonl", "raw.jsonl"),
     "timeout": ("5s", 5.0),
     "debug": (True, True),
@@ -89,7 +87,7 @@ def test_exec_config_from_merged_reflects_every_engine_key_config_attr(
 ) -> None:
     """Each ``[exec]`` TOML key reaches its own declared ``ExecConfig`` attribute.
 
-    ``ExecConfig(default_sandbox=...)`` built directly (as :func:`_config_for`
+    ``ExecConfig(sandbox=...)`` built directly (as :func:`_config_for`
     does) never runs ``exec_config_from_merged``'s own TOML-key lookup, so a
     typo there (e.g. reading the wrong raw key string) would silently leave
     an attribute at its default with nothing failing. Parametrized over the
@@ -162,46 +160,42 @@ def test_each_engine_key_seed_has_the_same_cli_config_presence_matrix(
 )
 def test_cli_agent_values_decode_to_the_typed_agent_value(raw: str, expected: object) -> None:
     seeds = build_host_engine_seeds(
-        config=_config_for("default-agent", configured=False),
+        config=_config_for("agent", configured=False),
         primary_table={},
-        cli_values={"default-agent": raw},
+        cli_values={"agent": raw},
     ).merged()
 
-    assert seeds["default-agent"] == expected
+    assert seeds["agent"] == expected
 
 
-def test_toml_default_agent_decodes_through_the_same_host_text_dispatch() -> None:
+def test_toml_agent_decodes_through_the_same_host_text_dispatch() -> None:
     config = ExecConfig(
         strict_json=False,
         timeout=None,
         trace=False,
         trace_file=None,
-        default_agent="claude/sonnet:experimental",
+        agent="claude/sonnet:experimental",
     )
 
     seeds = build_host_engine_seeds(
         config=config,
-        primary_table={"default-agent": config.default_agent},
+        primary_table={"agent": config.agent},
         cli_values={},
     ).merged()
 
-    assert seeds["default-agent"] == agent_value(
-        "AgentClaude", model="sonnet", thinking="experimental"
-    )
+    assert seeds["agent"] == agent_value("AgentClaude", model="sonnet", thinking="experimental")
 
 
-def test_config_table_default_agent_is_json_shaped_data() -> None:
+def test_config_table_agent_is_json_shaped_data() -> None:
     """A native TOML table decodes as JSON-shaped data, not host text."""
     raw = {"$case": "AgentClaude", "model": "opus", "thinking": "high"}
-    config = ExecConfig(
-        strict_json=False, timeout=None, trace=False, trace_file=None, default_agent=raw
-    )
+    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None, agent=raw)
 
     seeds = build_host_engine_seeds(
-        config=config, primary_table={"default-agent": raw}, cli_values={}
+        config=config, primary_table={"agent": raw}, cli_values={}
     ).merged()
 
-    assert seeds["default-agent"] == agent_value("AgentClaude", model="opus", thinking="high")
+    assert seeds["agent"] == agent_value("AgentClaude", model="opus", thinking="high")
 
 
 def _optional_default() -> RecordValue:
@@ -216,20 +210,20 @@ def _option_none() -> RecordValue:
     )
 
 
-def test_bare_default_sandbox_cli_value_fills_every_omitted_field() -> None:
+def test_bare_sandbox_cli_value_fills_every_omitted_field() -> None:
     """A bare ``Sandbox`` fills all four defaulted fields from the host-side constant table.
 
     No program exists yet at this pre-execution boundary, so the omitted
     fields are filled by :func:`~agnette.agl.semantics.type_table.reserved_field_default`
     rather than any evaluator.
     """
-    config = _config_for("default-sandbox", configured=False)
+    config = _config_for("sandbox", configured=False)
 
     seeds = build_host_engine_seeds(
-        config=config, primary_table={}, cli_values={"default-sandbox": "Sandbox"}
+        config=config, primary_table={}, cli_values={"sandbox": "Sandbox"}
     ).merged()
 
-    assert seeds["default-sandbox"] == RecordValue(
+    assert seeds["sandbox"] == RecordValue(
         nominal=NominalId(require_reserved_nominal_id("Sandbox")),
         fields={
             "memory": _optional_default(),
@@ -240,17 +234,17 @@ def test_bare_default_sandbox_cli_value_fills_every_omitted_field() -> None:
     )
 
 
-def test_partial_default_sandbox_cli_value_keeps_its_explicit_field_and_defaults_the_rest() -> None:
+def test_partial_sandbox_cli_value_keeps_its_explicit_field_and_defaults_the_rest() -> None:
     """An explicit field decodes normally; every omitted field still defaults."""
-    config = _config_for("default-sandbox", configured=False)
+    config = _config_for("sandbox", configured=False)
 
     seeds = build_host_engine_seeds(
         config=config,
         primary_table={},
-        cli_values={"default-sandbox": 'Sandbox(memory = Some("8G"))'},
+        cli_values={"sandbox": 'Sandbox(memory = Some("8G"))'},
     ).merged()
 
-    assert seeds["default-sandbox"] == RecordValue(
+    assert seeds["sandbox"] == RecordValue(
         nominal=NominalId(require_reserved_nominal_id("Sandbox")),
         fields={
             "memory": RecordValue(
@@ -264,59 +258,53 @@ def test_partial_default_sandbox_cli_value_keeps_its_explicit_field_and_defaults
     )
 
 
-def test_invalid_default_agent_value_exits_before_anything_runs(
+def test_invalid_agent_value_exits_before_anything_runs(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A decode failure prints an error naming ``--default-agent`` and exits 1."""
+    """A decode failure prints an error naming ``--agent`` and exits 1."""
     with pytest.raises(SystemExit) as exc_info:
         build_host_engine_seeds(
-            config=_config_for("default-agent", configured=False),
+            config=_config_for("agent", configured=False),
             primary_table={},
-            cli_values={"default-agent": 'AgentClaude(model = "x"'},
+            cli_values={"agent": 'AgentClaude(model = "x"'},
         )
     assert exc_info.value.code == 1
-    assert "--default-agent" in capsys.readouterr().err
+    assert "--agent" in capsys.readouterr().err
 
 
-def test_invalid_configured_default_agent_value_exits_naming_the_config_key(
+def test_invalid_configured_agent_value_exits_naming_the_config_key(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A malformed program-table value names ``default-agent``, never the flag or ``[exec]``.
+    """A malformed program-table value names ``agent``, never the flag or ``[exec]``.
 
     ``primary_table`` here stands for a resolved ``[prog.main]`` table --
     ``exec_config_from_merged`` has already applied program-table-over-
-    ``[exec]`` precedence into ``config.default_agent`` by the time
+    ``[exec]`` precedence into ``config.agent`` by the time
     ``build_host_engine_seeds`` runs.
     """
-    config = ExecConfig(
-        strict_json=False, timeout=None, trace=False, trace_file=None, default_agent="   "
-    )
+    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None, agent="   ")
 
     with pytest.raises(SystemExit) as exc_info:
-        build_host_engine_seeds(
-            config=config, primary_table={"default-agent": "   "}, cli_values={}
-        )
+        build_host_engine_seeds(config=config, primary_table={"agent": "   "}, cli_values={})
     assert exc_info.value.code == 1
     err = capsys.readouterr().err
-    assert "default-agent" in err
-    assert "--default-agent" not in err
+    assert "'agent'" in err
+    assert "--agent" not in err
     assert "[exec]" not in err
 
 
 def test_a_cli_value_shields_a_malformed_configured_value_from_decoding() -> None:
     """A table value the CLI overrides is never decoded, so it cannot fail the run."""
-    config = ExecConfig(
-        strict_json=False, timeout=None, trace=False, trace_file=None, default_agent="   "
-    )
+    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None, agent="   ")
 
     seeds = build_host_engine_seeds(
         config=config,
-        primary_table={"default-agent": "   "},
-        fallback_table={"default-agent": "   "},
-        cli_values={"default-agent": "worker --flag"},
+        primary_table={"agent": "   "},
+        fallback_table={"agent": "   "},
+        cli_values={"agent": "worker --flag"},
     ).merged()
 
-    assert seeds["default-agent"] == agent_value("AgentCommand", command="worker --flag")
+    assert seeds["agent"] == agent_value("AgentCommand", command="worker --flag")
 
 
 @pytest.mark.parametrize(

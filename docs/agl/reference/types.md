@@ -333,7 +333,7 @@ the third member references `Sandbox` rather than declaring its own record, a
 `is`/`case` reach it under its own name (`Sandbox`, not
 `AgentSandbox::Sandbox`). See [Engine
 settings](host-environment.md#engine-settings) for
-`std/config::default-sandbox`.
+`std/config::sandbox`.
 
 ## Record types
 

@@ -86,8 +86,8 @@ _SESSION_ASK = (
 )
 _FREE_ASK = (
     "import std/config\n"
-    'std/config::default-agent := AgentClaude("opus", "")\n'
-    "std/config::default-sandbox := AgentSandbox::Disabled\n"
+    'std/config::agent := AgentClaude("opus", "")\n'
+    "std/config::sandbox := AgentSandbox::Disabled\n"
     'let answer: text = ask("hi")\n'
     "print answer\n"
 )
@@ -182,7 +182,7 @@ def test_every_retry_attempt_carries_the_configured_effort(
 
 _BUILTIN_DEFAULT_ASK = (
     "import std/config\n"
-    "std/config::default-sandbox := AgentSandbox::Disabled\n"
+    "std/config::sandbox := AgentSandbox::Disabled\n"
     'let answer: text = ask("hi")\n'
     "print answer\n"
 )
@@ -209,7 +209,7 @@ _SONNET_DEFAULT = (
     ],
     ids=["provider-model-and-effort", "effort-only", "unconfigured"],
 )
-def test_a_plain_ask_on_the_builtin_default_agent_takes_the_configured_defaults(
+def test_a_plain_ask_on_the_builtin_agent_takes_the_configured_defaults(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str | None, expected: list[str]
 ) -> None:
     stub = RpcStub(tmp_path, monkeypatch)

@@ -1,7 +1,7 @@
 """Host-service reconfiguration for host-consumed ``builtin var`` settings.
 
-Writing the ``default-agent``, ``trace``, or ``trace-file`` engine settings (via
-``std/config::NAME := ...``) updates the host-visible state: ``default-agent``
+Writing the ``agent``, ``trace``, or ``trace-file`` engine settings (via
+``std/config::NAME := ...``) updates the host-visible state: ``agent``
 changes what unnamed ``ask`` calls dispatch through, and ``trace``/``trace-file``
 repoint the trace store. These tests drive the ``agm exec``
 command with the agent runner subprocess mocked, plus a direct pipeline test with
@@ -77,8 +77,8 @@ def _write_command_stdlib(root: Path, config: str) -> Path:
     config_path = stdlib_root / "src" / "config.agl"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
-        'import std/prelude::*\nbuiltin var default-agent: Agent = AgentCommand("echo")\n'
-        "builtin var default-sandbox: AgentSandbox = Disabled\n"
+        'import std/prelude::*\nbuiltin var agent: Agent = AgentCommand("echo")\n'
+        "builtin var sandbox: AgentSandbox = Disabled\n"
         + ("" if "builtin var parse-error-retries" in config else _RETRIES_DECL)
         + config,
         encoding="utf-8",
@@ -147,16 +147,16 @@ class TestCommandEngineSeeding:
         assert exc_info.value.code == 2
 
 
-class TestDefaultAgentReconfiguration:
-    def test_default_agent_write_reconfigures_ask(
+class TestAgentReconfiguration:
+    def test_agent_write_reconfigures_ask(
         self, tmp_path: Path, fake_agent_transport: FakeAgentTransport
     ) -> None:
-        """A ``default-agent :=`` selects the following ``ask`` dispatch."""
+        """An ``agent :=`` selects the following ``ask`` dispatch."""
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
             "import std/config::*\n"
-            'std/config::default-agent := AgentCommand("codex-runner \\%{SESSION_ID}")\n'
+            'std/config::agent := AgentCommand("codex-runner \\%{SESSION_ID}")\n'
             'ask("hi")\n',
         )
 
@@ -165,7 +165,7 @@ class TestDefaultAgentReconfiguration:
         assert fake_agent_transport.calls[0][1][0] == "codex-runner"
         assert len(fake_agent_transport.calls[0][1]) == 2
 
-    def test_no_default_agent_write_uses_the_stdlib_default_agent(
+    def test_no_agent_write_uses_the_stdlib_agent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The stdlib initializer supplies the default AgentPi value (RPC session)."""
@@ -173,7 +173,7 @@ class TestDefaultAgentReconfiguration:
         agl_file = tmp_path / "prog.agl"
         write_file_program(
             agl_file,
-            'import std/config\nstd/config::default-sandbox := AgentSandbox::Disabled\nask("hi")\n',
+            'import std/config\nstd/config::sandbox := AgentSandbox::Disabled\nask("hi")\n',
         )
 
         exec_command.run(_exec_args(agl_file))
@@ -181,7 +181,7 @@ class TestDefaultAgentReconfiguration:
         [start] = stub.records("starts.jsonl")
         assert start["argv"][:2] == ["--mode", "rpc"]
 
-    def test_default_agent_write_does_not_change_explicit_agent_values(
+    def test_agent_write_does_not_change_explicit_agent_values(
         self, tmp_path: Path, fake_agent_transport: FakeAgentTransport
     ) -> None:
         agl_file = tmp_path / "prog.agl"
@@ -189,7 +189,7 @@ class TestDefaultAgentReconfiguration:
             agl_file,
             "import std/config::*\n"
             'let fixed = AgentCommand("fixed-runner \\%{SESSION_ID}")\n'
-            'std/config::default-agent := AgentCommand("new-runner \\%{SESSION_ID}")\n'
+            'std/config::agent := AgentCommand("new-runner \\%{SESSION_ID}")\n'
             'fixed.ask("one")\n'
             'ask("two")\n',
         )

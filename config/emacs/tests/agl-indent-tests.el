@@ -636,10 +636,10 @@ level under a deeper body."
                  "def f() -> unit =\n  print \"a\"\n\nrecord ")))
 
 (ert-deftest agl-ind-typing-a-longer-identifier-keeps-the-line-put ()
-  ;; `default-agent' begins with the letters of `def' without being it, so
+  ;; `default-tasks-dir' begins with the letters of `def' without being it, so
   ;; nothing moves while it is typed.
-  (should (equal (agl-ind--typed "def f() -> unit =\nlet a = default-agent")
-                 "def f() -> unit =\n  let a = default-agent")))
+  (should (equal (agl-ind--typed "def f() -> unit =\nlet a = default-tasks-dir")
+                 "def f() -> unit =\n  let a = default-tasks-dir")))
 
 (ert-deftest agl-ind-typing-a-lone-modifier-returns-to-its-level ()
   ;; `builtin\=' and `extern\=' stand alone above the `def\=' they modify, so no

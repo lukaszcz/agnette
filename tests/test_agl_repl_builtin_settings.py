@@ -57,10 +57,10 @@ def _copy_core_and_option(directory: Path) -> None:
     additions = ""
     if "builtin var timeout" not in config:
         additions += "builtin var timeout: Option[text] = Option[text]::None\n"
-    if "builtin var default-agent" not in config:
-        additions += 'builtin var default-agent: Agent = AgentCommand("runner")\n'
-    if "builtin var default-sandbox" not in config:
-        additions += "builtin var default-sandbox: AgentSandbox = Disabled\n"
+    if "builtin var agent" not in config:
+        additions += 'builtin var agent: Agent = AgentCommand("runner")\n'
+    if "builtin var sandbox" not in config:
+        additions += "builtin var sandbox: AgentSandbox = Disabled\n"
     if "builtin var parse-error-retries" not in config:
         additions += "builtin var parse-error-retries: int = 4\n"
     if additions:
@@ -130,10 +130,10 @@ _PERSISTED_WRITES = [
         id="trace-file",
     ),
     pytest.param(
-        "default-agent",
+        "agent",
         'AgentCommand("scripted")',
         ("AgentCommand", "command", TextValue("scripted")),
-        id="default-agent",
+        id="agent",
     ),
     pytest.param("debug", "true", BoolValue(True), id="debug"),
     pytest.param("parse-error-retries", "7", IntValue(7), id="parse-error-retries"),
@@ -226,8 +226,8 @@ class TestDefaultsAndSeeding:
         _ok(s, "import std/config")
         assert _read(s, "strict-json") == BoolValue(False)
 
-    def test_unwritten_default_agent_declaration_survives_later_entries(self) -> None:
-        """An unseeded, unwritten ``default-agent`` keeps its declared value.
+    def test_unwritten_agent_declaration_survives_later_entries(self) -> None:
+        """An unseeded, unwritten ``agent`` keeps its declared value.
 
         ``std/config`` is linked once, so only the first entry carries its
         ``builtin var`` initializer; later entries must read the value the
@@ -237,7 +237,7 @@ class TestDefaultsAndSeeding:
         _ok(s, "import std/config")
         _ok(s, "let unrelated = 1")
 
-        result = _read_result(s, "default-agent")
+        result = _read_result(s, "agent")
 
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
@@ -266,14 +266,14 @@ def _host_seeded_session(
     timeout: str | None = None,
     trace: bool | None = None,
     trace_file: str | None = None,
-    default_agent: str | None = None,
+    agent: str | None = None,
     debug: bool | None = None,
     parse_error_retries: int | None = None,
 ) -> ReplSession:
     """Build a session with explicit host seeds ONLY for the given keys.
 
-    ``default_agent`` is the raw ``AgentCommand`` command text, built into the
-    same typed ``Value`` seed ``--default-agent``/``[exec] default-agent``
+    ``agent`` is the raw ``AgentCommand`` command text, built into the
+    same typed ``Value`` seed ``--agent``/``[exec] agent``
     decode into via ``cli_support.engine_seeds``.
     """
     raw: dict[str, object] = {}
@@ -290,8 +290,8 @@ def _host_seeded_session(
     if parse_error_retries is not None:
         raw["parse-error-retries"] = parse_error_retries
     engine_base = build_engine_config_seeds(raw)
-    if default_agent is not None:
-        engine_base["default-agent"] = agent_value("AgentCommand", command=default_agent)
+    if agent is not None:
+        engine_base["agent"] = agent_value("AgentCommand", command=agent)
     return _session(
         stdlib_root=stdlib_root,
         default_strict_json=strict_json if strict_json is not None else False,
@@ -313,7 +313,7 @@ def declared_defaults_stdlib(tmp_path_factory: pytest.TempPathFactory) -> Path:
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
         "import std/prelude::*\n"
-        'builtin var default-agent: Agent = AgentCommand("declared")\n'
+        'builtin var agent: Agent = AgentCommand("declared")\n'
         "builtin var strict-json: bool = true\n"
         'builtin var timeout: Option[text] = Option[text]::Some("2s")\n'
         "builtin var trace: bool = true\n"
@@ -343,11 +343,11 @@ _HOST_SEED_PRECEDENCE = [
         id="trace-file",
     ),
     pytest.param(
-        {"default_agent": "host"},
-        "default-agent",
+        {"agent": "host"},
+        "agent",
         'AgentCommand("written")',
         ("AgentCommand", "command", TextValue("host")),
-        id="default-agent",
+        id="agent",
     ),
     pytest.param({"debug": True}, "debug", "false", BoolValue(True), id="debug"),
     pytest.param(
@@ -467,10 +467,10 @@ _DECLARED_DEFAULT_PRECEDENCE = [
         id="trace-file",
     ),
     pytest.param(
-        "default-agent",
+        "agent",
         'AgentCommand("written")',
         ("AgentCommand", "command", TextValue("declared")),
-        id="default-agent",
+        id="agent",
     ),
     pytest.param("debug", "false", BoolValue(True), id="debug"),
     pytest.param("parse-error-retries", "8", IntValue(9), id="parse-error-retries"),
@@ -584,7 +584,7 @@ class TestResetRestoresMixedSeedOrigins:
         config_path.parent.mkdir(parents=True)
         config_path.write_text(
             "import std/prelude::{Option, Agent}\n"
-            'builtin var default-agent: Agent = AgentCommand("declared")\n'
+            'builtin var agent: Agent = AgentCommand("declared")\n'
             'builtin var timeout: Option[text] = Option[text]::Some("2s")\n'
             'builtin var trace-file: Option[text] = Option[text]::Some("declared.jsonl")\n'
             "builtin var debug: bool = true\n"
@@ -670,7 +670,7 @@ def test_reset_uses_declared_live_engine_defaults(tmp_path: Path) -> None:
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
         "import std/prelude::*\n"
-        'builtin var default-agent: Agent = AgentCommand("declared")\n'
+        'builtin var agent: Agent = AgentCommand("declared")\n'
         "builtin var strict-json: bool = true\n"
         'builtin var timeout: Option[text] = Option[text]::Some("2s")\n'
         "builtin var trace: bool = false\n"
@@ -688,14 +688,14 @@ def test_reset_uses_declared_live_engine_defaults(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Host-supplied default-agent seed (--default-agent / [exec] default-agent)
+# Host-supplied agent seed (--agent / [exec] agent)
 # ---------------------------------------------------------------------------
 
 
-class TestDefaultAgentSeedThreading:
-    """A decoded ``default-agent`` seed behaves like any other typed engine seed.
+class TestAgentSeedThreading:
+    """A decoded ``agent`` seed behaves like any other typed engine seed.
 
-    ``--default-agent``/``[exec] default-agent`` decode into the same typed
+    ``--agent``/``[exec] agent`` decode into the same typed
     ``Value`` seed every other engine key uses (see
     ``cli_support.engine_seeds``), so these tests seed ``engine_base``
     directly.
@@ -703,33 +703,33 @@ class TestDefaultAgentSeedThreading:
 
     def test_seed_is_observed_and_persists_across_entries(self) -> None:
         s = _unopened_session(
-            engine_base={"default-agent": agent_value("AgentCommand", command="overridden")}
+            engine_base={"agent": agent_value("AgentCommand", command="overridden")}
         )
         _ok(s, "import std/config")
-        result = _read_result(s, "default-agent")
+        result = _read_result(s, "agent")
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
         assert _variant(result.value, result.descriptors) == "AgentCommand"
         assert result.value.fields["command"] == TextValue("overridden")
 
         _ok(s, "let unrelated = 1")
-        value = _read(s, "default-agent")
+        value = _read(s, "agent")
         assert isinstance(value, RecordValue)
         assert value.fields["command"] == TextValue("overridden")
 
     def test_source_write_still_overrides_it_afterward(self) -> None:
         s = _unopened_session(
-            engine_base={"default-agent": agent_value("AgentCommand", command="overridden")}
+            engine_base={"agent": agent_value("AgentCommand", command="overridden")}
         )
         _ok(s, "import std/config")
-        initial = _read_result(s, "default-agent")
+        initial = _read_result(s, "agent")
         assert isinstance(initial.value, RecordValue)
         assert initial.descriptors is not None
         assert initial.descriptors.nominals[initial.value.nominal].display_name == (
             "Agent::AgentCommand"
         )
-        _ok(s, 'std/config::default-agent := AgentClaude("haiku", "low")')
-        result = _read_result(s, "default-agent")
+        _ok(s, 'std/config::agent := AgentClaude("haiku", "low")')
+        result = _read_result(s, "agent")
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
         assert _variant(result.value, result.descriptors) == "AgentClaude"
@@ -747,9 +747,7 @@ class TestDefaultAgentSeedThreading:
         s = ReplSession(
             stdlib_root=_STDLIB_ROOT,
             default_stdlib=False,
-            engine_base={
-                "default-agent": agent_value("AgentCommand", command="nonexistent-bin -p 'oops")
-            },
+            engine_base={"agent": agent_value("AgentCommand", command="nonexistent-bin -p 'oops")},
         )
 
         result = s.eval_entry("1 + 1")

@@ -7919,7 +7919,7 @@ class TestExecCommand:
             '  print "resumed"\n'
         )
         completed = subprocess.run(
-            _agm_argv(["exec", "--no-trace", "--default-agent", agent, str(program)]),
+            _agm_argv(["exec", "--no-trace", "--agent", agent, str(program)]),
             env=_agm_env(env),
             cwd=tmp_path,
             input="user reply\n",
@@ -8193,7 +8193,7 @@ class TestExecCommand:
         self, tmp_path: Path, env: dict[str, str]
     ) -> None:
         # No ``sandbox =`` override on this ``ask``: it exercises the
-        # ``default-sandbox`` engine setting, proving the whole wrapped
+        # ``sandbox`` engine setting, proving the whole wrapped
         # systemd-run/srt chain reaches the real agent binary -- not just
         # that sandboxed argv is constructed correctly, which the adapter
         # unit tests already cover.
@@ -8242,7 +8242,7 @@ class TestExecCommand:
     ) -> None:
         # A free ``ask(...)`` (no receiver, no explicit ``agent =``) routes
         # through the default session, opened lazily on first use: its
-        # sandboxing is fixed at that open, from the same ``default-sandbox``
+        # sandboxing is fixed at that open, from the same ``sandbox``
         # engine setting, and must reach the real agent binary exactly like an
         # explicit-agent call's ephemeral session does.
         work = tmp_path / "work"
@@ -8251,7 +8251,7 @@ class TestExecCommand:
         write_file_program(
             program,
             "import std/config\n"
-            'std/config::default-agent := AgentCommand("fake-free-agent \\%{SESSION_ID}")\n'
+            'std/config::agent := AgentCommand("fake-free-agent \\%{SESSION_ID}")\n'
             'let r = ask("hello")\n'
             "print r\n",
             encoding="utf-8",

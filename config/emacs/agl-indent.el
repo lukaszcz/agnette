@@ -888,7 +888,7 @@ never depends on `match-data' surviving another call."
 
 The trigger is the whitespace after the keyword rather than its last
 letter: an AgL name may begin with those letters and go on
-(`default-agent' is one name), and the separator is the first character
+(`default-tasks-dir' is one name), and the separator is the first character
 that tells the keyword from such a name."
   (and (memq last-command-event '(?\s ?\t))
        (string-match-p (concat "\\`[ \t]*" agl--declaration-keyword-re "[ \t]\\'")

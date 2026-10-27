@@ -3304,7 +3304,7 @@ _OPTION_DECL = "enum Option[T] =\n  | None\n  | Some(value: T)\n"
 # carries the same shaping options and target type parameter. The free form
 # also declares the optional ``agent`` the receiver form takes from its
 # receiver instead; without the standard library its canonical default,
-# ``std/config::default-agent``, is out of reach, and a ``builtin def``
+# ``std/config::agent``, is out of reach, and a ``builtin def``
 # default is resolved but never checked, so a local variant stands in.
 _ASK_REQUEST_OPTIONS = (
     "  prompt: text,\n"
@@ -4234,7 +4234,7 @@ class TestAgentRequestBuiltinIdentity:
         )
         assert declare.ok, declare.diagnostics
 
-        # No standard library, so ``std/config::default-agent`` -- the
+        # No standard library, so ``std/config::agent`` -- the
         # ``agent`` parameter's canonical default -- was never declared;
         # supplying ``agent`` explicitly is unrelated to the fix under test.
         result = s.eval_entry('let q = ask-request("hi", agent = AgentCommand(command = "noop"))')
@@ -6800,7 +6800,7 @@ class TestAgentDeclarations:
 
 
 class TestReset:
-    def test_reset_starts_a_fresh_default_agent_session(self) -> None:
+    def test_reset_starts_a_fresh_default_session(self) -> None:
         from agnette.agent.spec import AgentCommand
 
         host = AgentDispatcherSessionHost(None)
@@ -9034,8 +9034,8 @@ class TestImports:
         config = std_dir / "config.agl"
         config.write_text(
             "import std/prelude::{Option, Agent, AgentSandbox}\n"
-            'builtin var default-agent: Agent = AgentCommand("runner")\n'
-            "builtin var default-sandbox: AgentSandbox = Disabled\n"
+            'builtin var agent: Agent = AgentCommand("runner")\n'
+            "builtin var sandbox: AgentSandbox = Disabled\n"
             "builtin var parse-error-retries: int = 4\n"
             'builtin var timeout: Option[text] = Some("not-a-timeout")\n',
             encoding="utf-8",
@@ -9051,8 +9051,8 @@ class TestImports:
 
         config.write_text(
             "import std/prelude::{Option, Agent, AgentSandbox}\n"
-            'builtin var default-agent: Agent = AgentCommand("runner")\n'
-            "builtin var default-sandbox: AgentSandbox = Disabled\n"
+            'builtin var agent: Agent = AgentCommand("runner")\n'
+            "builtin var sandbox: AgentSandbox = Disabled\n"
             "builtin var parse-error-retries: int = 4\n"
             'builtin var timeout: Option[text] = Some("2s")\n',
             encoding="utf-8",
@@ -11072,7 +11072,7 @@ class TestSessionOpen:
         assert ReplSession(stdlib_root=first_root).open() == ()
         second = ReplSession(stdlib_root=second_root)
         assert second.open() == ()
-        result = second.eval_entry("import std/config\nstd/config::default-agent")
+        result = second.eval_entry("import std/config\nstd/config::agent")
 
         assert result.ok, result.diagnostics
         assert isinstance(result.value, RecordValue)
@@ -11085,7 +11085,7 @@ class TestSessionOpen:
     def test_open_reuses_a_bootstrap_regardless_of_engine_base_seeds(self, tmp_path: Path) -> None:
         """A typed engine seed does not touch the compiled module graph.
 
-        A seeded ``default-agent`` value is applied per entry at interpreter
+        A seeded ``agent`` value is applied per entry at interpreter
         construction, never baked into ``std/config``'s own compilation, so
         two sessions with different seeds safely share one bootstrap image:
         each still sees its own seed (or the declared default, unseeded),
@@ -11097,10 +11097,10 @@ class TestSessionOpen:
 
         seeded = ReplSession(
             stdlib_root=stdlib,
-            engine_base={"default-agent": agent_value("AgentCommand", command="seeded")},
+            engine_base={"agent": agent_value("AgentCommand", command="seeded")},
         )
         assert seeded.open() == ()
-        result = seeded.eval_entry("import std/config\nstd/config::default-agent")
+        result = seeded.eval_entry("import std/config\nstd/config::agent")
         assert result.ok
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
@@ -11110,7 +11110,7 @@ class TestSessionOpen:
 
         unseeded = ReplSession(stdlib_root=stdlib)
         assert unseeded.open() == ()
-        default_result = unseeded.eval_entry("import std/config\nstd/config::default-agent")
+        default_result = unseeded.eval_entry("import std/config\nstd/config::agent")
         assert default_result.ok
         assert isinstance(default_result.value, RecordValue)
         assert default_result.descriptors is not None
@@ -11142,20 +11142,18 @@ class TestSessionOpen:
             assert result.ok, result.diagnostics
             assert result.value == IntValue(value)
 
-    def test_open_never_rejects_a_default_agent_seed(self) -> None:
+    def test_open_never_rejects_an_agent_seed(self) -> None:
         """``open()`` only loads and checks modules; it never constructs an
-        interpreter, so a seeded ``default-agent`` cannot be rejected here.
+        interpreter, so a seeded ``agent`` cannot be rejected here.
         A malformed command's shell-split failure surfaces only once the
         first entry constructs its interpreter (see
         ``tests/test_agl_pipeline_parse_entry.py``'s
         ``TestMalformedAgentCommandAtConstruction``).
         """
-        s = ReplSession(
-            engine_base={"default-agent": agent_value("AgentCommand", command="preloaded")}
-        )
+        s = ReplSession(engine_base={"agent": agent_value("AgentCommand", command="preloaded")})
         assert s.open() == ()
 
-        result = s.eval_entry("import std/config\nstd/config::default-agent")
+        result = s.eval_entry("import std/config\nstd/config::agent")
         assert result.ok
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
@@ -11164,15 +11162,13 @@ class TestSessionOpen:
         assert result.value.fields["command"] == TextValue("preloaded")
 
     def test_reset_leaves_the_seed_in_force(self) -> None:
-        s = ReplSession(
-            engine_base={"default-agent": agent_value("AgentCommand", command="preloaded")}
-        )
+        s = ReplSession(engine_base={"agent": agent_value("AgentCommand", command="preloaded")})
         assert s.open() == ()
         assert s.eval_entry("import std/config").ok
 
         s.reset()
 
-        result = s.eval_entry("import std/config\nstd/config::default-agent")
+        result = s.eval_entry("import std/config\nstd/config::agent")
         assert result.ok
         assert isinstance(result.value, RecordValue)
         assert result.descriptors is not None
@@ -11214,7 +11210,7 @@ class TestSessionOpen:
 
         s = ReplSession(
             stdlib_root=stdlib,
-            engine_base={"default-agent": agent_value("AgentCommand", command="preloaded")},
+            engine_base={"agent": agent_value("AgentCommand", command="preloaded")},
         )
         assert s.open() == ()
         assert new_module_counts and new_module_counts[0] > 0
@@ -11224,8 +11220,8 @@ class TestSessionOpen:
 
         assert new_module_counts[1:] == [0, 0]
 
-    def test_default_agent_seed_is_effective_without_stdlib(self) -> None:
-        """A seeded ``default-agent`` reaches the interpreter's register even
+    def test_agent_seed_is_effective_without_stdlib(self) -> None:
+        """A seeded ``agent`` reaches the interpreter's register even
         when ``std/config`` never loads (``default_stdlib=False``): a typed
         seed carries no per-key provenance and needs no loaded module to
         take effect, so a malformed command still fails eagerly on the
@@ -11233,9 +11229,7 @@ class TestSessionOpen:
         """
         s = ReplSession(
             default_stdlib=False,
-            engine_base={
-                "default-agent": agent_value("AgentCommand", command="nonexistent-bin -p 'oops")
-            },
+            engine_base={"agent": agent_value("AgentCommand", command="nonexistent-bin -p 'oops")},
         )
         assert s.open() == ()
         assert s._loaded_lib_modules == {}

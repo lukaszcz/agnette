@@ -155,8 +155,8 @@ def test_constant_expression_validation(source: str, expected: bool) -> None:
 class TestBuiltinVarDefaults:
     def test_initializer_is_the_engine_default_without_a_host_seed(self, tmp_path: Path) -> None:
         result = _run_with_std_config(
-            "import std/config::*\nlet value = std/config::default-agent\nvalue",
-            'builtin var default-agent: Agent = AgentCommand("declared")',
+            "import std/config::*\nlet value = std/config::agent\nvalue",
+            'builtin var agent: Agent = AgentCommand("declared")',
             tmp_path,
         )
 
@@ -167,11 +167,11 @@ class TestBuiltinVarDefaults:
 
     def test_host_seed_overrides_the_declared_default(self, tmp_path: Path) -> None:
         result = _run_with_std_config(
-            "import std/config::*\nlet value = std/config::default-agent\nvalue",
-            'builtin var default-agent: Agent = AgentCommand("declared")',
+            "import std/config::*\nlet value = std/config::agent\nvalue",
+            'builtin var agent: Agent = AgentCommand("declared")',
             tmp_path,
             builtin_host_settings={
-                "default-agent": agent_value("AgentCommand", command="seeded"),
+                "agent": agent_value("AgentCommand", command="seeded"),
             },
         )
 
@@ -183,7 +183,7 @@ class TestBuiltinVarDefaults:
     def test_initializer_must_match_the_declared_type(self, tmp_path: Path) -> None:
         result = _run_with_std_config(
             "import std/config::*\n()",
-            "builtin var default-agent: Agent = false",
+            "builtin var agent: Agent = false",
             tmp_path,
         )
 
@@ -192,10 +192,10 @@ class TestBuiltinVarDefaults:
 
     def test_default_may_name_this_modules_own_constant(self, tmp_path: Path) -> None:
         result = _run_with_std_config(
-            "import std/config::*\nlet value = std/config::default-agent\nvalue",
+            "import std/config::*\nlet value = std/config::agent\nvalue",
             'let declared-command = "from-%{suffix}"\n'
             'let suffix = "a-constant"\n'
-            "builtin var default-agent: Agent = AgentCommand(declared-command)",
+            "builtin var agent: Agent = AgentCommand(declared-command)",
             tmp_path,
         )
 
@@ -207,7 +207,7 @@ class TestBuiltinVarDefaults:
     def test_initializer_must_be_constant(self, tmp_path: Path) -> None:
         declaration_source = (
             'def command-name() -> text = "computed"\n'
-            "builtin var default-agent: Agent = AgentCommand(command-name())"
+            "builtin var agent: Agent = AgentCommand(command-name())"
         )
         (_, declaration) = parse_program(declaration_source).body.items
         assert isinstance(declaration, BuiltinVarDecl)

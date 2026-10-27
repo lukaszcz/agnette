@@ -7,7 +7,7 @@ import std/config
 
 program def main(route: text) -> unit =
   let writer = AgentPi("writer", "model", "high")
-  std/config::default-agent := writer
+  std/config::agent := writer
   if
     | route == "direct" =>
       print("direct")

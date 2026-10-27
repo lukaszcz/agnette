@@ -92,7 +92,7 @@ builtin def Session::open(
   agent: Agent,
   transport: Option[SessionTransport] = None,
   name: text = "",
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
   env: Environ = std/env::environ,
 ) -> Session
 
@@ -2393,11 +2393,11 @@ def _scoped_stdlib_root(tmp_path: Path) -> Path:
         if name == "agent":
             source = (
                 source.replace(
-                    "  agent: Agent = std/config::default-agent,\n",
+                    "  agent: Agent = std/config::agent,\n",
                     '  agent: Agent = AgentCommand(command = ""),\n',
                 )
                 .replace(
-                    "  sandbox: AgentSandbox = std/config::default-sandbox,\n",
+                    "  sandbox: AgentSandbox = std/config::sandbox,\n",
                     "  sandbox: AgentSandbox = Disabled,\n",
                 )
                 .replace("  env: Environ = std/env::environ,\n", "")

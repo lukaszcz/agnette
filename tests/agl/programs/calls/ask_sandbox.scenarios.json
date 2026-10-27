@@ -59,7 +59,7 @@
       }
     },
     {
-      "name": "omitted_sandbox_uses_the_default_sandbox_setting",
+      "name": "omitted_sandbox_uses_the_sandbox_setting",
       "params": {"mode": "implicit-default"},
       "agents": {"impl": ["ok"]},
       "expect": {
@@ -71,8 +71,8 @@
       }
     },
     {
-      "name": "a_default_sandbox_write_changes_a_later_asks_mode",
-      "params": {"mode": "default-sandbox-write"},
+      "name": "a_sandbox_write_changes_a_later_asks_mode",
+      "params": {"mode": "sandbox-write"},
       "agents": {"impl": ["ok", "ok"]},
       "expect": {
         "stdout": "ok\nok\n",
@@ -100,7 +100,7 @@
       }
     },
     {
-      "name": "ask_request_exposes_the_omitted_default_sandbox",
+      "name": "ask_request_exposes_the_omitted_sandbox",
       "params": {"mode": "default"},
       "expect": {
         "stdout": "sandbox(Optional::Default, Optional::Default, Option::None, true)\n",

@@ -65,13 +65,13 @@ def test_exec_agent_method_command_session_substitutes_its_session_id(
     assert len(argv) == 3
 
 
-def test_exec_default_agent_command_without_a_session_id_placeholder_fails_free_ask(
+def test_exec_agent_command_without_a_session_id_placeholder_fails_free_ask(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     home = tmp_path / "home"
     config_dir = home / ".agm"
     config_dir.mkdir(parents=True)
-    (config_dir / "config.toml").write_text('[exec]\ndefault-agent = "command"\n')
+    (config_dir / "config.toml").write_text('[exec]\nagent = "command"\n')
     program = tmp_path / "program.agl"
     write_file_program(program, 'let answer: text = ask("hello")\nprint answer\n')
     monkeypatch.setattr(
@@ -99,7 +99,7 @@ def test_exec_default_agent_command_without_a_session_id_placeholder_fails_free_
         ),
     ],
 )
-def test_exec_default_agent_precedence_is_config_then_cli_then_source(
+def test_exec_agent_precedence_is_config_then_cli_then_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     fake_agent_transport: FakeAgentTransport,
@@ -111,9 +111,9 @@ def test_exec_default_agent_precedence_is_config_then_cli_then_source(
     config_dir = home / ".agm"
     config_dir.mkdir(parents=True)
     (config_dir / "config.toml").write_text(
-        "[exec]\ndefault-agent = 'AgentCommand(\"config \\%{SESSION_ID}\")'\n"
+        "[exec]\nagent = 'AgentCommand(\"config \\%{SESSION_ID}\")'\n"
     )
-    source_write = "" if source_agent is None else f"std/config::default-agent := {source_agent}\n"
+    source_write = "" if source_agent is None else f"std/config::agent := {source_agent}\n"
     program = tmp_path / "program.agl"
     write_file_program(
         program, f'import std/config\n{source_write}let answer: text = ask("hello")\nprint answer\n'
@@ -126,7 +126,7 @@ def test_exec_default_agent_precedence_is_config_then_cli_then_source(
     fake_agent_transport.queue(fake_agent_transport.success("done"))
     argv = ["exec", "--no-trace"]
     if cli_agent is not None:
-        argv.extend(["--default-agent", cli_agent])
+        argv.extend(["--agent", cli_agent])
     argv.append(str(program))
 
     result = _invoke(CliRunner(), argv)

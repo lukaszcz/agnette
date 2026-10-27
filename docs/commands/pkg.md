@@ -229,7 +229,7 @@ trace = true
 timeout = "1h"
 
 [config.devel.review]             # command `devel review`
-default-agent = "claude/opus"
+agent = "claude/opus"
 ```
 
 Package-author defaults: root leaves apply to every program the package owns, and each nested
@@ -269,7 +269,7 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   reserves, such as `--module-path` or `-p`, which `agm exec` still rejects.
 - **Run-time options.** `--echo`/`--no-echo` and `--max-call-depth` work as for
   [`agm exec`](agl.md#agm-exec), anywhere after the command path. The engine settings
-  (`--strict-json`, `--default-agent`, `--timeout`, `--trace`, ...) are parameters of the command's
+  (`--strict-json`, `--agent`, `--timeout`, `--trace`, ...) are parameters of the command's
   surface like any other, so a same-named parameter shadows the bare flag and
   `--std.config.NAME` always addresses the setting.
   There is no `--warning` flag: warning levels come from the [`[warnings]`](config.md#warnings)

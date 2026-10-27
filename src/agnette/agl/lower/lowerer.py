@@ -3510,10 +3510,10 @@ class _Lowerer:
     # ------------------------------------------------------------------
 
     def _default_sandbox_operand(self, loc: Location) -> IrExpr:
-        """Read the current default agent sandbox mode."""
+        """Read ``std/config::sandbox`` per call."""
         return IrBuiltinLoad(
             location=loc,
-            key=builtin_var_key(STD_CONFIG_ID, (), "default-sandbox"),
+            key=builtin_var_key(STD_CONFIG_ID, (), "sandbox"),
         )
 
     def _default_parse_error_retries_operand(self, loc: Location) -> IrExpr:
@@ -3564,7 +3564,7 @@ class _Lowerer:
         if is_request:
             selected_agent = agent or IrBuiltinLoad(
                 location=loc,
-                key=builtin_var_key(STD_CONFIG_ID, (), "default-agent"),
+                key=builtin_var_key(STD_CONFIG_ID, (), "agent"),
             )
             return IrAskRequest(
                 location=loc,

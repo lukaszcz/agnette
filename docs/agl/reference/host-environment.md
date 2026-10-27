@@ -37,7 +37,7 @@ installed libraries.
 ## Agents
 
 Each agent call dispatches an `Agent` value — the call's `agent` option, or
-the `std/config::default-agent` setting — whose member selects the backend:
+the `std/config::agent` setting — whose member selects the backend:
 `AgentCommand` runs a command string, and each provider member carries its
 provider-specific fields. The host contributes no agents of its own.
 
@@ -354,8 +354,8 @@ value.
 | `trace` | `bool` | `false` | [tracing](#tracing) |
 | `trace-file` | `Option[path]` | `None` | the trace destination |
 | `strict-json` | `bool` | `false` (lenient recovery) | JSON-codec calls without a `strict-json` option |
-| `default-agent` | `Agent` | `AgentPi()` | `ask` without an `agent` option |
-| `default-sandbox` | `AgentSandbox` | `Sandbox` (every field defaulted) | agent calls without a `sandbox` option |
+| `agent` | `Agent` | `AgentPi()` | `ask` without an `agent` option |
+| `sandbox` | `AgentSandbox` | `Sandbox` (every field defaulted) | agent calls without a `sandbox` option |
 | `timeout` | `Option[text]` | `None` | `exec` without a `timeout` option; its initial value also sets the agent idle timeout |
 | `parse-error-retries` | `int` | `4` | `ask` without a `parse-error-retries` option (`exec` defaults to `0`) |
 | `debug` | `bool` | `false` | whether `std/fs` temporary paths are kept |
@@ -374,11 +374,11 @@ A call option always overrides its setting, in both directions:
 `strict-json = false` forces lenient parsing under a strict setting. With no
 `timeout`, the agent idle timeout is host-defined.
 
-Host text for `default-agent` uses the host `Agent` syntax of [Reading
+Host text for `agent` uses the host `Agent` syntax of [Reading
 values](#program-arguments); a native agent's empty provider, model, or
 `thinking` field takes its default from host configuration when the agent is
 used ([Agent defaults](../../commands/agl.md#agent-defaults)). Host text for
-`default-sandbox` is strict JSON or one value-syntax literal — a member name
+`sandbox` is strict JSON or one value-syntax literal — a member name
 (`Native`, `Disabled`, `Sandbox`) or constructor call
 (`Sandbox(memory = Some("8G"))`), with omitted fields filled from their
 declared defaults ([host AgentSandbox
@@ -433,10 +433,10 @@ by the quoted key `"std.config.NAME"`.
 
 These tiers choose an engine setting's **initial** value; a source write to
 `std/config::X` overrides it from its program point onward
-([positional effect](#engine-settings)). For example, `--default-sandbox
-Native` overrides both `[prog.main] default-sandbox = "Sandbox"` and
-`[exec] default-sandbox = "Sandbox"`; a later
-`std/config::default-sandbox := AgentSandbox::Disabled` overrides the flag
+([positional effect](#engine-settings)). For example, `--sandbox
+Native` overrides both `[prog.main] sandbox = "Sandbox"` and
+`[exec] sandbox = "Sandbox"`; a later
+`std/config::sandbox := AgentSandbox::Disabled` overrides the flag
 from that point on.
 
 Hosts without some tiers skip them. Inline `-c` source has no config route or
@@ -451,7 +451,9 @@ parameters are supplied as `main(x = 5)`.
 ### Config-file schema
 
 `[exec]` holds global engine defaults under the settings' names
-(`strict-json`, `trace-file`). A program's qualified table is its module
+(`strict-json`, `trace-file`) beside the execution options `echo` and
+`max-call-depth`; any other `[exec]` key draws an undeclared-key warning and is
+ignored. A program's qualified table is its module
 suffix (the entry file's stem, or a package-qualified route) followed by its
 declaration path: `[prog.main]` for `main` in `prog.agl`. One table supplies
 both the program's engine-setting overrides and its value parameters. A longer
@@ -460,10 +462,10 @@ suffix, or an exact quoted module route such as
 
 ```toml
 [exec]
-default-sandbox = "Native"
+sandbox = "Native"
 
 [prog.main]
-default-sandbox = 'Sandbox(memory = Some("8G"))'
+sandbox = 'Sandbox(memory = Some("8G"))'
 ```
 
 A program a package registers as a command is also addressed by that command

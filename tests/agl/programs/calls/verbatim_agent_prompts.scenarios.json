@@ -1,7 +1,7 @@
 {
   "scenarios": [
     {
-      "name": "inline_text_and_markdown_review_use_default_agent",
+      "name": "inline_text_and_markdown_review_use_agent",
       "params": {
         "document": "release notes"
       },
@@ -76,7 +76,7 @@
       }
     },
     {
-      "name": "typed_dollar_and_call_form_parse_failures_stay_on_default_agent",
+      "name": "typed_dollar_and_call_form_parse_failures_stay_on_agent",
       "runtime": {"parse_error_retries": 0},
       "params": {
         "document": "migration guide"

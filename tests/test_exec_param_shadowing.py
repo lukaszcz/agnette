@@ -402,3 +402,123 @@ class TestEngineSettingShadowing:
 
         output = capsys.readouterr().out
         assert_lists_engine_settings(output, qualified=("timeout",))
+
+
+_AGENT_SHADOW = (
+    "import std/config\n"
+    'program def main(agent: Agent = AgentCommand("arg-default")) -> unit =\n'
+    "  print agent\n"
+    "  print std/config::agent\n"
+)
+
+
+class TestAgentEngineSettingShadowing:
+    """The engine ``agent`` setting is shadowed by a program argument named ``agent``."""
+
+    def _lines(self, capsys: pytest.CaptureFixture[str], entry: Path, *tokens: str) -> list[str]:
+        run(ExecArgs(file=str(entry), argument_tokens=["--no-trace", *tokens]))
+        return capsys.readouterr().out.splitlines()
+
+    def test_the_bare_flag_feeds_the_argument_and_the_qualified_flag_the_setting(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home("")
+        entry = _engine_entry(tmp_path, _AGENT_SHADOW)
+
+        bare = self._lines(capsys, entry, "--agent", 'AgentCommand("arg")')
+        qualified = self._lines(capsys, entry, "--std.config.agent", 'AgentCommand("engine")')
+
+        assert "arg-default" not in bare[0] and "arg" in bare[0]
+        assert "engine" not in bare[1]
+        assert "arg-default" in qualified[0]
+        assert "engine" in qualified[1]
+
+    def test_the_exec_table_sets_the_engine_setting_and_leaves_the_argument(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home('[exec]\nagent = "AgentCommand(\\"configured\\")"\n')
+        entry = _engine_entry(tmp_path, _AGENT_SHADOW)
+
+        lines = self._lines(capsys, entry)
+
+        assert "arg-default" in lines[0]
+        assert "configured" in lines[1]
+
+    def test_the_old_key_in_a_program_table_is_undeclared(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home(
+            '[main.main]\ndefault-agent = "AgentCommand(\\"old\\")"\ndefault-sandbox = "Native"\n'
+        )
+        entry = _engine_entry(
+            tmp_path,
+            "import std/config\nprogram def main() -> unit =\n  print std/config::agent\n",
+        )
+
+        run(ExecArgs(file=str(entry), argument_tokens=["--no-trace"]))
+
+        captured = capsys.readouterr()
+        assert "old" not in captured.out
+        assert "default-agent" in captured.err
+        assert "default-sandbox" in captured.err
+
+    def test_the_new_key_in_a_program_table_applies(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home('[main.main]\nagent = "AgentCommand(\\"tabled\\")"\n')
+        entry = _engine_entry(
+            tmp_path,
+            "import std/config\nprogram def main() -> unit =\n  print std/config::agent\n",
+        )
+
+        run(ExecArgs(file=str(entry), argument_tokens=["--no-trace"]))
+
+        captured = capsys.readouterr()
+        assert "tabled" in captured.out
+        assert captured.err == ""
+
+
+_ENGINE_SETTINGS_PROGRAM = (
+    "import std/config\n"
+    "program def main() -> unit =\n"
+    "  print std/config::agent\n"
+    "  print std/config::sandbox\n"
+)
+
+
+class TestUndeclaredExecKeys:
+    """An ``[exec]`` key that is no engine setting or execution option warns and is ignored."""
+
+    def _run(self, capsys: pytest.CaptureFixture[str], entry: Path) -> tuple[str, str]:
+        run(ExecArgs(file=str(entry), argument_tokens=["--no-trace"]))
+        captured = capsys.readouterr()
+        return captured.out, captured.err
+
+    def test_the_old_engine_keys_warn_once_each_and_do_not_apply(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        entry = _engine_entry(tmp_path, _ENGINE_SETTINGS_PROGRAM)
+        config_home("")
+        baseline, _ = self._run(capsys, entry)
+        config_home(
+            '[exec]\ndefault-agent = "AgentCommand(\\"old\\")"\ndefault-sandbox = "Native"\n'
+        )
+
+        out, err = self._run(capsys, entry)
+
+        assert out == baseline
+        assert err.count("default-agent") == 1
+        assert err.count("default-sandbox") == 1
+
+    def test_declared_exec_keys_draw_no_warning(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], config_home: Callable[[str], None]
+    ) -> None:
+        config_home(
+            '[exec]\nagent = "AgentCommand(\\"configured\\")"\necho = true\nmax-call-depth = 100\n'
+        )
+        entry = _engine_entry(tmp_path, _ENGINE_SETTINGS_PROGRAM)
+
+        out, err = self._run(capsys, entry)
+
+        assert "configured" in out
+        assert err == ""

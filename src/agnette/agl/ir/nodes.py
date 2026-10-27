@@ -1064,7 +1064,7 @@ class IrSessionOpen:
     argument. ``name`` always holds an expression, including the empty-text
     default, so the host receives a concrete session name. ``sandbox``
     likewise always holds an expression -- the operand, or a
-    ``default-sandbox`` load when omitted -- and fixes this session's
+    ``sandbox`` load when omitted -- and fixes this session's
     sandboxing for its whole lifetime. ``env`` always holds an expression too
     -- the operand, or the ambient ``std/env::environ`` (an empty dict
     without ``std/env``) -- and likewise fixes this session's environment for
@@ -1095,7 +1095,7 @@ class IrContract:
 class IrSessionDefault:
     """IR host-op: obtain the lazily managed default session.
 
-    Evaluation reads the current ``default-agent``/``default-sandbox``
+    Evaluation reads the current ``agent``/``sandbox``
     registers and ``env``; the host creates its default session from that
     agent, sandbox mode, and environment once, then returns the same
     snapshot on every later use, even after a later write to any of them.

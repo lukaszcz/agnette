@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 import click
 
+from agnette.config.general import EXEC_OPTION_KEYS
+
 #: Widest option label kept on its description's line, at most half the help width.
 _LABEL_COLUMN_MAX = 34
 
@@ -32,9 +34,14 @@ class _HelpGroup:
     description: str
 
 
-EXECUTION_OPTION_SPECS: tuple[ExecutionOptionSpec, ...] = (
-    ExecutionOptionSpec("echo", ("--echo/--no-echo",), None, "echo"),
-    ExecutionOptionSpec("max_call_depth", ("--max-call-depth",), "N", "call_depth"),
+#: Click declaration, metavar, and help group of each ``[exec]`` option key.
+_DECLARATIONS: dict[str, tuple[tuple[str, ...], str | None, str]] = {
+    "echo": (("--echo/--no-echo",), None, "echo"),
+    "max-call-depth": (("--max-call-depth",), "N", "call_depth"),
+}
+
+EXECUTION_OPTION_SPECS: tuple[ExecutionOptionSpec, ...] = tuple(
+    ExecutionOptionSpec(key.replace("-", "_"), *_DECLARATIONS[key]) for key in EXEC_OPTION_KEYS
 )
 
 _SPEC_BY_NAME = {spec.name: spec for spec in EXECUTION_OPTION_SPECS}

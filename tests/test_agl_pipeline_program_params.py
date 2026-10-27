@@ -335,10 +335,10 @@ def test_a_param_read_by_a_builtin_parameter_default_is_reachable(tmp_path: Path
     agent = stdlib / "src" / "agent.agl"
     original = agent.read_text(encoding="utf-8")
     patched = original.replace(
-        "builtin def ask[T](\n  prompt: text,\n  agent: Agent = std/config::default-agent,\n"
+        "builtin def ask[T](\n  prompt: text,\n  agent: Agent = std/config::agent,\n"
         '  format: text = "",\n  strict-json: bool = false,\n'
         "  parse-error-retries: int = std/config::parse-error-retries,",
-        "builtin def ask[T](\n  prompt: text,\n  agent: Agent = std/config::default-agent,\n"
+        "builtin def ask[T](\n  prompt: text,\n  agent: Agent = std/config::agent,\n"
         '  format: text = "",\n  strict-json: bool = false,\n'
         "  parse-error-retries: int = probe-retries,",
     )

@@ -29,7 +29,7 @@ def Agent::commit(self) -> unit =
 @doc("Merge given ref and fix all conflicts.")
 program def merge-main(
   ref: text,
-  agent: Agent = config::default-agent,
+  agent: Agent = config::agent,
   @opt-short("i")
   interactive: bool = false
 ) -> unit =
@@ -38,6 +38,6 @@ program def merge-main(
 @command("devel commit")
 @doc("Commit changes on the current branch.")
 program def commit-main(
-  agent: Agent = config::default-agent
+  agent: Agent = config::agent
 ) -> unit =
   agent.commit()

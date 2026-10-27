@@ -580,7 +580,7 @@ def test_default_session_snapshots_the_ambient_environment_at_first_use() -> Non
         "import std/config\n"
         "import std/env::Environ\n"
         "program def main() -> unit =\n"
-        '  std/config::default-agent := AgentCommand("worker")\n'
+        '  std/config::agent := AgentCommand("worker")\n'
         '  let first: text = ask("one")\n'
         '  std/env::setenv("LATER", "added")\n'
         '  let second: text = ask("two")\n'
@@ -614,10 +614,10 @@ def test_free_ask_uses_the_default_session_and_snapshots_its_agent() -> None:
     result = _run(
         "import std/config\n"
         "program def main() -> unit =\n"
-        '  std/config::default-agent := AgentCommand("first")\n'
+        '  std/config::agent := AgentCommand("first")\n'
         "  let direct = Session::default()\n"
         '  let first: text = ask("one")\n'
-        '  std/config::default-agent := AgentCommand("second")\n'
+        '  std/config::agent := AgentCommand("second")\n'
         "  let second: text = ask $ two\n"
         '  direct.ask("three")\n',
         host,
@@ -638,9 +638,9 @@ def test_default_session_stays_snapshotted_while_ask_request_is_agent_independen
     result = _run(
         "import std/config\n"
         "program def main() -> unit =\n"
-        '  std/config::default-agent := AgentCommand("first")\n'
+        '  std/config::agent := AgentCommand("first")\n'
         '  let first: text = ask("one")\n'
-        '  std/config::default-agent := AgentCommand("second")\n'
+        '  std/config::agent := AgentCommand("second")\n'
         '  let request = ask-request("inspect")\n'
         '  let second: text = ask("two")\n'
         "  print request.prompt\n",
@@ -682,9 +682,9 @@ def test_default_session_snapshots_agent_and_closed_use_is_catchable() -> None:
     result = _run(
         "import std/config\n"
         "program def main() -> unit =\n"
-        '  std/config::default-agent := AgentCommand("first")\n'
+        '  std/config::agent := AgentCommand("first")\n'
         "  let first = Session::default()\n"
-        '  std/config::default-agent := AgentCommand("second")\n'
+        '  std/config::agent := AgentCommand("second")\n'
         "  let second = Session::default()\n"
         '  first.ask("one")\n'
         "  second.close()\n"

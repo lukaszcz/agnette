@@ -1,5 +1,5 @@
 # ask/ask-request sandbox: the sandbox operand selects the dispatched
-# request's permission mode, defaults to std/config::default-sandbox when
+# request's permission mode, defaults to std/config::sandbox when
 # omitted (and follows a later write to that setting), and ask-request
 # exposes the decoded AgentSandbox value -- both a plain member and the
 # Sandbox-widened record -- without dispatching.
@@ -31,10 +31,10 @@ program def main(mode: text) -> unit =
     | mode == "implicit-default" =>
         let response = ask("Do it.", agent = impl)
         print response
-    | mode == "default-sandbox-write" =>
+    | mode == "sandbox-write" =>
         let first = ask("Do it.", agent = impl)
         print first
-        std/config::default-sandbox := AgentSandbox::Disabled
+        std/config::sandbox := AgentSandbox::Disabled
         let second = ask("Do it.", agent = impl)
         print second
     | mode == "request-member" =>

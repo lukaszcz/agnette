@@ -13,7 +13,7 @@ from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclI
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
 from agnette.agm.cli_support.program_options import native_raw_value, project_option
-from agnette.config.general import GeneralConfig
+from agnette.config.general import GeneralConfig, undeclared_exec_keys
 from agnette.config.qualified_keys import (
     QualifiedConfigKey,
     QualifiedConfigLookupError,
@@ -28,6 +28,7 @@ from agnette.core.toml import TomlDict
 
 __all__ = [
     "ParamValueTiers",
+    "report_undeclared_exec_keys",
     "resolve_module_param_values",
     "resolve_param_values",
 ]
@@ -90,6 +91,21 @@ def _tables_with_registered_descendants(
     )
 
 
+def _warn_ignored_config_key(leaf: str, table_name: str, reason: str) -> None:
+    """Print the warning that config key *leaf* in table *table_name* is ignored."""
+    print(
+        f"warning: config key '{leaf}' in the '{table_name}' configuration table "
+        f"{reason} and will be ignored",
+        file=sys.stderr,
+    )
+
+
+def report_undeclared_exec_keys(config: GeneralConfig) -> None:
+    """Warn for each ``[exec]`` key that is no engine setting or execution option."""
+    for key in undeclared_exec_keys(config.merged):
+        _warn_ignored_config_key(key, "exec", "is not an engine setting or execution option")
+
+
 def _report_undeclared_config_keys(
     config: GeneralConfig,
     routes: Sequence[_RouteReport],
@@ -118,20 +134,16 @@ def _report_undeclared_config_keys(
             table_path = leaf_tables[leaf]
             table_name = display_table_path(table_path)
             if leaf in route.positional_only:
-                print(
-                    f"warning: config key '{leaf}' in the '{table_name}' configuration table "
+                _warn_ignored_config_key(
+                    leaf,
+                    table_name,
                     "names a positional-only program argument, which can only be supplied "
-                    "positionally, and will be ignored",
-                    file=sys.stderr,
+                    "positionally,",
                 )
                 continue
             if leaf in route.declared_leaves:
                 continue
-            print(
-                f"warning: config key '{leaf}' in the '{table_name}' "
-                "configuration table is not a declared program argument and will be ignored",
-                file=sys.stderr,
-            )
+            _warn_ignored_config_key(leaf, table_name, "is not a declared program argument")
 
 
 def _report_unused_manifest_leaves(

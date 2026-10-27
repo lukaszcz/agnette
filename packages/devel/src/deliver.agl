@@ -186,7 +186,7 @@ program def make-tasks-main(
   plan-file: path,
   @doc("Task directory. Default: %{default-tasks-dir}")
   tasks-dir: path = default-tasks-dir,
-  agent: Agent = config::default-agent,
+  agent: Agent = config::agent,
   instructions: text = ""
 ) -> unit =
   agent.make-tasks(plan-file, tasks-dir, instructions)
@@ -198,7 +198,7 @@ program def deliver-main(
   @doc("Task directory. Default: %{default-tasks-dir}")
   tasks-dir: path = default-tasks-dir,
   @doc("Orchestrator agent - creates tasks from plan, selects next task, verifies task completion, updates progress tracker")
-  agent: Agent = config::default-agent,
+  agent: Agent = config::agent,
   @doc("Executor agent - implements the tasks")
   exec-agent: Agent = agent,
   @doc("Review agent for post-completion task refinement")
@@ -227,7 +227,7 @@ program def deliver-main(
 @command("devel implement-tasks")
 @doc("Implement tasks in a single agent session")
 program def implement-tasks-main(
-  agent: Agent = config::default-agent,
+  agent: Agent = config::agent,
   plan-file: path = ".agent-files/PLAN.md",
   tasks-dir: path = default-tasks-dir,
   @doc("Implementation model. Empty string means not specified.")
@@ -245,7 +245,7 @@ program def implement-tasks-main(
 @command("devel implement-plan")
 @doc("Divide a plan into tasks and implement them in a single agent session")
 program def implement-plan-main(
-  agent: Agent = config::default-agent,
+  agent: Agent = config::agent,
   plan-file: path = ".agent-files/PLAN.md",
   tasks-dir: path = default-tasks-dir,
   @doc("Implementation model. Empty string means not specified.")

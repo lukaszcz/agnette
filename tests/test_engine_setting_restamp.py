@@ -2,8 +2,8 @@
 
 Covers ``agnette.agl.runtime.engine_config.restamp_engine_setting``/
 ``_restamp_value_tree`` against their own contract, independent of any single
-engine key. Key-specific behavior lives in ``test_default_agent_setting.py``
-and ``test_default_sandbox_setting.py``.
+engine key. Key-specific behavior lives in ``test_agent_setting.py``
+and ``test_sandbox_setting.py``.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def test_restamp_engine_setting_leaves_an_unrecognized_nested_field_identity_alo
     value = RecordValue(nominal=sandbox_nominal, fields={"memory": stray_field})
 
     result = restamp_engine_setting(
-        "default-sandbox",
+        "sandbox",
         value,
         from_table=NO_BUILTIN_DECLARATIONS,
         to_table=NO_BUILTIN_DECLARATIONS,

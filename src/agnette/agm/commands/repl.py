@@ -1,8 +1,8 @@
 """Implementation of the ``agm repl`` command.
 
 Launches an interactive read-eval-print loop for the AgL workflow language.
-The REPL shares ``agm exec``'s ``[exec]`` configuration (default-agent,
-default-sandbox, and timeout) and its engine-setting flags, so an interactive
+The REPL shares ``agm exec``'s ``[exec]`` configuration (agent,
+sandbox, and timeout) and its engine-setting flags, so an interactive
 session evaluates entries with the same agent dispatch backing a batch
 ``agm exec`` run would use.
 
@@ -51,7 +51,10 @@ from agnette.agm.cli_support.engine_seeds import (
     resolve_strict_json,
     resolve_timeout,
 )
-from agnette.agm.cli_support.param_config import resolve_module_param_values
+from agnette.agm.cli_support.param_config import (
+    report_undeclared_exec_keys,
+    resolve_module_param_values,
+)
 from agnette.config.context import current_config_context
 from agnette.config.general import (
     GeneralConfig,
@@ -106,6 +109,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     except ValueError as exc:
         print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+    report_undeclared_exec_keys(general_config)
     resolve_agent_spec = host_agent_spec_resolver(merged_config)
     repl_config = load_repl_config(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
 

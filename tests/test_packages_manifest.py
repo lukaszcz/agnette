@@ -578,7 +578,7 @@ trace = true
 timeout = "1h"
 
 [config.devel.review]
-default-agent = { agent = "claude", model = "opus" }
+agent = { agent = "claude", model = "opus" }
 """
         )
 
@@ -587,7 +587,7 @@ default-agent = { agent = "claude", model = "opus" }
             "std.http.http-timeout": "30s",
             "devel": {
                 "timeout": "1h",
-                "review": {"default-agent": {"agent": "claude", "model": "opus"}},
+                "review": {"agent": {"agent": "claude", "model": "opus"}},
             },
         }
 
@@ -604,7 +604,7 @@ trace = true
 tags = ["fast", "slow"]
 
 [config.devel.review]
-default-agent = { agent = "claude", model = "opus" }
+agent = { agent = "claude", model = "opus" }
 """
         )
 

@@ -208,7 +208,7 @@ def engine_default_settings() -> "dict[str, Value]":
     them via :func:`convert_config_value`, building its own fresh seeded
     ``TypeTable`` rather than requiring one from the caller.
 
-    ``default-agent`` is an ``Agent`` value rather than a scalar one and has no
+    ``agent`` is an ``Agent`` value rather than a scalar one and has no
     host-side default: it comes from the ``std/config`` ``builtin var``
     declaration like any other declared default.
     """
@@ -306,8 +306,8 @@ def convert_config_value(
 ) -> "Value":
     """Convert a raw scalar, ``Option``, or ``Agent`` host engine value to its AgL type.
 
-    ``default-agent`` is an ``Agent`` value, not a scalar or ``Option`` setting;
-    its host-supplied text or JSON-shaped data (``--default-agent``/config)
+    ``agent`` is an ``Agent`` value, not a scalar or ``Option`` setting;
+    its host-supplied text or JSON-shaped data (``--agent``/config)
     decodes through :func:`convert_host_value` exactly like every other key.
     For ``Option[T]`` engine keys (``timeout``, ``trace-file``) a present *raw*
     is boxed as an :class:`~agnette.agl.runtime.arguments.OptionSome` and decoded

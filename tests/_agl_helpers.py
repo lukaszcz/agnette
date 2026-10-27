@@ -53,7 +53,7 @@ way the real host applies them.
 ``run_program``/``shapes_match``/``assert_shape`` and the REPL helpers
 ``eval_ok``/``read_config_result``/``repl_session``/``unopened_repl_session``/
 ``record_variant`` are shared by the engine-setting test suites
-(``default-agent``, ``default-sandbox``, the generic restamp tests, the REPL
+(``agent``, ``sandbox``, the generic restamp tests, the REPL
 builtin-settings tests): running inline source or a REPL entry, and comparing
 or reading back a resulting ``std/config`` engine-setting value structurally
 regardless of which nominal table stamped it.
@@ -946,7 +946,7 @@ def run_program(
     *process_environment* seeds ``std/env::environ`` (empty when ``None``). *runtime* and *roots*
     replace the default agentless driver and the repository standard library roots. Asserts the
     result is a full :class:`RunResult` (not an argument-preflight failure). Shared by the
-    engine-setting test suites (``default-agent``, ``default-sandbox``, the generic restamp
+    engine-setting test suites (``agent``, ``sandbox``, the generic restamp
     tests).
     """
     result = run_inline_code(

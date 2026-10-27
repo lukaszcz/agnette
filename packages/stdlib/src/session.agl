@@ -33,7 +33,7 @@ builtin def Session::open(
   agent: Agent,
   transport: Option[SessionTransport] = None,
   name: text = "",
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
   env: Environ = std/env::environ,
 ) -> Session
 

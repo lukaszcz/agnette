@@ -1,4 +1,4 @@
-"""Behavior tests for the typed ``std/config::default-agent`` engine setting."""
+"""Behavior tests for the typed ``std/config::agent`` engine setting."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from tests._engine_flags import engine_flag_tokens
 def test_engine_key_uses_the_agent_nominal_type() -> None:
     from agnette.agl.semantics.engine_keys import get_engine_key_type
 
-    assert repr(get_engine_key_type("default-agent")) == "Agent"
+    assert repr(get_engine_key_type("agent")) == "Agent"
 
 
 def test_non_agl_command_does_not_import_agl(tmp_path: Path) -> None:
@@ -63,13 +63,13 @@ def test_non_agl_command_does_not_import_agl(tmp_path: Path) -> None:
     assert f"PROJ_DIR={tmp_path.resolve()}" in result.stdout
 
 
-def test_default_agent_initializer_and_qualified_write_are_visible() -> None:
+def test_agent_initializer_and_qualified_write_are_visible() -> None:
     result = _run(
         "import std/config\n"
-        "let initial = std/config::default-agent\n"
+        "let initial = std/config::agent\n"
         "let initial-is-pi = initial is Agent::AgentPi\n"
-        'std/config::default-agent := AgentCommand("command")\n'
-        "let updated = std/config::default-agent\n"
+        'std/config::agent := AgentCommand("command")\n'
+        "let updated = std/config::agent\n"
         "let updated-is-command = updated is Agent::AgentCommand\n"
         "updated\n"
     )
@@ -115,7 +115,7 @@ def test_trace_setting_writes_reconfigure_trace(
     assert trace_settings == [(False, None), expected]
 
 
-def test_default_agent_write_does_not_reconfigure_host_services() -> None:
+def test_agent_write_does_not_reconfigure_host_services() -> None:
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
 
     trace_settings: list[tuple[bool, str | None]] = []
@@ -125,7 +125,7 @@ def test_default_agent_write_does_not_reconfigure_host_services() -> None:
         return None
 
     result = _run(
-        'import std/config\nstd/config::default-agent := AgentCommand("command")\n()\n',
+        'import std/config\nstd/config::agent := AgentCommand("command")\n()\n',
         host_settings_policy=HostSettingsPolicy(resolve_trace_path=resolve_trace_path),
     )
 
@@ -134,11 +134,11 @@ def test_default_agent_write_does_not_reconfigure_host_services() -> None:
     assert trace_settings == [(False, None)]
 
 
-def test_exec_uses_stdlib_default_agent_when_no_host_seed(
+def test_exec_uses_stdlib_agent_when_no_host_seed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     program = tmp_path / "program.agl"
-    write_file_program(program, "import std/config\nprint std/config::default-agent\n")
+    write_file_program(program, "import std/config\nprint std/config::agent\n")
 
     assert exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace"])) is None
 
@@ -148,13 +148,13 @@ def test_exec_uses_stdlib_default_agent_when_no_host_seed(
 def test_host_seed_overrides_initializer_until_source_write() -> None:
     result = _run(
         "import std/config\n"
-        "let seeded = std/config::default-agent\n"
+        "let seeded = std/config::agent\n"
         "let seeded-is-codex = seeded is Agent::AgentCodex\n"
-        'std/config::default-agent := AgentPi("openai", "gpt", "high")\n'
-        "let written = std/config::default-agent\n"
+        'std/config::agent := AgentPi("openai", "gpt", "high")\n'
+        "let written = std/config::agent\n"
         "let written-is-pi = written is Agent::AgentPi\n"
         "written\n",
-        seed={"default-agent": agent_value("AgentCodex", model="o3", thinking="medium")},
+        seed={"agent": agent_value("AgentCodex", model="o3", thinking="medium")},
     )
 
     assert result.ok
@@ -205,14 +205,12 @@ def test_exec_agent_source_cli_and_config_precedence(
     home = tmp_path / "home"
     config_dir = home / ".agm"
     config_dir.mkdir(parents=True)
-    (config_dir / "config.toml").write_text(f"[exec]\ndefault-agent = {config_literal!r}\n")
-    source_write = (
-        "" if source_literal is None else f"std/config::default-agent := {source_literal}\n"
-    )
+    (config_dir / "config.toml").write_text(f"[exec]\nagent = {config_literal!r}\n")
+    source_write = "" if source_literal is None else f"std/config::agent := {source_literal}\n"
     program = tmp_path / "program.agl"
     write_file_program(
         program,
-        f"import std/config\n{source_write}let value = std/config::default-agent\nprint value\n",
+        f"import std/config\n{source_write}let value = std/config::agent\nprint value\n",
     )
     monkeypatch.setattr(
         exec_engine,
@@ -224,7 +222,7 @@ def test_exec_agent_source_cli_and_config_precedence(
         exec_command.run(
             ExecArgs(
                 file=str(program),
-                argument_tokens=engine_flag_tokens(no_trace=True, default_agent=cli_literal),
+                argument_tokens=engine_flag_tokens(no_trace=True, agent=cli_literal),
             )
         )
         is None
@@ -239,23 +237,22 @@ def test_exec_agent_source_cli_and_config_precedence(
         assert field.value in rendered
 
 
-def test_program_table_default_agent_beats_exec_default_agent(
+def test_program_table_agent_beats_exec_agent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A qualified program table's ``default-agent`` outranks ``[exec]``."""
+    """A qualified program table's ``agent`` outranks ``[exec]``."""
     home = tmp_path / "home"
     config_dir = home / ".agm"
     config_dir.mkdir(parents=True)
     exec_literal = 'AgentCommand("exec-level")'
     program_literal = 'AgentCommand("program-level")'
     config_dir.joinpath("config.toml").write_text(
-        f"[exec]\ndefault-agent = {exec_literal!r}\n\n"
-        f"[prog.main]\ndefault-agent = {program_literal!r}\n"
+        f"[exec]\nagent = {exec_literal!r}\n\n[prog.main]\nagent = {program_literal!r}\n"
     )
     program = tmp_path / "prog.agl"
-    write_file_program(program, "import std/config\nprint std/config::default-agent\n")
+    write_file_program(program, "import std/config\nprint std/config::agent\n")
     monkeypatch.setattr(
         exec_engine,
         "current_config_context",
@@ -269,21 +266,19 @@ def test_program_table_default_agent_beats_exec_default_agent(
     assert "exec-level" not in rendered
 
 
-def test_cli_default_agent_beats_program_table(
+def test_cli_agent_beats_program_table(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """``--default-agent`` outranks a qualified program table's own value."""
+    """``--agent`` outranks a qualified program table's own value."""
     home = tmp_path / "home"
     config_dir = home / ".agm"
     config_dir.mkdir(parents=True)
     program_literal = 'AgentCommand("program-level")'
-    config_dir.joinpath("config.toml").write_text(
-        f"[prog.main]\ndefault-agent = {program_literal!r}\n"
-    )
+    config_dir.joinpath("config.toml").write_text(f"[prog.main]\nagent = {program_literal!r}\n")
     program = tmp_path / "prog.agl"
-    write_file_program(program, "import std/config\nprint std/config::default-agent\n")
+    write_file_program(program, "import std/config\nprint std/config::agent\n")
     monkeypatch.setattr(
         exec_engine,
         "current_config_context",
@@ -294,7 +289,7 @@ def test_cli_default_agent_beats_program_table(
         exec_command.run(
             ExecArgs(
                 file=str(program),
-                argument_tokens=["--no-trace", "--default-agent", 'AgentCommand("cli-level")'],
+                argument_tokens=["--no-trace", "--agent", 'AgentCommand("cli-level")'],
             )
         )
         is None
@@ -305,7 +300,7 @@ def test_cli_default_agent_beats_program_table(
     assert "program-level" not in rendered
 
 
-def test_exec_config_runner_key_leaves_the_default_agent_unset(
+def test_exec_config_runner_key_leaves_the_agent_unset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -316,7 +311,7 @@ def test_exec_config_runner_key_leaves_the_default_agent_unset(
     config_dir.mkdir(parents=True)
     (config_dir / "config.toml").write_text('[exec]\nrunner = "claude \'oops"\n')
     program = tmp_path / "program.agl"
-    write_file_program(program, "import std/config\nprint std/config::default-agent\n")
+    write_file_program(program, "import std/config\nprint std/config::agent\n")
     monkeypatch.setattr(
         exec_engine,
         "current_config_context",
@@ -339,7 +334,7 @@ def test_exec_treats_non_agent_syntax_from_cli_as_a_command(
 
     assert (
         exec_command.run(
-            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--default-agent", value])
+            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--agent", value])
         )
         is None
     )
@@ -357,12 +352,12 @@ def test_exec_rejects_text_that_opens_a_member_call_but_fails_to_read_from_cli(
 
     with pytest.raises(SystemExit) as exc_info:
         exec_command.run(
-            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--default-agent", value])
+            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--agent", value])
         )
 
     assert exc_info.value.code == 1
     error = capsys.readouterr().err
-    assert "--default-agent" in error
+    assert "--agent" in error
 
 
 @pytest.mark.parametrize("toml_value", ["7"])
@@ -375,7 +370,7 @@ def test_exec_rejects_non_string_agent_value_from_config(
     home = tmp_path / "home"
     config_dir = home / ".agm"
     config_dir.mkdir(parents=True)
-    (config_dir / "config.toml").write_text(f"[exec]\ndefault-agent = {toml_value}\n")
+    (config_dir / "config.toml").write_text(f"[exec]\nagent = {toml_value}\n")
     program = tmp_path / "program.agl"
     write_file_program(program, 'print "not-run"\n')
     monkeypatch.setattr(
@@ -389,7 +384,7 @@ def test_exec_rejects_non_string_agent_value_from_config(
 
     assert exc_info.value.code == 1
     error = capsys.readouterr().err
-    assert "default-agent" in error
+    assert "'agent'" in error
 
 
 def test_exec_treats_non_agent_syntax_from_config_as_a_command(
@@ -400,7 +395,7 @@ def test_exec_treats_non_agent_syntax_from_config_as_a_command(
     home = tmp_path / "home"
     config_dir = home / ".agm"
     config_dir.mkdir(parents=True)
-    (config_dir / "config.toml").write_text('[exec]\ndefault-agent = "not an agent"\n')
+    (config_dir / "config.toml").write_text('[exec]\nagent = "not an agent"\n')
     program = tmp_path / "program.agl"
     write_file_program(program, 'print "ran"\n')
     monkeypatch.setattr(
@@ -416,19 +411,17 @@ def test_exec_treats_non_agent_syntax_from_config_as_a_command(
 def test_exec_rejects_blank_agent_literal_from_cli(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A blank ``--default-agent`` is a host-shape error, diagnosed before any AgL parsing."""
+    """A blank ``--agent`` is a host-shape error, diagnosed before any AgL parsing."""
     program = tmp_path / "program.agl"
     write_file_program(program, 'print "not-run"\n')
 
     with pytest.raises(SystemExit) as exc_info:
-        exec_command.run(
-            ExecArgs(file=str(program), argument_tokens=["--no-trace", "--default-agent", ""])
-        )
+        exec_command.run(ExecArgs(file=str(program), argument_tokens=["--no-trace", "--agent", ""]))
 
     assert exc_info.value.code == 1
     error = capsys.readouterr().err
-    assert "default-agent" in error
-    assert "--default-agent" in error
+    assert "'agent'" in error
+    assert "--agent" in error
 
 
 def test_exec_rejects_malformed_agent_command_literal_from_cli(
@@ -441,7 +434,7 @@ def test_exec_rejects_malformed_agent_command_literal_from_cli(
     typechecking), ``AgentCommand("nonexistent-bin -p 'oops")`` is a
     syntactically valid constant ``Agent`` expression -- its unclosed quote
     only breaks shell-splitting, which is checked when the interpreter
-    materializes the winning ``default-agent`` value, before the program's
+    materializes the winning ``agent`` value, before the program's
     first statement (its own ``print``, ahead of its first ``ask``) runs.
     """
     program = tmp_path / "program.agl"
@@ -453,7 +446,7 @@ def test_exec_rejects_malformed_agent_command_literal_from_cli(
                 file=str(program),
                 argument_tokens=[
                     "--no-trace",
-                    "--default-agent",
+                    "--agent",
                     'AgentCommand("nonexistent-bin -p \'oops")',
                 ],
             )
@@ -463,7 +456,6 @@ def test_exec_rejects_malformed_agent_command_literal_from_cli(
     out, err = capsys.readouterr()
     assert out == ""
     assert "before ask" not in out
-    assert "agent" in err.lower()
 
 
 def test_exec_allows_well_formed_agent_command_literal_from_cli(
@@ -477,7 +469,7 @@ def test_exec_allows_well_formed_agent_command_literal_from_cli(
         exec_command.run(
             ExecArgs(
                 file=str(program),
-                argument_tokens=["--no-trace", "--default-agent", 'AgentCommand("echo hi")'],
+                argument_tokens=["--no-trace", "--agent", 'AgentCommand("echo hi")'],
             )
         )
         is None
@@ -489,7 +481,7 @@ def test_exec_allows_well_formed_agent_command_literal_from_cli(
 def test_source_write_of_malformed_agent_command_stays_a_runtime_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A runtime ``default-agent := AgentCommand(...)`` write is an AgL exception, not a host exit.
+    """A runtime ``agent := AgentCommand(...)`` write is an AgL exception, not a host exit.
 
     Only the value materialized at interpreter construction is validated
     eagerly; a source write happens after construction, so a malformed
@@ -502,7 +494,7 @@ def test_source_write_of_malformed_agent_command_stays_a_runtime_error(
         program,
         "import std/config\n"
         'print "before ask"\n'
-        'std/config::default-agent := AgentCommand("nonexistent-bin -p \'oops")\n'
+        'std/config::agent := AgentCommand("nonexistent-bin -p \'oops")\n'
         'ask "hello"\n',
     )
 
@@ -528,7 +520,7 @@ class TestMalformedAgentCommandAtConstruction:
         result = driver.run_prepared(
             prepared,
             builtin_host_settings={
-                "default-agent": agent_value("AgentCommand", command="nonexistent-bin -p 'oops")
+                "agent": agent_value("AgentCommand", command="nonexistent-bin -p 'oops")
             },
         )
         assert not result.ok

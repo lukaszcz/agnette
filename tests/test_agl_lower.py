@@ -2816,8 +2816,8 @@ class TestHostOpLowering:
         assert not isinstance(ask.sandbox, IrBuiltinLoad)
         assert isinstance(ask.sandbox, IrMakeRecord)
 
-    def test_ask_without_sandbox_lowers_the_default_sandbox_builtin_load(self) -> None:
-        """An agent-routed ask() without 'sandbox' loads std/config::default-sandbox."""
+    def test_ask_without_sandbox_lowers_the_sandbox_builtin_load(self) -> None:
+        """An agent-routed ask() without 'sandbox' loads std/config::sandbox."""
         from agnette.agl.ir.builtin_vars import builtin_var_key
         from agnette.agl.ir.nodes import IrBuiltinLoad
         from agnette.agl.modules.ids import STD_CONFIG_ID
@@ -2833,7 +2833,7 @@ class TestHostOpLowering:
         ask = ask_bind.value
         assert isinstance(ask, IrAsk)
         assert isinstance(ask.sandbox, IrBuiltinLoad)
-        assert ask.sandbox.key == builtin_var_key(STD_CONFIG_ID, (), "default-sandbox")
+        assert ask.sandbox.key == builtin_var_key(STD_CONFIG_ID, (), "sandbox")
 
     def test_ask_request_sandbox_lowers_the_explicit_operand(self) -> None:
         """ask-request(..., sandbox = ...) lowers its own explicit operand, undecoded."""
@@ -2853,8 +2853,8 @@ class TestHostOpLowering:
         assert not isinstance(req.sandbox, IrBuiltinLoad)
         assert isinstance(req.sandbox, IrMakeRecord)
 
-    def test_ask_request_without_sandbox_lowers_the_default_sandbox_builtin_load(self) -> None:
-        """An ask-request() without 'sandbox' loads std/config::default-sandbox, like ask()."""
+    def test_ask_request_without_sandbox_lowers_the_sandbox_builtin_load(self) -> None:
+        """An ask-request() without 'sandbox' loads std/config::sandbox, like ask()."""
         from agnette.agl.ir.builtin_vars import builtin_var_key
         from agnette.agl.ir.nodes import IrAskRequest, IrBuiltinLoad
         from agnette.agl.modules.ids import STD_CONFIG_ID
@@ -2874,7 +2874,7 @@ class TestHostOpLowering:
         req = req_bind.value
         assert isinstance(req, IrAskRequest)
         assert isinstance(req.sandbox, IrBuiltinLoad)
-        assert req.sandbox.key == builtin_var_key(STD_CONFIG_ID, (), "default-sandbox")
+        assert req.sandbox.key == builtin_var_key(STD_CONFIG_ID, (), "sandbox")
 
     def test_session_ask_lowers_with_no_sandbox_operand(self) -> None:
         """Session::ask lowers to IrSessionAsk, which carries no sandbox field at all."""

@@ -966,7 +966,7 @@ class TestManifestConfigDiscipline:
             "[config.devel]\n"
             'timeout = "1h"\n\n'
             "[config.devel.review]\n"
-            'default-agent = "claude/opus"\n',
+            'agent = "claude/opus"\n',
             "import std/http\nprogram def main() -> unit = ()\n",
         )
 
@@ -1077,12 +1077,12 @@ class TestManifestConfigDiscipline:
         with pytest.raises(DisciplineError):
             validate_package(package)
 
-    def test_rejects_a_bad_default_agent_value(self, tmp_path: Path) -> None:
+    def test_rejects_a_bad_agent_value(self, tmp_path: Path) -> None:
         package = self._write(
             tmp_path / "package",
             '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
             '[commands]\nstart = { program = "custom/main::main" }\n\n'
-            '[config]\ndefault-agent = { agent = "claude" }\n',
+            '[config]\nagent = { agent = "claude" }\n',
             "program def main() -> unit = ()\n",
         )
 

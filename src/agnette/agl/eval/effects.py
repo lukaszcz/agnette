@@ -579,7 +579,7 @@ class EffectHandlers:
 
         The session's sandboxing and environment are fixed here, at open, to
         ``node.sandbox``/``node.env`` (the call's own operands, or the
-        ``default-sandbox``/``environ`` defaults when omitted) -- for its
+        ``sandbox``/``environ`` defaults when omitted) -- for its
         whole lifetime. The evaluated sandbox operand is reused verbatim as
         the returned record's own ``sandbox`` field, so it reports exactly
         what the call was opened with; the environment is never exposed on
@@ -608,26 +608,26 @@ class EffectHandlers:
 
     def eval_ir_session_default(
         self,
-        default_agent: Value,
-        default_sandbox: Value,
-        default_env: Value | None,
+        agent_setting: Value,
+        sandbox_setting: Value,
+        environ_setting: Value | None,
     ) -> Value:
         """Lazily obtain the session whose agent is current at first use.
 
         Its sandboxing and environment are likewise fixed at this first use,
-        to the ``default-sandbox``/``environ`` settings current then -- never
+        to the ``sandbox``/``environ`` settings current then -- never
         per ask. A later call reads the mode fixed at that first open back
         from the host's own snapshot, so the returned record's ``sandbox``
-        field stays stable even after a later write to ``default-sandbox``
+        field stays stable even after a later write to ``sandbox``
         (and the session keeps using the environment fixed then, even after a
-        later ``setenv``). *default_env* is ``None`` once the caller already
+        later ``setenv``). *environ_setting* is ``None`` once the caller already
         knows the default session exists: the host ignores ``env`` in that
         case, so its decode is skipped rather than wastefully repeated on
         every free ``ask``.
         """
-        agent = cast(RecordValue, default_agent)
-        permission_mode, sandbox = self._decode_sandbox_setting(default_sandbox)
-        env = {} if default_env is None else self._decode_environ(default_env)
+        agent = cast(RecordValue, agent_setting)
+        permission_mode, sandbox = self._decode_sandbox_setting(sandbox_setting)
+        env = {} if environ_setting is None else self._decode_environ(environ_setting)
         try:
             spec = self._decode_agent_spec(agent)
             transport = self._resolve_session_transport(spec, None)

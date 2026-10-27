@@ -846,7 +846,7 @@ def test_invalid_agent_value_becomes_typed_error() -> None:
     assert run.error.type_name == "AgentCallError"
 
 
-def test_default_agent_value_is_read_at_each_call_and_errors_stay_typed() -> None:
+def test_agent_value_is_read_at_each_call_and_errors_stay_typed() -> None:
     from agnette.agl.runtime.request import AgentRequest
 
     requests: list[AgentCommand | AgentClaude | AgentCodex | AgentPi] = []
@@ -863,9 +863,9 @@ def test_default_agent_value_is_read_at_each_call_and_errors_stay_typed() -> Non
     result = run_inline_code(
         runtime,
         "import std/config\n"
-        'std/config::default-agent := AgentCommand("first")\n'
+        'std/config::agent := AgentCommand("first")\n'
         'let first: text = ask("one")\n'
-        'std/config::default-agent := AgentClaude("sonnet", "medium")\n'
+        'std/config::agent := AgentClaude("sonnet", "medium")\n'
         'let second: int = ask("two", parse-error-retries = 0)\n'
         "second",
     )

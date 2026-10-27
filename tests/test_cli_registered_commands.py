@@ -396,7 +396,7 @@ def test_registered_command_forwards_exec_run_time_options(
             "strict",
             "--max-call-depth",
             "9",
-            "--default-agent",
+            "--agent",
             "claude",
             "--timeout",
             "30s",
@@ -415,7 +415,7 @@ def test_registered_command_forwards_exec_run_time_options(
                 "--no-strict-json",
                 "--level",
                 "strict",
-                "--default-agent",
+                "--agent",
                 "claude",
                 "--timeout",
                 "30s",
@@ -1206,7 +1206,7 @@ def test_exec_installed_reference_preserves_all_file_options(
             "trace.jsonl",
             "--timeout",
             "5s",
-            "--default-agent",
+            "--agent",
             'AgentCommand("fake")',
             *["--subject", "changes"],
         ],
@@ -2606,6 +2606,22 @@ def test_an_unconsumed_group_table_leaf_draws_no_warning(
     result = invoke(CliRunner(), ["devel", "review"])
 
     assert result.exit_code == 0
+
+
+def test_a_registered_command_warns_once_for_an_undeclared_exec_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    root = tmp_path / "tools"
+    _write_group_table_package(root)
+    install_directory(root, home=home)
+    monkeypatch.setenv("HOME", str(home))
+    (home / ".agm" / "config.toml").write_text('[exec]\ndefault-agent = "old"\n', encoding="utf-8")
+
+    result = invoke(CliRunner(), ["devel", "review"])
+
+    assert result.exit_code == 0
+    assert result.output.count("default-agent") == 1
 
 
 def test_a_same_depth_conflict_via_an_alias_errors_even_in_one_layer(

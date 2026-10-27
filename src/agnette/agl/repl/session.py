@@ -441,7 +441,7 @@ class ReplSession:
         # it from a completed entry's own resolved state.
         self._shell_exec_timeout: float | None = self._seeded_timeout_seconds()
         # ONE current-value map for the engine keys' ``Value`` registers
-        # (strict-json, timeout, trace, trace-file, default-agent): the live
+        # (strict-json, timeout, trace, trace-file, agent): the live
         # setting each entry's interpreter is built with and reads back after
         # a write. Starts equal to the seed -- nothing has run yet -- is
         # overwritten from a completed entry's own resolved state afterward
@@ -1344,7 +1344,7 @@ class ReplSession:
         already the session's own prior register re-merged with any fresh
         declared default this entry's own compilation introduced (see
         ``IrInterpreter.__init__``), so it is always the correct next value,
-        and a key genuinely never seeded or declared (``default-agent`` has no
+        and a key genuinely never seeded or declared (``agent`` has no
         host-side floor) is correctly left absent rather than fabricated.
         Timeout is likewise replaced unconditionally, since it always has a
         host-side floor and so is always present. Strict-json is replaced only

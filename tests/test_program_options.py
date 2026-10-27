@@ -2020,8 +2020,8 @@ class TestEngineSettingFlags:
 
         assert {"--trace", "--no-trace", "--timeout", "--no-timeout"} <= flags
         assert {"--strict-json", "--no-strict-json", "--debug", "--no-debug"} <= flags
-        assert {"--default-agent", "--default-sandbox", "--parse-error-retries"} <= flags
-        assert "--no-default-agent" not in flags
+        assert {"--agent", "--sandbox", "--parse-error-retries"} <= flags
+        assert "--no-agent" not in flags
 
     def test_the_trace_file_setting_has_no_negation_of_its_own(self) -> None:
         flags = {opt for param in self._engine_command().params for opt in param.opts}

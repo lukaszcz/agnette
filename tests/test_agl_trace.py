@@ -985,7 +985,7 @@ class TestRunBoundaryRecords:
             builtin_host_settings={
                 "strict-json": BoolValue(True),
                 "parse-error-retries": IntValue(2),
-                "default-agent": agent_value("AgentCommand", command="tool"),
+                "agent": agent_value("AgentCommand", command="tool"),
             },
         )
 
@@ -1000,7 +1000,7 @@ class TestRunBoundaryRecords:
         assert start["config"] == {
             "std/config::strict-json": True,
             "std/config::parse-error-retries": 2,
-            "std/config::default-agent": {"$case": "AgentCommand", "command": "tool"},
+            "std/config::agent": {"$case": "AgentCommand", "command": "tool"},
         }
 
     def test_trace_values_keep_enum_data_and_degrade_cycles_and_non_data(self) -> None:

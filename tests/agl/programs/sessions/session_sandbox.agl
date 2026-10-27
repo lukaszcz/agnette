@@ -1,6 +1,6 @@
 # Session::open's sandbox operand fixes a session's sandboxing for its whole
 # lifetime: every accepted AgentSandbox shape, the .sandbox field reporting
-# exactly what was passed, a later default-sandbox write never reaching an
+# exactly what was passed, a later sandbox write never reaching an
 # already-open session, and fork inheriting the parent's mode verbatim.
 import std/config
 
@@ -27,7 +27,7 @@ program def main(mode: text) -> unit =
         print classify(session.sandbox)
     | mode == "operand-survives-a-later-default-write" =>
         let session = Session::open(AgentCommand("impl"), sandbox = AgentSandbox::Native)
-        std/config::default-sandbox := AgentSandbox::Disabled
+        std/config::sandbox := AgentSandbox::Disabled
         print classify(session.sandbox)
     | mode == "fork-inherits" =>
         let parent = Session::open(AgentClaude("model", "high"), sandbox = Sandbox(memory = Some("4G")))

@@ -54,11 +54,11 @@ exception AgentParseError extends Exception
 """)
 builtin def ask[T](
   prompt: text,
-  agent: Agent = std/config::default-agent,
+  agent: Agent = std/config::agent,
   format: text = "",
   strict-json: bool = false,
   parse-error-retries: int = std/config::parse-error-retries,
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
   env: Environ = std/env::environ,
 ) -> T
 
@@ -74,7 +74,7 @@ builtin def Agent::ask[T](
   format: text = "",
   strict-json: bool = false,
   parse-error-retries: int = std/config::parse-error-retries,
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
   env: Environ = std/env::environ,
 ) -> T
 
@@ -85,17 +85,17 @@ builtin def Agent::ask-request[T](
   format: text = "",
   strict-json: bool = false,
   parse-error-retries: int = std/config::parse-error-retries,
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
 ) -> AgentRequest
 
 @doc("Build an agent request for the requested response type without invoking the agent.")
 builtin def ask-request[T](
   prompt: text,
-  agent: Agent = std/config::default-agent,
+  agent: Agent = std/config::agent,
   format: text = "",
   strict-json: bool = false,
   parse-error-retries: int = std/config::parse-error-retries,
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
 ) -> AgentRequest
 
 @doc("""
@@ -107,8 +107,8 @@ builtin def ask-request[T](
 """)
 extern def chat(
   prompt: text = "",
-  agent: Agent = std/config::default-agent,
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  agent: Agent = std/config::agent,
+  sandbox: AgentSandbox = std/config::sandbox,
   env: Environ = std/env::environ,
 ) -> unit
 
@@ -117,6 +117,6 @@ extern def chat(
 extern def Agent::chat(
   self,
   prompt: text = "",
-  sandbox: AgentSandbox = std/config::default-sandbox,
+  sandbox: AgentSandbox = std/config::sandbox,
   env: Environ = std/env::environ,
 ) -> unit

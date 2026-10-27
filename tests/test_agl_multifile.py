@@ -28,14 +28,14 @@ MULTI_FILE_DIR = Path(__file__).parent / "agl" / "multi_file"
 
 def _make_runtime(
     *,
-    default_agent: Any | None = None,
+    dispatcher: Any | None = None,
 ) -> Any:
-    """Build a PipelineDriver with optional default agent."""
+    """Build a PipelineDriver with an optional dispatcher."""
     from agnette.agl import PipelineDriver
 
     return PipelineDriver(
         resolve_agent_spec=None,
-        agent_dispatcher=default_agent,
+        agent_dispatcher=dispatcher,
         get_sandbox_context=None,
     )
 
@@ -46,7 +46,7 @@ def _run_program(
     roots_dirs: list[Path],
     entry_path: Path | None = None,
     param_values: dict[str, object] | None = None,
-    default_agent: Any | None = None,
+    dispatcher: Any | None = None,
     agents: dict[str, Any] | None = None,
 ) -> Any:
     """Run a multi-file AgL program and return the RunResult."""
@@ -70,7 +70,7 @@ def _run_program(
             resolve_agent_spec=None, agent_dispatcher=dispatch, get_sandbox_context=None
         )
     else:
-        rt = _make_runtime(default_agent=default_agent)
+        rt = _make_runtime(dispatcher=dispatcher)
     if entry_path is None:
         return run_inline_code(rt, entry_source, roots=roots, param_values=param_values)
     discovery = rt.discover_programs(prepared)
@@ -505,7 +505,7 @@ class TestAgentValueCrossModule:
         result = _run_program(
             source,
             roots_dirs=[lib_dir],
-            default_agent=scripted_agent,
+            dispatcher=scripted_agent,
         )
         assert result.ok is True
         captured = capsys.readouterr()
@@ -530,7 +530,7 @@ class TestAgentValueCrossModule:
         result = _run_program(
             source,
             roots_dirs=[lib_dir],
-            default_agent=scripted_agent,
+            dispatcher=scripted_agent,
         )
         assert result.ok is True
         captured = capsys.readouterr()

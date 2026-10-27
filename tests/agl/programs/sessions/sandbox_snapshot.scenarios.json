@@ -1,7 +1,7 @@
 {
   "scenarios": [
     {
-      "name": "a_later_default_sandbox_write_never_reaches_the_snapshotted_default_session",
+      "name": "a_later_sandbox_write_never_reaches_the_snapshotted_default_session",
       "params": {},
       "agents": {"writer": []},
       "expect": {

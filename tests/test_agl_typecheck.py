@@ -9055,7 +9055,7 @@ _ASK_REQUEST_FREE_OPTIONS_TC = (
 _ASK_REQUEST_DECL_TC = (
     f"builtin def ask-request[T](\n{_ASK_REQUEST_FREE_OPTIONS_TC}) -> AgentRequest\n"
 )
-# Without the standard library there is no ``std/config::default-agent`` to name
+# Without the standard library there is no ``std/config::agent`` to name
 # and a program may not declare a ``builtin var`` of its own, so this
 # declaration's ``agent`` default is a stand-in: a ``builtin def`` default is
 # resolved but never checked, since the host supplies the value.

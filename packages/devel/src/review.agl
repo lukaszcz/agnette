@@ -134,7 +134,7 @@ program def review-main(
   scope: text,
   aspects: text = default-aspects,
   extra-aspects: text = "",
-  agent: Agent = config::default-agent
+  agent: Agent = config::agent
 ) -> unit =
   let sep = if extra-aspects == "" => "" else => ", "
   let aspects' = aspects ++ sep ++ extra-aspects
@@ -144,7 +144,7 @@ program def review-main(
 @doc("Revise based on a review.")
 program def revise-main(
   review-file: path,
-  agent: Agent = config::default-agent
+  agent: Agent = config::agent
 ) -> unit =
   let txt: text = fs::read(review-file)
   let high-valid: bool =
@@ -172,8 +172,8 @@ program def refine-main(
   scope: text,
   aspects: text = default-aspects,
   extra-aspects: text = "",
-  review-agent: Agent = config::default-agent,
-  revise-agent: Agent = config::default-agent,
+  review-agent: Agent = config::agent,
+  revise-agent: Agent = config::agent,
   max-steps: int = 8,
   save-reviews: bool = true
 ) -> unit =
@@ -189,7 +189,7 @@ program def refine-main(
 @command("devel refine-tests")
 @doc("Review and refine the test suite using mutation testing.")
 program def refine-tests-main(
-  agent: Agent = config::default-agent,
+  agent: Agent = config::agent,
   @opt-short("i")
   interactive: bool = false
 ) -> unit =

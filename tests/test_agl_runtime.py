@@ -315,7 +315,7 @@ class TestFallbackAgent:
         assert result.ok is False
         assert result.error is not None
 
-    def test_with_default_agent_ask_call_succeeds(self) -> None:
+    def test_ask_with_a_dispatcher_succeeds(self) -> None:
         rt = PipelineDriver(
             resolve_agent_spec=None, agent_dispatcher=lambda req: "ok", get_sandbox_context=None
         )
@@ -337,7 +337,7 @@ class TestFallbackAgent:
         assert result.ok is False
         assert result.error is None
 
-    def test_default_agent_dispatches_an_agent_value(self) -> None:
+    def test_agent_dispatches_an_agent_value(self) -> None:
         rt = PipelineDriver(
             resolve_agent_spec=None, agent_dispatcher=lambda req: "ok", get_sandbox_context=None
         )
@@ -884,7 +884,7 @@ class TestNoDefaultAgent:
         assert result.error is not None
         assert result.error.type_name == "AgentCallError"
 
-    def test_ask_with_default_agent_runs(self) -> None:
+    def test_ask_with_a_dispatcher_runs(self) -> None:
         def agent(request: object) -> str:
             return "answer"
 
@@ -1908,11 +1908,11 @@ class TestSerialize:
 class TestEngineSettingDefaults:
     """The host side owns defaults only for the keys it can actually decode."""
 
-    def test_engine_default_settings_has_no_default_agent_floor(self) -> None:
-        """``default-agent`` is declared by ``std/config``, not fabricated by the host."""
+    def test_engine_default_settings_has_no_agent_floor(self) -> None:
+        """``agent`` is declared by ``std/config``, not fabricated by the host."""
         from agnette.agl.runtime.engine_config import engine_default_settings
 
-        assert "default-agent" not in engine_default_settings()
+        assert "agent" not in engine_default_settings()
 
 
 # ---------------------------------------------------------------------------
