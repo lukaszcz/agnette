@@ -16,7 +16,6 @@ and ``LexError``s are wrapped into ``AglSyntaxError``.
 from __future__ import annotations
 
 import re
-from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace as dc_replace
@@ -42,7 +41,7 @@ from agnette.agl.lexer.errors import (
     UnterminatedTripleQuotedStringError,
 )
 from agnette.agl.lexer.lexer import build_parser
-from agnette.agl.lexer.positions import LineIndex, Rebase, token_span, touched_ranges
+from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span, touched_ranges
 from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import (
@@ -511,7 +510,7 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
         # An indented block's closing layout covers the newline after it, past its entry's text.
         while end > begin and text[end - 1].isspace():
             end -= 1
-        first = max(bisect_right(starts, begin) - 1, 0)
+        first = range_at(starts, begin)
         if starts[first] <= begin and end <= ranges[first][1]:
             entries[first].append(child)
             continue

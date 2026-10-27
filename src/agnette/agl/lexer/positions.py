@@ -46,6 +46,11 @@ class LineIndex:
         return self._starts[line - 1] + column - 1
 
 
+def range_at(starts: Sequence[int], offset: int) -> int:
+    """The index of the range starting last at or before *offset*; the first before them all."""
+    return max(bisect_right(starts, offset) - 1, 0)
+
+
 def touched_ranges(
     ranges: Sequence[tuple[int, int]], starts: Sequence[int], begin: int, end: int
 ) -> list[int]:
@@ -54,8 +59,9 @@ def touched_ranges(
     *starts* are the ranges' starts. Only the ranges starting before *end*, from the one
     holding *begin*, are looked at.
     """
-    first = max(bisect_right(starts, begin) - 1, 0)
-    return [i for i in range(first, bisect_left(starts, end)) if ranges[i][1] > begin]
+    return [
+        i for i in range(range_at(starts, begin), bisect_left(starts, end)) if ranges[i][1] > begin
+    ]
 
 
 class Rebase:

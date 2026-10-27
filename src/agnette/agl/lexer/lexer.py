@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import contextvars
 import importlib.resources
-from bisect import bisect_right
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -63,7 +62,7 @@ from agnette.agl.lexer.operators import (
     promotes_as_operator,
     scanner_token_type,
 )
-from agnette.agl.lexer.positions import LineIndex, Rebase, token_span, touched_ranges
+from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span, touched_ranges
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
     ARROW,
@@ -293,15 +292,11 @@ def lexed_slices(
     starts = [start for start, _ in ranges]
     rebases = [Rebase(lines, start) for start in starts]
 
-    def slice_at(offset: int) -> int:
-        """The slice whose range starts last at or before *offset*; the first before them all."""
-        return max(bisect_right(starts, offset) - 1, 0)
-
     tokens: list[list[Token]] = [[] for _ in ranges]
     crossed: set[int] = set()
     for token in lexed.tokens:
         start_pos, end_pos = cast(int, token.start_pos), cast(int, token.end_pos)
-        index = slice_at(start_pos)
+        index = range_at(starts, start_pos)
         if starts[index] <= start_pos and end_pos <= ranges[index][1]:
             tokens[index].append(rebases[index].token(token))
         else:
@@ -309,7 +304,7 @@ def lexed_slices(
     spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
     for qualifier in lexed.spaced_qualifiers:
         offset = qualifier.run_start_offset
-        index = slice_at(offset)
+        index = range_at(starts, offset)
         rebase = rebases[index]
         spaced[index].append(
             replace(
@@ -320,7 +315,7 @@ def lexed_slices(
         )
     tabs: list[list[Diagnostic]] = [[] for _ in ranges]
     for advisory in lexed.tab_warnings:
-        index = slice_at(lines.offset(advisory.line, cast(int, advisory.column)))
+        index = range_at(starts, lines.offset(advisory.line, cast(int, advisory.column)))
         tabs[index].append(rebases[index].advisory(advisory))
     return [
         None
