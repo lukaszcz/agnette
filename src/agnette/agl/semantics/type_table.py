@@ -1599,6 +1599,43 @@ class TypeTable:
         """
         return self._defs[handle.decl_id]
 
+    def extend_exception_chain[T](
+        self,
+        typedef: TypeDef,
+        *,
+        built: Callable[[TypeDef], T | None],
+        empty: T,
+        size: Callable[[T], int],
+        extend: Callable[[T, TypeDef, tuple[tuple[str, str, Type], ...], bool], T],
+        keep: Callable[[TypeDef, T], None],
+    ) -> T:
+        """Build *typedef*'s per-field data from its nearest base chain link already *built*.
+
+        Walks the ``extends`` chain only up to that link (*empty* above the root), then
+        calls ``extend(base, link, own, redeclares)`` for each link below it, base first,
+        and ``keep`` with each result. *own* is the link's :meth:`own_json_fields`;
+        *redeclares* is whether one of them redeclares an inherited field (the implicit
+        root's ``message``), so the flattened chain is no longer *base* followed by *own*
+        and must be rebuilt afresh. *size* counts the fields *base* holds.
+        """
+        pending: list[TypeDef] = []
+        cursor: TypeDef | None = typedef
+        base = empty
+        while cursor is not None:
+            found = built(cursor)
+            if found is not None:
+                base = found
+                break
+            pending.append(cursor)
+            cursor = None if cursor.base is None else self._defs[cursor.base]
+        for link in reversed(pending):
+            handle = link.exception_handle()
+            own = self.own_json_fields(handle)
+            redeclares = size(base) + len(own) != len(self.exception_fields(handle))
+            base = extend(base, link, own, redeclares)
+            keep(link, base)
+        return base
+
     def entries(self) -> tuple[TypeDef, ...]:
         """Return all registered ``TypeDef``s (used for REPL and program table sharing)."""
         return tuple(self._defs.values())

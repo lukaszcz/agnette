@@ -405,8 +405,7 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     inner attributes. Each slice is the pass over its entry's text with the parse of that
     text already made, so reading the entry scans and parses nothing. ``None`` for an entry
     that cannot be read off (:func:`~agnette.agl.lexer.lexed_slice`; *lexed* failed), or for
-    all of them when
-    *lexed* holds no program parse of as many items.
+    all of them when *lexed* holds no program parse of as many items.
     """
     whole = lexed.parses.get(_PROGRAM_START)
     if not isinstance(whole, Tree):

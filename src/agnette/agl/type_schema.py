@@ -966,21 +966,25 @@ class ExceptionFieldEncodes:
     def of(self, handle: ExceptionType) -> tuple[ExceptionFieldEncode, ...]:
         """Return *handle*'s flattened field encodes."""
         table = self._type_table
-        pending: list[TypeDef] = []
-        cursor: TypeDef | None = table.exception_def(handle)
-        while cursor is not None and cursor.decl_node_id not in self._by_decl:
-            pending.append(cursor)
-            cursor = None if cursor.base is None else table.typedef_of(cursor.base)
-        entries = () if cursor is None else self._by_decl[cursor.decl_node_id]
-        for typedef in reversed(pending):
-            handle = typedef.exception_handle()
-            own = table.own_json_fields(handle)
-            if len(entries) + len(own) == len(table.exception_fields(handle)):
-                entries = (*entries, *map(self._encode, own))
-            else:  # an own field redeclares an inherited one
-                entries = tuple(map(self._encode, table.json_fields(handle)))
-            self._by_decl[typedef.decl_node_id] = entries
-        return entries
+
+        def extend(
+            base: tuple[ExceptionFieldEncode, ...],
+            link: TypeDef,
+            own: tuple[tuple[str, str, Type], ...],
+            redeclares: bool,
+        ) -> tuple[ExceptionFieldEncode, ...]:
+            if redeclares:
+                return tuple(map(self._encode, table.json_fields(link.exception_handle())))
+            return (*base, *map(self._encode, own))
+
+        return table.extend_exception_chain(
+            table.exception_def(handle),
+            built=lambda link: self._by_decl.get(link.decl_node_id),
+            empty=(),
+            size=len,
+            extend=extend,
+            keep=lambda link, entries: self._by_decl.__setitem__(link.decl_node_id, entries),
+        )
 
 
 def _build_finite_encode_plan(typ: Type, type_table: TypeTable) -> EncodePlan:

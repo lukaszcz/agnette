@@ -22,7 +22,7 @@ from agnette.agl.ir.nodes import IrExpr
 from agnette.agl.ir.program import NominalDescriptor, NominalKind, VariantDescriptor
 from agnette.agl.semantics.arguments import has_positional_only, positional_field_names
 from agnette.agl.semantics.type_table import TypeDef, TypeTable
-from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType
+from agnette.agl.semantics.types import EnumType, ExceptionType, RecordType, Type
 
 __all__ = ["nominal_descriptor"]
 
@@ -103,20 +103,20 @@ def _flatten_from_scratch(
 def _extend_fields(
     base: _FlatFields,
     typedef: TypeDef,
+    own: tuple[tuple[str, str, Type], ...],
+    redeclares: bool,
     type_table: TypeTable,
     field_defaults: Mapping[NominalId, tuple[IrExpr | None, ...]],
 ) -> _FlatFields:
-    """Extend a base exception's flattened fields by those *typedef* declares itself.
+    """Extend a base exception's flattened fields by the *own* ones *typedef* declares itself.
 
-    The own fields simply follow the base's, unless one redeclares an
-    inherited field (the implicit root's ``message``): then the chain is
-    flattened afresh. The positional prefix only changes when an own field is
-    positional-only.
+    The own fields simply follow the base's, unless one *redeclares* an inherited field:
+    then the chain is flattened afresh. The positional prefix only changes when an own
+    field is positional-only.
     """
-    handle = typedef.exception_handle()
-    own = type_table.own_json_fields(handle)
-    if len(base.names) + len(own) != len(type_table.exception_fields(handle)):
+    if redeclares:
         return _flatten_from_scratch(typedef, type_table, field_defaults)
+    handle = typedef.exception_handle()
     own_defaults = field_defaults.get(NominalId(typedef.decl_node_id), (None,) * len(own))
     return _FlatFields(
         (*base.names, *(name for name, _json_name, _type in own)),
@@ -145,21 +145,33 @@ def exception_descriptor(
     from *field_defaults* contributes an all-``None`` run.
 
     The flattened data extends the nearest base descriptor already in *built*
-    (the chain is walked only up to it), so building a hierarchy base first
-    costs each exception its own fields plus a flat copy.
+    (:meth:`TypeTable.extend_exception_chain`), so building a hierarchy base
+    first costs each exception its own fields plus a flat copy.
     """
-    pending: list[TypeDef] = [typedef]
-    flat = _NO_FIELDS
-    while (base_id := pending[-1].base) is not None:
-        base = built.get(NominalId(base_id))
-        if base is not None:
-            flat = _FlatFields(
-                base.fields, base.field_json_names, base.field_defaults, base.positional_fields
+
+    def built_fields(link: TypeDef) -> _FlatFields | None:
+        descriptor = None if link is typedef else built.get(NominalId(link.decl_node_id))
+        return (
+            None
+            if descriptor is None
+            else _FlatFields(
+                descriptor.fields,
+                descriptor.field_json_names,
+                descriptor.field_defaults,
+                descriptor.positional_fields,
             )
-            break
-        pending.append(type_table.typedef_of(base_id))
-    for link in reversed(pending):
-        flat = _extend_fields(flat, link, type_table, field_defaults)
+        )
+
+    flat = type_table.extend_exception_chain(
+        typedef,
+        built=built_fields,
+        empty=_NO_FIELDS,
+        size=lambda fields: len(fields.names),
+        extend=lambda base, link, own, redeclares: _extend_fields(
+            base, link, own, redeclares, type_table, field_defaults
+        ),
+        keep=lambda _link, _fields: None,
+    )
     return NominalDescriptor(
         nominal=NominalId(typedef.decl_node_id),
         module_id=typedef.module_id,
