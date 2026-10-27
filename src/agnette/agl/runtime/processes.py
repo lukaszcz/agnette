@@ -39,7 +39,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from types import FrameType
-from typing import ClassVar, NamedTuple, NoReturn
+from typing import ClassVar, NamedTuple, NoReturn, TypeAlias
 from uuid import uuid4
 
 from agnette.agl.runtime.process_records import (
@@ -78,6 +78,8 @@ _UNEXPECTED_EXIT = 70
 _TERMINATING = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 # Seconds between SIGTERM and SIGKILL when terminating processes.
 TERMINATION_GRACE = 10.0
+# Group members can exit without writing to an attached outcome pipe.
+_GROUP_POLL_INTERVAL = 0.05
 
 
 class ProcessHostError(Exception):
@@ -265,8 +267,8 @@ class ProcessHost:
     """Forks children and transports their outcomes, for one host session.
 
     Not thread-safe. A forked child gets an empty process table: handles of its parent
-    are foreign to it. The outcome types are class attributes, so a companion reaches
-    them through the host it holds. *grace* is the seconds between SIGTERM and SIGKILL when
+    are foreign to it. Outcome types and the disposition enum are class attributes, reached
+    through the host a companion holds. *grace* is the seconds between SIGTERM and SIGKILL when
     terminating processes (halved in each forked child). *reporter*, if given, is called with
     the one-line problem text of each outcome :meth:`end` reports, after its stderr warning.
     """
@@ -274,6 +276,7 @@ class ProcessHost:
     Delivered: ClassVar[type[Delivered]] = Delivered
     Failed: ClassVar[type[Failed]] = Failed
     Ended: ClassVar[type[Ended]] = Ended
+    Disposition: TypeAlias = Disposition
 
     def __init__(
         self,
@@ -603,7 +606,7 @@ class ProcessHost:
         count as consumed, so :meth:`end` does not report them.
         """
         self._reap_detached()
-        entries = [self._entry(id) for id in ids]
+        entries = list({id: self._entry(id) for id in ids}.values())
         self._terminate(entries)
         for entry in entries:
             entry.consumed = True
@@ -711,6 +714,7 @@ class ProcessHost:
         """Read the pipes of all running children until *done*; an interrupt propagates.
 
         With a *deadline* (``time.monotonic`` seconds), it also returns when that has passed.
+        Bounded polls recheck groups whose members have no attached outcome pipe.
 
         A signal wakes the blocking poll (see :class:`SignalWakeup`), so a Python handler
         that raises interrupts the wait at once. The wakeup lasts only for this call, never
@@ -728,11 +732,12 @@ class ProcessHost:
         for fd in running:
             poller.register(fd, select.POLLIN)
         with SignalWakeup() as wakeup:
-            while not done():
-                ready = wakeup.poll(poller, deadline)
-                if ready is None:
-                    return
-                for fd in ready:
+            while not done() and (deadline is None or time.monotonic() < deadline):
+                poll_deadline = deadline
+                if deadline is not None:
+                    poll_deadline = min(deadline, time.monotonic() + _GROUP_POLL_INTERVAL)
+                ready = wakeup.poll(poller, poll_deadline)
+                for fd in ready or ():
                     entry = running[fd]
                     # Held, so that an interrupt cannot drop a chunk already read.
                     with held_signals(_TERMINATING):

@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import warnings
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -1905,6 +1906,87 @@ def test_a_failure_message_that_is_not_valid_unicode_is_still_delivered(tmp_path
 # ---------------------------------------------------------------------------
 # Termination, scopes, and session end
 # ---------------------------------------------------------------------------
+
+
+def _duplicate_termination(workdir: Path) -> bool:
+    ready, cleanup, release = _Gate(), _Gate(), _Gate()
+    marker = workdir / "cleaned"
+
+    def child() -> bytes:
+        try:
+            ready.open()
+            signal.pause()
+        finally:
+            cleanup.open()
+            release.pass_through()
+            marker.touch()
+        return b"unreachable"
+
+    with _host() as host:
+        info = host.fork(child, ())
+        ready.wait()
+        real_killpg = os.killpg
+        sent = False
+
+        def killpg(pgid: int, number: int) -> None:
+            nonlocal sent
+            real_killpg(pgid, number)
+            if pgid == info.pid and number == signal.SIGTERM and not sent:
+                sent = True
+                # Hold the parent until the child is unwinding its first interrupt.
+                cleanup.wait()
+
+        with (
+            mock.patch.object(os, "killpg", killpg),
+            before_each_poll(lambda call: release.open()),
+        ):
+            host.terminate(info.id, info.id)
+        return marker.exists()
+
+
+def test_duplicate_termination_allows_child_cleanup_to_finish(tmp_path: Path) -> None:
+    assert run_callable(_duplicate_termination, tmp_path, timeout=RUN_TIMEOUT).value
+
+
+@pytest.mark.parametrize("how", ["terminate", "end", "settle"])
+def test_cleanup_rechecks_groups_before_the_grace_deadline(tmp_path: Path, how: str) -> None:
+    assert (
+        run_callable(
+            _group_disappears_during_poll, tmp_path, {"how": how}, timeout=RUN_TIMEOUT
+        ).value
+        < 1.0
+    )
+
+
+def _group_disappears_during_poll(workdir: Path, how: str) -> float:
+    with _host() as host:
+        info = host.fork(lambda: b"done", ())
+        elapsed = 0.0
+        group_alive = True
+        poller = mock.Mock()
+
+        def poll(timeout: int) -> list[tuple[int, int]]:
+            nonlocal elapsed, group_alive
+            elapsed += timeout / 1000
+            group_alive = False
+            return []
+
+        def killpg(pgid: int, number: int) -> None:
+            if not group_alive:
+                raise ProcessLookupError
+
+        poller.poll.side_effect = poll
+        with mock.patch.object(os, "killpg", killpg):
+            host.settle(info.id)
+            with (
+                mock.patch.object(time, "monotonic", lambda: elapsed),
+                mock.patch.object(select, "poll", return_value=poller),
+            ):
+                if how == "terminate":
+                    host.terminate(info.id)
+                else:
+                    host.end(Disposition.TERMINATE if how == "end" else Disposition.SETTLE)
+        return elapsed
 
 
 def _stubborn(ready: _Gate, gate: _Gate, termed: _Gate | None = None) -> Callable[[], bytes]:

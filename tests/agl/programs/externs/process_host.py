@@ -25,6 +25,16 @@ def forked_double(n):
     return int(outcome.payload)
 
 
+def end_processes(terminate):
+    host = runtime.processes
+    process = host.fork(lambda: b"done", ())
+    if terminate:
+        host.end(host.Disposition.TERMINATE)
+    else:
+        host.end(host.Disposition.SETTLE)
+        assert host.outcome(process.id).payload == b"done"
+
+
 def forked_state():
     """Report the child's view of the companion state; the child closes it at exit."""
     _state()
