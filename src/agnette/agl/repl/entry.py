@@ -78,6 +78,10 @@ class EntryResult:
         ``AglError`` (a lowering ``ResourceError``, a param/environment/
         extern diagnostic). The REPL
         renderer keeps using ``diagnostics``.
+    ``scope_failed``
+        Whether the entry never resolved (a parse, import or scope failure), so a
+        host reporting what ``agm check`` does withholds the warnings of source
+        beyond it.
     ``ok``
         ``True`` iff there are no error diagnostics AND no runtime error.
     ``installed``
@@ -104,6 +108,7 @@ class EntryResult:
     type_table: "TypeTable | None" = None
     descriptors: "ValueDescriptors | None" = None
     failure: "AglError | None" = None
+    scope_failed: bool = False
 
 
 #: A source label with a 1-based line and column.

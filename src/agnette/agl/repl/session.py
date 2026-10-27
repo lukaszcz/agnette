@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import Lock
 from typing import TYPE_CHECKING, NamedTuple, cast
 
@@ -42,7 +42,11 @@ from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.self_validation import self_validation_enabled
 from agnette.agl.syntax import NULLARY_BUILTIN_TYPE_NAMES
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE
-from agnette.agl.warning_policy import apply_program_policy
+from agnette.agl.warning_policy import (
+    apply_program_policy,
+    apply_warning_policy,
+    installed_sources,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -66,6 +70,7 @@ if TYPE_CHECKING:
     from agnette.agl.runtime.types import ParamBindingInfo
     from agnette.agl.scope.program import ResolvedModule, ResolvedProgram
     from agnette.agl.scope.symbols import (
+        AllowRegion,
         BindingRef,
         ConstructorRef,
         DeclarationKey,
@@ -1250,7 +1255,7 @@ class ReplSession:
                 )
             except AglError as exc:
                 return (
-                    self._fail_static_governed(exc, list(tab_sink)),
+                    self._fail_static_governed(exc, list(tab_sink), scope_failed=True),
                     self._next_node_id,
                     lexed_ok,
                 )
@@ -1304,11 +1309,13 @@ class ReplSession:
         warnings: list[Diagnostic],
         *,
         failure: AglError | None = None,
+        scope_failed: bool = False,
     ) -> EntryResult:
         """Build a clean pre-execution failure result (no promotion).
 
         *failure* is the static ``AglError`` that produced *diagnostics*, when
-        one exists (see ``EntryResult.failure``).
+        one exists (see ``EntryResult.failure``); *scope_failed* is
+        ``EntryResult.scope_failed``.
         """
         return EntryResult(
             kind="statement",
@@ -1320,6 +1327,7 @@ class ReplSession:
             error=None,
             ok=False,
             failure=failure,
+            scope_failed=scope_failed,
         )
 
     def _govern_warnings(
@@ -1356,15 +1364,21 @@ class ReplSession:
         exc: AglError,
         warnings: list[Diagnostic],
         modules: "Iterable[ResolvedModule]" = (),
+        *,
+        scope_failed: bool,
     ) -> EntryResult:
         """Build the :meth:`_fail_static` result with the policy applied to *warnings*.
 
         A denied warning follows *exc*'s diagnostic as an error; *modules* are those
-        scope resolved before the failure (none if it never ran).
+        scope resolved before the failure (none if it never ran); *scope_failed* is
+        whether the entry itself never resolved.
         """
         outcome = self._govern_warnings(warnings, modules, scope_complete=False)
         return self._fail(
-            [exc.to_diagnostic(), *outcome.denied], list(outcome.reported), failure=exc
+            [exc.to_diagnostic(), *outcome.denied],
+            list(outcome.reported),
+            failure=exc,
+            scope_failed=scope_failed,
         )
 
     def _fail_static(self, exc: AglError, warnings: list[Diagnostic]) -> EntryResult:
@@ -2628,11 +2642,12 @@ class ReplSession:
         single entry: a bare type entry succeeds, anything else yields a single failed
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
         items to run: a benign no-op yielding an empty list, or, with TAB advisories, one
-        entry carrying them. A load halted by a failing entry reports the advisories of
-        the entries after it with that entry, so it reports what ``agm check`` does.
+        entry carrying them. A load halted by a failing entry of a plain file reports the
+        advisories of the entries after it with that entry, governed as ``agm check`` does
+        (:meth:`_report_advisories`).
         """
-        from agnette.agl.lexer import lex_replay, lex_source, tab_warning_collector
-        from agnette.agl.parser import entry_slices, parse_repl_transcript
+        from agnette.agl.lexer import lex_source
+        from agnette.agl.parser import entry_slices
         from agnette.agl.scope.attributes import module_allowed_names
         from agnette.core.fs import read_text
         from agnette.util.text import normalize_newlines
@@ -2669,19 +2684,14 @@ class ReplSession:
         # the session's continuing node-id counter).  start_id=0 is fine here.
         # A file that is no program is one entry as a whole: a bare type, else its
         # syntax error.
-        failure: AglError | None = None
-        with tab_warning_collector() as tab_sink, lex_replay(lexed):
-            try:
-                program = parse_repl_transcript(normalized, source=self._next_entry_source())
-            except AglError as exc:
-                failure = exc
-        if failure is not None:
+        program, tab_sink = self._parse_file(normalized, lexed)
+        if isinstance(program, AglError):
             return [
                 self._eval_unparsed(
                     normalized,
                     FileOrigin(label, 1, 1),
-                    failure,
-                    list(tab_sink),
+                    program,
+                    tab_sink,
                     lexed if lexed.failure is None else None,
                 )
             ]
@@ -2709,19 +2719,48 @@ class ReplSession:
                     # Halt on the first failing item, like a script, still reporting the
                     # advisories of the entries after it, as ``agm check`` does.
                     if index + 1 < len(spans):
-                        after = _origin_at(label, normalized, spans[index + 1][0])
                         self._report_advisories(
-                            result,
-                            [
-                                w
-                                for w in lexed.tab_warnings
-                                if (w.line, w.column) >= (after.line, after.column)
-                            ],
+                            result, label, normalized, lexed, program, spans[index + 1][0]
                         )
                     break
         finally:
             self._inherited_allows = frozenset()
         return results
+
+    def _parse_file(
+        self, normalized: str, lexed: "LexedSource"
+    ) -> tuple["Program | AglError", list[Diagnostic]]:
+        """Parse a whole file from its one lex, for entry boundaries and allow regions.
+
+        Returns the program, or its syntax error, and the TAB advisories of the parse. The
+        parse is never promoted: each entry is parsed again by :meth:`eval_entry` with the
+        session's continuing node ids.
+        """
+        from agnette.agl.lexer import lex_replay, tab_warning_collector
+        from agnette.agl.parser import parse_repl_transcript
+
+        with tab_warning_collector() as tab_sink, lex_replay(lexed):
+            try:
+                program = parse_repl_transcript(normalized, source=self._next_entry_source())
+            except AglError as exc:
+                return exc, list(tab_sink)
+        return program, list(tab_sink)
+
+    def _govern_file_advisories(
+        self, label: str, advisories: Iterable[Diagnostic], regions: "Sequence[AllowRegion]"
+    ) -> "WarningOutcome":
+        """Apply the session's policy to a file's own *advisories*, stamped with its *label*.
+
+        *regions* are the file's ``@allow`` regions, which govern them as in ``agm check``.
+        """
+        stamped = [replace(w, source_label=label) for w in advisories]
+        return apply_warning_policy(
+            stamped,
+            {label: regions},
+            self._warning_policy,
+            scope_complete=True,
+            capped_sources=installed_sources(stamped, self._roots),
+        )
 
     def _load_advisories_alone(
         self, label: str, advisories: Sequence[Diagnostic]
@@ -2734,7 +2773,7 @@ class ReplSession:
         if not advisories:
             return []
         self._begin_entry(FileOrigin(label, 1, 1))
-        outcome = self._govern_warnings(advisories, (), scope_complete=True)
+        outcome = self._govern_file_advisories(label, advisories, ())
         result = EntryResult(
             kind="statement",
             name=None,
@@ -2747,13 +2786,38 @@ class ReplSession:
         )
         return [relocate(result, self._place, unplaced=REPL_LABEL)]
 
-    def _report_advisories(self, result: EntryResult, advisories: list[Diagnostic]) -> None:
-        """Add file-placed *advisories* of entries never run to *result*, governed.
+    def _report_advisories(
+        self,
+        result: EntryResult,
+        label: str,
+        normalized: str,
+        lexed: "LexedSource",
+        program: "Program | AglError",
+        resume: int,
+    ) -> None:
+        """Add the advisories of the entries never run to *result*, governed as ``agm check`` does.
 
-        A denied one is another error; only the file's leading ``@!allow`` names silence
-        them, as no ``@allow`` region of an entry that never resolved is known.
+        These are the advisories of the file *label* (text *normalized*, lexed as *lexed*)
+        from offset *resume* on; a denied one is another error. The ``@allow`` regions
+        come from the file's whole parse *program*. They are withheld when the file
+        could not resolve, which *result* and an unparsable or invalid *program* tell;
+        a failure in a later entry is not known without running it.
         """
-        outcome = self._govern_warnings(advisories, (), scope_complete=True)
+        from agnette.agl.scope.attributes import module_allow_regions
+        from agnette.agl.scope.symbols import AglScopeError
+
+        if result.scope_failed or isinstance(program, AglError):
+            return
+        try:
+            regions = module_allow_regions(program, source_text=normalized)
+        except AglScopeError:
+            return
+        after = _origin_at(label, normalized, resume)
+        outcome = self._govern_file_advisories(
+            label,
+            (w for w in lexed.tab_warnings if (w.line, w.column) >= (after.line, after.column)),
+            regions,
+        )
         result.warnings.extend(outcome.reported)
         result.diagnostics.extend(outcome.denied)
 
@@ -2772,7 +2836,7 @@ class ReplSession:
         bare type entry can still succeed.
         """
         source = self._begin_entry(origin)
-        result = self._fail_static_governed(failure, tab_warnings)
+        result = self._fail_static_governed(failure, tab_warnings, scope_failed=True)
         settled = self._settle_entry(
             text, result, next_id=self._next_node_id, lexed=lexed, source=source
         )

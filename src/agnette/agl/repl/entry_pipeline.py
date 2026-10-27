@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, diagnostic_from_span
-from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.repl.entry import EntryResult
 from agnette.core.cleanup import notes_of
 
@@ -231,7 +231,10 @@ class EntryPipeline:
                 )
             except AglError as exc:
                 return self._ctx._fail_static_governed(
-                    exc, [*tab_warnings, *load_tab_sink], resolutions.values()
+                    exc,
+                    [*tab_warnings, *load_tab_sink],
+                    resolutions.values(),
+                    scope_failed=ENTRY_ID not in resolutions,
                 )
 
         resolved_program = loaded.resolved_program

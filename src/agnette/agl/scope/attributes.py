@@ -92,7 +92,12 @@ from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import ParamZone
 
-__all__ = ["module_allowed_names", "recognize_attributes", "recognize_program_registration"]
+__all__ = [
+    "module_allow_regions",
+    "module_allowed_names",
+    "recognize_attributes",
+    "recognize_program_registration",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +239,18 @@ def recognize_attributes(
         warning_exemptions=recognizer.warning_exemptions,
         shell_quoted=recognizer.shell_quoted,
     )
+
+
+def module_allow_regions(program: Program, *, source_text: str) -> list[AllowRegion]:
+    """The ``@allow`` and ``@!allow`` regions of *program*, parsed from *source_text*.
+
+    Read off the parse alone, for a host that cannot resolve the module: the same
+    regions scope files, as receiver classification changes none of them. Raises
+    ``AglScopeError`` when an attribute is invalid, as resolving the module would.
+    """
+    return recognize_attributes(
+        program, declares_receiver=lambda _: False, source_text=source_text
+    ).warning_allows
 
 
 def module_allowed_names(program: Program) -> frozenset[str]:
