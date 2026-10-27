@@ -209,3 +209,25 @@ def test_a_transcript_that_is_no_program_as_a_whole_withholds_the_later_advisori
 
     assert [r.ok for r in results] == [False]
     assert _tab_diagnostics(results, denied=False) == []
+
+
+_METHODS_WITH_POSITIONAL_PARAMETER = {
+    "plain": "record P\n  x: int\n\ndef P::m(self, @arg-pos y: int) -> int = y\n",
+    "in-scope": "record P\n  x: int\n\nscope P\n  def m(self, @arg-pos y: int) -> int = y\nend P\n",
+    "arg-named-owner": (
+        "record P\n  x: int\n\n@arg-named\ndef P::m(self, @arg-pos y: int) -> int = y\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_METHODS_WITH_POSITIONAL_PARAMETER))
+def test_a_valid_method_does_not_withhold_the_advisories_after_a_failing_entry(
+    tmp_path: Path, name: str
+) -> None:
+    source = _METHODS_WITH_POSITIONAL_PARAMETER[name] + 'let b: int = "x"\nlet c = 1\t\n'
+    path, results = _load(tmp_path, source)
+
+    assert [r.ok for r in results][-1] is False
+    (advisory,) = (w for r in results for w in r.warnings if w.warning_name == "tab-indentation")
+    assert advisory.source_label == str(path)
+    assert advisory.line == source.count("\n")

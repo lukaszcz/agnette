@@ -212,18 +212,7 @@ def recognize_attributes(
     positional-only and admits no zone attribute of its own. *source_text* is
     the text *program* was parsed from, which places each ``@allow`` region.
     """
-    static_binding_ids = frozenset(
-        item.node_id
-        for item in static_items(program.body.items)
-        if isinstance(item, (LetDecl, VarDecl))
-    )
-    recognizer = _Recognizer(
-        declares_receiver,
-        static_binding_ids,
-        ModuleConstants(program),
-        source_text,
-        dict(region_paths(program.body.items, ())),
-    )
+    recognizer = _recognizer(program, declares_receiver, source_text)
     walk(program, recognizer.visit)
     return AttributeFacts(
         module_doc=recognizer.module_doc,
@@ -241,16 +230,35 @@ def recognize_attributes(
     )
 
 
+def _recognizer(
+    program: Program, declares_receiver: Callable[[FuncDef], bool] | None, source_text: str
+) -> "_Recognizer":
+    """A recognizer for *program*; without *declares_receiver* it leaves parameter zones open."""
+    static_binding_ids = frozenset(
+        item.node_id
+        for item in static_items(program.body.items)
+        if isinstance(item, (LetDecl, VarDecl))
+    )
+    return _Recognizer(
+        declares_receiver,
+        static_binding_ids,
+        ModuleConstants(program),
+        source_text,
+        dict(region_paths(program.body.items, ())),
+    )
+
+
 def module_allow_regions(program: Program, *, source_text: str) -> list[AllowRegion]:
     """The ``@allow`` and ``@!allow`` regions of *program*, parsed from *source_text*.
 
     Read off the parse alone, for a host that cannot resolve the module: the same
-    regions scope files, as receiver classification changes none of them. Raises
-    ``AglScopeError`` when an attribute is invalid, as resolving the module would.
+    regions scope files, as receiver classification changes none of them. Parameter
+    zones, which need that classification, are not validated. Raises ``AglScopeError`` when
+    an attribute is invalid, as resolving the module would.
     """
-    return recognize_attributes(
-        program, declares_receiver=lambda _: False, source_text=source_text
-    ).warning_allows
+    recognizer = _recognizer(program, None, source_text)
+    walk(program, recognizer.visit)
+    return recognizer.warning_allows
 
 
 def module_allowed_names(program: Program) -> frozenset[str]:
@@ -273,7 +281,7 @@ class _Recognizer:
 
     def __init__(
         self,
-        declares_receiver: Callable[[FuncDef], bool],
+        declares_receiver: Callable[[FuncDef], bool] | None,
         static_binding_ids: frozenset[int],
         constants: ModuleConstants,
         source_text: str,
@@ -330,7 +338,10 @@ class _Recognizer:
                     else AttributeTarget.PARAMETER
                 ),
                 form_default=(ParamZone.NAMED_ONLY if node.is_program else ParamZone.STANDARD),
-                has_receiver=self._declares_receiver(node),
+                has_receiver=(
+                    False if self._declares_receiver is None else self._declares_receiver(node)
+                ),
+                ordered=self._declares_receiver is not None,
                 owner_name=node.name,
             )
         elif isinstance(node, Lambda):
@@ -585,6 +596,7 @@ class _Recognizer:
         target: AttributeTarget,
         form_default: ParamZone = ParamZone.STANDARD,
         has_receiver: bool = False,
+        ordered: bool = True,
         owner_name: str | None = None,
     ) -> None:
         """Validate and zone every entry of one parameter or field list.
@@ -592,7 +604,8 @@ class _Recognizer:
         An entry's own ``@arg-*`` attribute wins; otherwise the owning
         declaration's sets the list default; otherwise *form_default* applies.
         A classified method's receiver is positional-only regardless. Entries
-        then have to run positional-only, standard, named-only.
+        then have to run positional-only, standard, named-only, unless not *ordered*:
+        without receiver classification the first entry's zone is unknown.
         """
         list_default = form_default if owner_zone is None else owner_zone
         highest = _ZONE_SEQUENCE[0]
@@ -609,7 +622,7 @@ class _Recognizer:
                 zone = ParamZone.POSITIONAL_ONLY
             else:
                 zone = list_default if declared is None else declared
-            if _ZONE_SEQUENCE.index(zone) < _ZONE_SEQUENCE.index(highest):
+            if ordered and _ZONE_SEQUENCE.index(zone) < _ZONE_SEQUENCE.index(highest):
                 raise AglScopeError(
                     f"{entry.name!r} is {_ZONE_LABEL[zone]} but follows a "
                     f"{_ZONE_LABEL[highest]} entry; entries are ordered "
