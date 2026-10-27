@@ -20,6 +20,7 @@ from types import MappingProxyType
 from typing import Literal
 
 __all__ = [
+    "CHARACTER_COLUMN_WARNINGS",
     "EXEMPTABLE_WARNINGS",
     "NOOP_PARSE_RETRIES",
     "SHELL_QUOTED_HOLE",
@@ -66,6 +67,9 @@ WARNING_CATALOG = MappingProxyType(
         )
     }
 )
+
+#: The warnings whose columns count characters, not tab-expanded columns.
+CHARACTER_COLUMN_WARNINGS = frozenset({TAB_INDENTATION.name})
 
 #: The warnings a function may declare its call results exempt from.
 EXEMPTABLE_WARNINGS = frozenset(name for name, entry in WARNING_CATALOG.items() if entry.exemptable)

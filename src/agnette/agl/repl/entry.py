@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from agnette.agl.diagnostics import Diagnostic, RelatedDiagnostic
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE
-from agnette.agl.warnings import TAB_INDENTATION
+from agnette.agl.warnings import CHARACTER_COLUMN_WARNINGS
 
 if TYPE_CHECKING:
     from agnette.agl.diagnostics import AglError
@@ -128,9 +128,9 @@ class Place(Protocol):
 def relocate_diagnostic(diagnostic: Diagnostic, place: Place) -> Diagnostic:
     """Return *diagnostic* with its location and its notes' moved by *place*.
 
-    A TAB advisory's columns count characters.
+    The columns of a character-column warning (:data:`CHARACTER_COLUMN_WARNINGS`) count characters.
     """
-    raw = diagnostic.warning_name == TAB_INDENTATION.name
+    raw = diagnostic.warning_name in CHARACTER_COLUMN_WARNINGS
 
     def moved[D: (Diagnostic, RelatedDiagnostic)](located: D) -> D:
         label, line, column = place((located.source_label, located.line, located.column), raw=raw)

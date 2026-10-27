@@ -933,10 +933,28 @@ def atom_under_prefix(atom: BareAtom, prefix: ScopePath) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class AllowRegion:
-    """The span of one declaration carrying ``@allow`` and the warning names it lists."""
+    """The span of one declaration carrying ``@allow`` and the warning names it lists.
+
+    *character_columns* are the span's start and end columns counted in characters, the
+    columns of character-column warnings (default: the span's own).
+    """
 
     span: SourceSpan
     names: frozenset[str]
+    character_columns: tuple[int, int] | None = None
+
+    def contains(self, line: int, column: int, *, characters: bool) -> bool:
+        """Whether the position, from the span's start to its exclusive end, lies in the region.
+
+        The *column* counts characters when *characters*, else tab-expanded columns.
+        """
+        span = self.span
+        start_col, end_col = (
+            self.character_columns
+            if characters and self.character_columns is not None
+            else (span.start_col, span.end_col)
+        )
+        return (span.start_line, start_col) <= (line, column) < (span.end_line, end_col)
 
 
 @dataclass(frozen=True, slots=True)

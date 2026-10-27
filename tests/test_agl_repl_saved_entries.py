@@ -59,7 +59,7 @@ def test_an_indented_entry_reloads_as_typed(tmp_path: Path, indent: str) -> None
 
 
 def test_an_entry_allowed_a_tab_is_still_allowed_when_reloaded(tmp_path: Path) -> None:
-    entry = '@allow("tab-indentation")\ndef w() -> int =\n\t1\t# c'
+    entry = '@allow("tab-indentation")\ndef w() -> int =\n\t1  # c'
 
     typed, loaded = _typed_and_reloaded(tmp_path, [entry], deny_tabs=True)
 

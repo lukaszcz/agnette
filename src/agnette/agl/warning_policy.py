@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE
-from agnette.agl.warnings import WARNING_CATALOG, WarningLevel
+from agnette.agl.warnings import CHARACTER_COLUMN_WARNINGS, WARNING_CATALOG, WarningLevel
 
 if TYPE_CHECKING:
     from agnette.agl.modules.roots import RootSet
@@ -163,11 +163,9 @@ def apply_warning_policy(
 
 def _allowed_by_region(warning: Diagnostic, name: str, regions: Iterable[AllowRegion]) -> bool:
     """Whether a region naming *name* contains the warning, from its start to its exclusive end."""
-    position = (warning.line, warning.column or 1)
+    characters = name in CHARACTER_COLUMN_WARNINGS
     return any(
         name in region.names
-        and (region.span.start_line, region.span.start_col)
-        <= position
-        < (region.span.end_line, region.span.end_col)
+        and region.contains(warning.line, warning.column or 1, characters=characters)
         for region in regions
     )

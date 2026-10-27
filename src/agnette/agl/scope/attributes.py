@@ -520,8 +520,13 @@ class _Recognizer:
         """
         allowed = recognized.lists.get(ALLOW_ATTRIBUTE)
         if allowed is not None:
+            region_span = _from_blank_line_start(span, self._source_text)
             self.warning_allows.append(
-                AllowRegion(_from_blank_line_start(span, self._source_text), frozenset(allowed))
+                AllowRegion(
+                    region_span,
+                    frozenset(allowed),
+                    _character_columns(region_span, self._source_text),
+                )
             )
         exempted = recognized.lists.get(EXEMPTS_ATTRIBUTE)
         if exempted is not None:
@@ -909,6 +914,17 @@ def _whole_source(span: SourceSpan, text: str) -> SourceSpan:
         end_col=len(lines[-1]) + 1,
         end_offset=len(text),
     )
+
+
+def _character_columns(span: SourceSpan, text: str) -> tuple[int, int]:
+    """The start and end columns of *span* counted in characters; *text* is what it indexes.
+
+    A span ending just past a newline ends on the line before it, as its end line says.
+    """
+    overshoot = 1 if text.count("\n", 0, span.end_offset) >= span.end_line else 0
+    end_line_start = text.rfind("\n", 0, span.end_offset - overshoot) + 1
+    start_line_start = text.rfind("\n", 0, span.start_offset) + 1
+    return span.start_offset - start_line_start + 1, span.end_offset - end_line_start + 1
 
 
 def _from_blank_line_start(span: SourceSpan, text: str) -> SourceSpan:
