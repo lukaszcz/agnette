@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import contextvars
 import importlib.resources
-from bisect import bisect_left, bisect_right
+from bisect import bisect_right
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -64,7 +64,7 @@ from agnette.agl.lexer.operators import (
     scanner_token_type,
 )
 from agnette.agl.lexer.positions import LineIndex, Rebase, token_span
-from agnette.agl.lexer.scanner import _Scanner, tab_warning
+from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
     ARROW,
     ASSIGN,
@@ -313,20 +313,10 @@ def lexed_slices(
                     dcolon_span=rebase.span(qualifier.dcolon_span),
                 )
             )
-    first_lines = [lines.line(start) for start in starts]
-    last_lines = [lines.line(max(start, end - 1)) for start, end in ranges]
     tabs: list[list[Diagnostic]] = [[] for _ in ranges]
     for advisory in lexed.tab_warnings:
-        for index in range(
-            bisect_left(last_lines, advisory.line), bisect_right(first_lines, advisory.line)
-        ):
-            rebase = rebases[index]
-            tabs[index].append(
-                tab_warning(
-                    rebase.line(advisory.line),
-                    rebase.column(advisory.line, cast(int, advisory.column)),
-                )
-            )
+        index = slice_at(lines.offset(advisory.line, cast(int, advisory.column)))
+        tabs[index].append(rebases[index].advisory(advisory))
     return [
         LexedSource(lexed.text[start:end], tuple(entry), tuple(qualifiers), tuple(warnings))
         for (start, end), entry, qualifiers, warnings in zip(ranges, tokens, spaced, tabs)

@@ -9,6 +9,7 @@ from typing import cast
 
 from lark.lexer import Token
 
+from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
 
 
@@ -93,4 +94,15 @@ class Rebase:
             end_col=self.column(span.end_line, span.end_col),
             start_offset=self.offset(span.start_offset),
             end_offset=self.offset(span.end_offset),
+        )
+
+    def advisory(self, advisory: Diagnostic) -> Diagnostic:
+        """Return a copy of *advisory* with its positions, and only they, rebased."""
+        line, end_line = advisory.line, cast(int, advisory.end_line)
+        return replace(
+            advisory,
+            line=self.line(line),
+            column=self.column(line, cast(int, advisory.column)),
+            end_line=self.line(end_line),
+            end_column=self.column(end_line, cast(int, advisory.end_column)),
         )
