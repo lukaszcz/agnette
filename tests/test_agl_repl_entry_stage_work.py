@@ -545,3 +545,29 @@ def test_the_leading_allow_of_a_file_whose_first_entry_is_a_type_governs_later_e
     results = _denying_session().load_file(path)
 
     assert [r.ok for r in results] == [True, True]
+
+
+_BLOCK_ENTRIES = {
+    "def": ("let a = 1", "def f() -> int =\n  a + 1", "def g(x: int) -> int =\n  f() + x", "g(3)"),
+    "nested": (
+        "def f(x: int) -> int =\n  if x > 1 =>\n    let y = x * 2\n    y\n  else =>\n    0",
+        "f(3)",
+    ),
+    "scope": ("scope S\n  def q() -> int = 9\nend S", "S::q()"),
+    "verbatim": ("let s = $\n  raw\n  more", "let t = 2", "s"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_BLOCK_ENTRIES))
+def test_a_transcript_of_block_entries_is_lexed_and_parsed_once(
+    tmp_path: Path, scans: _Scans, parses: _Parses, name: str
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(_transcript(*_BLOCK_ENTRIES[name]))
+    scans.count = parses.count = 0
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True] * len(_BLOCK_ENTRIES[name])
+    assert (scans.count, parses.count) == (1, 1)

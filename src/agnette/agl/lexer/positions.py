@@ -48,11 +48,15 @@ class LineIndex:
 class Rebase:
     """Maps positions in a text to the positions they have in its tail starting at *start*.
 
-    Positions are 1-based lines and columns and 0-based offsets, as tokens carry them.
+    Positions are 1-based lines and columns and 0-based offsets, as tokens carry them. With
+    *end*, the tail stops there: a position past it, such as the newline a closing layout
+    token covers after the tail's last item, is read as *end*.
     """
 
-    def __init__(self, lines: LineIndex, start: int) -> None:
+    def __init__(self, lines: LineIndex, start: int, end: int | None = None) -> None:
+        self._lines = lines
         self._start = start
+        self._end = end
         self._line = lines.line(start)
         self._first_column = start - lines.offset(self._line, 1)
 
@@ -65,24 +69,23 @@ class Rebase:
     def column(self, line: int, column: int) -> int:
         return column - self._first_column if line == self._line else column
 
+    def position(self, offset: int, line: int, column: int) -> tuple[int, int, int]:
+        """The rebased ``(offset, line, column)`` of a position, bounded by the tail's end."""
+        if self._end is not None and offset > self._end:
+            offset = self._end
+            line = self._lines.line(offset)
+            column = offset - self._lines.offset(line, 1) + 1
+        return self.offset(offset), self.line(line), self.column(line, column)
+
     def token(self, tok: Token) -> Token:
         """Return a copy of *tok* at its rebased position."""
-        start, end_line, end = (
-            cast(int, tok.start_pos),
-            cast(int, tok.end_line),
-            cast(int, tok.end_pos),
+        start, line, column = self.position(
+            cast(int, tok.start_pos), cast(int, tok.line), cast(int, tok.column)
         )
-        line = cast(int, tok.line)
-        return Token(
-            tok.type,
-            tok.value,
-            self.offset(start),
-            self.line(line),
-            self.column(line, cast(int, tok.column)),
-            self.line(end_line),
-            self.column(end_line, cast(int, tok.end_column)),
-            self.offset(end),
+        end, end_line, end_column = self.position(
+            cast(int, tok.end_pos), cast(int, tok.end_line), cast(int, tok.end_column)
         )
+        return Token(tok.type, tok.value, start, line, column, end_line, end_column, end)
 
     def span(self, span: SourceSpan) -> SourceSpan:
         """Return a copy of *span* at its rebased position."""

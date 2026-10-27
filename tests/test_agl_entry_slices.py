@@ -168,3 +168,19 @@ def test_slicing_a_file_reads_it_in_linear_work() -> None:
     small, large = _slicing_work(100), _slicing_work(200)
 
     assert large < 2.5 * small
+
+
+def test_an_entry_ending_in_an_indented_block_is_read_without_the_newline_after_it() -> None:
+    source = "let a = 1\ndef f() -> int =\n  let y = a\n  y + 1\n\nlet b = f()\n"
+    lexed, _ = _parsed(source)
+    ranges = [(0, 9), (10, 46), (48, 59)]
+
+    slices = entry_slices(lexed, ranges)
+
+    for (start, end), read in zip(ranges, slices):
+        assert read is not None
+        text = source[start:end]
+        with lex_replay(read):
+            from_slice = parse_program_seeded(text, start_id=0)
+        assert repr(from_slice) == repr(parse_program_seeded(text, start_id=0))
+        assert "start" in read.parses

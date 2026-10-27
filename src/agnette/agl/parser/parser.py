@@ -468,10 +468,8 @@ def _set_span(
     """Give *tree* the span from *start* to *end*, each ``(offset, line, column)``, rebased."""
     meta = tree.meta
     meta.empty = False
-    meta.start_pos = rebase.offset(start[0])
-    meta.line, meta.column = rebase.line(start[1]), rebase.column(start[1], start[2])
-    meta.end_pos = rebase.offset(end[0])
-    meta.end_line, meta.end_column = rebase.line(end[1]), rebase.column(end[1], end[2])
+    meta.start_pos, meta.line, meta.column = rebase.position(*start)
+    meta.end_pos, meta.end_line, meta.end_column = rebase.position(*end)
 
 
 def _module_tree(children: Sequence[Tree], rebase: Rebase) -> Tree:
@@ -496,7 +494,8 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     scanning (:func:`~agnette.agl.lexer.lexed_slices`). When *lexed* also records the
     module's program parse, a slice holding the module's top-level items whole also carries
     their parse, so reading it parses nothing; the module's leading inner attributes belong
-    to the first entry. ``None`` for an entry that is not a pass of its own: all of them
+    to the first entry. The whitespace after an item, which an indented block's closing layout
+    covers, is no part of it. ``None`` for an entry that is not a pass of its own: all of them
     when *lexed* failed.
     """
     lines = LineIndex(lexed.text)
@@ -506,8 +505,12 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
         return slices
     entries: list[list[Tree]] = [[] for _ in ranges]
     starts = [start for start, _ in ranges]
-    for child in ProgramTree(whole, lexed.text).children():
+    text = lexed.text
+    for child in ProgramTree(whole, text).children():
         begin, end = child.meta.start_pos, child.meta.end_pos
+        # An indented block's closing layout covers the newline after it, past its entry's text.
+        while end > begin and text[end - 1].isspace():
+            end -= 1
         first = max(bisect_right(starts, begin) - 1, 0)
         if starts[first] <= begin and end <= ranges[first][1]:
             entries[first].append(child)
@@ -516,10 +519,10 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
         for index in range(first, len(ranges)):
             if starts[index] < end and ranges[index][1] > begin:
                 slices[index] = None
-    for index, (sliced, (start, _), entry) in enumerate(zip(slices, ranges, entries)):
+    for sliced, (start, end), entry in zip(slices, ranges, entries):
         if sliced is None or not entry:
             continue
-        sliced.parses[_PROGRAM_START] = _module_tree(entry, Rebase(lines, start))
+        sliced.parses[_PROGRAM_START] = _module_tree(entry, Rebase(lines, start, end))
     return slices
 
 
