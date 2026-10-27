@@ -286,8 +286,9 @@ An active package's commands run as `agm COMMAND ...` (longest matching path win
   a proper prefix of a command path, such as `[dv]` for `dv review` (see
   [Aliases](#aliases)) — supplies further defaults. The program's own
   [`@config`](../agl/reference/attributes.md#config) entries rank below the program route: an
-  engine setting falls through to `@config` before `[exec]`, and a module or function parameter
-  falls through to `@config` before its declaration route. Below `@config`, the owning
+  engine setting falls through to `@config` before `[exec]`, a module or function parameter
+  falls through to `@config` before its declaration route, and a signature argument reads
+  `@config` too (`main::x`). Below `@config`, the owning
   package's manifest [`[config]`](#config) supplies further defaults — its own command table,
   then an inherited group table, then the root — still above `[exec]` and a parameter's
   declaration route; signature arguments read the manifest tier too. A resolving program-route

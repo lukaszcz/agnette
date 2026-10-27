@@ -213,17 +213,18 @@ class ArgumentPreflight:
         tiers (:meth:`PipelineDriver.preflight_arguments`).
     ``function_param_seeds``
         The decoded ``@param`` ``def``-parameter values, ready for ``run_prepared``:
-        every other function's parameters a host supplied, and *program*'s own bound
-        ``@param`` arguments, whose value so reaches every call that omits them.
+        every other function's parameters a host supplied or ``@config`` set, and
+        *program*'s own bound ``@param`` arguments, whose value so reaches every call
+        that omits them.
     ``program_config``
         *program*'s own ``@config`` entries, evaluated to values: a target
-        ``StaticBindingKey`` (an engine setting or a ``@param`` binding) ->
-        its checked, constant value. Empty when *program* carries no
+        ``HostParamKey`` (an engine setting, a ``@param`` binding or a ``def``
+        parameter) -> its checked, constant value. Empty when *program* carries no
         ``@config``. A ``@param`` target here is also already folded into
-        ``param_seeds``; a host reads the engine-setting subset (see
-        ``agnette.agl.ir.builtin_vars.is_engine_builtin_var_key``) to merge
-        alongside its other engine-setting seed sources (CLI flags, config
-        files, and the like).
+        the seeds, and a *program* argument into ``arguments``; a host reads the
+        engine-setting subset (``agnette.agl.ir.builtin_vars.is_engine_builtin_var_key``
+        of a binding key) to merge alongside its other engine-setting seed sources
+        (CLI flags, config files, and the like).
     """
 
     result: "RunResult"
@@ -231,7 +232,7 @@ class ArgumentPreflight:
     arguments: "tuple[Value | UseDefault, ...]"
     param_seeds: "Mapping[StaticBindingKey, Value]"
     function_param_seeds: "Mapping[FunctionParamKey, Value]"
-    program_config: "Mapping[StaticBindingKey, Value]"
+    program_config: "Mapping[HostParamKey, Value]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1410,20 +1411,30 @@ class PipelineDriver:
         default_resolver = resolver_over_interpreter(get_interp)
         upper, upper_arguments = split_program_arguments(param_values or {}, program)
         lower_params, lower_arguments = split_program_arguments(param_values_lower or {}, program)
-        named = {**lower_arguments, **upper_arguments}
+        program_config = self._evaluate_program_config(executable, program, get_interp)
+        config_seeds, config_arguments = split_program_arguments(program_config, program)
+        named = {
+            **{
+                name: value
+                for name, value in lower_arguments.items()
+                if name not in config_arguments
+            },
+            **upper_arguments,
+        }
         bound, bind_diagnostics = bind_program_arguments_for(
             executable,
             program,
-            ProgramArguments(positional=positional, named=named),
+            ProgramArguments(positional=positional, named=named, fallback=config_arguments),
             default_resolver=default_resolver,
             configured=frozenset(name for name in named if program.param_key(name) not in supplied),
         )
         usage_diagnostics = tuple(
             diag for diag in bind_diagnostics if not isinstance(diag, ConfiguredArgumentDiagnostic)
         )
-        program_config = self._evaluate_program_config(executable, program, get_interp)
         config_param_values = {
-            key: value for key, value in program_config.items() if key in executable.param_bindings
+            key: value
+            for key, value in config_seeds.items()
+            if key in executable.param_bindings or key in executable.function_param_bindings
         }
         lower = {
             key: value
@@ -1488,7 +1499,7 @@ class PipelineDriver:
         executable: "ExecutableProgram",
         program: ProgramDeclInfo,
         get_interp: "Callable[[], IrInterpreter]",
-    ) -> "Mapping[StaticBindingKey, Value]":
+    ) -> "Mapping[HostParamKey, Value]":
         """Evaluate *program*'s own ``@config`` entries, if it carries any.
 
         *get_interp* lazily builds (or returns the already-built) throwaway

@@ -88,8 +88,8 @@ alongside its own parameters; see [Host parameters](host-environment.md#host-par
 ### Program-selected configuration
 
 A `program def` may carry [`@config`](attributes.md#config), stating the
-values its own selection gives to module parameters and engine settings, in
-source. It has no effect unless that `program def` is the one a host selects
+values its own selection gives to module and function parameters, program
+arguments and engine settings, in source. It has no effect unless that `program def` is the one a host selects
 to run; see [Host-configurable settings](host-environment.md#host-configurable-settings)
 for where it ranks.
 

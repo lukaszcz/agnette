@@ -12,7 +12,7 @@ from agnette.agl.ir.contracts import ContractRequest, TargetContractRequest
 from agnette.agl.ir.ids import ContractId, FunctionId, NominalId, SymbolId
 from agnette.agl.ir.nodes import IrExpr
 from agnette.agl.ir.program import ExecutableModule, FunctionDescriptor, SymbolDescriptor
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.lower.lowerer import _LinkState
 from agnette.agl.syntax.resources import ResourceError, resolve_resource
 
@@ -30,7 +30,7 @@ class LoweredModule:
     function_symbols: dict[int, SymbolId]
     function_ids: dict[int, FunctionId]
     defaults: dict[BuiltinVarKey | str, IrExpr]
-    program_configs: dict[SymbolId, tuple[tuple[StaticBindingKey, IrExpr], ...]]
+    program_configs: dict[SymbolId, tuple[tuple[HostParamKey, IrExpr], ...]]
     resources: tuple[tuple[Path | None, str | None, Path], ...]
     field_defaults: dict[NominalId, tuple[IrExpr | None, ...]]
 
@@ -50,7 +50,7 @@ def capture(
     module: ExecutableModule,
     link: _LinkState,
     defaults: dict[BuiltinVarKey | str, IrExpr],
-    program_configs: dict[SymbolId, tuple[tuple[StaticBindingKey, IrExpr], ...]],
+    program_configs: dict[SymbolId, tuple[tuple[HostParamKey, IrExpr], ...]],
     resources: tuple[tuple[Path | None, str | None, Path], ...],
     contract_start: int,
     contract_end: int,

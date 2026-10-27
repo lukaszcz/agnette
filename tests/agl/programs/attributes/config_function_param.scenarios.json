@@ -1,0 +1,23 @@
+{
+  "scenarios": [
+    {
+      "name": "config_values_apply_with_no_other_seed",
+      "expect": {
+        "stdout": "config\n8\n1\n6\n13\n"
+      }
+    },
+    {
+      "name": "directly_supplied_values_still_outrank_config",
+      "params": {
+        "label": "given"
+      },
+      "function_params": {
+        "refine::steps": 20,
+        "Counter::bump::by": 5
+      },
+      "expect": {
+        "stdout": "given\n20\n1\n6\n15\n"
+      }
+    }
+  ]
+}

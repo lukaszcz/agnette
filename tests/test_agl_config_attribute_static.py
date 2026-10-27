@@ -187,6 +187,107 @@ class TestAcceptedConfigTargets:
         )
 
 
+class TestAcceptedFunctionParameterTargets:
+    """A key may also name a ``@param`` parameter of a ``def`` or a program parameter."""
+
+    def test_function_param_of_this_module(self) -> None:
+        _check(
+            "def refine(@param steps: int = 4) -> int = steps\n\n"
+            "@config(refine::steps = 7)\n"
+            "program def main() -> unit = ()\n"
+        )
+
+    def test_function_param_of_a_scoped_function(self) -> None:
+        _check(
+            "scope Tools\n"
+            "  def refine(@param steps: int = 4) -> int = steps\n"
+            "end Tools\n\n"
+            "@config(Tools::refine::steps = 7)\n"
+            "program def main() -> unit = ()\n"
+        )
+
+    def test_function_param_of_an_imported_module_via_suffix_route(self, tmp_path: Path) -> None:
+        _check_multi(
+            tmp_path,
+            {
+                "entry": (
+                    "import helper\n\n"
+                    "@config(helper::refine::steps = 7)\n"
+                    "program def main() -> unit = ()\n"
+                ),
+                "helper": "def refine(@param steps: int = 4) -> int = steps\n",
+            },
+        )
+
+    def test_function_param_of_an_imported_module_via_anchored_route(self, tmp_path: Path) -> None:
+        _check_multi(
+            tmp_path,
+            {
+                "entry": (
+                    "import helper\n\n"
+                    "@config(/helper::refine::steps = 7)\n"
+                    "program def main() -> unit = ()\n"
+                ),
+                "helper": "def refine(@param steps: int = 4) -> int = steps\n",
+            },
+        )
+
+    def test_function_param_through_a_current_module_anchor(self) -> None:
+        _check(
+            "def refine(@param steps: int = 4) -> int = steps\n\n"
+            "@config(::refine::steps = 7)\n"
+            "program def main() -> unit = ()\n"
+        )
+
+    def test_method_param_through_its_receiver(self, tmp_path: Path) -> None:
+        _check_multi(
+            tmp_path,
+            {
+                "entry": (
+                    "import helper\n\n"
+                    "@config(helper::Counter::bump::by = 3)\n"
+                    "program def main() -> unit = ()\n"
+                ),
+                "helper": (
+                    "record Counter\n  start: int\n\n"
+                    "def Counter::bump(self, @param by: int = 1) -> int = self.start + by\n"
+                ),
+            },
+        )
+
+    def test_param_named_by_its_declared_name_not_its_opt_name(self) -> None:
+        _check(
+            'def refine(@param @opt-name("limit") steps: int = 4) -> int = steps\n\n'
+            "@config(refine::steps = 7)\n"
+            "program def main() -> unit = ()\n"
+        )
+
+    def test_own_program_argument(self) -> None:
+        _check("@config(main::x = 2)\nprogram def main(x: int) -> unit = ()\n")
+
+    def test_own_program_param_argument(self) -> None:
+        _check("@config(main::x = 2)\nprogram def main(@param x: int = 1) -> unit = ()\n")
+
+    def test_another_programs_param_argument(self) -> None:
+        _check(
+            "program def other(@param x: int = 1) -> unit = ()\n\n"
+            "@config(other::x = 2)\n"
+            "program def main() -> unit = ()\n"
+        )
+
+    def test_a_named_only_program_argument(self) -> None:
+        _check("@config(main::x = 2)\nprogram def main(@arg-named x: int) -> unit = ()\n")
+
+    def test_function_param_beside_a_module_param_and_an_engine_setting(self) -> None:
+        _check(
+            "import std/config\n\n"
+            "@param let count: int = 1\n"
+            "def refine(@param steps: int = 4) -> int = steps\n\n"
+            "@config(count = 2, refine::steps = 7, config::trace = true)\n"
+            "program def main() -> unit = ()\n"
+        )
+
+
 class TestRejectedConfigTargets:
     def test_a_plain_var_is_not_a_legal_target(self) -> None:
         with pytest.raises(AglTypeError):
@@ -314,4 +415,141 @@ class TestRejectedConfigTargets:
                 "  | Green\n\n"
                 "@config(Color = 2)\n"
                 "program def main() -> unit = ()\n"
+            )
+
+
+class TestRejectedFunctionParameterTargets:
+    def test_an_unknown_def_is_unresolved(self) -> None:
+        with pytest.raises(AglScopeError):
+            _check("@config(nothing::steps = 7)\nprogram def main() -> unit = ()\n")
+
+    def test_an_unknown_parameter_of_a_def_is_unresolved(self) -> None:
+        with pytest.raises(AglScopeError):
+            _check(
+                "def refine(@param steps: int = 4) -> int = steps\n\n"
+                "@config(refine::missing = 7)\n"
+                "program def main() -> unit = ()\n"
+            )
+
+    def test_a_non_param_parameter_of_a_plain_def_is_rejected(self) -> None:
+        with pytest.raises(AglScopeError):
+            _check(
+                "def refine(steps: int = 4) -> int = steps\n\n"
+                "@config(refine::steps = 7)\n"
+                "program def main() -> unit = ()\n"
+            )
+
+    def test_a_non_param_parameter_of_an_imported_def_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(AglScopeError):
+            _check_multi(
+                tmp_path,
+                {
+                    "entry": (
+                        "import helper\n\n"
+                        "@config(helper::refine::steps = 7)\n"
+                        "program def main() -> unit = ()\n"
+                    ),
+                    "helper": "def refine(steps: int = 4) -> int = steps\n",
+                },
+            )
+
+    def test_a_type_is_not_a_def(self) -> None:
+        with pytest.raises(AglScopeError):
+            _check(
+                "record Box\n  steps: int\n\n"
+                "@config(Box::steps = 7)\n"
+                "program def main() -> unit = ()\n"
+            )
+
+    def test_a_wrong_typed_value_is_rejected(self) -> None:
+        with pytest.raises(AglTypeError):
+            _check(
+                "def refine(@param steps: int = 4) -> int = steps\n\n"
+                '@config(refine::steps = "many")\n'
+                "program def main() -> unit = ()\n"
+            )
+
+    def test_a_wrong_typed_program_argument_value_is_rejected(self) -> None:
+        with pytest.raises(AglTypeError):
+            _check('@config(main::x = "many")\nprogram def main(x: int) -> unit = ()\n')
+
+    def test_a_non_constant_value_is_rejected(self) -> None:
+        with pytest.raises(AglTypeError):
+            _check(
+                "def refine(@param steps: int = 4) -> int = steps\n"
+                "def helper() -> int = 2\n\n"
+                "@config(refine::steps = helper())\n"
+                "program def main() -> unit = ()\n"
+            )
+
+    def test_duplicate_target_via_two_spellings_is_rejected(self) -> None:
+        with pytest.raises(AglTypeError):
+            _check(
+                "def refine(@param steps: int = 4) -> int = steps\n\n"
+                "@config(refine::steps = 7, ::refine::steps = 8)\n"
+                "program def main() -> unit = ()\n"
+            )
+
+    def test_duplicate_cross_module_target_via_two_spellings_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(AglTypeError):
+            _check_multi(
+                tmp_path,
+                {
+                    "entry": (
+                        "import helper\n\n"
+                        "@config(helper::refine::steps = 7, /helper::refine::steps = 8)\n"
+                        "program def main() -> unit = ()\n"
+                    ),
+                    "helper": "def refine(@param steps: int = 4) -> int = steps\n",
+                },
+            )
+
+    def test_a_signature_parameter_is_still_unresolved_bare(self) -> None:
+        with pytest.raises(AglScopeError):
+            _check("@config(x = 2)\nprogram def main(x: int) -> unit = ()\n")
+
+    def test_another_programs_argument_is_rejected(self) -> None:
+        with pytest.raises(AglScopeError):
+            _check(
+                "program def other(x: int = 1) -> unit = ()\n\n"
+                "@config(other::x = 2)\n"
+                "program def main() -> unit = ()\n"
+            )
+
+    def test_another_modules_programs_argument_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(AglScopeError):
+            _check_multi(
+                tmp_path,
+                {
+                    "entry": (
+                        "import helper\n\n"
+                        "@config(helper::other::x = 2)\n"
+                        "program def main() -> unit = ()\n"
+                    ),
+                    "helper": "program def other(x: int = 1) -> unit = ()\n",
+                },
+            )
+
+    def test_a_positional_only_program_argument_is_rejected(self) -> None:
+        with pytest.raises(AglTypeError):
+            _check("@config(main::x = 5)\nprogram def main(@arg-pos x: int) -> unit = ()\n")
+
+    def test_a_positional_only_program_argument_with_default_is_rejected(self) -> None:
+        with pytest.raises(AglTypeError):
+            _check("@config(main::x = 5)\nprogram def main(@arg-pos x: int = 1) -> unit = ()\n")
+
+    def test_the_diagnostic_names_the_function_as_spelled(self, tmp_path: Path) -> None:
+        with pytest.raises(AglScopeError, match="'r'"):
+            _check_multi(
+                tmp_path,
+                {
+                    "entry": (
+                        "import helper::{refine as r}\n\n"
+                        "@config(r::missing = 5)\n"
+                        "program def main() -> unit = ()\n"
+                    ),
+                    "helper": "def refine(@param steps: int = 4) -> int = steps\n",
+                },
             )

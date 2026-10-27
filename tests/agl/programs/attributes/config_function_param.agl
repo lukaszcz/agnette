@@ -1,0 +1,27 @@
+# `@config` sets a function `@param` (at the root, in a scope region, and a
+# method through its receiver) for every call that omits it, and the program's
+# own arguments. A directly supplied value still outranks each entry.
+
+record Counter
+  start: int
+
+def Counter::bump(self, @param by: int = 1) -> int = self.start + by
+
+def refine(@param steps: int = 4) -> int = steps
+
+scope Sc
+  def deep(@param depth: int = 2) -> int = depth
+end Sc
+
+@config(
+  refine::steps = 8,
+  Sc::deep::depth = 6,
+  Counter::bump::by = 3,
+  main::label = "config",
+)
+program def main(label: text = "plain") -> unit =
+  print label
+  print refine()
+  print refine(1)
+  print Sc::deep()
+  print Counter(start = 10).bump()

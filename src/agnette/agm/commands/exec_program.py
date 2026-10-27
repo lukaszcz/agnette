@@ -655,11 +655,9 @@ def run(
         raise RegisteredProgramUsageError(str(exc), selected_program) from exc
 
     # The selected program's own ``@config`` entries (evaluated by preflight)
-    # rank below the program route and above the other config tables for both a module
-    # parameter (folded into ``param_seeds`` by preflight already, filtered by
-    # ``key in executable.param_bindings``) and an engine setting (folded in
-    # here, filtered by ``engine_setting_name`` -- the checker admits only
-    # these two target kinds, so every entry lands in exactly one filter).
+    # rank below the program route and above the other config tables. Preflight
+    # already folded the module and function parameters and the program's own
+    # arguments in; only the engine settings (``engine_setting_name``) merge here.
     # Resolving these only after a preflight failure has already exited 1 is
     # what lets ``@config`` reach them without a second lowering pass or a
     # duplicated precedence rule. A ``@config`` value is decoded against

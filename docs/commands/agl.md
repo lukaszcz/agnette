@@ -538,13 +538,15 @@ its program route, `[prog.main] own = 11`, never `[prog] own = 11`. The selected
 the **program route**: it overrides a module or function parameter through any resolving spelling — the bare
 external name, or a dotted qualified spelling as a quoted key such as `"A.logging.verbose"`, which
 reaches a parameter whose bare name a nearer declaration claims — and wins over the program's own
-[`@config`](../agl/reference/attributes.md#config) entries. Below `@config`, a package-owned
-program's [manifest `[config]`](pkg.md#config) table supplies further defaults, signature
-arguments included — its own command table, then an inherited group table, then the manifest
-root — still above the module route; CLI and
+[`@config`](../agl/reference/attributes.md#config) entries, which set module parameters,
+function parameters and the program's own signature arguments (`main::x`). Below `@config`, a
+package-owned program's [manifest `[config]`](pkg.md#config) table supplies further defaults,
+signature arguments included — its own command table, then an inherited group table, then the
+manifest root — still above the module route; CLI and
 `@opt-env` still win over all of these. An inline entry has no config-file route or manifest, but
-its `@config` entries still apply to its own module parameters, so they resolve as
-CLI > `@opt-env` > `@config` > initializer; its imported modules retain their module routes and
+its `@config` entries still apply to its module parameters, function parameters and own
+signature arguments, so they resolve as CLI > `@opt-env` > `@config` > initializer (an
+argument's default); its imported modules retain their module routes and
 may still be seeded by `@config`.
 
 A [registered command](pkg.md#registered-commands)'s program route also inherits from its

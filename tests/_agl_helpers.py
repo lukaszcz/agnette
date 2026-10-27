@@ -70,7 +70,7 @@ from typing import TYPE_CHECKING
 
 from agnette.agl import PipelineDriver
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-from agnette.agl.ir.builtin_vars import is_engine_builtin_var_key
+from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import (
     DecodePlan,
     ExceptionFieldEncode,
@@ -88,7 +88,7 @@ from agnette.agl.ir.program import (
 )
 from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
 from agnette.agl.ir.static_keys import FunctionParamKey, Reachable, StaticBindingKey
-from agnette.agl.modules.ids import ENTRY_ID, ModuleId
+from agnette.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID, ModuleId
 from agnette.agl.modules.loader import ModuleGraph
 from agnette.agl.modules.roots import RootSet, assemble_roots
 from agnette.agl.pipeline import ArgumentPreflight, PreparedProgram, ProgramDiscovery, RunResult
@@ -138,6 +138,7 @@ from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.typecheck.program import CheckedProgram, check_program
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agl.zones import ParamZone
+from agnette.agm.cli_support.engine_seeds import engine_setting_name
 from agnette.config.context import ConfigContext
 from agnette.sandbox.prepare import SandboxContext, lazy_sandbox_context
 
@@ -307,7 +308,7 @@ def program_config_engine_seeds(
     """Partition a preflighted entry's ``@config`` into its engine-setting seeds.
 
     Mirrors ``agnette.agm.commands.exec_program``'s own split of
-    ``ArgumentPreflight.program_config`` by ``is_engine_builtin_var_key``,
+    ``ArgumentPreflight.program_config`` by ``engine_setting_name``,
     restamped onto the executable's own nominal identity, so a scenario
     harness feeds an engine setting from ``@config`` (``std/config::trace``,
     ``timeout``, ...) the same way the real ``agm exec`` host does. A module
@@ -316,14 +317,14 @@ def program_config_engine_seeds(
     """
     executable = argument_preflight.executable
     return {
-        key: restamp_engine_setting(
-            key[2],
+        builtin_var_key(STD_CONFIG_ID, (), name): restamp_engine_setting(
+            name,
             value,
             from_table=executable.builtin_nominals,
             to_table=NO_BUILTIN_DECLARATIONS,
         )
         for key, value in argument_preflight.program_config.items()
-        if is_engine_builtin_var_key(key)
+        if (name := engine_setting_name(key)) is not None
     }
 
 

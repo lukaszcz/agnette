@@ -52,7 +52,7 @@ from agnette.agl.diagnostics import (
     static_root_message,
 )
 from agnette.agl.ir.ids import NominalId
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey
 from agnette.agl.modules.ids import (
     ENTRY_ID,
     STD_ENV_ID,
@@ -259,7 +259,7 @@ from agnette.agl.typecheck.inference import (
     InferenceError,
 )
 from agnette.agl.typecheck.references import compute_references
-from agnette.agl.zones import ParamZone
+from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1027,7 +1027,7 @@ class _Checker:
         self._explicit_builtin_targets: dict[int, Type] = {}
         # Resolved '@config' targets, keyed by each entry's key expression
         # node id. Populated by ``_check_program_config``.
-        self._program_config_targets: dict[int, StaticBindingKey] = {}
+        self._program_config_targets: dict[int, HostParamKey] = {}
         # Argument bindings computed during the check, reused by the lowerer so it
         # never re-binds.  Keyed by Call/Pattern node_id (see ``ArgumentBindings``).
         self._function_call_bindings: dict[int, tuple[Expr | None, ...]] = {}
@@ -1540,30 +1540,24 @@ class _Checker:
         """Check a ``program def``'s ``@config`` entries, if it carries one.
 
         Each entry's key must resolve to a legal target — a root ``std/config``
-        engine setting or a whole-program ``@param`` binding — with no two
-        entries naming the same target under different spellings. A target's
-        type is read the ordinary way a reference to it is checked; its value
-        is checked against that type and must be a constant expression.
+        engine setting, a whole-program ``@param`` binding, or a host parameter
+        of a ``def`` (scope checks the name) — with no two entries naming the
+        same target under different spellings. A target's type is read the
+        ordinary way a reference to it is checked, a parameter's from its
+        function's signature; its value is checked against that type and must
+        be a constant expression.
         """
         entries = self._resolved.attributes.program_configs.get(node.node_id, ())
-        seen_targets: set[StaticBindingKey] = set()
+        seen_targets: set[HostParamKey] = set()
         for entry in entries:
-            ref = self._binding_for(entry.key.node_id)
-            target_key = (ref.module_id, ref.scope_path, ref.name)
-            if not self._is_config_target(ref):
-                raise AglTypeError(
-                    f"'{ref.name}' is not a '@param' binding or an engine setting, so it cannot "
-                    "be a '@config' target.",
-                    span=entry.key.span,
-                )
+            target_key, label, key_type = self._config_target(entry.key)
             if target_key in seen_targets:
                 raise AglTypeError(
-                    f"'@config' already has an entry for '{ref.name}'.",
+                    f"'@config' already has an entry for '{label}'.",
                     span=entry.key.span,
                 )
             seen_targets.add(target_key)
             self._program_config_targets[entry.key.node_id] = target_key
-            key_type = self._check_boundary_expr(entry.key, expected=None)
             value_type = self._check_boundary_expr(entry.value, expected=key_type)
             self._assert_assignable_from(value_type, key_type, entry.value.span, entry.value)
             if not self._is_constant_expr(entry.value):
@@ -1572,6 +1566,41 @@ class _Checker:
                     f"({_CONSTANT_EXPRESSION_SHAPE}).",
                     span=entry.value.span,
                 )
+
+    def _config_target(self, key: VarRef) -> tuple[HostParamKey, str, Type]:
+        """Return the target a ``@config`` *key* names, its name, and its type.
+
+        The type of a binding is read the way a reference to it is checked; that of a
+        function's parameter is recorded under the key, which has no value type of its own.
+        """
+        function = self._resolved.config_param_functions.get(key.node_id)
+        if function is not None:
+            signature = self._env.function_signature_of(function.decl_node_id)
+            spec = next(spec for spec in signature.params if spec.name == key.name)
+            if spec.kind not in NAME_ADDRESSABLE_ZONES:
+                raise AglTypeError(
+                    f"Parameter '{key.name}' is positional-only, so it cannot be a '@config' "
+                    "target.",
+                    span=key.span,
+                )
+            param_type = spec.type
+            self._record_node_type(key.node_id, param_type)
+            param_key = FunctionParamKey(
+                function.module_id, function.scope_path, function.name, key.name
+            )
+            return param_key, key.name, param_type
+        ref = self._binding_for(key.node_id)
+        if not self._is_config_target(ref):
+            raise AglTypeError(
+                f"'{ref.name}' is not a '@param' binding or an engine setting, so it cannot "
+                "be a '@config' target.",
+                span=key.span,
+            )
+        return (
+            (ref.module_id, ref.scope_path, ref.name),
+            ref.name,
+            self._check_boundary_expr(key, expected=None),
+        )
 
     def _is_config_target(self, ref: BindingRef) -> bool:
         """Whether *ref* names a legal ``@config`` target.

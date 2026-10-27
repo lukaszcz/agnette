@@ -22,6 +22,7 @@ def highlight_roots(tmp_path_factory: pytest.TempPathFactory) -> RootSet:
         "record Point\n"
         "  x: int\ntype Coordinate = Point\n"
         "def make(x: int) -> Point = Point(x)\nlet origin = Point(0)\n"
+        "def scale(@param factor: int = 1) -> int = factor\n"
         "record Box[T]\n  value: T\n\n"
         "scope nested\n  def nested() = 1\nend nested\n\n"
         "exception Problem extends Exception\n",
@@ -228,6 +229,38 @@ def test_type_owner_qualifier_is_not_colored_as_a_module(highlight_roots: RootSe
     assert _category(source, spans, "Maybe::") == Category.TYPE
     assert _category(source, spans, "Some") == Category.CONSTRUCTOR
     _partition(source, spans)
+
+
+@pytest.mark.parametrize(
+    ("key", "parameter"),
+    [
+        ("refine::steps", "steps"),
+        ("::refine::steps", "steps"),
+        ("Sc::deep::depth", "depth"),
+        ("Counter::bump::by", "by"),
+        ("main::label", "label"),
+        ("shapes::scale::factor", "factor"),
+    ],
+)
+def test_config_function_parameter_key_is_a_parameter(
+    key: str, parameter: str, highlight_roots: RootSet
+) -> None:
+    value = '"x"' if parameter == "label" else "2"
+    source = (
+        "import shapes\n"
+        "record Counter\n  start: int\n"
+        "\n"
+        "def Counter::bump(self, @param by: int = 1) -> int = self.start + by\n"
+        "def refine(@param steps: int = 4) -> int = steps\n"
+        "scope Sc\n  def deep(@param depth: int = 2) -> int = depth\nend Sc\n"
+        f"@config({key} = {value})\n"
+        'program def main(label: text = "plain") -> unit = print label\n'
+    )
+    spans = semantic_spans(source, roots=highlight_roots)
+    _partition(source, spans)
+    start = source.index("@config(") + len("@config(")
+    [last] = [c for a, b, c in spans if start <= a < start + len(key) and source[a:b] == parameter]
+    assert last == Category.PARAMETER
 
 
 def test_attribute_arguments_do_not_steal_declaration_spans(highlight_roots: RootSet) -> None:

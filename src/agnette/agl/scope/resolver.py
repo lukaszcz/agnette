@@ -117,8 +117,10 @@ from agnette.agl.scope.symbols import (
     ConstructorRef,
     ContributionLayer,
     DeclarationKey,
+    DeclarationSelection,
     DeclInfo,
     DuplicateDeclarationError,
+    HostParam,
     Layers,
     ModuleResolution,
     NoVisibleConstructorError,
@@ -136,6 +138,7 @@ from agnette.agl.scope.symbols import (
     builtin_call_kind,
     builtin_type_static_kind,
     duplicate_binder_message,
+    host_params_of,
     is_builtin_type_static_owner,
     is_qualified_function_member,
     undefined_name_message,
@@ -365,6 +368,24 @@ def _nested_misplacement(item: Item) -> AglScopeError | None:
     else:
         return None
     return AglScopeError(message, span=item.span)
+
+
+def _config_function_prefix(chain: QualifierChain) -> VarRef:
+    """Return the reference to the function a ``@config`` key's *chain* names.
+
+    The chain's last segment is the function, the rest its qualifier.
+    """
+    *owners, last = chain.segments
+    return VarRef(
+        name=last.name,
+        span=last.span,
+        node_id=last.node_id,
+        qualifier=(
+            QualifierChain(chain.anchor, tuple(owners), last.name, chain.span, chain.node_id)
+            if owners or chain.anchor is not None
+            else None
+        ),
+    )
 
 
 def _item_order(named: ItemDeclaration) -> PathAtom:
@@ -670,6 +691,7 @@ class _Resolver(ModuleSources):
         }
 
         self._resolution: dict[int, BindingRef] = {}
+        self._config_param_functions: dict[int, BindingRef] = {}
         self._name_references: dict[tuple[int, str], frozenset[QName]] = {}
         self._builtin_calls: dict[int, BuiltinKind] = {}
         self._builtin_static_calls: dict[int, BuiltinStaticKind] = {}
@@ -946,6 +968,7 @@ class _Resolver(ModuleSources):
         return ModuleResolution(
             program=program,
             resolution=self._resolution,
+            config_param_functions=dict(self._config_param_functions),
             name_references=dict(self._name_references),
             builtin_calls=self._builtin_calls,
             builtin_static_calls=self._builtin_static_calls,
@@ -1235,6 +1258,7 @@ class _Resolver(ModuleSources):
             scope_path=path,
             is_builtin=isinstance(item, FuncDef) and item.is_builtin,
             is_method=isinstance(item, FuncDef) and item.is_method,
+            host_params=host_params_of(item) if isinstance(item, FuncDef) else (),
         )
         self._declaration_items[key] = item
         self._validate_type_params(item)
@@ -1939,6 +1963,7 @@ class _Resolver(ModuleSources):
                 module_id=self._module_id,
                 is_builtin=decl.is_builtin,
                 is_method=decl.is_method,
+                host_params=host_params_of(decl),
             )
             self._scope.define(name, ref)
 
@@ -2355,8 +2380,72 @@ class _Resolver(ModuleSources):
             if attribute.name != CONFIG_ATTRIBUTE:
                 continue
             for entry in attribute.keyed_args:
-                self._resolve_varref(entry.key)
+                self._resolve_config_key(entry.key, node)
                 self._resolve_expr(entry.value)
+
+    def _resolve_config_key(self, key: VarRef, program: FuncDef) -> None:
+        """Resolve a ``@config`` key of *program* as a binding, else as ``function::parameter``.
+
+        A qualified key that names no binding is read as a function reference
+        followed by one of the function's host parameters (:func:`host_params_of`).
+        A parameter that is not ``@param`` is a target only of the ``program def``
+        carrying the ``@config``: no other program binds arguments. When neither
+        reading holds, the binding reading's error is raised.
+        """
+        try:
+            self._resolve_varref(key)
+            return
+        except AglScopeError as binding_error:
+            chain = key.qualifier
+            if chain is None or not chain.segments:
+                raise
+            prefix = _config_function_prefix(chain)
+            function = self._config_function(prefix)
+            if function is None:
+                raise binding_error from None
+        param = next((p for p in function.host_params if p.name == key.name), None)
+        if param is None or not (
+            param.is_param
+            or (function.module_id, function.decl_node_id) == (self._module_id, program.node_id)
+        ):
+            raise AglScopeError(
+                f"'{render_qualified_name(prefix.qualifier, prefix.name)}' has no '@param' or "
+                f"program parameter '{key.name}', so it cannot be a '@config' target.",
+                span=key.span,
+            )
+        self._record_config_param(key, chain, function, param)
+
+    def _config_function(self, prefix: VarRef) -> BindingRef | None:
+        """Return the function reference *prefix* names, or ``None`` if it names none."""
+        try:
+            self._resolve_varref(prefix)
+        except AglScopeError:
+            return None
+        ref = self._resolution.pop(prefix.node_id, None)
+        return ref if ref is not None and ref.kind is BinderKind.function_binding else None
+
+    def _record_config_param(
+        self, key: VarRef, chain: QualifierChain, function: BindingRef, param: HostParam
+    ) -> None:
+        """Record *key* naming *param* of *function*, segment-aligned along its *chain*.
+
+        As for a member of a scope, the chain selects the declaration at
+        the function's path, so navigation reads each qualifier segment off
+        it; the key itself resolves to the parameter, like a use of it.
+        """
+        function_path = (*function.scope_path, function.name)
+        self._owner_declarations[chain.node_id] = DeclarationSelection(
+            (function.module_id, function_path, param.name)
+        )
+        self._resolution[key.node_id] = BindingRef(
+            name=param.name,
+            mutable=False,
+            decl_span=param.span,
+            decl_node_id=param.node_id,
+            kind=BinderKind.param_binding,
+            module_id=function.module_id,
+        )
+        self._config_param_functions[key.node_id] = function
 
     def _resolve_type_decl(self, node: RecordDef | EnumDef | ExceptionDef | TypeAlias) -> None:
         """Validate a type declaration's type names in its lexical owner layer."""

@@ -1896,6 +1896,7 @@ class ModuleSources(SourcesHost):
             is_builtin=info.is_builtin,
             is_method=info.is_method,
             is_param=info.is_param,
+            host_params=info.host_params,
         )
 
 

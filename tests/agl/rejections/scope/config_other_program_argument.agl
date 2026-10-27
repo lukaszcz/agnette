@@ -1,0 +1,4 @@
+program def other(x: int = 1) -> unit = print x
+
+@config(other::x = 2)
+program def main() -> unit = print 1

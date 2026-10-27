@@ -29,7 +29,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TypeAlias as TypingTypeAlias
 
-from agnette.agl.attributes import ProgramOptionSpec
+from agnette.agl.attributes import ProgramOptionSpec, is_param_declaration
 from agnette.agl.diagnostics import AglError, dollar_spacing_hint
 from agnette.agl.infix import Fixity
 from agnette.agl.modules.ids import (
@@ -711,6 +711,11 @@ class BindingRef:
         Whether a ``let``/``var`` binding carries the ``@param`` attribute.
         This provenance survives imports, re-exports, and REPL retention, so
         a ``@config`` target check never needs a whole-program node-id set.
+    ``host_params``
+        For a function declaration, the parameters a host addresses: a
+        ``program def``'s every parameter, else the ``@param`` ones. This
+        provenance survives imports like ``is_param``, so a ``@config`` key
+        naming a parameter is checked without the owning module's syntax tree.
     ``is_variant_member``
         Whether this binding is a bare-exposed enum variant's constructor,
         injected as a value/pattern convenience by variant expansion (never
@@ -729,6 +734,7 @@ class BindingRef:
     is_builtin: bool = False
     is_method: bool = False
     is_param: bool = False
+    host_params: tuple[HostParam, ...] = ()
     is_variant_member: bool = False
 
     @property
@@ -762,6 +768,29 @@ class DeclInfo:
     is_builtin: bool = False
     is_method: bool = False
     is_param: bool = False
+    host_params: tuple[HostParam, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class HostParam:
+    """A function parameter a host addresses: its declaration and whether it is ``@param``."""
+
+    name: str
+    node_id: int
+    span: SourceSpan
+    is_param: bool
+
+
+def host_params_of(function: FuncDef) -> tuple[HostParam, ...]:
+    """Return the parameters of *function* a host addresses.
+
+    All of a ``program def``'s parameters, else its ``@param`` ones.
+    """
+    declared = (
+        HostParam(param.name, param.node_id, param.span, is_param_declaration(param.attributes))
+        for param in function.params
+    )
+    return tuple(param for param in declared if function.is_program or param.is_param)
 
 
 # ---------------------------------------------------------------------------
@@ -1066,6 +1095,10 @@ class ModuleResolution:
         to the ``BindingRef`` it resolved to. An ``AssignStmt`` with an indexed
         or field target creates no assignment binding: its receiver (and an
         indexed target's index) is resolved as an ordinary expression instead.
+    ``config_param_functions``
+        Maps the node id of each ``@config`` key naming a function's parameter
+        (``function::parameter``) to that function; the parameter is the key's
+        own name.
     ``name_references``
         Declaration candidates for non-expression name occurrences, keyed by
         syntax node id and spelling. Empty or competing candidates stay neutral.
@@ -1189,6 +1222,7 @@ class ModuleResolution:
     resolution: dict[int, BindingRef]
     builtin_calls: dict[int, BuiltinKind]
     root_scope: ScopeNode
+    config_param_functions: dict[int, BindingRef] = field(default_factory=dict)
     builtin_static_calls: dict[int, BuiltinStaticKind] = field(default_factory=dict)
     name_references: dict[tuple[int, str], frozenset[QName]] = field(default_factory=dict)
     declarations: dict[DeclarationKey, BindingRef] = field(default_factory=dict)

@@ -35,7 +35,7 @@ from agnette.agl.diagnostics import AglTypeError as AglTypeError
 from agnette.agl.diagnostics import CycleAlias, Diagnostic, alias_cycle_error
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.reserved_nominals import NO_DECL_ID, require_reserved_nominal_id
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.scope.symbols import (
     BindingRef,
@@ -602,7 +602,7 @@ class CheckedModule(_Record):
     pattern_constructor_owners: dict[int, NominalId] = field(default_factory=dict)
     method_selections: dict[int, MethodDef] = field(default_factory=dict)
     explicit_builtin_targets: dict[int, Type] = field(default_factory=dict)
-    program_config_targets: dict[int, StaticBindingKey] = field(default_factory=dict)
+    program_config_targets: dict[int, HostParamKey] = field(default_factory=dict)
     target_contract_specs: dict[int, tuple[OutputContractSpec, ...]] = field(default_factory=dict)
     declaration_references: dict[DeclarationKey, References] = field(default_factory=dict)
     binding_references: dict[StaticBindingKey, References] = field(default_factory=dict)
@@ -1015,7 +1015,7 @@ class CheckedModuleImage(_Record):
     pattern_constructor_owners: dict[int, NominalId]
     method_selections: dict[int, MethodDef]
     explicit_builtin_targets: dict[int, Type]
-    program_config_targets: dict[int, StaticBindingKey]
+    program_config_targets: dict[int, HostParamKey]
     target_contract_specs: dict[int, tuple[OutputContractSpec, ...]]
     declaration_references: dict[DeclarationKey, References]
     binding_references: dict[StaticBindingKey, References]

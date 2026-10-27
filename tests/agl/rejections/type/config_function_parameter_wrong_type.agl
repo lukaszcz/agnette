@@ -1,0 +1,4 @@
+def refine(@param steps: int = 4) -> int = steps
+
+@config(refine::steps = "many")
+program def main() -> unit = print refine()

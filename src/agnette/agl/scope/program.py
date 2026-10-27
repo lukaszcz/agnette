@@ -87,6 +87,7 @@ from agnette.agl.scope.symbols import (
     TypeSelection,
     UnknownMemberError,
     builtin_type_static_kind,
+    host_params_of,
     import_item_spellings,
 )
 from agnette.agl.scope.symbols import import_item_path as _item_path
@@ -895,6 +896,7 @@ def _module_tables(mid: ModuleId, program: Program) -> _ModuleTables:
                 kind=BinderKind.function_binding,
                 is_builtin=item.is_builtin,
                 is_method=item.is_method,
+                host_params=host_params_of(item),
             )
         elif isinstance(item, (RecordDef, EnumDef, ExceptionDef, TypeAlias)):
             key = (mid, _item_atom(item))

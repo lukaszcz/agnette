@@ -259,6 +259,74 @@ def test_definitions_ignore_unresolved_positions(
     assert _find(tmp_path, entry, needle, delta) == []
 
 
+_CONFIG_FILES = {
+    "cfg.agl": """\
+def helper(@param n: int = 1) -> int = n
+
+scope Sc
+  def deep(@param depth: int = 2) -> int = depth
+end Sc
+
+record Counter
+  start: int
+
+def Counter::bump(self, @param by: int = 1) -> int = self.start + by
+""",
+    "main.agl": """\
+import cfg as t
+
+def own(@param k: int = 1) -> int = k
+
+scope Loc
+  def inner(@param d: int = 2) -> int = d
+end Loc
+
+@config(
+  t::helper::n = 5,
+  t::Sc::deep::depth = 6,
+  t::Counter::bump::by = 3,
+  own::k = 4,
+  Loc::inner::d = 2,
+  main::x = 3,
+)
+program def main(x: int = 0) -> unit = ()
+""",
+}
+
+
+@pytest.mark.parametrize(
+    ("needle", "delta", "target", "target_needle", "target_delta"),
+    [
+        # Module-qualified function: module, function, then its parameter.
+        ("t::helper::n", 0, "cfg.agl", "def helper", 0),
+        ("t::helper::n", 3, "cfg.agl", "def helper", 4),
+        ("t::helper::n", 11, "cfg.agl", "n: int", 0),
+        # A scope region owning the function.
+        ("t::Sc::deep::depth", 3, "cfg.agl", "scope Sc", 6),
+        ("t::Sc::deep::depth", 7, "cfg.agl", "def deep", 4),
+        ("depth = 6", 0, "cfg.agl", "depth: int", 0),
+        # A method through its receiver type.
+        ("t::Counter::bump::by", 3, "cfg.agl", "record Counter", 7),
+        ("t::Counter::bump::by", 13, "cfg.agl", "Counter::bump", 9),
+        ("by = 3", 0, "cfg.agl", "by: int", 0),
+        # This module's function and scope region.
+        ("own::k", 0, "main.agl", "def own", 4),
+        ("own::k", 5, "main.agl", "k: int", 0),
+        ("Loc::inner::d", 0, "main.agl", "scope Loc", 6),
+        ("Loc::inner::d", 5, "main.agl", "def inner", 4),
+        ("Loc::inner::d", 12, "main.agl", "d: int", 0),
+        # The program's own argument.
+        ("main::x", 0, "main.agl", "program def main", 12),
+        ("main::x", 6, "main.agl", "x: int", 0),
+    ],
+)
+def test_definitions_resolve_config_function_parameter_keys(
+    tmp_path: Path, needle: str, delta: int, target: str, target_needle: str, target_delta: int
+) -> None:
+    found = _find(tmp_path, "main.agl", needle, delta, _CONFIG_FILES)
+    assert found == [_at(tmp_path, target, target_needle, target_delta, _CONFIG_FILES)]
+
+
 def test_definitions_locate_outer_binder_in_chained_as_pattern(tmp_path: Path) -> None:
     files = {
         "main.agl": """\

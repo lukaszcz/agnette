@@ -469,6 +469,229 @@ class TestManifestConfig:
         assert captured.err == ""
 
 
+def _configured(source: str, *entries: str, program: str = "main") -> str:
+    """Return *source* with an ``@config`` of *entries* on its ``program def`` *program*."""
+    header = f"program def {program}("
+    return source.replace(header, f"@config({', '.join(entries)})\n{header}", 1)
+
+
+_ARGUMENT = "program def main(count: int) -> unit = print count\n"
+_DEFAULTED_ARGUMENT = "program def main(count: int = 1) -> unit = print count\n"
+
+
+class TestConfigAttribute:
+    """``@config`` keys naming function ``@param``s and the selected program's arguments."""
+
+    def test_a_key_sets_a_function_parameter_for_every_reaching_call(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_MAIN, "review::refine::max-steps = 9"))
+
+        lines = _lines(capsys, entry, library)
+
+        assert lines == ["r:9", "11", "x:9", "r:7", "2", "2", "limit:1"]
+
+    def test_a_key_sets_a_method_parameter_through_its_receiver(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_MAIN, "review::Counter::bump::by = 3"))
+
+        assert _lines(capsys, entry, library)[1] == "13"
+
+    def test_a_key_sets_a_scope_region_function_parameter(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_DEEP, "review::Sc::deep::depth = 7"))
+
+        assert _lines(capsys, entry, library) == ["7"]
+
+    def test_a_key_naming_an_unreached_function_parameter_has_no_effect(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_MAIN, "review::spare::unused = 3"))
+
+        assert _lines(capsys, entry, library) == _DEFAULTS
+
+    def test_the_command_line_beats_the_key(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_MAIN, "review::refine::max-steps = 9"))
+
+        assert _lines(capsys, entry, library, "--max-steps", "2")[0] == "r:2"
+
+    def test_the_program_route_beats_the_key(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("[main.main]\nmax-steps = 8\n")
+        entry = _entry(tmp_path, _configured(_MAIN, "review::refine::max-steps = 9"))
+
+        assert _lines(capsys, entry, library)[0] == "r:8"
+
+    def test_the_key_beats_the_declaration_route(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("[devel.review.refine]\nmax-steps = 6\n")
+        entry = _entry(tmp_path, _configured(_MAIN, "review::refine::max-steps = 9"))
+
+        assert _lines(capsys, entry, library)[0] == "r:9"
+
+    @pytest.mark.parametrize(
+        ("file_config", "expected"),
+        [("", "r:9\n"), ("[tools.review]\nmax-steps = 7\n", "r:7\n")],
+        ids=["over_manifest", "under_program_route"],
+    )
+    def test_the_key_ranks_between_the_program_route_and_the_manifest(
+        self,
+        file_config: str,
+        expected: str,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home(file_config)
+        entry = TestManifestConfig._entry(tmp_path)
+        entry.write_text(_configured(entry.read_text(), "refine::max-steps = 9"))
+
+        _run(entry, tmp_path)
+
+        assert capsys.readouterr().out == expected
+
+    def test_a_key_supplies_a_program_argument(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_ARGUMENT, "main::count = 5"))
+
+        assert _lines(capsys, entry, library) == ["5"]
+
+    @pytest.mark.parametrize(
+        ("file_config", "tokens", "expected"),
+        [
+            ("[main.main]\ncount = 3\n", (), "3"),
+            ("", ("--count", "2"), "2"),
+        ],
+        ids=["program_route", "flag"],
+    )
+    def test_a_program_argument_key_ranks_below_the_program_route_and_the_command_line(
+        self,
+        file_config: str,
+        tokens: tuple[str, ...],
+        expected: str,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home(file_config)
+        entry = _entry(tmp_path, _configured(_DEFAULTED_ARGUMENT, "main::count = 5"))
+
+        assert _lines(capsys, entry, library, *tokens) == [expected]
+
+    def test_a_positional_argument_beats_a_program_argument_key(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_ARGUMENT, "main::count = 5"))
+
+        assert _lines(capsys, entry, library, "2") == ["2"]
+
+    def test_a_program_argument_key_beats_a_default_and_the_manifest(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        alpha = tmp_path / "alpha"
+        (alpha / MODULE_TREE_DIRNAME).mkdir(parents=True)
+        (alpha / "package.toml").write_text(
+            '[package]\nname = "alpha"\nversion = "1.0.0"\n\n[config.tools.review]\ncount = 5\n'
+        )
+        entry = alpha / MODULE_TREE_DIRNAME / "main.agl"
+        entry.write_text(
+            _configured(
+                '@command("tools review")\n'
+                "program def main(count: int = 1) -> unit = print count\n",
+                "main::count = 9",
+            )
+        )
+
+        _run(entry, tmp_path)
+
+        assert capsys.readouterr().out == "9\n"
+
+    def test_a_key_of_a_selected_programs_param_argument_reaches_every_call(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        entry = _entry(tmp_path, _configured(_RECURSIVE, "again::limit = 6", program="again"))
+
+        assert _lines(capsys, entry, library, program="again") == ["limit:6", "limit:6"]
+        assert _lines(capsys, entry, library, "--limit", "3", program="again") == [
+            "limit:3",
+            "limit:3",
+        ]
+
+    def test_a_key_of_a_param_argument_seeds_the_calls_of_another_selected_program(
+        self,
+        tmp_path: Path,
+        library: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("")
+        source = _configured(_RECURSIVE, "again::limit = 6", program="outer")
+        entry = _entry(tmp_path, source)
+
+        assert _lines(capsys, entry, library, program="outer") == ["limit:6", "limit:6"]
+        assert _lines(capsys, entry, library, program="again") == ["limit:1", "limit:1"]
+
+
 _ANONYMOUS_FUNCTIONS = """\
 def f(@param n: int = 1) -> int = n
 

@@ -121,7 +121,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@allow("name", ...)` | one or more warning names | every defining declaration; `@!allow` on a module or scope region | Hides the named static warnings within the declaration, module, or region. |
 | `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Exempts the function's call results from the named static warnings. |
 | `@shell-quoted` | none | any `def` form | Declares the function's call results complete, quoted shell words. |
-| `@config(key = value, ...)` | one or more keyed entries | `program def` | States the values module parameters and engine settings take when this program is selected. |
+| `@config(key = value, ...)` | one or more keyed entries | `program def` | States the values module parameters, function parameters, program arguments and engine settings take when this program is selected. |
 
 ## Zone attributes
 
@@ -327,8 +327,9 @@ def refine(@param @doc("Round limit.") @opt-name("max-steps") steps: int = 4) ->
 ## `@config`
 
 `@config` states, in source, the values a `program def` selects for module
-parameters and engine settings when it is the program a host runs — the
-source-level counterpart of that program's own configuration table. It takes
+parameters, function parameters, program arguments and engine settings when it
+is the program a host runs — the source-level counterpart of that program's
+own configuration table. It takes
 one or more `key = value` entries, comma-separated and optionally spanning
 several lines with a trailing comma, and is legal only on a `program def`, at
 most once.
@@ -343,18 +344,31 @@ module imported to be named.
 Each key must resolve to a [module parameter](#module-parameters) — a
 `@param` binding anywhere in the program's transitive import closure,
 including its own module — or one of the root `std/config` [engine
-settings](host-environment.md#engine-settings). Any other target (a plain
-`let`/`var`, a non-engine `builtin var`, a function, a type) is a static
-error, as is a key that resolves to no declaration — which includes a name
-that only a signature parameter binds, since a `program def`'s own parameter
-scope is not where a `@config` key resolves. Two entries addressing the same
-target, by any two spellings, are a static error.
+settings](host-environment.md#engine-settings), or name a parameter of a
+function as `function::parameter`. The function is any `def` the key
+reaches by the same reference rules (`review::refine::max-steps`; a method
+through its receiver, `review::Counter::bump::by`; the selected program
+itself, `main::count`), and the parameter is named by its declared name, not
+its `@opt-name`. It must be a [`@param`](#function-parameters) parameter, or
+a parameter of the `program def` carrying the `@config`; either way it must be
+addressable by name, so a positional-only (`@arg-pos`) parameter is no target,
+as it has no key in a configuration file. Any other target (a plain `let`/`var`, a
+non-engine `builtin var`, a function, a type, a parameter of a `def` that is
+not `@param`, a non-`@param` parameter of another `program def`) is a static
+error, as is a key that resolves to no declaration
+— which includes a bare name that only a signature parameter binds, since a
+`program def`'s own parameter scope is not where a `@config` key resolves; the
+program's own parameters are written `main::count`. Two entries addressing the
+same target, by any two spellings, are a static error.
 
-A module parameter target the program does not reach has no effect.
+A module or function parameter target the program does not reach has no
+effect. A `@param` function parameter's value is a default for every call that
+omits the argument, like a host value; the carrying program's own parameter is
+bound as an argument when that program is selected.
 
 Each `value` is a [constant expression](bindings-and-scope.md#constant-expressions),
-checked against the target's declared type — the module parameter's own
-type, or the engine setting's type.
+checked against the target's declared type — the module or function
+parameter's own type, or the engine setting's type.
 
 ```agl
 import std/config
@@ -366,13 +380,17 @@ scope Debug
   @param let verbose: bool = false
 end Debug
 
+def refine(@param steps: int = 4) -> int = steps
+
 @config(
   retries = 5,
   Debug::verbose = true,
+  refine::steps = 8,
+  main::count = 3,
   config::timeout = Some("30m"),
   log::level = log::Level::Debug,
 )
-program def main() -> unit = print retries
+program def main(count: int) -> unit = print retries
 ```
 
 `@config` applies only when its `program def` is the **selected** program: a

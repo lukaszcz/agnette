@@ -19,7 +19,7 @@ offending parameter is reported in one pass.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, assert_never, cast
 
 from agnette.agl.diagnostics import Diagnostic, diagnostic_from_span
@@ -108,11 +108,13 @@ class ProgramArguments:
     ``positional`` is host-supplied in source/token order; ``named`` maps a
     parameter name to its host-supplied value. Values are plain Python
     objects — JSON-shaped values, strings, or native TOML values — not yet
-    decoded against any parameter type.
+    decoded against any parameter type. ``fallback`` holds already-decoded
+    values for the parameters neither a positional nor a named argument binds.
     """
 
     positional: tuple[object, ...]
     named: "Mapping[str, object]"
+    fallback: "Mapping[str, Value]" = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,15 +303,18 @@ def bind_program_arguments(
     values rather than AST expressions, so no item is ever treated as a bare
     name) with every parameter's default suppressed, so a missing required
     parameter never stops the binder early; it is instead reported below,
-    alongside every other missing required parameter. A structural
+    alongside every other missing required parameter; a parameter nothing
+    binds takes its ``arguments.fallback`` value before its default or a
+    missing-required report. A structural
     violation (unknown name, duplicate, positional overflow, or a
     positional-only parameter supplied by name) still stops binding
     immediately, since it makes the rest of the binding meaningless.
 
     Returns ``(values, ())`` on success, where *values* is ready for
     ``IrInterpreter.run``'s ``arguments`` (one entry per parameter, in
-    declaration order: a decoded ``Value``, or ``UseDefault`` for an omitted
-    defaulted parameter) — a zero-parameter program returns ``((), ())``, so
+    declaration order: a decoded ``Value``, the ``arguments.fallback`` value for
+    a parameter nothing bound, or ``UseDefault`` for an omitted defaulted
+    parameter) — a zero-parameter program returns ``((), ())``, so
     a caller must key success off the diagnostics tuple, not off whether
     values is non-empty. Returns ``((), diagnostics)`` on any binding or
     decode failure — one diagnostic for a structural violation, or one per
@@ -336,7 +341,9 @@ def bind_program_arguments(
     diagnostics: list[Diagnostic] = []
     for index, (param, box) in enumerate(zip(signature.parameters, bound, strict=True)):
         if box is None:
-            if param.has_default:
+            if param.name in arguments.fallback:
+                values.append(arguments.fallback[param.name])
+            elif param.has_default:
                 values.append(UseDefault(param_index=index))
             else:
                 diagnostics.append(
@@ -426,17 +433,17 @@ def bind_param_values[K: HostParamKey](
     return values, ()
 
 
-def split_program_arguments(
-    values: "Mapping[HostParamKey, object]", program: "ProgramDeclInfo"
-) -> "tuple[dict[HostParamKey, object], dict[str, object]]":
+def split_program_arguments[V](
+    values: "Mapping[HostParamKey, V]", program: "ProgramDeclInfo"
+) -> "tuple[dict[HostParamKey, V], dict[str, V]]":
     """Split host parameter *values* into seeds and *program*'s own arguments.
 
     Returns the seeds (module parameters and other functions' parameters) and
     *program*'s own arguments by name (whether or not it declares them, so the
     binder can reject an unknown one).
     """
-    seeds: dict[HostParamKey, object] = {}
-    arguments: dict[str, object] = {}
+    seeds: dict[HostParamKey, V] = {}
+    arguments: dict[str, V] = {}
     function = (program.module, program.scope_path, program.name)
     for key, value in values.items():
         if (

@@ -192,7 +192,7 @@ from agnette.agl.ir.program import (
     NominalKind,
     SourceFile,
 )
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey
 from agnette.agl.modules.ids import STD_CONFIG_ID, ModuleId
 from agnette.config.engine_keys import ENGINE_KEY_NAMES
 
@@ -1741,8 +1741,8 @@ def _validate_program_tables(ctx: _Context) -> None:
 
     # 12. program_configs — sparse: only a program def carrying '@config' has
     # an entry, with no target repeated within one program's entries, and
-    # each value expression itself validates. A '@param' target's binding
-    # is not cross-checked against param_bindings here: a REPL's growing
+    # each value expression itself validates. A '@param' or function-parameter
+    # target is not cross-checked against param_bindings here: a REPL's growing
     # entry module may declare that '@param' in an earlier entry, so
     # param_bindings -- built from only the modules and item lists the
     # current lowering call actually walks -- can lack it even though the
@@ -1756,7 +1756,7 @@ def _validate_program_tables(ctx: _Context) -> None:
                 f"program_configs entry for symbol_id={symbol!r} is not"
                 " a linked program_functions entry"
             )
-        seen_targets: set[StaticBindingKey] = set()
+        seen_targets: set[HostParamKey] = set()
         for target, value in entries:
             if target in seen_targets:
                 raise InvalidIrError(
@@ -1765,7 +1765,8 @@ def _validate_program_tables(ctx: _Context) -> None:
                 )
             seen_targets.add(target)
             if (
-                target[0] == STD_CONFIG_ID
+                not isinstance(target, FunctionParamKey)
+                and target[0] == STD_CONFIG_ID
                 and not target[1]
                 and not is_engine_builtin_var_key(target)
             ):

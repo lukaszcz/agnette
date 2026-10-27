@@ -92,8 +92,9 @@ and the setting stays reachable through its qualified spellings. Token details
 later as above. A required parameter with no external value is a **host
 invocation error** — reported as CLI usage, not catchable in-language. Each
 parameter's value resolves through the chain in [Precedence](#precedence). An
-explicitly positional-only parameter has no config key, and a config entry
-naming it is ignored with a warning; an unzoned required parameter keeps its
+explicitly positional-only parameter has no config key: a config entry
+naming it is ignored with a warning, and a [`@config`](attributes.md#config) key naming it
+is a static error; an unzoned required parameter keeps its
 config key even though its CLI slot is positional.
 
 **Reading values.** A `text` parameter takes its external value verbatim. Any
@@ -504,7 +505,9 @@ declared default. An engine setting has no `@opt-env`; its declaration route is
   table and, for a registered command, its command-path table), then inherited
   group tables; see [Config-file schema](#config-file-schema).
 - **`@config`** — the selected program's own [`@config`](attributes.md#config)
-  entries.
+  entries. A program argument takes its value only when that program is the
+  selected one; a function `@param` takes it as the default of every reaching
+  call, like a host value.
 - **Manifest `[config]`** — for a package-owned program only, its package
   manifest's [`[config]`](../../commands/pkg.md#config) table: command table,
   then inherited group table, then manifest root. It supplies program

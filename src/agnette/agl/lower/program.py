@@ -378,7 +378,7 @@ def lower_program(
         mid: ExecutableModule(module_id=mid, initializers=()) for mid in _already_linked
     }
     builtin_setting_defaults: dict[BuiltinVarKey | str, IrExpr] = {}
-    program_configs: dict[SymbolId, tuple[tuple[StaticBindingKey, IrExpr], ...]] = {}
+    program_configs: dict[SymbolId, tuple[tuple[HostParamKey, IrExpr], ...]] = {}
     for mid in ordered_mids:
         cm = checked.modules[mid]
         lowerer = module_lowerers[mid]
@@ -414,7 +414,7 @@ def lower_program(
                 for item in static_items(body.items)
                 if isinstance(item, BuiltinVarDecl) and item.default is not None
             }
-            module_program_configs: dict[SymbolId, tuple[tuple[StaticBindingKey, IrExpr], ...]] = {
+            module_program_configs: dict[SymbolId, tuple[tuple[HostParamKey, IrExpr], ...]] = {
                 link.fn_node_to_sym[item.node_id]: tuple(
                     (
                         cm.program_config_targets[entry.key.node_id],

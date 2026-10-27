@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from agnette.agl.ir.nodes import IrCoerce, IrConstBool, IrConstInt, IrExpr
-from agnette.agl.ir.static_keys import StaticBindingKey
+from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey
 from agnette.agl.lower.program import lower_program
 from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
 from agnette.agl.modules.ids import STD_CONFIG_ID
@@ -31,7 +31,7 @@ from tests.agl.ir_harness import make_file_graph_from_files
 from tests.agl.module_graph import resolve_and_check_entry
 
 
-def _config_targets(checked: CheckedModule, program_node_id: int) -> tuple[StaticBindingKey, ...]:
+def _config_targets(checked: CheckedModule, program_node_id: int) -> tuple[HostParamKey, ...]:
     """Return *program_node_id*'s ``@config`` entries' resolved targets, in source order."""
     return tuple(
         checked.program_config_targets[entry.key.node_id]
@@ -97,6 +97,63 @@ class TestProgramConfigTargetsPublishedByTheChecker:
         node_id = _program_node_id(entry_checked, "main")
         (target,) = _config_targets(entry_checked, node_id)
         assert target == (helper_id, (), "value")
+
+
+class TestFunctionParameterTargets:
+    """A ``@config`` key naming a ``def`` parameter targets its ``FunctionParamKey``."""
+
+    def test_the_checker_publishes_the_function_parameter_key(self) -> None:
+        checked = resolve_and_check_entry(
+            "def refine(@param steps: int = 4) -> int = steps\n\n"
+            "@config(refine::steps = 7, main::count = 1)\n"
+            "program def main(count: int) -> unit = ()\n",
+        )
+        node_id = _program_node_id(checked, "main")
+        assert _config_targets(checked, node_id) == (
+            FunctionParamKey(checked.module_id, (), "refine", "steps"),
+            FunctionParamKey(checked.module_id, (), "main", "count"),
+        )
+
+    def test_preflight_folds_targets_into_seeds_and_program_arguments(self, tmp_path: Path) -> None:
+        source = (
+            "def refine(@param steps: int = 4) -> int = steps\n\n"
+            "@config(refine::steps = 7, main::count = 3, main::limit = 5)\n"
+            "program def main(count: int, @param limit: int = 1) -> unit =\n"
+            "  print(refine() + count)\n"
+        )
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
+        discovery = runtime.discover_programs(prepared)
+        assert discovery.diagnostics == ()
+        (program,) = discovery.programs
+
+        preflight = runtime.preflight_arguments(prepared, program, compiled=discovery.compiled)
+
+        assert preflight.result.ok
+        assert preflight.arguments == (IntValue(3), IntValue(5))
+        assert preflight.function_param_seeds == {
+            FunctionParamKey(program.module, (), "refine", "steps"): IntValue(7),
+            program.param_key("limit"): IntValue(5),
+        }
+        assert preflight.param_seeds == {}
+
+    def test_a_host_value_beats_the_key_for_a_program_argument(self, tmp_path: Path) -> None:
+        source = "@config(main::count = 3)\nprogram def main(count: int = 0) -> unit = ()\n"
+        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
+        prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
+        discovery = runtime.discover_programs(prepared)
+        (program,) = discovery.programs
+        key = program.param_key("count")
+
+        upper = runtime.preflight_arguments(
+            prepared, program, compiled=discovery.compiled, param_values={key: "9"}
+        )
+        lower = runtime.preflight_arguments(
+            prepared, program, compiled=discovery.compiled, param_values_lower={key: "9"}
+        )
+
+        assert upper.arguments == (IntValue(9),)
+        assert lower.arguments == (IntValue(3),)
 
 
 class TestLoweringIntoTheExecutable:
