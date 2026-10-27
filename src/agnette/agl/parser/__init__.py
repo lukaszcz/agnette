@@ -15,22 +15,24 @@ from __future__ import annotations
 
 from agnette.agl.parser.errors import AglSyntaxError
 from agnette.agl.parser.parser import (
+    ProgramTree,
     entry_slices,
     has_open_verbatim_block,
     has_unterminated_triple_quoted_string,
     is_incomplete_source,
     parse_program_seeded,
-    parse_repl_transcript,
+    parse_program_tree,
     parse_type_entry_seeded,
 )
 
 __all__ = [
     "AglSyntaxError",
+    "ProgramTree",
     "entry_slices",
     "has_open_verbatim_block",
     "has_unterminated_triple_quoted_string",
     "is_incomplete_source",
     "parse_program_seeded",
-    "parse_repl_transcript",
+    "parse_program_tree",
     "parse_type_entry_seeded",
 ]

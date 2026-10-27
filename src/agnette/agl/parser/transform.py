@@ -166,6 +166,11 @@ class _ModuleBody:
     attributes: tuple[syntax.Attribute, ...]
 
 
+MISPLACED_INNER_ATTRIBUTE_MESSAGE = (
+    "inner attribute must precede every other item of its module or scope region."
+)
+
+
 def _split_inner_attributes(args: _Args) -> tuple[tuple[syntax.Attribute, ...], _Args]:
     """Split the inner attributes off a module or region's children.
 
@@ -178,10 +183,7 @@ def _split_inner_attributes(args: _Args) -> tuple[tuple[syntax.Attribute, ...], 
     for arg in args:
         if isinstance(arg, syntax.Attribute):
             if seen_item:
-                raise AglSyntaxError(
-                    "inner attribute must precede every other item of its module or scope region.",
-                    span=arg.span,
-                )
+                raise AglSyntaxError(MISPLACED_INNER_ATTRIBUTE_MESSAGE, span=arg.span)
             attributes.append(arg)
             continue
         rest.append(arg)

@@ -231,3 +231,52 @@ def test_a_valid_method_does_not_withhold_the_advisories_after_a_failing_entry(
     (advisory,) = (w for r in results for w in r.warnings if w.warning_name == "tab-indentation")
     assert advisory.source_label == str(path)
     assert advisory.line == source.count("\n")
+
+
+_CONSTANT_ALLOW = "@allow(W)\ndef g() -> int =\n\t1\n"
+
+
+@pytest.mark.parametrize(
+    ("constant", "reported"), [("tab-indentation", False), ("unused-module-doc", True)]
+)
+def test_an_allow_of_an_unrun_item_may_name_a_constant_of_an_entry_run(
+    tmp_path: Path, constant: str, reported: bool
+) -> None:
+    source = f'let W = "{constant}"\nlet a: int = "x"\n' + _CONSTANT_ALLOW
+    path, results = _load(tmp_path, source)
+
+    assert [r.ok for r in results] == [True, False]
+    assert _tab_diagnostics(results, denied=False) == ([(str(path), 5)] if reported else [])
+
+
+def test_an_unrun_item_the_conversion_rejects_withholds_the_later_advisories(
+    tmp_path: Path,
+) -> None:
+    _, results = _load(tmp_path, 'let b: int = "x"\nuse a::{}\nlet c = 1\t\n')
+
+    assert [r.ok for r in results] == [False]
+    assert _tab_diagnostics(results, denied=False) == []
+
+
+def test_an_unrun_entry_of_no_items_adds_no_advisories(tmp_path: Path) -> None:
+    source = '# agm:repl-transcript:v1\n# agm:entry:16\nlet a: int = "x"\n# agm:entry:6\n# note\n'
+    _, results = _load(tmp_path, source)
+
+    assert [r.ok for r in results] == [False]
+    assert _tab_diagnostics(results, denied=False) == []
+
+
+def test_an_inner_attribute_after_an_item_rejects_the_file_unrun(tmp_path: Path) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text('let a = 1\n@!doc("m")\nlet b = 2\n')
+    session = ReplSession()
+    session.open()
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [False]
+    assert (results[0].diagnostics[0].line, results[0].diagnostics[0].source_label) == (
+        2,
+        str(path),
+    )
+    assert not session.eval_entry("a").ok

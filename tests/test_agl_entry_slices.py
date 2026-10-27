@@ -8,7 +8,7 @@ from dataclasses import replace
 import pytest
 
 from agnette.agl.lexer import LexedSource, lex_replay, lex_source
-from agnette.agl.parser import entry_slices, parse_program_seeded, parse_repl_transcript
+from agnette.agl.parser import entry_slices, parse_program_seeded, parse_program_tree
 
 _SOURCES = {
     "plain": "let a = 1\nlet b = a + 1\nb\n",
@@ -28,11 +28,8 @@ def _parsed(source: str) -> tuple[LexedSource, list[tuple[int, int]]]:
     """The one lex and program parse of *source*, and its entries' ranges as a load has them."""
     lexed = lex_source(source)
     with lex_replay(lexed):
-        program = parse_repl_transcript(source)
-    spans = [(item.span.start_offset, item.span.end_offset) for item in program.body.items]
-    if program.attributes:
-        spans[0] = (program.attributes[0].span.start_offset, spans[0][1])
-    return lexed, spans
+        tree = parse_program_tree(source)
+    return lexed, tree.entry_ranges()
 
 
 @pytest.mark.parametrize("name", sorted(_SOURCES))

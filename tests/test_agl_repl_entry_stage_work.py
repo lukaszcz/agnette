@@ -13,9 +13,11 @@ from lark.lexer import Token
 from agnette.agl.lexer import LexedSource, lex_source
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.parser import parser as parser_module
+from agnette.agl.parser.transform import AstBuilder
 from agnette.agl.repl.loop import has_runnable_statements, is_incomplete
 from agnette.agl.repl.plain_console import run_plain_console
 from agnette.agl.repl.session import ReplSession
+from agnette.agl.syntax.nodes import Program
 from tests.test_agl_repl_console import drive
 
 
@@ -53,6 +55,27 @@ class _Parses:
             return real(text)
 
         monkeypatch.setattr(parser_module._PARSER, "parse", counting)
+
+
+class _Builds:
+    """Records the item count of each program the AST builder converts while patched in."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.items: list[int] = []
+        real = AstBuilder.transform
+
+        def recording(builder: AstBuilder, tree: Tree) -> object:
+            result = real(builder, tree)
+            if isinstance(result, Program):
+                self.items.append(len(result.body.items))
+            return result
+
+        monkeypatch.setattr(AstBuilder, "transform", recording)
+
+
+@pytest.fixture
+def builds(monkeypatch: pytest.MonkeyPatch) -> _Builds:
+    return _Builds(monkeypatch)
 
 
 @pytest.fixture
@@ -361,3 +384,85 @@ def test_a_halted_load_recognizes_attributes_of_the_unrun_items_only(
 
     # Each run entry's program is recognized whole; only the two unrun items beyond the failure.
     assert len([n for n in walked if not isinstance(n, Program)]) == 2
+
+
+_MULTI_ITEM = _transcript("let a = 1; let b = 2", "let c = a + b", "c")
+_PLAIN_FILES = {
+    "complete": "let a = 1\nlet b = 2\ndef f() -> int = a + b\nf()\n",
+    "attributes": '@!allow("tab-indentation")\nlet a = 1\nlet b = 2\n',
+    "attributes-alone": '@!doc("m")\n',
+}
+
+
+@pytest.mark.parametrize("name", sorted(_PLAIN_FILES))
+def test_a_loaded_file_is_converted_to_ast_once(tmp_path: Path, builds: _Builds, name: str) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(_PLAIN_FILES[name])
+    builds.items.clear()
+
+    results = session.load_file(path)
+
+    assert all(r.ok for r in results)
+    # One conversion per entry, each of the one item the entry holds.
+    assert builds.items == ([0] if name == "attributes-alone" else [1] * len(results))
+
+
+def test_a_halted_load_converts_only_the_unrun_items_beyond_the_entries_run(
+    tmp_path: Path, builds: _Builds
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text('let a = 1\nlet b: int = "x"\nlet c = 1\nlet d = 2\n')
+    builds.items.clear()
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True, False]
+    assert builds.items == [1, 1, 2]
+
+
+@pytest.mark.parametrize(
+    ("transcript", "converted"),
+    [
+        (_MULTI_ITEM, [2, 1, 1]),
+        (_transcript("let a = 1; let b: int = 'x'", "let c = 1", "let d = 2"), [2, 2]),
+        (_transcript("let a = 1", 'let b: int = "x"', "let c = 1\t", "let d = 2"), [1, 1, 2]),
+    ],
+    ids=("complete", "halted-in-multi-item", "halted"),
+)
+def test_a_loaded_transcript_is_converted_to_ast_once(
+    tmp_path: Path, builds: _Builds, transcript: str, converted: list[int]
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(transcript)
+    builds.items.clear()
+
+    session.load_file(path)
+
+    assert builds.items == converted
+
+
+_DEEP = "(" * 1500 + "1" + ")" * 1500
+
+
+@pytest.mark.parametrize(
+    ("source", "oks"),
+    [
+        (f"let x = {_DEEP}\nlet y = 2\n", [False]),
+        (f"let y = 2\nlet x = {_DEEP}\n", [True, False]),
+        (f'let b: int = "x"\nlet c = 1\t\nlet x = {_DEEP}\n', [False]),
+    ],
+    ids=("first", "late", "unrun"),
+)
+def test_a_deeply_nested_item_fails_its_entry_without_crashing_the_load(
+    tmp_path: Path, source: str, oks: list[bool]
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(source)
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == oks

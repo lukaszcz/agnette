@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import LoadedModule
     from agnette.agl.modules.roots import RootSet
+    from agnette.agl.parser import ProgramTree
     from agnette.agl.runtime.agents import AgentFn
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
@@ -566,6 +567,10 @@ class ReplSession:
         self._pending_bootstrap_warnings: list[Diagnostic] = []
         # Warning names a loaded file's leading ``@!allow`` silences in every entry of it.
         self._inherited_allows: frozenset[str] = frozenset()
+        # While a file loads: the program of each entry parsed so far, and whether the
+        # first one's ``@!allow`` names are the file's (``_inherited_allows`` then follows).
+        self._parsed_programs: list[Program] | None = None
+        self._header_allows = False
         # Each entry's own source label, with the file place its text starts at (``None``
         # for a typed entry): locations in any entry's source map back to that entry.
         self._entry_origins: dict[str, FileOrigin | None] = {}
@@ -1259,6 +1264,7 @@ class ReplSession:
                     self._next_node_id,
                     lexed_ok,
                 )
+        self._note_parsed(program)
         tab_warnings: list[Diagnostic] = list(tab_sink)
         spaced_qualifiers = tuple(spaced_sink)
         # [1d] REPL entries use the program pipeline by default because that
@@ -2638,15 +2644,16 @@ class ReplSession:
         warnings of every entry. Diagnostics and runtime errors carry the file's
         path and file-relative positions.
 
-        A file that is no program (a syntax error, over-deep nesting) is evaluated as a
-        single entry: a bare type entry succeeds, anything else yields a single failed
-        ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
-        items to run: a benign no-op yielding an empty list, or, with TAB advisories, one
-        entry carrying them. A load halted by a failing entry (also of a transcript) reports the
-        advisories of the entries after it with that entry (:meth:`_report_advisories`).
+        A file that is no program (a syntax error) is evaluated as a single entry: a bare
+        type entry succeeds, anything else yields a single failed ``EntryResult`` carrying
+        the parse diagnostic. An item that parses but cannot be converted (over-deep
+        nesting, a malformed ``use``) fails its own entry, the earlier ones having run. An empty
+        or comment-only file has no items to run: a benign no-op yielding an empty list, or,
+        with TAB advisories, one entry carrying them. A load halted by a failing entry (also of a
+        transcript) reports the advisories of the entries after it with that entry
+        (:meth:`_report_advisories`).
         """
         from agnette.agl.lexer import lex_source
-        from agnette.agl.scope.attributes import module_allowed_names
         from agnette.core.fs import read_text
         from agnette.util.text import normalize_newlines
 
@@ -2665,38 +2672,25 @@ class ReplSession:
         if not has_runnable_statements(lexed):
             return self._load_advisories_alone(label, lexed.tab_warnings)
 
-        # Parse the whole file ONCE only to find top-level item boundaries;
-        # this parse is never promoted (each slice is re-parsed by eval_entry with
-        # the session's continuing node-id counter).  start_id=0 is fine here.
-        # A file that is no program is one entry as a whole: a bare type, else its
-        # syntax error.
-        program, tab_sink = self._parse_file(normalized, lexed)
-        if isinstance(program, AglError):
+        # Parse the whole file ONCE, only to the parse tree: it gives the entries' boundaries
+        # and each entry's own parse, and the tree is converted entry by entry, with the
+        # session's continuing node-id counter, as each runs. A file that is no program is
+        # one entry as a whole: a bare type, else its syntax error.
+        tree, tab_sink = self._parse_file(normalized, lexed)
+        if isinstance(tree, AglError):
             return [
                 self._eval_unparsed(
                     normalized,
                     FileOrigin(label, 1, 1),
-                    program,
+                    tree,
                     tab_sink,
                     lexed if lexed.failure is None else None,
                 )
             ]
 
-        # The file's leading inner attributes head its first item, as if typed with it;
-        # their ``@!allow`` names govern every item. A file of attributes alone is one entry.
-        leading = [attribute.span.start_offset for attribute in program.attributes]
-        spans = [(item.span.start_offset, item.span.end_offset) for item in program.body.items]
-        if not spans:
-            spans = [(min(leading), max(a.span.end_offset for a in program.attributes))]
-        spans[0] = (min([spans[0][0], *leading]), spans[0][1])
-        return self._run_entries(
-            label,
-            normalized,
-            lexed,
-            program,
-            spans,
-            [module_allowed_names(program)] * len(spans),
-        )
+        # The file's leading inner attributes head its first entry, as if typed with it;
+        # their ``@!allow`` names govern every entry (see :meth:`_note_parsed`).
+        return self._run_entries(label, normalized, lexed, tree, tree.entry_ranges(), None)
 
     def _load_transcript(
         self, label: str, normalized: str, saved_entries: tuple[_SavedEntry, ...]
@@ -2704,15 +2698,15 @@ class ReplSession:
         """Run the entries of the framed transcript *normalized*, each under its saved allows.
 
         The transcript is lexed and parsed once as a whole, so each entry is read off that
-        pass when it parses as one item per entry, and is otherwise lexed on its own.
+        pass: its tokens always, and its parse when it holds whole items.
         """
         from agnette.agl.lexer import lex_source
 
         lexed = lex_source(normalized)
-        program, _ = self._parse_file(normalized, lexed)
+        tree, _ = self._parse_file(normalized, lexed)
         spans = [(entry.offset, entry.offset + len(entry.text)) for entry in saved_entries]
         return self._run_entries(
-            label, normalized, lexed, program, spans, [entry.allows for entry in saved_entries]
+            label, normalized, lexed, tree, spans, [entry.allows for entry in saved_entries]
         )
 
     def _run_entries(
@@ -2720,14 +2714,15 @@ class ReplSession:
         label: str,
         normalized: str,
         lexed: "LexedSource",
-        program: "Program | AglError",
+        tree: "ProgramTree | AglError",
         spans: Sequence[tuple[int, int]],
-        allows: Sequence[frozenset[str]],
+        allows: Sequence[frozenset[str]] | None,
     ) -> list[EntryResult]:
         """Evaluate the entries at *spans* of the file *label* until one fails.
 
-        Each entry is read off the file's one lex and parse (*lexed*, *program*) rather than
-        scanned and parsed again, and runs under its own inherited *allows*. A failing entry
+        Each entry is read off the file's one lex and parse (*lexed*, *tree*) rather than
+        scanned and parsed again, and runs under its own inherited *allows*, or, without
+        any, under the leading ``@!allow`` names of the file's first entry. A failing entry
         halts the load, still reporting the advisories of the entries after it
         (:meth:`_report_advisories`).
         """
@@ -2735,9 +2730,12 @@ class ReplSession:
 
         readings = entry_slices(lexed, spans)
         results: list[EntryResult] = []
+        programs: list[Program] = []
+        self._parsed_programs, self._header_allows = programs, allows is None
         try:
             for index, ((start, end), reading) in enumerate(zip(spans, readings)):
-                self._inherited_allows = allows[index]
+                if allows is not None:
+                    self._inherited_allows = allows[index]
                 result = self.eval_entry(
                     normalized[start:end],
                     origin=_origin_at(label, normalized, start),
@@ -2747,31 +2745,47 @@ class ReplSession:
                 if not result.ok:
                     if index + 1 < len(spans):
                         self._report_advisories(
-                            result, label, normalized, lexed, program, spans[index + 1][0]
+                            result, label, normalized, lexed, tree, programs, spans[index + 1][0]
                         )
                     break
         finally:
             self._inherited_allows = frozenset()
+            self._parsed_programs, self._header_allows = None, False
         return results
+
+    def _note_parsed(self, program: "Program") -> None:
+        """Record the *program* of an entry a file load has parsed.
+
+        The file's first entry heads it, so its ``@!allow`` names, when the load has no
+        saved ones, govern every entry of the file.
+        """
+        from agnette.agl.scope.attributes import module_allowed_names
+
+        if self._parsed_programs is None:
+            return
+        if self._header_allows and not self._parsed_programs:
+            self._inherited_allows = module_allowed_names(program)
+        self._parsed_programs.append(program)
 
     def _parse_file(
         self, normalized: str, lexed: "LexedSource"
-    ) -> tuple["Program | AglError", list[Diagnostic]]:
-        """Parse a whole file from its one lex, for entry boundaries and allow regions.
+    ) -> tuple["ProgramTree | AglError", list[Diagnostic]]:
+        """Parse a whole file from its one lex, for entry boundaries and entry parses.
 
-        Returns the program, or its syntax error, and the TAB advisories of the parse. The
-        parse is never promoted: each entry is parsed again by :meth:`eval_entry` with the
-        session's continuing node ids.
+        Returns the parse tree, or its syntax error, and the TAB advisories of the parse. The
+        tree is not converted to AST: :meth:`eval_entry` converts each entry's slice of it
+        with the session's continuing node ids, and :meth:`_report_advisories` the items
+        never run.
         """
         from agnette.agl.lexer import lex_replay, tab_warning_collector
-        from agnette.agl.parser import parse_repl_transcript
+        from agnette.agl.parser import parse_program_tree
 
         with tab_warning_collector() as tab_sink, lex_replay(lexed):
             try:
-                program = parse_repl_transcript(normalized, source=self._next_entry_source())
+                tree = parse_program_tree(normalized, source=self._next_entry_source())
             except AglError as exc:
                 return exc, list(tab_sink)
-        return program, list(tab_sink)
+        return tree, list(tab_sink)
 
     def _govern_file_advisories(
         self, label: str, advisories: Iterable[Diagnostic], regions: "Sequence[AllowRegion]"
@@ -2819,26 +2833,30 @@ class ReplSession:
         label: str,
         normalized: str,
         lexed: "LexedSource",
-        program: "Program | AglError",
+        tree: "ProgramTree | AglError",
+        programs: Sequence["Program"],
         resume: int,
     ) -> None:
         """Add the advisories of the entries never run to *result*, governed by the file's allows.
 
         These are the advisories of the file *label* (text *normalized*, lexed as *lexed*)
         from offset *resume* on; a denied one is another error. The ``@allow`` regions
-        come from the file's whole parse *program*: its inner attributes and the items from
-        *resume* on, the earlier ones having been resolved already. They are withheld when the file
-        could not resolve, which *result* and an unparsable or invalid *program* tell;
-        a failure in a later entry is not known without running it.
+        come from the file's inner attributes and the items of its parse *tree* from *resume*
+        on, converted here: the earlier items are in the *programs* of the entries run. They are
+        withheld when the file could not resolve, which *result* and an unparsable or invalid
+        *tree* tell; a failure in a later entry is not known without running it.
         """
         from agnette.agl.scope.attributes import module_allow_regions
-        from agnette.agl.scope.symbols import AglScopeError
 
-        if result.scope_failed or isinstance(program, AglError):
+        if result.scope_failed or isinstance(tree, AglError):
             return
+        head = programs[0]
         try:
-            regions = module_allow_regions(program, source_text=normalized, from_offset=resume)
-        except AglScopeError:
+            unrun = tree.items_from(resume, start_id=self._next_node_id)
+            run = tuple(item for program in programs for item in program.body.items)
+            module = replace(head, body=replace(head.body, items=(*run, *unrun)))
+            regions = module_allow_regions(module, source_text=normalized, items=unrun)
+        except AglError:
             return
         after = _origin_at(label, normalized, resume)
         outcome = self._govern_file_advisories(

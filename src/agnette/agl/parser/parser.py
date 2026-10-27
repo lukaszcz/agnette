@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from dataclasses import replace as dc_replace
 from typing import NoReturn, cast
 
@@ -43,7 +44,11 @@ from agnette.agl.lexer.lexer import build_parser
 from agnette.agl.lexer.positions import LineIndex, Rebase, token_span
 from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
-from agnette.agl.parser.transform import AstBuilder
+from agnette.agl.parser.transform import (
+    MISPLACED_INNER_ATTRIBUTE_MESSAGE,
+    AstBuilder,
+    syntax_error_from_meta,
+)
 from agnette.agl.recursion import frontend_recursion_boundary
 from agnette.agl.syntax.spans import SourceId
 
@@ -175,13 +180,11 @@ def _parse_to_program(
     *,
     start_id: int,
     source: SourceId | None = None,
-    allow_late_uses: bool = False,
 ) -> tuple[syntax.Program, int]:
     """Parse *text*, reporting the next unused node id.
 
-    Shared body for :func:`parse_program`, :func:`parse_program_seeded` and
-    :func:`parse_repl_transcript`. Node ids are assigned starting at
-    *start_id*; the returned ``int`` is the first id NOT consumed (the seed for
+    Shared body for :func:`parse_program` and :func:`parse_program_seeded`. Node ids are
+    assigned starting at *start_id*; the returned ``int`` is the first id NOT consumed (the seed for
     a subsequent incremental parse), read from the builder's counter rather
     than assuming the root holds the maximum.
 
@@ -191,9 +194,7 @@ def _parse_to_program(
     """
     with frontend_recursion_boundary():
         tree = _parse_tree(_PARSER, _PROGRAM_START, text, source=source)
-        result, next_id = _transform_tree(
-            tree, start_id=start_id, source=source, allow_late_uses=allow_late_uses
-        )
+        result, next_id = _transform_tree(tree, start_id=start_id, source=source)
     return cast(syntax.Program, result), next_id
 
 
@@ -315,16 +316,77 @@ def parse_program(
     return program
 
 
-def parse_repl_transcript(text: str, *, source: SourceId | None = None) -> syntax.Program:
-    """Parse a saved REPL transcript for top-level entry boundary discovery.
+@dataclass(frozen=True, slots=True)
+class ProgramTree:
+    """A program's parse tree, not yet converted to an AST.
 
-    A syntax error carries *source*, when given.
-
-    Header ordering is deferred because each top-level item is subsequently
-    parsed as an independent REPL entry before it can be evaluated.
+    A host that converts each top-level entry itself (the REPL, which assigns node ids
+    and sources entry by entry) reads the entry boundaries off the tree and converts
+    only the items it has not converted already.
     """
 
-    program, _next_id = _parse_to_program(text, start_id=0, source=source, allow_late_uses=True)
+    tree: Tree
+    text: str
+
+    def children(self) -> list[Tree]:
+        """The module's inner attributes and items, in order."""
+        return [c for c in cast(Tree, self.tree.children[0]).children if not isinstance(c, Token)]
+
+    def misplaced_attribute(self) -> Tree | None:
+        """The first inner attribute after an item, which may only head the module."""
+        seen_item = False
+        for child in self.children():
+            if child.data != "inner_attribute":
+                seen_item = True
+            elif seen_item:
+                return child
+        return None
+
+    def entry_ranges(self) -> list[tuple[int, int]]:
+        """The source ranges of the module's entries: one per item, or one for attributes alone.
+
+        The module's leading inner attributes head the first entry.
+        """
+        children = self.children()
+        attributes = [c.meta for c in children if c.data == "inner_attribute"]
+        ranges = [
+            (c.meta.start_pos, c.meta.end_pos) for c in children if c.data != "inner_attribute"
+        ]
+        if not ranges:
+            ranges = [(min(a.start_pos for a in attributes), max(a.end_pos for a in attributes))]
+        ranges[0] = (min([ranges[0][0], *(a.start_pos for a in attributes)]), ranges[0][1])
+        return ranges
+
+    def items_from(self, offset: int, *, start_id: int) -> tuple[syntax.Item, ...]:
+        """Convert the items starting at or after *offset* to AST, with ids from *start_id*.
+
+        Spans are the file's own. Header ordering is not enforced: the entry that runs an
+        item judges it.
+        """
+        items = [
+            c for c in self.children() if c.data != "inner_attribute" and c.meta.start_pos >= offset
+        ]
+        if not items:
+            return ()
+        root = _module_tree(items, Rebase(LineIndex(self.text), 0))
+        with frontend_recursion_boundary():
+            program, _ = _transform_tree(root, start_id=start_id, source=None, allow_late_uses=True)
+        return cast(syntax.Program, program).body.items
+
+
+def parse_program_tree(text: str, *, source: SourceId | None = None) -> ProgramTree:
+    """Parse *text* as a program, leaving the tree unconverted.
+
+    A syntax error carries *source*, when given. Within a :func:`~agnette.agl.lexer.lex_replay`
+    of *text*, the tree is recorded on the lex for :func:`entry_slices`.
+    """
+    with frontend_recursion_boundary():
+        program = ProgramTree(_parse_tree(_PARSER, _PROGRAM_START, text, source=source), text)
+    misplaced = program.misplaced_attribute()
+    if misplaced is not None:
+        _reraise_stamped(
+            syntax_error_from_meta(misplaced.meta, MISPLACED_INNER_ATTRIBUTE_MESSAGE), source
+        )
     return program
 
 
@@ -365,25 +427,31 @@ def parse_program_seeded(
 
 
 def _rebased_tree(tree: Tree, rebase: Rebase) -> Tree:
-    """Return a copy of *tree* with every position rebased."""
-    children = [
-        _rebased_tree(child, rebase)
-        if isinstance(child, Tree)
-        else rebase.token(child)
-        if isinstance(child, Token)
-        else child
-        for child in tree.children
-    ]
-    copy = Tree(tree.data, children)
-    meta = tree.meta
-    if not meta.empty:
-        _set_span(
-            copy,
-            (meta.start_pos, meta.line, meta.column),
-            (meta.end_pos, meta.end_line, meta.end_column),
-            rebase,
-        )
-    return copy
+    """Return a copy of *tree* with every position rebased.
+
+    Walks iteratively: the tree of source nested too deep to convert is still copied, and
+    its conversion reports the nesting.
+    """
+    root = Tree(tree.data, [])
+    pending = [(tree, root)]
+    while pending:
+        original, copy = pending.pop()
+        for child in original.children:
+            if isinstance(child, Tree):
+                copied = Tree(child.data, [])
+                pending.append((child, copied))
+                copy.children.append(copied)
+            else:
+                copy.children.append(rebase.token(child) if isinstance(child, Token) else child)
+        meta = original.meta
+        if not meta.empty:
+            _set_span(
+                copy,
+                (meta.start_pos, meta.line, meta.column),
+                (meta.end_pos, meta.end_line, meta.end_column),
+                rebase,
+            )
+    return root
 
 
 def _set_span(
@@ -398,6 +466,21 @@ def _set_span(
     meta.end_line, meta.end_column = rebase.line(end[1]), rebase.column(end[1], end[2])
 
 
+def _module_tree(children: Sequence[Tree], rebase: Rebase) -> Tree:
+    """The program tree of the module whose top-level *children* are given, all rebased."""
+    block = Tree("module_block", [_rebased_tree(c, rebase) for c in children])
+    root = Tree("start", [block])
+    first, last = children[0].meta, children[-1].meta
+    for node in (block, root):
+        _set_span(
+            node,
+            (first.start_pos, first.line, first.column),
+            (last.end_pos, last.end_line, last.end_column),
+            rebase,
+        )
+    return root
+
+
 def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[LexedSource | None]:
     """Read each of *ranges* of ``lexed.text``, a module's top-level entries, off its program parse.
 
@@ -410,7 +493,7 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     whole = lexed.parses.get(_PROGRAM_START)
     if not isinstance(whole, Tree):
         return [None] * len(ranges)
-    children = [c for c in cast(Tree, whole.children[0]).children if not isinstance(c, Token)]
+    children = ProgramTree(whole, lexed.text).children()
     attributes = [c for c in children if c.data == "inner_attribute"]
     entries = [[c] for c in children if c.data != "inner_attribute"]
     if attributes:
@@ -420,18 +503,7 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     lines = LineIndex(lexed.text)
     slices: list[LexedSource | None] = []
     for sliced, (start, _), entry in zip(lexed_slices(lexed, ranges, lines), ranges, entries):
-        rebase = Rebase(lines, start)
-        block = Tree("module_block", [_rebased_tree(c, rebase) for c in entry])
-        root = Tree("start", [block])
-        first, last = entry[0].meta, entry[-1].meta
-        for node in (block, root):
-            _set_span(
-                node,
-                (first.start_pos, first.line, first.column),
-                (last.end_pos, last.end_line, last.end_column),
-                rebase,
-            )
-        sliced.parses[_PROGRAM_START] = root
+        sliced.parses[_PROGRAM_START] = _module_tree(entry, Rebase(lines, start))
         slices.append(sliced)
     return slices
 

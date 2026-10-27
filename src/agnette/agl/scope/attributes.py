@@ -249,22 +249,21 @@ def _recognizer(
 
 
 def module_allow_regions(
-    program: Program, *, source_text: str, from_offset: int = 0
+    program: Program, *, source_text: str, items: tuple[Item, ...] | None = None
 ) -> list[AllowRegion]:
     """The ``@allow`` and ``@!allow`` regions of *program*, parsed from *source_text*.
 
     Read off the parse alone, for a host that cannot resolve the module: the same
     regions scope files, as receiver classification changes none of them. Only the
-    module's inner attributes and the items starting at or after *from_offset* are
-    recognized, for a host that already resolved the items before it. Parameter zones,
-    which need that classification, are not validated. Raises ``AglScopeError`` when
-    an attribute is invalid, as resolving the module would.
+    module's inner attributes and *items* (default: all of *program*'s) are recognized,
+    for a host that already resolved the rest; *program* still supplies the module's
+    constants. Parameter zones, which need that classification, are not validated. Raises
+    ``AglScopeError`` when an attribute is invalid, as resolving the module would.
     """
     recognizer = _recognizer(program, None, source_text)
     recognizer.visit(program)
-    for item in program.body.items:
-        if item.span.start_offset >= from_offset:
-            walk(item, recognizer.visit)
+    for item in program.body.items if items is None else items:
+        walk(item, recognizer.visit)
     return recognizer.warning_allows
 
 
