@@ -6,8 +6,8 @@ rules.
 
 Key rules
 ---------
-- The indent stack starts at ``[0]``. The first code line's indentation (the *base*) is a
-  top-level level too: at the bottom of the stack a line indented by the base is at level 0.
+- The indent stack starts at ``[0]``, or ``[0, base]`` when the first code line is indented by
+  ``base``: that level opens no block, and leaving it emits no layout.
 - Inside brackets/parens/braces (``paren_level > 0``) ``_NEWLINE`` tokens are
   suppressed (implicit line continuation).
 - On a ``_NEWLINE`` token: compare the carried indentation width against the
@@ -150,12 +150,14 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
     if first is not None:
         stream = chain([first], stream)
     base = 0 if first is None else token_span(first).start_col - 1
-    indent_stack: list[int] = [0]
+    indent_stack: list[int] = [0, base] if base else [0]
     # Parallel stack aligned with indent_stack: each entry is either the
     # enclosing indent level (indent_stack top before the _INDENT push) when a
     # loop body was opened at that indent level, or None if this level is not a
     # loop body.  Seeded with [None] to match indent_stack's initial [0].
-    loop_body_enclosing: list[int | None] = [None]
+    loop_body_enclosing: list[int | None] = [None] * len(indent_stack)
+    # Whether the base level, no block of its own, is still the top of the stack's bottom pair.
+    base_open = base > 0
     paren_level = 0
 
     # One-token lookahead buffer for the branch/compound continuation rule.
@@ -203,8 +205,13 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             or None at EOF.  Used to determine whether this pop is caused by an
             explicit until/done aligned with the do.
         """
+        nonlocal base_open
         enclosing_col = loop_body_enclosing.pop()
         indent_stack.pop()
+        if base_open and len(indent_stack) == 1:
+            # The base level opened no block: leaving it emits no layout.
+            base_open = False
+            return
         yield _synthetic(DEDENT, "", ref)
         if enclosing_col is not None:
             # This is a loop-body level.  Inject a synthetic DONE unless
@@ -290,8 +297,6 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
         # paren_level == 0 (bound is closed) or there was no bound.
         # The _INDENT will push the new level tagged with do_col.
         indent_width = int(str(tok))
-        if len(indent_stack) == 1 and indent_width == base:
-            indent_width = 0
 
         # Peek at the next two tokens: the first for the continuation rules, the
         # second for the operator-position test the leading one applies to it.
@@ -364,8 +369,6 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             # Dedent: pop levels and emit _DEDENT for each
             while len(indent_stack) > 1 and indent_stack[-1] > indent_width:
                 yield from _pop_level(tok, sig)
-            if len(indent_stack) == 1 and indent_width == base:
-                indent_width = 0
 
             if indent_stack[-1] != indent_width:
                 # Misaligned dedent — the new indentation is not on the stack.

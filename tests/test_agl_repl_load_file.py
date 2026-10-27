@@ -273,3 +273,15 @@ def test_a_file_indented_throughout_loads_at_its_own_base_level(tmp_path: Path) 
 
     assert [r.ok for r in results] == [True] * 3
     assert results[-1].value == IntValue(2)
+
+
+def test_a_block_indented_like_the_files_first_line_is_still_a_block(tmp_path: Path) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text("  let a = 1\ndef f() -> int =\n  a\nf()\n")
+    session = ReplSession()
+    session.open()
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True] * 3
+    assert results[-1].value == IntValue(1)
