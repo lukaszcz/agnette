@@ -296,3 +296,15 @@ def test_an_entry_after_a_tab_indented_lines_start_is_read_at_the_columns_scanni
         assert [_position(t) for t in read.tokens] == [
             _position(t) for t in lex_source(source[start:end]).tokens
         ]
+
+
+def test_an_entry_ending_in_a_newline_that_no_token_covers_is_no_pass_of_its_own() -> None:
+    entry = "def v() -> int =\n  $\n    line one\n    line two\n"
+    source = f"let pre = 0\n{entry}\nlet post = 1\n"
+    start = len("let pre = 0\n")
+    lexed, ranges = _parsed(source)
+    assert ranges[1][1] == start + len(entry) + 1  # the item swallows the newline after its text
+
+    slices = entry_slices(lexed, [(0, 11), (start, start + len(entry)), ranges[2]])
+
+    assert [s is None for s in slices] == [False, True, False]

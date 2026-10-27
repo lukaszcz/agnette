@@ -289,8 +289,8 @@ def lexed_slices(
     rebased. One walk over each of *lexed*'s sequences. The dedents closing a range's last
     block past its end sit on its last token, as scanning its text alone puts them; the newline
     after it is no token of it. A range is no pass of its own, and reads ``None``, when a
-    token crosses its boundary or a dedent closes a block opened before it; all of them are
-    when *lexed* failed.
+    token crosses its boundary, a dedent closes a block opened before it, or its text ends in a
+    newline that no token covers; all of them are when *lexed* failed.
     """
     if lexed.failure is not None:
         return [None] * len(ranges)
@@ -300,6 +300,7 @@ def lexed_slices(
     tokens: list[list[Token]] = [[] for _ in ranges]
     last_code: list[Token | None] = [None] * len(ranges)
     open_blocks = [0] * len(ranges)
+    covers_end = [False] * len(ranges)
     crossed: set[int] = set()
     for token in lexed.tokens:
         start_pos, end_pos = cast(int, token.start_pos), cast(int, token.end_pos)
@@ -323,11 +324,17 @@ def lexed_slices(
         if within:
             rebased = rebases[index].token(token)
             tokens[index].append(rebased)
+            covers_end[index] |= end_pos == ranges[index][1]
             if token.type not in LAYOUT_TOKENS:
                 last_code[index] = rebased
         elif token.type != NEWLINE or start_pos < ranges[index][1]:
             # The newline after a range is no token of it; any other token outside is a crossing.
             crossed.update(touched_ranges(ranges, starts, start_pos, end_pos))
+    for index, (_, end) in enumerate(ranges):
+        # Scanning a text ending in a newline ends its layout on that newline; the whole lex,
+        # a verbatim block having swallowed it, may put none there.
+        if tokens[index] and lexed.text[end - 1] == "\n" and not covers_end[index]:
+            crossed.add(index)
     spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
     for qualifier in lexed.spaced_qualifiers:
         offset = qualifier.run_start_offset
