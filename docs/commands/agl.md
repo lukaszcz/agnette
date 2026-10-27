@@ -867,12 +867,12 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
 | `:help` | List the available meta-commands |
 | `:quit` / `:exit` (or Ctrl-D) | Exit the REPL |
 | `:reset` | Clear the whole session (bindings, types, declarations, imports, and uses) |
-| `:type EXPR` | Type-check `EXPR` against the session and print its type (no eval) |
+| `:type EXPR` | Type-check `EXPR` against the session and print its type (no eval); a module-level `@!doc` draws the `unused-module-doc` warning as in an entry |
 | `:info NAME` | Show the current binding, function, constructor, type, imported module, or scope region as concise AgL, with its documentation; the rich console highlights it |
 | `:bindings` / `:env` | List current bindings as `name : Type = value` |
 | `:set echo on\|off` | Toggle result echoing |
 | `:set echo-unit on\|off` | Toggle echoing `unit`-typed entries too (off by default) |
-| `:load FILE` | Load a saved transcript by its original entries, or an ordinary `.agl` file one item per entry |
+| `:load FILE` | Load a saved transcript by its original entries (each read exactly as typed, whatever its indentation), or an ordinary `.agl` file one item per entry |
 | `:save FILE` | Write the accumulated session source and entry boundaries to a transcript |
 | `:theme [dark\|light\|auto]` | Show or switch the syntax-highlighting theme; saves to `~/.agm/config.toml` |
 
@@ -909,7 +909,7 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   `(int) -> bool`, or a qualified spelling such as `lib::Agent::Mood`) echo the resolved type
   (`<type: int>`) instead of ``'X' is not defined.``; an unapplied generic such as `Option` shows
   its generic definition, and an alias shows the type it denotes. The name is looked up exactly
-  as in an annotation. A REPL convenience only; names that are also values (a record
+  as in an annotation. A bare type entry may start with inner attributes (`@!doc`, `@!allow`), governed as in any entry, and a `:load`ed file holding a single bare type runs as one type entry. A REPL convenience only; names that are also values (a record
   constructor, a binding) evaluate normally.
 - **`:info NAME`** reads `NAME` exactly as an entry would: bare, qualified, applied-owner
   (`Slot[int]::Filled`), and alias-qualified spellings select what they select in an
@@ -938,8 +938,15 @@ Meta-commands start with a single `:`; a line starting with `::` is an AgL entry
   `@!allow("unused-module-doc")` hides the warning. A loaded file's leading inner attributes
   head its first entry (which draws the `unused-module-doc` warning, once), and its
   `@!allow` names govern the warnings of every entry loaded from it, but not warnings from imported library
-  modules. A loaded file's (or transcript's) diagnostics and runtime errors name the file and use
-  file-relative lines and columns; a file that is not UTF-8 text reports an error.
+  modules. A saved transcript records the `@!allow` names an entry ran under, so replaying it
+  raises the same warnings. Each entry reports its TAB-indentation advisories, governed in a plain file by the
+  `@allow` regions of its inner attributes and items, and in a transcript by the entry's own
+  `allow=` marks, inner attributes and items; after a failing entry halts the load, the later
+  entries' advisories are still reported, governed the same way, unless it failed to resolve. `agm check` differs: an entry sees no later
+  declaration here, and `agm check` rejects REPL-only constructs (bare expressions, bare type
+  entries, redefinitions, imports after declarations) without reporting advisories. A loaded file's (or transcript's) diagnostics, runtime errors and trace
+  records name the file and use file-relative lines and columns (text typed at the prompt is
+  `<repl>`); a file that is not UTF-8 text reports an error. A plain file that fails to parse runs nothing; in a transcript, an entry that fails to parse fails only that entry, after the earlier entries ran. An error found while converting an item (`use a::{}`, a chained comparison, over-deep nesting, a misplaced inner attribute in a scope region) fails only that item's entry, after the earlier entries ran, as scope and type errors do and in a transcript.
 - **Engine settings**: import `std/config` and write a qualified target
   (`std/config::strict-json := true`). The write takes effect positionally, so subsequent entries see
   it even if a later expression in the same entry fails; `trace`/`trace-file` writes reconfigure the

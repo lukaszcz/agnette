@@ -67,9 +67,9 @@ from agnette.agl.semantics.values import (
     TextValue,
 )
 from agnette.agl.type_schema import (
+    ExceptionFieldEncodes,
     _build_template_encode_plan,
     build_encode_plan,
-    build_exception_field_encodes,
     build_param_decoder,
 )
 from agnette.agl.zones import ParamZone
@@ -160,7 +160,7 @@ def test_encode_plan_preserves_enum_tags_for_member_records() -> None:
         decl_node_id=problem_id,
     )
     table = type_table_for(item_def, choice_def, problem_def)
-    exceptions = {NominalId(problem_id): build_exception_field_encodes(problem, table)}
+    exceptions = {NominalId(problem_id): ExceptionFieldEncodes(table).of(problem)}
     item_value = RecordValue(NominalId(item.decl_id), {"value": IntValue(7)})
     choice_value = RecordValue(
         nominal=NominalId(choice_def.members[1].decl_id),
@@ -1232,7 +1232,7 @@ def test_encode_plan_flattens_renamed_field_from_exception_base_chain() -> None:
     )
     table = type_table_for(base_def, derived_def)
     value = ExceptionValue(NominalId(derived_id), {"code": IntValue(4)})
-    exceptions = {NominalId(derived_id): build_exception_field_encodes(derived, table)}
+    exceptions = {NominalId(derived_id): ExceptionFieldEncodes(table).of(derived)}
 
     plan = build_encode_plan(derived, table)
 

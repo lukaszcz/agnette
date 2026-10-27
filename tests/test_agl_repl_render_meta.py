@@ -1304,7 +1304,8 @@ class TestInfo:
         shown = session.info_of("sc::E")
 
         assert shown is not None
-        assert "extends" in shown
+        declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
+        assert declaration == "exception sc::E extends Inner"
 
     def test_the_root_exception_type_entry_has_no_base(self) -> None:
         shown = render_mod.render_entry_result(_open_session().eval_entry("Exception"), echo=True)

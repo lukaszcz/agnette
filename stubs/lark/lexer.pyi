@@ -25,6 +25,8 @@ class Token(str):
         end_column: int | None = ...,
         end_pos: int | None = ...,
     ) -> Token: ...
+    @classmethod
+    def new_borrow_pos(cls, type_: str, value: str, borrow_t: Token) -> Token: ...
 
 class TextSlice:
     text: str

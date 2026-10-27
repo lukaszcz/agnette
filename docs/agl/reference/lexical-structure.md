@@ -32,7 +32,15 @@ The layout rules:
 1. **Indentation width.** Leading spaces count 1 column each; a tab advances
    to the next multiple of 4 columns, but draws the `tab-indentation` [static
    warning](warnings.md). A dedent must return to an active prior
-   indentation level — a misaligned dedent is a lexical error.
+   indentation level, else it is a lexical error. The indentation of the line
+   holding a source's first token is its base; indentation is read relative to
+   it, and a line indented less than the base is a misaligned dedent, except
+   inside brackets (rule 3) and after a line ending in an operator that still
+   awaits its operand, `:=` included (rule 5), where indentation is not
+   measured. Tab stops are measured from the start of the line, so a tab after
+   a base that is not a multiple of 4 spans fewer columns than without the
+   base. The lines inside a triple-quoted string are not layout: when its
+   margin is 0 they keep every column they have, base included.
 2. **Blank lines and comment-only lines** are ignored for layout purposes.
 3. **Implicit continuation inside brackets.** While any `(`, `[`, or `{` is
    open, newlines do not terminate the item; the logical line continues until
@@ -42,8 +50,8 @@ The layout rules:
 4. **Continuation markers.** None of `|`, `else`, `catch`, `until`, `done`,
    `->`, `=>`, and `=` can begin a construct, so a line whose first token is
    one of them always continues the line before it rather than starting a new
-   item, and may sit at any column — including the enclosing construct's —
-   without opening a new block.
+   item, and may sit at any column not less than the base — including the
+   enclosing construct's — without opening a new block.
 
    This is what lets `if`/`case` branches, `else` branches, `catch` clauses,
    enum members, and the `until`/`done` terminator of a loop align with the

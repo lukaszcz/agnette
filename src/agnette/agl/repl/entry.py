@@ -5,9 +5,8 @@ Shared by the session and its program collaborator.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from agnette.agl.diagnostics import Diagnostic, RelatedDiagnostic
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE
@@ -78,6 +77,10 @@ class EntryResult:
         ``AglError`` (a lowering ``ResourceError``, a param/environment/
         extern diagnostic). The REPL
         renderer keeps using ``diagnostics``.
+    ``scope_failed``
+        Whether the entry never resolved (a parse, import or scope failure), so a
+        host reporting what ``agm check`` does withholds the warnings of source
+        beyond it.
     ``ok``
         ``True`` iff there are no error diagnostics AND no runtime error.
     ``installed``
@@ -104,26 +107,33 @@ class EntryResult:
     type_table: "TypeTable | None" = None
     descriptors: "ValueDescriptors | None" = None
     failure: "AglError | None" = None
+    scope_failed: bool = False
 
 
 #: A source label with a 1-based line and column.
 type Placement = tuple[str | None, int, int | None]
 
 
-def relocate(result: EntryResult, place: Callable[[Placement], Placement]) -> EntryResult:
-    """Return *result* with every diagnostic, note and runtime error location moved by *place*.
+REPL_LABEL = "<repl>"
+"""The source label users see for text typed at the prompt."""
 
-    *place* maps a location to its final one; a location it returns unchanged stays put.
-    A runtime error without a source is placed under the unknown source's label.
-    """
 
-    def moved[D: (Diagnostic, RelatedDiagnostic)](diagnostic: D) -> D:
-        label, line, column = place((diagnostic.source_label, diagnostic.line, diagnostic.column))
-        end_line, end_column = diagnostic.end_line, diagnostic.end_column
+class Place(Protocol):
+    """Maps a location to its final one."""
+
+    def __call__(self, location: Placement, /) -> Placement: ...
+
+
+def relocate_diagnostic(diagnostic: Diagnostic, place: Place) -> Diagnostic:
+    """Return *diagnostic* with its location and its notes' moved by *place*."""
+
+    def moved[D: (Diagnostic, RelatedDiagnostic)](located: D) -> D:
+        label, line, column = place((located.source_label, located.line, located.column))
+        end_line, end_column = located.end_line, located.end_column
         if end_line is not None:
-            _, end_line, end_column = place((diagnostic.source_label, end_line, end_column))
+            _, end_line, end_column = place((located.source_label, end_line, end_column))
         return replace(
-            diagnostic,
+            located,
             line=line,
             column=column,
             end_line=end_line,
@@ -131,19 +141,28 @@ def relocate(result: EntryResult, place: Callable[[Placement], Placement]) -> En
             source_label=label,
         )
 
-    def moved_diagnostic(diagnostic: Diagnostic) -> Diagnostic:
-        return replace(moved(diagnostic), related=tuple(moved(note) for note in diagnostic.related))
+    return replace(moved(diagnostic), related=tuple(moved(note) for note in diagnostic.related))
 
+
+def relocate(
+    result: EntryResult,
+    place: Place,
+    *,
+    unplaced: str = UNKNOWN_SOURCE.label,
+) -> EntryResult:
+    """Return *result* with every diagnostic, note and runtime error location moved by *place*.
+
+    *place* maps a location to its final one; a location it returns unchanged stays put.
+    A runtime error *place* leaves without a file is labelled *unplaced*.
+    """
     error = result.error
     if error is not None and error.line is not None:
         label, line, column = place((error.source, error.line, error.col))
-        error = replace(
-            error, source=UNKNOWN_SOURCE.label if label is None else label, line=line, col=column
-        )
+        error = replace(error, source=unplaced if label is None else label, line=line, col=column)
     return replace(
         result,
-        diagnostics=[moved_diagnostic(d) for d in result.diagnostics],
-        warnings=[moved_diagnostic(w) for w in result.warnings],
+        diagnostics=[relocate_diagnostic(d, place) for d in result.diagnostics],
+        warnings=[relocate_diagnostic(w, place) for w in result.warnings],
         error=error,
     )
 
@@ -156,7 +175,7 @@ class FileOrigin:
     line: int
     column: int
 
-    def place(self, location: Placement) -> Placement:
+    def place(self, location: Placement, /) -> Placement:
         """Move an entry-relative location into the file; columns shift on the first line only.
 
         A location anchored in another source stays put.

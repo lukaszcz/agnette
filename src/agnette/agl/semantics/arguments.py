@@ -252,6 +252,11 @@ def bind_arguments(
     return tuple(bound)
 
 
+def has_positional_only(zones: Iterable[ParamZone]) -> bool:
+    """Whether any of *zones* is positional-only."""
+    return ParamZone.POSITIONAL_ONLY in zones
+
+
 def positional_field_names(field_kinds: Sequence[tuple[str, ParamZone]]) -> tuple[str, ...]:
     """Fields a constructor call binds positionally: every non-named-only field up to
     the last positional-only one, in field order."""

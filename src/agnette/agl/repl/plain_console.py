@@ -18,6 +18,7 @@ import io
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, TextIO
 
+from agnette.agl.lexer import LexedSource, lex_source
 from agnette.agl.repl.loop import CONTINUATION, PROMPT, is_incomplete, run_repl_loop
 
 if TYPE_CHECKING:
@@ -80,7 +81,7 @@ class PlainReader:
         self._stdin = stdin
         self._stdout = stdout
 
-    def __call__(self) -> str:
+    def __call__(self) -> str | LexedSource:
         text = ""
         prompt = PROMPT
         while True:
@@ -97,10 +98,10 @@ class PlainReader:
                     return text
                 raise EOFError
             line = raw.rstrip("\n")
-            candidate = text + line
+            candidate = lex_source(text + line)
             if not is_incomplete(candidate) and not _continues_block(text, line):
                 return candidate
-            text = candidate + "\n"
+            text = candidate.text + "\n"
             prompt = CONTINUATION
 
 

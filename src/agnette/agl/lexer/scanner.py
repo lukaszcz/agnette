@@ -45,7 +45,7 @@ from agnette.agl.lexer.errors import (
     LexError,
     UnterminatedTripleQuotedStringError,
 )
-from agnette.agl.lexer.positions import token_span
+from agnette.agl.lexer.positions import TAB_LEN, token_span
 from agnette.agl.lexer.tokens import (
     ARROW,
     ASSIGN,
@@ -118,8 +118,6 @@ from agnette.util.unicode import SURROGATE, surrogate_index
 # lexes as AT NAME; the string quotes and ``+``/``*`` are not, so ``foo"bar``
 # and ``a+b`` scan as single identifiers.
 
-_TAB_LEN = 4
-
 # The token each kind of hole opener emits.
 _OPENER_TOKEN_TYPES: dict[lexical.HoleKind, str] = {
     lexical.HoleKind.EXPRESSION: INTERP_START,
@@ -179,6 +177,16 @@ _RESERVED_OPERATOR_NAMES: dict[str, str] = {
 #: Spellings the scanner retypes from a maximal-munch operator run or punctuation.
 RESERVED_OPERATOR_SPELLINGS: frozenset[str] = frozenset(_RESERVED_OPERATOR_NAMES)
 
+
+def tab_warning(line: int, col: int) -> Diagnostic:
+    """Return the TAB advisory for the ``\\t`` at *line* and 1-based lexer column *col*."""
+    return warning_diagnostic(
+        TAB_INDENTATION,
+        "TAB character is not allowed; use spaces for indentation",
+        SourceSpan(line, col, line, col + 1, 0, 0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Triple-quoted template segments (typed union)
 # ---------------------------------------------------------------------------
@@ -223,6 +231,8 @@ class _BlockLine:
     end_pos: int
     line: int
     column: int
+    # Offset of the first character of the physical line.
+    line_start_pos: int
     # Spaces standing in for the part of a TAB the dedent margin split in two;
     # empty for every line whose indentation ends on the margin.
     prefix: str = ""
@@ -241,10 +251,7 @@ class _Scanner:
         self._pos = 0
         self._line = 1
         self._col = 1  # 1-based column
-        # Offset of the first character of the current line (after newline
-        # normalization).  Used to report TAB warnings with a SIMPLE 1-based
-        # column (``pos - line_start + 1``) — distinct from ``self._col``, which
-        # is tab-EXPANDED after indentation.  Updated only at newline boundaries.
+        # Offset of the first character of the current line (after newline normalization).
         self._line_start_pos = 0
         # TAB-character advisories accumulated during this single scan (one per
         # ``\t`` in code, indentation, a comment, or an interpolation hole —
@@ -256,9 +263,6 @@ class _Scanner:
         # is the only record of where they were; the scanner is their sole
         # producer, which keeps ``#`` inside a string or a `$` literal out.
         self._comment_spans: list[tuple[int, int]] = []
-        # True once at least one real (non-layout) token has been emitted; used
-        # to suppress the leading ``_NEWLINE`` of comment/blank-only prefixes.
-        self._emitted_real = False
         self._bracket_depth = 0
         self._pending_block_newline: Token | None = None
         # A `$` literal seen at nonzero bracket depth.  Held until the scan ends
@@ -288,30 +292,13 @@ class _Scanner:
             self._advance()
         self._comment_spans.append((start, self._pos))
 
-    def _record_tab(self) -> None:
-        """Record a TAB advisory for the ``\\t`` at the current scan position.
+    def _record_tab(self, line: int, col: int) -> None:
+        """Record a TAB advisory for a ``\\t`` on *line* at 1-based lexer column *col*.
 
-        Callers invoke this with ``self._pos`` pointing AT the tab character;
-        the reported column is the simple (non-expanded) 1-based offset within
-        the current line.
+        Indentation is measured, or stripped from a `$`-literal block, ahead of the
+        scanner, so callers pass the column the tab starts at.
         """
-        self._record_tab_at(self._pos, self._line)
-
-    def _record_tab_at(self, pos: int, line: int) -> None:
-        """Record a TAB advisory for the ``\\t`` at *pos* on *line*.
-
-        Used where the tab is not at the scan position, such as the indentation
-        a `$`-literal block strips ahead of the scanner.
-        """
-        col = pos - self._line_start_pos + 1
-        span = SourceSpan(line, col, line, col + 1, pos, pos + 1)
-        self._tab_warnings.append(
-            warning_diagnostic(
-                TAB_INDENTATION,
-                f"TAB character at column {col} is not allowed; use spaces for indentation",
-                span,
-            )
-        )
+        self._tab_warnings.append(tab_warning(line, col))
 
     # ------------------------------------------------------------------
     # Low-level helpers
@@ -331,7 +318,7 @@ class _Scanner:
         # A TAB inside string-literal content is allowed; everywhere else (code,
         # indentation, comments, interpolation) a literal TAB is advised against.
         if ch == "\t" and not in_string:
-            self._record_tab()
+            self._record_tab(self._line, self._col)
         self._pos += 1
         if ch == "\n":
             self._line += 1
@@ -400,8 +387,8 @@ class _Scanner:
             while self._pos < len(self._src) and self._src[self._pos] in (" ", "\t"):
                 ch = self._src[self._pos]
                 if ch == "\t":
-                    col += _TAB_LEN - (col % _TAB_LEN)
-                    self._record_tab()
+                    self._record_tab(self._line, col + 1)
+                    col += TAB_LEN - (col % TAB_LEN)
                 else:
                     col += 1
                 self._pos += 1
@@ -807,7 +794,7 @@ class _Scanner:
         offset = 0
         while pos + offset < len(self._src) and self._src[pos + offset] in (" ", "\t"):
             if self._src[pos + offset] == "\t":
-                width += _TAB_LEN - (width % _TAB_LEN)
+                width += TAB_LEN - (width % TAB_LEN)
             else:
                 width += 1
             offset += 1
@@ -877,10 +864,11 @@ class _Scanner:
                 self._pos = raw_line.start_pos
                 self._line = raw_line.line
                 self._col = raw_line.column
-                self._line_start_pos = raw_line.start_pos - (raw_line.column - 1)
+                self._line_start_pos = raw_line.line_start_pos
                 if raw_line.prefix:
                     start_fragment()
                     buf.append(raw_line.prefix)
+                    self._col += len(raw_line.prefix)
                 while self._pos < raw_line.end_pos:
                     if self._escapes_hole_opener(raw_line.end_pos):
                         # The escape writes the opener's `%` literally; the rest of the
@@ -936,15 +924,16 @@ class _Scanner:
         """Strip *margin* visual columns from a block line, keeping the remainder.
 
         A TAB whose expansion straddles the margin is consumed whole, so the
-        columns it contributes past the margin come back as leading spaces.
+        columns it contributes past the margin come back as leading spaces. The content's
+        column counts the margin's visual columns, as every column past indentation does.
         """
         consumed_width = 0
         strip_chars = 0
         while consumed_width < margin:
             ch = self._src[line_start + strip_chars]
             if ch == "\t":
-                consumed_width += _TAB_LEN - (consumed_width % _TAB_LEN)
-                self._record_tab_at(line_start + strip_chars, line_no)
+                self._record_tab(line_no, consumed_width + 1)
+                consumed_width += TAB_LEN - (consumed_width % TAB_LEN)
             else:
                 consumed_width += 1
             strip_chars += 1
@@ -953,7 +942,8 @@ class _Scanner:
             content_start,
             line_end,
             line_no,
-            line_col + (content_start - line_start),
+            line_col + margin,
+            line_start,
             prefix=" " * (consumed_width - margin),
         )
 
@@ -998,6 +988,7 @@ class _Scanner:
                 line_end = len(self._src)
             indent, indent_chars = self._indent_info(line_start)
             blank = line_start + indent_chars == line_end
+            end_col = line_col + indent + (line_end - line_start - indent_chars)
 
             if not blank and indent <= parent_indent:
                 next_indent = self._measure_indentation()
@@ -1007,7 +998,7 @@ class _Scanner:
                 # a blank run before the dedent separates the block from the
                 # next item and is not part of the payload.
                 pending_blank_lines.append(
-                    _BlockLine(line_end, line_end, line_no, line_col + (line_end - line_start))
+                    _BlockLine(line_end, line_end, line_no, end_col, line_start)
                 )
             else:
                 if margin is None:
@@ -1017,7 +1008,7 @@ class _Scanner:
                         "block line is under-indented; align it with the first block line.",
                         line_start + indent_chars,
                         line_no,
-                        line_col + indent_chars,
+                        line_col + indent,
                     )
                     if not self._recover:
                         raise error
@@ -1031,9 +1022,9 @@ class _Scanner:
                 lines.append(
                     self._dedented_block_line(line_start, line_end, line_no, line_col, margin)
                 )
-                payload_end = (line_end, line_no, line_col + (line_end - line_start))
+                payload_end = (line_end, line_no, end_col)
 
-            self._skip_to_line_end(line_end)
+            self._pos, self._col = line_end, end_col
             if self._at_end():
                 last_newline = None
                 break
@@ -1090,7 +1081,9 @@ class _Scanner:
             while payload_end > self._pos and self._src[payload_end - 1] in (" ", "\t"):
                 payload_end -= 1
             payload_end_state = (payload_end, self._line, self._col + (payload_end - self._pos))
-            block_line = _BlockLine(self._pos, payload_end, self._line, self._col)
+            block_line = _BlockLine(
+                self._pos, payload_end, self._line, self._col, self._line_start_pos
+            )
             yield from self._scan_block_lines([block_line])
             self._skip_to_line_end(line_end)
 
@@ -1457,6 +1450,10 @@ class _Scanner:
 
     def _scan_code(self) -> Iterator[Token]:
         """Yield every CODE-mode token, leaving deferred diagnostics to ``scan``."""
+        if not self._raw_quotes:
+            # The first code line's indentation is measured, its columns tab-expanded, as
+            # every later line's is.
+            self._measure_indentation()
         while not self._at_end():
             ch = self._peek()
 
@@ -1483,11 +1480,6 @@ class _Scanner:
                 self._advance()  # consume the newline
                 # Measure indentation of next real line
                 indent_width = self._measure_indentation()
-                # Suppress a leading _NEWLINE: the grammar's block_stmts cannot
-                # consume a _NEWLINE before any real statement token (Python
-                # tokenizer style).  Blank/comment-only prefixes thus emit none.
-                if not self._emitted_real:
-                    continue
                 yield Token(
                     NEWLINE,
                     str(indent_width),
@@ -1501,7 +1493,6 @@ class _Scanner:
                 continue
 
             # All other tokens
-            self._emitted_real = True
             stream = self._recover_code_token() if self._recover else self._scan_one_code_token()
             for token in stream:
                 yield token

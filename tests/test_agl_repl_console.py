@@ -1030,71 +1030,6 @@ class TestMetaThroughLoop:
 
 
 # ---------------------------------------------------------------------------
-# Issue #5: is_incomplete_source classification memo (no double parse)
-# ---------------------------------------------------------------------------
-
-
-class TestIsIncompleteSourceMemo:
-    """is_incomplete_source must not re-parse text it already classified.
-
-    The Enter key binding checks ``is_incomplete`` on every keypress; when
-    Enter is pressed on a *complete* entry the same text is about to be
-    submitted to eval which triggers another parse.  The classification memo
-    ensures only ONE ``_PARSER.parse`` call is made for a given text within
-    that cycle.
-    """
-
-    def test_repeated_call_with_same_text_parses_only_once(self) -> None:
-        from unittest.mock import patch
-
-        import agnette.agl.parser.parser as parser_mod
-        from agnette.agl.parser import is_incomplete_source
-
-        text = "let x = 42"
-        real_parse = parser_mod._PARSER.parse
-        with patch.object(parser_mod._PARSER, "parse", wraps=real_parse) as mock_parse:
-            result1 = is_incomplete_source(text)
-            result2 = is_incomplete_source(text)
-        # Both calls return the same (False) classification.
-        assert not result1
-        assert not result2
-        # The underlying parser must be called exactly once despite two
-        # is_incomplete_source calls with the same text.
-        count = mock_parse.call_count
-        assert count == 1, f"Expected 1 parse call for repeated text; got {count}"
-
-    def test_different_text_is_reclassified(self) -> None:
-        """Changing the text invalidates the memo and re-parses."""
-        from unittest.mock import patch
-
-        import agnette.agl.parser.parser as parser_mod
-        from agnette.agl.parser import is_incomplete_source
-
-        real_parse = parser_mod._PARSER.parse
-        with patch.object(parser_mod._PARSER, "parse", wraps=real_parse) as mock_parse:
-            is_incomplete_source("let x = 1")
-            is_incomplete_source("let y = 2")
-        # Two distinct texts → two parse calls.
-        assert mock_parse.call_count == 2
-
-    def test_incomplete_text_memo(self) -> None:
-        """Memo works correctly for incomplete (True) classification too."""
-        from unittest.mock import patch
-
-        import agnette.agl.parser.parser as parser_mod
-        from agnette.agl.parser import is_incomplete_source
-
-        text = "record MemoRecord"
-        real_parse = parser_mod._PARSER.parse
-        with patch.object(parser_mod._PARSER, "parse", wraps=real_parse) as mock_parse:
-            r1 = is_incomplete_source(text)
-            r2 = is_incomplete_source(text)
-        assert r1 is True
-        assert r2 is True
-        assert mock_parse.call_count == 1
-
-
-# ---------------------------------------------------------------------------
 # Issue #8: _styled_lines O(lines × spans) → O(spans) bucketing
 # ---------------------------------------------------------------------------
 
@@ -1271,3 +1206,26 @@ class TestThemeThroughLoop:
                 ReplSession(), theme="light", input=pipe, output=DummyOutput()
             )
         assert ps.style is LIGHT_THEME
+
+
+class TestEntryClassifier:
+    """The prompt hands the loop the lex of the buffer its Enter key classified."""
+
+    def test_the_classified_buffer_is_returned_as_its_lex_once(self) -> None:
+        from agnette.agl.lexer import LexedSource
+        from agnette.agl.repl.console import _EntryClassifier
+
+        classifier = _EntryClassifier()
+        assert not classifier.is_incomplete("1 + 2")
+
+        entry = classifier.entry("1 + 2")
+        assert isinstance(entry, LexedSource) and entry.text == "1 + 2"
+        assert classifier.entry("1 + 2") == "1 + 2"
+
+    def test_a_buffer_other_than_the_classified_one_is_returned_as_text(self) -> None:
+        from agnette.agl.repl.console import _EntryClassifier
+
+        classifier = _EntryClassifier()
+        classifier.is_incomplete("1 + 2")
+
+        assert classifier.entry("3") == "3"

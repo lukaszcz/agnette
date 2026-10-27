@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.repl.entry import EntryResult, FileOrigin, relocate
 from agnette.agl.repl.render import render_entry_result
 from agnette.agl.repl.session import ReplSession
+from agnette.agl.runtime.types import HostParamInfo
+from agnette.agl.semantics.values import IntValue
 
 HOLE = "unquoted-exec-hole"
 UNUSED_MODULE_DOC = "unused-module-doc"
@@ -145,6 +149,38 @@ def _transcript(*entries: str) -> str:
     )
 
 
+@pytest.mark.parametrize("transcript", [False, True])
+def test_loaded_entries_keep_module_and_function_parameter_seeds(
+    tmp_path: Path, transcript: bool
+) -> None:
+    (tmp_path / "settings.agl").write_text(
+        "@param let base: int = 1\ndef read(@param count: int = 2) -> int = base + count\n",
+        encoding="utf-8",
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def resolve(
+        params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+    ) -> Mapping[HostParamKey, object]:
+        calls.append(tuple(param.name for param in params))
+        values = {"base": 3, "count": 7}
+        return {param.key: values[param.name] for param in params}
+
+    entries = ("import settings", "settings::read()", "settings::read(count = 11)")
+    source = _transcript(*entries) if transcript else "\n".join(f"  {e}" for e in entries)
+    session = ReplSession(cwd=tmp_path, param_seed_resolver=resolve)
+
+    results = _load(tmp_path, source, session)
+    later = session.eval_entry("settings::read()")
+
+    assert all(result.ok for result in results), [r.diagnostics for r in results]
+    assert [r.value.value for r in results if isinstance(r.value, IntValue)] == [10, 14]
+    assert later.ok, later.diagnostics
+    assert later.value == IntValue(10)
+    assert len(calls) == 1
+    assert set(calls[0]) == {"base", "count"}
+
+
 def test_a_leading_allow_does_not_silence_a_library_module_it_imports(tmp_path: Path) -> None:
     (tmp_path / "w.agl").write_text('def run() -> unit =\n  let v = "x"\n  exec $ echo %{v}\n')
     source = f'@!allow("{HOLE}")\nimport w::*\nlet a = 1\n'
@@ -239,3 +275,47 @@ def test_a_file_with_a_syntax_error_runs_nothing(tmp_path: Path) -> None:
     assert [r.ok for r in results] == [False]
     assert results[0].diagnostics[0].source_label == str(tmp_path / "f.agl")
     assert session.bindings() == []
+
+
+def test_a_saved_transcript_keeps_the_loaded_files_allow(tmp_path: Path) -> None:
+    source = f'@!allow("{HOLE}")\n\n{HOLES}'
+    session = _session()
+    assert all(result.ok for result in _load(tmp_path, source, session))
+    saved = tmp_path / "saved.agl"
+    saved.write_text(session.dump_source(), encoding="utf-8")
+
+    replayed = _load(tmp_path, saved.read_text(), _session())
+
+    assert all(result.ok for result in replayed)
+    assert _names(replayed) == _names(_load(tmp_path, source)) == []
+    assert _names(_load(tmp_path, HOLES)) != []
+    assert session.dump_source() == _session_dump_after(tmp_path, saved)
+
+
+def _session_dump_after(tmp_path: Path, saved: Path) -> str:
+    session = _session()
+    session.load_file(saved)
+    return session.dump_source()
+
+
+def test_a_file_indented_throughout_loads_at_its_own_base_level(tmp_path: Path) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text("  let q = 1\n  def f() -> int =\n    q + 1\n  f()\n")
+    session = ReplSession()
+    session.open()
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [True] * 3
+    assert results[-1].value == IntValue(2)
+
+
+def test_a_file_line_less_indented_than_its_first_line_does_not_load(tmp_path: Path) -> None:
+    path = tmp_path / "t.agl"
+    path.write_text("  let a = 1\ndef f() -> int =\n  a\nf()\n")
+    session = ReplSession()
+    session.open()
+
+    results = session.load_file(path)
+
+    assert [r.ok for r in results] == [False]

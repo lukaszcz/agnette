@@ -23,6 +23,7 @@ from agnette.agl.repl.info_sections import SECTION_BOUNDARY_RE, SECTION_RE
 from agnette.agl.repl.theme_selection import THEME_NAMES
 
 if TYPE_CHECKING:
+    from agnette.agl.diagnostics import Diagnostic
     from agnette.agl.repl.session import ReplSession
 
 
@@ -135,7 +136,15 @@ def _handle_type(arg: str, ctx: MetaContext) -> MetaOutcome:
     """
     if not arg:
         return MetaOutcome(text="usage: :type EXPR")
-    return _static_query(lambda: MetaOutcome(text=ctx.session.type_of(arg)))
+    from agnette.agl.diagnostics import format_diagnostic
+
+    def query() -> MetaOutcome:
+        warnings: list[Diagnostic] = []
+        shown = ctx.session.type_of(arg, warnings=warnings)
+        lines = [format_diagnostic(w, source_name=None) for w in warnings]
+        return MetaOutcome(text="\n".join([*lines, shown]))
+
+    return _static_query(query)
 
 
 def _handle_info(arg: str, ctx: MetaContext) -> MetaOutcome:

@@ -30,11 +30,14 @@ from __future__ import annotations
 
 import contextvars
 import importlib.resources
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import contextmanager
-from dataclasses import replace
-from typing import Iterator, TypeVar
+from dataclasses import dataclass, field, replace
+from functools import cache
+from typing import Iterator, TypeVar, cast
 
-from lark import Lark
+from lark import Lark, Tree
+from lark.exceptions import UnexpectedToken
 from lark.lexer import Lexer, LexerState, Token
 
 from agnette.agl.diagnostics import Diagnostic
@@ -42,6 +45,7 @@ from agnette.agl.keywords import (
     KW_AS,
     KW_END,
     KW_EXPORT,
+    KW_EXTENDS,
     KW_HIDING,
     KW_IMPORT,
     KW_SCOPE,
@@ -58,7 +62,7 @@ from agnette.agl.lexer.operators import (
     promotes_as_operator,
     scanner_token_type,
 )
-from agnette.agl.lexer.positions import token_span
+from agnette.agl.lexer.positions import LineIndex, Rebase, entry_text, range_at, token_span
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
     ARROW,
@@ -77,6 +81,7 @@ from agnette.agl.lexer.tokens import (
     IMPORT,
     INDENT,
     INDEX_LSQB,
+    ITEM_BOUNDARY_TOKENS,
     LBRACE,
     LPAR,
     LSQB,
@@ -196,6 +201,175 @@ def token_collector() -> Iterator[list[Token]]:
         yield sink
 
 
+def _deposit(var: contextvars.ContextVar[list[_T] | None], items: Iterable[_T]) -> None:
+    """Append *items* to the ambient sink *var*, if one is active."""
+    sink = var.get()
+    if sink is not None:
+        sink.extend(items)
+
+
+@dataclass(frozen=True, slots=True)
+class LexedSource:
+    """One lex pass over a source text, with everything any consumer of the pass reads.
+
+    A pass records its advisories whether or not a sink is active when it runs, so
+    a replay (:func:`lex_replay`) feeds the active sinks exactly as scanning would.
+    ``tokens`` is empty when the pass ended in ``failure``; the advisories are
+    then those found before it. TAB advisories are unlabeled (see :func:`tab_warning_labels`).
+    ``failure`` is never raised itself; each use raises ``failure.renewed()``.
+
+    ``parses`` records what each grammar start rule made of the tokens, as the first
+    parse within a replay found it (a tree or the parser's rejection): a later parse of
+    the same text from that start reuses it (:func:`replayed_parse`).
+    """
+
+    text: str
+    tokens: tuple[Token, ...]
+    spaced_qualifiers: tuple[SpacedQualifier, ...]
+    tab_warnings: tuple[Diagnostic, ...]
+    failure: LexError | None = None
+    parses: dict[str, Tree | UnexpectedToken] = field(
+        default_factory=dict, compare=False, repr=False
+    )
+
+    @property
+    def base(self) -> int:
+        """The indentation of the line holding the first token: what the layout reads from."""
+        return token_span(self.tokens[0]).start_col - 1 if self.tokens else 0
+
+
+_LEX_REPLAY: contextvars.ContextVar[LexedSource | None] = contextvars.ContextVar(
+    "agl_lex_replay", default=None
+)
+
+
+def lex_source(source: str) -> LexedSource:
+    """Scan *source* through the whole lexer pipeline, once, recording the pass.
+
+    Lexing depends on the text alone, not on the grammar start rule, so a caller that
+    reads one text several times (a REPL entry classified, then evaluated) lexes it here
+    and hands the pass on: :func:`lex_replay` for parses, or the :class:`LexedSource`
+    itself.
+    """
+    scanner = _Scanner(source)
+    with spaced_qualifier_collector() as spaced:
+        try:
+            after_remap = list(_remap(layout(scanner.scan())))
+            tokens = tuple(
+                _mark_typearg_lsqb(
+                    _remap_adjacent_brackets(apply_module_passes(after_remap, source))
+                )
+            )
+            failure = None
+        except LexError as exc:
+            tokens, failure = (), exc.renewed()
+    return LexedSource(source, tokens, tuple(spaced), tuple(scanner.tab_warnings), failure)
+
+
+def lexed_source(source: str | LexedSource) -> LexedSource:
+    """Return *source* if it is already a recorded pass, else lex it."""
+    return source if isinstance(source, LexedSource) else lex_source(source)
+
+
+@contextmanager
+def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
+    """Make parses within the block reuse *lexed* for the text it recorded.
+
+    A parse of any other text, and every parse without *lexed*, scans its text as usual.
+    """
+    with ScopedVar(_LEX_REPLAY, lexed):
+        yield
+
+
+def lexed_slices(
+    lexed: LexedSource,
+    ranges: Sequence[tuple[int, int]],
+    lines: LineIndex,
+    paddings: Sequence[int],
+) -> list[LexedSource]:
+    """Return the pass over each of *ranges* of ``lexed.text``, read off *lexed*, not scanned.
+
+    *lexed* is a pass that did not fail, and *ranges* are its items' ranges: disjoint, in
+    order, and each holding whole tokens and closed blocks, as :meth:`ProgramTree.entry_ranges
+    <agnette.agl.parser.ProgramTree.entry_ranges>` gives them. *lines* indexes the text and
+    *paddings* are the entries' (:func:`~agnette.agl.lexer.positions.entry_padding`). A
+    slice is the pass over the text of its entry (:func:`~agnette.agl.lexer.positions
+    .entry_text`): its tokens are those of *lexed* within its range, rebased to it. Each
+    spaced qualifier and TAB advisory of *lexed* goes to the one slice whose range starts last
+    at or before it, the first slice taking those before it, with only its positions rebased.
+    One walk over each of *lexed*'s sequences.
+    """
+    assert lexed.failure is None
+    starts = [start for start, _ in ranges]
+    rebases = [Rebase(lines, start, padding) for start, padding in zip(starts, paddings)]
+
+    tokens: list[list[Token]] = [[] for _ in ranges]
+    for token in lexed.tokens:
+        index = range_at(starts, cast(int, token.start_pos))
+        # What lies past a range is the newline between it and the next.
+        if cast(int, token.end_pos) <= ranges[index][1]:
+            tokens[index].append(rebases[index].token(token))
+    spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
+    for qualifier in lexed.spaced_qualifiers:
+        offset = qualifier.run_start_offset
+        index = range_at(starts, offset)
+        rebase = rebases[index]
+        spaced[index].append(
+            replace(
+                qualifier,
+                run_start_offset=rebase.offset(offset),
+                dcolon_span=rebase.span(qualifier.dcolon_span),
+            )
+        )
+    tabs: list[list[Diagnostic]] = [[] for _ in ranges]
+    for advisory in lexed.tab_warnings:
+        index = range_at(starts, lines.offset(advisory.line, cast(int, advisory.column)))
+        tabs[index].append(rebases[index].diagnostic(advisory))
+    return [
+        LexedSource(
+            entry_text(lines, start, end, padding),
+            tuple(entry),
+            tuple(qualifiers),
+            tuple(warnings),
+        )
+        for (start, end), padding, entry, qualifiers, warnings in zip(
+            ranges, paddings, tokens, spaced, tabs
+        )
+    ]
+
+
+def replayed_parse(start: str, text: str, parse: Callable[[str], Tree]) -> Tree:
+    """Return *parse*'s tree of *text* from grammar start *start*, reusing a replayed reading.
+
+    Within :func:`lex_replay` of *text*, only the first parse from *start* runs; a later one
+    feeds the active sinks as that parse's lexing did and returns, or raises, what it found.
+    *parse* runs the parser over *text*.
+    """
+    replay = _LEX_REPLAY.get()
+    if replay is None or replay.text != text:
+        return parse(text)
+    found = replay.parses.get(start)
+    if found is None:
+        try:
+            found = parse(text)
+        except UnexpectedToken as exc:
+            found = replay.parses[start] = exc
+            raise
+        replay.parses[start] = found
+        return found
+    _feed_advisories(replay)
+    _deposit(_TOKEN_SINK, replay.tokens)
+    if isinstance(found, UnexpectedToken):
+        raise found
+    return found
+
+
+def _feed_advisories(lexed: LexedSource) -> None:
+    """Deposit the advisories of *lexed* to the active sinks, whether or not the pass failed."""
+    _deposit(_SPACED_QUALIFIER_SINK, lexed.spaced_qualifiers)
+    _deposit(_TAB_WARNING_SINK, lexed.tab_warnings)
+
+
 def _remap(tokens: Iterator[Token]) -> Iterator[Token]:
     """Remap lowercase keyword token types to the uppercase names the grammar expects."""
     for tok in tokens:
@@ -213,8 +387,6 @@ def _remap(tokens: Iterator[Token]) -> Iterator[Token]:
             )
         yield tok
 
-
-_ITEM_START_TYPES = frozenset({"_NEWLINE", "_INDENT", "_DEDENT", "SEMICOLON"})
 
 # The three header keywords whose clause a hiding promotion can terminate.
 _HEADER_TYPES = frozenset({IMPORT, USE, EXPORT})
@@ -277,7 +449,7 @@ def _is_use_declaration(tokens: list[Token], index: int) -> bool:
     """Whether an item-start ``use`` has a declaration-shaped token header."""
 
     end = index + 1
-    while end < len(tokens) and tokens[end].type not in _ITEM_START_TYPES:
+    while end < len(tokens) and tokens[end].type not in ITEM_BOUNDARY_TOKENS:
         end += 1
     header = tokens[index + 1 : end]
     if not header:
@@ -347,7 +519,7 @@ def _promote_soft_keywords(tokens: list[Token]) -> list[Token]:
             layout_depth -= 1
 
         if tt == NAME:
-            at_item_start = prev_type is None or prev_type in _ITEM_START_TYPES
+            at_item_start = prev_type is None or prev_type in ITEM_BOUNDARY_TOKENS
             if tv == KW_IMPORT and at_item_start:
                 tok = _retype(tok, IMPORT)
             elif tv == KW_USE and at_item_start and _is_use_declaration(tokens, index):
@@ -392,7 +564,7 @@ def _promote_hiding(tokens: list[Token]) -> list[Token]:
             brace_depth = 0
             saw_dcolon = False
             saw_alias = False
-        elif tok.type in {"_NEWLINE", "_INDENT", "_DEDENT", "SEMICOLON"}:
+        elif tok.type in ITEM_BOUNDARY_TOKENS:
             header = None
         elif tok.type == LBRACE:
             brace_depth += 1
@@ -711,37 +883,50 @@ _ITEM_ENDS = frozenset({NEWLINE, INDENT, DEDENT, SEMICOLON, COMMA, EQ, ARROW, AS
 _CONTAINER_TYPES = frozenset({"array", "dict"})
 
 
-def _in_type_position(tokens: list[Token], index: int) -> bool:
-    """Whether the token at *index* lies where a type is written, and division is no reading.
+def _type_positions(tokens: list[Token]) -> list[bool]:
+    """Per index, whether the token there lies where a type is written (division is no reading).
 
-    Types follow an annotation colon (not a dict entry's) or ``->``, fill the
-    brackets opened inside a type, and follow ``type X =``. A bracket after
-    ``array`` or ``dict`` opens type arguments; after any other name it may as
-    well index a value, which this does not decide.
+    Entry ``len(tokens)`` is the state after the last token. Types follow an
+    annotation colon (not a dict entry's), ``->`` and ``extends``, fill the
+    brackets opened inside a type, and follow ``type X[...] =``. A bracket
+    after ``array`` or ``dict``, one after ``::``, and one a ``::`` member
+    follows (``Option[T]::None``) open type arguments; after any other name it
+    may as well index a value, which this does not decide. Linear: one pass over the
+    tokens, with bracket closes matched once up front (:func:`_bracket_closes`).
     """
+    closes = _bracket_closes(tokens)
     in_type = False
     after_type_keyword = False
-    # Per open bracket: the enclosing state, whether it holds braces, whether it holds a type.
-    frames: list[tuple[bool, bool, bool]] = []
-    for position in range(index):
-        token = tokens[position]
+    # Per open bracket: the enclosing state, whether it holds braces, whether it
+    # holds a type, and whether it interrupts a ``type`` header.
+    frames: list[tuple[bool, bool, bool, bool]] = []
+    positions: list[bool] = []
+    for position, token in enumerate(tokens):
+        positions.append(in_type)
         kind = scanner_token_type(token.type)
         if kind in _OPENERS:
             previous = tokens[position - 1] if position else None
             container = (
                 kind == LSQB
                 and previous is not None
-                and previous.type == NAME
-                and str(previous).lower() in _CONTAINER_TYPES
+                and (
+                    (previous.type == NAME and str(previous).lower() in _CONTAINER_TYPES)
+                    or previous.type == DCOLON
+                    or (
+                        previous.type == NAME
+                        and previous.end_pos == token.start_pos
+                        and _precedes_type_member(tokens, closes, position)
+                    )
+                )
             )
-            frames.append((in_type, kind in _BRACES, in_type or container))
+            frames.append((in_type, kind in _BRACES, in_type or container, after_type_keyword))
             in_type = in_type or container
             after_type_keyword = False
         elif kind in _CLOSERS and frames:
-            in_type = frames.pop()[0]
+            in_type, _, _, after_type_keyword = frames.pop()
         elif kind == COLON:
             in_type = not (frames and frames[-1][1])
-        elif kind == THIN_ARROW:
+        elif kind in (THIN_ARROW, KW_EXTENDS):
             in_type = True
         elif kind == EQ and after_type_keyword:
             in_type = True
@@ -751,7 +936,8 @@ def _in_type_position(tokens: list[Token], index: int) -> bool:
             after_type_keyword = False
         elif kind == KW_TYPE:
             after_type_keyword = True
-    return in_type
+    positions.append(in_type)
+    return positions
 
 
 def _tight_route(tokens: list[Token], index: int) -> tuple[int, int] | None:
@@ -791,8 +977,13 @@ def _tight_route(tokens: list[Token], index: int) -> tuple[int, int] | None:
     return (first, last) if names >= 2 else None
 
 
-def _clinging_slash_error(tokens: list[Token], index: int) -> LexError:
-    """Explain a clinging slash; a run of names joined by slashes is a module route."""
+def _clinging_slash_error(
+    tokens: list[Token], index: int, type_positions: Callable[[], list[bool]]
+) -> LexError:
+    """Explain a clinging slash; a run of names joined by slashes is a module route.
+
+    *type_positions* yields :func:`_type_positions` of *tokens* (computed once by the caller).
+    """
     span = token_span(tokens[index])
     bounds = _tight_route(tokens, index)
     if bounds is None:
@@ -801,7 +992,7 @@ def _clinging_slash_error(tokens: list[Token], index: int) -> LexError:
         )
     first, last = bounds
     route = "".join(str(tok) for tok in tokens[first : last + 1])
-    return ModuleRouteError(route, divides=not _in_type_position(tokens, first), span=span)
+    return ModuleRouteError(route, divides=not type_positions()[first], span=span)
 
 
 def _reject_clinging_slash(
@@ -816,6 +1007,7 @@ def _reject_clinging_slash(
     operand is a path that went nowhere, and reporting it here beats letting it
     reach the grammar as arithmetic (``a/ b``) or a stray anchor (``a /b``).
     """
+    type_positions = cache(lambda: _type_positions(tokens))
     for index, tok in enumerate(tokens):
         if tok.type != SLASH or _reaches_a_spaced_dcolon(tokens, index):
             continue
@@ -832,7 +1024,7 @@ def _reject_clinging_slash(
             and tok.end_pos == next_tok.start_pos
         )
         if tight_left or tight_right:
-            error = _clinging_slash_error(tokens, index)
+            error = _clinging_slash_error(tokens, index, type_positions)
             if errors is None:
                 raise error
             # Preserve the slash and its neighbors; flag only its own span.
@@ -909,37 +1101,58 @@ def _remap_adjacent_brackets(tokens: list[Token]) -> list[Token]:
     return result
 
 
+_OPEN_TYPES = frozenset({LSQB, INDEX_LSQB, TYPEARG_LSQB, DO_LSQB})
+
+
+def _bracket_closes(tokens: list[Token]) -> dict[int, int]:
+    """Map each opening ``[`` index to the index of the ``]`` closing it; unclosed ones are absent.
+
+    Only square brackets pair, as in a type application's argument group; other
+    delimiters are ignored. One stack pass.
+    """
+    closes: dict[int, int] = {}
+    opened: list[int] = []
+    for index, token in enumerate(tokens):
+        if token.type in _OPEN_TYPES:
+            opened.append(index)
+        elif token.type == RSQB and opened:
+            closes[opened.pop()] = index
+    return closes
+
+
+def _precedes_type_member(tokens: list[Token], closes: dict[int, int], index: int) -> bool:
+    """Whether the ``[`` at *index* closes before ``::`` and a member that is no ``[``.
+
+    Such a bracket group is a type application (``Type[T]::Ctor``); a following
+    ``::[`` instead applies a value (``xs[i]::[T]``). *closes* is
+    :func:`_bracket_closes` of *tokens*.
+    """
+    close = closes.get(index)
+    if close is None:
+        return False
+    n = len(tokens)
+    after = tokens[close + 1].type if close + 1 < n else None
+    after_next = tokens[close + 2].type if close + 2 < n else None
+    return after == DCOLON and after_next != LSQB
+
+
 def _mark_typearg_lsqb(tokens: list[Token]) -> list[Token]:
     """Retag ``Type[T]::Ctor`` opening brackets for the parser.
 
     Only the outer ``[`` immediately adjacent to a preceding ``NAME`` is
-    retagged, and only when its matching ``]`` is followed by ``::`` and then a
-    non-``[`` token.  The guard preserves value-position type application such
-    as ``xs[i]::[T]``.
+    retagged, and only when :func:`_precedes_type_member` holds.  The guard
+    preserves value-position type application such as ``xs[i]::[T]``.
     """
+    closes = _bracket_closes(tokens)
     result = list(tokens)
-    n = len(result)
-    open_types = {LSQB, INDEX_LSQB, TYPEARG_LSQB, DO_LSQB}
     for i, tok in enumerate(result):
-        if tok.type != INDEX_LSQB:
-            continue
-        if i == 0 or result[i - 1].type != NAME:
-            continue
-        depth = 1
-        j = i + 1
-        while j < n:
-            tt = result[j].type
-            if tt in open_types:
-                depth += 1
-            elif tt == RSQB:
-                depth -= 1
-                if depth == 0:
-                    after = result[j + 1].type if j + 1 < n else None
-                    after_next = result[j + 2].type if j + 2 < n else None
-                    if after == DCOLON and after_next != LSQB:
-                        result[i] = _retype(tok, TYPEARG_LSQB)
-                    break
-            j += 1
+        if (
+            tok.type == INDEX_LSQB
+            and i > 0
+            and result[i - 1].type == NAME
+            and _precedes_type_member(result, closes, i)
+        ):
+            result[i] = _retype(tok, TYPEARG_LSQB)
     return result
 
 
@@ -966,26 +1179,15 @@ class AglLexer(Lexer):
         Keyword token types are remapped from lowercase (scanner convention)
         to the uppercase names expected by the Lark grammar.
         """
-        # Lark wraps the parsed string in a whole-text ``TextSlice``.
-        source = lexer_state.text.text
-        # Drive the scan to completion up front (materialized) so the single
-        # lex pass records EVERY TAB advisory before the grammar is consulted —
-        # the advisories are then complete even if the parse later fails.  The
-        # ``finally`` deposits whatever was collected, including on a LexError.
-        scanner = _Scanner(source)
-        try:
-            after_remap = list(_remap(layout(scanner.scan())))
-            tokens = _mark_typearg_lsqb(
-                _remap_adjacent_brackets(apply_module_passes(after_remap, source))
-            )
-        finally:
-            sink = _TAB_WARNING_SINK.get()
-            if sink is not None:
-                sink.extend(scanner.tab_warnings)
-        token_sink = _TOKEN_SINK.get()
-        if token_sink is not None:
-            token_sink.extend(tokens)
-        return iter(tokens)
+        text = lexer_state.text.text
+        replay = _LEX_REPLAY.get()
+        lexed = replay if replay is not None and replay.text == text else lex_source(text)
+        # Advisories reach the sinks even when the pass failed or the parse later does.
+        _feed_advisories(lexed)
+        if lexed.failure is not None:
+            raise lexed.failure.renewed()
+        _deposit(_TOKEN_SINK, lexed.tokens)
+        return iter(lexed.tokens)
 
 
 def load_grammar() -> str:

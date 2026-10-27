@@ -16,24 +16,39 @@ and ``LexError``s are wrapped into ``AglSyntaxError``.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
+from dataclasses import dataclass
 from dataclasses import replace as dc_replace
 from typing import NoReturn, cast
 
 from lark import Lark, Tree
 from lark.exceptions import UnexpectedToken, VisitError
+from lark.lexer import Token
 
 import agnette.agl.syntax as syntax
-from agnette.agl.lexer import tab_warning_labels, token_collector, tokenize
+from agnette.agl.lexer import (
+    LexedSource,
+    lex_replay,
+    lexed_slices,
+    lexed_source,
+    replayed_parse,
+    tab_warning_labels,
+    token_collector,
+)
 from agnette.agl.lexer.errors import (
     IncompleteInputError,
     LexError,
     UnterminatedTripleQuotedStringError,
 )
 from agnette.agl.lexer.lexer import build_parser
-from agnette.agl.lexer.positions import token_span
+from agnette.agl.lexer.positions import LineIndex, Rebase, range_at, token_span
 from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
-from agnette.agl.parser.transform import AstBuilder
+from agnette.agl.parser.transform import (
+    MISPLACED_INNER_ATTRIBUTE_MESSAGE,
+    AstBuilder,
+    syntax_error_from_meta,
+)
 from agnette.agl.recursion import frontend_recursion_boundary
 from agnette.agl.syntax.spans import SourceId
 
@@ -46,7 +61,9 @@ def _reraise_stamped(err: AglSyntaxError, source: SourceId | None) -> NoReturn:
 
 
 # Module-level parser instance — built once, reused for every parse call.
-_PARSER: Lark = build_parser()
+_PROGRAM_START = "start"
+_TYPE_START = "type_entry"
+_PARSER: Lark = build_parser(_PROGRAM_START)
 
 _TYPED_CALL_WITHOUT_CALL_RE = re.compile(r"::\s*\[.*\]\s*$", re.DOTALL)
 
@@ -60,22 +77,16 @@ def _type_parser() -> Lark:
     """Return the lazily-built ``type_entry``-rooted Lark instance."""
     global _TYPE_PARSER
     if _TYPE_PARSER is None:
-        _TYPE_PARSER = build_parser("type_entry")
+        _TYPE_PARSER = build_parser(_TYPE_START)
     return _TYPE_PARSER
 
 
-def has_unterminated_triple_quoted_string(text: str) -> bool:
-    """Return ``True`` when lexing *text* ends inside a triple-quoted string."""
-    try:
-        _PARSER.parse(text)
-    except LexError as exc:
-        return isinstance(exc, UnterminatedTripleQuotedStringError)
-    except UnexpectedToken:
-        return False
-    return False
+def has_unterminated_triple_quoted_string(source: str | LexedSource) -> bool:
+    """Return ``True`` when lexing *source* ends inside a triple-quoted string."""
+    return isinstance(lexed_source(source).failure, UnterminatedTripleQuotedStringError)
 
 
-def has_open_verbatim_block(text: str) -> bool:
+def has_open_verbatim_block(source: str | LexedSource) -> bool:
     """Return ``True`` when a `$`-literal block payload is still open.
 
     An unclosed block payload is not a parse failure — the lexer happily ends
@@ -90,12 +101,12 @@ def has_open_verbatim_block(text: str) -> bool:
     :func:`is_incomplete_source` already reports that as incomplete, so any
     lex error here is simply not an open block.
     """
-    try:
-        tokens = list(tokenize(text))
-    except LexError:
+    lexed = lexed_source(source)
+    text = lexed.text
+    if lexed.failure is not None:
         return False
     payload_starts: list[int] = []
-    for token in tokens:
+    for token in lexed.tokens:
         if token.type == VERBATIM_START:
             payload_starts.append(token_span(token).end_offset)
         elif token.type == VERBATIM_END and token.end_pos == len(text) and payload_starts:
@@ -105,7 +116,16 @@ def has_open_verbatim_block(text: str) -> bool:
     return False
 
 
-def _parse_tree(parser: Lark, text: str, *, source: SourceId | None) -> Tree:
+def _lalr_parse(parser: Lark, start: str, text: str) -> Tree:
+    """Parse *text* from grammar start *start* with *parser*, raising Lark's own failures.
+
+    Within a replay of *text* the first parse is the only one that runs
+    (:func:`~agnette.agl.lexer.replayed_parse`).
+    """
+    return replayed_parse(start, text, parser.parse)
+
+
+def _parse_tree(parser: Lark, start: str, text: str, *, source: SourceId | None) -> Tree:
     """Parse *text* with *parser*, mapping any lex/parse error to ``AglSyntaxError``.
 
     Shared by the program parser and the ``type_expr`` parser so the error
@@ -122,7 +142,7 @@ def _parse_tree(parser: Lark, text: str, *, source: SourceId | None) -> Tree:
         tab_warning_labels(None if source is None else source.label),
     ):
         try:
-            return parser.parse(text)
+            return _lalr_parse(parser, start, text)
         except LexError as exc:
             _reraise_stamped(AglSyntaxError(str(exc), span=exc.span), source)
         except UnexpectedToken as exc:
@@ -160,13 +180,11 @@ def _parse_to_program(
     *,
     start_id: int,
     source: SourceId | None = None,
-    allow_late_uses: bool = False,
 ) -> tuple[syntax.Program, int]:
     """Parse *text*, reporting the next unused node id.
 
-    Shared body for :func:`parse_program`, :func:`parse_program_seeded` and
-    :func:`parse_repl_transcript`. Node ids are assigned starting at
-    *start_id*; the returned ``int`` is the first id NOT consumed (the seed for
+    Shared body for :func:`parse_program` and :func:`parse_program_seeded`. Node ids are
+    assigned starting at *start_id*; the returned ``int`` is the first id NOT consumed (the seed for
     a subsequent incremental parse), read from the builder's counter rather
     than assuming the root holds the maximum.
 
@@ -175,24 +193,13 @@ def _parse_to_program(
     ``AglSyntaxError`` raised during parsing.
     """
     with frontend_recursion_boundary():
-        tree = _parse_tree(_PARSER, text, source=source)
-        result, next_id = _transform_tree(
-            tree, start_id=start_id, source=source, allow_late_uses=allow_late_uses
-        )
+        tree = _parse_tree(_PARSER, _PROGRAM_START, text, source=source)
+        result, next_id = _transform_tree(tree, start_id=start_id, source=source)
     return cast(syntax.Program, result), next_id
 
 
-# Single-entry memo for is_incomplete_source: (last_text, last_result).
-# The Enter key binding calls is_incomplete_source on each keypress; the
-# submit path then parses the identical text a second time.  Caching the most
-# recent (text → bool) classification eliminates that redundant parse without
-# any risk of stale state — the memo holds at most one entry and is keyed on
-# the exact text string.
-_incomplete_cache: tuple[str, bool] | None = None
-
-
-def is_incomplete_source(text: str) -> bool:
-    """Return ``True`` when *text* parses as a *prefix* of a valid program.
+def is_incomplete_source(source: str | LexedSource) -> bool:
+    """Return ``True`` when *source* parses as a *prefix* of a valid program.
 
     This is the structured signal a REPL needs to decide whether pressing Enter
     should submit the entry or insert a continuation newline.  It distinguishes
@@ -219,20 +226,13 @@ def is_incomplete_source(text: str) -> bool:
       lexical failures remain complete so the REPL submits and the user sees the
       genuine error instead of being trapped in a continuation prompt.
     - Any other failure (a wrong token mid-line such as ``let = 5``) → complete.
-
-    Results are memoized for the most recently seen text so that the Enter-key
-    check and the immediately following eval-path parse do not trigger two full
-    LALR runs for the same source string.
     """
-    global _incomplete_cache
 
-    from lark.lexer import Token
-
-    if _incomplete_cache is not None and _incomplete_cache[0] == text:
-        return _incomplete_cache[1]
-
+    lexed = lexed_source(source)
+    text = lexed.text
     try:
-        result = _ends_unfinished(_PARSER.parse(text))
+        with lex_replay(lexed):
+            result = _ends_unfinished(_lalr_parse(_PARSER, _PROGRAM_START, text))
     except UnexpectedToken as exc:
         # The LALR parser reports a premature end of input as an unexpected
         # ``$END`` token (it never raises ``UnexpectedEOF``), so this single
@@ -248,7 +248,6 @@ def is_incomplete_source(text: str) -> bool:
     except LexError as exc:
         result = isinstance(exc, IncompleteInputError)
 
-    _incomplete_cache = (text, result)
     return result
 
 
@@ -317,14 +316,93 @@ def parse_program(
     return program
 
 
-def parse_repl_transcript(text: str) -> syntax.Program:
-    """Parse a saved REPL transcript for top-level entry boundary discovery.
+@dataclass(frozen=True, slots=True)
+class ProgramTree:
+    """A program's parse tree, not yet converted to an AST.
 
-    Header ordering is deferred because each top-level item is subsequently
-    parsed as an independent REPL entry before it can be evaluated.
+    A host that converts each top-level entry itself (the REPL, which assigns node ids
+    and sources entry by entry) reads the entry boundaries off the tree and converts
+    only the items it has not converted already.
     """
 
-    program, _next_id = _parse_to_program(text, start_id=0, allow_late_uses=True)
+    tree: Tree
+    text: str
+
+    def children(self) -> list[Tree]:
+        """The module's inner attributes and items, in order."""
+        return [c for c in cast(Tree, self.tree.children[0]).children if not isinstance(c, Token)]
+
+    def misplaced_attribute(self) -> Tree | None:
+        """The first inner attribute after an item, which may only head the module."""
+        seen_item = False
+        for child in self.children():
+            if child.data != "inner_attribute":
+                seen_item = True
+            elif seen_item:
+                return child
+        return None
+
+    def entry_ranges(self, lines: LineIndex) -> list[tuple[int, int]]:
+        """The source ranges of the module's entries: one per item, or one for attributes alone.
+
+        The module's leading inner attributes head the first entry. An entry that begins its
+        line starts at the line's start, with its indentation. *lines* indexes the module's text.
+        """
+        children = self.children()
+        attributes = [c.meta for c in children if c.data == "inner_attribute"]
+        ranges = [
+            (c.meta.start_pos, c.meta.end_pos) for c in children if c.data != "inner_attribute"
+        ]
+        if not ranges:
+            ranges = [(min(a.start_pos for a in attributes), max(a.end_pos for a in attributes))]
+        ranges[0] = (min([ranges[0][0], *(a.start_pos for a in attributes)]), ranges[0][1])
+
+        def begin(start: int) -> int:
+            line_start = lines.line_start(start)
+            return line_start if lines.text[line_start:start].strip(" \t") == "" else start
+
+        return [(begin(start), end) for start, end in ranges]
+
+    def items_from(self, offset: int, *, start_id: int, lines: LineIndex) -> syntax.Program:
+        """Convert to AST the module's items starting at or after *offset*, of which there are some.
+
+        Ids start at *start_id* and spans are the file's own. *lines* indexes the module's text.
+        The inner attributes are not converted: the entry that heads the file converts them.
+        Header ordering is not enforced: the entry that runs an item judges it.
+        """
+        return self._program_of(
+            [
+                c
+                for c in self.children()
+                if c.data != "inner_attribute" and c.meta.start_pos >= offset
+            ],
+            start_id,
+            lines,
+        )
+
+    def _program_of(
+        self, chosen: Sequence[Tree], start_id: int, lines: LineIndex
+    ) -> syntax.Program:
+        """Convert *chosen* top-level children, in file positions, to a program."""
+        root = _module_tree(chosen, Rebase(lines, 0))
+        with frontend_recursion_boundary():
+            program, _ = _transform_tree(root, start_id=start_id, source=None, allow_late_uses=True)
+        return cast(syntax.Program, program)
+
+
+def parse_program_tree(text: str, *, source: SourceId | None = None) -> ProgramTree:
+    """Parse *text* as a program, leaving the tree unconverted.
+
+    A syntax error carries *source*, when given. Within a :func:`~agnette.agl.lexer.lex_replay`
+    of *text*, the tree is recorded on the lex for :func:`entry_slices`.
+    """
+    with frontend_recursion_boundary():
+        program = ProgramTree(_parse_tree(_PARSER, _PROGRAM_START, text, source=source), text)
+    misplaced = program.misplaced_attribute()
+    if misplaced is not None:
+        _reraise_stamped(
+            syntax_error_from_meta(misplaced.meta, MISPLACED_INNER_ATTRIBUTE_MESSAGE), source
+        )
     return program
 
 
@@ -364,6 +442,86 @@ def parse_program_seeded(
     return _parse_to_program(text, start_id=start_id, source=source)
 
 
+def _rebased_tree(tree: Tree, rebase: Rebase) -> Tree:
+    """Return a copy of *tree* with every position rebased.
+
+    Walks iteratively: the tree of source nested too deep to convert is still copied, and
+    its conversion reports the nesting.
+    """
+    root = Tree(tree.data, [])
+    pending = [(tree, root)]
+    while pending:
+        original, copy = pending.pop()
+        for child in original.children:
+            if isinstance(child, Tree):
+                copied = Tree(child.data, [])
+                pending.append((child, copied))
+                copy.children.append(copied)
+            else:
+                copy.children.append(rebase.token(child) if isinstance(child, Token) else child)
+        meta = original.meta
+        if not meta.empty:
+            _set_span(
+                copy,
+                (meta.start_pos, meta.line, meta.column),
+                (meta.end_pos, meta.end_line, meta.end_column),
+                rebase,
+            )
+    return root
+
+
+def _set_span(
+    tree: Tree, start: tuple[int, int, int], end: tuple[int, int, int], rebase: Rebase
+) -> None:
+    """Give *tree* the span from *start* to *end*, each ``(offset, line, column)``, rebased."""
+    meta = tree.meta
+    meta.empty = False
+    meta.start_pos, meta.line, meta.column = rebase.position(*start)
+    meta.end_pos, meta.end_line, meta.end_column = rebase.position(*end)
+
+
+def _module_tree(children: Sequence[Tree], rebase: Rebase) -> Tree:
+    """The program tree of the module whose top-level *children* are given, all rebased."""
+    block = Tree("module_block", [_rebased_tree(c, rebase) for c in children])
+    root = Tree("start", [block])
+    first, last = children[0].meta, children[-1].meta
+    for node in (block, root):
+        _set_span(
+            node,
+            (first.start_pos, first.line, first.column),
+            (last.end_pos, last.end_line, last.end_column),
+            rebase,
+        )
+    return root
+
+
+def entry_slices(
+    lexed: LexedSource,
+    ranges: Sequence[tuple[int, int]],
+    lines: LineIndex,
+    paddings: Sequence[int],
+) -> list[LexedSource]:
+    """Read each of *ranges*, a module's top-level entries, off the one pass *lexed* of its text.
+
+    *lexed* records the module's program parse and *ranges* are
+    :meth:`ProgramTree.entry_ranges`; *lines* indexes the text and *paddings* are the entries'
+    (:func:`~agnette.agl.lexer.positions.entry_padding`). Each slice is the pass over its
+    entry's text, read off the tokens of *lexed* without scanning
+    (:func:`~agnette.agl.lexer.lexed_slices`), and carries its entry's parse, so reading it
+    parses nothing; the module's leading inner attributes belong to the first entry.
+    """
+    slices = lexed_slices(lexed, ranges, lines, paddings)
+    whole = lexed.parses[_PROGRAM_START]
+    assert isinstance(whole, Tree)
+    entries: list[list[Tree]] = [[] for _ in ranges]
+    starts = [start for start, _ in ranges]
+    for child in ProgramTree(whole, lexed.text).children():
+        entries[range_at(starts, child.meta.start_pos)].append(child)
+    for sliced, start, padding, entry in zip(slices, starts, paddings, entries):
+        sliced.parses[_PROGRAM_START] = _module_tree(entry, Rebase(lines, start, padding))
+    return slices
+
+
 def parse_type_entry_seeded(
     text: str,
     *,
@@ -380,7 +538,7 @@ def parse_type_entry_seeded(
     can keep assigning ids past the result.
     """
     with frontend_recursion_boundary():
-        tree = _parse_tree(_type_parser(), text, source=source)
+        tree = _parse_tree(_type_parser(), _TYPE_START, text, source=source)
         result, next_id = _transform_tree(tree, start_id=start_id, source=source)
     attributes, type_expr = cast(tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr], result)
     return attributes, type_expr, next_id

@@ -95,7 +95,12 @@ from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import ParamZone
 
-__all__ = ["module_allowed_names", "recognize_attributes", "recognize_program_registration"]
+__all__ = [
+    "module_allow_regions",
+    "module_allowed_names",
+    "recognize_attributes",
+    "recognize_program_registration",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,18 +220,7 @@ def recognize_attributes(
     positional-only and admits no zone attribute of its own. *source_text* is
     the text *program* was parsed from, which places each ``@allow`` region.
     """
-    static_binding_ids = frozenset(
-        item.node_id
-        for item in static_items(program.body.items)
-        if isinstance(item, (LetDecl, VarDecl))
-    )
-    recognizer = _Recognizer(
-        declares_receiver,
-        static_binding_ids,
-        ModuleConstants(program),
-        source_text,
-        dict(region_paths(program.body.items, ())),
-    )
+    recognizer = _recognizer(program, declares_receiver, source_text)
     walk(program, recognizer.visit)
     return AttributeFacts(
         module_doc=recognizer.module_doc,
@@ -243,6 +237,43 @@ def recognize_attributes(
         warning_exemptions=recognizer.warning_exemptions,
         shell_quoted=recognizer.shell_quoted,
     )
+
+
+def _recognizer(
+    program: Program, declares_receiver: Callable[[FuncDef], bool] | None, source_text: str
+) -> "_Recognizer":
+    """A recognizer for *program*; without *declares_receiver* it leaves parameter zones open."""
+    static_binding_ids = frozenset(
+        item.node_id
+        for item in static_items(program.body.items)
+        if isinstance(item, (LetDecl, VarDecl))
+    )
+    return _Recognizer(
+        declares_receiver,
+        static_binding_ids,
+        ModuleConstants(program),
+        source_text,
+        dict(region_paths(program.body.items, ())),
+    )
+
+
+def module_allow_regions(
+    program: Program, *, source_text: str, items: tuple[Item, ...] | None = None
+) -> list[AllowRegion]:
+    """The ``@allow`` and ``@!allow`` regions of *program*, parsed from *source_text*.
+
+    Read off the parse alone, for a host that cannot resolve the module: the same
+    regions scope files, as receiver classification changes none of them. Only the
+    module's inner attributes and *items* (default: all of *program*'s) are recognized,
+    for a host that already resolved the rest; *program* still supplies the module's
+    constants. Parameter zones, which need that classification, are not validated. Raises
+    ``AglScopeError`` when an attribute is invalid, as resolving the module would.
+    """
+    recognizer = _recognizer(program, None, source_text)
+    recognizer.visit(program)
+    for item in program.body.items if items is None else items:
+        walk(item, recognizer.visit)
+    return recognizer.warning_allows
 
 
 def module_allowed_names(program: Program) -> frozenset[str]:
@@ -265,7 +296,7 @@ class _Recognizer:
 
     def __init__(
         self,
-        declares_receiver: Callable[[FuncDef], bool],
+        declares_receiver: Callable[[FuncDef], bool] | None,
         static_binding_ids: frozenset[int],
         constants: ModuleConstants,
         source_text: str,
@@ -324,7 +355,10 @@ class _Recognizer:
                     else AttributeTarget.PARAMETER
                 ),
                 form_default=(ParamZone.NAMED_ONLY if node.is_program else ParamZone.STANDARD),
-                has_receiver=self._declares_receiver(node),
+                has_receiver=(
+                    False if self._declares_receiver is None else self._declares_receiver(node)
+                ),
+                ordered=self._declares_receiver is not None,
                 owner_name=node.name,
                 param_rejection=_def_param_rejection(node),
             )
@@ -507,9 +541,8 @@ class _Recognizer:
         """
         allowed = recognized.lists.get(ALLOW_ATTRIBUTE)
         if allowed is not None:
-            self.warning_allows.append(
-                AllowRegion(_from_blank_line_start(span, self._source_text), frozenset(allowed))
-            )
+            region_span = _from_blank_line_start(span, self._source_text)
+            self.warning_allows.append(AllowRegion(region_span, frozenset(allowed)))
         exempted = recognized.lists.get(EXEMPTS_ATTRIBUTE)
         if exempted is not None:
             self.warning_exemptions[node_id] = frozenset(exempted)
@@ -589,6 +622,7 @@ class _Recognizer:
         target: AttributeTarget,
         form_default: ParamZone = ParamZone.STANDARD,
         has_receiver: bool = False,
+        ordered: bool = True,
         owner_name: str | None = None,
         param_rejection: str | None = None,
     ) -> None:
@@ -597,10 +631,10 @@ class _Recognizer:
         An entry's own ``@arg-*`` attribute wins; otherwise the owning
         declaration's sets the list default; otherwise *form_default* applies.
         A classified method's receiver is positional-only regardless. Entries
-        then have to run positional-only, standard, named-only. A ``@param`` entry
-        is a host parameter: it needs a default, and *param_rejection* (or a
-        receiver position) can rule the site out. The ``@param`` entries of one list
-        need distinct external names.
+        then have to run positional-only, standard, named-only, unless not *ordered*:
+        without receiver classification the first entry's zone is unknown.
+        A ``@param`` entry needs a default; *param_rejection* or a receiver
+        position can rule the site out. ``@param`` entries need distinct external names.
         """
         claimed: dict[str, str] = {}
         list_default = form_default if owner_zone is None else owner_zone
@@ -629,7 +663,7 @@ class _Recognizer:
                 zone = ParamZone.POSITIONAL_ONLY
             else:
                 zone = list_default if declared is None else declared
-            if _ZONE_SEQUENCE.index(zone) < _ZONE_SEQUENCE.index(highest):
+            if ordered and _ZONE_SEQUENCE.index(zone) < _ZONE_SEQUENCE.index(highest):
                 raise AglScopeError(
                     f"{entry.name!r} is {_ZONE_LABEL[zone]} but follows a "
                     f"{_ZONE_LABEL[highest]} entry; entries are ordered "
@@ -953,15 +987,18 @@ def region_paths(
 
 
 def _whole_source(span: SourceSpan, text: str) -> SourceSpan:
-    """Return a span covering all of *text*, which *span* indexes."""
-    lines = text.split("\n")
+    """Return a span covering all of *text*, which *span* indexes, to the end of its last line.
+
+    The exclusive end is the start of the line after the last, so no column on the last line
+    lies past it.
+    """
     return replace(
         span,
         start_line=1,
         start_col=1,
         start_offset=0,
-        end_line=len(lines),
-        end_col=len(lines[-1]) + 1,
+        end_line=text.count("\n") + 2,
+        end_col=1,
         end_offset=len(text),
     )
 

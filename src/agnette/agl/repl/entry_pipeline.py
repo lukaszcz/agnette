@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, diagnostic_from_span
-from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.repl.entry import EntryResult
 from agnette.core.cleanup import notes_of
 
@@ -244,7 +244,10 @@ class EntryPipeline:
                 )
             except AglError as exc:
                 return self._ctx._fail_static_governed(
-                    exc, [*tab_warnings, *load_tab_sink], resolutions.values()
+                    exc,
+                    [*tab_warnings, *load_tab_sink],
+                    resolutions.values(),
+                    scope_failed=ENTRY_ID not in resolutions,
                 )
 
         resolved_program = loaded.resolved_program
@@ -715,7 +718,11 @@ class EntryPipeline:
             self._ctx._link_image.restore_state(link_snapshot)
             self._ctx._advance_node_ids(new_next_id)
             return self._ctx._fail(extern_diagnostics, warnings)
-        trace = TraceStore(path=self._ctx._trace_path, sources=lowered.program.sources)
+        trace = TraceStore(
+            path=self._ctx._trace_path,
+            sources=lowered.program.sources,
+            place=self._ctx.user_place,
+        )
         trace.run_start(command="repl", span=orig_program.span)
         if self._ctx._host_settings_policy is not None:
             from agnette.agl.runtime.host_settings import HostSettingsReconfigurer

@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from agnette.agl.lexer import LexedSource, lexed_source
 from agnette.agl.parser import (
     has_open_verbatim_block,
     has_unterminated_triple_quoted_string,
@@ -63,10 +64,10 @@ def format_banner() -> str:
 # ---------------------------------------------------------------------------
 
 
-def is_incomplete(text: str) -> bool:
-    """Return ``True`` when *text* is a prefix of a valid entry (keep prompting).
+def is_incomplete(source: "str | LexedSource") -> bool:
+    """Return ``True`` when *source* is a prefix of a valid entry (keep prompting).
 
-    *text* is the current buffer content (no synthetic trailing newline).  Blank
+    *source* is the current buffer content (no synthetic trailing newline), or its lex.  Blank
     or whitespace-only input force-submits (returns ``False``) so pressing Enter
     on an empty prompt gives a fresh prompt rather than inserting a newline; the
     loop then no-ops the blank entry.  A trailing blank line — the user pressed
@@ -81,11 +82,12 @@ def is_incomplete(text: str) -> bool:
     reader — so a pasted or editor-sent multi-line block accumulates identically
     on either.
     """
-    if not text.strip():
+    lexed = lexed_source(source)
+    if not lexed.text.strip():
         return False
-    if text.endswith("\n") and not has_unterminated_triple_quoted_string(text):
+    if lexed.text.endswith("\n") and not has_unterminated_triple_quoted_string(lexed):
         return False
-    return is_incomplete_source(text) or has_open_verbatim_block(text)
+    return is_incomplete_source(lexed) or has_open_verbatim_block(lexed)
 
 
 # ``has_runnable_statements`` (the blank/comment-only-entry predicate) lives in
@@ -102,7 +104,7 @@ has_runnable_statements = session_mod.has_runnable_statements
 def run_repl_loop(
     session: "ReplSession",
     *,
-    reader: Callable[[], str],
+    reader: Callable[[], str | LexedSource],
     writer: Callable[[str], None],
     echo: bool = True,
     echo_unit: bool = False,
@@ -112,7 +114,9 @@ def run_repl_loop(
 ) -> None:
     """Run the read-eval-print loop against *session*; the core both front ends share.
 
-    *reader* returns the next (possibly multiline) entry; it must raise
+    *reader* returns the next (possibly multiline) entry, as text or, when it already lexed
+    the entry to classify it, as that lex (which the loop then reuses: an entry is lexed
+    once from prompt to result); it must raise
     ``EOFError`` on end of input (Ctrl-D, or closed stdin in plain mode) and may
     raise ``KeyboardInterrupt`` to cancel the entry in progress (Ctrl-C) without
     exiting the loop. *writer* prints one block of output text. A rich front
@@ -151,7 +155,7 @@ def run_repl_loop(
     writer(format_banner())
     while True:
         try:
-            entry = reader()
+            read = reader()
         except KeyboardInterrupt:
             # Ctrl-C cancels the current entry but never exits the REPL.
             continue
@@ -159,6 +163,7 @@ def run_repl_loop(
             # Ctrl-D (or closed stdin) exits.
             break
 
+        entry = read.text if isinstance(read, LexedSource) else read
         if meta_mod.is_meta_line(entry):
             outcome = meta_mod.dispatch_meta(entry, ctx)
             if outcome.text is not None:
@@ -174,10 +179,11 @@ def run_repl_loop(
 
         # Blank or comment-only entries have nothing to run; give a fresh prompt
         # without invoking the evaluator (whose parser would reject them).
-        if not has_runnable_statements(entry):
+        lexed = lexed_source(read)
+        if not has_runnable_statements(lexed):
             continue
 
-        result = session.eval_entry(entry)
+        result = session.eval_entry(entry, lexed=lexed)
         rendered = render_mod.render_entry_result(result, echo=ctx.echo, echo_unit=ctx.echo_unit)
         if rendered is not None:
             writer(rendered)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Self
+
 from agnette.agl.diagnostics import AglError, SourceSpan
 
 
@@ -18,6 +20,18 @@ class LexError(AglError):
 
     def __init__(self, message: str, *, span: SourceSpan) -> None:
         super().__init__(message, span=span)
+
+    def renewed(self) -> Self:
+        """Return an equal error that has not been raised.
+
+        A recorded failure is raised through a renewed copy at each use, so its
+        traceback and context never accumulate on the shared object.
+        """
+        clone = type(self).__new__(type(self))
+        clone.args = (str(self),)
+        clone.span = self.span
+        clone.related = self.related
+        return clone
 
 
 class IncompleteInputError(LexError):
@@ -46,3 +60,9 @@ class ModuleRouteError(LexError):
         )
         self.route = route
         self.divides = divides
+
+    def renewed(self) -> Self:
+        clone = super().renewed()
+        clone.route = self.route
+        clone.divides = self.divides
+        return clone

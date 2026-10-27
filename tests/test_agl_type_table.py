@@ -4168,25 +4168,20 @@ class TestIsExceptionAncestor:
         assert not table.is_exception_ancestor(700042, 700041)  # Leaf is Mid's descendant
 
 
-class TestExceptionDescendants:
-    def test_returns_every_transitive_descendant(self) -> None:
+class TestExceptionNesting:
+    def test_numbers_each_exception_inside_its_ancestors_and_is_kept(self) -> None:
         table = _exception_hierarchy_table()
+        nesting = table.exception_nesting()
+        assert table.exception_nesting() is nesting
+        root, mid, leaf, sibling, other = 700040, 700041, 700042, 700043, 700044
+        assert [nesting.depth[d] for d in (root, mid, leaf, sibling, other)] == [0, 1, 2, 1, 0]
+        assert nesting.pre[root] < nesting.pre[mid] < nesting.pre[leaf] < nesting.end[mid]
+        assert nesting.end[mid] <= nesting.pre[sibling] < nesting.end[root] <= nesting.pre[other]
 
-        descendants = {typedef.decl_node_id for typedef in table.exception_descendants(700040)}
-
-        assert descendants == {700041, 700042, 700043}  # Mid, Leaf, Sibling -- not Other
-
-    def test_empty_for_a_declaration_with_no_children(self) -> None:
+    def test_a_non_exception_has_no_ancestors(self) -> None:
         table = _exception_hierarchy_table()
-        assert table.exception_descendants(700042) == ()  # Leaf has none
-
-    def test_skips_an_orphaned_descendant(self) -> None:
-        table = _exception_hierarchy_table()
-        table.orphan(700043)  # Sibling never took effect
-
-        descendants = {typedef.decl_node_id for typedef in table.exception_descendants(700040)}
-
-        assert descendants == {700041, 700042}
+        table.register(TypeDef(kind="record", name="R", module_id=ENTRY_ID, decl_node_id=700050))
+        assert table.ancestor_defs(700050) == ()
 
 
 class TestIsBuiltinExceptionRoot:

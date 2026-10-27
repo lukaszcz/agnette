@@ -504,3 +504,10 @@ def test_multiple_errors_across_all_stages_and_incomplete_tail() -> None:
     assert any(t.type == "STRING_TAIL" for t in tokens)
     assert lex_comment_spans(source) == [(source.index("#"), source.index("#") + 9)]
     assert_source_coverage(source, tokens)
+
+
+def test_a_line_below_the_base_of_the_source_is_flagged_and_read_at_level_zero() -> None:
+    tokens, errors = tokenize_recover("    a\n  b\n    c")
+
+    assert len(errors) == 1
+    assert [str(t) for t in tokens if t.type == "NAME"] == ["a", "b", "c"]

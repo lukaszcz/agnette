@@ -166,6 +166,11 @@ class _ModuleBody:
     attributes: tuple[syntax.Attribute, ...]
 
 
+MISPLACED_INNER_ATTRIBUTE_MESSAGE = (
+    "inner attribute must precede every other item of its module or scope region."
+)
+
+
 def _split_inner_attributes(args: _Args) -> tuple[tuple[syntax.Attribute, ...], _Args]:
     """Split the inner attributes off a module or region's children.
 
@@ -178,10 +183,7 @@ def _split_inner_attributes(args: _Args) -> tuple[tuple[syntax.Attribute, ...], 
     for arg in args:
         if isinstance(arg, syntax.Attribute):
             if seen_item:
-                raise AglSyntaxError(
-                    "inner attribute must precede every other item of its module or scope region.",
-                    span=arg.span,
-                )
+                raise AglSyntaxError(MISPLACED_INNER_ATTRIBUTE_MESSAGE, span=arg.span)
             attributes.append(arg)
             continue
         rest.append(arg)
@@ -432,8 +434,8 @@ class AstBuilder(Transformer):
         # Source identity stamped on every span this builder constructs.
         # Defaults to UNKNOWN_SOURCE when no source is supplied.
         self._source: SourceId = source if source is not None else UNKNOWN_SOURCE
-        # Transcript parsing discovers entry boundaries only; each entry is
-        # parsed normally before evaluation and owns its own header ordering.
+        # A file load converts items apart from their module; each entry owns its own
+        # header ordering.
         self._allow_late_uses = allow_late_uses
 
     def _source_start_span(self) -> SourceSpan:
@@ -505,7 +507,9 @@ class AstBuilder(Transformer):
     ) -> tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr]:
         """Build a REPL bare type entry: its inner attributes and its type expression."""
         attributes = tuple(a for a in args if isinstance(a, syntax.Attribute))
-        return attributes, cast(syntax.TypeExpr, args[-1])
+        # A ``;`` separator reaches the children as a token; the type is the last non-token.
+        type_expr = next(a for a in reversed(args) if not isinstance(a, Token))
+        return attributes, cast(syntax.TypeExpr, type_expr)
 
     def _build_block(self, meta: Meta, args: _Args) -> syntax.Block:
         """Build a root or suite block from its non-layout children."""

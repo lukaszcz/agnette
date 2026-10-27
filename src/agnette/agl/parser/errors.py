@@ -35,7 +35,7 @@ from agnette.agl.diagnostics import AglSyntaxError as AglSyntaxError
 from agnette.agl.diagnostics import dollar_spacing_hint, piping_hint
 from agnette.agl.lexer.operators import OPERAND_END_TYPES, scanner_token_type
 from agnette.agl.lexer.positions import token_span
-from agnette.agl.lexer.tokens import NAME, VERBATIM_END, VERBATIM_START
+from agnette.agl.lexer.tokens import LAYOUT_TOKENS, NAME, VERBATIM_END, VERBATIM_START
 from agnette.agl.syntax.spans import SourceSpan
 
 if TYPE_CHECKING:
@@ -223,7 +223,7 @@ def _is_placeholder_position_error(*, token_type: str, source_text: str, token_p
 # Zero-width layout/end token types that carry no line of their own: the
 # spacing hint's anchor line for one of these is borrowed from the last real
 # token before it, the same way Lark borrows $END's reported position.
-_LAYOUT_TOKEN_TYPES: frozenset[str] = frozenset({"_INDENT", "_DEDENT", "_NEWLINE", "$END"})
+_LAYOUT_TOKEN_TYPES: frozenset[str] = LAYOUT_TOKENS | {"$END"}
 
 
 def _dollar_spacing_hint(

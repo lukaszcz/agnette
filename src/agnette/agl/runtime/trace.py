@@ -10,7 +10,7 @@ intentionally absent.
 from __future__ import annotations
 
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from math import isfinite
@@ -93,15 +93,20 @@ def _sanitize_mapping(payload: "Mapping[str, object]", active: frozenset[int]) -
 
 
 class TraceStore:
-    """Write structured records for one AgL run without affecting its semantics."""
+    """Write structured records for one AgL run without affecting its semantics.
+
+    *place* maps a record's ``(file, line, col)`` to the location written to the trace.
+    """
 
     def __init__(
         self,
         path: Path | None,
         *,
         sources: "Mapping[SourceId, SourceFile] | None" = None,
+        place: "Callable[[str | None, int, int | None], tuple[str, int, int | None]] | None" = None,
     ) -> None:
         self._path = path
+        self._place = place
         self._sources = {} if sources is None else dict(sources)
         self._disabled = False
         self._last_timestamp = ""
@@ -158,6 +163,8 @@ class TraceStore:
                 file = source.display_name
             line = span.start_line
             col = span.start_col
+        if self._place is not None and line is not None:
+            file, line, col = self._place(file, line, col)
         record: dict[str, object] = {
             "kind": kind,
             "ts": timestamp,

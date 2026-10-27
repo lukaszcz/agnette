@@ -969,6 +969,11 @@ class AllowRegion:
     span: SourceSpan
     names: frozenset[str]
 
+    def contains(self, line: int, column: int) -> bool:
+        """Whether the position, from the span's start to its exclusive end, lies in the region."""
+        span = self.span
+        return (span.start_line, span.start_col) <= (line, column) < (span.end_line, span.end_col)
+
 
 @dataclass(frozen=True, slots=True)
 class AttributeFacts:
