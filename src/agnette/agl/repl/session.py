@@ -2642,7 +2642,7 @@ class ReplSession:
         single entry: a bare type entry succeeds, anything else yields a single failed
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
         items to run: a benign no-op yielding an empty list, or, with TAB advisories, one
-        entry carrying them. A load halted by a failing entry of a plain file reports the
+        entry carrying them. A load halted by a failing entry (also of a transcript) reports the
         advisories of the entries after it with that entry, governed as ``agm check`` does
         (:meth:`_report_advisories`).
         """
@@ -2661,13 +2661,23 @@ class ReplSession:
         if saved_entries is not None:
             saved_results: list[EntryResult] = []
             try:
-                for entry in saved_entries:
+                for index, entry in enumerate(saved_entries):
                     self._inherited_allows = entry.allows
                     result = self.eval_entry(
                         entry.text, origin=_origin_at(label, normalized, entry.offset)
                     )
                     saved_results.append(result)
                     if not result.ok:
+                        if index + 1 < len(saved_entries):
+                            whole = lex_source(normalized)
+                            self._report_advisories(
+                                result,
+                                label,
+                                normalized,
+                                whole,
+                                self._parse_file(normalized, whole)[0],
+                                saved_entries[index + 1].offset,
+                            )
                         break
             finally:
                 self._inherited_allows = frozenset()

@@ -183,3 +183,29 @@ def test_an_invalid_attribute_in_a_later_entry_withholds_the_later_advisories(
 
     assert [r.ok for r in results] == [False]
     assert _tab_diagnostics(results, denied=False) == []
+
+
+def test_a_transcript_halting_at_a_failing_entry_reports_the_later_advisories(
+    tmp_path: Path,
+) -> None:
+    source = (
+        '# agm:repl-transcript:v1\n# agm:entry:16\nlet a: int = "x"\n# agm:entry:10\nlet b = 1\t\n'
+    )
+    path, results = _load(tmp_path, source)
+
+    assert [r.ok for r in results] == [False]
+    (advisory,) = (w for r in results for w in r.warnings if w.warning_name == "tab-indentation")
+    assert (advisory.source_label, advisory.line, advisory.column) == (str(path), 5, 10)
+
+
+def test_a_transcript_that_is_no_program_as_a_whole_withholds_the_later_advisories(
+    tmp_path: Path,
+) -> None:
+    source = (
+        '# agm:repl-transcript:v1\n# agm:entry:16\nlet a: int = "x"\n'
+        '# agm:entry:21\n@!doc("m")\nlet b = 1\t\n'
+    )
+    _, results = _load(tmp_path, source)
+
+    assert [r.ok for r in results] == [False]
+    assert _tab_diagnostics(results, denied=False) == []
