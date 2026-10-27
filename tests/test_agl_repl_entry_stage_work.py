@@ -495,3 +495,14 @@ def test_a_deeply_nested_item_fails_its_entry_without_crashing_the_load(
     results = session.load_file(path)
 
     assert [r.ok for r in results] == oks
+
+
+@pytest.mark.parametrize("name", ["type_of", "info_of"])
+def test_a_query_lexes_and_parses_its_text_once(name: str, scans: _Scans, parses: _Parses) -> None:
+    session = _session()
+    session.eval_entry("let a = 1")
+    scans.count = parses.count = 0
+
+    getattr(session, name)("a + 1" if name == "type_of" else "a")
+
+    assert (scans.count, parses.count) == (1, 1)
