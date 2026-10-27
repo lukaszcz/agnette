@@ -1,34 +1,33 @@
-"""Shared CLI-over-config resolution of the AgL engine settings a host controls.
+"""Host-side engine-setting rules shared by ``agm exec`` and ``agm repl``.
 
-``agm exec`` and ``agm repl`` both hand the AgL engine a seed mapping for the
-settings the host explicitly controls.  The layering rule is the same for both —
-CLI flag, then the command's configuration tables — so it lives here rather than
-in either command.  :func:`build_host_engine_seeds` returns the three tiers as
-an :class:`EngineSeedTiers`; :meth:`EngineSeedTiers.merged` flattens them, with
-room for a caller-supplied middle tier, into the one mapping the engine seeds
-from, and :meth:`EngineSeedTiers.trace_decision` reads the same resolution back
-as the host's own trace-file decision, so a run's log file and its readable
-``trace`` setting can never disagree. :func:`host_agent_spec_resolver` builds
-the dispatch-time agent defaults both hosts apply from ``[agent]``.
+``agm exec`` resolves the engine settings as host parameters; preflight returns them as
+:class:`~agnette.agl.runtime.engine_config.EngineSettings`, and
+:func:`engine_seed_values` and :func:`trace_decision` read the derived ``trace`` setting
+back from them, so a run's log file and its readable ``trace`` setting can never disagree.
+``agm repl`` has no program: :func:`build_host_engine_seeds` layers its CLI flags over
+``[exec]``, the declaration route, into an :class:`EngineSeedTiers`, which reads through the
+same two functions.
+:func:`host_agent_spec_resolver` builds the dispatch-time agent defaults both hosts apply
+from ``[agent]``.
 """
 
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass, field, replace
-from functools import partial
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from agnette.agent.spec_defaults import AgentSpecResolver, configured_defaults_resolver
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.static_keys import HostParamKey, static_binding_key
 from agnette.agl.modules.ids import STD_CONFIG_ID
-from agnette.agl.runtime.arguments import OptionSome
+from agnette.agl.runtime.arguments import OptionSome, ParamTier, option_none_raw
 from agnette.agl.runtime.engine_config import (
-    engine_setting_params,
-    raw_option_str,
+    EngineSettings,
+    engine_origin,
+    invalid_engine_message,
+    split_engine_values,
     validate_engine_leaf_value,
-    validate_engine_value,
 )
 from agnette.agl.runtime.option import option_text
 from agnette.agl.semantics.values import BoolValue, RecordValue
@@ -37,16 +36,14 @@ from agnette.config.engine_keys import (
     ENGINE_KEYS,
     ENGINE_REGISTERS,
     EngineKeyKind,
-    EngineKeySpec,
     engine_keys_for_register,
     trace_write_implies_enabled,
 )
 from agnette.core.log import TraceDecision
-from agnette.host_params.config import ParamValueTiers
-from agnette.host_params.projection import option_none_raw
+from agnette.core.parse import normalize_option_text
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
     from agnette.agl.semantics.type_table import TypeTable
     from agnette.agl.semantics.values import Value
@@ -55,79 +52,16 @@ if TYPE_CHECKING:
     from agnette.host_params.surface import ParamSurfaceEntry
 
 __all__ = [
-    "EngineHostValues",
-    "EngineUsageError",
     "EngineSeedTiers",
     "build_host_engine_seeds",
-    "engine_setting_name",
+    "engine_seed_values",
     "host_agent_spec_resolver",
     "parse_engine_flags",
     "reject_register_conflicts",
+    "resolve_strict_json",
     "resolve_timeout",
-    "split_engine_params",
-    "split_engine_tiers",
+    "trace_decision",
 ]
-
-
-def engine_setting_name(key: "HostParamKey") -> str | None:
-    """Return the engine setting *key* identifies, or ``None`` for any other parameter."""
-    return next((param.name for param in engine_setting_params() if param.key == key), None)
-
-
-def split_engine_params(
-    params: "Mapping[HostParamKey, object]",
-) -> "tuple[dict[HostParamKey, object], dict[str, object | None]]":
-    """Split host *params* into the non-engine ones and the engine ones.
-
-    The engine values are keyed by setting name, unboxed to the native shape
-    config values take; a present ``None`` is an explicit empty ``Option``
-    (``--no-timeout``).
-    """
-    others: dict[HostParamKey, object] = {}
-    engine: dict[str, object | None] = {}
-    for key, raw in params.items():
-        name = engine_setting_name(key)
-        if name is None:
-            others[key] = raw
-        elif isinstance(raw, OptionSome):
-            engine[name] = raw.value
-        elif raw == option_none_raw():
-            engine[name] = None
-        else:
-            engine[name] = raw
-    return others, engine
-
-
-@dataclass(frozen=True, slots=True)
-class EngineHostValues:
-    """The engine settings' resolved parameter values, by setting name.
-
-    ``cli``: supplied on the command line; ``program``: from the selected
-    program's table; ``manifest``: from the owning package's ``[config]``.
-    """
-
-    cli: Mapping[str, object | None]
-    program: Mapping[str, object | None]
-    manifest: Mapping[str, object | None]
-
-
-def split_engine_tiers(tiers: ParamValueTiers) -> tuple[ParamValueTiers, EngineHostValues]:
-    """Split the engine settings out of resolved parameter *tiers*, the one place they leave them.
-
-    Returns the tiers of the remaining (module and program-argument) parameters,
-    which the pipeline decodes, and the engine values, which :func:`build_host_engine_seeds` seeds.
-    """
-    upper, engine_upper = split_engine_params(tiers.upper)
-    lower, manifest = split_engine_params(tiers.lower)
-    supplied = {name for key in tiers.supplied if (name := engine_setting_name(key)) is not None}
-    return (
-        replace(tiers, upper=upper, lower=lower),
-        EngineHostValues(
-            cli={name: raw for name, raw in engine_upper.items() if name in supplied},
-            program={name: raw for name, raw in engine_upper.items() if name not in supplied},
-            manifest=manifest,
-        ),
-    )
 
 
 def reject_register_conflicts(
@@ -153,8 +87,9 @@ def reject_register_conflicts(
 def parse_engine_flags(tokens: "Sequence[str]") -> dict[str, object | None]:
     """Parse *tokens* as the bare engine-setting flags of a host with no program.
 
-    Returns the explicit values as :func:`split_engine_params` does; raises
-    ``ValueError`` for a malformed flag, a conflicting pair, or a leftover
+    Returns the explicit values by setting name, unboxed to the native shape config
+    values take (a present ``None`` is an explicit empty ``Option``, as ``--no-timeout``
+    gives); raises ``ValueError`` for a malformed flag, a conflicting pair, or a leftover
     positional token.
     """
     command = engine_command()
@@ -162,7 +97,15 @@ def parse_engine_flags(tokens: "Sequence[str]") -> dict[str, object | None]:
     if parsed.arguments.positional:
         raise ValueError(f"unexpected argument: {parsed.arguments.positional[0]!r}")
     reject_register_conflicts(command.surface.entries, parsed.params)
-    return split_engine_params(parsed.params)[1]
+    _, engine = split_engine_values(parsed.params)
+    return {key[2]: _unboxed(raw) for key, raw in engine.items()}
+
+
+def _unboxed(raw: object) -> object | None:
+    """Return a parsed engine flag's native value: its payload, or ``None`` for a cleared one."""
+    if isinstance(raw, OptionSome):
+        return raw.value
+    return None if raw == option_none_raw() else raw
 
 
 def resolve_timeout(engine_seeds: "Mapping[str, Value]") -> float | None:
@@ -193,255 +136,166 @@ def host_agent_spec_resolver(merged_config: "TomlDict") -> AgentSpecResolver:
         raise SystemExit(1) from exc
 
 
-def _configured_value(
-    spec: EngineKeySpec,
-    config: "ExecConfig",
-    primary_table: "Mapping[str, object]",
-    fallback_table: "Mapping[str, object]",
-) -> object | None:
-    """Return one configured engine value, preserving raw ``Option[text]`` spelling."""
-    configured_value = cast(object | None, getattr(config, spec.config_attr))
-    if configured_value is None:
-        return None
-    if spec.kind is EngineKeyKind.OPTION_TEXT:
-        return raw_option_str(primary_table, fallback_table, spec.name)
-    return configured_value
-
-
-class EngineUsageError(ValueError):
-    """An engine value the command line supplied is invalid: a usage error."""
-
-
-def _exit_on_invalid[T](
-    key_name: str, origin: str, check: "Callable[[], T]", *, supplied: bool = False
-) -> T:
-    """Run *check*; on ``ValueError`` fail with an origin-tagged error.
-
-    A *supplied* (command-line) value raises :exc:`EngineUsageError`; any other
-    prints the error and exits 1.
-    """
-    try:
-        return check()
-    except ValueError as exc:
-        message = f"invalid {key_name} value from {origin}: {exc}"
-        if supplied:
-            raise EngineUsageError(message) from exc
-        print(f"Error: {message}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-
 def _decode_engine_value(
-    key_name: str, raw: object, origin: str, type_table: "TypeTable", *, supplied: bool = False
+    key_name: str, raw: object, origin: str, type_table: "TypeTable"
 ) -> "Value":
-    """Decode one engine value; see :func:`_exit_on_invalid` for a failure.
+    """Decode one engine value; on failure print an origin-tagged error and exit 1.
 
-    Shared by the ordinary per-key seeding loop and the derived ``trace`` rule,
-    so both go through one decode-failure contract (message and exit code).
     Decoding — including ``timeout``'s duration-syntax check — is
     :func:`~agnette.agl.runtime.engine_config.validate_engine_leaf_value`'s rule,
     so a CLI flag, a config-file entry, and a package manifest leaf fail
     identically.
     """
-    return _exit_on_invalid(
-        key_name,
-        origin,
-        partial(validate_engine_leaf_value, key_name, raw, type_table),
-        supplied=supplied,
-    )
+    try:
+        return validate_engine_leaf_value(key_name, raw, type_table)
+    except ValueError as exc:
+        print(f"Error: {invalid_engine_message(key_name, origin, exc)}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
-def validate_config_engine_values(values: "Mapping[str, Value]") -> None:
-    """Validate every decoded ``@config`` engine value, exiting 1 naming the first invalid key.
+def _trace_file_text(values: "Mapping[str, Value]") -> str | None:
+    """Return the trace path *values* carries, or ``None`` for an empty/absent one."""
+    value = values.get("trace-file")
+    if not isinstance(value, RecordValue):
+        return None
+    return option_text(value, nominals=NO_BUILTIN_DECLARATIONS)
 
-    Applies :func:`~agnette.agl.runtime.engine_config.validate_engine_value`
-    whether or not a higher tier overrides the value, like a CLI or
-    config-table value.
+
+def _resolve_trace(settings: EngineSettings) -> "Value | None":
+    """Return the derived ``trace`` setting, or ``None`` when nothing configures it.
+
+    A supplied (command-line) ``trace`` or ``trace-file`` wins outright. Otherwise,
+    when ``trace`` or ``trace-file`` is set at all, ``trace`` is true iff its ``trace``
+    is true or its ``trace-file`` resolves to a real path (``Some``) — each key
+    independently carrying its winning tier. Otherwise an effective ``debug`` turns
+    ``trace`` on. A ``trace-file`` of none (a blank configured value included) is a
+    configured trace setting at any tier, so with it set ``debug`` does not turn
+    tracing on.
     """
-    for name, value in values.items():
-        _exit_on_invalid(name, "@config", partial(validate_engine_value, name, value))
+    values, ranks = settings.values, settings.ranks
+    if ranks.get("trace") is ParamTier.SUPPLIED:
+        return values["trace"]
+    if ranks.get("trace-file") is ParamTier.SUPPLIED:
+        return BoolValue(True)
+    if "trace" in values or "trace-file" in values:
+        trace = values.get("trace")
+        is_trace_true = isinstance(trace, BoolValue) and trace.value
+        # The configuration follows the declared register relation a runtime
+        # write follows: a real destination implies the switch.
+        return BoolValue(
+            is_trace_true
+            or trace_write_implies_enabled("trace-file", _trace_file_text(values) is not None)
+        )
+    debug = values.get("debug")
+    return BoolValue(True) if isinstance(debug, BoolValue) and debug.value else None
+
+
+def engine_seed_values(settings: EngineSettings) -> "dict[str, Value]":
+    """Return the engine seeds: the resolved *settings* plus the derived ``trace``."""
+    trace = _resolve_trace(settings)
+    return dict(settings.values) if trace is None else {**settings.values, "trace": trace}
+
+
+def trace_decision(settings: EngineSettings) -> TraceDecision:
+    """Resolve the trace decision the host's own log file starts from.
+
+    The same resolution :func:`engine_seed_values` seeds ``trace`` with, read back as
+    an on/off state plus the explicit destination (``None`` → the auto-generated
+    timestamped path).  Left unconfigured everywhere, tracing is off. An explicit none
+    ``trace-file`` (a blank configured value or ``@config(trace-file = None)``) at any tier counts
+    as configuring the trace, so it keeps ``debug`` from turning tracing on, and a
+    lower tier's ``trace-file`` it masks no longer applies.
+
+    A program's own ``std/config::trace``/``trace-file`` write is not a
+    layer here: it takes effect at runtime, from its program point onward,
+    through the host settings reconfigurer, and overrides this decision —
+    see ``docs/agl/reference/host-environment.md``.
+    """
+    trace = _resolve_trace(settings)
+    return TraceDecision(
+        enabled=isinstance(trace, BoolValue) and trace.value,
+        explicit_path=_trace_file_text(settings.values),
+    )
 
 
 @dataclass(frozen=True)
 class EngineSeedTiers:
-    """``cli`` (explicit CLI flags) above ``upper`` (primary table) above ``lower`` (fallback).
+    """``cli`` (explicit CLI flags) above ``upper`` (the ``[exec]`` declaration route).
 
-    A config value the CLI overrides is absent from ``upper``/``lower``.
-    ``cli_trace`` is the derived ``trace`` setting an explicit CLI flag fixes.
+    A config value the CLI overrides is absent from ``upper``.
     """
 
     cli: "Mapping[str, Value]"
     upper: "Mapping[str, Value]"
-    lower: "Mapping[str, Value]"
-    cli_trace: "tuple[object, str] | None"
-    _type_table: "TypeTable" = field(repr=False)
 
-    def config_merged(self, middle: "Mapping[str, Value] | None" = None) -> "dict[str, Value]":
-        """Flatten the config-only tiers: ``lower`` < *middle* < ``upper``, ``cli`` excluded.
+    def settings(self) -> EngineSettings:
+        """Flatten the tiers into resolved settings: ``upper`` < ``cli``."""
+        values: dict[str, Value] = {}
+        ranks: dict[str, ParamTier] = {}
+        for tier, values_of_tier in (
+            (ParamTier.DECLARED, self.upper),
+            (ParamTier.SUPPLIED, self.cli),
+        ):
+            values.update(values_of_tier)
+            ranks.update(dict.fromkeys(values_of_tier, tier))
+        return EngineSettings(values, ranks)
 
-        *middle*: already-decoded engine settings ranked between ``lower``
-        and ``upper`` (a selected program's own ``@config`` entries, restamped
-        onto the standard identity by the caller). Exposed so a host reads
-        the same config-only view :meth:`merged` derives ``trace`` from — e.g.
-        to resolve its own trace-file decision — without recomputing it.
-        """
-        mid: "Mapping[str, Value]" = middle if middle is not None else {}
-        return {**self.lower, **mid, **self.upper}
+    def merged(self) -> "dict[str, Value]":
+        """Flatten to the one seed mapping the engine seeds from, ``trace`` derived."""
+        return engine_seed_values(self.settings())
 
-    def merged(self, middle: "Mapping[str, Value] | None" = None) -> "dict[str, Value]":
-        """Flatten to one mapping: ``lower`` < *middle* < ``upper`` < ``cli``, plus ``trace``.
-
-        *middle*: already-decoded engine settings ranked between ``lower``
-        and ``upper``. The derived ``trace`` setting is resolved from the
-        config-only merge (``cli`` excluded, except for its own fast path) —
-        see :meth:`_resolve_trace`.
-        """
-        config_result = self.config_merged(middle)
-        result = {**config_result, **self.cli}
-        trace = self._resolve_trace(config_result)
-        if trace is not None:
-            result["trace"] = trace
-        return result
-
-    def trace_decision(self, middle: "Mapping[str, Value] | None" = None) -> TraceDecision:
-        """Resolve the trace decision the host's own log file starts from.
-
-        The same resolution :meth:`merged` seeds ``trace`` with, read back as
-        an on/off state plus the explicit destination (``None`` → the
-        auto-generated timestamped path).  Left unconfigured everywhere,
-        tracing is off.  The path is the CLI's when it named one, otherwise
-        the config tiers'.
-
-        A program's own ``std/config::trace``/``trace-file`` write is not a
-        layer here: it takes effect at runtime, from its program point onward,
-        through the host settings reconfigurer, and overrides this decision —
-        see ``docs/agl/reference/host-environment.md``.
-        """
-        from agnette.agl.semantics.values import BoolValue
-
-        config_result = self.config_merged(middle)
-        trace = self._resolve_trace(config_result)
-        path = self._trace_file_text(self.cli)
-        if path is None:
-            path = self._trace_file_text(config_result)
-        return TraceDecision(
-            enabled=isinstance(trace, BoolValue) and trace.value,
-            explicit_path=path,
-        )
-
-    @staticmethod
-    def _trace_file_text(values: "Mapping[str, Value]") -> str | None:
-        """Return the trace path *values* carries, or ``None`` for an empty/absent one."""
-        from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-        from agnette.agl.runtime.option import option_text
-        from agnette.agl.semantics.values import RecordValue
-
-        value = values.get("trace-file")
-        if not isinstance(value, RecordValue):
-            return None
-        return option_text(value, nominals=NO_BUILTIN_DECLARATIONS)
-
-    def _resolve_trace(self, config_result: "Mapping[str, Value]") -> "Value | None":
-        """Recompute the derived ``trace`` setting.
-
-        An explicit CLI ``trace`` or ``trace-file`` wins outright. Otherwise
-        ``trace`` is derived from *config_result* alone
-        (``lower``/*middle*/``upper``, ``cli`` excluded): when it names
-        ``trace`` or ``trace-file`` at all, ``trace`` is true iff its ``trace``
-        is true or its ``trace-file`` resolves to a real path (``Some``) — each
-        key independently carrying whichever tier won that merge. Otherwise an
-        effective ``debug`` (CLI, else config) turns ``trace`` on. Left
-        unconfigured everywhere, ``trace`` stays absent (``None``).
-        """
-        from agnette.agl.semantics.values import BoolValue
-
-        debug = self.cli.get("debug", config_result.get("debug"))
-        if self.cli_trace is not None:
-            raw, origin = self.cli_trace
-        elif "trace" in config_result or "trace-file" in config_result:
-            trace_value = config_result.get("trace")
-            is_trace_true = isinstance(trace_value, BoolValue) and trace_value.value
-            # The config layer follows the declared register relation a
-            # runtime write follows: a real destination implies the switch.
-            raw = is_trace_true or trace_write_implies_enabled(
-                "trace-file", self._trace_file_text(config_result) is not None
-            )
-            origin = "trace/trace-file configuration"
-        elif isinstance(debug, BoolValue) and debug.value:
-            raw, origin = True, "debug"
-        else:
-            return None
-
-        return _decode_engine_value("trace", raw, origin, self._type_table)
+    def trace_decision(self) -> TraceDecision:
+        """Resolve the trace decision; see :func:`trace_decision`."""
+        return trace_decision(self.settings())
 
 
 def build_host_engine_seeds(
     *,
     config: "ExecConfig",
     primary_table: "Mapping[str, object]",
-    fallback_table: "Mapping[str, object] | None" = None,
     cli_values: "Mapping[str, object | None]",
-    cli_usage_errors: bool = False,
 ) -> "EngineSeedTiers":
-    """Decode the engine settings the host explicitly controls into a three-tier seed set.
+    """Decode the engine settings the host explicitly controls into a two-tier seed set.
 
     ``cli`` holds every explicitly supplied CLI value; ``upper`` holds every
-    *primary_table* value; ``lower`` holds every *fallback_table* value not
-    already covered by *primary_table*. A table value the CLI overrides is
+    *primary_table* (``[exec]``) value not overridden by the CLI, which is
     not decoded. A setting left to its default in every source stays absent
     from every tier, so a ``builtin var`` initializer supplies it instead of
     being suppressed by a host-side floor. ``cli_values`` contains only
     explicitly supplied CLI values; a present ``None`` is an explicit empty
     ``Option``. ``trace`` is seeded like any other key here;
     :meth:`EngineSeedTiers.merged` recomputes it once the ``trace-file``
-    implication and any caller-supplied middle tier are folded in.
+    implication is folded in.
 
     Every key, ``agent`` included, decodes through
     :func:`~agnette.agl.runtime.engine_config.validate_engine_leaf_value` against
     one shared seeded ``TypeTable``. A decode failure prints an error naming
-    the offending key and its origin (``--<name>`` for a CLI flag, otherwise
-    ``configuration key <name>``) to stderr and exits 1 here, before anything
-    runs. With *cli_usage_errors*, an invalid CLI value raises
-    :exc:`EngineUsageError` instead.
+    the offending key and its origin to stderr and exits 1 here, before
+    anything runs.
     """
     from agnette.agl.semantics.type_table import create_seeded_type_table
 
-    fallback: "Mapping[str, object]" = fallback_table if fallback_table is not None else {}
     type_table = create_seeded_type_table()
 
     cli: dict[str, Value] = {}
     upper: dict[str, Value] = {}
-    lower: dict[str, Value] = {}
     for spec in ENGINE_KEYS:
         if spec.name in cli_values:
             cli[spec.name] = _decode_engine_value(
                 spec.name,
                 cli_values[spec.name],
-                f"--{spec.name}",
+                engine_origin(spec.name, supplied=True),
                 type_table,
-                supplied=cli_usage_errors,
             )
-            continue
-        if spec.name in primary_table:
-            tier = upper
-        elif spec.name in fallback:
-            tier = lower
-        else:
-            continue
-        value = _configured_value(spec, config, primary_table, fallback)
-        # A ``None`` config result is absent, not an explicit control; this
-        # lets a builtin initializer supply invalid/empty Option values.
-        if value is not None:
-            tier[spec.name] = _decode_engine_value(
-                spec.name, value, f"configuration key {spec.name}", type_table
+        elif spec.name in primary_table:
+            value: object
+            if spec.kind is EngineKeyKind.OPTION_TEXT:
+                # A blank or non-positive value is an explicit none, as in ``agm exec``.
+                value = normalize_option_text(primary_table[spec.name])
+            else:
+                value = cast(object, getattr(config, spec.config_attr))
+            upper[spec.name] = _decode_engine_value(
+                spec.name, value, engine_origin(spec.name, supplied=False), type_table
             )
 
-    if "trace" in cli_values:
-        cli_trace: tuple[object, str] | None = (cli_values["trace"], "--trace")
-    elif "trace-file" in cli_values:
-        cli_trace = (True, "--trace-file")
-    else:
-        cli_trace = None
-
-    return EngineSeedTiers(
-        cli=cli, upper=upper, lower=lower, cli_trace=cli_trace, _type_table=type_table
-    )
+    return EngineSeedTiers(cli=cli, upper=upper)

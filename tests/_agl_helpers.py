@@ -44,11 +44,10 @@ hand-built program needs, marking every exception field as having no JSON form.
 ``dummy_span`` returns a fixed placeholder ``SourceSpan`` for tests that must
 supply one but don't assert on its content.
 
-``program_config_engine_seeds`` partitions a preflighted entry's evaluated
-``@config`` into its engine-setting seeds, mirroring the production split
-``agnette.agm.commands.exec_program`` makes; ``run_inline_code`` uses it so an
-inline scenario's ``@config`` engine settings reach the interpreter the same
-way the real host applies them.
+``program_config_engine_seeds`` returns a preflighted entry's resolved engine
+settings (``trace`` derived) as seeds, as ``agnette.agm.commands.exec_program`` applies them;
+``run_inline_code`` uses it so an inline scenario's ``@config`` engine settings
+reach the interpreter the same way the real host applies them.
 
 ``run_program``/``shapes_match``/``assert_shape`` and the REPL helpers
 ``eval_ok``/``read_config_result``/``repl_session``/``unopened_repl_session``/
@@ -69,7 +68,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agnette.agl import PipelineDriver
-from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.builtin_vars import builtin_var_key
 from agnette.agl.ir.contracts import (
     DecodePlan,
@@ -99,7 +97,6 @@ from agnette.agl.modules.roots import RootSet, assemble_roots
 from agnette.agl.pipeline import ArgumentPreflight, PreparedProgram, ProgramDiscovery, RunResult
 from agnette.agl.repl import ReplSession
 from agnette.agl.repl.entry import EntryResult
-from agnette.agl.runtime.engine_config import restamp_engine_setting
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.semantics.type_table import (
@@ -143,7 +140,7 @@ from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.typecheck.program import CheckedProgram, check_program
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agl.zones import ParamZone
-from agnette.agm.cli_support.engine_seeds import engine_setting_name
+from agnette.agm.cli_support.engine_seeds import engine_seed_values
 from agnette.config.context import ConfigContext
 from agnette.sandbox.prepare import SandboxContext, lazy_sandbox_context
 
@@ -310,26 +307,17 @@ def prepare_inline_code(
 def program_config_engine_seeds(
     argument_preflight: ArgumentPreflight,
 ) -> dict[StaticBindingKey, Value]:
-    """Partition a preflighted entry's ``@config`` into its engine-setting seeds.
+    """Return a preflighted entry's engine settings, ``trace`` derived, as ``builtin var`` seeds.
 
-    Mirrors ``agnette.agm.commands.exec_program``'s own split of
-    ``ArgumentPreflight.program_config`` by ``engine_setting_name``,
-    restamped onto the executable's own nominal identity, so a scenario
-    harness feeds an engine setting from ``@config`` (``std/config::trace``,
-    ``timeout``, ...) the same way the real ``agm exec`` host does. A module
-    parameter's own ``@config`` entries need no such seam: preflight already
-    folds them into ``param_seeds``.
+    A scenario harness feeds an engine setting from ``@config``
+    (``std/config::trace``, ``timeout``, ...) the same way the real ``agm exec``
+    host does (:func:`~agnette.agm.cli_support.engine_seeds.engine_seed_values`). A module
+    parameter's own ``@config`` entries need no such seam: preflight already folds them
+    into ``param_seeds``.
     """
-    executable = argument_preflight.executable
     return {
-        builtin_var_key(STD_CONFIG_ID, (), name): restamp_engine_setting(
-            name,
-            value,
-            from_table=executable.builtin_nominals,
-            to_table=NO_BUILTIN_DECLARATIONS,
-        )
-        for key, value in argument_preflight.program_config.items()
-        if (name := engine_setting_name(key)) is not None
+        builtin_var_key(STD_CONFIG_ID, (), name): value
+        for name, value in engine_seed_values(argument_preflight.engine).items()
     }
 
 

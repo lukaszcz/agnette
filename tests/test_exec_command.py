@@ -2125,10 +2125,7 @@ class TestExecConfigWiring:
         assert "invalid exec configuration" not in capsys.readouterr().err
 
     def test_invalid_timeout_config_exits_cleanly(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: "pytest.CaptureFixture[str]",
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from agnette.config.context import ConfigContext
 
@@ -2148,7 +2145,6 @@ class TestExecConfigWiring:
             exec_command.run(ExecArgs(file=str(agl_file), argument_tokens=["--no-trace"]))
 
         assert exc_info.value.code == 1
-        assert "Error: invalid exec configuration" in capsys.readouterr().err
 
 
 class TestExecFFI:

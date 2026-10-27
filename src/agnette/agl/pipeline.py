@@ -38,7 +38,13 @@ from agnette.agl.ir.nodes import UseDefault
 from agnette.agl.ir.static_keys import FunctionParamKey, split_host_param_values
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.runtime.agents import AgentFn
-from agnette.agl.runtime.engine_config import engine_setting_params
+from agnette.agl.runtime.engine_config import (
+    EngineSettings,
+    EngineValueFailure,
+    engine_setting_params,
+    resolve_engine_settings,
+    split_engine_values,
+)
 from agnette.agl.runtime.types import (
     HostEnvironment,
     HostParamInfo,
@@ -213,15 +219,11 @@ class ArgumentPreflight:
         every other function's parameters a host supplied or ``@config`` set, and
         *program*'s own bound ``@param`` arguments, whose value so reaches every call
         that omits them.
-    ``program_config``
-        *program*'s own ``@config`` entries, evaluated to values: a target
-        ``HostParamKey`` (an engine setting, a ``@param`` binding or a ``def``
-        parameter) -> its checked, constant value. Empty when *program* carries no
-        ``@config``. A ``@param`` target here is also already folded into
-        the seeds, and a *program* argument into ``arguments``; a host reads the
-        engine-setting subset (``agnette.agl.ir.builtin_vars.is_engine_builtin_var_key``
-        of a binding key) to merge alongside its other engine-setting seed sources
-        (CLI flags, config files, and the like).
+    ``engine``
+        The engine settings every source supplied, merged by rank: each setting's
+        decoded winning value and winning :class:`ParamTier`. A setting no source
+        sets is absent. The host derives the settings that depend on several keys
+        (``trace``) from it.
     """
 
     result: "RunResult"
@@ -229,7 +231,7 @@ class ArgumentPreflight:
     arguments: "tuple[Value | UseDefault, ...]"
     param_seeds: "Mapping[StaticBindingKey, Value]"
     function_param_seeds: "Mapping[FunctionParamKey, Value]"
-    program_config: "Mapping[HostParamKey, Value]"
+    engine: EngineSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,10 +241,15 @@ class ArgumentPreflightFailure:
     ``usage_diagnostics`` are the failures of values the command line or environment
     supplied, and of missing or unknown program arguments, separate from the static and
     configured-value diagnostics so CLI hosts can present them as usage errors.
+    ``engine_failures`` and ``engine_usage_failures`` are the invalid engine setting values,
+    configured and supplied respectively; they have no source location, so they are not
+    in ``result``.
     """
 
     result: "RunResult"
     usage_diagnostics: "tuple[Diagnostic, ...]" = ()
+    engine_failures: "tuple[EngineValueFailure, ...]" = ()
+    engine_usage_failures: "tuple[EngineValueFailure, ...]" = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1386,7 +1393,10 @@ class PipelineDriver:
         ``@inherit`` values, each with its address), then *param_values*
         (supplied and program-route values). A value a higher tier overrides is
         never decoded. The ``@config`` values are already typed ``Value``s (evaluated
-        by :meth:`_evaluate_program_config`) and need no decoding. The tiers are
+        by :meth:`_evaluate_program_config`) and need no decoding. Engine settings
+        are keyed by their ``std/config`` binding like any module parameter, but
+        resolve into :attr:`ArgumentPreflight.engine` rather than the seeds
+        (:func:`~agnette.agl.runtime.engine_config.resolve_engine_settings`). The tiers are
         the only channel of named program arguments: one is keyed by its
         program's :class:`~agnette.agl.ir.static_keys.FunctionParamKey`, the
         other keys become the module and function seeds. A value for a
@@ -1399,6 +1409,7 @@ class PipelineDriver:
         """
         from agnette.agl.runtime.arguments import (
             ConfiguredArgumentDiagnostic,
+            ParamTier,
             ProgramArguments,
             bind_param_values,
             bind_program_arguments_for,
@@ -1411,9 +1422,11 @@ class PipelineDriver:
 
         get_interp = lazy_interpreter(executable)
         default_resolver = resolver_over_interpreter(get_interp)
-        upper, upper_arguments = split_program_arguments(param_values or {}, program)
-        upper_keys = frozenset(param_values or {})
-        lower_params, lower_arguments = split_program_arguments(param_values_lower or {}, program)
+        param_values, engine_upper = split_engine_values(param_values or {})
+        param_values_lower, engine_lower = split_engine_values(param_values_lower or {})
+        upper, upper_arguments = split_program_arguments(param_values, program)
+        upper_keys = frozenset(param_values)
+        lower_params, lower_arguments = split_program_arguments(param_values_lower, program)
         inherited = {
             key: item
             for key, item in (param_values_inherited or {}).items()
@@ -1423,7 +1436,9 @@ class PipelineDriver:
         inherited_params, inherited_arguments = split_program_arguments(
             {key: item.value for key, item in inherited.items()}, program
         )
-        program_config = self._evaluate_program_config(executable, program, get_interp)
+        program_config, engine_config = split_engine_values(
+            self._evaluate_program_config(executable, program, get_interp)
+        )
         config_seeds, config_arguments = split_program_arguments(program_config, program)
         named = {
             **{
@@ -1477,15 +1492,25 @@ class PipelineDriver:
             {key: value for key, value in upper.items() if key in supplied},
             default_resolver=default_resolver,
         )
+        engine, engine_failures, engine_usage_failures = resolve_engine_settings(
+            {
+                ParamTier.DECLARED: engine_lower,
+                ParamTier.CONFIGURED: {k: v for k, v in engine_upper.items() if k not in supplied},
+                ParamTier.SUPPLIED: {k: v for k, v in engine_upper.items() if k in supplied},
+            },
+            engine_config,
+            nominals=executable.builtin_nominals,
+        )
+        seed_tiers = {
+            ParamTier.DECLARED: decoded_lower,
+            ParamTier.CONFIG: config_param_values,
+            ParamTier.INHERITED: decoded_inherited,
+            ParamTier.CONFIGURED: decoded_configured,
+            ParamTier.SUPPLIED: decoded_supplied,
+        }
         seeds: dict[HostParamKey, Value] = {}
-        for tier in (
-            decoded_lower,
-            config_param_values,
-            decoded_inherited,
-            decoded_configured,
-            decoded_supplied,
-        ):
-            seeds.update(tier.items())
+        for tier in ParamTier:
+            seeds.update(seed_tiers[tier])
         param_seeds, function_param_seeds = split_host_param_values(seeds)
         if not bind_diagnostics:
             for param, value in zip(program.parameters, bound, strict=True):
@@ -1500,7 +1525,7 @@ class PipelineDriver:
             *configured_diagnostics,
             *supplied_diagnostics,
         )
-        if diagnostics:
+        if diagnostics or engine_failures or engine_usage_failures:
             return ArgumentPreflightFailure(
                 result=RunResult(
                     ok=False,
@@ -1509,6 +1534,8 @@ class PipelineDriver:
                     warnings=result.warnings,
                 ),
                 usage_diagnostics=usage_diagnostics,
+                engine_failures=tuple(engine_failures),
+                engine_usage_failures=tuple(engine_usage_failures),
             )
         return ArgumentPreflight(
             result=result,
@@ -1516,7 +1543,7 @@ class PipelineDriver:
             arguments=bound,
             param_seeds=param_seeds,
             function_param_seeds=function_param_seeds,
-            program_config=program_config,
+            engine=engine,
         )
 
     @staticmethod

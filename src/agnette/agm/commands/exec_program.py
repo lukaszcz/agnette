@@ -62,11 +62,9 @@ from typing import TYPE_CHECKING, NoReturn, assert_never
 from agnette.agent.session.service import create_agl_session_host
 from agnette.agl import ArgumentPreflightFailure, PipelineDriver
 from agnette.agl.diagnostics import format_diagnostic
-from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.modules.roots import RootSet
 from agnette.agl.runtime.agents import value_driven_agent_factory
-from agnette.agl.runtime.engine_config import restamp_engine_setting
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import ProgramDeclInfo
 from agnette.agl.syntax.nodes import FuncDef, scope_names, static_items
@@ -74,15 +72,12 @@ from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import (
-    EngineUsageError,
-    build_host_engine_seeds,
-    engine_setting_name,
+    engine_seed_values,
     host_agent_spec_resolver,
     reject_register_conflicts,
     resolve_strict_json,
     resolve_timeout,
-    split_engine_tiers,
-    validate_config_engine_values,
+    trace_decision,
 )
 from agnette.agm.cli_support.exec_roots import effective_exec_roots_or_none
 from agnette.agm.cli_support.exec_target import (
@@ -110,9 +105,7 @@ from agnette.agm.cli_support.program_options import (
 )
 from agnette.config.context import ConfigContext, current_config_context
 from agnette.config.general import (
-    EXEC_CONFIG_SECTION,
     PathAnchor,
-    exec_config_from_merged,
     exec_options_from_merged,
     load_general_config,
 )
@@ -123,7 +116,7 @@ from agnette.core.cleanup import preserve_primary_error
 from agnette.core.fs import read_text_arg
 from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
 from agnette.core.process import terminating_signals_exit
-from agnette.core.toml import TomlDict, toml_dict
+from agnette.core.toml import TomlDict
 from agnette.host_params.config import (
     ParamValueTiers,
     report_colliding_declarations,
@@ -145,7 +138,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from agnette.agl.runtime.types import HostParamInfo
-    from agnette.config.general import ExecConfig, GeneralConfig
+    from agnette.config.general import GeneralConfig
 
 
 class RegisteredProgramUsageError(Exception):
@@ -202,8 +195,8 @@ def _bind_host_inputs(
 
     The returned :class:`ParamValueTiers` carries every named value (program
     arguments included); the returned tuple only the positional ones. They are
-    handed to ``PipelineDriver.preflight_arguments`` unmerged (once the engine
-    settings are split off): it, not this function, ranks the ``lower`` tier —
+    handed to ``PipelineDriver.preflight_arguments`` unmerged: it, not this
+    function, ranks the ``lower`` tier —
     the declaration route, with a package-owned program's manifest ``[config]``
     values already folded in above it — beneath the selected program's own
     ``@config`` values, which are only known once the program is lowered. Those
@@ -333,22 +326,6 @@ def _package_program_route(
         return _PackageProgramRoute(None, ())
     reference = program_reference(module_segments, program_path)
     return _PackageProgramRoute(package, command_paths_for_program(package.manifest, reference))
-
-
-def _exec_config(
-    merged: TomlDict,
-    *,
-    program_table: "dict[str, object] | None" = None,
-    package_table: "dict[str, object] | None" = None,
-) -> "ExecConfig":
-    """Read ``[exec]`` over the engine tables, exiting 1 on an invalid configuration."""
-    try:
-        return exec_config_from_merged(
-            merged, program_table=program_table, package_table=package_table
-        )
-    except ValueError as exc:
-        print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
 
 
 def _registered_command_mismatch(command_path: str) -> NoReturn:
@@ -641,90 +618,41 @@ def run(
         ),
         inherit_scope=InheritScope(partial(_inherit_registry, packages, ctx), ctx.cwd),
     )
-    module_tiers, engine_values = split_engine_tiers(param_tiers)
-
-    # Seed only settings explicitly controlled by CLI/config. Runtime fallbacks
-    # are not seeds: passing them here would suppress a declared
-    # ``builtin var`` initializer.  The shared decoder preserves explicit
-    # ``None`` values for Option settings such as --no-timeout.  A host Agent
-    # value (``--agent``/``[exec] agent``) decodes through
-    # the same shared path as every other key; a bad configured value exits 1
-    # here and a bad CLI value is a usage error, both before the program is
-    # lowered. strict-json/timeout/trace are merged only after preflight,
-    # below, once a selected program's own ``@config`` entries (ranked below
-    # the program route and above the other config tables, see
-    # ``EngineSeedTiers.merged``) are known.
-    manifest_engine_table = dict(engine_values.manifest)
-    try:
-        engine_tiers = build_host_engine_seeds(
-            config=_exec_config(
-                merged_config,
-                program_table=dict(engine_values.program),
-                package_table=manifest_engine_table,
-            ),
-            primary_table=engine_values.program,
-            fallback_table={
-                **toml_dict(merged_config.get(EXEC_CONFIG_SECTION)),
-                **manifest_engine_table,
-            },
-            cli_values=engine_values.cli,
-            cli_usage_errors=True,
-        )
-    except EngineUsageError as exc:
-        raise RegisteredProgramUsageError(str(exc), selected_program) from exc
-
-    # The selected program's own ``@config`` entries (evaluated by preflight)
-    # rank below the program route and above the other config tables. Preflight
-    # already folded the module and function parameters and the program's own
-    # arguments in; only the engine settings (``engine_setting_name``) merge here.
-    # Resolving these only after a preflight failure has already exited 1 is
-    # what lets ``@config`` reach them without a second lowering pass or a
-    # duplicated precedence rule. A ``@config`` value is decoded against
-    # *executable*'s own nominal identity (see ``preflight_arguments``); an
-    # enum-backed value (``timeout``, ``trace-file``, ``agent``,
-    # ``sandbox``) is restamped onto the standard identity every other
-    # engine tier already uses, so it reads back through the same plain accessors.
-    #
     # Program arguments are validated against the lowered program, so this
     # preflight lowers the graph.  It must report a failure (exit 1) BEFORE
     # the trace file is prepared and the runner is built — hence a
     # check-only pass here rather than letting the run below surface it.
     # The lowered program it produces is handed to that run, so the graph
-    # is lowered exactly once per invocation.
+    # is lowered exactly once per invocation.  Engine settings resolve there
+    # with every other host parameter: only settings explicitly controlled by a
+    # source are seeded, so a declared ``builtin var`` initializer supplies the rest.
     argument_preflight = runtime.preflight_arguments(
         prepared,
         selected_program,
         positional=positional,
         compiled=discovery.compiled,
-        param_values=module_tiers.upper,
-        param_values_lower=module_tiers.lower,
-        param_values_inherited=module_tiers.inherited,
-        supplied=module_tiers.supplied,
+        param_values=param_tiers.upper,
+        param_values_lower=param_tiers.lower,
+        param_values_inherited=param_tiers.inherited,
+        supplied=param_tiers.supplied,
     )
     if isinstance(argument_preflight, ArgumentPreflightFailure):
         usage = argument_preflight.usage_diagnostics
         for diag in argument_preflight.result.diagnostics:
             if diag not in usage:
                 print(format_diagnostic(diag, source_name=diagnostic_source_name), file=sys.stderr)
-        if usage:
-            raise RegisteredProgramUsageError(
-                "; ".join(diag.message for diag in usage), selected_program
-            )
+        for failure in argument_preflight.engine_failures:
+            print(f"error: {failure.message}", file=sys.stderr)
+        usage_messages = [
+            *(diag.message for diag in usage),
+            *(failure.message for failure in argument_preflight.engine_usage_failures),
+        ]
+        if usage_messages:
+            raise RegisteredProgramUsageError("; ".join(usage_messages), selected_program)
         raise SystemExit(1)
     executable = argument_preflight.executable
     program_symbol = executable.program_symbols[selected_program.node_id]
-    config_engine_values = {
-        name: restamp_engine_setting(
-            name,
-            value,
-            from_table=executable.builtin_nominals,
-            to_table=NO_BUILTIN_DECLARATIONS,
-        )
-        for key, value in argument_preflight.program_config.items()
-        if (name := engine_setting_name(key)) is not None
-    }
-    validate_config_engine_values(config_engine_values)
-    engine_seeds = engine_tiers.merged(middle=config_engine_values)
+    engine_seeds = engine_seed_values(argument_preflight.engine)
 
     resolved_strict_json = resolve_strict_json(engine_seeds)
 
@@ -732,7 +660,7 @@ def run(
 
     # One resolution for both the readable ``trace`` seed above and the trace
     # file opened below.
-    trace_decision = engine_tiers.trace_decision(middle=config_engine_values)
+    decision = trace_decision(argument_preflight.engine)
 
     # Built once and shared by every sandboxing consumer this invocation
     # dispatches through -- the agent factory, the session host, and the
@@ -757,7 +685,7 @@ def run(
     # Resolve and validate the trace log file up front. A source
     # ``std/config::trace``/``trace-file`` write takes effect at runtime via the
     # host reconfigurer, not here.
-    trace_file = prepare_trace_log_from_decision(trace_decision, command_name="exec")
+    trace_file = prepare_trace_log_from_decision(decision, command_name="exec")
 
     policy = HostSettingsPolicy(
         resolve_trace_path=LiveTracePathResolver(command_name="exec", auto_path=trace_file),

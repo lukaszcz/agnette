@@ -12,12 +12,15 @@ import pytest
 from agnette.agl.attributes import ProgramOptionSpec
 from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.runtime.engine_config import engine_setting_params
+from agnette.agl.runtime.arguments import OptionSome, option_none_raw
+from agnette.agl.runtime.engine_config import (
+    engine_setting_params,
+    split_engine_values,
+)
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
 from agnette.agl.semantics.types import BoolType, DictType, IntType, TextType, Type
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
-from agnette.agm.cli_support.engine_seeds import split_engine_tiers
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
 from agnette.config.general import GeneralConfig, PathAnchor
 from agnette.config.qualified_keys import QualifiedConfigLookupError
@@ -129,6 +132,7 @@ def _resolve(
         entry_segments=("workflow",),
         command_paths=(),
         surface=_surface(program, bindings, reserved),
+        declared_params=bindings,
     )
     return {**tiers.lower, **tiers.upper}
 
@@ -326,10 +330,13 @@ def test_a_bare_leaf_reaches_the_param_that_shadows_the_engine_setting() -> None
     program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
 
     tiers = _tiers(_config({"workflow": {"run": {"timeout": "30s"}}}), program, (binding,))
-    module, engine = split_engine_tiers(tiers)
+    assert tiers.upper == {binding.key: "30s"}
 
-    assert module.upper == {binding.key: "30s"}
-    assert engine.program == {}
+
+def _engine(values: Mapping[HostParamKey, object]) -> dict[str, object]:
+    """Return the engine settings among *values* by name, ``Option`` boxes unwrapped."""
+    engine = split_engine_values(values)[1]
+    return {k[2]: v.value if isinstance(v, OptionSome) else v for k, v in engine.items()}
 
 
 def _tiers(
@@ -345,6 +352,7 @@ def _tiers(
         entry_segments=("workflow",),
         command_paths=(),
         surface=_surface(program, bindings),
+        declared_params=bindings,
         **kwargs,
     )
 
@@ -354,10 +362,8 @@ def test_a_bare_leaf_reaches_the_engine_setting_when_no_param_claims_the_name() 
 
     tiers = _tiers(_config({"workflow": {"run": {"timeout": "30s", "debug": True}}}), program, ())
 
-    module, engine = split_engine_tiers(tiers)
-
-    assert engine.program == {"timeout": "30s", "debug": True}
-    assert module.upper == {}
+    assert _engine(tiers.upper) == {"timeout": "30s", "debug": True}
+    assert split_engine_values(tiers.upper)[0] == {}
 
 
 def test_a_qualified_leaf_always_reaches_the_engine_setting() -> None:
@@ -370,10 +376,8 @@ def test_a_qualified_leaf_always_reaches_the_engine_setting() -> None:
         (binding,),
     )
 
-    module, engine = split_engine_tiers(tiers)
-
-    assert engine.program == {"timeout": "30s"}
-    assert module.upper == {binding.key: "9s"}
+    assert _engine(tiers.upper) == {"timeout": "30s"}
+    assert split_engine_values(tiers.upper)[0] == {binding.key: "9s"}
 
 
 def test_manifest_config_supplies_the_engine_settings_beneath_the_program_table() -> None:
@@ -386,10 +390,72 @@ def test_manifest_config_supplies_the_engine_settings_beneath_the_program_table(
         package_config={"timeout": "5s", "debug": False},
     )
 
-    _, engine = split_engine_tiers(tiers)
+    assert _engine(tiers.upper) == {"debug": True}
+    assert _engine(tiers.lower) == {"timeout": "5s"}
 
-    assert engine.program == {"debug": True}
-    assert engine.manifest == {"timeout": "5s"}
+
+def test_the_exec_table_is_the_declaration_route_of_the_engine_settings() -> None:
+    program = _program()
+
+    tiers = _tiers(_config({"exec": {"timeout": "30s", "debug": True, "echo": True}}), program, ())
+
+    assert _engine(tiers.lower) == {"timeout": "30s", "debug": True}
+    assert tiers.upper == {}
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("", option_none_raw()),
+        ("  ", option_none_raw()),
+        (0, option_none_raw()),
+        (-3, option_none_raw()),
+        (7, "7"),
+        (0.5, "0.5s"),
+        ("30s", "30s"),
+    ],
+)
+def test_a_configured_option_text_setting_reads_blank_as_none(
+    raw: object, expected: object
+) -> None:
+    tiers = _tiers(_config({"exec": {"timeout": raw}}), _program(), ())
+
+    assert _engine(tiers.lower) == {"timeout": expected}
+
+
+def test_a_blank_program_table_value_of_an_option_text_setting_is_an_explicit_none() -> None:
+    tiers = _tiers(_config({"workflow": {"run": {"timeout": ""}}}), _program(), ())
+
+    assert _engine(tiers.upper) == {"timeout": option_none_raw()}
+
+
+def test_a_program_table_and_the_manifest_outrank_the_exec_table() -> None:
+    program = _program()
+
+    tiers = _tiers(
+        _config(
+            {
+                "exec": {"timeout": "1s", "debug": False, "strict-json": True},
+                "workflow": {"run": {"debug": True}},
+            }
+        ),
+        program,
+        (),
+        package_config={"timeout": "5s"},
+    )
+
+    assert _engine(tiers.upper) == {"debug": True}
+    assert _engine(tiers.lower) == {"timeout": "5s", "strict-json": True}
+
+
+def test_the_exec_table_does_not_reach_a_param_named_after_an_engine_key() -> None:
+    binding = _binding("A/logging", "timeout", TextType())
+    program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+    tiers = _tiers(_config({"exec": {"timeout": "30s"}}), program, (binding,))
+
+    assert split_engine_values(tiers.lower)[0] == {}
+    assert _engine(tiers.lower) == {"timeout": "30s"}
 
 
 def test_rejects_two_spellings_of_one_param_in_one_program_table() -> None:
@@ -451,6 +517,17 @@ def test_a_qualified_program_leaf_is_declared_and_draws_no_warning(
     assert "logging.verbose" not in capsys.readouterr().err
 
 
+def test_an_engine_key_in_the_std_config_module_table_is_undeclared(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    std_config = ModuleId.from_path("std/config")
+    program = _program(closure=(ModuleId.from_path("app/main"), std_config))
+
+    _resolve(_config({"std": {"config": {"timeout": "30s"}}}), program, ())
+
+    assert capsys.readouterr().err.count("timeout") == 1
+
+
 def test_non_engine_key_leaf_forms_a_program_route_for_a_param() -> None:
     binding = _binding("A/logging", "max-iters", IntType())
     program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
@@ -471,6 +548,7 @@ def test_anonymous_entry_params_do_not_read_a_module_route() -> None:
         entry_segments=(),
         command_paths=(),
         surface=_surface(program, (binding,)),
+        declared_params=(binding,),
     )
 
     assert {**tiers.lower, **tiers.upper} == {}
@@ -543,6 +621,7 @@ def test_command_validation_takes_precedence_over_colliding_module_routes(
         entry_segments=("app", "main"),
         command_paths=(("devel", "review"),),
         surface=_surface(program, (colliding, imported)),
+        declared_params=(colliding, imported),
     )
 
     reported = capsys.readouterr().err
@@ -567,6 +646,7 @@ def test_a_sibling_command_table_is_not_validated_as_a_module_route(
         command_paths=(("devel", "revise"),),
         package_command_paths=frozenset({("devel", "review"), ("devel", "revise")}),
         surface=_surface(program, ()),
+        declared_params=(),
     )
 
     assert capsys.readouterr().err == ""
@@ -590,6 +670,7 @@ def test_a_command_table_does_not_hide_unknown_keys_on_a_module_table(
         command_paths=(("devel", "revise"),),
         package_command_paths=frozenset({("devel", "review"), ("devel", "revise")}),
         surface=_surface(program, ()),
+        declared_params=(),
     )
 
     reported = capsys.readouterr().err
@@ -802,6 +883,7 @@ def _resolve_tiers(
         entry_segments=("workflow",),
         command_paths=(),
         surface=_surface(program, bindings),
+        declared_params=bindings,
     )
 
 
@@ -894,6 +976,7 @@ def test_a_group_table_supplies_a_module_parameter_via_the_program_route() -> No
         entry_segments=("workflow",),
         command_paths=(("devel", "review"),),
         surface=_surface(program, (binding,)),
+        declared_params=(binding,),
     )
 
     assert tiers.upper == {binding.key: True}
@@ -913,6 +996,7 @@ def test_rejects_a_group_table_leaf_claimed_by_peer_parameters() -> None:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (first, second)),
+            declared_params=(first, second),
         )
 
     assert first.declaration_path in str(exc_info.value)
@@ -930,6 +1014,7 @@ def test_a_nearer_command_table_beats_an_inherited_group_table() -> None:
         entry_segments=("workflow",),
         command_paths=(("devel", "review"),),
         surface=_surface(program, (binding,)),
+        declared_params=(binding,),
     )
 
     assert tiers.upper == {binding.key: True}
@@ -948,6 +1033,7 @@ def test_an_unconsumed_group_table_leaf_draws_no_warning(
         entry_segments=("workflow",),
         command_paths=(("devel", "review"),),
         surface=_surface(program, (binding,)),
+        declared_params=(binding,),
     )
 
     assert capsys.readouterr().err == ""
@@ -967,6 +1053,7 @@ def test_rejects_a_group_table_leaf_ambiguous_with_a_module_route() -> None:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (own, imported)),
+            declared_params=(own, imported),
         )
 
     assert own.declaration_path in str(exc_info.value)
@@ -998,6 +1085,7 @@ def test_rejects_a_group_table_ambiguity_regardless_of_layer_order(
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (own, imported)),
+            declared_params=(own, imported),
         )
 
     assert own.declaration_path in str(exc_info.value)
@@ -1026,6 +1114,7 @@ def _resolve_argument_routes(
         entry_segments=("workflow",),
         command_paths=command_paths,
         surface=_surface(program, bindings),
+        declared_params=bindings,
         package_config=package_config,
     )
 
@@ -1157,6 +1246,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"devel": {"review": {"verbose": True}}},
         )
 
@@ -1174,6 +1264,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"devel": {"verbose": True}},
         )
 
@@ -1190,6 +1281,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"verbose": True},
         )
 
@@ -1206,6 +1298,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"devel": {"review": {"verbose": True}}},
         )
 
@@ -1222,6 +1315,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"devel": {"review": {"verbose": True}}},
         )
 
@@ -1239,6 +1333,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"devel": {"review": {"verbose": True}}},
         )
 
@@ -1256,6 +1351,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config=None,
         )
 
@@ -1274,6 +1370,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"devel": {"review": {"verbose": True}}},
         )
 
@@ -1292,6 +1389,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
                 entry_segments=("workflow",),
                 command_paths=(("devel", "review"),),
                 surface=_surface(program, (own,)),
+                declared_params=(own,),
                 package_config={"devel": {"review": {"x": True, "logging.x": False}}},
             )
 
@@ -1309,6 +1407,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
                 entry_segments=("workflow",),
                 command_paths=(("devel", "review"),),
                 surface=_surface(program, (first, second)),
+                declared_params=(first, second),
                 package_config={"devel": {"review": {"verbose": True}}},
             )
 
@@ -1329,6 +1428,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
                 entry_segments=("workflow",),
                 command_paths=(("devel", "review"),),
                 surface=_surface(program, (first, second)),
+                declared_params=(first, second),
                 package_config={"devel": {"verbose": True}},
             )
 
@@ -1346,6 +1446,7 @@ class TestManifestConfigMergesBelowConfigFileRoutes:
                 entry_segments=("workflow",),
                 command_paths=(),
                 surface=_surface(program, (first, second)),
+                declared_params=(first, second),
                 package_config={"verbose": True},
             )
 
@@ -1369,6 +1470,7 @@ class TestUnusedManifestLeafWarnings:
             entry_segments=("workflow",),
             command_paths=command_paths,
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_command_paths=package_command_paths,
             package_config=dict(package_config),
         )
@@ -1394,6 +1496,7 @@ class TestUnusedManifestLeafWarnings:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_config={"devel": {"review": {"verbose": True}}},
         )
 
@@ -1412,6 +1515,7 @@ class TestUnusedManifestLeafWarnings:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_config={"devel": {"review": {"input": "value", "typo": 1}}},
         )
 
@@ -1474,6 +1578,7 @@ class TestProgramArgumentsResolveThroughTheOneChain:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_config=package_config,
             positional=positional,
         )
@@ -1581,6 +1686,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(),
             surface=_surface(program, ()),
+            declared_params=(),
         )
 
         assert tiers.upper == {program.param_key("data"): str(config_dir / "data.txt")}
@@ -1596,6 +1702,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
         )
 
         assert tiers.upper == {program.param_key("data"): str(config_dir / "data.txt")}
@@ -1612,6 +1719,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
         )
 
         assert tiers.lower == {binding.key: str(config_dir / "data.txt")}
@@ -1629,6 +1737,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(),
             surface=_surface(program, ()),
+            declared_params=(),
         )
 
         assert tiers.upper == {program.param_key("data"): str(cwd / "other.txt")}
@@ -1644,6 +1753,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_config={"data": "data.txt"},
             manifest_anchor=PathAnchor(config_dir, cwd),
         )
@@ -1663,6 +1773,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_config={"data": "other.txt"},
             manifest_anchor=PathAnchor(config_dir, cwd),
         )
@@ -1683,13 +1794,13 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (binding,)),
+            declared_params=(binding,),
             package_config={"data": "data.txt", "trace-file": "data.txt"},
             manifest_anchor=PathAnchor(config_dir, cwd),
         )
-        module_tiers, engine = split_engine_tiers(tiers)
 
-        assert module_tiers.lower == {binding.key: str(config_dir / "data.txt")}
-        assert engine.manifest == {"trace-file": str(config_dir / "data.txt")}
+        assert split_engine_values(tiers.lower)[0] == {binding.key: str(config_dir / "data.txt")}
+        assert _engine(tiers.lower) == {"trace-file": str(config_dir / "data.txt")}
 
     def test_a_text_parameter_and_a_supplied_value_stay_as_written(self, tmp_path: Path) -> None:
         config_dir, cwd = self._dirs(tmp_path)
@@ -1709,6 +1820,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(),
             surface=_surface(program, ()),
+            declared_params=(),
         )
 
         assert tiers.upper == {
@@ -1726,6 +1838,7 @@ class TestConfiguredPathValuesAnchorToTheirDefiningFile:
             entry_segments=("workflow",),
             command_paths=(),
             surface=_surface(program, ()),
+            declared_params=(),
         )
 
         assert tiers.upper == {program.param_key("data"): "data.txt"}
@@ -1795,6 +1908,7 @@ class TestOverlappingRoutesWarnOnce:
             entry_segments=("workflow",),
             command_paths=(("review", "refine"),),
             surface=_surface(program, (refine,)),
+            declared_params=(refine,),
             package_command_paths=frozenset({("review", "refine")}),
         )
 
@@ -1819,6 +1933,7 @@ class TestNestedRouteTablesAreNotLeafValues:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_command_paths=self._COMMANDS,
         )
 
@@ -1834,6 +1949,7 @@ class TestNestedRouteTablesAreNotLeafValues:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_command_paths=self._COMMANDS,
             package_config={"devel": {"other": {"agent": "x"}}},
         )
@@ -1854,6 +1970,7 @@ class TestNestedRouteTablesAreNotLeafValues:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, (refine,)),
+            declared_params=(refine,),
             package_command_paths=self._COMMANDS,
         )
 
@@ -1879,6 +1996,7 @@ class TestNestedRouteTablesAreNotLeafValues:
             entry_segments=("workflow",),
             command_paths=(("devel", "review"),),
             surface=_surface(program, ()),
+            declared_params=(),
             package_command_paths=self._COMMANDS,
             package_config={"devel": {"cfg": {"b": 2}}},
         )

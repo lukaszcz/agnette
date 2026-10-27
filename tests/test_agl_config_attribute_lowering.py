@@ -4,8 +4,8 @@ Builds on the static semantics covered by ``test_agl_config_attribute_static.py`
 once a ``program def``'s ``@config`` entries are checked, the checker
 publishes their resolved targets, lowering carries them into the executable
 keyed by the owning program's own symbol, and preflight evaluates the
-selected program's own entries into runtime values for a host to merge into
-its own precedence rules.
+selected program's own entries into runtime values that take part in the
+host-parameter precedence chain.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from agnette.agl.lower.program import lower_program
 from agnette.agl.matchcompile import MatchCompiledProgram, compile_program_matches
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.pipeline import PipelineDriver
+from agnette.agl.runtime.arguments import ParamTier
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.semantics.values import BoolValue, DecimalValue, IntValue, JsonValue
 from agnette.agl.syntax.nodes import FuncDef, static_items
@@ -225,12 +226,14 @@ class TestPreflightProgramConfig:
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
-        target = (STD_CONFIG_ID, (), "trace")
-        assert preflight.program_config == {target: BoolValue(True)}
+        assert preflight.engine.values == {"trace": BoolValue(True)}
+        assert preflight.engine.ranks == {"trace": ParamTier.CONFIG}
 
     def test_decodes_a_param_target_value(self, tmp_path: Path) -> None:
         source = (
-            "@param let count: int = 1\n\n@config(count = 2)\nprogram def main() -> unit = ()\n"
+            "@param let count: int = 1\n\n"
+            "@config(count = 2)\n"
+            "program def main() -> unit = print(count)\n"
         )
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
@@ -245,13 +248,13 @@ class TestPreflightProgramConfig:
         )
         assert preflight.result.ok
         target = (program.module, (), "count")
-        assert preflight.program_config == {target: IntValue(2)}
+        assert preflight.param_seeds == {target: IntValue(2)}
 
     def test_decodes_an_int_literal_coerced_to_a_decimal_target(self, tmp_path: Path) -> None:
         source = (
             "@param let ratio: decimal = 1.0\n\n"
             "@config(ratio = 2)\n"
-            "program def main() -> unit = ()\n"
+            "program def main() -> unit = print(ratio)\n"
         )
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
@@ -266,10 +269,13 @@ class TestPreflightProgramConfig:
         )
         assert preflight.result.ok
         target = (program.module, (), "ratio")
-        assert preflight.program_config == {target: DecimalValue(decimal.Decimal(2))}
+        assert preflight.param_seeds == {target: DecimalValue(decimal.Decimal(2))}
 
     def test_decodes_an_int_literal_coerced_to_a_json_target(self, tmp_path: Path) -> None:
-        source = "@param let blob: json = 0\n\n@config(blob = 3)\nprogram def main() -> unit = ()\n"
+        source = (
+            "@param let blob: json = 0\n\n@config(blob = 3)\n"
+            "program def main() -> unit = print(blob)\n"
+        )
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
         discovery = runtime.discover_programs(prepared)
@@ -283,7 +289,7 @@ class TestPreflightProgramConfig:
         )
         assert preflight.result.ok
         target = (program.module, (), "blob")
-        assert preflight.program_config == {target: JsonValue(3)}
+        assert preflight.param_seeds == {target: JsonValue(3)}
 
     def test_a_scoped_param_target_key_is_present_in_param_bindings(self, tmp_path: Path) -> None:
         """The ``@config`` target's ``StaticBindingKey`` matches the key a host
@@ -309,7 +315,7 @@ class TestPreflightProgramConfig:
         )
         assert preflight.result.ok
         target = (program.module, ("Logging",), "level")
-        assert preflight.program_config == {target: IntValue(2)}
+        assert preflight.param_seeds == {target: IntValue(2)}
         assert preflight.executable is not None
         assert target in preflight.executable.param_bindings
 
@@ -360,7 +366,7 @@ class TestPreflightProgramConfig:
         assert preflight.executable is not None
         helper_id = next(mid for mid in preflight.executable.modules if mid.segments == ("helper",))
         target = (helper_id, (), "value")
-        assert preflight.program_config == {target: IntValue(2)}
+        assert preflight.param_seeds == {target: IntValue(2)}
         assert target in preflight.executable.param_bindings
 
     def test_empty_when_the_program_carries_no_config(self, tmp_path: Path) -> None:
@@ -376,15 +382,15 @@ class TestPreflightProgramConfig:
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
-        assert preflight.program_config == {}
+        assert preflight.param_seeds == {}
 
     def test_a_second_program_defs_config_does_not_leak(self, tmp_path: Path) -> None:
         source = (
             "@param let count: int = 1\n\n"
             "@config(count = 2)\n"
-            "program def build() -> unit = ()\n\n"
+            "program def build() -> unit = print(count)\n\n"
             "@config(count = 3)\n"
-            "program def alt() -> unit = ()\n"
+            "program def alt() -> unit = print(count)\n"
         )
         runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
         prepared = PipelineDriver.prepare_program(source, roots=agl_roots(tmp_path))
@@ -399,7 +405,7 @@ class TestPreflightProgramConfig:
             compiled=discovery.compiled,
         )
         assert build_preflight.result.ok
-        assert build_preflight.program_config == {target: IntValue(2)}
+        assert build_preflight.param_seeds == {target: IntValue(2)}
 
         alt_preflight = runtime.preflight_arguments(
             prepared,
@@ -407,7 +413,7 @@ class TestPreflightProgramConfig:
             compiled=discovery.compiled,
         )
         assert alt_preflight.result.ok
-        assert alt_preflight.program_config == {target: IntValue(3)}
+        assert alt_preflight.param_seeds == {target: IntValue(3)}
 
 
 class TestConfigAttributeCacheInvalidation:
@@ -477,7 +483,7 @@ class TestProgramDefCalledAsAnOrdinaryFunction:
             compiled=discovery.compiled,
         )
         assert preflight.result.ok
-        assert preflight.program_config == {}
+        assert preflight.param_seeds == {}
         assert preflight.executable is not None
 
         result = runtime.run_prepared(

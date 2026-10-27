@@ -11,7 +11,7 @@ from typing import Generic, NamedTuple, TypeVar
 
 from agnette.agl.warnings import WarningLevel, warning_level_setting
 from agnette.agm.project.layout import project_config_dir
-from agnette.config.engine_keys import ENGINE_KEY_KINDS, ENGINE_KEY_NAMES, PATH_ENGINE_KEYS
+from agnette.config.engine_keys import ENGINE_KEY_NAMES, PATH_ENGINE_KEYS
 from agnette.config.home import agm_home_dir, agm_path_candidates
 from agnette.core.fs import mkdir, write_text
 from agnette.core.parse import parse_timeout as parse_timeout
@@ -393,37 +393,14 @@ def undeclared_exec_keys(merged: TomlDict) -> tuple[str, ...]:
     )
 
 
-def exec_config_from_merged(
-    merged: TomlDict,
-    *,
-    program_table: dict[str, object] | None = None,
-    package_table: dict[str, object] | None = None,
-) -> ExecConfig:
+def exec_config_from_merged(merged: TomlDict) -> ExecConfig:
     """Build :class:`ExecConfig` from an already-merged config dict.
 
-    Every exec host already holds a merged config, so the ``[exec]`` section is
-    derived from it rather than re-read. ``[exec]`` has no named sub-tables: a
-    per-program override comes from the program's own qualified table, because
-    an AgL program is identified by its module route rather than by a flat
-    name the way ``[run.<command>]``'s settings are.
-
-    When *program_table* is supplied, each engine key present in that already
-    resolved qualified program table overrides the global ``[exec]`` value.
-    *package_table* — a package-owned program's manifest ``[config]`` values —
-    ranks between ``[exec]`` and *program_table*. Engine keys use kebab-case
-    names: ``strict-json``, ``trace-file``.
+    The REPL holds a merged config, so the ``[exec]`` section is derived from it
+    rather than re-read. Engine keys use kebab-case names: ``strict-json``,
+    ``trace-file``.
     """
-    exec_table = toml_dict(merged.get(EXEC_CONFIG_SECTION))
-
-    # Effective precedence, low to high: [exec] < package manifest < the
-    # qualified program table (exact route, then inherited groups).
-    effective: TomlDict = dict(exec_table)
-    for table in (package_table, program_table):
-        if table is None:
-            continue
-        for key, _ in ENGINE_KEY_KINDS:
-            if key in table:
-                effective[key] = table[key]
+    effective = toml_dict(merged.get(EXEC_CONFIG_SECTION))
 
     resolved_strict_json = effective.get("strict-json")
 

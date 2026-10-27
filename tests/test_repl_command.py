@@ -41,6 +41,7 @@ from agnette.agl.runtime.sessions import SessionSnapshot
 from agnette.agl.runtime.types import HostParamInfo
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.config.general import GeneralConfig
+from agnette.core.log import TraceDecision
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.stdlib import StdlibSelection
 from agnette.packages.store import StoreLayers, global_store
@@ -905,6 +906,27 @@ class TestReplRun:
             "trace",
             "trace-file",
         }
+
+    def test_a_blank_exec_trace_file_keeps_debug_from_tracing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        home = _isolated_home(monkeypatch, tmp_path)
+        agm_dir = home / ".agm"
+        agm_dir.mkdir()
+        (agm_dir / "config.toml").write_text('[exec]\ndebug = true\ntrace-file = ""\n')
+        decisions: list[TraceDecision] = []
+
+        def record(decision: TraceDecision, **_: object) -> None:
+            decisions.append(decision)
+
+        monkeypatch.setattr(repl_command, "prepare_trace_log_from_decision", record)
+
+        repl_command.run(_args())
+
+        assert [(d.enabled, d.explicit_path) for d in decisions] == [(False, None)]
 
     def test_cli_false_strict_json_over_empty_exec_config_seeds_correctly(
         self,

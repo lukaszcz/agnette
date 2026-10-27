@@ -1,9 +1,9 @@
 """Host merge of the ``@config`` program attribute.
 
 ``PipelineDriver.preflight_arguments`` evaluates a selected program's own
-``@config`` entries into ``ArgumentPreflight.program_config`` (see
+``@config`` entries and ranks them among the host parameter sources (see
 ``agnette.agl.pipeline``); ``agm exec`` (``agnette.agm.commands.exec_program.run``) is the
-host that folds those values into its existing precedence chains:
+host that seeds the result under these precedence chains:
 
 * module parameter: CLI flag > ``@opt-env`` > program route > ``@config`` >
   module route > declared initializer.

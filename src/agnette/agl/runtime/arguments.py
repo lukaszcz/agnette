@@ -19,6 +19,7 @@ offending parameter is reported in one pass.
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, assert_never, cast
 
@@ -52,12 +53,14 @@ __all__ = [
     "ConfiguredArgumentDiagnostic",
     "InheritedParamValue",
     "OptionSome",
+    "ParamTier",
     "ProgramArguments",
     "bind_program_arguments_for",
     "bind_param_values",
     "decode_param_value",
     "default_program_arguments",
     "diagnose_process_environment",
+    "option_none_raw",
     "split_program_arguments",
 ]
 
@@ -95,6 +98,21 @@ def _missing_required_message(name: str) -> str:
     a missing required program argument, however it is reached, calls this.
     """
     return f"Missing required program argument: {name!r}"
+
+
+class ParamTier(enum.IntEnum):
+    """The sources a host parameter's value comes from, lowest precedence first."""
+
+    #: The declaration route and a package manifest's ``[config]``.
+    DECLARED = 0
+    #: The selected program's own ``@config`` entries.
+    CONFIG = 1
+    #: An ``@inherit`` address.
+    INHERITED = 2
+    #: The selected program's route in the config tables.
+    CONFIGURED = 3
+    #: The command line or environment.
+    SUPPLIED = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +209,11 @@ class ProgramSignature:
                 )
             )
         return cls(parameters=tuple(parameters), span=span)
+
+
+def option_none_raw() -> object:
+    """Return the ``None`` envelope :func:`decode_param_value` takes for an ``Option[T]``."""
+    return {"$case": "None"}
 
 
 @dataclass(frozen=True, slots=True)

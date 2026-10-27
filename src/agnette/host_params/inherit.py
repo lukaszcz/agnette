@@ -11,6 +11,7 @@ from typing import NamedTuple
 from agnette.agl.ir.static_keys import HostParamKey
 from agnette.config.general import GeneralConfig, PathAnchor
 from agnette.config.qualified_keys import (
+    ConfigRoute,
     ConfiguredValue,
     QualifiedConfigKey,
     known_route_tables,
@@ -64,7 +65,7 @@ class InheritedConfigValue(NamedTuple):
 def _key(target: ProgramTarget, leaf: str) -> QualifiedConfigKey:
     """Return the program-route key of *leaf* for *target*."""
     return QualifiedConfigKey(
-        target.module_segments, target.declaration_path, leaf, target.command_paths
+        ConfigRoute(target.module_segments, target.declaration_path, target.command_paths), leaf
     )
 
 

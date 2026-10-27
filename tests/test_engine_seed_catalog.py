@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
+from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     require_reserved_nominal_id,
 )
 from agnette.agl.runtime.engine_config import (
-    build_engine_config_seeds,
     engine_default_settings,
-    raw_option_str,
 )
+from agnette.agl.runtime.option import option_text
 from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue
 from agnette.agm.cli_support.engine_seeds import build_host_engine_seeds
 from agnette.config.engine_keys import (
@@ -300,7 +300,6 @@ def test_a_cli_value_shields_a_malformed_configured_value_from_decoding() -> Non
     seeds = build_host_engine_seeds(
         config=config,
         primary_table={"agent": "   "},
-        fallback_table={"agent": "   "},
         cli_values={"agent": "worker --flag"},
     ).merged()
 
@@ -309,26 +308,19 @@ def test_a_cli_value_shields_a_malformed_configured_value_from_decoding() -> Non
 
 @pytest.mark.parametrize(
     ("key", "raw_value"),
-    [
-        ("trace-file", ""),
-        ("trace-file", 1),
-    ],
+    [("trace-file", ""), ("trace-file", "  "), ("timeout", ""), ("timeout", 0), ("timeout", -3)],
 )
-def test_none_config_values_do_not_suppress_a_builtin_initializer(
-    key: str, raw_value: object
-) -> None:
-    """Invalid/empty config values remain absent instead of becoming seeds.
-
-    Nothing names ``trace`` either, so the derived rule also stays absent.
-    """
-    seeds = build_host_engine_seeds(
-        config=_config_for(key, configured=False),
+def test_a_blank_option_text_config_value_is_an_explicit_none(key: str, raw_value: object) -> None:
+    """A blank or non-positive ``Option[text]`` value is a seeded none, as in ``agm exec``."""
+    tiers = build_host_engine_seeds(
+        config=exec_config_from_merged({"exec": {key: raw_value}}),
         primary_table={key: raw_value},
         cli_values={},
-    ).merged()
+    )
 
-    assert key not in seeds
-    assert set(seeds) == set()
+    seed = tiers.upper[key]
+    assert isinstance(seed, RecordValue)
+    assert option_text(seed, nominals=NO_BUILTIN_DECLARATIONS) is None
 
 
 def test_explicit_empty_option_cli_value_remains_a_seed() -> None:
@@ -340,11 +332,6 @@ def test_explicit_empty_option_cli_value_remains_a_seed() -> None:
     ).merged()
 
     assert set(seeds) == {"timeout"}
-
-
-def test_invalid_raw_option_value_is_absent() -> None:
-    """The raw Option parser leaves non-positive numeric values unset."""
-    assert raw_option_str({"timeout": 0}, {}, "timeout") is None
 
 
 def test_configured_numeric_timeout_is_seeded_from_its_raw_spelling() -> None:
@@ -460,12 +447,12 @@ def test_engine_defaults_cover_exactly_the_catalog_keys_with_defaults() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tier split: cli (explicit CLI flags), upper (primary table), lower
-# ([exec]/fallback table) -- independent tiers; cli wins the seeded value.
+# Tier split: cli (explicit CLI flags) and upper ([exec]) -- independent tiers;
+# cli wins the seeded value.
 # ---------------------------------------------------------------------------
 
 
-def test_a_primary_table_value_is_in_the_upper_tier_and_absent_from_lower() -> None:
+def test_a_primary_table_value_is_in_the_upper_tier() -> None:
     config = ExecConfig(strict_json=True, timeout=None, trace=False, trace_file=None)
 
     tiers = build_host_engine_seeds(
@@ -473,35 +460,6 @@ def test_a_primary_table_value_is_in_the_upper_tier_and_absent_from_lower() -> N
     )
 
     assert "strict-json" in tiers.upper
-    assert "strict-json" not in tiers.lower
-
-
-def test_a_fallback_table_only_value_is_in_the_lower_tier() -> None:
-    config = ExecConfig(strict_json=True, timeout=None, trace=False, trace_file=None)
-
-    tiers = build_host_engine_seeds(
-        config=config,
-        primary_table={},
-        fallback_table={"strict-json": True},
-        cli_values={},
-    )
-
-    assert "strict-json" in tiers.lower
-    assert "strict-json" not in tiers.upper
-
-
-def test_a_primary_table_value_shadows_the_same_key_in_the_fallback_table() -> None:
-    config = ExecConfig(strict_json=True, timeout=None, trace=False, trace_file=None)
-
-    tiers = build_host_engine_seeds(
-        config=config,
-        primary_table={"strict-json": True},
-        fallback_table={"strict-json": False},
-        cli_values={},
-    )
-
-    assert "strict-json" in tiers.upper
-    assert "strict-json" not in tiers.lower
 
 
 def test_a_cli_value_sits_in_its_own_tier_over_an_undecoded_table_value() -> None:
@@ -510,30 +468,13 @@ def test_a_cli_value_sits_in_its_own_tier_over_an_undecoded_table_value() -> Non
 
     tiers = build_host_engine_seeds(
         config=config,
-        primary_table={},
-        fallback_table={"strict-json": True},
+        primary_table={"strict-json": True},
         cli_values={"strict-json": False},
     )
 
     assert "strict-json" in tiers.cli
-    assert "strict-json" not in tiers.lower
     assert "strict-json" not in tiers.upper
     assert tiers.merged()["strict-json"] == BoolValue(False)
-
-
-def test_an_invalid_fallback_only_value_is_absent_from_both_tiers() -> None:
-    """A fallback-table leaf that decodes to ``None`` seeds neither tier."""
-    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None)
-
-    tiers = build_host_engine_seeds(
-        config=config,
-        primary_table={},
-        fallback_table={"trace-file": ""},
-        cli_values={},
-    )
-
-    assert "trace-file" not in tiers.upper
-    assert "trace-file" not in tiers.lower
 
 
 def test_a_named_trace_value_is_seeded_into_its_tier_like_any_other_key() -> None:
@@ -544,152 +485,26 @@ def test_a_named_trace_value_is_seeded_into_its_tier_like_any_other_key() -> Non
         config=config, primary_table={"trace": True}, cli_values={}
     )
     assert "trace" in upper_tiers.upper
-    assert "trace" not in upper_tiers.lower
-
-    lower_tiers = build_host_engine_seeds(
-        config=config, primary_table={}, fallback_table={"trace": True}, cli_values={}
-    )
-    assert "trace" in lower_tiers.lower
-    assert "trace" not in lower_tiers.upper
 
     assert upper_tiers.merged()["trace"] == BoolValue(True)
 
 
-# ---------------------------------------------------------------------------
-# ``merged(middle)``: an already-decoded settings tier ranks between ``upper``
-# and ``lower``, including for the derived ``trace`` rule.
-# ---------------------------------------------------------------------------
-
-
-def test_merged_places_middle_between_upper_and_lower_for_an_ordinary_key() -> None:
-    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None)
-    tiers = build_host_engine_seeds(
-        config=config,
-        primary_table={},
-        fallback_table={"strict-json": False},
-        cli_values={},
-    )
-    middle = build_engine_config_seeds({"strict-json": True})
-
-    assert tiers.merged(middle)["strict-json"] == BoolValue(True)
-    assert tiers.merged()["strict-json"] == BoolValue(False)
-
-
-def test_merged_upper_still_wins_over_middle_for_an_ordinary_key() -> None:
-    config = ExecConfig(strict_json=True, timeout=None, trace=False, trace_file=None)
-    tiers = build_host_engine_seeds(
-        config=config, primary_table={"strict-json": True}, cli_values={}
-    )
-    middle = build_engine_config_seeds({"strict-json": False})
-
-    assert tiers.merged(middle)["strict-json"] == BoolValue(True)
-
-
-def test_a_middle_trace_file_with_no_higher_trace_seeds_trace_true() -> None:
-    """A middle-tier ``trace-file`` with nothing above it still implies ``trace``."""
-    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None)
-    tiers = build_host_engine_seeds(config=config, primary_table={}, cli_values={})
-    middle = build_engine_config_seeds({"trace-file": "trace.jsonl"})
-
-    assert tiers.merged(middle)["trace"] == BoolValue(True)
-    assert "trace" not in tiers.merged()
-
-
-def test_program_table_trace_beats_middle_trace_but_middle_trace_file_still_applies() -> None:
-    """``trace`` picks the program table's explicit value; ``trace-file`` still wins from middle.
-
-    ``trace`` and ``trace-file`` resolve their highest tier independently: the
-    program table (``upper``) outranks ``middle`` for ``trace`` even though
-    ``middle`` is the only tier setting ``trace-file``.
-    """
-    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None)
-    tiers = build_host_engine_seeds(config=config, primary_table={"trace": False}, cli_values={})
-    middle = build_engine_config_seeds({"trace": True, "trace-file": "trace.jsonl"})
-
-    assert tiers.merged(middle)["trace"] == BoolValue(True)
-
-
-def test_program_table_trace_false_and_exec_trace_file_still_seed_trace_true() -> None:
-    """Regression: program ``trace = false`` plus ``[exec] trace-file`` still implies ``trace``.
-
-    ``ExecConfig`` already folds the program table over ``[exec]`` for
-    ``trace``/``trace_file``; the tier split must not change this outcome.
-    """
+def test_exec_trace_false_and_trace_file_still_seed_trace_true() -> None:
+    """Regression: ``[exec] trace = false`` plus ``trace-file`` still implies ``trace``."""
     config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file="p")
     tiers = build_host_engine_seeds(
-        config=config,
-        primary_table={"trace": False},
-        fallback_table={"trace-file": "p"},
-        cli_values={},
+        config=config, primary_table={"trace": False, "trace-file": "p"}, cli_values={}
     )
 
     assert tiers.merged()["trace"] == BoolValue(True)
 
 
-def test_an_invalid_program_table_trace_file_with_a_middle_trace_file_seeds_trace_true() -> None:
-    """Regression: the merged ``trace-file`` value and the derived ``trace`` must agree.
-
-    A program-table ``trace-file`` that fails to decode is absent from the
-    value merge, so ``trace-file`` in the result comes entirely from ``middle``
-    -- ``trace`` must be derived from that same merged value, not from raw
-    table membership.
-    """
-    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None)
-    tiers = build_host_engine_seeds(config=config, primary_table={"trace-file": ""}, cli_values={})
-    middle = build_engine_config_seeds({"trace-file": "trace.jsonl"})
-
-    merged = tiers.merged(middle)
-    assert (
-        merged["trace-file"]
-        == build_engine_config_seeds({"trace-file": "trace.jsonl"})["trace-file"]
-    )
-    assert merged["trace"] == BoolValue(True)
-
-
-def test_cli_trace_wins_over_a_middle_tier_trace_file() -> None:
-    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None)
-    tiers = build_host_engine_seeds(config=config, primary_table={}, cli_values={"trace": False})
-    middle = build_engine_config_seeds({"trace-file": "trace.jsonl"})
-
-    assert tiers.merged(middle)["trace"] == BoolValue(False)
-
-
-def test_trace_stays_absent_when_nothing_configures_it_anywhere_including_middle() -> None:
-    config = ExecConfig(strict_json=False, timeout=None, trace=False, trace_file=None)
-    tiers = build_host_engine_seeds(config=config, primary_table={}, cli_values={})
-    middle = build_engine_config_seeds({"strict-json": True})
-
-    assert "trace" not in tiers.merged(middle)
-
-
-def test_a_middle_trace_file_of_none_hides_a_lower_tier_trace_file() -> None:
-    """A middle tier explicitly setting ``trace-file`` to ``None`` outranks ``[exec]``."""
-    fallback = {"trace-file": "from-exec.jsonl"}
-    config = exec_config_from_merged({"exec": fallback})
-    tiers = build_host_engine_seeds(
-        config=config, primary_table={}, fallback_table=fallback, cli_values={}
-    )
-    middle = build_engine_config_seeds({"trace-file": None})
-
-    assert tiers.merged(middle)["trace"] == BoolValue(False)
-
-
 @pytest.mark.parametrize(
-    ("primary", "fallback", "cli_values"),
-    [
-        ({}, {"trace-file": "   "}, {}),
-        ({"trace": False}, {"trace-file": "trace.jsonl"}, {}),
-    ],
-    ids=[
-        "whitespace_only_trace_file_in_exec",
-        "program_trace_false_and_exec_trace_file",
-    ],
+    "table",
+    [{"trace-file": "   "}, {"trace": False, "trace-file": "trace.jsonl"}],
+    ids=["whitespace_only_trace_file", "trace_false_and_trace_file"],
 )
-def test_merged_trace_matches_config_trace_or_trace_file_is_set(
-    primary: dict[str, object],
-    fallback: dict[str, object],
-    cli_values: dict[str, object | None],
-) -> None:
+def test_merged_trace_matches_config_trace_or_trace_file_is_set(table: dict[str, object]) -> None:
     """``merged()`` names ``trace`` as ``cfg.trace or cfg.trace_file is not None`` when configured.
 
     Builds ``cfg`` through ``exec_config_from_merged`` -- the same path a real
@@ -698,11 +513,9 @@ def test_merged_trace_matches_config_trace_or_trace_file_is_set(
     combination leaves ``trace`` absent instead of an explicit ``false`` --
     the same effective setting, since that is the builtin default.
     """
-    config = exec_config_from_merged({"exec": fallback}, program_table=primary)
+    config = exec_config_from_merged({"exec": table})
 
-    tiers = build_host_engine_seeds(
-        config=config, primary_table=primary, fallback_table=fallback, cli_values=cli_values
-    )
+    tiers = build_host_engine_seeds(config=config, primary_table=table, cli_values={})
 
     assert tiers.merged().get("trace", BoolValue(False)) == BoolValue(
         config.trace or config.trace_file is not None
@@ -710,10 +523,8 @@ def test_merged_trace_matches_config_trace_or_trace_file_is_set(
 
 
 def test_trace_stays_absent_when_neither_trace_nor_trace_file_is_configured_anywhere() -> None:
-    config = exec_config_from_merged({"exec": {}}, program_table={})
+    config = exec_config_from_merged({"exec": {}})
 
-    tiers = build_host_engine_seeds(
-        config=config, primary_table={}, fallback_table={}, cli_values={}
-    )
+    tiers = build_host_engine_seeds(config=config, primary_table={}, cli_values={})
 
     assert "trace" not in tiers.merged()

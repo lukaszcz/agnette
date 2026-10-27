@@ -128,6 +128,10 @@ class HostParamInfo:
                         ``None`` when it has none (always, for an engine setting).
     ``inherit``      — the ``@inherit`` addresses, in written order (none for an
                         engine setting).
+    ``config_option_text`` — whether a configured value reads as an ``Option[text]``
+                        (:func:`~agnette.core.parse.normalize_option_text`): a blank string or
+                        non-positive number is none, a positive number its text; set for the
+                        ``Option[text]`` engine settings.
 
     Built only by the per-kind factories, which derive ``key`` from the
     identity fields; a new kind adds its own factory.
@@ -144,6 +148,7 @@ class HostParamInfo:
     enum_values: tuple[str, ...] = ()
     owner: "Path | None" = None
     inherit: tuple[str, ...] = ()
+    config_option_text: bool = False
 
     @classmethod
     def module_param(
@@ -210,7 +215,13 @@ class HostParamInfo:
 
     @classmethod
     def engine_setting(
-        cls, name: str, type: "AglType", cli: "ProgramOptionSpec", *, is_path: bool = False
+        cls,
+        name: str,
+        type: "AglType",
+        cli: "ProgramOptionSpec",
+        *,
+        is_path: bool = False,
+        config_option_text: bool = False,
     ) -> "HostParamInfo":
         """Build the info of a root ``builtin var`` of ``std/config``."""
         from agnette.agl.ir.static_keys import static_binding_key
@@ -225,6 +236,7 @@ class HostParamInfo:
             type=type,
             cli=cli,
             is_path=is_path,
+            config_option_text=config_option_text,
         )
 
     @property

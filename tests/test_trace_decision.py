@@ -157,6 +157,8 @@ class TestTraceDecisionPrecedence:
         ({"debug": True, "trace": False}, {}, False),
         ({}, {"debug": True, "trace": False}, False),
         ({"debug": True}, {"trace-file": "/config/t.jsonl"}, True),
+        ({}, {"debug": True, "trace-file": ""}, False),
+        ({"debug": True}, {"trace-file": ""}, False),
     ],
 )
 def test_debug_turns_trace_on_unless_trace_is_configured_or_given(
@@ -178,6 +180,7 @@ def test_debug_turns_trace_on_unless_trace_is_configured_or_given(
         ({}, {"trace": True}),
         ({}, {"trace-file": "/config/t.jsonl"}),
         ({}, {"trace": False, "trace-file": "/config/t.jsonl"}),
+        ({}, {"debug": True, "trace-file": ""}),
     ],
 )
 def test_decision_agrees_with_the_seeded_trace_setting(

@@ -59,7 +59,7 @@ import click
 from click.core import ParameterSource
 
 from agnette.agl.ir.static_keys import HostParamKey
-from agnette.agl.runtime.arguments import ProgramArguments
+from agnette.agl.runtime.arguments import ProgramArguments, option_none_raw
 from agnette.agl.runtime.types import (
     HostParamInfo,
     HostParamKind,
@@ -76,7 +76,6 @@ from agnette.host_params.projection import (
     ProjectedOption,
     ValueForm,
     is_nullable_value_form,
-    option_none_raw,
     param_spellings,
     project_option,
     project_param_option,

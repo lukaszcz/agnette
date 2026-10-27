@@ -130,22 +130,7 @@ class TestExecConfigFromConfigFiles:
         assert cfg.trace_file == str(literal_dir / "base.jsonl")
 
 
-class TestExecConfigProgramTableOverride:
-    def test_program_table_overrides_exec_engine_keys(self, tmp_path: Path) -> None:
-        home = tmp_path / "home"
-        config = home / ".agm" / "config.toml"
-        config.parent.mkdir(parents=True)
-        config.write_text("[exec]\ntimeout = 5\n")
-        merged = load_merged_config(home=home, proj_dir=None, cwd=tmp_path)
-        cfg = exec_config_from_merged(merged, program_table={"timeout": 10})
-        assert cfg.timeout == pytest.approx(10.0)
-
-    def test_program_table_partial_override(self, tmp_path: Path) -> None:
-        merged = {"exec": {"timeout": 7, "strict-json": False}}
-        cfg = exec_config_from_merged(merged, program_table={"strict-json": True})
-        assert cfg.timeout == pytest.approx(7.0)
-        assert cfg.strict_json is True
-
+class TestExecConfigMaxCallDepth:
     @pytest.mark.parametrize(("value", "expected"), [(7, 7), (0, None), (True, None)])
     def test_max_call_depth_accepts_only_a_positive_integer(
         self, value: object, expected: int | None

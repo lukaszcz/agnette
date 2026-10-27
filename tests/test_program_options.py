@@ -16,7 +16,10 @@ from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id
 from agnette.agl.modules.ids import ENTRY_ID, STD_CONFIG_ID, ModuleId
 from agnette.agl.runtime.arguments import OptionSome, decode_param_value
-from agnette.agl.runtime.engine_config import engine_setting_params
+from agnette.agl.runtime.engine_config import (
+    engine_setting_params,
+    split_engine_values,
+)
 from agnette.agl.runtime.option import none_value, some_value
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo, ProgramParamInfo
 from agnette.agl.semantics.type_table import create_seeded_type_table
@@ -35,7 +38,7 @@ from agnette.agl.semantics.values import ArrayValue, BoolValue, IntValue, TextVa
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.type_schema import build_param_decoder
 from agnette.agl.zones import ParamZone
-from agnette.agm.cli_support.engine_seeds import parse_engine_flags, split_engine_params
+from agnette.agm.cli_support.engine_seeds import parse_engine_flags
 from agnette.agm.cli_support.program_options import (
     EXEC_RESERVED_FLAGS,
     HELP_FLAGS,
@@ -2068,7 +2071,8 @@ class TestEngineSettingFlags:
         assert isinstance(result, ProgramCommand)
         parsed = result.parse(["--debug", "--std.config.debug"])
         assert parsed.arguments.named == {"debug": True}
-        assert split_engine_params(parsed.params)[1] == {"debug": True}
+        engine = split_engine_values(parsed.params)[1]
+        assert {key[2]: raw for key, raw in engine.items()} == {"debug": True}
 
 
 class TestProgramCommandFor:

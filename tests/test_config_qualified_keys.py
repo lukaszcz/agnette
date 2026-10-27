@@ -9,11 +9,13 @@ import pytest
 
 from agnette.config.general import GeneralConfig, PathAnchor, load_general_config
 from agnette.config.qualified_keys import (
+    ConfigRoute,
     ConfiguredValue,
     QualifiedConfigKey,
     QualifiedConfigLookupError,
     configured_leaf_table_candidates,
     configured_leaf_tables,
+    known_route_tables,
     manifest_leaf_tables,
     resolve_manifest_values,
     resolve_qualified_values,
@@ -56,13 +58,17 @@ class TestQualifiedConfigKeys:
     def test_resolves_unambiguous_module_suffix_at_each_depth(
         self, table: dict[str, object], expected: int
     ) -> None:
-        key = QualifiedConfigKey(("review-tools", "tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(
+            ConfigRoute(("review-tools", "tools", "judge"), ("review",)), "max-tries"
+        )
 
         assert resolved_values(_config(table), (key,)) == {key: expected}
 
     def test_rejects_table_that_matches_multiple_identities(self) -> None:
-        first = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
-        second = QualifiedConfigKey(("quality-tools", "judge"), ("review",), "max-tries")
+        first = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
+        second = QualifiedConfigKey(
+            ConfigRoute(("quality-tools", "judge"), ("review",)), "max-tries"
+        )
 
         with pytest.raises(QualifiedConfigLookupError) as exc_info:
             resolved_values(_config({"judge": {"review": {"max-tries": 1}}}), (first, second))
@@ -71,8 +77,8 @@ class TestQualifiedConfigKeys:
         assert "quality-tools/judge::review::max-tries" in str(exc_info.value)
 
     def test_resolves_distinct_leaves_from_an_otherwise_ambiguous_table(self) -> None:
-        first = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
-        second = QualifiedConfigKey(("quality-tools", "judge"), ("review",), "region")
+        first = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
+        second = QualifiedConfigKey(ConfigRoute(("quality-tools", "judge"), ("review",)), "region")
 
         assert resolved_values(
             _config({"judge": {"review": {"max-tries": 1, "region": "eu"}}}),
@@ -80,14 +86,16 @@ class TestQualifiedConfigKeys:
         ) == {first: 1, second: "eu"}
 
     def test_quoted_module_route_is_an_exact_anchor(self) -> None:
-        first = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
-        second = QualifiedConfigKey(("quality-tools", "judge"), ("review",), "max-tries")
+        first = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
+        second = QualifiedConfigKey(
+            ConfigRoute(("quality-tools", "judge"), ("review",)), "max-tries"
+        )
         config = {"review-tools/judge": {"review": {"max-tries": 4}}}
 
         assert resolved_values(_config(config), (first, second)) == {first: 4}
 
     def test_rejects_conflicting_spellings_in_one_layer(self) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
         config = {
             "judge": {"review": {"max-tries": 1}},
             "review-tools": {"judge": {"review": {"max-tries": 2}}},
@@ -100,7 +108,7 @@ class TestQualifiedConfigKeys:
         assert "review-tools.judge.review" in str(exc_info.value)
 
     def test_higher_layer_overrides_a_lower_layer_even_with_a_different_spelling(self) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
         lower = {"judge": {"review": {"max-tries": 1}}}
         higher = {"review-tools": {"judge": {"review": {"max-tries": 2}}}}
 
@@ -113,20 +121,20 @@ class TestQualifiedConfigKeys:
     def test_higher_scalar_removes_a_lower_qualified_value(
         self, higher: Mapping[str, object]
     ) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
         lower = {"judge": {"review": {"max-tries": 1}}}
 
         assert resolved_values(_config(lower, higher), (key,)) == {}
 
     def test_higher_table_omitting_leaf_retains_lower_qualified_value(self) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
         lower = {"judge": {"review": {"max-tries": 1}}}
         higher = {"judge": {"review": {"region": "eu"}}}
 
         assert resolved_values(_config(lower, higher), (key,)) == {key: 1}
 
     def test_names_a_quoted_anchor_in_a_same_layer_conflict(self) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
         config = {
             "judge": {"review": {"max-tries": 1}},
             "review-tools/judge": {"review": {"max-tries": 2}},
@@ -142,7 +150,7 @@ class TestQualifiedConfigKeys:
         ("exec", "wsp", "wt", "deps", "modules", "packages", "params"),
     )
     def test_reserved_sections_are_not_unscoped_config_modules(self, reserved_name: str) -> None:
-        key = QualifiedConfigKey((reserved_name,), (), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute((reserved_name,), ()), "max-tries")
         config = {reserved_name: {"max-tries": 1}}
 
         assert resolved_values(_config(config), (key,)) == {}
@@ -150,7 +158,7 @@ class TestQualifiedConfigKeys:
     @pytest.mark.parametrize("schema_name", ("deps", "modules", "packages", "params"))
     def test_schema_sections_are_not_config_modules_at_any_depth(self, schema_name: str) -> None:
         """A section keyed by AgM's own schema never doubles as a program table."""
-        key = QualifiedConfigKey((schema_name,), ("main",), "region")
+        key = QualifiedConfigKey(ConfigRoute((schema_name,), ("main",)), "region")
         config = {schema_name: {"main": {"region": "configured"}}}
 
         assert resolved_values(_config(config), (key,)) == {}
@@ -159,30 +167,32 @@ class TestQualifiedConfigKeys:
     def test_command_sections_still_serve_a_loose_files_program_table(
         self, command_name: str
     ) -> None:
-        key = QualifiedConfigKey((command_name,), ("main",), "region")
+        key = QualifiedConfigKey(ConfigRoute((command_name,), ("main",)), "region")
         config = {command_name: {"main": {"region": "configured"}}}
 
         assert resolved_values(_config(config), (key,)) == {key: "configured"}
 
     def test_legacy_params_subtable_cannot_route_to_a_params_module(self) -> None:
-        key = QualifiedConfigKey(("params", "workflow"), (), "region")
+        key = QualifiedConfigKey(ConfigRoute(("params", "workflow"), ()), "region")
         config = {"params": {"workflow": {"region": "legacy"}}}
 
         assert resolved_values(_config(config), (key,)) == {}
 
     def test_returns_no_value_when_no_table_matches(self) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
 
         assert resolved_values(_config({"other": {"review": {"max-tries": 1}}}), (key,)) == {}
 
     def test_ignores_malformed_non_table_paths(self) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
 
         assert resolved_values(_config({"judge": "not a table"}), (key,)) == {}
 
     def test_one_table_supplies_multiple_leaves_for_one_module_identity(self) -> None:
-        first = QualifiedConfigKey(("review-tools", "judge"), ("review",), "region")
-        second = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        first = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "region")
+        second = QualifiedConfigKey(
+            ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries"
+        )
         config = {"judge": {"review": {"region": "eu", "max-tries": 3}}}
 
         assert resolved_values(_config(config), (first, second)) == {
@@ -191,12 +201,12 @@ class TestQualifiedConfigKeys:
         }
 
     def test_deduplicates_repeated_key_identities(self) -> None:
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "max-tries")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "max-tries")
         config = {"judge": {"review": {"max-tries": 1}}}
 
         assert resolved_values(_config(config), (key, key)) == {key: 1}
 
-    def test_route_table_paths_share_a_table_between_a_suffix_and_its_own_route(self) -> None:
+    def test_route_table_paths_share_a_table_between_a_suffix_and_its_ownConfigRoute(self) -> None:
         """A nested module route reads the table its last segment names."""
         entry = route_table_paths(("demo",))
         imported = route_table_paths(("lib", "demo"))
@@ -215,14 +225,14 @@ class TestQualifiedConfigKeys:
     def test_resolves_a_registered_command_path_table(self) -> None:
         """A command path addresses the program its package registers under it."""
         key = QualifiedConfigKey(
-            ("review-tools", "review"), ("main",), "strict", command_paths=(("dv", "review"),)
+            ConfigRoute(("review-tools", "review"), ("main",), (("dv", "review"),)), "strict"
         )
 
         assert resolved_values(_config({"dv": {"review": {"strict": True}}}), (key,)) == {key: True}
 
-    def test_rejects_a_command_path_table_conflicting_with_its_module_route(self) -> None:
+    def test_rejects_a_command_path_table_conflicting_with_its_moduleConfigRoute(self) -> None:
         key = QualifiedConfigKey(
-            ("review-tools", "judge"), ("main",), "strict", command_paths=(("dv", "review"),)
+            ConfigRoute(("review-tools", "judge"), ("main",), (("dv", "review"),)), "strict"
         )
         config = _config({"dv": {"review": {"strict": True}}, "judge": {"main": {"strict": False}}})
 
@@ -231,9 +241,9 @@ class TestQualifiedConfigKeys:
 
         assert "conflicting tables" in str(exc_info.value)
 
-    def test_a_later_layer_command_path_table_overrides_a_module_route(self) -> None:
+    def test_a_later_layer_command_path_table_overrides_a_moduleConfigRoute(self) -> None:
         key = QualifiedConfigKey(
-            ("review-tools", "judge"), ("main",), "strict", command_paths=(("dv", "review"),)
+            ConfigRoute(("review-tools", "judge"), ("main",), (("dv", "review"),)), "strict"
         )
         config = _config(
             {"judge": {"main": {"strict": False}}}, {"dv": {"review": {"strict": True}}}
@@ -244,7 +254,7 @@ class TestQualifiedConfigKeys:
     def test_resolves_every_command_path_registered_for_one_program(self) -> None:
         """Two registrations of one program are two spellings of its address."""
         first = QualifiedConfigKey(
-            ("tools", "run"), ("main",), "level", command_paths=(("dv", "run"), ("dv", "r"))
+            ConfigRoute(("tools", "run"), ("main",), (("dv", "run"), ("dv", "r"))), "level"
         )
 
         assert resolved_values(_config({"dv": {"r": {"level": "high"}}}), (first,)) == {
@@ -260,39 +270,31 @@ class TestQualifiedConfigKeys:
             _config({"judge": {"main": {"level": "high"}}}),
             (
                 QualifiedConfigKey(
-                    ("tools", "judge"), ("main",), "level", command_paths=(("judge", "main"),)
+                    ConfigRoute(("tools", "judge"), ("main",), (("judge", "main"),)), "level"
                 ),
             ),
         ) == {
             QualifiedConfigKey(
-                ("tools", "judge"), ("main",), "level", command_paths=(("judge", "main"),)
+                ConfigRoute(("tools", "judge"), ("main",), (("judge", "main"),)), "level"
             ): "high"
         }
 
     def test_a_schema_rooted_command_path_has_no_config_table(self) -> None:
         """A command registered under a schema section (``agent review``) reads no
         ``[agent.review]`` or inherited ``[agent]`` table, which belong to AgM's schema."""
-        key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("agent", "review"),)
-        )
+        route = ConfigRoute(("tools", "review"), ("main",), (("agent", "review"),))
+        key = QualifiedConfigKey(route, "strict")
         config = _config({"agent": {"strict": True, "review": {"strict": True}}})
 
-        assert ("agent", "review") not in route_table_paths(
-            key.module_segments, key.scope_path, key.command_paths
-        )
+        assert ("agent", "review") not in route.exact_table_paths()
         assert resolved_values(config, (key,)) == {}
-        assert (
-            configured_leaf_table_candidates(
-                config, key.module_segments, key.scope_path, key.command_paths
-            )
-            == {}
-        )
+        assert configured_leaf_table_candidates(config, route) == {}
 
     def test_configured_leaf_tables_report_command_path_leaves(self) -> None:
         config = _config({"dv": {"review": {"strict": True}}})
 
         assert configured_leaf_tables(
-            config, ("review-tools", "review"), ("main",), command_paths=(("dv", "review"),)
+            config, ConfigRoute(("review-tools", "review"), ("main",), (("dv", "review"),))
         ) == {"strict": ("dv", "review")}
 
     def test_configured_leaf_tables_report_every_consulted_spelling(self) -> None:
@@ -301,7 +303,9 @@ class TestQualifiedConfigKeys:
             {"review-tools/judge": {"review": {"region": "eu"}}},
         )
 
-        assert configured_leaf_tables(config, ("review-tools", "judge"), ("review",)) == {
+        assert configured_leaf_tables(
+            config, ConfigRoute(("review-tools", "judge"), ("review",))
+        ) == {
             "max-tries": ("judge", "review"),
             "region": ("review-tools/judge", "review"),
         }
@@ -310,25 +314,25 @@ class TestQualifiedConfigKeys:
         config = _config({"workflow": {"msg": "hi", "main": {"strict-json": True}}})
 
         assert configured_leaf_tables(
-            config, ("workflow",), nested_routes=frozenset({("workflow", "main")})
+            config, ConfigRoute(("workflow",)), nested_routes=frozenset({("workflow", "main")})
         ) == {"msg": ("workflow",)}
 
     def test_configured_leaf_tables_report_an_unknown_table_as_a_native_value(self) -> None:
         config = _config({"workflow": {"msg": "hi", "main": {"strict-json": True}}})
 
-        assert configured_leaf_tables(config, ("workflow",)) == {
+        assert configured_leaf_tables(config, ConfigRoute(("workflow",))) == {
             "msg": ("workflow",),
             "main": ("workflow",),
         }
 
     def test_leaf_table_candidates_treat_only_known_route_tables_as_routes(self) -> None:
         config = _config({"devel": {"opts": {"a": 1}, "other": {"b": 2}, "strict": True}})
-        scan = (("tools", "review"), ("main",), (("devel", "review"),))
+        scan = ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),))
 
-        assert set(configured_leaf_table_candidates(config, *scan)) == {"opts", "other", "strict"}
+        assert set(configured_leaf_table_candidates(config, scan)) == {"opts", "other", "strict"}
         assert set(
             configured_leaf_table_candidates(
-                config, *scan, nested_routes=frozenset({("devel", "other")})
+                config, scan, nested_routes=frozenset({("devel", "other")})
             )
         ) == {"opts", "strict"}
 
@@ -344,12 +348,12 @@ class TestQualifiedConfigKeys:
     def test_configured_leaf_tables_skip_reserved_sections(self) -> None:
         config = _config({"exec": {"strict-json": True}})
 
-        assert configured_leaf_tables(config, ("exec",)) == {}
+        assert configured_leaf_tables(config, ConfigRoute(("exec",))) == {}
 
     def test_configured_leaf_tables_are_empty_without_a_matching_table(self) -> None:
         config = _config({"other": {"region": "eu"}})
 
-        assert configured_leaf_tables(config, ("workflow",)) == {}
+        assert configured_leaf_tables(config, ConfigRoute(("workflow",))) == {}
 
     def test_resolves_file_layers_with_dotted_and_quoted_headers_and_their_anchors(
         self, tmp_path: Path
@@ -367,7 +371,7 @@ class TestQualifiedConfigKeys:
             "[\"review-tools/judge\".review]\ntrace-file = 'higher.log'\n",
             encoding="utf-8",
         )
-        key = QualifiedConfigKey(("review-tools", "judge"), ("review",), "trace-file")
+        key = QualifiedConfigKey(ConfigRoute(("review-tools", "judge"), ("review",)), "trace-file")
 
         config = load_general_config(home=home, proj_dir=None, cwd=cwd)
 
@@ -385,17 +389,14 @@ class TestGroupTableInheritance:
 
     def test_a_group_table_feeds_a_command_beneath_it(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
 
         assert resolved_values(_config({"devel": {"strict": True}}), (key,)) == {key: True}
 
     def test_a_deeper_group_table_wins_over_a_shallower_one(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"),
-            ("main",),
-            "strict",
-            command_paths=(("devel", "sub", "review"),),
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "sub", "review"),)), "strict"
         )
         config = _config({"devel": {"strict": False, "sub": {"strict": True}}})
 
@@ -403,7 +404,7 @@ class TestGroupTableInheritance:
 
     def test_the_exact_route_beats_every_inherited_group_table(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
         config = _config(
             {"devel": {"review": {"strict": True}, "strict": False}},
@@ -414,10 +415,7 @@ class TestGroupTableInheritance:
     def test_specificity_beats_layer_order(self) -> None:
         """An earlier, deeper table beats a later, shallower one."""
         key = QualifiedConfigKey(
-            ("tools", "review"),
-            ("main",),
-            "x",
-            command_paths=(("devel", "sub", "review"),),
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "sub", "review"),)), "x"
         )
         earlier = {"devel": {"sub": {"x": 1}}}
         later = {"devel": {"x": 2}}
@@ -426,7 +424,7 @@ class TestGroupTableInheritance:
 
     def test_a_later_layer_overrides_an_earlier_one_within_one_inherited_tier(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
 
         assert resolved_values(
@@ -436,20 +434,18 @@ class TestGroupTableInheritance:
     def test_alias_prefixes_are_already_expanded_command_paths(self) -> None:
         """An alias's own group table (``[dv]``) inherits down just like the canonical one."""
         key = QualifiedConfigKey(
-            ("tools", "review"),
-            ("main",),
+            ConfigRoute(("tools", "review"), ("main",), (("dv", "review"), ("devel", "review"))),
             "strict",
-            command_paths=(("dv", "review"), ("devel", "review")),
         )
 
         assert resolved_values(_config({"dv": {"strict": True}}), (key,)) == {key: True}
 
     def test_same_depth_conflict_from_two_command_paths_in_one_layer_errors(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"),
-            ("main",),
+            ConfigRoute(
+                ("tools", "review"), ("main",), (("devel", "review"), ("staging", "review"))
+            ),
             "strict",
-            command_paths=(("devel", "review"), ("staging", "review")),
         )
         config = _config({"devel": {"strict": True}, "staging": {"strict": False}})
 
@@ -459,10 +455,8 @@ class TestGroupTableInheritance:
     def test_a_conflict_in_a_tier_shadowed_by_a_higher_one_still_errors(self) -> None:
         """A higher tier's value winning does not exempt a lower tier from its own conflicts."""
         key = QualifiedConfigKey(
-            ("tools", "review"),
-            ("main",),
+            ConfigRoute(("tools", "review"), ("main",), (("dv", "review"), ("devel", "review"))),
             "x",
-            command_paths=(("dv", "review"), ("devel", "review")),
         )
         config = _config({"dv": {"x": 1, "review": {"x": 3}}, "devel": {"x": 2}})
 
@@ -473,7 +467,7 @@ class TestGroupTableInheritance:
         self,
     ) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
         config = _config(
             {"devel": {"review": {"strict": True}, "strict": False}},
@@ -484,13 +478,13 @@ class TestGroupTableInheritance:
 
     def test_a_later_layer_non_tabular_replacement_drops_an_inherited_value(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
 
         assert resolved_values(_config({"devel": {"strict": True}}, {"devel": "off"}), (key,)) == {}
 
     def test_no_command_paths_means_no_inheritance(self) -> None:
-        key = QualifiedConfigKey(("tools", "review"), ("main",), "strict")
+        key = QualifiedConfigKey(ConfigRoute(("tools", "review"), ("main",)), "strict")
 
         assert resolved_values(_config({"tools": {"strict": True}}), (key,)) == {}
 
@@ -499,10 +493,7 @@ class TestGroupTableInheritance:
 
         assert (
             configured_leaf_tables(
-                config,
-                ("tools", "review"),
-                ("main",),
-                command_paths=(("devel", "review"),),
+                config, ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),))
             )
             == {}
         )
@@ -511,10 +502,7 @@ class TestGroupTableInheritance:
         config = _config({"devel": {"strict": True}})
 
         assert configured_leaf_table_candidates(
-            config,
-            ("tools", "review"),
-            ("main",),
-            command_paths=(("devel", "review"),),
+            config, ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),))
         ) == {"strict": frozenset({("devel",)})}
 
     def test_configured_leaf_table_candidates_collects_every_table_across_layers(self) -> None:
@@ -522,10 +510,7 @@ class TestGroupTableInheritance:
         config = _config({"devel": {"review": {"strict": True}}}, {"devel": {"strict": False}})
 
         assert configured_leaf_table_candidates(
-            config,
-            ("tools", "review"),
-            ("main",),
-            command_paths=(("devel", "review"),),
+            config, ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),))
         ) == {"strict": frozenset({("devel", "review"), ("devel",)})}
 
 
@@ -534,7 +519,7 @@ class TestResolveManifestValues:
 
     def test_a_command_table_wins_over_a_group_table(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
         manifest = {"devel": {"strict": False, "review": {"strict": True}}}
 
@@ -542,7 +527,7 @@ class TestResolveManifestValues:
 
     def test_a_group_table_wins_over_the_root(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
         manifest = {"strict": False, "devel": {"strict": True}}
 
@@ -550,34 +535,29 @@ class TestResolveManifestValues:
 
     def test_a_deeper_group_table_wins_over_a_shallower_one(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"),
-            ("main",),
-            "strict",
-            command_paths=(("devel", "sub", "review"),),
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "sub", "review"),)), "strict"
         )
         manifest = {"devel": {"strict": False, "sub": {"strict": True}}}
 
         assert resolved_manifest_values(manifest, (key,)) == {key: True}
 
     def test_a_program_with_no_command_paths_reads_only_the_root(self) -> None:
-        key = QualifiedConfigKey(("tools", "review"), ("main",), "strict")
+        key = QualifiedConfigKey(ConfigRoute(("tools", "review"), ("main",)), "strict")
         manifest = {"strict": True, "devel": {"strict": False}}
 
         assert resolved_manifest_values(manifest, (key,)) == {key: True}
 
     def test_no_root_and_no_command_table_resolves_nothing(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "review"), ("main",), "strict", command_paths=(("devel", "review"),)
+            ConfigRoute(("tools", "review"), ("main",), (("devel", "review"),)), "strict"
         )
 
         assert resolved_manifest_values({"devel": {"other": 1}}, (key,)) == {}
 
     def test_a_leaf_alias_resolves_like_its_primary_spelling(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "logging"),
-            ("main",),
+            ConfigRoute(("tools", "logging"), ("main",), (("devel", "review"),)),
             "verbose",
-            command_paths=(("devel", "review"),),
             leaf_aliases=("logging.verbose",),
         )
         manifest = {"devel": {"review": {"logging.verbose": True}}}
@@ -586,10 +566,8 @@ class TestResolveManifestValues:
 
     def test_same_tier_conflicting_spellings_error(self) -> None:
         key = QualifiedConfigKey(
-            ("tools", "logging"),
-            ("main",),
+            ConfigRoute(("tools", "logging"), ("main",), (("devel", "review"),)),
             "verbose",
-            command_paths=(("devel", "review"),),
             leaf_aliases=("logging.verbose",),
         )
         manifest = {"devel": {"review": {"verbose": True, "logging.verbose": False}}}
@@ -599,16 +577,54 @@ class TestResolveManifestValues:
 
     def test_a_module_suffix_route_never_addresses_a_manifest_table(self) -> None:
         """Only command paths and the root apply; a bare module name is not a route."""
-        key = QualifiedConfigKey(("tools", "review"), ("main",), "strict")
+        key = QualifiedConfigKey(ConfigRoute(("tools", "review"), ("main",)), "strict")
 
         assert resolved_manifest_values({"tools": {"strict": True}}, (key,)) == {}
 
     def test_a_root_tier_conflict_reports_cleanly_instead_of_crashing(self) -> None:
         """A program with no command table still gets a clean error, not a raw ``ValueError``."""
         key = QualifiedConfigKey(
-            ("tools", "logging"), ("main",), "verbose", leaf_aliases=("logging.verbose",)
+            ConfigRoute(("tools", "logging"), ("main",)),
+            "verbose",
+            leaf_aliases=("logging.verbose",),
         )
         manifest = {"verbose": True, "logging.verbose": False}
 
         with pytest.raises(QualifiedConfigLookupError, match=r"config\.verbose"):
             resolved_manifest_values(manifest, (key,))
+
+
+class TestSectionRoutes:
+    """A section route addresses one fixed top-level table, whatever else a route would add."""
+
+    def test_a_section_key_is_read_from_its_one_table(self) -> None:
+        route = ConfigRoute.in_section("exec")
+        key = QualifiedConfigKey(route, "timeout")
+        config = _config({"exec": {"timeout": "30s"}, "timeout": "5s"})
+
+        assert route.exact_table_paths() == (("exec",),)
+        assert route.table_paths() == (("exec",),)
+        assert resolved_values(config, (key,)) == {key: "30s"}
+
+    def test_a_section_is_a_route_table_and_not_a_leaf_value(self) -> None:
+        route = ConfigRoute.in_section("exec")
+        config = _config({"exec": {"timeout": "30s"}})
+
+        assert known_route_tables((route,)) == frozenset({("exec",)})
+        assert configured_leaf_table_candidates(config, route) == {
+            "timeout": frozenset({("exec",)})
+        }
+        assert configured_leaf_tables(config, route) == {"timeout": ("exec",)}
+
+    def test_a_section_key_displays_as_its_config_key(self) -> None:
+        key = QualifiedConfigKey(ConfigRoute.in_section("exec"), "timeout")
+
+        assert key.display_name() == "exec.timeout"
+
+    def test_a_section_key_and_a_module_key_reading_one_table_conflict(self) -> None:
+        section = QualifiedConfigKey(ConfigRoute.in_section("tools"), "region")
+        module = QualifiedConfigKey(ConfigRoute(("tools",)), "region")
+        config = _config({"tools": {"region": "eu"}})
+
+        with pytest.raises(QualifiedConfigLookupError):
+            resolved_values(config, (section, module))

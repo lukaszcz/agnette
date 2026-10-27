@@ -92,7 +92,7 @@ def _write_command_stdlib(root: Path, config: str) -> Path:
 class TestCommandEngineSeeding:
     """The command passes only explicit host controls into builtin registers."""
 
-    def test_invalid_config_timeout_does_not_create_a_seed(
+    def test_non_positive_config_timeout_unsets_the_declared_initializer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         stdlib_root = _write_command_stdlib(
@@ -120,7 +120,7 @@ class TestCommandEngineSeeding:
 
         exec_command.run(_exec_args(agl_file))
 
-        assert capsys.readouterr().out == 'Option::Some(value = "2s")\n'
+        assert capsys.readouterr().out == "Option::None\n"
 
     def test_declared_invalid_timeout_returns_agl_run_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

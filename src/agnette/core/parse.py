@@ -12,6 +12,23 @@ def format_timeout(seconds: float | decimal.Decimal) -> str:
     return f"{format(decimal.Decimal(str(seconds)), 'f')}s"
 
 
+def normalize_option_text(value: object) -> str | None:
+    """Normalize a raw ``Option[text]`` config value; ``None`` means no value.
+
+    A non-blank string passes through verbatim; a positive number becomes its
+    text (``60`` -> ``"60"``); a blank string, a non-positive number, or anything
+    else is none. The one reading of a configured ``Option[text]`` setting
+    (``timeout``, ``trace-file``): config files, package manifests, and the REPL.
+    """
+    if isinstance(value, str):
+        return value if value.strip() else None
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return str(value)
+    if isinstance(value, (float, decimal.Decimal)) and value > 0:
+        return format_timeout(value)
+    return None
+
+
 def parse_timeout(value: str) -> float:
     """Parse a human-readable timeout string into seconds.
 

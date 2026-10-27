@@ -16,7 +16,7 @@ import enum
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from agnette.agl.runtime.arguments import OptionSome
+from agnette.agl.runtime.arguments import OptionSome, option_none_raw
 from agnette.agl.runtime.serialize import dumps_exact
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramParamInfo
 from agnette.agl.semantics.types import (
@@ -29,6 +29,7 @@ from agnette.agl.semantics.types import (
     is_standard_optional_enum,
 )
 from agnette.config.engine_keys import REGISTER_ENABLING_ENGINE_KEYS
+from agnette.core.parse import normalize_option_text
 
 if TYPE_CHECKING:
     from agnette.agl.semantics.types import Type as AglType
@@ -39,7 +40,6 @@ __all__ = [
     "is_nullable_value_form",
     "is_optional_default",
     "native_raw_value",
-    "option_none_raw",
     "param_spellings",
     "project_option",
     "project_param_option",
@@ -184,11 +184,6 @@ def _option_some_raw(value: object) -> OptionSome:
     return OptionSome(value)
 
 
-def option_none_raw() -> object:
-    """Return the ``None`` envelope ``decode_param_value`` expects for an ``Option[T]`` value."""
-    return {"$case": "None"}
-
-
 def _optional_default_raw() -> object:
     """Return the ``Default`` envelope ``decode_param_value`` expects for ``Optional[T]``."""
     return {"$case": "Default"}
@@ -224,7 +219,9 @@ def token_raw_value(projected: ProjectedOption, token: str) -> object:
     return token
 
 
-def native_raw_value(projected: ProjectedOption, raw: object) -> object:
+def native_raw_value(
+    projected: ProjectedOption, raw: object, *, option_text: bool = False
+) -> object:
     """Project one already-native host value onto *projected*'s raw argument shape.
 
     The config-table counterpart of :func:`token_raw_value`, which applies the
@@ -237,11 +234,16 @@ def native_raw_value(projected: ProjectedOption, raw: object) -> object:
     ``T``) is encoded into JSON text, preserving its distinction from AgL
     value syntax; every other native string is host text, decoded the same
     way a CLI token or ``@opt-env`` value is; a non-string native is already
-    decoded data.
+    decoded data. With *option_text* (an ``Option[text]`` slot), *raw* reads as
+    :func:`~agnette.core.parse.normalize_option_text` says: the explicit ``None``
+    envelope, or ``Some`` of the normalized text.
     """
     if is_optional_default(projected, raw):
         return _optional_default_raw()
     if is_nullable_value_form(projected.value_form):
+        if option_text:
+            text = normalize_option_text(raw)
+            return option_none_raw() if text is None else _option_some_raw(text)
         value = raw
         if isinstance(raw, str) and projected.option_inner_form is ValueForm.JSON:
             value = dumps_exact(raw, indent=None)

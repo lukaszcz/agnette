@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from agnette.agent.spec import AGENT_SPECS
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS, BuiltinNominals
+from agnette.agl.ir.builtin_vars import is_engine_builtin_var_key
 from agnette.agl.ir.reserved_nominals import AGENT_SANDBOX_MEMBERS
+from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey
+from agnette.agl.runtime.arguments import ParamTier
 from agnette.agl.semantics.values import IntValue, RecordValue
 from agnette.config.engine_keys import ENGINE_KEYS, NON_NEGATIVE_ENGINE_KEYS, EngineKeyKind
+from agnette.core.parse import normalize_option_text
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -21,11 +26,17 @@ if TYPE_CHECKING:
     from agnette.agl.semantics.values import Value
 
 __all__ = [
-    "engine_default_settings",
-    "engine_setting_params",
     "EngineRangeError",
-    "raw_option_str",
+    "EngineSettings",
+    "EngineValueFailure",
+    "decode_engine_raw",
+    "engine_default_settings",
+    "engine_origin",
+    "engine_setting_params",
+    "invalid_engine_message",
+    "resolve_engine_settings",
     "restamp_engine_setting",
+    "split_engine_values",
     "validate_engine_leaf_value",
     "validate_engine_value",
     "validate_manifest_leaf_value",
@@ -139,50 +150,6 @@ def restamp_engine_setting(
     )
 
 
-def _normalize_option_text_value(value: object) -> str | None:
-    """Normalize one raw ``Option[text]`` engine value the way a config-file entry is read.
-
-    A non-blank string passes through verbatim (e.g. ``"30s"``); positive
-    numbers become their string spelling (e.g. ``60`` -> ``"60"``); a blank
-    string, a non-positive number, or anything else is treated as absent.
-    Shared by :func:`raw_option_str` (config-file tables) and
-    :func:`validate_manifest_leaf_value` (package manifest ``[config]`` leaves),
-    so both read an ``Option[text]``-kind engine value — ``timeout``,
-    ``trace-file`` — by the identical rule. A CLI flag is never normalized: a
-    blank flag value is an error, not absence.
-    """
-    if isinstance(value, str):
-        return value if value.strip() else None
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return str(value)
-    if isinstance(value, (float, Decimal)) and value > 0:
-        from agnette.core.parse import format_timeout
-
-        return format_timeout(value)
-    return None
-
-
-def raw_option_str(
-    primary: "Mapping[str, object]",
-    fallback: "Mapping[str, object]",
-    key: str,
-) -> str | None:
-    """Return the raw TOML value for *key* as a string, checking primary then fallback.
-
-    Each table's value is normalized by :func:`_normalize_option_text_value`;
-    returns ``None`` when the key is absent or normalizes to absent in both
-    tables.
-
-    Used by ``commands/exec.py`` and ``commands/repl.py`` to extract the raw
-    timeout/trace-file strings before passing them to :func:`convert_config_value`.
-    """
-    for table in (primary, fallback):
-        normalized = _normalize_option_text_value(table.get(key))
-        if normalized is not None:
-            return normalized
-    return None
-
-
 def build_engine_config_seeds(raw_values: "Mapping[str, object]") -> "dict[str, Value]":
     """Decode explicitly supplied scalar, ``Option``, or ``Agent`` host engine settings.
 
@@ -238,10 +205,121 @@ def engine_setting_params() -> "tuple[HostParamInfo, ...]":
                 ENGINE_KEY_TYPES[spec.name],
                 ProgramOptionSpec(name=spec.name, metavar=spec.metavar, doc=spec.doc),
                 is_path=spec.is_path,
+                config_option_text=spec.kind is EngineKeyKind.OPTION_TEXT,
             )
             for spec in ENGINE_KEYS
         )
     return _engine_setting_params
+
+
+def split_engine_values[V](
+    values: "Mapping[HostParamKey, V]",
+) -> "tuple[dict[HostParamKey, V], dict[StaticBindingKey, V]]":
+    """Split host parameter *values* into the non-engine ones and the engine settings'.
+
+    An engine setting is a root ``std/config`` binding, so its key is
+    ``(module, (), name)`` and the last element names the setting.
+    """
+    others: dict[HostParamKey, V] = {}
+    engine: dict[StaticBindingKey, V] = {}
+    for key, value in values.items():
+        if isinstance(key, tuple) and is_engine_builtin_var_key(key):
+            engine[key] = value
+        else:
+            others[key] = value
+    return others, engine
+
+
+@dataclass(frozen=True, slots=True)
+class EngineValueFailure:
+    """An invalid engine setting value, which has no source location to report at."""
+
+    name: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class EngineSettings:
+    """The engine settings a host explicitly controls, decoded, with each one's winning tier.
+
+    A setting no source sets is absent, so its ``builtin var`` initializer applies.
+    """
+
+    values: "Mapping[str, Value]"
+    ranks: "Mapping[str, ParamTier]"
+
+
+def engine_origin(name: str, *, supplied: bool) -> str:
+    """Name where engine setting *name*'s value came from: its flag or its configuration key."""
+    return f"--{name}" if supplied else f"configuration key {name}"
+
+
+def invalid_engine_message(name: str, origin: str, error: ValueError) -> str:
+    """Return the message for engine setting *name*'s invalid value from *origin*."""
+    return f"invalid {name} value from {origin}: {error}"
+
+
+def resolve_engine_settings(
+    tiers: "Mapping[ParamTier, Mapping[StaticBindingKey, object]]",
+    config: "Mapping[StaticBindingKey, Value]",
+    *,
+    nominals: BuiltinNominals,
+) -> "tuple[EngineSettings, list[EngineValueFailure], list[EngineValueFailure]]":
+    """Rank the engine setting sources and decode each setting's winning value.
+
+    *tiers* hold raw values by engine setting key, one mapping per :class:`ParamTier` (none
+    for ``INHERITED``: an engine setting takes no ``@inherit``), in the
+    shape :func:`~agnette.agl.runtime.arguments.decode_param_value` takes. *config* holds the
+    program's ``@config`` values, already decoded onto *nominals*' identity; they rank
+    :attr:`ParamTier.CONFIG` and are validated whether or not a higher tier overrides them.
+    Only the winning raw value of any other tier is decoded, onto the standard identity.
+
+    Returns the settings, then the failures of invalid configured values, then those of
+    invalid :attr:`ParamTier.SUPPLIED` values (usage errors).
+    """
+    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
+    from agnette.agl.semantics.type_table import create_seeded_type_table
+
+    configured_failures: list[EngineValueFailure] = []
+    usage_failures: list[EngineValueFailure] = []
+    from_config: dict[StaticBindingKey, object] = {}
+    for key, value in config.items():
+        name = key[2]
+        value = restamp_engine_setting(
+            name, value, from_table=nominals, to_table=NO_BUILTIN_DECLARATIONS
+        )
+        try:
+            validate_engine_value(name, value)
+        except ValueError as exc:
+            configured_failures.append(
+                EngineValueFailure(name, invalid_engine_message(name, "@config", exc))
+            )
+        else:
+            from_config[key] = value
+
+    by_tier = {**tiers, ParamTier.CONFIG: from_config}
+    winners: dict[StaticBindingKey, tuple[ParamTier, object]] = {}
+    for tier in ParamTier:
+        winners.update({key: (tier, raw) for key, raw in by_tier.get(tier, {}).items()})
+
+    values: dict[str, Value] = {}
+    ranks: dict[str, ParamTier] = {}
+    type_table = create_seeded_type_table()
+    for key, (tier, raw) in winners.items():
+        name = key[2]
+        if tier is ParamTier.CONFIG:
+            values[name] = cast("Value", raw)
+        else:
+            try:
+                values[name] = decode_engine_raw(name, raw, ENGINE_KEY_TYPES[name], type_table)
+            except ValueError as exc:
+                is_supplied = tier is ParamTier.SUPPLIED
+                origin = engine_origin(name, supplied=is_supplied)
+                failure = EngineValueFailure(name, invalid_engine_message(name, origin, exc))
+                (usage_failures if is_supplied else configured_failures).append(failure)
+                continue
+        ranks[name] = tier
+    return EngineSettings(values, ranks), configured_failures, usage_failures
 
 
 def _reserved_default_resolver(nominal: "NominalId", field_index: int) -> "Value":
@@ -271,7 +349,7 @@ def convert_host_value(
     embeds in the compiled IR (via :func:`~agnette.agl.type_schema.build_param_decoder`)
     and runs the shared :func:`~agnette.agl.runtime.arguments.decode_param_value`
     path, so this and the compiled-IR value-decode boundary go through one
-    mechanism. Its only caller is :func:`convert_config_value`, which decodes
+    mechanism. :func:`convert_config_value` and :func:`decode_engine_raw` decode
     host engine-setting values (CLI flags, config-file entries) through it.
 
     ``text`` values are taken verbatim; a JSON-compatible Python value (not a
@@ -299,6 +377,20 @@ def convert_host_value(
         return decode_param_value(decoder, raw, default_resolver=_reserved_default_resolver)
     except (StrictJsonParseError, ValueError) as exc:
         raise ValueError(f"Setting {name!r}: could not parse as {type_obj!r}: {exc}") from exc
+
+
+def decode_engine_raw(
+    name: str, raw: object, key_type: AglType, type_table: "TypeTable"
+) -> "Value":
+    """Decode and validate one engine setting's raw argument value, raising ``ValueError``.
+
+    *raw* has the shape a program argument's does (an
+    :class:`~agnette.agl.runtime.arguments.OptionSome` box or the ``None`` envelope
+    for an ``Option`` setting), as the host-parameter surfaces produce it.
+    """
+    value = convert_host_value(name, raw, key_type, type_table)
+    validate_engine_value(name, value)
+    return value
 
 
 def convert_config_value(
@@ -370,11 +462,11 @@ def validate_engine_value(
 
 
 def validate_engine_leaf_value(name: str, raw: object, type_table: "TypeTable") -> "Value":
-    """Decode one named engine setting's raw value, raising ``ValueError`` on any failure.
+    """Decode one named engine setting's native value, raising ``ValueError`` on any failure.
 
     Looks up *name*'s type in ``ENGINE_KEY_TYPES``, decodes through
-    :func:`convert_config_value`, and checks the result with
-    :func:`validate_engine_value`. *raw* is decoded as given (a blank ``timeout``
+    :func:`convert_config_value` (``None`` is an empty ``Option``), and checks the result
+    with :func:`validate_engine_value`. *raw* is decoded as given (a blank ``timeout``
     or ``trace-file`` fails): callers holding a config-file or manifest spelling
     normalize it first.
     """
@@ -389,12 +481,12 @@ def validate_manifest_leaf_value(name: str, raw: object, type_table: "TypeTable"
     """:func:`validate_engine_leaf_value` for a manifest ``[config]`` leaf.
 
     An ``Option[text]``-kind key is first normalized by
-    :func:`_normalize_option_text_value`, as a config-file entry is: positive
+    :func:`normalize_option_text`, as a config-file entry is: positive
     numbers become their string spelling, a blank or non-positive value is absent.
     A value of any other type (bool, array, table) is an error, not absence.
     """
     if _ENGINE_KEY_KINDS_BY_NAME.get(name) is EngineKeyKind.OPTION_TEXT:
         if isinstance(raw, bool) or not isinstance(raw, (str, int, float, Decimal)):
             raise ValueError(f"Setting {name!r}: expected a string or number, got {raw!r}.")
-        raw = _normalize_option_text_value(raw)
+        raw = normalize_option_text(raw)
     return validate_engine_leaf_value(name, raw, type_table)
