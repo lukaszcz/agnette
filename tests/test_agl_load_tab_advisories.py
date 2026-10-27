@@ -18,6 +18,7 @@ _SOURCES = {
     "space-indented-entry": "# c\n  let a =\t1\n",
     "after-last-entry": "let a = 1\n# \tz\n\t\n",
     "before-first-entry": "# \tz\nlet a = 1\n\t# c\nlet b = 2\n",
+    "attributes-only": '@!doc("m")\n# \tc\n',
     "inside-an-entry": "let a = 1\ndef f() -> int =\n\ta\n\n\t# \tc\nlet b = f()\t+ 1\n",
 }
 
@@ -37,7 +38,10 @@ def test_a_loaded_files_tab_advisories_are_its_whole_file_advisories(
 
     assert all(r.ok for r in results)
     loaded: list[_Advisory] = sorted(
-        (w.line, w.column, w.end_line, w.end_column, w.message) for r in results for w in r.warnings
+        (w.line, w.column, w.end_line, w.end_column, w.message)
+        for r in results
+        for w in r.warnings
+        if w.warning_name == "tab-indentation"
     )
     assert whole
     assert loaded == sorted((w.line, w.column, w.end_line, w.end_column, w.message) for w in whole)

@@ -402,25 +402,27 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     """Read each of *ranges* of ``lexed.text``, a module's top-level entries, off its program parse.
 
     The module items are *ranges* in order, the first also holding the module's leading
-    inner attributes. Each slice is the pass over its entry's text with the parse of that
-    text already made, so reading the entry scans and parses nothing. ``None`` for all of them
-    when *lexed* holds no program parse of as many items.
+    inner attributes, which alone make the one entry of a module without items. Each slice
+    is the pass over its entry's text with the parse of that text already made, so reading
+    the entry scans and parses nothing. ``None`` for all of them when *lexed* holds no
+    program parse of as many entries.
     """
     whole = lexed.parses.get(_PROGRAM_START)
     if not isinstance(whole, Tree):
         return [None] * len(ranges)
     children = [c for c in cast(Tree, whole.children[0]).children if not isinstance(c, Token)]
     attributes = [c for c in children if c.data == "inner_attribute"]
-    items = [c for c in children if c.data != "inner_attribute"]
-    if len(items) != len(ranges):
+    entries = [[c] for c in children if c.data != "inner_attribute"]
+    if entries:
+        entries[0] = [*attributes, *entries[0]]
+    elif attributes:
+        entries = [attributes]
+    if len(entries) != len(ranges):
         return [None] * len(ranges)
     lines = LineIndex(lexed.text)
     slices: list[LexedSource | None] = []
-    for index, (sliced, (start, _), item) in enumerate(
-        zip(lexed_slices(lexed, ranges, lines), ranges, items)
-    ):
+    for sliced, (start, _), entry in zip(lexed_slices(lexed, ranges, lines), ranges, entries):
         rebase = Rebase(lines, start)
-        entry = [*attributes, item] if index == 0 else [item]
         block = Tree("module_block", [_rebased_tree(c, rebase) for c in entry])
         root = Tree("start", [block])
         first, last = entry[0].meta, entry[-1].meta
