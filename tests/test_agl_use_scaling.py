@@ -201,7 +201,8 @@ def test_a_first_name_beneath_globs_is_read_before_and_after_a_scope_binds_it(
 ) -> None:
     (tmp_path / "m.agl").write_text("scope K\n  def x() -> int = 1\nend K\n", encoding="utf-8")
     text = (
-        "import m\nuse m::*\nuse T::*\n\nscope T\n  let a = K::x()\n  let K = 2\n  let b = K\nend T\n"
+        "import m\nuse m::*\nuse T::*\n\n"
+        "scope T\n  let a = K::x()\n  let K = 2\n  let b = K\nend T\n"
     )
     if host == "repl":
         assert repl_session_with_root(tmp_path).eval_entry(text).ok
