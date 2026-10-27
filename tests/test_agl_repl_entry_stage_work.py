@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -309,3 +309,55 @@ def test_a_loaded_entry_with_a_spaced_qualifier_reports_file_positions(tmp_path:
     assert [r.ok for r in results] == [True, True, False]
     (diagnostic,) = results[2].diagnostics
     assert (diagnostic.line, diagnostic.column) == (3, 9)
+
+
+def _transcript(*entries: str) -> str:
+    return "# agm:repl-transcript:v1\n" + "".join(
+        f"# agm:entry:{len(entry)}\n{entry}\n" for entry in entries
+    )
+
+
+_TRANSCRIPTS = {
+    "complete": _transcript("let a = 1", "let b = 2", "def f() -> int = a + b", "f()"),
+    "halted": _transcript("let a = 1", 'let b: int = "x"', "let c = 1\t", "let d = 2"),
+    "halted-in-last": _transcript("let a = 1", 'let b: int = "x"'),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_TRANSCRIPTS))
+def test_a_loaded_transcript_is_lexed_and_parsed_once(
+    tmp_path: Path, scans: _Scans, parses: _Parses, name: str
+) -> None:
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text(_TRANSCRIPTS[name])
+    scans.count = parses.count = 0
+
+    session.load_file(path)
+
+    assert (scans.count, parses.count) == (1, 1)
+
+
+def test_a_halted_load_recognizes_attributes_of_the_unrun_items_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agnette.agl.scope import attributes
+    from agnette.agl.syntax.nodes import Program
+    from agnette.agl.syntax.visitor import SyntaxNode
+
+    walked: list[SyntaxNode] = []
+    real = attributes.walk
+
+    def recording(node: SyntaxNode, callback: Callable[[SyntaxNode], None]) -> None:
+        walked.append(node)
+        real(node, callback)
+
+    session = _session()
+    path = tmp_path / "t.agl"
+    path.write_text('let a = 1\nlet b: int = "x"\nlet c = 1\nlet d = 2\n')
+    monkeypatch.setattr(attributes, "walk", recording)
+
+    session.load_file(path)
+
+    # Each run entry's program is recognized whole; only the two unrun items beyond the failure.
+    assert len([n for n in walked if not isinstance(n, Program)]) == 2

@@ -2643,11 +2643,9 @@ class ReplSession:
         ``EntryResult`` carrying the parse diagnostic.  An empty or comment-only file has no
         items to run: a benign no-op yielding an empty list, or, with TAB advisories, one
         entry carrying them. A load halted by a failing entry (also of a transcript) reports the
-        advisories of the entries after it with that entry, governed as ``agm check`` does
-        (:meth:`_report_advisories`).
+        advisories of the entries after it with that entry (:meth:`_report_advisories`).
         """
         from agnette.agl.lexer import lex_source
-        from agnette.agl.parser import entry_slices
         from agnette.agl.scope.attributes import module_allowed_names
         from agnette.core.fs import read_text
         from agnette.util.text import normalize_newlines
@@ -2659,29 +2657,7 @@ class ReplSession:
         label = str(path)
         saved_entries = _decode_transcript(normalized)
         if saved_entries is not None:
-            saved_results: list[EntryResult] = []
-            try:
-                for index, entry in enumerate(saved_entries):
-                    self._inherited_allows = entry.allows
-                    result = self.eval_entry(
-                        entry.text, origin=_origin_at(label, normalized, entry.offset)
-                    )
-                    saved_results.append(result)
-                    if not result.ok:
-                        if index + 1 < len(saved_entries):
-                            whole = lex_source(normalized)
-                            self._report_advisories(
-                                result,
-                                label,
-                                normalized,
-                                whole,
-                                self._parse_file(normalized, whole)[0],
-                                saved_entries[index + 1].offset,
-                            )
-                        break
-            finally:
-                self._inherited_allows = frozenset()
-            return saved_results
+            return self._load_transcript(label, normalized, saved_entries)
 
         # A blank / comment-only file parses to an empty module with nothing
         # to run; skip the pipeline entirely and load it as a no-op.
@@ -2713,12 +2689,55 @@ class ReplSession:
         if not spans:
             spans = [(min(leading), max(a.span.end_offset for a in program.attributes))]
         spans[0] = (min([spans[0][0], *leading]), spans[0][1])
-        # Each entry is read off the file's one lex and parse, not scanned and parsed again.
+        return self._run_entries(
+            label,
+            normalized,
+            lexed,
+            program,
+            spans,
+            [module_allowed_names(program)] * len(spans),
+        )
+
+    def _load_transcript(
+        self, label: str, normalized: str, saved_entries: tuple[_SavedEntry, ...]
+    ) -> list[EntryResult]:
+        """Run the entries of the framed transcript *normalized*, each under its saved allows.
+
+        The transcript is lexed and parsed once as a whole, so each entry is read off that
+        pass when it parses as one item per entry, and is otherwise lexed on its own.
+        """
+        from agnette.agl.lexer import lex_source
+
+        lexed = lex_source(normalized)
+        program, _ = self._parse_file(normalized, lexed)
+        spans = [(entry.offset, entry.offset + len(entry.text)) for entry in saved_entries]
+        return self._run_entries(
+            label, normalized, lexed, program, spans, [entry.allows for entry in saved_entries]
+        )
+
+    def _run_entries(
+        self,
+        label: str,
+        normalized: str,
+        lexed: "LexedSource",
+        program: "Program | AglError",
+        spans: Sequence[tuple[int, int]],
+        allows: Sequence[frozenset[str]],
+    ) -> list[EntryResult]:
+        """Evaluate the entries at *spans* of the file *label* until one fails.
+
+        Each entry is read off the file's one lex and parse (*lexed*, *program*) rather than
+        scanned and parsed again, and runs under its own inherited *allows*. A failing entry
+        halts the load, still reporting the advisories of the entries after it
+        (:meth:`_report_advisories`).
+        """
+        from agnette.agl.parser import entry_slices
+
         readings = entry_slices(lexed, spans)
         results: list[EntryResult] = []
-        self._inherited_allows = module_allowed_names(program)
         try:
             for index, ((start, end), reading) in enumerate(zip(spans, readings)):
+                self._inherited_allows = allows[index]
                 result = self.eval_entry(
                     normalized[start:end],
                     origin=_origin_at(label, normalized, start),
@@ -2726,8 +2745,6 @@ class ReplSession:
                 )
                 results.append(result)
                 if not result.ok:
-                    # Halt on the first failing item, like a script, still reporting the
-                    # advisories of the entries after it, as ``agm check`` does.
                     if index + 1 < len(spans):
                         self._report_advisories(
                             result, label, normalized, lexed, program, spans[index + 1][0]
@@ -2761,7 +2778,7 @@ class ReplSession:
     ) -> "WarningOutcome":
         """Apply the session's policy to a file's own *advisories*, stamped with its *label*.
 
-        *regions* are the file's ``@allow`` regions, which govern them as in ``agm check``.
+        *regions* are the file's ``@allow`` regions, which govern them.
         """
         stamped = [replace(w, source_label=label) for w in advisories]
         return apply_warning_policy(
@@ -2805,11 +2822,12 @@ class ReplSession:
         program: "Program | AglError",
         resume: int,
     ) -> None:
-        """Add the advisories of the entries never run to *result*, governed as ``agm check`` does.
+        """Add the advisories of the entries never run to *result*, governed by the file's allows.
 
         These are the advisories of the file *label* (text *normalized*, lexed as *lexed*)
         from offset *resume* on; a denied one is another error. The ``@allow`` regions
-        come from the file's whole parse *program*. They are withheld when the file
+        come from the file's whole parse *program*: its inner attributes and the items from
+        *resume* on, the earlier ones having been resolved already. They are withheld when the file
         could not resolve, which *result* and an unparsable or invalid *program* tell;
         a failure in a later entry is not known without running it.
         """
@@ -2819,7 +2837,7 @@ class ReplSession:
         if result.scope_failed or isinstance(program, AglError):
             return
         try:
-            regions = module_allow_regions(program, source_text=normalized)
+            regions = module_allow_regions(program, source_text=normalized, from_offset=resume)
         except AglScopeError:
             return
         after = _origin_at(label, normalized, resume)
