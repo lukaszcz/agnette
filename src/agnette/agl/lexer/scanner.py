@@ -264,9 +264,6 @@ class _Scanner:
         # is the only record of where they were; the scanner is their sole
         # producer, which keeps ``#`` inside a string or a `$` literal out.
         self._comment_spans: list[tuple[int, int]] = []
-        # True once at least one real (non-layout) token has been emitted; used
-        # to suppress the leading ``_NEWLINE`` of comment/blank-only prefixes.
-        self._emitted_real = False
         self._bracket_depth = 0
         self._pending_block_newline: Token | None = None
         # A `$` literal seen at nonzero bracket depth.  Held until the scan ends
@@ -1488,11 +1485,6 @@ class _Scanner:
                 self._advance()  # consume the newline
                 # Measure indentation of next real line
                 indent_width = self._measure_indentation()
-                # Suppress a leading _NEWLINE: the grammar's block_stmts cannot
-                # consume a _NEWLINE before any real statement token (Python
-                # tokenizer style).  Blank/comment-only prefixes thus emit none.
-                if not self._emitted_real:
-                    continue
                 yield Token(
                     NEWLINE,
                     str(indent_width),
@@ -1506,7 +1498,6 @@ class _Scanner:
                 continue
 
             # All other tokens
-            self._emitted_real = True
             stream = self._recover_code_token() if self._recover else self._scan_one_code_token()
             for token in stream:
                 yield token

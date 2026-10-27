@@ -357,8 +357,8 @@ class ProgramTree:
         ranges[0] = (min([ranges[0][0], *(a.start_pos for a in attributes)]), ranges[0][1])
         return ranges
 
-    def items_from(self, offset: int, *, start_id: int) -> syntax.Program | None:
-        """Convert to AST the module's items starting at or after *offset*, if any.
+    def items_from(self, offset: int, *, start_id: int) -> syntax.Program:
+        """Convert to AST the module's items starting at or after *offset*, of which there are some.
 
         Ids start at *start_id* and spans are the file's own. The inner attributes are not
         converted: the entry that heads the file converts them. Header ordering is not
@@ -373,10 +373,8 @@ class ProgramTree:
             start_id,
         )
 
-    def _program_of(self, chosen: Sequence[Tree], start_id: int) -> syntax.Program | None:
+    def _program_of(self, chosen: Sequence[Tree], start_id: int) -> syntax.Program:
         """Convert *chosen* top-level children, in file positions, to a program."""
-        if not chosen:
-            return None
         root = _module_tree(chosen, Rebase(LineIndex(self.text), 0))
         with frontend_recursion_boundary():
             program, _ = _transform_tree(root, start_id=start_id, source=None, allow_late_uses=True)

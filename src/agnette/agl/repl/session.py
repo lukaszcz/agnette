@@ -2874,7 +2874,7 @@ class ReplSession:
         resume = unrun[0][0]
         try:
             rest = tree.items_from(resume, start_id=self._next_node_id)
-            items = rest.body.items if rest else ()
+            items = rest.body.items
             run = tuple(item for program in programs for item in program.body.items)
             module = replace(head, body=replace(head.body, items=(*run, *items)))
             regions = module_allow_regions(module, source_text=lines.text, items=items)
