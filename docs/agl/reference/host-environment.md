@@ -322,8 +322,20 @@ closure declares, but the program does not reach, is not an undeclared key: it
 draws no warning and has no effect.
 
 Setting two spellings of one parameter in one layer is an error, as is a
-spelling several parameters claim. For a program `main` in `tool.agl` that
-imports `A/logging`:
+spelling several parameters claim.
+
+One leaf addresses one parameter. A table may be a parameter's module route
+and a table of the selected program at once: `[dv.review]` is the program
+route of `agm dv review` and the module route of `dv/review`. A leaf set in
+such a table that would reach a different parameter through each route (a
+program argument `agent` and a module parameter `agent` of `dv/review`) is an
+error naming both; so is the same leaf in an inherited group table (`[dv]`).
+The check applies to leaves present in tables the program reads. The argument
+stays configurable through its module-suffix program table (`[main.review-main]`
+for `review-main` in `dv/main`) or `@opt-name`, which also gives either
+parameter a distinct key.
+
+For a program `main` in `tool.agl` that imports `A/logging`:
 
 ```toml
 [A.logging]

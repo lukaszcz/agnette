@@ -130,6 +130,7 @@ __all__ = [
     "DuplicateOptionFlagError",
     "EXEC_RESERVED_FLAGS",
     "ExecTail",
+    "NAME_ADDRESSABLE_ZONES",
     "ProgramCommand",
     "ProgramHelpRequested",
     "ProgramOptionError",
@@ -165,7 +166,7 @@ ENGINE_SETTINGS_SECTION = "Engine settings"
 _POSITIONAL_ZONES = (ParamZone.POSITIONAL_ONLY, ParamZone.STANDARD)
 
 # Zones whose parameter is addressable by a ``--name`` flag.
-_NAME_ADDRESSABLE_ZONES = (ParamZone.STANDARD, ParamZone.NAMED_ONLY)
+NAME_ADDRESSABLE_ZONES = (ParamZone.STANDARD, ParamZone.NAMED_ONLY)
 
 # The command parameter every positional token lands in. Click keys its parsed
 # values by parameter name, so this and the per-option names below are internal
@@ -1809,7 +1810,7 @@ def build_program_command(
     options = tuple(
         (p, project_option(p.cli.name, p.type))
         for p in signature
-        if p.kind in _NAME_ADDRESSABLE_ZONES
+        if p.kind in NAME_ADDRESSABLE_ZONES
     )
     collision = _check_reservation(
         tuple((param, projected) for param, projected in options if not param.cli.cli_positional),

@@ -57,6 +57,7 @@ from agnette.agm.cli_support.param_config import (
 )
 from agnette.config.context import current_config_context
 from agnette.config.general import (
+    EXEC_CONFIG_SECTION,
     GeneralConfig,
     exec_config_from_merged,
     load_general_config,
@@ -125,7 +126,7 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     cli_values = _engine_cli_values(args.tokens)
     engine_tiers = build_host_engine_seeds(
         config=config,
-        primary_table=toml_dict(merged_config.get("exec")),
+        primary_table=toml_dict(merged_config.get(EXEC_CONFIG_SECTION)),
         cli_values=cli_values,
     )
     engine_seeds = engine_tiers.merged()

@@ -20,7 +20,7 @@ from agnette.agm.cli_support.param_surface import ParamSurface, build_param_surf
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
 from agnette.config.general import GeneralConfig
 from agnette.config.qualified_keys import QualifiedConfigLookupError
-from agnette.core.toml import toml_dict
+from agnette.core.toml import TomlDict, toml_dict
 from tests._agl_helpers import EMPTY_REACHABLE
 
 _SPAN = SourceSpan(1, 1, 1, 2, 0, 1)
@@ -48,6 +48,18 @@ def _binding(
         name,
         type_,
         _option(name if external is None else external),
+    )
+
+
+def _argument(
+    name: str,
+    kind: ParamZone = ParamZone.NAMED_ONLY,
+    type_: Type = BoolType(),
+    *,
+    has_default: bool = True,
+) -> ProgramParamInfo:
+    return ProgramParamInfo(
+        name=name, kind=kind, type=type_, has_default=has_default, span=_SPAN, cli=_option(name)
     )
 
 
@@ -282,14 +294,7 @@ def test_program_route_accepts_the_longest_qualified_leaf() -> None:
 
 def test_a_qualified_leaf_reaches_a_param_whose_bare_name_a_signature_claims() -> None:
     binding = _binding("A/logging", "verbose")
-    signature = ProgramParamInfo(
-        name="verbose",
-        kind=ParamZone.NAMED_ONLY,
-        type=BoolType(),
-        has_default=False,
-        span=_SPAN,
-        cli=_option("verbose"),
-    )
+    signature = _argument("verbose", has_default=False)
     program = _program(
         closure=(ModuleId.from_path("app/main"), binding.module),
         parameters=(signature,),
@@ -493,14 +498,7 @@ def test_every_declared_leaf_of_each_module_and_program_route_draws_no_warning(
     route; each module route declares its own parameters."""
     own = _binding("app/main", "quiet")
     imported = _binding("A/logging", "verbose")
-    signature = ProgramParamInfo(
-        name="label",
-        kind=ParamZone.NAMED_ONLY,
-        type=TextType(),
-        has_default=False,
-        span=_SPAN,
-        cli=_option("label"),
-    )
+    signature = _argument("label", type_=TextType(), has_default=False)
     program = _program(closure=(own.module, imported.module), parameters=(signature,))
 
     # One spelling of a parameter per layer: two in one layer conflict.
@@ -533,14 +531,7 @@ def test_command_validation_takes_precedence_over_colliding_module_routes(
     colliding = _binding(module, "quiet", scope_path=scope_path)
     imported = _binding("A/logging", "verbose")
     parameters = tuple(
-        ProgramParamInfo(
-            name=name,
-            kind=kind,
-            type=TextType(),
-            has_default=True,
-            span=_SPAN,
-            cli=_option(name),
-        )
+        _argument(name, kind, TextType())
         for name, kind in (("agent", ParamZone.NAMED_ONLY), ("input", ParamZone.POSITIONAL_ONLY))
     )
     program = _program(closure=(colliding.module, imported.module), parameters=parameters)
@@ -626,14 +617,7 @@ def test_a_module_root_is_reported_before_its_scope_routes(
 def test_a_positional_only_signature_leaf_gets_its_distinct_warning(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    positional = ProgramParamInfo(
-        name="input",
-        kind=ParamZone.POSITIONAL_ONLY,
-        type=TextType(),
-        has_default=False,
-        span=_SPAN,
-        cli=_option("input"),
-    )
+    positional = _argument("input", ParamZone.POSITIONAL_ONLY, TextType(), has_default=False)
     program = _program(parameters=(positional,))
 
     _resolve(_config({"workflow": {"run": {"input": "value"}}}), program, ())
@@ -665,14 +649,7 @@ def test_a_bare_leaf_a_signature_claims_draws_no_undeclared_warning(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     binding = _binding("A/logging", "verbose")
-    signature = ProgramParamInfo(
-        name="verbose",
-        kind=ParamZone.NAMED_ONLY,
-        type=BoolType(),
-        has_default=False,
-        span=_SPAN,
-        cli=_option("verbose"),
-    )
+    signature = _argument("verbose", has_default=False)
     program = _program(
         closure=(ModuleId.from_path("app/main"), binding.module),
         parameters=(signature,),
@@ -776,20 +753,7 @@ class TestSpellingsLostByReachedParams:
         package_config: Mapping[str, object] | None = None,
     ) -> None:
         binding = _binding("A/logging", "verbose")
-        parameters = (
-            (
-                ProgramParamInfo(
-                    name="verbose",
-                    kind=ParamZone.NAMED_ONLY,
-                    type=BoolType(),
-                    has_default=False,
-                    span=_SPAN,
-                    cli=_option("verbose"),
-                ),
-            )
-            if signature
-            else ()
-        )
+        parameters = (_argument("verbose", has_default=False),) if signature else ()
         program = _program(
             closure=(ModuleId.from_path("app/main"), binding.module), parameters=parameters
         )
@@ -1036,6 +1000,120 @@ def test_rejects_a_group_table_ambiguity_regardless_of_layer_order(
 
     assert own.declaration_path in str(exc_info.value)
     assert imported.declaration_path in str(exc_info.value)
+
+
+def _resolve_argument_routes(
+    config: GeneralConfig,
+    argument: str,
+    bindings: tuple[HostParamInfo, ...],
+    *,
+    kind: ParamZone = ParamZone.NAMED_ONLY,
+    command_paths: tuple[tuple[str, ...], ...] = (("devel", "review"),),
+    package_config: TomlDict | None = None,
+) -> ParamValueTiers:
+    """Resolve a program with one named argument over *bindings*' declaration routes."""
+    program = _program(
+        closure=(ModuleId.from_path("app/main"), *(b.module for b in bindings)),
+        parameters=(_argument(argument, kind),),
+    )
+    return resolve_param_values(
+        config,
+        program,
+        {},
+        entry_segments=("workflow",),
+        command_paths=command_paths,
+        surface=_surface(program, bindings),
+        package_config=package_config,
+    )
+
+
+class TestProgramArgumentsAgainstDeclarationRoutes:
+    """One config leaf may address only one parameter, program arguments included."""
+
+    @pytest.mark.parametrize(
+        ("module", "table"),
+        [
+            ("devel/review", {"devel": {"review": {"agent": True}}}),
+            ("devel", {"devel": {"agent": True}}),
+            ("x/devel/review", {"devel": {"review": {"agent": True}}}),
+        ],
+        ids=["command_table", "group_table", "short_module_route"],
+    )
+    def test_rejects_a_leaf_feeding_a_program_argument_and_a_module_parameter(
+        self, module: str, table: Mapping[str, object]
+    ) -> None:
+        binding = _binding(module, "agent")
+
+        with pytest.raises(QualifiedConfigLookupError) as exc_info:
+            _resolve_argument_routes(_config(table), "agent", (binding,))
+
+        assert binding.declaration_path in str(exc_info.value)
+
+    def test_rejects_the_dual_feed_set_in_several_layers(self) -> None:
+        binding = _binding("devel/review", "agent")
+        config = _config(
+            {"devel": {"review": {"agent": True}}}, {"devel": {"review": {"agent": False}}}
+        )
+
+        with pytest.raises(QualifiedConfigLookupError):
+            _resolve_argument_routes(config, "agent", (binding,))
+
+    def test_a_leaf_addressing_only_the_module_parameter_applies(self) -> None:
+        binding = _binding("devel/review", "agent")
+
+        tiers = _resolve_argument_routes(
+            _config({"devel": {"review": {"agent": True}}}), "other", (binding,)
+        )
+
+        assert tiers.upper == {binding.key: True}
+
+    def test_a_leaf_in_a_table_the_program_does_not_read_feeds_only_the_module_parameter(
+        self,
+    ) -> None:
+        binding = _binding("devel/review", "agent")
+
+        tiers = _resolve_argument_routes(
+            _config({"devel": {"review": {"agent": True}}}),
+            "agent",
+            (binding,),
+            command_paths=(("dv", "run"),),
+        )
+
+        assert tiers.lower == {binding.key: True}
+
+    def test_a_positional_only_argument_is_not_addressed_by_the_program_table(self) -> None:
+        binding = _binding("devel/review", "agent")
+
+        tiers = _resolve_argument_routes(
+            _config({"devel": {"review": {"agent": True}}}),
+            "agent",
+            (binding,),
+            kind=ParamZone.POSITIONAL_ONLY,
+        )
+
+        assert tiers.lower == {binding.key: True}
+
+    def test_an_ambiguous_name_set_only_in_unread_tables_does_not_error(self) -> None:
+        binding = _binding("devel/review", "agent")
+
+        tiers = _resolve_argument_routes(
+            _config({"workflow": {"run": {"agent": True}}, "unrelated": {"agent": False}}),
+            "agent",
+            (binding,),
+        )
+
+        assert tiers.lower == {}
+        assert tiers.upper == {}
+
+    def test_a_manifest_leaf_does_not_feed_a_shadowed_module_parameter(self) -> None:
+        """The program argument wins the bare name, so a manifest leaf names no module parameter."""
+        binding = _binding("devel/review", "agent")
+
+        tiers = _resolve_argument_routes(
+            _config(), "agent", (binding,), package_config={"devel": {"review": {"agent": True}}}
+        )
+
+        assert tiers.lower == {}
 
 
 class TestManifestConfigMergesBelowConfigFileRoutes:

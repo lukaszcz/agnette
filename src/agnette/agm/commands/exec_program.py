@@ -115,6 +115,7 @@ from agnette.agm.cli_support.program_options import (
 from agnette.config.context import ConfigContext, current_config_context
 from agnette.config.engine_keys import PATH_ENGINE_KEYS
 from agnette.config.general import (
+    EXEC_CONFIG_SECTION,
     exec_config_from_merged,
     exec_options_from_merged,
     load_general_config,
@@ -212,12 +213,11 @@ def _bind_host_inputs(
         raise RegisteredProgramUsageError(str(exc), program, program_command) from exc
 
     program_named = dict(parsed_tail.arguments.named)
-    program_path = (*program.scope_path, program.name)
     argument_options = tuple(
         (
             info,
             projected,
-            QualifiedConfigKey(entry_segments, program_path, info.cli.name, command_paths),
+            QualifiedConfigKey(entry_segments, program.route_path, info.cli.name, command_paths),
         )
         for info, projected in program_command.options
     )
@@ -647,7 +647,10 @@ def run(
             package_table=manifest_engine_table,
         ),
         primary_table=engine_values.program,
-        fallback_table={**toml_dict(merged_config.get("exec")), **manifest_engine_table},
+        fallback_table={
+            **toml_dict(merged_config.get(EXEC_CONFIG_SECTION)),
+            **manifest_engine_table,
+        },
         cli_values=engine_values.cli,
     )
 

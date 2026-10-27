@@ -426,6 +426,78 @@ class TestPackageEntryConfigRoute:
         assert captured.out == "opus\n"
         assert captured.err == ""
 
+    def _install_dual_route_package(self, tmp_path: Path, table: str) -> tuple[Path, str]:
+        """Install ``devel`` with ``agm devel review`` and a ``devel/review`` module parameter.
+
+        The ``[devel.review]`` table is both the command's program route and the
+        module's declaration route, and both declare an ``agent``.
+        """
+        home = tmp_path / "home"
+        reference = "devel/main::review-main"
+        module = write_installed_package(
+            home,
+            "devel",
+            source=(
+                "import devel/review\n"
+                'program def review-main(agent: text = "arg") -> unit =\n'
+                "  print agent\n"
+                "  print devel/review::agent\n"
+            ),
+            commands={"devel review": reference},
+        )
+        (module.parent / "review.agl").write_text(
+            '@param let agent: text = "mod"\n', encoding="utf-8"
+        )
+        (home / ".agm" / "config.toml").write_text(table)
+        return home, reference
+
+    def test_rejects_a_command_table_leaf_feeding_an_argument_and_a_module_parameter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home, reference = self._install_dual_route_package(
+            tmp_path, '[devel.review]\nagent = "x"\n'
+        )
+        self._use_home(monkeypatch, home, tmp_path)
+
+        with pytest.raises(SystemExit):
+            exec_engine.run_registered(
+                reference, args=exec_args(), package="devel", command_path="devel review"
+            )
+
+    def test_a_leaf_addressing_one_parameter_still_applies(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        home, reference = self._install_dual_route_package(
+            tmp_path, '[review]\nagent = "mod-route"\n\n[devel.other]\nagent = "x"\n'
+        )
+        self._use_home(monkeypatch, home, tmp_path)
+
+        exec_engine.run_registered(
+            reference, args=exec_args(), package="devel", command_path="devel review"
+        )
+
+        assert capsys.readouterr().out == "arg\nmod-route\n"
+
+    def test_the_argument_stays_configurable_through_its_module_suffix_table(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        home, reference = self._install_dual_route_package(
+            tmp_path, '[main.review-main]\nagent = "arg-route"\n'
+        )
+        self._use_home(monkeypatch, home, tmp_path)
+
+        exec_engine.run_registered(
+            reference, args=exec_args(), package="devel", command_path="devel review"
+        )
+
+        assert capsys.readouterr().out == "arg-route\nmod\n"
+
     def test_undeclared_command_table_key_is_reported(
         self,
         tmp_path: Path,

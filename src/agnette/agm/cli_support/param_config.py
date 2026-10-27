@@ -5,15 +5,19 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import NamedTuple, NoReturn
 
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramDeclInfo
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.param_surface import ParamSurface, ParamSurfaceEntry
-from agnette.agm.cli_support.program_options import native_raw_value, project_option
-from agnette.config.general import GeneralConfig, undeclared_exec_keys
+from agnette.agm.cli_support.program_options import (
+    NAME_ADDRESSABLE_ZONES,
+    native_raw_value,
+    project_option,
+)
+from agnette.config.general import EXEC_CONFIG_SECTION, GeneralConfig, undeclared_exec_keys
 from agnette.config.qualified_keys import (
     QualifiedConfigKey,
     QualifiedConfigLookupError,
@@ -32,10 +36,6 @@ __all__ = [
     "resolve_module_param_values",
     "resolve_param_values",
 ]
-
-
-#: A config table route: declaring module, scope, and registered command paths.
-_RouteKey = tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, ...], ...]]
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,9 @@ def _warn_ignored_config_key(leaf: str, table_name: str, reason: str) -> None:
 def report_undeclared_exec_keys(config: GeneralConfig) -> None:
     """Warn for each ``[exec]`` key that is no engine setting or execution option."""
     for key in undeclared_exec_keys(config.merged):
-        _warn_ignored_config_key(key, "exec", "is not an engine setting or execution option")
+        _warn_ignored_config_key(
+            key, EXEC_CONFIG_SECTION, "is not an engine setting or execution option"
+        )
 
 
 def _report_undeclared_config_keys(
@@ -229,14 +231,16 @@ def resolve_param_values(
     reached = frozenset(entry.param.key for entry in entries)
     module_params = _module_declared(entry.param for entry in entries)
     unreached_leaves = _declared_leaves(param for param in declared if param.key not in reached)
-    module_routes = _module_routes(module_params)
     program_routes = _program_routes(program, entry_segments, command_paths, entries)
-    _reject_configured_cross_route_ambiguities(config, module_routes, program_routes)
+    if entry_segments:
+        program_tables = configured_leaf_table_candidates(
+            config, entry_segments, program.route_path, command_paths
+        )
+        _reject_configured_cross_route_ambiguities(config, program, entries, program_tables)
+        _reject_configured_ambiguous_program_leaves(
+            program_tables, command_paths, surface, package_config
+        )
     module_values = resolve_module_param_values(config, module_params)
-
-    _reject_configured_ambiguous_program_leaves(
-        config, program, entry_segments, command_paths, surface, package_config
-    )
     program_values = resolve_qualified_values(config, tuple(key for _entry, key in program_routes))
     upper = dict(params)
     _merge_route_values(upper, supplied, program_routes, program_values)
@@ -271,52 +275,81 @@ def _module_declared(params: Iterable[HostParamInfo]) -> tuple[HostParamInfo, ..
     return tuple(param for param in params if param.kind is not HostParamKind.ENGINE)
 
 
+class _Addressee(NamedTuple):
+    """A parameter the selected program's tables address, by every leaf spelling it wins."""
+
+    label: str
+    key: StaticBindingKey | None
+    spellings: tuple[str, ...]
+
+
+def _addressees(
+    program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]
+) -> tuple[_Addressee, ...]:
+    """Return the program arguments and surface parameters its own tables address."""
+    arguments = tuple(
+        _Addressee(
+            f"{program.module.display()}::{program.declaration_path}::{argument.name}",
+            None,
+            (argument.cli.name,),
+        )
+        for argument in program.parameters
+        if argument.kind in NAME_ADDRESSABLE_ZONES
+    )
+    parameters = tuple(
+        _Addressee(entry.param.declaration_path, entry.param.key, entry.spellings)
+        for entry in entries
+    )
+    return (*arguments, *parameters)
+
+
 def _reject_configured_cross_route_ambiguities(
     config: GeneralConfig,
-    module_routes: Sequence[tuple[HostParamInfo, QualifiedConfigKey]],
-    program_routes: Sequence[tuple[ParamSurfaceEntry, QualifiedConfigKey]],
+    program: ProgramDeclInfo,
+    entries: Sequence[ParamSurfaceEntry],
+    program_tables: Mapping[str, frozenset[tuple[str, ...]]],
 ) -> None:
-    """Reject a configured table leaf that resolves to distinct route kinds.
+    """Reject a configured leaf that feeds a module parameter and another parameter.
 
-    The program side includes tables inherited from a command path's group
-    prefixes, since a leaf set there is just as ambiguous against a module
-    route as one set on the exact route.
+    A module parameter's declaration route addresses it by its bare name; the
+    selected program's tables (*program_tables*: its exact route and the group
+    tables it inherits) address the program arguments and every spelling a
+    surface parameter won. One table may be both (``[devel.review]`` is the
+    ``devel review`` program route and the ``devel/review`` module route), so a
+    leaf set there that names a different parameter on each side feeds both.
+    Engine settings take no part: their ``[exec]`` section is reserved, never
+    a program or module route.
     """
-    if not program_routes:
+    if not program_tables:
         return
-    # Every program route addresses the same table route, so its leaves are
-    # read once; module routes repeat per declaration module and scope.
-    _entry, shared_key = program_routes[0]
-    program_leaves = configured_leaf_table_candidates(
-        config,
-        shared_key.module_segments,
-        shared_key.scope_path,
-        shared_key.command_paths,
-    )
-    module_leaves_by_route: dict[_RouteKey, dict[str, tuple[str, ...]]] = {}
-    for module_param, module_key in module_routes:
-        route: _RouteKey = (
-            module_key.module_segments,
-            module_key.scope_path,
-            module_key.command_paths,
-        )
-        if route not in module_leaves_by_route:
-            module_leaves_by_route[route] = configured_leaf_tables(
-                config, module_key.module_segments, module_key.scope_path, module_key.command_paths
-            )
-        module_leaves = module_leaves_by_route[route]
-        module_table = module_leaves.get(module_key.leaf)
-        if module_table is None:
-            continue
+    addressees = _addressees(program, entries)
+    for param, key in _module_routes(_module_declared(entry.param for entry in entries)):
         peers = tuple(
-            entry.param
-            for entry, program_key in program_routes
-            if module_param.key != entry.param.key
-            and module_key.leaf == program_key.leaf
-            and module_table in program_leaves.get(program_key.leaf, frozenset())
+            addressee
+            for addressee in addressees
+            if addressee.key != param.key and key.leaf in addressee.spellings
         )
-        if peers:
-            _reject_configured_ambiguity(module_leaves, {module_key.leaf: (module_param, *peers)})
+        if not peers:
+            continue
+        module_tables = configured_leaf_table_candidates(
+            config, key.module_segments, key.scope_path, key.command_paths
+        )
+        shared = module_tables.get(key.leaf, frozenset()) & program_tables.get(
+            key.leaf, frozenset()
+        )
+        if shared:
+            _raise_ambiguous_leaf(
+                min(shared),
+                key.leaf,
+                (param.declaration_path, *(peer.label for peer in peers)),
+            )
+
+
+def _raise_ambiguous_leaf(table: tuple[str, ...], leaf: str, names: Iterable[str]) -> NoReturn:
+    raise QualifiedConfigLookupError(
+        f"config key {display_table_path(table)}.{leaf} matches multiple parameters: "
+        f"{', '.join(names)}"
+    )
 
 
 def _reject_configured_ambiguity(
@@ -326,12 +359,10 @@ def _reject_configured_ambiguity(
     """Reject the first *candidates* leaf that one of *leaf_tables*' tables sets."""
     for leaf, claimants in candidates.items():
         table = leaf_tables.get(leaf)
-        if table is None:
-            continue
-        names = ", ".join(claimant.declaration_path for claimant in claimants)
-        raise QualifiedConfigLookupError(
-            f"config key {display_table_path(table)}.{leaf} matches multiple parameters: {names}"
-        )
+        if table is not None:
+            _raise_ambiguous_leaf(
+                table, leaf, (claimant.declaration_path for claimant in claimants)
+            )
 
 
 def resolve_module_param_values(
@@ -408,7 +439,6 @@ def _program_routes(
     """
     if not entry_segments:
         return ()
-    program_path = (*program.scope_path, program.name)
     routes: list[tuple[ParamSurfaceEntry, QualifiedConfigKey]] = []
     for entry in entries:
         if not entry.spellings:
@@ -418,7 +448,7 @@ def _program_routes(
             (
                 entry,
                 QualifiedConfigKey(
-                    entry_segments, program_path, leaf, command_paths, tuple(aliases)
+                    entry_segments, program.route_path, leaf, command_paths, tuple(aliases)
                 ),
             )
         )
@@ -446,9 +476,7 @@ def _merge_route_values(
 
 
 def _reject_configured_ambiguous_program_leaves(
-    config: GeneralConfig,
-    program: ProgramDeclInfo,
-    entry_segments: tuple[str, ...],
+    program_tables: Mapping[str, frozenset[tuple[str, ...]]],
     command_paths: tuple[tuple[str, ...], ...],
     surface: ParamSurface,
     package_config: TomlDict | None = None,
@@ -457,18 +485,13 @@ def _reject_configured_ambiguous_program_leaves(
 
     Every spelling a program table may use is checked, bare or qualified: a
     spelling several parameters claim resolves to none of them, so *using* it
-    names the candidates rather than silently picking one. *package_config*
+    names the candidates rather than silently picking one. *program_tables*
+    covers the exact route and the config group tables, since an inherited
+    leaf is just as ambiguous as one set on the exact route. *package_config*
     extends the same check over the owning package's manifest command, group,
-    and root tables. Config group tables are covered too, since an inherited
-    leaf is just as ambiguous as one set on the exact route.
+    and root tables.
     """
-    if not entry_segments:
-        return
-    program_path = (*program.scope_path, program.name)
-    candidates = configured_leaf_table_candidates(
-        config, entry_segments, program_path, command_paths
-    )
-    configured = {leaf: min(tables) for leaf, tables in candidates.items()}
+    configured = {leaf: min(tables) for leaf, tables in program_tables.items()}
     if package_config:
         configured = {**manifest_leaf_tables(package_config, command_paths), **configured}
     _reject_configured_ambiguity(configured, surface.ambiguous)
@@ -532,7 +555,7 @@ def _route_reports(
         reports.append(
             _RouteReport(
                 entry_segments,
-                (*program.scope_path, program.name),
+                program.route_path,
                 command_paths,
                 declared,
                 positional_only,

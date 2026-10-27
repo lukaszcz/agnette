@@ -234,6 +234,11 @@ class ProgramDeclInfo:
     owner: "Path | None" = None
 
     @property
+    def route_path(self) -> tuple[str, ...]:
+        """Return the program's scope path including its own name."""
+        return (*self.scope_path, self.name)
+
+    @property
     def declaration_path(self) -> str:
         """Return the program's scope-qualified declaration spelling."""
-        return "::".join((*self.scope_path, self.name))
+        return "::".join(self.route_path)

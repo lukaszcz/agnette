@@ -55,6 +55,9 @@ class GeneralConfig:
         return cls(layers=ordered_layers, merged=merged)
 
 
+#: The config table holding engine settings and execution options.
+EXEC_CONFIG_SECTION = "exec"
+
 # Known path-like fields per config section. Values interpolate ``%{name}``
 # environment variables, expand ``~``, and resolve against the config file's directory
 # before merging, so that relative paths are always interpreted relative to
@@ -62,7 +65,7 @@ class GeneralConfig:
 # not exist, cwd is used as a fallback.
 _CONFIG_PATH_FIELDS: dict[str, Sequence[str]] = {
     # ``[exec]`` carries exactly the path-valued engine keys.
-    "exec": PATH_ENGINE_KEYS,
+    EXEC_CONFIG_SECTION: PATH_ENGINE_KEYS,
 }
 
 
@@ -371,7 +374,7 @@ def exec_options_from_merged(merged: TomlDict) -> ExecOptions:
     Never fails: an engine setting is validated where it is decoded, with every
     other host parameter, so a malformed one does not surface here.
     """
-    exec_table = toml_dict(merged.get("exec"))
+    exec_table = toml_dict(merged.get(EXEC_CONFIG_SECTION))
     return ExecOptions(
         echo=_optional_bool(exec_table, _ECHO_KEY),
         max_call_depth=_optional_positive_int(exec_table, _MAX_CALL_DEPTH_KEY),
@@ -381,7 +384,9 @@ def exec_options_from_merged(merged: TomlDict) -> ExecOptions:
 def undeclared_exec_keys(merged: TomlDict) -> tuple[str, ...]:
     """Return the sorted ``[exec]`` keys of *merged* that are no engine setting or option."""
     declared = ENGINE_KEY_NAMES | frozenset(EXEC_OPTION_KEYS)
-    return tuple(sorted(key for key in toml_dict(merged.get("exec")) if key not in declared))
+    return tuple(
+        sorted(key for key in toml_dict(merged.get(EXEC_CONFIG_SECTION)) if key not in declared)
+    )
 
 
 def exec_config_from_merged(
@@ -404,7 +409,7 @@ def exec_config_from_merged(
     ranks between ``[exec]`` and *program_table*. Engine keys use kebab-case
     names: ``strict-json``, ``trace-file``.
     """
-    exec_table = toml_dict(merged.get("exec"))
+    exec_table = toml_dict(merged.get(EXEC_CONFIG_SECTION))
 
     # Effective precedence, low to high: [exec] < package manifest < the
     # qualified program table (exact route, then inherited groups).
