@@ -258,7 +258,7 @@ def layout(tokens: Iterator[Token], *, errors: list[LexError] | None = None) -> 
             if not is_explicit_terminator:
                 yield _synthetic(KW_DONE, KW_DONE, closing)
 
-    # Reference token for EOF dedents, and its predecessor: the operator-position
+    # Anchor of every closing `_DEDENT`/`done`, and its predecessor: the operator-position
     # test reads the token on either side of a line break.
     last_real: Token | None = None
     prev_real: Token | None = None
