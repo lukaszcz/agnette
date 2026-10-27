@@ -1460,6 +1460,10 @@ class _Scanner:
 
     def _scan_code(self) -> Iterator[Token]:
         """Yield every CODE-mode token, leaving deferred diagnostics to ``scan``."""
+        if not self._raw_quotes:
+            # The first code line's indentation is measured, its columns tab-expanded, as
+            # every later line's is.
+            self._measure_indentation()
         while not self._at_end():
             ch = self._peek()
 

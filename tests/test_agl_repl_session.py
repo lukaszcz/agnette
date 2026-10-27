@@ -11534,3 +11534,15 @@ class TestInfoOpensTheLibraryImage:
         assert type(second.value) is type(first.value)
         session.reset()
         assert session.info_of("print") is not None
+
+
+def test_a_tab_indented_first_line_reports_the_columns_a_later_line_does() -> None:
+    session = ReplSession()
+    session.open()
+
+    first = session.eval_entry("\tmissing")
+    later = session.eval_entry("def f() -> int =\n\tmissing")
+
+    (first_error,), (later_error,) = first.diagnostics, later.diagnostics
+    assert (first_error.line, first_error.column) == (1, 5)
+    assert (later_error.line, later_error.column) == (2, 5)
