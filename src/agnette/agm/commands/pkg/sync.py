@@ -15,8 +15,8 @@ def run(args: PkgSyncArgs) -> None:
     """Install the unsatisfied requirements globally, or rebuild the project overlay."""
 
     try:
-        target = pkg_target(current_config_context(), project=args.project)
-        installed = sync_active_python_dependencies(target.store)
+        layers = pkg_target(current_config_context(), project=args.project)
+        installed = sync_active_python_dependencies(layers.stores[0])
     except PackageInstallError as exc:
         print(f"pkg sync: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

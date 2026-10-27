@@ -20,8 +20,8 @@ def run(args: PkgSwitchArgs) -> None:
     context = current_config_context()
     try:
         name, version = parse_versioned_package_target(args.target)
-        target = pkg_target(context, project=args.project)
-        activate_installed_package_with_plan(target.store, name, version, fallback=target.fallback)
+        layers = pkg_target(context, project=args.project)
+        activate_installed_package_with_plan(layers, name, version)
     except PackageInstallError as exc:
         print(f"pkg switch: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

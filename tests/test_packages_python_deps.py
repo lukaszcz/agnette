@@ -22,10 +22,16 @@ from agnette.packages.install import (
     uninstall_package,
 )
 from agnette.packages.python_deps import python_dependencies, sync_python_dependencies
-from agnette.packages.store import global_store, installed_packages, project_store
+from agnette.packages.store import (
+    StoreLayers,
+    global_store,
+    installed_packages,
+    project_store,
+)
 from tests._package_helpers import (
     InstalledPackageSnapshot,
     PythonInstaller,
+    global_layers,
     install_archive,
     install_directory,
     replace_rollback_payload,
@@ -208,9 +214,9 @@ def test_failed_external_python_installer_restores_a_replaced_package(
 
     with pytest.raises(PackageInstallError):
         if archive_source:
-            install_archive_with_plan(global_store(home=home, env={}), archive, reinstall=True)
+            install_archive_with_plan(global_layers(home, {}), archive, reinstall=True)
         else:
-            install_directory_with_plan(global_store(home=home, env={}), source, reinstall=True)
+            install_directory_with_plan(global_layers(home, {}), source, reinstall=True)
 
     observed = json.loads(log.read_text(encoding="utf-8"))
     assert observed["args"] == ["pip", "install", "--python", sys.executable, _PRESENT, _ABSENT_B]
@@ -328,7 +334,7 @@ def test_uninstall_leaves_python_packages_alone(
     )
     python_installer.runs.clear()
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert python_installer.runs == []
 
@@ -403,7 +409,9 @@ def test_active_sync_inside_a_project_covers_a_home_pin_to_a_version_both_stores
     project = tmp_path / "project"
     project.mkdir()
     own = write_python_package(tmp_path / "own", "alpha", "agm-test-absent-c")
-    install_directory_with_plan(project_store(project), own)
+    install_directory_with_plan(
+        StoreLayers(global_store(home=home, env={}), project_store(project)), own
+    )
     (home / ".agm" / "config.toml").write_text('[packages]\nalpha = "1.0.0"\n', encoding="utf-8")
     monkeypatch.setenv("PROJ_DIR", str(project))
     monkeypatch.chdir(project)

@@ -15,8 +15,8 @@ def run(args: PkgUninstallArgs) -> None:
 
     context = current_config_context()
     try:
-        target = pkg_target(context, project=args.project)
-        uninstall_package(target.store, args.name, fallback=target.fallback)
+        layers = pkg_target(context, project=args.project)
+        uninstall_package(layers, args.name)
     except PackageInstallError as exc:
         print(f"pkg uninstall: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

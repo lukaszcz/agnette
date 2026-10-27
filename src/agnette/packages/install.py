@@ -22,6 +22,7 @@ from agnette.packages.activation import (
     PackageActivationError,
     checked_provenance_path,
     command_shadow_diagnostics,
+    inherited_selection,
     load_activation_index,
     load_package_provenance,
     merge_package_commands,
@@ -84,6 +85,7 @@ from agnette.packages.record import (
 )
 from agnette.packages.store import (
     PackageStore,
+    StoreLayers,
     satisfying_inherited,
     satisfying_installed_package,
 )
@@ -221,13 +223,12 @@ class _InstallState:
 
 
 def install_directory_with_plan(
-    store: PackageStore,
+    layers: StoreLayers,
     source: Path,
     *,
     editable: bool = False,
     shadow: bool = False,
     reinstall: bool = False,
-    fallback: PackageStore | None = None,
 ) -> PackageInstallPlan:
     """Install a package directory, or activate it as an editable package.
 
@@ -235,9 +236,9 @@ def install_directory_with_plan(
     otherwise a declared local path is installed recursively or a URL archive
     is fetched, hash-verified, and installed. Returns the activation plan.
 
-    For a project *store*, *fallback* is the global store beneath it: its
-    active selection satisfies dependencies the project store does not, and
-    completes the requirement checks of the effective selection.
+    *layers*: see :class:`~agnette.packages.store.StoreLayers`. The inherited
+    selection satisfies dependencies the target store does not, and completes
+    the requirement checks of the effective selection.
     """
 
     if editable and reinstall:
@@ -246,8 +247,7 @@ def install_directory_with_plan(
         lambda state: _install_directory(
             source, state=state, editable=editable, shadow=shadow, reinstall=reinstall
         ),
-        store=store,
-        fallback=fallback,
+        layers=layers,
         shadow=shadow,
     )
 
@@ -277,15 +277,11 @@ def parse_versioned_package_target(target: str) -> tuple[str, semver.Version]:
 
 
 def activate_installed_package_with_plan(
-    store: PackageStore,
-    name: str,
-    version: semver.Version,
-    *,
-    fallback: PackageStore | None = None,
+    layers: StoreLayers, name: str, version: semver.Version
 ) -> PackageInstallPlan:
-    """Activate an exact version already present in the package store (*fallback*: see install)."""
+    """Activate an exact version already present in the target store (*layers*: see install)."""
 
-    if not store.root.exists():
+    if not layers.stores[0].root.exists():
         raise PackageInstallError(f"package {name!r} version {version} is not installed")
 
     def activate(state: _InstallState) -> PackageInfo:
@@ -305,21 +301,21 @@ def activate_installed_package_with_plan(
         _activate_package(package, state, editable_root=None, shadow=False)
         return package
 
-    return _install_with_plan(activate, store=store, fallback=fallback, shadow=False)
+    return _install_with_plan(activate, layers=layers, shadow=False)
 
 
 def _install_with_plan(
     install: Callable[[_InstallState], PackageInfo],
     *,
-    store: PackageStore,
-    fallback: PackageStore | None,
+    layers: StoreLayers,
     shadow: bool,
 ) -> PackageInstallPlan:
     """Run one locked install transaction, rolling back trees it created on any failure."""
 
+    store = layers.stores[0]
     with _package_operation_lock(store):
         state = _InstallState(
-            store, index=_load_install_index(store), inherited=_inherited_selection(fallback)
+            store, index=_load_install_index(store), inherited=_load_inherited_selection(layers)
         )
         try:
             package = install(state)
@@ -331,13 +327,11 @@ def _install_with_plan(
         return PackageInstallPlan(package, command_shadows)
 
 
-def _inherited_selection(fallback: PackageStore | None) -> tuple[PackageInfo, ...]:
-    """The active selection of the global *fallback* store beneath a project store."""
+def _load_inherited_selection(layers: StoreLayers) -> tuple[PackageInfo, ...]:
+    """The selection *layers* inherit, as :class:`PackageInstallError` on unreadable state."""
 
-    if fallback is None:
-        return ()
     try:
-        return store_selection(fallback)
+        return inherited_selection(layers)
     except PackageActivationError as exc:
         raise PackageInstallError(f"cannot load package activation: {exc}") from exc
 
@@ -410,42 +404,39 @@ def refresh_managed_stdlib(store: PackageStore, source: Path) -> PackageInfo:
 
 
 def install_archive_with_plan(
-    store: PackageStore,
+    layers: StoreLayers,
     archive: Path,
     *,
     shadow: bool = False,
     reinstall: bool = False,
-    fallback: PackageStore | None = None,
 ) -> PackageInstallPlan:
     """Verify, atomically extract, and activate a portable package archive; return its plan."""
 
     return _install_with_plan(
         lambda state: _install_archive(archive, state=state, shadow=shadow, reinstall=reinstall),
-        store=store,
-        fallback=fallback,
+        layers=layers,
         shadow=shadow,
     )
 
 
-def uninstall_package(
-    store: PackageStore, target: str, *, fallback: PackageStore | None = None
-) -> None:
+def uninstall_package(layers: StoreLayers, target: str) -> None:
     """Remove an exact stored version, or the active package when unqualified.
 
     Editable packages have no copied tree or record, so removal only drops
     their activation selection. The remaining effective selection is checked
-    over the global *fallback* store of a project *store*.
+    over the inherited one (*layers*: see :class:`~agnette.packages.store.StoreLayers`).
     """
 
+    store = layers.stores[0]
     if not store.root.exists():
         raise PackageInstallError(f"package {parse_package_target(target)[0]!r} is not installed")
     with _package_operation_lock(store):
-        _uninstall_package(store, target, _inherited_selection(fallback))
+        _uninstall_package(layers, target)
 
 
-def _uninstall_package(
-    store: PackageStore, target: str, inherited: tuple[PackageInfo, ...]
-) -> None:
+def _uninstall_package(layers: StoreLayers, target: str) -> None:
+    store = layers.stores[0]
+    inherited = _load_inherited_selection(layers)
     name, version = parse_package_target(target)
     try:
         index = load_activation_index(store)

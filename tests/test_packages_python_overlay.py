@@ -40,7 +40,7 @@ from agnette.packages.python_deps import (
     requirement_store,
     unsatisfied_python_dependencies,
 )
-from agnette.packages.store import global_store, project_store
+from agnette.packages.store import StoreLayers, global_store, project_store
 from tests._package_helpers import PythonInstaller, write_distribution, write_python_package
 
 _A = "agm-test-absent-a>=1"
@@ -60,6 +60,7 @@ class _World:
         self.project_dir = tmp_path / "project"
         self.project_dir.mkdir()
         self.project = project_store(self.project_dir)
+        self.layers = StoreLayers(self.global_store, self.project)
         monkeypatch.setenv("AGM_HOME", str(installer.home))
         monkeypatch.setenv("PROJ_DIR", str(self.project_dir))
         monkeypatch.chdir(self.project_dir)
@@ -74,9 +75,7 @@ class _World:
         source = write_python_package(self.tmp / f"{name}-{version}", name, *specs)
         manifest = source / "package.toml"
         manifest.write_text(manifest.read_text().replace("1.0.0", version), encoding="utf-8")
-        return install_directory_with_plan(
-            self.project, source, fallback=self.global_store, editable=editable
-        ).package
+        return install_directory_with_plan(self.layers, source, editable=editable).package
 
     def installed_specs(self) -> list[str]:
         return (self.overlay / "installed.txt").read_text(encoding="utf-8").split()
@@ -152,7 +151,7 @@ def test_the_overlay_never_pins_its_own_distributions(
 
 def test_global_requirements_stay_out_of_the_overlay(world: _World) -> None:
     source = write_python_package(world.tmp / "gamma", "gamma", _C)
-    install_directory_with_plan(world.global_store, source)
+    install_directory_with_plan(StoreLayers(world.global_store), source)
     world.installer.runs.clear()
     world.installer.targets.clear()
 
@@ -168,7 +167,7 @@ def test_a_global_install_syncs_the_interpreter_and_builds_no_overlay(
 ) -> None:
     source = write_python_package(world.tmp / "gamma", "gamma", _C)
 
-    install_directory_with_plan(world.global_store, source)
+    install_directory_with_plan(StoreLayers(world.global_store), source)
 
     assert world.installer.specs == [[_C]]
     assert world.installer.targets == []
@@ -188,9 +187,7 @@ def test_switching_versions_rebuilds_the_overlay(world: _World) -> None:
     world.install("alpha", _B, version="2.0.0")
     assert world.installed_specs() == [_B]
 
-    activate_installed_package_with_plan(
-        world.project, "alpha", semver.Version.parse("1.0.0"), fallback=world.global_store
-    )
+    activate_installed_package_with_plan(world.layers, "alpha", semver.Version.parse("1.0.0"))
 
     assert world.installed_specs() == [_A]
 
@@ -199,7 +196,7 @@ def test_uninstalling_rebuilds_the_overlay_without_the_package(world: _World) ->
     world.install("alpha", _A)
     world.install("bravo", _B)
 
-    uninstall_package(world.project, "alpha", fallback=world.global_store)
+    uninstall_package(world.layers, "alpha")
 
     assert world.installed_specs() == [_B]
 
@@ -209,7 +206,7 @@ def test_uninstalling_the_last_requirement_removes_the_overlay(world: _World) ->
     world.install("bravo")
     runs = len(world.installer.runs)
 
-    uninstall_package(world.project, "alpha", fallback=world.global_store)
+    uninstall_package(world.layers, "alpha")
 
     assert not world.overlay.exists()
     assert len(world.installer.runs) == runs
@@ -280,7 +277,7 @@ def test_a_failed_publication_discards_the_new_overlay(
     with pytest.raises(PackageInstallError):
         world.install("charlie", _C)
     with pytest.raises(PackageInstallError):
-        uninstall_package(world.project, "bravo", fallback=world.global_store)
+        uninstall_package(world.layers, "bravo")
 
     assert world.current() == previous
     assert world.installed_specs() == [_A, _B]
@@ -408,7 +405,7 @@ def test_dry_run_reports_the_installer_and_changes_nothing(
     dry_run.set_enabled(True)
 
     assert sync_active_python_dependencies(world.project) == (_A, _B)
-    uninstall_package(world.project, "bravo", fallback=world.global_store)
+    uninstall_package(world.layers, "bravo")
 
     assert "dry-run" in capsys.readouterr().out
     assert len(world.installer.runs) == runs
@@ -473,7 +470,7 @@ def test_a_pin_in_the_home_layer_adds_to_the_overlay(world: _World) -> None:
 
 def test_pins_resolving_to_the_global_store_add_nothing_to_the_overlay(world: _World) -> None:
     source = write_python_package(world.tmp / "gamma", "gamma", _C)
-    install_directory_with_plan(world.global_store, source)
+    install_directory_with_plan(StoreLayers(world.global_store), source)
     world.install("alpha", _A)
     world.pin(gamma="1.0.0")
 
@@ -550,7 +547,7 @@ class TestRunTime:
         self, world: _World
     ) -> None:
         source = write_python_package(world.tmp / "gamma", "gamma", _C)
-        install_directory_with_plan(world.global_store, source, editable=True)
+        install_directory_with_plan(StoreLayers(world.global_store), source, editable=True)
         world.install("alpha", _A)
 
         assert overlay_for(PackageInfo.live_source(source)) is None
@@ -796,7 +793,7 @@ class TestProcessGeneration:
         (first,) = world.generations()
         holder = _hold(first, fcntl.LOCK_SH)
 
-        uninstall_package(world.project, "alpha", fallback=world.global_store)
+        uninstall_package(world.layers, "alpha")
 
         assert not world.overlay.exists()
         assert world.generations() == [first]
@@ -813,7 +810,7 @@ class TestUnchangedUnion:
         world.install("bravo")
         runs, current = len(world.installer.runs), world.current()
 
-        uninstall_package(world.project, "bravo", fallback=world.global_store)
+        uninstall_package(world.layers, "bravo")
         world.install("charlie")
 
         assert len(world.installer.runs) == runs

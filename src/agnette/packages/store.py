@@ -139,7 +139,9 @@ class StoreLayers:
     """The stores a context selects packages from: the global store and, in a project, its own.
 
     Project selections replace same-named global ones; ``std`` lives in the
-    global store alone.
+    global store alone. A package operation takes layers with ``stores[0]`` as
+    its target store and ``stores[1:]`` as the stores supplying the inherited
+    selection: ``StoreLayers(global_store)`` alone targets the global store.
     """
 
     global_store: PackageStore

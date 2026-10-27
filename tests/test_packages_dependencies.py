@@ -13,9 +13,8 @@ from agnette.packages.dependencies import DependencyError, validate_dependencies
 from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import DependencySpec, distribution_manifest, load_manifest
 from agnette.packages.model import PackageInfo
-from agnette.packages.store import global_store
 from agnette.version import AGM_VERSION
-from tests._package_helpers import install_directory
+from tests._package_helpers import global_layers, install_directory
 
 
 def _package(root: Path, name: str, version: str, dependencies: str = "") -> PackageInfo:
@@ -50,7 +49,7 @@ def test_dependency_check_resolves_store_then_path_and_accepts_url_sources(tmp_p
         'hash = "sha256=' + "0" * 64 + '" }\n',
     )
 
-    resolved = validate_dependencies(global_store(home=home, env={}), alpha)
+    resolved = validate_dependencies(global_layers(home, {}), alpha)
 
     assert [(package.manifest.name, str(package.manifest.version)) for package in resolved] == [
         ("bravo", "10.0.0")
@@ -71,16 +70,16 @@ def test_distribution_dependency_check_does_not_treat_a_local_path_as_portable(
     )
     distribution = PackageInfo(alpha.root, distribution_manifest(alpha.manifest))
 
-    validate_dependencies(global_store(home=home, env={}), alpha)
+    validate_dependencies(global_layers(home, {}), alpha)
     with pytest.raises(DependencyError, match="bravo"):
-        validate_dependencies(global_store(home=home, env={}), distribution)
+        validate_dependencies(global_layers(home, {}), distribution)
 
 
 def test_dependency_check_rejects_an_unsatisfied_store_requirement(tmp_path: Path) -> None:
     package = _package(tmp_path / "alpha", "alpha", "1.0.0", '\n[dependencies]\nbravo = "1"\n')
 
     with pytest.raises(DependencyError, match="bravo"):
-        validate_dependencies(global_store(home=tmp_path / "home", env={}), package)
+        validate_dependencies(global_layers(tmp_path / "home", {}), package)
 
 
 @pytest.mark.parametrize(
@@ -111,7 +110,7 @@ def test_dependency_check_validates_std_against_the_running_agm(tmp_path: Path) 
         tmp_path / "alpha", "alpha", "1.0.0", f'\n[dependencies]\nstd = "{AGM_VERSION}"\n'
     )
 
-    validate_dependencies(global_store(home=tmp_path / "home", env={}), package)
+    validate_dependencies(global_layers(tmp_path / "home", {}), package)
 
     newer_agm = semver.Version.parse(AGM_VERSION).bump_major()
     package = _package(
@@ -119,10 +118,10 @@ def test_dependency_check_validates_std_against_the_running_agm(tmp_path: Path) 
     )
 
     with pytest.raises(DependencyError, match="AgM"):
-        validate_dependencies(global_store(home=tmp_path / "home", env={}), package)
+        validate_dependencies(global_layers(tmp_path / "home", {}), package)
     with pytest.raises(DependencyError, match="AgM"):
         validate_dependencies(
-            global_store(home=tmp_path / "home", env={}),
+            global_layers(tmp_path / "home", {}),
             PackageInfo(package.root, distribution_manifest(package.manifest)),
         )
 
@@ -144,7 +143,7 @@ def test_dependency_check_rejects_cyclic_missing_and_mismatched_path_sources(
     )
 
     with pytest.raises(DependencyError, match="cyclic"):
-        validate_dependencies(global_store(home=tmp_path / "home", env={}), alpha)
+        validate_dependencies(global_layers(tmp_path / "home", {}), alpha)
 
     missing = _package(
         tmp_path / "missing",
@@ -153,7 +152,7 @@ def test_dependency_check_rejects_cyclic_missing_and_mismatched_path_sources(
         '\n[dependencies]\nbravo = { version = "1", path = "../not-there" }\n',
     )
     with pytest.raises(DependencyError, match="path dependency"):
-        validate_dependencies(global_store(home=tmp_path / "home", env={}), missing)
+        validate_dependencies(global_layers(tmp_path / "home", {}), missing)
 
     wrong = _package(tmp_path / "wrong", "wrong", "1.0.0")
     mismatched = _package(
@@ -163,7 +162,7 @@ def test_dependency_check_rejects_cyclic_missing_and_mismatched_path_sources(
         '\n[dependencies]\nbravo = { version = "2", path = "../wrong" }\n',
     )
     with pytest.raises(DependencyError, match="bravo"):
-        validate_dependencies(global_store(home=tmp_path / "home", env={}), mismatched)
+        validate_dependencies(global_layers(tmp_path / "home", {}), mismatched)
     assert wrong.root.is_dir()
 
 
@@ -178,7 +177,7 @@ def test_dependency_check_validates_path_dependency_discipline(tmp_path: Path) -
     )
 
     with pytest.raises(DependencyError):
-        validate_dependencies(global_store(home=tmp_path / "home", env={}), alpha)
+        validate_dependencies(global_layers(tmp_path / "home", {}), alpha)
 
 
 @pytest.mark.parametrize(
@@ -215,7 +214,7 @@ def test_dependency_check_selects_one_path_source_per_name_in_a_diamond(
         'right = { version = "1", path = "../right" }\n',
     )
 
-    resolved = validate_dependencies(global_store(home=tmp_path / "home", env={}), package)
+    resolved = validate_dependencies(global_layers(tmp_path / "home", {}), package)
 
     selected_shared = [
         dependency for dependency in resolved if dependency.manifest.name == "shared"
@@ -231,7 +230,7 @@ def test_dependency_check_selects_the_highest_satisfying_store_version(tmp_path:
     )
     package = _package(tmp_path / "alpha", "alpha", "1.0.0", '\n[dependencies]\nbravo = "1"\n')
 
-    resolved = validate_dependencies(global_store(home=home, env={}), package)
+    resolved = validate_dependencies(global_layers(home, {}), package)
 
     assert [dependency.root for dependency in resolved] == [newer.root]
 
@@ -251,7 +250,7 @@ def test_dependency_check_preserves_active_equal_precedence_build(tmp_path: Path
     for installed in inactive:
         (installed.root / MODULE_TREE_DIRNAME / "main.agl").write_text("tampered", encoding="utf-8")
 
-    resolved = validate_dependencies(global_store(home=home, env={}), package)
+    resolved = validate_dependencies(global_layers(home, {}), package)
 
     assert [dependency.root for dependency in resolved] == [active.root]
     assert [str(dependency.manifest.version) for dependency in resolved] == ["1.0.0+macos"]
@@ -263,7 +262,7 @@ def test_dependency_check_accepts_an_active_editable_dependency(tmp_path: Path) 
     install_directory(editable.root, home=home, env={}, editable=True)
     package = _package(tmp_path / "alpha", "alpha", "1.0.0", '\n[dependencies]\nbravo = "1"\n')
 
-    resolved = validate_dependencies(global_store(home=home, env={}), package)
+    resolved = validate_dependencies(global_layers(home, {}), package)
 
     assert [dependency.root for dependency in resolved] == [editable.root]
 
@@ -278,7 +277,7 @@ def test_dependency_check_rejects_changed_active_editable_identity(tmp_path: Pat
     package = _package(tmp_path / "alpha", "alpha", "1.0.0", '\n[dependencies]\nbravo = "1"\n')
 
     with pytest.raises(DependencyError):
-        validate_dependencies(global_store(home=home, env={}), package)
+        validate_dependencies(global_layers(home, {}), package)
 
 
 def test_dependency_check_wraps_an_invalid_active_editable_manifest(tmp_path: Path) -> None:
@@ -289,7 +288,7 @@ def test_dependency_check_wraps_an_invalid_active_editable_manifest(tmp_path: Pa
     package = _package(tmp_path / "alpha", "alpha", "1.0.0", '\n[dependencies]\nbravo = "1"\n')
 
     with pytest.raises(DependencyError):
-        validate_dependencies(global_store(home=home, env={}), package)
+        validate_dependencies(global_layers(home, {}), package)
 
 
 def test_dependency_check_wraps_an_invalid_package_store(tmp_path: Path) -> None:
@@ -300,7 +299,7 @@ def test_dependency_check_wraps_an_invalid_package_store(tmp_path: Path) -> None
     package = _package(tmp_path / "alpha", "alpha", "1.0.0", '\n[dependencies]\nbravo = "1"\n')
 
     with pytest.raises(DependencyError, match="cannot load"):
-        validate_dependencies(global_store(home=home, env={}), package)
+        validate_dependencies(global_layers(home, {}), package)
 
 
 def test_dependency_check_rejects_linked_store_sources(tmp_path: Path) -> None:
@@ -317,4 +316,4 @@ def test_dependency_check_rejects_linked_store_sources(tmp_path: Path) -> None:
         '\n[dependencies]\nbravo = { version = "1", path = "../linked" }\n',
     )
     with pytest.raises(DependencyError, match="symbolic"):
-        validate_dependencies(global_store(home=tmp_path / "other-home", env={}), linked_package)
+        validate_dependencies(global_layers(tmp_path / "other-home", {}), linked_package)

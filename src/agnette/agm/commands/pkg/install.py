@@ -23,23 +23,18 @@ def run(args: PkgInstallArgs) -> None:
         if args.editable and args.reinstall:
             raise PackageInstallError("--reinstall cannot be used with --editable")
         source = Path(args.source)
-        target = pkg_target(context, project=args.project)
+        layers = pkg_target(context, project=args.project)
         if source.is_file() and not args.editable:
             plan = install_archive_with_plan(
-                target.store,
-                source,
-                shadow=args.shadow,
-                reinstall=args.reinstall,
-                fallback=target.fallback,
+                layers, source, shadow=args.shadow, reinstall=args.reinstall
             )
         else:
             plan = install_directory_with_plan(
-                target.store,
+                layers,
                 source,
                 editable=args.editable,
                 shadow=args.shadow,
                 reinstall=args.reinstall,
-                fallback=target.fallback,
             )
     # A user-supplied source path can fail at the operating-system boundary
     # before any package rule applies; report it like every other bad source.

@@ -10,8 +10,8 @@ import semver
 from agnette.packages.activation import (
     ActivationIndex,
     PackageActivationError,
+    inherited_selection,
     load_activation_index,
-    store_selection,
 )
 from agnette.packages.discipline import DisciplineError, validate_package_structure
 from agnette.packages.install import PackageInstallError, installed_packages
@@ -19,6 +19,7 @@ from agnette.packages.manifest import DependencySpec, ManifestError
 from agnette.packages.model import PackageInfo, is_std_package_name, unmet_std_requirement
 from agnette.packages.store import (
     PackageStore,
+    StoreLayers,
     satisfying_inherited,
     satisfying_installed_package,
 )
@@ -39,13 +40,11 @@ class _CheckState:
     index: ActivationIndex | None = None
 
 
-def validate_dependencies(
-    store: PackageStore, package: PackageInfo, *, fallback: PackageStore | None = None
-) -> tuple[PackageInfo, ...]:
+def validate_dependencies(layers: StoreLayers, package: PackageInfo) -> tuple[PackageInfo, ...]:
     """Ensure every requirement has a usable store, path, or URL source.
 
-    A requirement *store* does not satisfy may be satisfied by the active
-    selection of *fallback*, the global store beneath a project store.
+    A requirement the target store does not satisfy may be satisfied by the
+    inherited selection (*layers*: see :class:`~agnette.packages.store.StoreLayers`).
 
     Stored and previously selected versions take precedence, matching
     installation's highest-satisfying-version resolution. When no selected version satisfies a
@@ -55,10 +54,10 @@ def validate_dependencies(
     """
 
     try:
-        inherited = () if fallback is None else store_selection(fallback)
-    except (ManifestError, PackageActivationError) as exc:
+        inherited = inherited_selection(layers)
+    except PackageActivationError as exc:
         raise DependencyError(str(exc)) from exc
-    state = _CheckState(store, inherited)
+    state = _CheckState(layers.stores[0], inherited)
     _validate_package_dependencies(package, state)
     return tuple(state.resolved[name] for name in sorted(state.resolved))
 

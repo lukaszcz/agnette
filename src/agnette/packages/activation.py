@@ -290,6 +290,15 @@ def store_selection(store: PackageStore) -> tuple[PackageInfo, ...]:
     )
 
 
+def inherited_selection(layers: StoreLayers) -> tuple[PackageInfo, ...]:
+    """Resolve the selection *layers* inherit: ``layers.stores[1:]`` layered, nearest on top."""
+
+    selection: tuple[PackageInfo, ...] = ()
+    for store in reversed(layers.stores[1:]):
+        selection = layered_packages(selection, store_selection(store))
+    return selection
+
+
 def load_package_pins(
     *,
     home: Path,

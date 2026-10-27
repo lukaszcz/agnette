@@ -55,7 +55,7 @@ from agnette.packages.layout import MODULE_TREE_DIRNAME
 from agnette.packages.manifest import load_manifest
 from agnette.packages.model import PackageInfo
 from agnette.packages.record import verify_record, write_record
-from agnette.packages.store import global_store
+from agnette.packages.store import StoreLayers, global_store
 from agnette.version import AGM_VERSION
 
 
@@ -150,7 +150,7 @@ def install_directory(
 ) -> PackageInfo:
     """Install a package directory and return the installed package."""
     return install_directory_with_plan(
-        global_store(home=home, env=env), source, editable=editable, shadow=shadow
+        global_layers(home, env), source, editable=editable, shadow=shadow
     ).package
 
 
@@ -162,9 +162,12 @@ def install_archive(
     shadow: bool = False,
 ) -> PackageInfo:
     """Install a package archive and return the installed package."""
-    return install_archive_with_plan(
-        global_store(home=home, env=env), archive, shadow=shadow
-    ).package
+    return install_archive_with_plan(global_layers(home, env), archive, shadow=shadow).package
+
+
+def global_layers(home: Path, env: Mapping[str, str] | None = None) -> StoreLayers:
+    """Return the layers targeting *home*'s global store alone."""
+    return StoreLayers(global_store(home=home, env=env))
 
 
 def write_python_package(root: Path, name: str, *specs: str) -> Path:

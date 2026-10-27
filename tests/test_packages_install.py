@@ -55,11 +55,12 @@ from agnette.packages.record import (
     verify_record,
     write_record,
 )
-from agnette.packages.store import global_store
+from agnette.packages.store import StoreLayers, global_store
 from agnette.version import AGM_VERSION
 from tests._package_helpers import (
     InstalledPackageSnapshot,
     archive_contents,
+    global_layers,
     install_archive,
     install_directory,
     older_incompatible_std_requirement,
@@ -120,12 +121,12 @@ def test_uninstall_inactive_version_checks_store_identity_and_record(tmp_path: P
     (inactive / "package.toml").write_text('[package]\nname = "bravo"\nversion = "1.0.0"\n')
 
     with pytest.raises(PackageInstallError):
-        uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+        uninstall_package(global_layers(home, {}), "alpha@1.0.0")
 
     (inactive / "package.toml").write_text('[package]\nname = "alpha"\nversion = "1.0.0"\n')
     (inactive / "RECORD").write_text("broken")
     with pytest.raises(PackageInstallError):
-        uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+        uninstall_package(global_layers(home, {}), "alpha@1.0.0")
     assert inactive.exists()
     assert (
         str(load_activation_index(global_store(home=home, env={})).packages["alpha"].version)
@@ -140,7 +141,7 @@ def test_uninstall_inactive_version_rejects_a_linked_tree(tmp_path: Path) -> Non
     inactive.symlink_to(displaced, target_is_directory=True)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+        uninstall_package(global_layers(home, {}), "alpha@1.0.0")
     assert displaced.exists()
 
 
@@ -148,7 +149,7 @@ def test_uninstall_inactive_version_dry_run_preserves_the_tree(tmp_path: Path) -
     home, inactive = _two_stored_versions(tmp_path)
     dry_run.set_enabled(True)
 
-    uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+    uninstall_package(global_layers(home, {}), "alpha@1.0.0")
 
     assert inactive.exists()
     assert (
@@ -162,7 +163,7 @@ def test_uninstall_inactive_version_retries_interrupted_cleanup(tmp_path: Path) 
     tombstone = inactive.parent / ".uninstalling-1.0.0"
     inactive.rename(tombstone)
 
-    uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+    uninstall_package(global_layers(home, {}), "alpha@1.0.0")
 
     assert not inactive.exists()
     assert not tombstone.exists()
@@ -177,7 +178,7 @@ def test_uninstall_inactive_version_cleans_a_stale_tombstone(tmp_path: Path) -> 
     tombstone = inactive.parent / ".uninstalling-1.0.0"
     shutil.copytree(inactive, tombstone)
 
-    uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+    uninstall_package(global_layers(home, {}), "alpha@1.0.0")
 
     assert not inactive.exists()
     assert not tombstone.exists()
@@ -190,7 +191,7 @@ def test_uninstall_inactive_version_dry_run_keeps_an_interrupted_tree(tmp_path: 
     dry_run.set_enabled(True)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+        uninstall_package(global_layers(home, {}), "alpha@1.0.0")
 
     assert tombstone.exists()
 
@@ -209,7 +210,7 @@ def test_uninstall_inactive_version_reports_rename_failure(
     monkeypatch.setattr(Path, "replace", fail_replace)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package(global_store(home=home, env={}), "alpha@1.0.0")
+        uninstall_package(global_layers(home, {}), "alpha@1.0.0")
     assert inactive.exists()
 
 
@@ -301,7 +302,7 @@ def test_prebuilt_store_hands_every_caller_an_isolated_copy(
 ) -> None:
     """Mutating a prebuilt store must not reach the session cache behind it."""
     first = prebuilt_store(_Preinstalled("alpha", "1.0.0"))
-    uninstall_package(global_store(home=first, env={}), "alpha")
+    uninstall_package(global_layers(first, {}), "alpha")
     (_store_root(first, "bravo", "1.0.0")).mkdir(parents=True)
 
     second = prebuilt_store(_Preinstalled("alpha", "1.0.0"))
@@ -595,7 +596,7 @@ def test_package_operations_create_a_store_lock(tmp_path: Path) -> None:
 
     lock = home / ".agm" / "packages" / ".lock"
     assert lock.is_file()
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
     assert lock.is_file()
 
 
@@ -734,7 +735,7 @@ def test_uninstall_refuses_the_managed_standard_library(tmp_path: Path) -> None:
     installed = install_directory(source, home=home, env={})
 
     with pytest.raises(PackageInstallError, match="std"):
-        uninstall_package(global_store(home=home, env={}), "std")
+        uninstall_package(global_layers(home, {}), "std")
 
     assert installed.root.is_dir()
     assert "std" in load_activation_index(global_store(home=home, env={})).packages
@@ -868,7 +869,7 @@ def test_uninstall_tolerates_an_absent_provenance_sidecar(tmp_path: Path) -> Non
     installed = install_directory(source, home=home, env={})
     (installed.root.parent / ".provenance" / "1.0.0.toml").unlink()
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not installed.root.exists()
     assert "alpha" not in load_activation_index(global_store(home=home, env={})).packages
@@ -889,13 +890,13 @@ def test_uninstall_reports_a_provenance_cleanup_failure(
 
     monkeypatch.setattr(package_install.fs, "unlink", fail_provenance_unlink)
     with pytest.raises(PackageInstallError, match="provenance"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     assert (home / ".agm" / "packages" / "alpha" / ".uninstalling").is_dir()
     assert "alpha" not in load_activation_index(global_store(home=home, env={})).packages
 
     monkeypatch.setattr(package_install.fs, "unlink", original_unlink)
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not (home / ".agm" / "packages" / "alpha" / ".uninstalling").exists()
 
@@ -913,7 +914,7 @@ def test_uninstall_retries_when_interrupted_before_activation_commit(
 
     monkeypatch.setattr(package_install, "_commit_activation", interrupt_commit)
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     assert tombstone.is_dir()
@@ -921,7 +922,7 @@ def test_uninstall_retries_when_interrupted_before_activation_commit(
     assert "alpha" in load_activation_index(global_store(home=home, env={})).packages
 
     monkeypatch.setattr(package_install, "_commit_activation", original_commit)
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not tombstone.exists()
     assert "alpha" not in load_activation_index(global_store(home=home, env={})).packages
@@ -941,12 +942,12 @@ def test_dry_run_uninstall_preserves_interrupted_tombstone(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt),
     )
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     monkeypatch.setattr(package_install, "_commit_activation", original_commit)
     dry_run.set_enabled(True)
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert tombstone.is_dir()
     assert not installed.root.exists()
@@ -966,7 +967,7 @@ def test_uninstall_rejects_interrupted_tombstone_with_wrong_identity(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt),
     )
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     (tombstone / "package.toml").write_text(
@@ -975,7 +976,7 @@ def test_uninstall_rejects_interrupted_tombstone_with_wrong_identity(
     write_record(tombstone)
 
     with pytest.raises(PackageInstallError, match="identity"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
 
 def test_partial_uninstall_cleanup_is_hidden_and_retryable(
@@ -998,7 +999,7 @@ def test_partial_uninstall_cleanup_is_hidden_and_retryable(
     monkeypatch.setattr(package_install.fs, "unlink", interrupt_tree_cleanup)
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     assert removed_files == 2
@@ -1008,7 +1009,7 @@ def test_partial_uninstall_cleanup_is_hidden_and_retryable(
     assert installed_packages(global_store(home=home, env={})) == ()
 
     monkeypatch.setattr(package_install.fs, "unlink", original_unlink)
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not tombstone.exists()
     assert "alpha" not in load_activation_index(global_store(home=home, env={})).packages
@@ -1033,7 +1034,7 @@ def test_uninstall_cleans_an_interrupted_tombstone_after_a_different_reinstall(
 
     monkeypatch.setattr(package_install.fs, "unlink", interrupt_cleanup)
     with pytest.raises(KeyboardInterrupt):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     assert interrupted
     assert tombstone.is_dir()
@@ -1050,7 +1051,7 @@ def test_uninstall_cleans_an_interrupted_tombstone_after_a_different_reinstall(
     assert old_provenance.is_file()
     assert new_provenance.is_file()
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not second.root.exists()
     assert not tombstone.exists()
@@ -1079,7 +1080,7 @@ def test_uninstall_retries_after_payload_removal_but_before_tombstone_removal(
     monkeypatch.setattr(package_install.fs, "rmdir", interrupt_directory_cleanup)
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     tombstone = installed.root.parent / ".uninstalling"
     assert interrupted
@@ -1088,7 +1089,7 @@ def test_uninstall_retries_after_payload_removal_but_before_tombstone_removal(
     assert not (tombstone / "RECORD").exists()
 
     monkeypatch.setattr(package_install.fs, "rmdir", original_rmdir)
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not tombstone.exists()
 
@@ -1100,14 +1101,14 @@ def test_uninstall_refuses_a_malformed_retry_tombstone(tmp_path: Path) -> None:
     (tombstone / "package.toml").write_text("invalid", encoding="utf-8")
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
 
 def test_uninstall_refuses_an_invalid_package_path(tmp_path: Path) -> None:
     store = global_store(home=tmp_path / "home", env={})
     store.root.mkdir(parents=True)
     with pytest.raises(PackageInstallError, match="not installed"):
-        uninstall_package(store, "../alpha")
+        uninstall_package(StoreLayers(store), "../alpha")
 
 
 def test_uninstall_refuses_a_redirected_retry_tombstone(tmp_path: Path) -> None:
@@ -1121,7 +1122,7 @@ def test_uninstall_refuses_a_redirected_retry_tombstone(tmp_path: Path) -> None:
     (package_root / ".uninstalling").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(PackageInstallError, match="tombstone"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     assert marker.read_text(encoding="utf-8") == "keep"
 
@@ -1143,7 +1144,7 @@ def test_uninstall_rename_failure_preserves_the_active_package(
     monkeypatch.setattr(Path, "replace", fail_tombstone_rename)
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     assert installed.root.is_dir()
     assert "alpha" in load_activation_index(global_store(home=home, env={})).packages
@@ -1185,7 +1186,7 @@ def test_install_merges_commands_and_unregisters_them_on_uninstall(
         "launch": CommandRegistration("alpha", "alpha/main::main", "Launch alpha")
     }
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert load_activation_index(global_store(home=home, env={})).commands == {}
 
@@ -1214,7 +1215,7 @@ def test_install_bakes_a_source_declared_command_into_the_store_manifest(
         "launch": CommandRegistration("alpha", "alpha/main::main", "Launch alpha")
     }
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert load_activation_index(global_store(home=home, env={})).commands == {}
 
@@ -1345,7 +1346,7 @@ def test_shadow_diagnostics_are_computed_from_the_locked_prepublication_plan(
 
     monkeypatch.setattr(package_install, "command_shadow_diagnostics", observe_diagnostics)
 
-    plan = install_directory_with_plan(global_store(home=home, env={}), bravo, shadow=True)
+    plan = install_directory_with_plan(global_layers(home, {}), bravo, shadow=True)
 
     assert [(shadow.path_name, shadow.displaced_packages) for shadow in plan.command_shadows] == [
         ("launch", ("alpha",))
@@ -1368,7 +1369,7 @@ def test_shadow_diagnostic_failure_prevents_activation_and_rolls_back_install(
     monkeypatch.setattr(package_install, "command_shadow_diagnostics", fail_diagnostics)
 
     with pytest.raises(PackageInstallError, match="diagnostics failed"):
-        install_directory_with_plan(global_store(home=home, env={}), source, shadow=True)
+        install_directory_with_plan(global_layers(home, {}), source, shadow=True)
 
     assert load_activation_index(global_store(home=home, env={})) == ActivationIndex()
     assert not (home / ".agm" / "packages" / "alpha" / "1.0.0").exists()
@@ -1394,7 +1395,7 @@ def test_shadowed_command_is_restored_when_the_winning_package_is_uninstalled(
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
-    uninstall_package(global_store(home=home, env={}), "bravo")
+    uninstall_package(global_layers(home, {}), "bravo")
 
     assert load_activation_index(global_store(home=home, env={})).commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main")
@@ -1405,7 +1406,7 @@ def test_install_allocates_after_inactive_provenance(
     tmp_path: Path, prebuilt_store: Callable[..., Path]
 ) -> None:
     home = prebuilt_store(_Preinstalled("alpha", "1.0.0"), _Preinstalled("alpha", "2.0.0"))
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     install_directory(_package(tmp_path / "bravo", "bravo", "1.0.0"), home=home, env={})
 
@@ -1763,7 +1764,7 @@ def test_uninstall_removes_a_store_tree_polluted_by_unrecorded_caches(tmp_path: 
     (installed.root / ".git").mkdir()
     (installed.root / ".git" / "config").write_text("vcs", encoding="utf-8")
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not installed.root.exists()
     assert not (installed.root.parent / ".uninstalling").exists()
@@ -1778,7 +1779,7 @@ def test_uninstall_refuses_a_store_tree_with_unrecorded_package_content(tmp_path
     (installed.root / MODULE_TREE_DIRNAME / "extra.agl").write_text("()\n", encoding="utf-8")
 
     with pytest.raises(PackageInstallError, match="remove"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
 
 def test_uninstall_verifies_record_then_removes_only_the_requested_version(
@@ -1786,7 +1787,7 @@ def test_uninstall_verifies_record_then_removes_only_the_requested_version(
 ) -> None:
     home = prebuilt_store(_Preinstalled("alpha", "1.0.0"), _Preinstalled("alpha", "2.0.0"))
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert not _store_root(home, "alpha", "2.0.0").exists()
     assert _store_root(home, "alpha", "1.0.0").exists()
@@ -1807,7 +1808,7 @@ def test_uninstall_refuses_to_leave_an_active_package_with_unsatisfied_dependenc
     install_directory(alpha, home=home, env={})
 
     with pytest.raises(PackageInstallError, match="bravo"):
-        uninstall_package(global_store(home=home, env={}), "bravo")
+        uninstall_package(global_layers(home, {}), "bravo")
 
     assert (home / ".agm" / "packages" / "bravo" / "1.0.0").is_dir()
     assert set(load_activation_index(global_store(home=home, env={})).packages) == {
@@ -1830,7 +1831,7 @@ def test_dry_run_uninstall_refuses_to_leave_unsatisfied_remaining_selection(tmp_
     dry_run.set_enabled(True)
 
     with pytest.raises(PackageInstallError, match="bravo"):
-        uninstall_package(global_store(home=home, env={}), "bravo")
+        uninstall_package(global_layers(home, {}), "bravo")
 
     assert (home / ".agm" / "packages" / "bravo" / "1.0.0").is_dir()
     assert set(load_activation_index(global_store(home=home, env={})).packages) == {
@@ -1845,7 +1846,7 @@ def test_uninstall_of_editable_package_only_removes_activation(tmp_path: Path) -
     home = tmp_path / "home"
     install_directory(source, home=home, env={}, editable=True)
 
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert source.exists()
     assert "alpha" not in load_activation_index(global_store(home=home, env={})).packages
@@ -1889,7 +1890,7 @@ def test_install_and_uninstall_refuse_store_paths_redirected_outside_the_store(
     (store / "alpha").symlink_to(external, target_is_directory=True)
 
     with pytest.raises(PackageInstallError, match="store"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     assert external_version.is_dir()
     assert "alpha" in load_activation_index(global_store(home=home, env={})).packages
@@ -2217,7 +2218,7 @@ def test_archive_command_lifecycle_restores_the_remaining_owner(tmp_path: Path) 
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
-    uninstall_package(global_store(home=home, env={}), "bravo")
+    uninstall_package(global_layers(home, {}), "bravo")
     assert load_activation_index(global_store(home=home, env={})).commands == {
         "launch": CommandRegistration("alpha", "alpha/main::main")
     }
@@ -2241,7 +2242,7 @@ def test_archive_shadow_install_plan_reports_the_displaced_command_owner(tmp_pat
     home = tmp_path / "home"
     install_directory(alpha, home=home, env={})
 
-    plan = install_archive_with_plan(global_store(home=home, env={}), archive, shadow=True)
+    plan = install_archive_with_plan(global_layers(home, {}), archive, shadow=True)
 
     assert [(shadow.path_name, shadow.displaced_packages) for shadow in plan.command_shadows] == [
         ("launch", ("alpha",))
@@ -2305,7 +2306,7 @@ def test_editable_command_lifecycle_restores_the_remaining_owner(tmp_path: Path)
         "launch": CommandRegistration("bravo", "bravo/main::main")
     }
 
-    uninstall_package(global_store(home=home, env={}), "bravo")
+    uninstall_package(global_layers(home, {}), "bravo")
 
     assert bravo.exists()
     assert load_activation_index(global_store(home=home, env={})).commands == {
@@ -2460,7 +2461,7 @@ def test_dry_run_archive_reinstall_reports_without_replacing_the_store_tree(
     dry_run.set_enabled(True)
 
     assert (
-        install_archive_with_plan(global_store(home=home, env={}), archive, reinstall=True).package
+        install_archive_with_plan(global_layers(home, {}), archive, reinstall=True).package
         == installed
     )
 
@@ -2482,9 +2483,7 @@ def test_dry_run_directory_reinstall_reports_without_replacing_the_store_tree(
     dry_run.set_enabled(True)
 
     assert (
-        install_directory_with_plan(
-            global_store(home=home, env={}), source, reinstall=True
-        ).package.root
+        install_directory_with_plan(global_layers(home, {}), source, reinstall=True).package.root
         == installed.root
     )
 
@@ -2525,7 +2524,7 @@ def test_reinstall_archive_replaces_the_complete_existing_tree(tmp_path: Path) -
     installed = install_archive(first_archive, home=home, env={})
 
     replaced = install_archive_with_plan(
-        global_store(home=home, env={}), second_archive, reinstall=True
+        global_layers(home, {}), second_archive, reinstall=True
     ).package
 
     assert replaced.root == installed.root
@@ -2555,11 +2554,11 @@ def test_reinstall_publishes_if_the_previous_tree_disappears_before_swap(
         archive = tmp_path / "replacement.agmpkg"
         write_archive(source, archive)
         replaced = install_archive_with_plan(
-            global_store(home=home, env={}), archive, reinstall=True
+            global_layers(home, {}), archive, reinstall=True
         ).package
     else:
         replaced = install_directory_with_plan(
-            global_store(home=home, env={}), source, reinstall=True
+            global_layers(home, {}), source, reinstall=True
         ).package
 
     assert replaced.root == installed.root
@@ -2581,7 +2580,7 @@ def test_failed_directory_reinstall_cleans_its_staging_tree(
     monkeypatch.setattr(package_install, "_publish_staged_refresh", fail_publish)
 
     with pytest.raises(PackageInstallError, match="publish failed"):
-        install_directory_with_plan(global_store(home=home, env={}), source, reinstall=True)
+        install_directory_with_plan(global_layers(home, {}), source, reinstall=True)
 
     assert (installed.root / "package.toml").read_bytes() == previous_manifest
     assert not tuple(installed.root.parent.glob(".agm-package-*"))
@@ -2603,9 +2602,7 @@ def test_reinstall_keeps_the_previous_tree_if_cleanup_fails(
     monkeypatch.setattr(package_install.fs, "rmtree", fail_previous_cleanup)
     (source / "replacement.txt").write_text("new", encoding="utf-8")
 
-    replaced = install_directory_with_plan(
-        global_store(home=home, env={}), source, reinstall=True
-    ).package
+    replaced = install_directory_with_plan(global_layers(home, {}), source, reinstall=True).package
 
     assert replaced.root == installed.root
     assert (replaced.root / "replacement.txt").read_text(encoding="utf-8") == "new"
@@ -2626,7 +2623,7 @@ def test_dry_run_reinstall_reports_a_source_distribution_error(
     dry_run.set_enabled(True)
 
     with pytest.raises(PackageInstallError, match="source read failed"):
-        install_directory_with_plan(global_store(home=home, env={}), source, reinstall=True)
+        install_directory_with_plan(global_layers(home, {}), source, reinstall=True)
 
     assert (installed.root / "package.toml").is_file()
 
@@ -2646,9 +2643,7 @@ def test_reinstall_directory_replaces_the_complete_existing_tree(tmp_path: Path)
         encoding="utf-8",
     )
 
-    replaced = install_directory_with_plan(
-        global_store(home=home, env={}), source, reinstall=True
-    ).package
+    replaced = install_directory_with_plan(global_layers(home, {}), source, reinstall=True).package
 
     assert replaced.root == installed.root
     assert replaced.manifest.description == "reinstalled"
@@ -2665,7 +2660,10 @@ def test_reinstall_cannot_be_used_with_an_editable_package(tmp_path: Path) -> No
 
     with pytest.raises(PackageInstallError, match="cannot be used with --editable"):
         install_directory_with_plan(
-            global_store(home=tmp_path / "home", env={}), source, editable=True, reinstall=True
+            global_layers(tmp_path / "home", {}),
+            source,
+            editable=True,
+            reinstall=True,
         )
 
 
@@ -2696,9 +2694,9 @@ def test_failed_reinstall_restores_the_previous_store_tree_and_activation(
 
     with pytest.raises(PackageInstallError):
         if archive_source:
-            install_archive_with_plan(global_store(home=home, env={}), archive, reinstall=True)
+            install_archive_with_plan(global_layers(home, {}), archive, reinstall=True)
         else:
-            install_directory_with_plan(global_store(home=home, env={}), source, reinstall=True)
+            install_directory_with_plan(global_layers(home, {}), source, reinstall=True)
 
     monkeypatch.chdir(tmp_path)
     previous.assert_restored()
@@ -3074,17 +3072,17 @@ def test_uninstall_reports_unknown_and_activation_errors(
 ) -> None:
     store = global_store(home=tmp_path / "home", env={})
     with pytest.raises(PackageInstallError, match="not installed"):
-        uninstall_package(store, "alpha")
+        uninstall_package(StoreLayers(store), "alpha")
     store.root.mkdir(parents=True)
     with pytest.raises(PackageInstallError, match="not installed"):
-        uninstall_package(store, "alpha")
+        uninstall_package(StoreLayers(store), "alpha")
     monkeypatch.setattr(
         package_install,
         "load_activation_index",
         lambda *_, **__: (_ for _ in ()).throw(PackageActivationError("broken")),
     )
     with pytest.raises(PackageInstallError, match="activation"):
-        uninstall_package(global_store(home=tmp_path / "home", env={}), "alpha")
+        uninstall_package(global_layers(tmp_path / "home", {}), "alpha")
 
 
 def test_uninstall_reports_activation_write_failure(
@@ -3099,7 +3097,7 @@ def test_uninstall_reports_activation_write_failure(
         lambda *_, **__: (_ for _ in ()).throw(PackageActivationError("broken")),
     )
     with pytest.raises(PackageInstallError, match="activation"):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     assert (home / ".agm" / "packages" / "alpha" / "1.0.0").is_dir()
     assert not (home / ".agm" / "packages" / "alpha" / ".uninstalling").exists()
@@ -3130,14 +3128,14 @@ def test_uninstall_translates_failed_activation_rollback_and_can_retry(
     monkeypatch.setattr(Path, "replace", fail_rollback)
 
     with pytest.raises(PackageInstallError):
-        uninstall_package(global_store(home=home, env={}), "alpha")
+        uninstall_package(global_layers(home, {}), "alpha")
 
     assert tombstone.is_dir()
     assert "alpha" in load_activation_index(global_store(home=home, env={})).packages
 
     monkeypatch.setattr(package_install, "write_activation_index", original_write)
     monkeypatch.setattr(Path, "replace", original_replace)
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
     assert not tombstone.exists()
     assert "alpha" not in load_activation_index(global_store(home=home, env={})).packages
 
@@ -3489,7 +3487,7 @@ def test_install_and_uninstall_use_dry_run_filesystem_primitives(tmp_path: Path)
     dry_run.set_enabled(False)
     install_directory(source, home=home, env={})
     dry_run.set_enabled(True)
-    uninstall_package(global_store(home=home, env={}), "alpha")
+    uninstall_package(global_layers(home, {}), "alpha")
 
     assert (home / ".agm" / "packages" / "alpha" / "1.0.0").exists()
 

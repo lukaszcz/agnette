@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 import semver
 
@@ -22,16 +21,8 @@ from agnette.packages.manifest import ManifestError
 from agnette.packages.store import PackageStore, StoreLayers, context_layers
 
 
-@dataclass(frozen=True, slots=True)
-class PkgTarget:
-    """The store a ``pkg`` command operates on and the global store beneath a project one."""
-
-    store: PackageStore
-    fallback: PackageStore | None = None
-
-
-def pkg_target(context: ConfigContext, *, project: bool) -> PkgTarget:
-    """Return the target of a ``pkg`` command in *context*: the project store, else the global one.
+def pkg_target(context: ConfigContext, *, project: bool) -> StoreLayers:
+    """Return a ``pkg`` command's layers in *context*: project over global store, or global alone.
 
     Raises :class:`PackageInstallError` when *project* is requested outside a project, or in
     one whose store is the global store (the AgM home is the project).
@@ -39,12 +30,12 @@ def pkg_target(context: ConfigContext, *, project: bool) -> PkgTarget:
 
     layers = context_layers(home=context.home, proj_dir=context.proj_dir)
     if not project:
-        return PkgTarget(layers.global_store)
+        return StoreLayers(layers.global_store)
     if layers.project is None:
         if context.proj_dir is not None:
             raise PackageInstallError("this project's store is the global store; omit --project")
         raise PackageInstallError("--project requires a current project")
-    return PkgTarget(*layers.stores)
+    return layers
 
 
 def pkg_selections(
@@ -99,16 +90,6 @@ def _is_chosen(
         entry.version,
         entry.editable,
     )
-
-
-def pkg_resolution_target(context: ConfigContext) -> PkgTarget:
-    """Return the target a dependency-resolving command checks against in *context*.
-
-    Inside a project that is the project store over the global one; otherwise,
-    including a project whose store is the global store, the global store alone.
-    """
-
-    return PkgTarget(*context_layers(home=context.home, proj_dir=context.proj_dir).stores)
 
 
 def warn_if_project_selection_broken(context: ConfigContext, *, project: bool) -> None:

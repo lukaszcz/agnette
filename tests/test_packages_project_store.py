@@ -12,7 +12,6 @@ import agnette.agm.commands.pkg.info as info_command
 import agnette.agm.commands.pkg.list as list_command
 from agnette.agm.cli_support.args import PkgInfoArgs, PkgListArgs
 from agnette.agm.cli_support.pkg_store import (
-    pkg_resolution_target,
     pkg_target,
     warn_if_project_selection_broken,
 )
@@ -88,14 +87,13 @@ class _World:
         self.project.mkdir()
         self.global_store = global_store(home=self.home, env=self.env)
         self.project_store = project_store(self.project)
+        self.layers = StoreLayers(self.global_store, self.project_store)
 
     def install_global(self, source: Path, **kwargs: bool) -> PackageInfo:
-        return install_directory_with_plan(self.global_store, source, **kwargs).package
+        return install_directory_with_plan(StoreLayers(self.global_store), source, **kwargs).package
 
     def install_project(self, source: Path, **kwargs: bool) -> PackageInfo:
-        return install_directory_with_plan(
-            self.project_store, source, fallback=self.global_store, **kwargs
-        ).package
+        return install_directory_with_plan(self.layers, source, **kwargs).package
 
     def select(self, *, inside: bool = True) -> dict[str, PackageInfo]:
         packages = select_active_packages(
@@ -334,9 +332,7 @@ def test_a_project_install_reports_the_global_commands_it_shadows(world: _World)
     world.install_global(_go_source(world, "alpha"))
     world.install_global(_go_source(world, "bravo", command="stay"))
 
-    plan = install_directory_with_plan(
-        world.project_store, _go_source(world, "carol"), fallback=world.global_store
-    )
+    plan = install_directory_with_plan(world.layers, _go_source(world, "carol"))
 
     assert [(shadow.path_name, shadow.displaced_packages) for shadow in plan.command_shadows] == [
         ("go", ("alpha",))
@@ -349,9 +345,8 @@ def test_a_project_package_replacing_a_global_one_shadows_none_of_its_commands(
     world.install_global(_go_source(world, "alpha"))
 
     plan = install_directory_with_plan(
-        world.project_store,
+        world.layers,
         _go_source(world, "alpha", "2.0.0", command="went"),
-        fallback=world.global_store,
     )
 
     assert plan.command_shadows == ()
@@ -514,9 +509,7 @@ def test_a_project_archive_install_is_project_scoped(world: _World) -> None:
     archive = world.tmp / "alpha.agmpkg"
     write_archive(_source(world.tmp / "src-a", "alpha"), archive)
 
-    package = install_archive_with_plan(
-        world.project_store, archive, fallback=world.global_store
-    ).package
+    package = install_archive_with_plan(world.layers, archive).package
 
     assert package.root.is_relative_to(world.project_store.root)
     assert world.select(inside=False) == {}
@@ -536,9 +529,7 @@ def test_project_switch_activates_a_stored_project_version(world: _World) -> Non
     world.install_project(_source(world.tmp / "src-a", "alpha", "1.0.0"))
     world.install_project(_source(world.tmp / "src-b", "alpha", "2.0.0"))
 
-    activate_installed_package_with_plan(
-        world.project_store, "alpha", semver.Version.parse("1.0.0"), fallback=world.global_store
-    )
+    activate_installed_package_with_plan(world.layers, "alpha", semver.Version.parse("1.0.0"))
 
     assert str(world.select()["alpha"].manifest.version) == "1.0.0"
 
@@ -547,7 +538,7 @@ def test_project_uninstall_restores_the_global_selection(world: _World) -> None:
     world.install_global(_source(world.tmp / "src-g", "alpha", "1.0.0"))
     world.install_project(_source(world.tmp / "src-p", "alpha", "2.0.0"))
 
-    uninstall_package(world.project_store, "alpha", fallback=world.global_store)
+    uninstall_package(world.layers, "alpha")
 
     assert str(world.select()["alpha"].manifest.version) == "1.0.0"
     assert world.select()["alpha"].store_scope is StoreScope.GLOBAL
@@ -560,22 +551,21 @@ def test_project_uninstall_checks_the_effective_selection(world: _World) -> None
     world.install_project(_source(world.tmp / "src-p", "app", dependencies=deps))
 
     with pytest.raises(PackageInstallError, match="base"):
-        uninstall_package(world.project_store, "base", fallback=world.global_store)
+        uninstall_package(world.layers, "base")
 
     assert set(world.select()) == {"app", "base"}
 
 
-def test_dependency_validation_falls_back_to_the_global_selection(world: _World) -> None:
+def test_dependency_validation_inherits_the_global_selection(world: _World) -> None:
     world.install_global(_source(world.tmp / "src-d", "base"))
     package = PackageInfo.live_source(
         _source(world.tmp / "src-p", "app", dependencies='\n[dependencies]\nbase = "1.0"\n')
     )
 
-    resolved = validate_dependencies(world.project_store, package, fallback=world.global_store)
+    resolved = validate_dependencies(world.layers, package)
 
     assert [dependency.manifest.name for dependency in resolved] == ["base"]
-    with pytest.raises(DependencyError, match="base"):
-        validate_dependencies(world.project_store, package)
+    assert resolved[0].root.is_relative_to(world.global_store.root)
 
 
 def test_dependency_validation_ignores_a_global_package_the_project_shadows(
@@ -588,7 +578,7 @@ def test_dependency_validation_ignores_a_global_package_the_project_shadows(
     )
 
     with pytest.raises(DependencyError, match="base"):
-        validate_dependencies(world.project_store, package, fallback=world.global_store)
+        validate_dependencies(world.layers, package)
 
 
 def _corrupt_global_index(world: _World) -> None:
@@ -608,7 +598,7 @@ def test_dependency_validation_reports_an_unreadable_global_selection(world: _Wo
     package = PackageInfo.live_source(_source(world.tmp / "src-a", "alpha"))
 
     with pytest.raises(DependencyError):
-        validate_dependencies(world.project_store, package, fallback=world.global_store)
+        validate_dependencies(world.layers, package)
 
 
 def test_pkg_target_selects_the_project_store_only_on_request(world: _World) -> None:
@@ -616,10 +606,8 @@ def test_pkg_target_selects_the_project_store_only_on_request(world: _World) -> 
     outside = ConfigContext(home=world.home, proj_dir=None, cwd=world.tmp)
     layers = context_layers(home=world.home, proj_dir=world.project)
 
-    assert pkg_target(inside, project=False).store == layers.global_store
-    assert pkg_target(inside, project=False).fallback is None
-    selected = pkg_target(inside, project=True)
-    assert (selected.store, selected.fallback) == (layers.project, layers.global_store)
+    assert pkg_target(inside, project=False).stores == (layers.global_store,)
+    assert pkg_target(inside, project=True).stores == (layers.project, layers.global_store)
     with pytest.raises(PackageInstallError):
         pkg_target(outside, project=True)
 
@@ -635,29 +623,6 @@ def test_pkg_target_rejects_project_when_the_home_is_the_project(
         pkg_target(home_is_project, project=True)
     with pytest.raises(PackageInstallError):
         pkg_target(no_project, project=True)
-
-
-def test_resolution_target_layers_the_project_store_over_the_global_one(world: _World) -> None:
-    inside = ConfigContext(home=world.home, proj_dir=world.project, cwd=world.project)
-    outside = ConfigContext(home=world.home, proj_dir=None, cwd=world.tmp)
-    layers = context_layers(home=world.home, proj_dir=world.project)
-
-    target = pkg_resolution_target(inside)
-    assert (target.store, target.fallback) == (layers.project, layers.global_store)
-    target = pkg_resolution_target(outside)
-    assert (target.store, target.fallback) == (layers.global_store, None)
-
-
-def test_resolution_target_is_the_global_store_when_the_project_store_is(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("AGM_HOME", str(tmp_path))
-    context = ConfigContext(home=tmp_path, proj_dir=tmp_path, cwd=tmp_path)
-
-    target = pkg_resolution_target(context)
-
-    assert target.fallback is None
-    assert target.store == context_layers(home=tmp_path, proj_dir=tmp_path).global_store
 
 
 @pytest.fixture
@@ -883,11 +848,9 @@ def test_operations_on_an_absent_store_create_nothing(world: _World) -> None:
 
     assert sync_active_python_dependencies(world.project_store) == ()
     with pytest.raises(PackageInstallError, match="alpha"):
-        uninstall_package(world.project_store, "alpha", fallback=world.global_store)
+        uninstall_package(world.layers, "alpha")
     with pytest.raises(PackageInstallError, match="alpha"):
-        activate_installed_package_with_plan(
-            world.project_store, "alpha", version, fallback=world.global_store
-        )
+        activate_installed_package_with_plan(world.layers, "alpha", version)
     assert not world.project_store.root.exists()
 
 
@@ -898,7 +861,7 @@ def broken_project(world: _World, monkeypatch: pytest.MonkeyPatch) -> ConfigCont
     world.install_global(_source(world.tmp / "src-d", "base"))
     deps = '\n[dependencies]\nbase = "1.0"\n'
     world.install_project(_source(world.tmp / "src-p", "app", dependencies=deps))
-    uninstall_package(world.global_store, "base")
+    uninstall_package(StoreLayers(world.global_store), "base")
     return ConfigContext(home=world.home, proj_dir=world.project, cwd=world.project)
 
 
@@ -917,7 +880,7 @@ def test_a_global_install_conflicting_with_a_pinned_version_is_warned_about(
     monkeypatch.setenv("AGM_HOME", world.env["AGM_HOME"])
     world.install_global(_go_source(world, "alpha", "1.0.0", command="other"))
     world.install_global(_go_source(world, "alpha", "2.0.0"))
-    activate_installed_package_with_plan(world.global_store, "alpha", V1)
+    activate_installed_package_with_plan(StoreLayers(world.global_store), "alpha", V1)
     world.pin(alpha="2.0.0")
     world.install_global(_go_source(world, "bravo"))
 
